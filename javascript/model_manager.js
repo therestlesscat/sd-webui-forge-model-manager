@@ -976,7 +976,58 @@
         }
     }
 
-    // Send image generation params to txt2img
+    // Build infotext string from image metadata (A1111 format)
+    function buildInfotext(meta) {
+        if (!meta) return '';
+
+        let infotext = '';
+
+        // Prompt
+        if (meta.prompt) {
+            infotext += meta.prompt;
+        }
+
+        // Negative prompt
+        if (meta.negativePrompt) {
+            infotext += '\nNegative prompt: ' + meta.negativePrompt;
+        }
+
+        // Build parameters line
+        const params = [];
+
+        if (meta.steps) params.push(`Steps: ${meta.steps}`);
+        if (meta.sampler) params.push(`Sampler: ${meta.sampler}`);
+        if (meta.cfgScale) params.push(`CFG scale: ${meta.cfgScale}`);
+        if (meta.seed) params.push(`Seed: ${meta.seed}`);
+        if (meta.Size) params.push(`Size: ${meta.Size}`);
+        if (meta.Model) params.push(`Model: ${meta.Model}`);
+        if (meta['Model hash']) params.push(`Model hash: ${meta['Model hash']}`);
+        if (meta['Denoising strength']) params.push(`Denoising strength: ${meta['Denoising strength']}`);
+        if (meta['Clip skip']) params.push(`Clip skip: ${meta['Clip skip']}`);
+        if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
+        if (meta['Hires upscaler']) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
+        if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
+
+        // Add any other parameters from meta that we haven't explicitly handled
+        const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'cfgScale', 'seed',
+                            'Size', 'Model', 'Model hash', 'Denoising strength', 'Clip skip',
+                            'Hires upscale', 'Hires upscaler', 'Hires steps', 'resources', 'civitaiResources'];
+        for (const [key, value] of Object.entries(meta)) {
+            if (!handledKeys.includes(key) && value !== null && value !== undefined && value !== '') {
+                if (typeof value !== 'object') {
+                    params.push(`${key}: ${value}`);
+                }
+            }
+        }
+
+        if (params.length > 0) {
+            infotext += '\n' + params.join(', ');
+        }
+
+        return infotext;
+    }
+
+    // Send image generation params to txt2img using paste button
     window.mmSendToTxt2img = async function(imageIndex) {
         const img = currentImages[imageIndex];
         if (!img || !img.meta) {
@@ -985,71 +1036,37 @@
         }
 
         const meta = img.meta;
-        const model = currentModels[selectedModelIndex];
 
         try {
-            // If current model is a Checkpoint, use its path for the dropdown
-            let checkpointPath = null;
-            if (model && model.model_type === 'Checkpoint') {
-                checkpointPath = getDropdownPath(model.file_path, 'Checkpoint');
-                console.log('[ModelManager] Checkpoint dropdown path:', checkpointPath);
+            // Build infotext from metadata
+            const infotext = buildInfotext(meta);
+            if (!infotext) {
+                console.error('[ModelManager] No infotext to send');
+                return;
             }
 
-            // Try to find VAE from image metadata resources
-            let vaePath = null;
-            const resources = meta.resources || [];
-            const vaeResource = resources.find(r => r.type === 'vae');
-            if (vaeResource && vaeResource.name) {
-                // VAE name from resources - try to use it directly
-                vaePath = vaeResource.name;
-                console.log('[ModelManager] VAE from resources:', vaePath);
+            // Find prompt textarea and paste button
+            const promptTextarea = gradioApp().querySelector('#txt2img_prompt textarea');
+            let pasteButton = gradioApp().querySelector('#paste');
+            if (!pasteButton) {
+                // Fallback for SD.Next or other variants
+                pasteButton = gradioApp().querySelector('#txt2img_paste');
             }
 
-            // Set checkpoint and VAE if we have them
-            if (checkpointPath || vaePath) {
-                await setCheckpointAndVAE(checkpointPath, vaePath);
+            if (!promptTextarea) {
+                console.error('[ModelManager] Could not find txt2img prompt textarea');
+                return;
             }
 
-            // Get txt2img tab elements
-            const promptTextarea = document.querySelector('#txt2img_prompt textarea');
-            const negPromptTextarea = document.querySelector('#txt2img_neg_prompt textarea');
-
-            if (promptTextarea && meta.prompt) {
-                promptTextarea.value = meta.prompt;
-                promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!pasteButton) {
+                console.error('[ModelManager] Could not find paste button');
+                return;
             }
 
-            if (negPromptTextarea && meta.negativePrompt) {
-                negPromptTextarea.value = meta.negativePrompt;
-                negPromptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-
-            // Try to set steps
-            if (meta.steps) {
-                const stepsInput = document.querySelector('#txt2img_steps input[type="number"]');
-                if (stepsInput) {
-                    stepsInput.value = meta.steps;
-                    stepsInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            }
-
-            // Try to set CFG
-            if (meta.cfgScale) {
-                const cfgInput = document.querySelector('#txt2img_cfg_scale input[type="number"]');
-                if (cfgInput) {
-                    cfgInput.value = meta.cfgScale;
-                    cfgInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            }
-
-            // Try to set seed
-            if (meta.seed) {
-                const seedInput = document.querySelector('#txt2img_seed input[type="number"]');
-                if (seedInput) {
-                    seedInput.value = meta.seed;
-                    seedInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            }
+            // Set infotext in prompt and trigger paste
+            promptTextarea.value = infotext;
+            promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            pasteButton.click();
 
             // Switch to txt2img tab
             const txt2imgTab = document.querySelector('#tabs button:first-child');
@@ -1057,13 +1074,9 @@
                 txt2imgTab.click();
             }
 
-            console.log('[ModelManager] Sent to txt2img:', {
-                prompt: meta.prompt?.substring(0, 50) + '...',
-                steps: meta.steps,
-                cfg: meta.cfgScale,
-                seed: meta.seed,
-                checkpoint: checkpointPath,
-                vae: vaePath
+            console.log('[ModelManager] Sent to txt2img via paste:', {
+                infotextLength: infotext.length,
+                prompt: meta.prompt?.substring(0, 50) + '...'
             });
 
         } catch (error) {
