@@ -913,9 +913,19 @@
                 console.log('[ModelManager] Checkpoint dropdown path:', checkpointPath);
             }
 
-            // Set checkpoint if we have one
-            if (checkpointPath) {
-                await setCheckpointAndVAE(checkpointPath, null);
+            // Try to find VAE from image metadata resources
+            let vaePath = null;
+            const resources = meta.resources || [];
+            const vaeResource = resources.find(r => r.type === 'vae');
+            if (vaeResource && vaeResource.name) {
+                // VAE name from resources - try to use it directly
+                vaePath = vaeResource.name;
+                console.log('[ModelManager] VAE from resources:', vaePath);
+            }
+
+            // Set checkpoint and VAE if we have them
+            if (checkpointPath || vaePath) {
+                await setCheckpointAndVAE(checkpointPath, vaePath);
             }
 
             // Get txt2img tab elements
@@ -970,8 +980,8 @@
                 steps: meta.steps,
                 cfg: meta.cfgScale,
                 seed: meta.seed,
-                checkpoint: checkpointResource?.name,
-                vae: vaeResource?.name
+                checkpoint: checkpointPath,
+                vae: vaePath
             });
 
         } catch (error) {
