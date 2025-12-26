@@ -657,8 +657,10 @@
         const genParams = [];
         if (meta.steps) genParams.push(`Steps: ${meta.steps}`);
         if (meta.sampler) genParams.push(`Sampler: ${meta.sampler}`);
+        if (meta['Schedule type']) genParams.push(`Scheduler: ${meta['Schedule type']}`);
         if (meta.cfgScale) genParams.push(`CFG: ${meta.cfgScale}`);
         if (meta.seed) genParams.push(`Seed: ${meta.seed}`);
+        if (meta.VAE) genParams.push(`VAE: ${meta.VAE}`);
         if (meta['Clip skip']) genParams.push(`Clip Skip: ${meta['Clip skip']}`);
         if (meta['Denoising strength']) genParams.push(`Denoise: ${meta['Denoising strength']}`);
 
@@ -931,6 +933,56 @@
         return null;
     }
 
+    // Match VAE name from metadata to dropdown option
+    // Metadata often has VAE without extension, dropdown has with extension
+    function matchVAEName(vaeName) {
+        if (!vaeName) return null;
+
+        // Try to find VAE dropdown and get options
+        const vaeDropdown = gradioApp().querySelector('#setting_sd_vae select, #setting_sd_vae input');
+        if (!vaeDropdown) {
+            console.log('[ModelManager] VAE dropdown not found, using name as-is:', vaeName);
+            return vaeName;
+        }
+
+        // Get all options from dropdown
+        let options = [];
+        if (vaeDropdown.tagName === 'SELECT') {
+            options = Array.from(vaeDropdown.options).map(o => o.value);
+        } else {
+            // For input-based dropdowns, check datalist or sibling elements
+            const datalist = gradioApp().querySelector('#setting_sd_vae datalist');
+            if (datalist) {
+                options = Array.from(datalist.options).map(o => o.value);
+            }
+        }
+
+        if (options.length === 0) {
+            console.log('[ModelManager] No VAE options found, using name as-is:', vaeName);
+            return vaeName;
+        }
+
+        // Try exact match first
+        if (options.includes(vaeName)) {
+            return vaeName;
+        }
+
+        // Try matching without extension (metadata) to with extension (dropdown)
+        const vaeNameLower = vaeName.toLowerCase();
+        for (const option of options) {
+            const optionLower = option.toLowerCase();
+            // Check if option starts with the VAE name (handles extension difference)
+            if (optionLower.startsWith(vaeNameLower) ||
+                optionLower.replace(/\.(safetensors|pt|ckpt)$/i, '') === vaeNameLower) {
+                console.log('[ModelManager] Matched VAE:', vaeName, '->', option);
+                return option;
+            }
+        }
+
+        console.log('[ModelManager] No VAE match found for:', vaeName);
+        return vaeName; // Return as-is, let WebUI handle it
+    }
+
     // Set checkpoint and VAE using WebUI's internal functions
     async function setCheckpointAndVAE(checkpoint, vae) {
         try {
@@ -997,11 +1049,13 @@
 
         if (meta.steps) params.push(`Steps: ${meta.steps}`);
         if (meta.sampler) params.push(`Sampler: ${meta.sampler}`);
+        if (meta['Schedule type']) params.push(`Schedule type: ${meta['Schedule type']}`);
         if (meta.cfgScale) params.push(`CFG scale: ${meta.cfgScale}`);
         if (meta.seed) params.push(`Seed: ${meta.seed}`);
         if (meta.Size) params.push(`Size: ${meta.Size}`);
         if (meta.Model) params.push(`Model: ${meta.Model}`);
         if (meta['Model hash']) params.push(`Model hash: ${meta['Model hash']}`);
+        if (meta.VAE) params.push(`VAE: ${meta.VAE}`);
         if (meta['Denoising strength']) params.push(`Denoising strength: ${meta['Denoising strength']}`);
         if (meta['Clip skip']) params.push(`Clip skip: ${meta['Clip skip']}`);
         if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
@@ -1009,8 +1063,8 @@
         if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
 
         // Add any other parameters from meta that we haven't explicitly handled
-        const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'cfgScale', 'seed',
-                            'Size', 'Model', 'Model hash', 'Denoising strength', 'Clip skip',
+        const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'Schedule type', 'cfgScale', 'seed',
+                            'Size', 'Model', 'Model hash', 'VAE', 'Denoising strength', 'Clip skip',
                             'Hires upscale', 'Hires upscaler', 'Hires steps', 'resources', 'civitaiResources'];
         for (const [key, value] of Object.entries(meta)) {
             if (!handledKeys.includes(key) && value !== null && value !== undefined && value !== '') {
@@ -1045,12 +1099,27 @@
                 checkpointPath = getDropdownPath(model.file_path, 'Checkpoint');
             }
 
-            // Try to find VAE from image metadata resources
+            // Try to find VAE from image metadata
             let vaePath = null;
-            const resources = meta.resources || [];
-            const vaeResource = resources.find(r => r.type === 'vae');
-            if (vaeResource && vaeResource.name) {
-                vaePath = vaeResource.name;
+
+            // First check meta.VAE field (common in image metadata)
+            if (meta.VAE) {
+                vaePath = meta.VAE;
+            }
+
+            // Fallback: check resources array
+            if (!vaePath) {
+                const resources = meta.resources || [];
+                const vaeResource = resources.find(r => r.type === 'vae');
+                if (vaeResource && vaeResource.name) {
+                    vaePath = vaeResource.name;
+                }
+            }
+
+            // VAE in metadata is often without extension, but dropdown has extension
+            // Try to match by finding a dropdown option that starts with the VAE name
+            if (vaePath) {
+                vaePath = matchVAEName(vaePath);
             }
 
             // Load checkpoint and VAE if we have them
