@@ -653,11 +653,21 @@
         const negPrompt = meta.negativePrompt || '';
         const resources = meta.resources || [];
 
+        // Split sampler if it contains scheduler
+        let displaySampler = meta.sampler;
+        let displayScheduler = meta['Schedule type'];
+
+        if (!displayScheduler && displaySampler) {
+            const split = splitSamplerScheduler(displaySampler);
+            displaySampler = split.sampler;
+            displayScheduler = split.scheduler;
+        }
+
         // Build generation params string
         const genParams = [];
         if (meta.steps) genParams.push(`Steps: ${meta.steps}`);
-        if (meta.sampler) genParams.push(`Sampler: ${meta.sampler}`);
-        if (meta['Schedule type']) genParams.push(`Scheduler: ${meta['Schedule type']}`);
+        if (displaySampler) genParams.push(`Sampler: ${displaySampler}`);
+        if (displayScheduler) genParams.push(`Scheduler: ${displayScheduler}`);
         if (meta.cfgScale) genParams.push(`CFG: ${meta.cfgScale}`);
         if (meta.seed) genParams.push(`Seed: ${meta.seed}`);
         if (meta.VAE) genParams.push(`VAE: ${meta.VAE}`);
@@ -1028,6 +1038,52 @@
         }
     }
 
+    // Get scheduler options from UI dropdown
+    function getSchedulerOptions() {
+        // Try to find the scheduler dropdown in txt2img
+        const schedulerDropdown = gradioApp().querySelector('#txt2img_scheduler select, #txt2img_scheduler input');
+
+        if (!schedulerDropdown) {
+            console.log('[ModelManager] Scheduler dropdown not found');
+            return [];
+        }
+
+        let options = [];
+        if (schedulerDropdown.tagName === 'SELECT') {
+            options = Array.from(schedulerDropdown.options).map(o => o.value).filter(v => v && v !== 'Automatic');
+        } else {
+            // For Gradio dropdown (uses input + datalist or other structure)
+            const parent = schedulerDropdown.closest('.gradio-dropdown');
+            if (parent) {
+                const listItems = parent.querySelectorAll('[role="option"], .option');
+                options = Array.from(listItems).map(el => el.textContent.trim()).filter(v => v && v !== 'Automatic');
+            }
+        }
+
+        console.log('[ModelManager] Found schedulers:', options);
+        return options;
+    }
+
+    // Split combined "Sampler Scheduler" format into separate parts
+    // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
+    function splitSamplerScheduler(samplerString) {
+        if (!samplerString) return { sampler: null, scheduler: null };
+
+        const schedulers = getSchedulerOptions();
+
+        // Check if the sampler string ends with a known scheduler
+        for (const scheduler of schedulers) {
+            if (samplerString.endsWith(' ' + scheduler)) {
+                const sampler = samplerString.slice(0, -(scheduler.length + 1));
+                console.log('[ModelManager] Split sampler+scheduler:', samplerString, '->', sampler, '+', scheduler);
+                return { sampler, scheduler };
+            }
+        }
+
+        // No scheduler suffix found
+        return { sampler: samplerString, scheduler: null };
+    }
+
     // Build infotext string from image metadata (A1111 format)
     function buildInfotext(meta) {
         if (!meta) return '';
@@ -1044,12 +1100,23 @@
             infotext += '\nNegative prompt: ' + meta.negativePrompt;
         }
 
+        // Split sampler if it contains scheduler
+        let sampler = meta.sampler;
+        let scheduler = meta['Schedule type'];
+
+        // If no explicit scheduler, try to extract from combined sampler string
+        if (!scheduler && sampler) {
+            const split = splitSamplerScheduler(sampler);
+            sampler = split.sampler;
+            scheduler = split.scheduler;
+        }
+
         // Build parameters line
         const params = [];
 
         if (meta.steps) params.push(`Steps: ${meta.steps}`);
-        if (meta.sampler) params.push(`Sampler: ${meta.sampler}`);
-        if (meta['Schedule type']) params.push(`Schedule type: ${meta['Schedule type']}`);
+        if (sampler) params.push(`Sampler: ${sampler}`);
+        if (scheduler) params.push(`Schedule type: ${scheduler}`);
         if (meta.cfgScale) params.push(`CFG scale: ${meta.cfgScale}`);
         if (meta.seed) params.push(`Seed: ${meta.seed}`);
         if (meta.Size) params.push(`Size: ${meta.Size}`);
