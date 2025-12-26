@@ -731,6 +731,9 @@
                         <button class="mm-btn secondary" onclick="navigator.clipboard.writeText(\`${escapeHtml(prompt).replace(/`/g, '\\`')}\`)">
                             Copy Prompt
                         </button>
+                        <button class="mm-btn secondary" onclick="window.mmShowImageMeta(${index})">
+                            Show All
+                        </button>
                     </div>
                 </div>
             </div>
@@ -764,6 +767,85 @@
                   <span class="mm-resource-name">${escapeHtml(name)}${weightStr}</span>
                 </span>`;
     }
+
+    // Show image metadata in modal
+    window.mmShowImageMeta = function(imageIndex) {
+        const img = currentImages[imageIndex];
+        if (!img) return;
+
+        const meta = img.meta || {};
+
+        // Build table rows - show ALL data
+        let tableRows = '';
+
+        // Helper to format value for display
+        function formatValue(value) {
+            if (value === null || value === undefined) return '';
+            if (Array.isArray(value)) {
+                return value.map(v => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)).join('<br>');
+            }
+            if (typeof value === 'object') {
+                return '<pre>' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
+            }
+            return escapeHtml(String(value));
+        }
+
+        // Image-level fields
+        for (const [key, value] of Object.entries(img)) {
+            if (key === 'meta' || key === 'url') continue; // Skip meta (shown separately) and url
+            if (value === null || value === undefined || value === '') continue;
+            tableRows += `<tr><th>${escapeHtml(key)}</th><td>${formatValue(value)}</td></tr>`;
+        }
+
+        // All meta fields
+        for (const [key, value] of Object.entries(meta)) {
+            if (value === null || value === undefined || value === '') continue;
+            const isLongText = typeof value === 'string' && value.length > 100;
+            const cellClass = isLongText ? 'mm-meta-prompt' : '';
+            tableRows += `<tr><th>${escapeHtml(key)}</th><td class="${cellClass}">${formatValue(value)}</td></tr>`;
+        }
+
+        // Create modal
+        const modalHtml = `
+            <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
+                <div class="mm-modal" onclick="event.stopPropagation()">
+                    <div class="mm-modal-header">
+                        <h3>Image Metadata</h3>
+                        <button class="mm-modal-close" onclick="window.mmCloseMetaModal()">&times;</button>
+                    </div>
+                    <div class="mm-modal-body">
+                        <table class="mm-meta-table">
+                            <tbody>
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        const existingModal = document.querySelector('.mm-modal-overlay');
+        if (existingModal) existingModal.remove();
+
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    // Close metadata modal
+    window.mmCloseMetaModal = function(event) {
+        // If called with event, only close if clicking overlay (not modal content)
+        if (event && event.target !== event.currentTarget) return;
+        const modal = document.querySelector('.mm-modal-overlay');
+        if (modal) modal.remove();
+    };
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            window.mmCloseMetaModal();
+        }
+    });
 
     // Load more images
     window.mmLoadMoreImages = async function() {
