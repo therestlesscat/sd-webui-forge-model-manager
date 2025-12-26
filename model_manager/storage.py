@@ -24,6 +24,54 @@ def get_metadata_paths(model_path: str) -> Tuple[str, str]:
     return civitai_path, images_path
 
 
+# Fields that only come from the full model endpoint (/models/{id})
+# These are missing when data comes from by-hash endpoint only
+FULL_MODEL_REQUIRED_FIELDS = ["description", "tags", "stats"]
+
+
+def is_partial_civitai_data(data: Dict[str, Any]) -> bool:
+    """
+    Check if civitai data is partial (missing full model info).
+
+    By-hash endpoint returns version data with limited embedded model info.
+    Full model endpoint returns description, tags, stats that are missing
+    from by-hash response.
+
+    Args:
+        data: Civitai data from .civitai.info file
+
+    Returns:
+        True if data is missing fields that require full model fetch
+    """
+    if not data:
+        return True
+
+    # Check if this is version-only response (has "model" key but no "modelVersions")
+    # This format comes from by-hash endpoint
+    if "model" in data and "modelVersions" not in data:
+        # Check if embedded model has full data
+        model_data = data.get("model", {})
+        # By-hash response's embedded model never has description
+        if not model_data.get("description"):
+            return True
+        if not model_data.get("tags"):
+            return True
+        if not model_data.get("stats"):
+            return True
+        return False
+
+    # Full model response format - check directly
+    if "modelVersions" in data:
+        # This is full model response, should have everything
+        if not data.get("description"):
+            return True
+        # tags and stats might be empty but should exist
+        return False
+
+    # Unknown format - assume partial
+    return True
+
+
 def read_civitai_info(model_path: str) -> Optional[Dict[str, Any]]:
     """
     Read .civitai.info file for a model.
