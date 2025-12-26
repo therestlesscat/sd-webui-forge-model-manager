@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Callable
 
 from .civitai_api import CivitaiClient, CivitaiAPIError, CivitaiNotFoundError
-from .storage import read_civitai_info, write_civitai_info
+from .storage import read_civitai_info, write_civitai_info, is_partial_civitai_data
 from .images_cache import get_images_cache
 
 
@@ -110,11 +110,12 @@ class SyncService:
         Sync a single model with Civitai.
 
         Steps:
-        1. Check if .civitai.info exists (skip if not force)
+        1. Check if .civitai.info exists and has full data (skip if complete, unless force)
         2. Calculate SHA256 hash
         3. Call by-hash endpoint to get version info
-        4. Fetch all images for the version
-        5. Save to .civitai.info and .images.json
+        4. Call model endpoint to get full model data (description, tags, stats)
+        5. Fetch images for the version
+        6. Save full model data to .civitai.info
 
         Args:
             model_path: Path to the model file.
@@ -126,13 +127,17 @@ class SyncService:
         result = SyncResult()
         model_name = os.path.basename(model_path)
 
-        # Check if already has civitai data
+        # Check if already has complete civitai data
         if not force:
             existing_data = read_civitai_info(model_path)
             if existing_data:
-                print(f"[ModelManager] Skipping {model_name} (already has civitai data, use Shift+click to force)")
-                result.skipped = True
-                return result
+                # Check if data is complete (has description, tags, stats from full model endpoint)
+                if not is_partial_civitai_data(existing_data):
+                    print(f"[ModelManager] Skipping {model_name} (already has complete civitai data)")
+                    result.skipped = True
+                    return result
+                else:
+                    print(f"[ModelManager] {model_name} has partial data, fetching full model info...")
 
         print(f"[ModelManager] Processing {model_name}...")
 
@@ -156,12 +161,43 @@ class SyncService:
             result.version_id = version_id
             result.model_id = model_id
 
-            # Save civitai.info (raw by-hash response, don't modify)
-            if not write_civitai_info(model_path, version_data):
+            # Fetch full model data (includes description, tags, stats)
+            full_model_data = None
+            if model_id:
+                print(f"[ModelManager] Fetching full model data for {model_name}...")
+                full_model_data = self.client.get_model(model_id)
+
+            # Prepare data to save
+            if full_model_data:
+                # We have full model data - reorder versions to put matched version first
+                model_versions = full_model_data.get("modelVersions", [])
+
+                # Find the matched version and move it to front
+                matched_version = None
+                other_versions = []
+                for v in model_versions:
+                    if v.get("id") == version_id:
+                        matched_version = v
+                    else:
+                        other_versions.append(v)
+
+                # Rebuild versions list with matched version first
+                if matched_version:
+                    full_model_data["modelVersions"] = [matched_version] + other_versions
+
+                # Save full model data
+                data_to_save = full_model_data
+            else:
+                # Fallback to version-only data if full model fetch failed
+                print(f"[ModelManager] Warning: Could not fetch full model data for {model_name}")
+                data_to_save = version_data
+
+            if not write_civitai_info(model_path, data_to_save):
                 result.error = "Failed to write civitai.info"
                 return result
 
             # Fetch first page of images (max 200) and store in DB
+            total_count = 0
             if version_id:
                 print(f"[ModelManager] Fetching images for {model_name}...")
                 images_result = self.client.get_model_images(version_id, limit=200, page=1)
