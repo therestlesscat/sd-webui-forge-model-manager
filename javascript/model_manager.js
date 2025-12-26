@@ -1036,8 +1036,29 @@
         }
 
         const meta = img.meta;
+        const model = currentModels[selectedModelIndex];
 
         try {
+            // If current model is a Checkpoint, get its path
+            let checkpointPath = null;
+            if (model && model.model_type === 'Checkpoint') {
+                checkpointPath = getDropdownPath(model.file_path, 'Checkpoint');
+            }
+
+            // Try to find VAE from image metadata resources
+            let vaePath = null;
+            const resources = meta.resources || [];
+            const vaeResource = resources.find(r => r.type === 'vae');
+            if (vaeResource && vaeResource.name) {
+                vaePath = vaeResource.name;
+            }
+
+            // Load checkpoint and VAE if we have them
+            if (checkpointPath || vaePath) {
+                console.log('[ModelManager] Loading checkpoint:', checkpointPath, 'VAE:', vaePath);
+                await setCheckpointAndVAE(checkpointPath, vaePath);
+            }
+
             // Build infotext from metadata
             const infotext = buildInfotext(meta);
             if (!infotext) {
@@ -1076,7 +1097,9 @@
 
             console.log('[ModelManager] Sent to txt2img via paste:', {
                 infotextLength: infotext.length,
-                prompt: meta.prompt?.substring(0, 50) + '...'
+                prompt: meta.prompt?.substring(0, 50) + '...',
+                checkpoint: checkpointPath,
+                vae: vaePath
             });
 
         } catch (error) {
