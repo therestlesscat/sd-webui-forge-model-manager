@@ -842,8 +842,8 @@
         const match = filePath.match(regex);
 
         if (match) {
-            // Return path with forward slashes (WebUI format)
-            return match[1].replace(/\\/g, '/');
+            // Return path as-is (preserve original separators)
+            return match[1];
         }
 
         return null;
