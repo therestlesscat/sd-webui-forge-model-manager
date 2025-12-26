@@ -819,7 +819,6 @@
 }
 
 .mm-resources-label {
-    font-size: 0.8em;
     font-weight: 600;
     color: var(--body-text-color-subdued, #9ca3af);
 }
@@ -830,7 +829,6 @@
     gap: 4px;
     padding: 3px 8px;
     border-radius: 4px;
-    font-size: 0.8em;
 }
 
 .mm-resource-lora {
@@ -855,7 +853,6 @@
 
 .mm-resource-type {
     font-weight: 600;
-    font-size: 0.9em;
 }
 
 .mm-resource-name {
@@ -868,7 +865,6 @@
 /* Prompt sections */
 .mm-image-prompt,
 .mm-image-neg-prompt {
-    font-size: 0.85em;
     line-height: 1.4;
 }
 
@@ -885,12 +881,10 @@
 
 .mm-image-neg-prompt .mm-prompt-text {
     color: #f48fb1;
-    font-size: 0.95em;
 }
 
 /* Generation params */
 .mm-image-params {
-    font-size: 0.8em;
     color: var(--body-text-color-subdued, #9ca3af);
     padding: 6px 10px;
     background: rgba(0, 0, 0, 0.2);
@@ -898,7 +892,6 @@
 }
 
 .mm-image-hires {
-    font-size: 0.75em;
     color: #81c784;
     font-style: italic;
 }
