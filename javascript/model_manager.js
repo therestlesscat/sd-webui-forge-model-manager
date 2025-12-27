@@ -1038,31 +1038,35 @@
         }
     }
 
-    // Get scheduler options from UI dropdown
-    function getSchedulerOptions() {
-        // Try to find the scheduler dropdown in txt2img
-        const schedulerDropdown = gradioApp().querySelector('#txt2img_scheduler select, #txt2img_scheduler input');
+    // Cache for schedulers loaded from API
+    let cachedSchedulers = null;
 
-        if (!schedulerDropdown) {
-            console.log('[ModelManager] Scheduler dropdown not found');
+    // Load schedulers from API (called once on init)
+    async function loadSchedulersFromAPI() {
+        try {
+            const response = await fetch('/model-manager/ui-options');
+            const data = await response.json();
+            if (data.success && data.schedulers) {
+                cachedSchedulers = data.schedulers.filter(s => s && s !== 'Automatic');
+                console.log('[ModelManager] Loaded schedulers from API:', cachedSchedulers);
+            }
+        } catch (error) {
+            console.error('[ModelManager] Failed to load schedulers:', error);
+            cachedSchedulers = [];
+        }
+    }
+
+    // Get scheduler options (from cache)
+    function getSchedulerOptions() {
+        if (cachedSchedulers === null) {
+            console.log('[ModelManager] Schedulers not loaded yet');
             return [];
         }
-
-        let options = [];
-        if (schedulerDropdown.tagName === 'SELECT') {
-            options = Array.from(schedulerDropdown.options).map(o => o.value).filter(v => v && v !== 'Automatic');
-        } else {
-            // For Gradio dropdown (uses input + datalist or other structure)
-            const parent = schedulerDropdown.closest('.gradio-dropdown');
-            if (parent) {
-                const listItems = parent.querySelectorAll('[role="option"], .option');
-                options = Array.from(listItems).map(el => el.textContent.trim()).filter(v => v && v !== 'Automatic');
-            }
-        }
-
-        console.log('[ModelManager] Found schedulers:', options);
-        return options;
+        return cachedSchedulers;
     }
+
+    // Load schedulers on init
+    loadSchedulersFromAPI();
 
     // Split combined "Sampler Scheduler" format into separate parts
     // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }

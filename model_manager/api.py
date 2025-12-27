@@ -632,6 +632,33 @@ def setup_api(app: FastAPI):
                 status_code=500
             )
 
+    @app.get("/model-manager/ui-options")
+    async def get_ui_options():
+        """Get samplers and schedulers from WebUI."""
+        try:
+            from modules import sd_samplers, sd_schedulers
+
+            # Get sampler names
+            samplers = [s.name for s in sd_samplers.all_samplers]
+
+            # Get scheduler labels
+            schedulers = [s.label for s in sd_schedulers.schedulers]
+
+            return JSONResponse({
+                "success": True,
+                "samplers": samplers,
+                "schedulers": schedulers
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] UI options error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
     print("[ModelManager] API endpoints registered")
 
 
