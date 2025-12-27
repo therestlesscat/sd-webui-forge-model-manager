@@ -1239,7 +1239,8 @@
                 infotextLength: infotext.length,
                 prompt: meta.prompt?.substring(0, 50) + '...',
                 checkpoint: checkpointPath,
-                vae: vaePath
+                vae: vaePath,
+                fullInfotext: infotext
             });
 
         } catch (error) {
