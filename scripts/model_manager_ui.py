@@ -77,7 +77,7 @@ def create_ui():
                             <label>Type</label>
                             <select id="mm_type">
                                 <option value="">All</option>
-                                <option value="Checkpoint">Checkpoint</option>
+                                <option value="Checkpoint" selected>Checkpoint</option>
                                 <option value="LORA">LORA</option>
                                 <option value="TextualInversion">Embedding</option>
                                 <option value="VAE">VAE</option>
@@ -143,16 +143,20 @@ def create_ui():
                                 <option value="desc">Descending</option>
                             </select>
                         </div>
-                        <div class="filter-group filter-actions">
+                    </div>
+                    <div class="filter-buttons-row">
+                        <div class="filter-buttons-group">
                             <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
+                            <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
                             <button id="mm_refresh_btn" class="mm-btn secondary" title="Scan model directories and refresh database">Refresh DB</button>
                             <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
-                            <span class="filter-actions-divider">|</span>
+                        </div>
+                        <div class="filter-buttons-group">
                             <button id="mm_sync_btn" class="mm-btn secondary">Sync with Civitai</button>
+                            <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                             <label class="mm-checkbox-label" title="Re-download data even if already exists">
                                 <input type="checkbox" id="mm_sync_force"> Force
                             </label>
-                            <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
                     </div>
                 </div>

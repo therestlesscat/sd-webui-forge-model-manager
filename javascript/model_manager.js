@@ -16,6 +16,65 @@
     let totalPages = 1;
     let totalModels = 0;
     let pageSize = 0;
+    let firstVisibleItemIndex = 0;  // Absolute index of first item on current page
+
+    // Card sizing constants (should match CSS)
+    const CARD_MIN_WIDTH = 180;  // minmax(180px, 1fr) in CSS
+    const CARD_GAP = 15;         // gap: 15px in CSS
+    const ROWS_TO_SHOW = 2;      // Show 2 rows of cards
+
+    // Calculate page size based on grid width
+    function calculatePageSize() {
+        const grid = document.getElementById('mm_grid');
+        if (!grid) return 10;  // Default fallback
+
+        const gridWidth = grid.clientWidth;
+        if (gridWidth <= 0) return 10;
+
+        // Calculate how many cards fit per row
+        // Formula: (gridWidth + gap) / (cardWidth + gap)
+        const cardsPerRow = Math.floor((gridWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP));
+        const calculatedSize = Math.max(1, cardsPerRow) * ROWS_TO_SHOW;
+
+        // Minimum 4, maximum 50
+        const finalSize = Math.max(4, Math.min(50, calculatedSize));
+        console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px)`);
+        return finalSize;
+    }
+
+    // Recalculate pagination after page size change (without reloading data)
+    function recalculatePagination(newPageSize) {
+        if (newPageSize === pageSize || totalModels === 0) return false;
+
+        const oldPageSize = pageSize;
+        pageSize = newPageSize;
+
+        // Calculate new page based on first visible item
+        const newPage = Math.floor(firstVisibleItemIndex / pageSize) + 1;
+        const newTotalPages = Math.ceil(totalModels / pageSize);
+
+        console.log(`[ModelManager] Pagination recalc: page ${currentPage} (size ${oldPageSize}) -> page ${newPage} (size ${pageSize})`);
+
+        currentPage = Math.max(1, Math.min(newPage, newTotalPages));
+        totalPages = newTotalPages;
+
+        return true;  // Pagination changed
+    }
+
+    // Update pagination controls without reloading data
+    function updatePaginationControls() {
+        const container = document.getElementById('mm_grid');
+        if (!container) return;
+
+        // Find existing pagination and replace it
+        const existingPagination = container.querySelector('.mm-pagination');
+        if (existingPagination && totalPages > 1) {
+            existingPagination.outerHTML = renderPaginationControls();
+        }
+
+        // Update status
+        updatePaginationStatus();
+    }
 
     // Sync state
     let isSyncing = false;
@@ -188,16 +247,23 @@
         if (loadBtn) loadBtn.disabled = true;
 
         try {
+            // Calculate page size dynamically based on viewport
+            const calculatedPageSize = calculatePageSize();
+
             const filters = getFilters();
             filters.page = page;
+            filters.page_size = calculatedPageSize;
             const data = await apiCall('/model-manager/models', filters);
 
             if (data.success) {
                 currentModels = data.models;
                 currentPage = data.page || 1;
-                pageSize = data.page_size || data.models.length;
+                pageSize = data.page_size || calculatedPageSize;
                 totalModels = data.total || 0;
                 totalPages = pageSize > 0 ? Math.ceil(totalModels / pageSize) : 1;
+
+                // Track absolute position of first visible item
+                firstVisibleItemIndex = (currentPage - 1) * pageSize;
 
                 renderModelGrid(data.models);
                 updatePaginationStatus();
@@ -652,6 +718,7 @@
         const prompt = meta.prompt || '';
         const negPrompt = meta.negativePrompt || '';
         const resources = meta.resources || [];
+        const civitaiResources = meta.civitaiResources || [];
 
         // Split sampler if it contains scheduler
         let displaySampler = meta.sampler;
@@ -661,6 +728,15 @@
             const split = splitSamplerScheduler(displaySampler);
             displaySampler = split.sampler;
             displayScheduler = split.scheduler;
+        }
+
+        // Get size (prefer meta.Size which is generation size, not final image size after hires)
+        let sizeStr = meta.Size;
+        if (!sizeStr && img.width && img.height) {
+            sizeStr = `${img.width}x${img.height}`;
+        }
+        if (!sizeStr && meta.width && meta.height) {
+            sizeStr = `${meta.width}x${meta.height}`;
         }
 
         // Build generation params string
@@ -673,12 +749,22 @@
         if (meta.VAE) genParams.push(`VAE: ${meta.VAE}`);
         if (meta['Clip skip']) genParams.push(`Clip Skip: ${meta['Clip skip']}`);
         if (meta['Denoising strength']) genParams.push(`Denoise: ${meta['Denoising strength']}`);
+        if (sizeStr) genParams.push(`Size: ${sizeStr}`);
 
         // Hires info
         const hiresParams = [];
         if (meta['Hires upscaler']) hiresParams.push(`Upscaler: ${meta['Hires upscaler']}`);
         if (meta['Hires upscale']) hiresParams.push(`Scale: ${meta['Hires upscale']}`);
         if (meta['Hires steps']) hiresParams.push(`Steps: ${meta['Hires steps']}`);
+
+        // ADetailer info
+        const adetailerParams = [];
+        if (meta['ADetailer model']) adetailerParams.push(`Model: ${meta['ADetailer model']}`);
+        if (meta['ADetailer confidence']) adetailerParams.push(`Conf: ${meta['ADetailer confidence']}`);
+        if (meta['ADetailer dilate erode']) adetailerParams.push(`Dilate: ${meta['ADetailer dilate erode']}`);
+        if (meta['ADetailer mask blur']) adetailerParams.push(`Blur: ${meta['ADetailer mask blur']}`);
+        if (meta['ADetailer denoising strength']) adetailerParams.push(`Denoise: ${meta['ADetailer denoising strength']}`);
+        if (meta['ADetailer inpaint only masked']) adetailerParams.push(`Inpaint masked: ${meta['ADetailer inpaint only masked']}`);
 
         // Resources (LoRAs, etc)
         const resourcesHtml = resources.length > 0
@@ -716,6 +802,11 @@
             ? `<div class="mm-image-hires">Hires: ${hiresParams.join(', ')}</div>`
             : '';
 
+        // ADetailer params
+        const adetailerHtml = adetailerParams.length > 0
+            ? `<div class="mm-image-adetailer">ADetailer: ${adetailerParams.join(', ')}</div>`
+            : '';
+
         // NSFW indicator
         const nsfwLevel = img.nsfw || 'Unknown';
         const nsfwClass = nsfwLevel !== 'PG' && nsfwLevel !== 'Unknown' && nsfwLevel !== 'None'
@@ -736,6 +827,7 @@
                     ${negPromptHtml}
                     ${genParamsHtml}
                     ${hiresHtml}
+                    ${adetailerHtml}
                     <div class="mm-image-actions">
                         <button class="mm-btn primary mm-send-btn" onclick="window.mmSendToTxt2img(${index})">
                             Send to txt2img
@@ -746,6 +838,8 @@
                         <button class="mm-btn secondary" onclick="window.mmShowImageMeta(${index})">
                             Show All
                         </button>
+                        ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${img.id}" target="_blank">View on Civitai</a>` : ''}
+                        ${civitaiResources.length > 0 ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${civitaiResources.length})</button>` : ''}
                     </div>
                 </div>
             </div>
@@ -794,7 +888,12 @@
         function formatValue(value) {
             if (value === null || value === undefined) return '';
             if (Array.isArray(value)) {
-                return value.map(v => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)).join('<br>');
+                return value.map(v => {
+                    if (typeof v === 'object') {
+                        return '<pre>' + escapeHtml(JSON.stringify(v, null, 2)) + '</pre>';
+                    }
+                    return escapeHtml(String(v));
+                }).join('<br>');
             }
             if (typeof value === 'object') {
                 return '<pre>' + escapeHtml(JSON.stringify(value, null, 2)) + '</pre>';
@@ -840,8 +939,9 @@
         const existingModal = document.querySelector('.mm-modal-overlay');
         if (existingModal) existingModal.remove();
 
-        // Add modal to body
+        // Add modal to body and lock scroll
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.body.classList.add('mm-modal-open');
     };
 
     // Close metadata modal
@@ -849,7 +949,77 @@
         // If called with event, only close if clicking overlay (not modal content)
         if (event && event.target !== event.currentTarget) return;
         const modal = document.querySelector('.mm-modal-overlay');
-        if (modal) modal.remove();
+        if (modal) {
+            modal.remove();
+            document.body.classList.remove('mm-modal-open');
+        }
+    };
+
+    // Show civitaiResources popup with download options
+    window.mmShowResources = function(imageIndex) {
+        const img = currentImages[imageIndex];
+        if (!img || !img.meta) return;
+
+        const civitaiResources = img.meta.civitaiResources || [];
+        if (civitaiResources.length === 0) return;
+
+        // Build table rows
+        let tableRows = '';
+        for (const resource of civitaiResources) {
+            const type = resource.type || 'Unknown';
+            const name = resource.name || 'Unknown';
+            const versionId = resource.modelVersionId;
+
+            // Download URL for Civitai
+            const downloadUrl = versionId ? `https://civitai.com/api/download/models/${versionId}` : '';
+            // View URL (model-versions redirects to the correct model page)
+            const viewUrl = versionId ? `https://civitai.com/model-versions/${versionId}` : '';
+
+            tableRows += `
+                <tr>
+                    <td class="mm-res-type">${escapeHtml(type)}</td>
+                    <td class="mm-res-name">${escapeHtml(name)}</td>
+                    <td class="mm-res-actions">
+                        ${viewUrl ? `<a class="mm-btn secondary mm-btn-small" href="${viewUrl}" target="_blank">View</a>` : ''}
+                        ${downloadUrl ? `<a class="mm-btn primary mm-btn-small" href="${downloadUrl}" target="_blank">Download</a>` : ''}
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Create modal
+        const modalHtml = `
+            <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
+                <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
+                    <div class="mm-modal-header">
+                        <h3>Civitai Resources</h3>
+                        <button class="mm-modal-close" onclick="window.mmCloseMetaModal()">&times;</button>
+                    </div>
+                    <div class="mm-modal-body">
+                        <table class="mm-resources-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Name</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        const existingModal = document.querySelector('.mm-modal-overlay');
+        if (existingModal) existingModal.remove();
+
+        // Add modal to document and lock scroll
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.body.classList.add('mm-modal-open');
     };
 
     // Close modal on Escape key
@@ -993,66 +1163,29 @@
         return vaeName; // Return as-is, let WebUI handle it
     }
 
-    // Set checkpoint and VAE using WebUI's internal functions
-    async function setCheckpointAndVAE(checkpoint, vae) {
-        try {
-            let needsChange = false;
-
-            // Use WebUI's selectCheckpoint function
-            if (checkpoint) {
-                if (typeof selectCheckpoint === 'function') {
-                    selectCheckpoint(checkpoint);
-                    needsChange = true;
-                    console.log('[ModelManager] Called selectCheckpoint:', checkpoint);
-                } else {
-                    console.warn('[ModelManager] selectCheckpoint function not available');
-                }
-            }
-
-            // Use WebUI's selectVAE function
-            if (vae && vae !== 'Automatic' && vae !== 'None') {
-                if (typeof selectVAE === 'function') {
-                    selectVAE(vae);
-                    needsChange = true;
-                    console.log('[ModelManager] Called selectVAE:', vae);
-                } else {
-                    console.warn('[ModelManager] selectVAE function not available');
-                }
-            }
-
-            // If only VAE changed, trigger the change button
-            if (needsChange && !checkpoint) {
-                const changeBtn = gradioApp().getElementById('change_checkpoint');
-                if (changeBtn) {
-                    changeBtn.click();
-                    console.log('[ModelManager] Clicked change_checkpoint button');
-                }
-            }
-
-            // Wait for model loading to complete
-            if (needsChange) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-        } catch (error) {
-            console.warn('[ModelManager] Error setting checkpoint/VAE:', error);
-        }
-    }
-
-    // Cache for schedulers loaded from API
+    // Cache for samplers and schedulers loaded from API
+    let cachedSamplers = null;
     let cachedSchedulers = null;
 
-    // Load schedulers from API (called once on init)
-    async function loadSchedulersFromAPI() {
+    // Load samplers and schedulers from API (called once on init)
+    async function loadUIOptionsFromAPI() {
         try {
             const response = await fetch('/model-manager/ui-options');
             const data = await response.json();
-            if (data.success && data.schedulers) {
-                cachedSchedulers = data.schedulers.filter(s => s && s !== 'Automatic');
-                console.log('[ModelManager] Loaded schedulers from API:', cachedSchedulers);
+            if (data.success) {
+                if (data.schedulers) {
+                    cachedSchedulers = data.schedulers.filter(s => s && s !== 'Automatic');
+                    console.log('[ModelManager] Loaded schedulers from API:', cachedSchedulers);
+                }
+                if (data.samplers) {
+                    cachedSamplers = data.samplers;
+                    console.log('[ModelManager] Loaded samplers from API:', cachedSamplers);
+                }
             }
         } catch (error) {
-            console.error('[ModelManager] Failed to load schedulers:', error);
+            console.error('[ModelManager] Failed to load UI options:', error);
             cachedSchedulers = [];
+            cachedSamplers = [];
         }
     }
 
@@ -1065,27 +1198,89 @@
         return cachedSchedulers;
     }
 
-    // Load schedulers on init
-    loadSchedulersFromAPI();
+    // Get sampler options (from cache)
+    function getSamplerOptions() {
+        if (cachedSamplers === null) {
+            console.log('[ModelManager] Samplers not loaded yet');
+            return [];
+        }
+        return cachedSamplers;
+    }
 
-    // Split combined "Sampler Scheduler" format into separate parts
-    // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
-    function splitSamplerScheduler(samplerString) {
-        if (!samplerString) return { sampler: null, scheduler: null };
+    // Normalize string for comparison (lowercase, remove special chars, collapse spaces)
+    function normalizeForMatch(str) {
+        if (!str) return '';
+        return str.toLowerCase()
+            .replace(/[_\-+]/g, ' ')  // Replace underscores, dashes, plus with space
+            .replace(/\s+/g, ' ')      // Collapse multiple spaces
+            .trim();
+    }
 
-        const schedulers = getSchedulerOptions();
+    // Match sampler name from metadata to known sampler
+    // Handles variations like "Euler_Max" -> "Euler Max", case differences, etc.
+    function matchSamplerName(samplerName) {
+        if (!samplerName) return samplerName;
 
-        // Check if the sampler string ends with a known scheduler
-        for (const scheduler of schedulers) {
-            if (samplerString.endsWith(' ' + scheduler)) {
-                const sampler = samplerString.slice(0, -(scheduler.length + 1));
-                console.log('[ModelManager] Split sampler+scheduler:', samplerString, '->', sampler, '+', scheduler);
-                return { sampler, scheduler };
+        const samplers = getSamplerOptions();
+        if (!samplers.length) return samplerName;
+
+        // Try exact match first
+        if (samplers.includes(samplerName)) {
+            return samplerName;
+        }
+
+        // Normalize and match
+        const normalizedInput = normalizeForMatch(samplerName);
+        for (const sampler of samplers) {
+            if (normalizeForMatch(sampler) === normalizedInput) {
+                console.log('[ModelManager] Matched sampler:', samplerName, '->', sampler);
+                return sampler;
             }
         }
 
-        // No scheduler suffix found
-        return { sampler: samplerString, scheduler: null };
+        // Try partial match (input might have scheduler appended)
+        for (const sampler of samplers) {
+            if (normalizedInput.startsWith(normalizeForMatch(sampler) + ' ')) {
+                console.log('[ModelManager] Partial sampler match:', samplerName, '-> starts with', sampler);
+                // Don't return here - let splitSamplerScheduler handle it
+                break;
+            }
+        }
+
+        // Return original with basic normalization (underscore -> space)
+        return samplerName.replace(/_/g, ' ');
+    }
+
+    // Load UI options on init
+    loadUIOptionsFromAPI();
+
+    // Split combined "Sampler Scheduler" format into separate parts
+    // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
+    // Also handles variations like "Euler_a_Karras"
+    function splitSamplerScheduler(samplerString) {
+        if (!samplerString) return { sampler: null, scheduler: null };
+
+        // Normalize underscores to spaces for matching
+        const normalized = samplerString.replace(/_/g, ' ');
+
+        const schedulers = getSchedulerOptions();
+
+        // Check if the normalized string ends with a known scheduler
+        for (const scheduler of schedulers) {
+            // Check both exact and case-insensitive
+            if (normalized.endsWith(' ' + scheduler) ||
+                normalized.toLowerCase().endsWith(' ' + scheduler.toLowerCase())) {
+                const sampler = normalized.slice(0, -(scheduler.length + 1));
+                // Match the sampler to known samplers
+                const matchedSampler = matchSamplerName(sampler);
+                console.log('[ModelManager] Split sampler+scheduler:', samplerString, '->', matchedSampler, '+', scheduler);
+                return { sampler: matchedSampler, scheduler };
+            }
+        }
+
+        // No scheduler suffix found - just match the sampler
+        const matchedSampler = matchSamplerName(normalized);
+        return { sampler: matchedSampler, scheduler: null };
     }
 
     // Build infotext string from image metadata (A1111 format)
@@ -1115,6 +1310,11 @@
             scheduler = split.scheduler;
         }
 
+        // Check if this has actual hires fix data (need all required fields)
+        // Only include Denoising strength and hires fields if there's a complete hires setup
+        const hasHiresFix = meta['Denoising strength'] &&
+            (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
+
         // Build parameters line
         const params = [];
 
@@ -1127,16 +1327,32 @@
         if (meta.Model) params.push(`Model: ${meta.Model}`);
         if (meta['Model hash']) params.push(`Model hash: ${meta['Model hash']}`);
         if (meta.VAE) params.push(`VAE: ${meta.VAE}`);
-        if (meta['Denoising strength']) params.push(`Denoising strength: ${meta['Denoising strength']}`);
         if (meta['Clip skip']) params.push(`Clip skip: ${meta['Clip skip']}`);
-        if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
-        if (meta['Hires upscaler']) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
-        if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
+
+        // Only include hires-related fields if there's a complete hires fix setup
+        // This prevents paste from enabling hires when image doesn't have hires data
+        if (hasHiresFix) {
+            if (meta['Denoising strength']) params.push(`Denoising strength: ${meta['Denoising strength']}`);
+            if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
+            if (meta['Hires upscaler']) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
+            if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
+        }
 
         // Add any other parameters from meta that we haven't explicitly handled
         const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'Schedule type', 'cfgScale', 'seed',
                             'Size', 'Model', 'Model hash', 'VAE', 'Denoising strength', 'Clip skip',
-                            'Hires upscale', 'Hires upscaler', 'Hires steps', 'resources', 'civitaiResources'];
+                            'Hires upscale', 'Hires upscaler', 'Hires steps', 'Hires resize-1', 'Hires resize-2',
+                            'resources', 'civitaiResources'];
+
+        // Check if ADetailer fields exist - toggle "ADetailer enable" accordingly
+        // This is required for ADetailer's paste handler to auto-enable/disable the checkbox
+        const hasADetailer = Object.keys(meta).some(key => key.startsWith('ADetailer '));
+        if (hasADetailer) {
+            params.push('ADetailer enable: True');
+        } else {
+            params.push('ADetailer enable: False');
+        }
+
         for (const [key, value] of Object.entries(meta)) {
             if (!handledKeys.includes(key) && value !== null && value !== undefined && value !== '') {
                 if (typeof value !== 'object') {
@@ -1152,6 +1368,37 @@
         return infotext;
     }
 
+    // Set Gradio dropdown value programmatically
+    function setGradioDropdown(elem_id, value) {
+        const container = gradioApp().querySelector(`#${elem_id}`);
+        if (!container) {
+            console.warn(`[ModelManager] Dropdown not found: ${elem_id}`);
+            return false;
+        }
+
+        // Try input element (common in newer Gradio)
+        const input = container.querySelector('input');
+        if (input) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log(`[ModelManager] Set ${elem_id} via input:`, value);
+            return true;
+        }
+
+        // Try select element
+        const select = container.querySelector('select');
+        if (select) {
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log(`[ModelManager] Set ${elem_id} via select:`, value);
+            return true;
+        }
+
+        console.warn(`[ModelManager] Could not find input/select in ${elem_id}`);
+        return false;
+    }
+
     // Send image generation params to txt2img using paste button
     window.mmSendToTxt2img = async function(imageIndex) {
         const img = currentImages[imageIndex];
@@ -1160,8 +1407,32 @@
             return;
         }
 
+        // Save current scroll position before navigating away
+        const scrollPos = window.scrollY || document.documentElement.scrollTop;
+        localStorage.setItem('mm_scroll_position', scrollPos.toString());
+        updateScrollRestoreButton();
+        console.log('[ModelManager] Saved scroll position:', scrollPos);
+
         const meta = img.meta;
         const model = currentModels[selectedModelIndex];
+
+        // Debug: log available size-related fields
+        console.log('[ModelManager] Image size data:', {
+            'meta.Size': meta.Size,
+            'img.width': img.width,
+            'img.height': img.height,
+            'meta.width': meta.width,
+            'meta.height': meta.height
+        });
+
+        // Ensure Size is set - try multiple sources
+        if (!meta.Size) {
+            if (img.width && img.height) {
+                meta.Size = `${img.width}x${img.height}`;
+            } else if (meta.width && meta.height) {
+                meta.Size = `${meta.width}x${meta.height}`;
+            }
+        }
 
         try {
             // If current model is a Checkpoint, get its path
@@ -1193,11 +1464,32 @@
                 vaePath = matchVAEName(vaePath);
             }
 
-            // Load checkpoint and VAE if we have them
-            if (checkpointPath || vaePath) {
-                console.log('[ModelManager] Loading checkpoint:', checkpointPath, 'VAE:', vaePath);
-                await setCheckpointAndVAE(checkpointPath, vaePath);
+            // Set checkpoint if available
+            if (checkpointPath && typeof selectCheckpoint === 'function') {
+                console.log('[ModelManager] Setting checkpoint:', checkpointPath);
+                selectCheckpoint(checkpointPath);
             }
+
+            // Set VAE - use metadata value or reset to None
+            const vaeValue = vaePath || 'None';
+            if (typeof selectVAE === 'function') {
+                console.log('[ModelManager] Setting VAE:', vaeValue);
+                selectVAE(vaeValue);
+            }
+
+            // Extract scheduler from metadata or sampler string
+            let scheduler = meta['Schedule type'];
+            if (!scheduler && meta.sampler) {
+                const split = splitSamplerScheduler(meta.sampler);
+                scheduler = split.scheduler;
+            }
+            // Default to Automatic if no scheduler found
+            scheduler = scheduler || 'Automatic';
+
+            // Check if image has hires fix data (must match what paste button checks)
+            // Paste enables hires if: "Denoising strength" AND ("Hires upscale" OR "Hires upscaler" OR "Hires resize-1")
+            const hasHiresFix = meta['Denoising strength'] &&
+                (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
 
             // Build infotext from metadata
             const infotext = buildInfotext(meta);
@@ -1229,6 +1521,35 @@
             promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
             pasteButton.click();
 
+            // Paste button doesn't set scheduler in Forge - set it directly after a small delay
+            // Also reset hires fix if not present in metadata
+            setTimeout(() => {
+                setGradioDropdown('txt2img_scheduler', scheduler);
+
+                // Reset hires fix if image doesn't have hires data
+                // InputAccordion uses a hidden checkbox - need to set value and dispatch events
+                if (!hasHiresFix) {
+                    const hiresContainer = gradioApp().querySelector('#txt2img_hr-checkbox');
+                    const hiresCheckbox = hiresContainer?.querySelector('input[type="checkbox"]');
+                    console.log('[ModelManager] Hires fix reset:', {
+                        containerFound: !!hiresContainer,
+                        checkboxFound: !!hiresCheckbox,
+                        isChecked: hiresCheckbox?.checked
+                    });
+                    if (hiresCheckbox && hiresCheckbox.checked) {
+                        // Set value and dispatch proper events for Gradio
+                        hiresCheckbox.checked = false;
+                        hiresCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
+                        hiresCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                        // Also call the InputAccordion JS function if available
+                        if (typeof inputAccordionChecked === 'function') {
+                            inputAccordionChecked('txt2img_hr', false);
+                        }
+                        console.log('[ModelManager] Disabled hires fix (not in metadata)');
+                    }
+                }
+            }, 100);
+
             // Switch to txt2img tab
             const txt2imgTab = document.querySelector('#tabs button:first-child');
             if (txt2imgTab) {
@@ -1240,6 +1561,8 @@
                 prompt: meta.prompt?.substring(0, 50) + '...',
                 checkpoint: checkpointPath,
                 vae: vaePath,
+                scheduler: scheduler,
+                hasHiresFix: !!hasHiresFix,
                 fullInfotext: infotext
             });
 
@@ -1525,10 +1848,153 @@
         }
     }
 
+    // Debounce helper
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+
+    // Handle window resize - recalculate pagination without reloading
+    const handleResize = debounce(() => {
+        if (totalModels === 0) return;  // No data loaded yet
+
+        const newPageSize = calculatePageSize();
+        if (recalculatePagination(newPageSize)) {
+            updatePaginationControls();
+            console.log(`[ModelManager] Resize: updated to page ${currentPage}/${totalPages}`);
+        }
+    }, 300);
+
+    // Scroll position restore functionality
+    function updateScrollRestoreButton() {
+        const savedPos = localStorage.getItem('mm_scroll_position');
+        let btn = document.getElementById('mm_scroll_restore_btn');
+
+        if (savedPos && parseInt(savedPos) > 0) {
+            // Create button if it doesn't exist
+            if (!btn) {
+                const buttonsGroup = document.querySelector('.filter-buttons-group');
+                if (buttonsGroup) {
+                    btn = document.createElement('button');
+                    btn.id = 'mm_scroll_restore_btn';
+                    btn.className = 'mm-btn secondary mm-scroll-restore-btn';
+                    btn.innerHTML = '↓ Previous Position';
+                    btn.title = 'Scroll to previous position. Right-click to clear.';
+                    btn.onclick = window.mmRestoreScrollPosition;
+                    btn.oncontextmenu = function(e) {
+                        e.preventDefault();
+                        localStorage.removeItem('mm_scroll_position');
+                        btn.style.display = 'none';
+                        console.log('[ModelManager] Cleared scroll position');
+                    };
+                    // Insert as first button
+                    buttonsGroup.insertBefore(btn, buttonsGroup.firstChild);
+                }
+            }
+            if (btn) {
+                btn.style.display = 'inline-flex';
+            }
+        } else {
+            if (btn) {
+                btn.style.display = 'none';
+            }
+        }
+    }
+
+    window.mmRestoreScrollPosition = function() {
+        const savedPos = localStorage.getItem('mm_scroll_position');
+        if (savedPos) {
+            const pos = parseInt(savedPos);
+            window.scrollTo({ top: pos, behavior: 'smooth' });
+            console.log('[ModelManager] Restored scroll position:', pos);
+        }
+    };
+
+    // Save/Load search filters functionality
+    function saveSearchFilters() {
+        const filters = {
+            search: document.getElementById('mm_search')?.value || '',
+            type: document.getElementById('mm_type')?.value || '',
+            base_model: document.getElementById('mm_base_model')?.value || '',
+            civitai: document.getElementById('mm_civitai')?.value || '',
+            sort_by: document.getElementById('mm_sort_by')?.value || 'name',
+            sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
+            nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
+            nsfw_levels: []
+        };
+
+        // Get NSFW level checkboxes
+        const nsfwCheckboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
+        nsfwCheckboxes.forEach(cb => {
+            if (cb.checked) filters.nsfw_levels.push(cb.value);
+        });
+
+        localStorage.setItem('mm_saved_filters', JSON.stringify(filters));
+        console.log('[ModelManager] Saved search filters:', filters);
+
+        // Update button to show saved state
+        const btn = document.getElementById('mm_save_search_btn');
+        if (btn) {
+            btn.textContent = '✓ Saved';
+            setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+        }
+    }
+
+    function loadSearchFilters() {
+        const saved = localStorage.getItem('mm_saved_filters');
+        if (!saved) return false;
+
+        try {
+            const filters = JSON.parse(saved);
+
+            if (filters.search) document.getElementById('mm_search').value = filters.search;
+            if (filters.type) document.getElementById('mm_type').value = filters.type;
+            if (filters.base_model) document.getElementById('mm_base_model').value = filters.base_model;
+            if (filters.civitai) document.getElementById('mm_civitai').value = filters.civitai;
+            if (filters.sort_by) document.getElementById('mm_sort_by').value = filters.sort_by;
+            if (filters.sort_order) document.getElementById('mm_sort_order').value = filters.sort_order;
+
+            // Set NSFW checkboxes
+            const useMaxCb = document.getElementById('mm_nsfw_use_max');
+            if (useMaxCb) useMaxCb.checked = filters.nsfw_use_max || false;
+
+            const nsfwCheckboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
+            nsfwCheckboxes.forEach(cb => {
+                cb.checked = filters.nsfw_levels?.includes(cb.value) || false;
+            });
+
+            // Update NSFW display
+            updateNsfwDisplay();
+
+            console.log('[ModelManager] Loaded saved filters:', filters);
+            return true;
+        } catch (e) {
+            console.error('[ModelManager] Error loading saved filters:', e);
+            return false;
+        }
+    }
+
+    function clearSearchFilters() {
+        localStorage.removeItem('mm_saved_filters');
+        console.log('[ModelManager] Cleared saved filters');
+
+        const btn = document.getElementById('mm_save_search_btn');
+        if (btn) {
+            btn.textContent = '✗ Cleared';
+            setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+        }
+    }
+
     // Initialize with retry logic for Gradio-rendered content
     function init() {
         console.log('[ModelManager] Initializing...');
         bindElements();
+
+        // Setup resize listener
+        window.addEventListener('resize', handleResize);
     }
 
     function bindElements() {
@@ -1611,6 +2077,20 @@
             });
         }
 
+        // Bind save search button
+        const saveSearchBtn = document.getElementById('mm_save_search_btn');
+        if (saveSearchBtn) {
+            saveSearchBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                saveSearchFilters();
+            });
+            saveSearchBtn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                clearSearchFilters();
+            });
+        }
+
         if (searchInput) {
             searchInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
@@ -1621,6 +2101,12 @@
         }
 
         console.log('[ModelManager] Ready - click handlers bound');
+
+        // Load saved filters if available
+        loadSearchFilters();
+
+        // Check for saved scroll position and show restore button
+        updateScrollRestoreButton();
 
         // Check for ongoing processes
         checkOngoingProcesses();

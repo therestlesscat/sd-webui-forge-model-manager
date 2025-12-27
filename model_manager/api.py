@@ -51,18 +51,29 @@ def setup_api(app: FastAPI):
             if page_size <= 0:
                 page_size = int(getattr(shared.opts, 'model_manager_page_size', 10))
 
-            # Map sort field names
-            sort_field_map = {
+            # Valid sort columns in DB
+            valid_sort_columns = {
+                "display_name", "file_name", "file_size", "file_modified",
+                "model_type", "base_model", "nsfw_level", "rating",
+                "download_count", "published_at"
+            }
+
+            # Map short aliases to DB columns
+            sort_aliases = {
                 "name": "display_name",
-                "file_name": "file_name",
                 "size": "file_size",
                 "date": "file_modified",
-                "rating": "rating",
                 "downloads": "download_count",
                 "type": "model_type",
-                "base_model": "base_model",
             }
-            db_sort_by = sort_field_map.get(sort_by, "display_name")
+
+            # Use alias if exists, otherwise use directly if valid, else default
+            if sort_by in sort_aliases:
+                db_sort_by = sort_aliases[sort_by]
+            elif sort_by in valid_sort_columns:
+                db_sort_by = sort_by
+            else:
+                db_sort_by = "display_name"
 
             # Calculate offset
             offset = (page - 1) * page_size
