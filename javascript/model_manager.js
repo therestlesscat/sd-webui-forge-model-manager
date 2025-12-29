@@ -11,6 +11,10 @@
     let selectedModelIndex = null;
     let isLoading = false;
 
+    // Version grouping state
+    let currentVersions = [];  // All versions for currently selected model
+    let selectedVersionIndex = 0;  // Currently selected version within the group
+
     // Pagination state
     let currentPage = 1;
     let totalPages = 1;
@@ -129,20 +133,23 @@
 
         let nsfwFilter = {};
         if (useMax && selectedLevels.length > 0) {
-            // Find the highest selected level and use it as max
-            let maxIndex = -1;
-            selectedLevels.forEach(level => {
-                const idx = NSFW_LEVEL_ORDER.indexOf(level);
-                if (idx > maxIndex) maxIndex = idx;
-            });
-            if (maxIndex >= 0) {
-                nsfwFilter.nsfw_max = NSFW_LEVEL_ORDER[maxIndex];
+            // Max mode: get highest selected level (NSFW_LEVEL_ORDER is pre-sorted)
+            const maxLevel = NSFW_LEVEL_ORDER.filter(level => selectedLevels.includes(level)).pop();
+            if (maxLevel) {
+                nsfwFilter.nsfw_levels = maxLevel;
+                nsfwFilter.nsfw_mode = 'max';
             }
-        } else {
+        } else if (selectedLevels.length > 0) {
+            // Contains mode: send all selected levels
             nsfwFilter.nsfw_levels = selectedLevels.join(',');
+            nsfwFilter.nsfw_mode = 'contains';
         }
 
-        console.log('[ModelManager] NSFW mode:', useMax ? 'max' : 'levels', 'selected:', selectedLevels);
+        console.log('[ModelManager] NSFW mode:', nsfwFilter.nsfw_mode, 'levels:', nsfwFilter.nsfw_levels);
+
+        // Handle is_bookmarked filter
+        const bookmarkedVal = document.getElementById('mm_is_bookmarked')?.value || '';
+        const bookmarkedFilter = bookmarkedVal === 'true' ? { is_bookmarked: true } : {};
 
         const filters = {
             search: document.getElementById('mm_search')?.value || '',
@@ -150,6 +157,8 @@
             base_model: document.getElementById('mm_base_model')?.value || '',
             ...nsfwFilter,
             has_civitai: document.getElementById('mm_civitai')?.value || '',
+            ...bookmarkedFilter,
+            min_versions: document.getElementById('mm_min_versions')?.value || '',
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
         };
@@ -318,9 +327,20 @@
 
         const name = escapeHtml(model.display_name || 'Unknown');
         const nameShort = name.length > 30 ? name.substring(0, 30) + '...' : name;
-        const nsfwClass = model.nsfw_level && model.nsfw_level !== 'PG' && model.nsfw_level !== 'Unknown'
-            ? `nsfw-${model.nsfw_level.toLowerCase().replace('-', '')}`
-            : '';
+
+        // NSFW class based on integer bitmask (1=PG, 2=PG-13, 4=R, 8=X, 16=XXX)
+        let nsfwClass = '';
+        const nsfwLevel = model.nsfw_level || 1;
+        if (nsfwLevel >= 16) {
+            nsfwClass = 'nsfw-xxx';
+        } else if (nsfwLevel >= 8) {
+            nsfwClass = 'nsfw-x';
+        } else if (nsfwLevel >= 4) {
+            nsfwClass = 'nsfw-r';
+        } else if (nsfwLevel >= 2) {
+            nsfwClass = 'nsfw-pg13';
+        }
+
         const civitaiClass = model.has_civitai_data ? 'has-civitai' : 'no-civitai';
 
         const baseModelBadge = model.base_model
@@ -335,17 +355,30 @@
             ? `<span title="Downloads">↓ ${formatNumber(model.download_count)}</span>`
             : '';
 
+        // Version count badge (only show if multiple local versions)
+        const versionCount = model.local_version_count || 1;
+        const versionsBadge = versionCount > 1
+            ? `<span class="badge versions-badge" title="${versionCount} local versions">v${versionCount}</span>`
+            : '';
+
+        // Bookmark indicator
+        const bookmarkIndicator = model.is_bookmarked
+            ? '<div class="mm-bookmark-indicator" title="Bookmarked">★</div>'
+            : '';
+
         return `
-            <div class="model-card ${civitaiClass} ${nsfwClass}" data-index="${index}" onclick="window.mmSelectModel(${index})">
+            <div class="model-card ${civitaiClass} ${nsfwClass}" data-index="${index}" data-model-id="${model.civitai_model_id || ''}" onclick="window.mmSelectModel(${index})">
                 <div class="model-card-image">
                     <img src="${hasPreview ? previewSrc : placeholderSvg}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">
                     ${!model.has_civitai_data ? '<div class="no-data-overlay">No Civitai Data</div>' : ''}
+                    ${bookmarkIndicator}
                 </div>
                 <div class="model-card-info">
                     <div class="model-card-name" title="${name}">${nameShort}</div>
                     <div class="model-card-meta">
                         <span class="badge type-badge">${model.model_type || 'Unknown'}</span>
                         ${baseModelBadge}
+                        ${versionsBadge}
                     </div>
                     <div class="model-card-stats">
                         <span>${formatFileSize(model.file_size)}</span>
@@ -448,17 +481,43 @@
         imageTotalCount = 0;
         hasMoreImages = false;
 
+        // Reset version state
+        currentVersions = [];
+        selectedVersionIndex = 0;
+
         // Highlight selected card
         document.querySelectorAll('.model-card').forEach(card => card.classList.remove('selected'));
         const selectedCard = document.querySelector(`.model-card[data-index="${index}"]`);
         if (selectedCard) selectedCard.classList.add('selected');
 
-        // Show basic details immediately
+        // If model has multiple versions, fetch them
+        const hasMultipleVersions = model.model_id && (model.local_version_count || 1) > 1;
+        if (hasMultipleVersions) {
+            try {
+                const versionsData = await apiCall('/model-manager/models/versions', { model_id: model.model_id });
+                if (versionsData.success && versionsData.versions) {
+                    currentVersions = versionsData.versions;
+                    // Find current version in list (it should be there since it's the latest)
+                    selectedVersionIndex = currentVersions.findIndex(v => v.file_path === model.file_path);
+                    if (selectedVersionIndex < 0) selectedVersionIndex = 0;
+                    console.log(`[ModelManager] Loaded ${currentVersions.length} versions for model ${model.model_id}`);
+                }
+            } catch (error) {
+                console.error('[ModelManager] Failed to load versions:', error);
+            }
+        }
+
+        // Show basic details immediately (with version selector if applicable)
         renderModelDetails(model);
 
-        // Fetch full details including images
+        // Load full details for the selected version
+        await loadVersionDetails(model.file_path);
+    };
+
+    // Load details for a specific version
+    async function loadVersionDetails(filePath) {
         try {
-            const data = await apiCall('/model-manager/models/details', { path: model.file_path });
+            const data = await apiCall('/model-manager/models/details', { path: filePath });
             if (data.success && data.model) {
                 // Store version ID for load-more
                 if (data.model.civitai_version) {
@@ -495,15 +554,113 @@
         } catch (error) {
             console.error('[ModelManager] Failed to load model details:', error);
         }
+    }
+
+    // Switch to a different version within the same model group
+    window.mmSelectVersion = async function(versionIndex) {
+        if (versionIndex < 0 || versionIndex >= currentVersions.length) return;
+        if (versionIndex === selectedVersionIndex) return;
+
+        selectedVersionIndex = versionIndex;
+        const version = currentVersions[versionIndex];
+        currentModelPath = version.file_path;
+
+        // Reset image state
+        currentImages = [];
+        currentVersionId = null;
+        imageTotalCount = 0;
+        hasMoreImages = false;
+
+        // Update version selector UI
+        updateVersionSelectorUI();
+
+        // Update version-specific info in details panel
+        updateVersionInfo(version);
+
+        // Load details for new version
+        await loadVersionDetails(version.file_path);
     };
 
-    // Format NSFW level to show all levels up to and including current
+    // Update version selector pills UI
+    function updateVersionSelectorUI() {
+        document.querySelectorAll('.mm-version-pill').forEach((pill, idx) => {
+            if (idx === selectedVersionIndex) {
+                pill.classList.add('active');
+            } else {
+                pill.classList.remove('active');
+            }
+        });
+    }
+
+    // Update version-specific info in details panel
+    function updateVersionInfo(version) {
+        // Update file path
+        const pathCell = document.querySelector('.file-path-cell');
+        if (pathCell) {
+            pathCell.textContent = shortenFilePath(version.file_path);
+        }
+
+        // Update file size, modified date, published date
+        document.querySelectorAll('.detail-table tr').forEach(row => {
+            const label = row.querySelector('td:first-child');
+            const value = row.querySelector('td:last-child');
+            if (!label || !value) return;
+
+            if (label.textContent === 'File Size') {
+                value.textContent = formatFileSize(version.file_size);
+            } else if (label.textContent === 'Modified') {
+                value.textContent = formatDate(version.file_modified);
+            } else if (label.textContent === 'Published' && version.published_at) {
+                value.textContent = formatDate(version.published_at);
+            }
+        });
+
+        // Update trigger words if different
+        const triggerSection = document.querySelector('.trigger-words');
+        if (triggerSection && version.trained_words && version.trained_words.length > 0) {
+            triggerSection.innerHTML = version.trained_words.map(w =>
+                `<span class="trigger-word" onclick="navigator.clipboard.writeText('${escapeHtml(w)}')">${escapeHtml(w)}</span>`
+            ).join('');
+        }
+    }
+
+    // NSFW level bitmask to string mapping
+    const NSFW_LEVEL_BITS = {
+        1: 'PG',
+        2: 'PG-13',
+        4: 'R',
+        8: 'X',
+        16: 'XXX',
+        32: 'Blocked',
+        64: 'Unknown'
+    };
+
+    // Format NSFW level (now an integer bitmask) - returns highest set bit only
     function formatNsfwLevels(level) {
-        if (!level || level === 'Unknown') return 'Unknown';
-        const allLevels = ['PG', 'PG-13', 'R', 'X', 'XXX'];
-        const idx = allLevels.indexOf(level);
-        if (idx < 0) return level;
-        return allLevels.slice(0, idx + 1).join(', ');
+        if (!level || typeof level !== 'number') return 'Unknown';
+
+        // Find highest set bit
+        const bitOrder = [64, 32, 16, 8, 4, 2, 1];
+        for (const bit of bitOrder) {
+            if (level & bit) {
+                return NSFW_LEVEL_BITS[bit] || 'Unknown';
+            }
+        }
+        return 'Unknown';
+    }
+
+    // Expand NSFW level bitmask to comma-separated labels (e.g., 5 -> "PG, R")
+    function expandNsfwLevel(level) {
+        if (!level || typeof level !== 'number') return 'Unknown';
+
+        const labels = [];
+        const bitOrder = [1, 2, 4, 8, 16, 32, 64];  // Low to high
+        for (const bit of bitOrder) {
+            if (level & bit) {
+                labels.push(NSFW_LEVEL_BITS[bit]);
+            }
+        }
+        return labels.length > 0 ? labels.join(', ') : 'Unknown';
     }
 
     // Shorten file path - remove everything before \models or /models
@@ -511,6 +668,32 @@
         if (!path) return '';
         const match = path.match(/[\\\/]models[\\\/].*/i);
         return match ? match[0] : path;
+    }
+
+    // Render version selector pills
+    function renderVersionSelector() {
+        if (currentVersions.length <= 1) return '';
+
+        const pills = currentVersions.map((version, index) => {
+            const activeClass = index === selectedVersionIndex ? 'active' : '';
+            const versionName = version.version_name || `v${index + 1}`;
+            const fileName = version.file_name ? version.file_name.replace(/\.(safetensors|ckpt|pt|pth|bin)$/i, '') : '';
+            const displayName = version.version_name ? versionName : fileName;
+            const tooltip = `${versionName}\n${version.file_name}\n${formatFileSize(version.file_size)}`;
+
+            return `<button class="mm-version-pill ${activeClass}"
+                           onclick="window.mmSelectVersion(${index})"
+                           title="${escapeHtml(tooltip)}">${escapeHtml(displayName)}</button>`;
+        }).join('');
+
+        return `
+            <div class="detail-section mm-version-selector">
+                <h4>Local Versions (${currentVersions.length})</h4>
+                <div class="mm-version-pills">
+                    ${pills}
+                </div>
+            </div>
+        `;
     }
 
     // Render model details panel
@@ -536,8 +719,10 @@
                </div>`
             : '';
 
-        const civitaiLink = model.civitai_model_id
-            ? `<a class="action-btn secondary" href="https://civitai.com/models/${model.civitai_model_id}" target="_blank">View on Civitai</a>`
+        // Use model_id for Civitai link (the parent model ID)
+        const modelId = model.model_id || model.civitai_model_id;
+        const civitaiLink = modelId
+            ? `<a class="action-btn secondary" href="https://civitai.com/models/${modelId}" target="_blank">View on Civitai</a>`
             : '';
 
         // Get description from full details if available
@@ -549,19 +734,36 @@
                </div>`
             : '<div class="detail-section" id="mm_description_placeholder"></div>';
 
+        // Version selector (only if multiple versions)
+        const versionSelectorHtml = renderVersionSelector();
+
+        // Bookmark button (only for models with Civitai data)
+        const isBookmarked = model.is_bookmarked || false;
+        const bookmarkBtn = modelId
+            ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${modelId})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
+            : '';
+
         container.innerHTML = `
             <div class="model-details-content">
                 <div class="detail-header">
                     <h3>${escapeHtml(model.display_name)}</h3>
+                    ${bookmarkBtn}
+                    ${modelId ? `<button class="mm-sync-model-btn" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
                     <button class="close-details" onclick="window.mmCloseDetails()">×</button>
                 </div>
+
+                ${versionSelectorHtml}
 
                 <div class="detail-section">
                     <h4>Information</h4>
                     <table class="detail-table">
+                        ${modelId ? `<tr><td>Model ID</td><td>${modelId}</td></tr>` : ''}
+                        ${model.id ? `<tr><td>Version ID</td><td>${model.id}</td></tr>` : ''}
                         <tr><td>Type</td><td>${model.model_type || 'Unknown'}</td></tr>
                         <tr><td>Base Model</td><td>${model.base_model || 'Unknown'}</td></tr>
-                        <tr><td>NSFW Level</td><td>${formatNsfwLevels(model.nsfw_level)}</td></tr>
+                        <tr><td rowspan="3" class="nsfw-label-cell">NSFW Level</td><td>Model: ${expandNsfwLevel(model.civitai_model?.nsfw_level)}</td></tr>
+                        <tr><td>Version: ${expandNsfwLevel(model.nsfw_level)}</td></tr>
+                        <tr><td>Highest Image: ${expandNsfwLevel(model.max_image_nsfw)}</td></tr>
                         <tr><td>File Size</td><td>${formatFileSize(model.file_size)}</td></tr>
                         <tr><td>Modified</td><td>${formatDate(model.file_modified)}</td></tr>
                         ${model.published_at ? `<tr><td>Published</td><td>${formatDate(model.published_at)}</td></tr>` : ''}
@@ -577,6 +779,7 @@
 
                 <div class="detail-section detail-actions">
                     ${civitaiLink}
+                    <button class="action-btn secondary" onclick="window.mmResyncImages()">Resync Images</button>
                     <button class="action-btn danger" onclick="window.mmDeleteModel()">Delete Model</button>
                 </div>
             </div>
@@ -626,6 +829,179 @@
                 content.classList.add('collapsed');
                 toggle.textContent = 'Show more';
             }
+        }
+    };
+
+    // Resync images for current version
+    window.mmResyncImages = async function() {
+        if (!currentVersionId) {
+            setStatus('No version selected or version has no Civitai data', true);
+            return;
+        }
+
+        try {
+            setStatus('Resyncing images...');
+
+            const response = await fetch('/model-manager/images/resync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `version_id=${currentVersionId}`
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                setStatus(`Resynced ${data.fetched_count} images (${data.total_count} total available)`);
+                // Update images display
+                currentImages = data.images || [];
+                imageTotalCount = data.total_count || 0;
+                hasMoreImages = data.fetched_count < data.total_count;
+                renderModelImages(currentImages);
+            } else {
+                setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
+            }
+        } catch (error) {
+            console.error('[ModelManager] Resync error:', error);
+            setStatus('Resync error: ' + error.message, true);
+        }
+    };
+
+    // Show sync loading overlay
+    function showSyncOverlay(message) {
+        // Remove existing overlay if any
+        hideSyncOverlay();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'mm-sync-overlay';
+        overlay.id = 'mm_sync_overlay';
+        overlay.innerHTML = `
+            <div class="mm-sync-popup">
+                <div class="mm-sync-spinner"></div>
+                <div class="mm-sync-status">${escapeHtml(message)}</div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        document.body.style.overflow = 'hidden';
+    }
+
+    function updateSyncOverlay(message) {
+        const status = document.querySelector('#mm_sync_overlay .mm-sync-status');
+        if (status) {
+            status.textContent = message;
+        }
+    }
+
+    function hideSyncOverlay() {
+        const overlay = document.getElementById('mm_sync_overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        document.body.style.overflow = '';
+    }
+
+    // Force sync model and all versions
+    window.mmForceSyncModel = async function() {
+        const model = currentModels[selectedModelIndex];
+        if (!model) {
+            setStatus('No model selected', true);
+            return;
+        }
+
+        const modelId = model.model_id || model.civitai_model_id;
+        if (!modelId) {
+            setStatus('Model has no Civitai ID - cannot sync', true);
+            return;
+        }
+
+        try {
+            showSyncOverlay('Syncing model data...');
+
+            const response = await fetch('/model-manager/models/force-sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `model_id=${modelId}`
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const synced = data.synced_count || 0;
+                const total = data.total_versions || 0;
+                setStatus(`Synced ${synced}/${total} versions successfully`);
+                // Reload the current model to show updated data
+                if (selectedModelIndex >= 0) {
+                    window.mmSelectModel(selectedModelIndex);
+                }
+            } else {
+                setStatus('Sync failed: ' + (data.error || 'Unknown error'), true);
+            }
+        } catch (error) {
+            console.error('[ModelManager] Force sync error:', error);
+            setStatus('Force sync error: ' + error.message, true);
+        } finally {
+            hideSyncOverlay();
+        }
+    };
+
+    // Toggle bookmark status for a model
+    window.mmToggleBookmark = async function(modelId) {
+        if (!modelId) {
+            setStatus('Cannot bookmark: No Civitai model ID', true);
+            return;
+        }
+
+        const model = currentModels[selectedModelIndex];
+        if (!model) return;
+
+        const currentState = model.is_bookmarked || false;
+        const newState = !currentState;
+
+        try {
+            const response = await fetch('/model-manager/bookmark', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `model_id=${modelId}&bookmarked=${newState}`
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Update model in memory
+                model.is_bookmarked = newState;
+
+                // Update bookmark button in details panel
+                const bookmarkBtn = document.querySelector('.mm-bookmark-btn');
+                if (bookmarkBtn) {
+                    bookmarkBtn.classList.toggle('bookmarked', newState);
+                    bookmarkBtn.textContent = newState ? '★' : '☆';
+                    bookmarkBtn.title = newState ? 'Remove bookmark' : 'Bookmark this model';
+                }
+
+                // Update card indicator
+                const card = document.querySelector(`.model-card[data-model-id="${modelId}"]`);
+                if (card) {
+                    let indicator = card.querySelector('.mm-bookmark-indicator');
+                    if (newState && !indicator) {
+                        const imageDiv = card.querySelector('.model-card-image');
+                        if (imageDiv) {
+                            indicator = document.createElement('div');
+                            indicator.className = 'mm-bookmark-indicator';
+                            indicator.title = 'Bookmarked';
+                            indicator.textContent = '★';
+                            imageDiv.appendChild(indicator);
+                        }
+                    } else if (!newState && indicator) {
+                        indicator.remove();
+                    }
+                }
+
+                setStatus(newState ? 'Model bookmarked' : 'Bookmark removed');
+            } else {
+                setStatus('Bookmark failed: ' + (data.error || 'Unknown error'), true);
+            }
+        } catch (error) {
+            console.error('[ModelManager] Bookmark error:', error);
+            setStatus('Bookmark error: ' + error.message, true);
         }
     };
 
@@ -766,6 +1142,14 @@
         if (meta['ADetailer denoising strength']) adetailerParams.push(`Denoise: ${meta['ADetailer denoising strength']}`);
         if (meta['ADetailer inpaint only masked']) adetailerParams.push(`Inpaint masked: ${meta['ADetailer inpaint only masked']}`);
 
+        // Image ID
+        const imageIdHtml = img.id
+            ? `<div class="mm-image-id">
+                 <span class="mm-resources-label">Image ID:</span>
+                 <span>${img.id}</span>
+               </div>`
+            : '';
+
         // Resources (LoRAs, etc)
         const resourcesHtml = resources.length > 0
             ? `<div class="mm-image-resources">
@@ -822,6 +1206,7 @@
                     ${nsfwClass ? `<span class="mm-nsfw-badge">${nsfwLevel}</span>` : ''}
                 </div>
                 <div class="mm-image-right">
+                    ${imageIdHtml}
                     ${resourcesHtml}
                     ${promptHtml}
                     ${negPromptHtml}
@@ -839,7 +1224,7 @@
                             Show All
                         </button>
                         ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${img.id}" target="_blank">View on Civitai</a>` : ''}
-                        ${civitaiResources.length > 0 ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${civitaiResources.length})</button>` : ''}
+                        ${(civitaiResources.length > 0 || resources.length > 0) ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${civitaiResources.length + resources.length})</button>` : ''}
                     </div>
                 </div>
             </div>
@@ -955,15 +1340,17 @@
         }
     };
 
-    // Show civitaiResources popup with download options
+    // Show resources popup with download options (both civitaiResources and resources)
     window.mmShowResources = function(imageIndex) {
         const img = currentImages[imageIndex];
         if (!img || !img.meta) return;
 
         const civitaiResources = img.meta.civitaiResources || [];
-        if (civitaiResources.length === 0) return;
+        const resources = img.meta.resources || [];
 
-        // Build table rows
+        if (civitaiResources.length === 0 && resources.length === 0) return;
+
+        // Build table rows for civitaiResources (have versionId)
         let tableRows = '';
         for (const resource of civitaiResources) {
             const type = resource.type || 'Unknown';
@@ -987,12 +1374,32 @@
             `;
         }
 
+        // Build table rows for resources (have hash only, need lookup)
+        for (const resource of resources) {
+            const type = resource.type || 'Unknown';
+            const name = resource.name || 'Unknown';
+            const hash = resource.hash || '';
+
+            // Create a unique row ID for updating after lookup
+            const rowId = `mm-res-${hash || Math.random().toString(36).substr(2, 9)}`;
+
+            tableRows += `
+                <tr id="${rowId}" data-hash="${escapeHtml(hash)}">
+                    <td class="mm-res-type">${escapeHtml(type)}</td>
+                    <td class="mm-res-name">${escapeHtml(name)}</td>
+                    <td class="mm-res-actions">
+                        ${hash ? `<button class="mm-btn secondary mm-btn-small" onclick="window.mmLookupHash('${escapeHtml(hash)}', '${rowId}')">Lookup</button>` : '<span class="mm-res-no-hash">No hash</span>'}
+                    </td>
+                </tr>
+            `;
+        }
+
         // Create modal
         const modalHtml = `
             <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
                 <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
                     <div class="mm-modal-header">
-                        <h3>Civitai Resources</h3>
+                        <h3>Resources</h3>
                         <button class="mm-modal-close" onclick="window.mmCloseMetaModal()">&times;</button>
                     </div>
                     <div class="mm-modal-body">
@@ -1022,6 +1429,44 @@
         document.body.classList.add('mm-modal-open');
     };
 
+    // Lookup hash to get Civitai version info
+    window.mmLookupHash = async function(hash, rowId) {
+        const row = document.getElementById(rowId);
+        if (!row) return;
+
+        const actionsCell = row.querySelector('.mm-res-actions');
+        if (!actionsCell) return;
+
+        // Show loading state
+        actionsCell.innerHTML = '<span class="mm-res-loading">Looking up...</span>';
+
+        try {
+            const response = await fetch(`/model-manager/resolve-hash?hash=${encodeURIComponent(hash)}`);
+            const data = await response.json();
+
+            if (data.success && data.version_id) {
+                // Update with View/Download buttons
+                actionsCell.innerHTML = `
+                    <a class="mm-btn secondary mm-btn-small" href="${data.view_url}" target="_blank">View</a>
+                    <a class="mm-btn primary mm-btn-small" href="${data.download_url}" target="_blank">Download</a>
+                `;
+                // Update name if we got a better one from Civitai
+                if (data.model_name) {
+                    const nameCell = row.querySelector('.mm-res-name');
+                    if (nameCell) {
+                        const versionSuffix = data.version_name ? ` (${data.version_name})` : '';
+                        nameCell.textContent = data.model_name + versionSuffix;
+                    }
+                }
+            } else {
+                actionsCell.innerHTML = '<span class="mm-res-not-found">Not found</span>';
+            }
+        } catch (error) {
+            console.error('[ModelManager] Hash lookup error:', error);
+            actionsCell.innerHTML = '<span class="mm-res-error">Error</span>';
+        }
+    };
+
     // Close modal on Escape key
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
@@ -1031,7 +1476,7 @@
 
     // Load more images
     window.mmLoadMoreImages = async function() {
-        if (isLoadingMore || !currentModelPath) return;
+        if (isLoadingMore || !currentVersionId) return;
 
         isLoadingMore = true;
         const loadMoreBtn = document.getElementById('mm_load_more_btn');
@@ -1044,7 +1489,7 @@
             const response = await fetch('/model-manager/images/load-more', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `model_path=${encodeURIComponent(currentModelPath)}`
+                body: `version_id=${currentVersionId}`
             });
 
             const data = await response.json();
@@ -1920,6 +2365,8 @@
             type: document.getElementById('mm_type')?.value || '',
             base_model: document.getElementById('mm_base_model')?.value || '',
             civitai: document.getElementById('mm_civitai')?.value || '',
+            is_bookmarked: document.getElementById('mm_is_bookmarked')?.value || '',
+            min_versions: document.getElementById('mm_min_versions')?.value || '',
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
             nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
@@ -1954,6 +2401,8 @@
             if (filters.type) document.getElementById('mm_type').value = filters.type;
             if (filters.base_model) document.getElementById('mm_base_model').value = filters.base_model;
             if (filters.civitai) document.getElementById('mm_civitai').value = filters.civitai;
+            if (filters.is_bookmarked) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
+            if (filters.min_versions) document.getElementById('mm_min_versions').value = filters.min_versions;
             if (filters.sort_by) document.getElementById('mm_sort_by').value = filters.sort_by;
             if (filters.sort_order) document.getElementById('mm_sort_order').value = filters.sort_order;
 

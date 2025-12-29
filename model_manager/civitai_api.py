@@ -296,7 +296,8 @@ class CivitaiClient:
         params = {
             "modelVersionId": version_id,
             "limit": min(limit, 200),
-            "page": page
+            "page": page,
+            "nsfw": "X"  # Include all NSFW levels up to X
         }
 
         try:

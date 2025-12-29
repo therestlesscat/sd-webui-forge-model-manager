@@ -2,6 +2,14 @@
 
 A model management extension for Stable Diffusion WebUI Forge that provides browsing, filtering, and organization of local models using Civitai metadata.
 
+## Claude's Role
+
+You are assisting with development of this extension. Your responsibilities:
+- Implement features as requested by the operator
+- Debug issues when provided with error messages or unexpected behavior
+- Explain code and architecture when asked
+- Suggest improvements only when explicitly asked
+
 ## Critical Claude Tooling Instructions
 
 **IMPORTANT: These instructions address known tool behavior issues that MUST be followed to avoid failures.**
@@ -82,10 +90,11 @@ Model NSFW = max(model.nsfw, version.nsfw, max(images[].nsfw))
 - Honor the current folder structure
 - Commit frequently at logical checkpoints
 - Never create workflow-specific modules - keep everything generic
+- **Never hallucinate imports or function names** - always verify what functions/classes actually exist in a module by reading the file before writing import statements
 
 ## Backlog (Future Features)
 
-- Favorites/Bookmarks - mark frequently used models
+- Local-only Model Entries - ensure all model versions have a corresponding civitai_models entry (even without Civitai data) so they can be bookmarked
 - Usage History - track recently used, sort by usage
 - Groups/Collections - manual grouping
 - Inter-extension with Task Scheduler - submit tasks for model groups

@@ -111,7 +111,7 @@ def create_ui():
                                     <label class="mm-multiselect-item"><input type="checkbox" value="XXX"> XXX</label>
                                     <label class="mm-multiselect-item"><input type="checkbox" value="Unknown"> Unknown</label>
                                     <div class="mm-multiselect-divider"></div>
-                                    <label class="mm-multiselect-item"><input type="checkbox" id="mm_nsfw_use_max"> Use max level</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" id="mm_nsfw_use_max" checked> Use max level</label>
                                 </div>
                             </div>
                         </div>
@@ -124,6 +124,17 @@ def create_ui():
                                 <option value="Yes">Yes</option>
                                 <option value="No">No</option>
                             </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Bookmarked</label>
+                            <select id="mm_is_bookmarked">
+                                <option value="">All</option>
+                                <option value="true">Yes</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>Min Versions</label>
+                            <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">
                         </div>
                         <div class="filter-group">
                             <label>Sort By</label>
