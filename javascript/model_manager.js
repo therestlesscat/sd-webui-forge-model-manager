@@ -119,7 +119,7 @@
     }
 
     // NSFW level order for "use max" mode
-    const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Unknown'];
+    const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
 
     // Get current filter values
     function getFilters() {
