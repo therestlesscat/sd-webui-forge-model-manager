@@ -102,12 +102,17 @@ class ModelsOps:
     def upsert_version(self, version_data: Dict[str, Any]):
         """Insert or update a model version record."""
         with self._cursor() as cursor:
+            # Handle file_hashes - can be dict or already JSON string
+            file_hashes = version_data.get("file_hashes")
+            if isinstance(file_hashes, dict):
+                file_hashes = json.dumps(file_hashes)
+
             cursor.execute("""
                 INSERT OR REPLACE INTO model_versions (
                     id, model_id, version_name, base_model, published_at, created_at,
                     nsfw_level, trained_words, description,
                     stats_download_count, stats_thumbs_up,
-                    file_path, file_name, file_size, file_hash, file_modified, file_extension,
+                    file_path, file_name, file_size, file_hashes, file_modified, file_extension,
                     preview_path, preview_url, has_civitai_data, scanned_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -125,7 +130,7 @@ class ModelsOps:
                 version_data.get("file_path"),
                 version_data.get("file_name"),
                 version_data.get("file_size"),
-                version_data.get("file_hash"),
+                file_hashes,
                 version_data.get("file_modified"),
                 version_data.get("file_extension"),
                 version_data.get("preview_path"),
@@ -158,6 +163,15 @@ class ModelsOps:
             """, (model_id,))
             rows = cursor.fetchall()
             return [self._version_row_to_dict(row) for row in rows]
+
+    def get_version_by_id(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """Get a version by its Civitai version ID (the 'id' column)."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT * FROM model_versions WHERE id = ?", (version_id,))
+            row = cursor.fetchone()
+            if row:
+                return self._version_row_to_dict(row)
+        return None
 
     def get_local_version_count(self, model_id: int) -> int:
         """Get count of local versions for a model."""
@@ -476,13 +490,15 @@ class ModelsOps:
             "file_path": row["file_path"],
             "file_name": row["file_name"],
             "file_size": row["file_size"],
-            "file_hash": row["file_hash"],
+            "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else None,
             "file_modified": row["file_modified"],
             "file_extension": row["file_extension"],
             "preview_path": row["preview_path"],
             "preview_url": row["preview_url"],
             "has_civitai_data": bool(row["has_civitai_data"]),
             "scanned_at": row["scanned_at"],
+            "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
+            "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
         }
 
     def _grouped_row_to_dict(self, row) -> Dict[str, Any]:
@@ -502,13 +518,15 @@ class ModelsOps:
             "file_path": row["file_path"],
             "file_name": row["file_name"],
             "file_size": row["file_size"],
-            "file_hash": row["file_hash"],
+            "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else None,
             "file_modified": row["file_modified"],
             "file_extension": row["file_extension"],
             "preview_path": row["preview_path"],
             "preview_url": row["preview_url"],
             "has_civitai_data": bool(row["has_civitai_data"]),
             "scanned_at": row["scanned_at"],
+            "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
+            "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
             "local_version_count": row["local_version_count"],
             "max_image_nsfw": row["max_image_nsfw"],
             "is_bookmarked": bool(row["cm_is_bookmarked"]) if row["cm_is_bookmarked"] else False,

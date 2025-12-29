@@ -231,22 +231,21 @@ def setup_api(app: FastAPI):
                         "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
                     }
 
-            # Get images from database
+            # Get images and cursor state from database
             if version_id:
                 db = get_models_db()
                 images = db.get_all_images_for_version(version_id)
-                pagination = db.get_pagination_state(version_id)
+                version_record = db.get_version_by_id(version_id)
 
                 if images:
                     result["images"] = images  # Raw image data from cache
 
-                if pagination:
-                    result["images_pagination"] = {
-                        "total_count": pagination.get("total_count", 0),
-                        "total_pages": pagination.get("total_pages", 1),
-                        "fetched_pages": pagination.get("fetched_pages", 1),
-                        "version_id": version_id,
-                    }
+                # Return cursor state for button visibility
+                result["images_state"] = {
+                    "version_id": version_id,
+                    "next_cursor": version_record.get("next_images_cursor") if version_record else None,
+                    "sync_date": version_record.get("images_sync_last_date") if version_record else None,
+                }
 
             return JSONResponse({"success": True, "model": result})
 
@@ -293,13 +292,15 @@ def setup_api(app: FastAPI):
     @app.post("/model-manager/images/resync")
     async def resync_images(version_id: int = Form(default=0)):
         """
-        Clear and re-fetch images for a version.
+        Clear and re-fetch images for a version using cursor pagination.
+
+        Deletes all existing images and fetches fresh first batch (100 images).
 
         Args:
             version_id: Civitai version ID.
 
         Returns:
-            New images and count.
+            New images and cursor state.
         """
         try:
             if not version_id:
@@ -310,34 +311,35 @@ def setup_api(app: FastAPI):
 
             from .civitai_api import CivitaiClient
 
-            # Clear existing images for this version
             db = get_models_db()
+
+            # Clear existing images for this version
             db.clear_version_images(version_id)
 
-            # Fetch fresh images from Civitai
+            # Fetch fresh images from Civitai (first batch, no cursor)
             client = CivitaiClient.from_settings()
-            images_result = client.get_model_images(version_id, limit=200, page=1)
+            try:
+                result = client.get_model_images(version_id, cursor=None, limit=100)
+            finally:
+                client.close()
 
-            images = images_result.get("images", [])
-            total_count = images_result.get("total_count", len(images))
-            total_pages = images_result.get("total_pages", 1)
+            images = result.get("images", [])
+            next_cursor = result.get("next_cursor")
 
             # Store in database
             if images:
                 db.store_images(version_id, page=1, images=images)
-                db.update_pagination_state(
-                    version_id=version_id,
-                    total_count=total_count,
-                    total_pages=total_pages,
-                    fetched_pages=1
-                )
 
-            print(f"[ModelManager] Resynced {len(images)} images for version {version_id}")
+            # Update cursor and sync date
+            db.update_version_images_state(version_id, next_cursor)
+
+            print(f"[ModelManager] Resynced {len(images)} images for version {version_id} "
+                  f"(has_more: {next_cursor is not None})")
 
             return JSONResponse({
                 "success": True,
                 "images": images,
-                "total_count": total_count,
+                "next_cursor": next_cursor,
                 "fetched_count": len(images)
             })
 
@@ -355,13 +357,13 @@ def setup_api(app: FastAPI):
         version_id: int = Form(default=0)
     ):
         """
-        Load more images for a model from Civitai using page-based pagination.
+        Download more images for a model from Civitai using cursor pagination.
 
         Args:
             version_id: Civitai version ID.
 
         Returns:
-            New images and pagination state.
+            New images and updated cursor state.
         """
         try:
             if not version_id:
@@ -370,73 +372,61 @@ def setup_api(app: FastAPI):
                     status_code=400
                 )
 
-            # Get current pagination state from database
             db = get_models_db()
-            pagination = db.get_pagination_state(version_id)
 
-            if not pagination:
-                return JSONResponse({
-                    "success": False,
-                    "error": "No pagination data found. Please sync the model first."
-                }, status_code=404)
+            # Get version record to get stored cursor
+            version = db.get_version_by_id(version_id)
+            if not version:
+                return JSONResponse(
+                    {"success": False, "error": "Version not found"},
+                    status_code=404
+                )
 
-            fetched_pages = pagination.get("fetched_pages", 1)
-            total_pages = pagination.get("total_pages", 1)
+            cursor = version.get("next_images_cursor")
 
-            # Check if there are more pages
-            if fetched_pages >= total_pages:
-                return JSONResponse({
-                    "success": True,
-                    "images": [],
-                    "has_more": False,
-                    "message": "No more images available"
-                })
-
-            # Fetch next page from Civitai
-            next_page = fetched_pages + 1
+            # Fetch images using cursor (100 per batch)
             client = CivitaiClient.from_settings()
             try:
                 result = client.get_model_images(
                     version_id=version_id,
-                    limit=200,
-                    page=next_page
+                    cursor=cursor,
+                    limit=100
                 )
             finally:
                 client.close()
 
             new_images = result.get("images", [])
-            total_count = result.get("total_count", 0)
-            total_pages = result.get("total_pages", 1)
+            next_cursor = result.get("next_cursor")
 
             if not new_images:
+                # No images returned, mark as fully loaded
+                db.update_version_images_state(version_id, None)
                 return JSONResponse({
                     "success": True,
                     "images": [],
-                    "has_more": False,
+                    "next_cursor": None,
                     "message": "No more images available"
                 })
 
+            # Calculate page number for storage (based on current image count)
+            current_images = db.get_all_images_for_version(version_id)
+            current_count = len(current_images)
+            page_number = (current_count // 100) + 1
+
             # Store images in database
-            db.store_images(version_id, next_page, new_images)
+            db.store_images(version_id, page_number, new_images)
 
-            # Update pagination state
-            db.update_pagination_state(
-                version_id=version_id,
-                total_count=total_count,
-                total_pages=total_pages,
-                fetched_pages=next_page
-            )
+            # Update cursor and sync date
+            db.update_version_images_state(version_id, next_cursor)
 
-            print(f"[ModelManager] Loaded {len(new_images)} more images for version {version_id} "
-                  f"(page {next_page}/{total_pages})")
+            print(f"[ModelManager] Downloaded {len(new_images)} more images for version {version_id} "
+                  f"(total stored: {current_count + len(new_images)}, has_more: {next_cursor is not None})")
 
             return JSONResponse({
                 "success": True,
                 "images": new_images,
-                "page": next_page,
-                "total_pages": total_pages,
-                "total_count": total_count,
-                "has_more": next_page < total_pages
+                "next_cursor": next_cursor,
+                "downloaded_count": len(new_images)
             })
 
         except Exception as e:
@@ -457,18 +447,22 @@ def setup_api(app: FastAPI):
             version_id: Civitai version ID.
 
         Returns:
-            All cached images and pagination state.
+            All cached images and cursor state.
         """
         try:
             db = get_models_db()
 
             images = db.get_all_images_for_version(version_id)
-            pagination = db.get_pagination_state(version_id)
+            version_record = db.get_version_by_id(version_id)
 
             return JSONResponse({
                 "success": True,
                 "images": images,
-                "pagination": pagination
+                "images_state": {
+                    "version_id": version_id,
+                    "next_cursor": version_record.get("next_images_cursor") if version_record else None,
+                    "sync_date": version_record.get("images_sync_last_date") if version_record else None,
+                }
             })
 
         except Exception as e:

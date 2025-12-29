@@ -279,44 +279,43 @@ class CivitaiClient:
     def get_model_images(
         self,
         version_id: int,
-        limit: int = 200,
-        page: int = 1
+        cursor: str = None,
+        limit: int = 100
     ) -> Dict[str, Any]:
         """
-        Get images for a model version (single page).
+        Get images for a model version using cursor-based pagination.
 
         Args:
             version_id: Civitai model version ID.
-            limit: Results per page (max 200).
-            page: Page number (1-based).
+            cursor: Cursor for pagination (from previous response's nextCursor).
+            limit: Results per page (max 100 for cursor to work).
 
         Returns:
-            Dict with 'images', 'total_count', 'current_page', 'total_pages'.
+            Dict with 'images' and 'next_cursor' (None if no more pages).
         """
         params = {
             "modelVersionId": version_id,
-            "limit": min(limit, 200),
-            "page": page,
+            "limit": min(limit, 100),  # Use 100 to ensure cursor is returned
             "nsfw": "X"  # Include all NSFW levels up to X
         }
+
+        if cursor:
+            params["cursor"] = cursor
 
         try:
             data = self._request("GET", "/images", params)
         except CivitaiNotFoundError:
-            return {"images": [], "total_count": 0, "current_page": 1, "total_pages": 0}
+            return {"images": [], "next_cursor": None}
 
         items = data.get("items", [])
-        metadata = data.get("metadata", {})
+        metadata = data.get("metadata", {}) or {}
 
-        total_count = metadata.get("totalItems", len(items))
-        current_page = metadata.get("currentPage", page)
-        total_pages = metadata.get("totalPages", 1)
+        # Get next cursor for pagination (None if no more pages)
+        next_cursor = metadata.get("nextCursor")
 
         return {
             "images": items,
-            "total_count": total_count,
-            "current_page": current_page,
-            "total_pages": total_pages
+            "next_cursor": next_cursor
         }
 
     def close(self):
