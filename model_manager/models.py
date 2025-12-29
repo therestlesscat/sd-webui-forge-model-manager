@@ -93,6 +93,59 @@ class NSFWLevel(Enum):
     def __ge__(self, other: "NSFWLevel") -> bool:
         return self.severity_index() >= other.severity_index()
 
+    def to_bitmask(self) -> int:
+        """Convert NSFWLevel to bitmask value."""
+        bitmask_map = {
+            NSFWLevel.PG: 1,
+            NSFWLevel.PG13: 2,
+            NSFWLevel.R: 4,
+            NSFWLevel.X: 8,
+            NSFWLevel.XXX: 16,
+            NSFWLevel.BANNED: 32,
+            NSFWLevel.UNKNOWN: 64,  # Unknown is highest level
+        }
+        return bitmask_map.get(self, 1)
+
+
+def image_nsfw_to_bitmask(nsfwLevel: Any, nsfw_bool: Any = None) -> int:
+    """
+    Convert image NSFW fields to bitmask value.
+
+    Image API uses different levels than models:
+    - None = 1 (PG)
+    - Soft = 4 (R)
+    - Mature = 8 (X)
+    - X = 16 (XXX)
+
+    Args:
+        nsfwLevel: String enum from image (None, Soft, Mature, X)
+        nsfw_bool: Boolean nsfw field from image
+
+    Returns:
+        Bitmask value (1=PG, 4=Soft/R, 8=Mature/X, 16=X/XXX)
+    """
+    # Map image nsfwLevel strings to bitmask
+    level_map = {
+        "None": 1,     # PG
+        "Soft": 4,     # R
+        "Mature": 8,   # X
+        "X": 16,       # XXX
+    }
+
+    level_value = 1  # Default PG
+
+    if nsfwLevel and isinstance(nsfwLevel, str):
+        level_value = level_map.get(nsfwLevel, 1)
+    elif nsfwLevel and isinstance(nsfwLevel, int):
+        # If it's already an int, use it directly
+        level_value = nsfwLevel
+
+    # If nsfw boolean is True, ensure at least Soft/R level
+    if nsfw_bool is True:
+        level_value = max(level_value, 4)
+
+    return level_value
+
 
 class ModelType(Enum):
     """Types of models supported."""

@@ -1,55 +1,45 @@
 """
 SQLite database for model metadata.
 
-Stores pre-computed metadata for fast filtering/sorting without
-reading JSON files for every model on each page load.
+Facade class that provides unified access to all database operations.
+Delegates to internal modules for models and images operations.
 """
 import os
-import json
 import sqlite3
 import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 from contextlib import contextmanager
 
+from ._models_ops import ModelsOps
+from ._images_ops import ImagesOps
+
+
+# Schema version for migrations
+SCHEMA_VERSION = 5
+
 
 class ModelsDatabase:
     """
-    SQLite database for model metadata.
+    SQLite database facade for model metadata and images.
 
-    Schema:
-        models (
-            file_path TEXT PRIMARY KEY,
-            file_name TEXT,
-            file_size INTEGER,
-            file_modified TEXT,  -- ISO timestamp
-            file_extension TEXT,
-            display_name TEXT,
-            model_type TEXT,
-            base_model TEXT,
-            nsfw_level TEXT,  -- Computed: PG, PG-13, R, X, XXX, Unknown
-            has_civitai_data INTEGER,  -- 0 or 1
-            civitai_model_id INTEGER,
-            civitai_version_id INTEGER,
-            preview_path TEXT,
-            preview_url TEXT,
-            trained_words TEXT,  -- JSON array
-            tags TEXT,  -- JSON array
-            rating REAL,
-            download_count INTEGER,
-            creator TEXT,
-            published_at TEXT,  -- ISO timestamp
-            scanned_at TEXT  -- When this record was updated
-        )
+    Provides unified access to:
+    - Model/version operations (via ModelsOps)
+    - Image/pagination operations (via ImagesOps)
     """
 
     DB_NAME = "models.db"
 
     def __init__(self, extension_dir: str):
         """Initialize the database."""
+        self.db_dir = extension_dir
         self.db_path = os.path.join(extension_dir, self.DB_NAME)
         self._local = threading.local()
         self._init_db()
+
+        # Initialize operation delegates
+        self._models = ModelsOps(self._cursor)
+        self._images = ImagesOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -72,268 +62,546 @@ class ModelsDatabase:
         finally:
             cursor.close()
 
+    # ==================== Schema & Migrations ====================
+
     def _init_db(self):
-        """Create database tables if they don't exist."""
+        """Create database tables and run migrations if needed."""
         with self._cursor() as cursor:
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS models (
-                    file_path TEXT PRIMARY KEY,
-                    file_name TEXT NOT NULL,
-                    file_size INTEGER,
-                    file_modified TEXT,
-                    file_extension TEXT,
-                    display_name TEXT,
-                    model_type TEXT,
-                    base_model TEXT,
-                    nsfw_level TEXT DEFAULT 'Unknown',
-                    has_civitai_data INTEGER DEFAULT 0,
-                    civitai_model_id INTEGER,
-                    civitai_version_id INTEGER,
-                    preview_path TEXT,
-                    preview_url TEXT,
-                    trained_words TEXT DEFAULT '[]',
-                    tags TEXT DEFAULT '[]',
-                    rating REAL DEFAULT 0,
-                    download_count INTEGER DEFAULT 0,
-                    creator TEXT,
-                    published_at TEXT,
-                    scanned_at TEXT
-                )
-            """)
-
-            # Create indexes for common filter/sort fields
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_type ON models(model_type)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_base_model ON models(base_model)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_nsfw_level ON models(nsfw_level)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_has_civitai ON models(has_civitai_data)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_display_name ON models(display_name)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_rating ON models(rating)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_download_count ON models(download_count)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_modified ON models(file_modified)")
-
-            # Metadata table for tracking scan state
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS metadata (
+                CREATE TABLE IF NOT EXISTS schema_info (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """)
-
-    def upsert_model(self, model_data: Dict[str, Any]):
-        """Insert or update a model record."""
-        with self._cursor() as cursor:
-            cursor.execute("""
-                INSERT OR REPLACE INTO models (
-                    file_path, file_name, file_size, file_modified, file_extension,
-                    display_name, model_type, base_model, nsfw_level,
-                    has_civitai_data, civitai_model_id, civitai_version_id,
-                    preview_path, preview_url, trained_words, tags,
-                    rating, download_count, creator, published_at, scanned_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                model_data.get("file_path"),
-                model_data.get("file_name"),
-                model_data.get("file_size"),
-                model_data.get("file_modified"),
-                model_data.get("file_extension"),
-                model_data.get("display_name"),
-                model_data.get("model_type"),
-                model_data.get("base_model"),
-                model_data.get("nsfw_level", "Unknown"),
-                1 if model_data.get("has_civitai_data") else 0,
-                model_data.get("civitai_model_id"),
-                model_data.get("civitai_version_id"),
-                model_data.get("preview_path"),
-                model_data.get("preview_url"),
-                json.dumps(model_data.get("trained_words", [])),
-                json.dumps(model_data.get("tags", [])),
-                model_data.get("rating", 0),
-                model_data.get("download_count", 0),
-                model_data.get("creator"),
-                model_data.get("published_at"),
-                datetime.now().isoformat()
-            ))
-
-    def delete_model(self, file_path: str):
-        """Delete a model record."""
-        with self._cursor() as cursor:
-            cursor.execute("DELETE FROM models WHERE file_path = ?", (file_path,))
-
-    def get_model(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get a single model by file path."""
-        with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM models WHERE file_path = ?", (file_path,))
+            cursor.execute("SELECT value FROM schema_info WHERE key = 'version'")
             row = cursor.fetchone()
-            if row:
-                return self._row_to_dict(row)
-        return None
+            current_version = int(row[0]) if row else 0
 
-    def query_models(
+            if current_version < SCHEMA_VERSION:
+                self._migrate(cursor, current_version)
+
+    def _migrate(self, cursor, from_version: int):
+        """Run migrations from current version to latest."""
+        print(f"[ModelManager] Migrating database from v{from_version} to v{SCHEMA_VERSION}...")
+
+        if from_version < 2:
+            self._migrate_to_v2(cursor)
+
+        if from_version < 3:
+            self._migrate_to_v3(cursor)
+
+        if from_version < 4:
+            self._migrate_to_v4(cursor)
+
+        if from_version < 5:
+            self._migrate_to_v5(cursor)
+
+        cursor.execute(
+            "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
+            (str(SCHEMA_VERSION),)
+        )
+        print(f"[ModelManager] Database migration complete.")
+
+    def _migrate_to_v3(self, cursor):
+        """Add max_image_nsfw column to model_versions (legacy, removed in v4)."""
+        print("[ModelManager] Migrating to schema v3 (adding max_image_nsfw column)...")
+        cursor.execute("PRAGMA table_info(model_versions)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "max_image_nsfw" not in columns:
+            cursor.execute("ALTER TABLE model_versions ADD COLUMN max_image_nsfw INTEGER DEFAULT 1")
+            print("[ModelManager] Added max_image_nsfw column to model_versions.")
+
+    def _migrate_to_v4(self, cursor):
+        """
+        Consolidate images into models.db and remove max_image_nsfw column.
+        """
+        import shutil
+
+        print("[ModelManager] Migrating to schema v4 (consolidating images, removing max_image_nsfw)...")
+
+        # Backup databases
+        backup_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        models_backup = f"{self.db_path}.backup_{backup_time}"
+        shutil.copy2(self.db_path, models_backup)
+        print(f"[ModelManager] Backed up models.db to {models_backup}")
+
+        images_cache_path = os.path.join(self.db_dir, "images_cache.db")
+        if os.path.exists(images_cache_path):
+            images_backup = f"{images_cache_path}.backup_{backup_time}"
+            shutil.copy2(images_cache_path, images_backup)
+            print(f"[ModelManager] Backed up images_cache.db to {images_backup}")
+
+        # Create images table with proper columns
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+                id INTEGER PRIMARY KEY,
+                version_id INTEGER NOT NULL,
+                page INTEGER NOT NULL,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                nsfw INTEGER DEFAULT 0,
+                nsfw_level TEXT,
+                browsing_level INTEGER DEFAULT 1,
+                created_at TEXT,
+                data TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version ON images(version_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version_page ON images(version_id, page)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_nsfw_level ON images(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_browsing_level ON images(browsing_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_created_at ON images(created_at)")
+
+        # Create pagination table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pagination (
+                version_id INTEGER PRIMARY KEY,
+                total_count INTEGER DEFAULT 0,
+                total_pages INTEGER DEFAULT 1,
+                fetched_pages INTEGER DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        print("[ModelManager] Created images and pagination tables.")
+
+        # Migrate data from images_cache.db if it exists
+        if os.path.exists(images_cache_path):
+            try:
+                cursor.execute("ATTACH DATABASE ? AS old_cache", (images_cache_path,))
+                cursor.execute("""
+                    INSERT OR IGNORE INTO images (
+                        id, version_id, page, url, width, height,
+                        nsfw, nsfw_level, browsing_level, created_at, data
+                    )
+                    SELECT
+                        id,
+                        version_id,
+                        page,
+                        json_extract(data, '$.url'),
+                        json_extract(data, '$.width'),
+                        json_extract(data, '$.height'),
+                        CASE WHEN json_extract(data, '$.nsfw') IN (1, 'true', 'True') THEN 1 ELSE 0 END,
+                        json_extract(data, '$.nsfwLevel'),
+                        COALESCE(CAST(json_extract(data, '$.browsingLevel') AS INTEGER), 1),
+                        json_extract(data, '$.createdAt'),
+                        data
+                    FROM old_cache.images
+                """)
+                images_count = cursor.rowcount
+                print(f"[ModelManager] Migrated {images_count} images from images_cache.db")
+
+                cursor.execute("INSERT OR IGNORE INTO pagination SELECT * FROM old_cache.pagination")
+                pagination_count = cursor.rowcount
+                print(f"[ModelManager] Migrated {pagination_count} pagination records")
+
+                cursor.execute("DETACH DATABASE old_cache")
+                os.rename(images_cache_path, images_cache_path + ".migrated")
+                print("[ModelManager] Renamed images_cache.db to images_cache.db.migrated")
+
+            except Exception as e:
+                print(f"[ModelManager] Warning: Could not migrate images_cache.db: {e}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    cursor.execute("DETACH DATABASE old_cache")
+                except:
+                    pass
+
+        # Recreate model_versions without max_image_nsfw column
+        print("[ModelManager] Removing max_image_nsfw column from model_versions...")
+        cursor.execute("PRAGMA table_info(model_versions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "max_image_nsfw" in columns:
+            cursor.execute("""
+                CREATE TABLE model_versions_new (
+                    id INTEGER,
+                    model_id INTEGER,
+                    version_name TEXT,
+                    base_model TEXT,
+                    published_at TEXT,
+                    created_at TEXT,
+                    nsfw_level INTEGER DEFAULT 64,
+                    trained_words TEXT DEFAULT '[]',
+                    description TEXT,
+                    stats_download_count INTEGER DEFAULT 0,
+                    stats_thumbs_up INTEGER DEFAULT 0,
+                    file_path TEXT UNIQUE NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_size INTEGER,
+                    file_hash TEXT,
+                    file_modified TEXT,
+                    file_extension TEXT,
+                    preview_path TEXT,
+                    preview_url TEXT,
+                    has_civitai_data INTEGER DEFAULT 0,
+                    scanned_at TEXT,
+                    PRIMARY KEY (file_path),
+                    FOREIGN KEY (model_id) REFERENCES civitai_models(id)
+                )
+            """)
+
+            cursor.execute("""
+                INSERT INTO model_versions_new
+                SELECT id, model_id, version_name, base_model, published_at, created_at,
+                       nsfw_level, trained_words, description,
+                       stats_download_count, stats_thumbs_up,
+                       file_path, file_name, file_size, file_hash, file_modified, file_extension,
+                       preview_path, preview_url, has_civitai_data, scanned_at
+                FROM model_versions
+            """)
+
+            cursor.execute("DROP TABLE model_versions")
+            cursor.execute("ALTER TABLE model_versions_new RENAME TO model_versions")
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_file_modified ON model_versions(file_modified)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_published_at ON model_versions(published_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_has_civitai ON model_versions(has_civitai_data)")
+
+            print("[ModelManager] Removed max_image_nsfw column from model_versions.")
+
+        print("[ModelManager] Schema v4 migration complete.")
+
+    def _migrate_to_v5(self, cursor):
+        """Add is_bookmarked column to civitai_models for bookmark feature."""
+        print("[ModelManager] Migrating to schema v5 (adding is_bookmarked column)...")
+
+        # Check if column already exists
+        cursor.execute("PRAGMA table_info(civitai_models)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "is_bookmarked" not in columns:
+            cursor.execute("ALTER TABLE civitai_models ADD COLUMN is_bookmarked INTEGER DEFAULT 0")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_is_bookmarked ON civitai_models(is_bookmarked)")
+            print("[ModelManager] Added is_bookmarked column and index to civitai_models.")
+
+        print("[ModelManager] Schema v5 migration complete.")
+
+    def _migrate_to_v2(self, cursor):
+        """Migrate from v1 (flat models table) to v2 (normalized schema)."""
+        print("[ModelManager] Migrating to schema v2 (normalized model/version tables)...")
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='models'")
+        old_table_exists = cursor.fetchone() is not None
+
+        self._create_v2_tables(cursor)
+
+        if old_table_exists:
+            print("[ModelManager] Migrating existing data...")
+            cursor.execute("SELECT * FROM models")
+            old_rows = cursor.fetchall()
+
+            for row in old_rows:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO model_versions (
+                        id, model_id, version_name, base_model, published_at, created_at,
+                        nsfw_level, trained_words, description,
+                        stats_download_count, stats_thumbs_up,
+                        file_path, file_name, file_size, file_hash, file_modified, file_extension,
+                        preview_path, preview_url, has_civitai_data, scanned_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['civitai_version_id'],
+                    row['civitai_model_id'],
+                    None,
+                    row['base_model'],
+                    row['published_at'],
+                    None,
+                    self._nsfw_text_to_level(row['nsfw_level']),
+                    row['trained_words'],
+                    None,
+                    row['download_count'],
+                    0,
+                    row['file_path'],
+                    row['file_name'],
+                    row['file_size'],
+                    None,
+                    row['file_modified'],
+                    row['file_extension'],
+                    row['preview_path'],
+                    row['preview_url'],
+                    row['has_civitai_data'],
+                    row['scanned_at']
+                ))
+
+                if row['civitai_model_id']:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO civitai_models (id, name, type, tags, creator_username)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        row['civitai_model_id'],
+                        row['display_name'],
+                        row['model_type'],
+                        row['tags'],
+                        row['creator']
+                    ))
+
+            print(f"[ModelManager] Migrated {len(old_rows)} models.")
+            cursor.execute("ALTER TABLE models RENAME TO models_v1_backup")
+            print("[ModelManager] Old 'models' table renamed to 'models_v1_backup'.")
+            cursor.execute("DROP TABLE IF EXISTS metadata")
+
+    def _nsfw_text_to_level(self, text: str) -> int:
+        """Convert old NSFW text level to numeric."""
+        mapping = {
+            'PG': 1, 'PG-13': 2, 'R': 4, 'X': 8, 'XXX': 16, 'Banned': 32, 'Unknown': 64
+        }
+        return mapping.get(text, 64)  # Default to Unknown
+
+    def _create_v2_tables(self, cursor):
+        """Create v2 schema tables."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS civitai_models (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                type TEXT NOT NULL DEFAULT 'Checkpoint',
+                nsfw INTEGER DEFAULT 0,
+                nsfw_level INTEGER DEFAULT 64,
+                tags TEXT DEFAULT '[]',
+                creator_username TEXT,
+                creator_image_url TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                stats_rating REAL DEFAULT 0,
+                allow_no_credit INTEGER DEFAULT 1,
+                allow_commercial_use TEXT,
+                allow_derivatives INTEGER DEFAULT 1,
+                allow_different_license INTEGER DEFAULT 1,
+                supports_generation INTEGER DEFAULT 0,
+                updated_at TEXT
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_versions (
+                id INTEGER,
+                model_id INTEGER,
+                version_name TEXT,
+                base_model TEXT,
+                published_at TEXT,
+                created_at TEXT,
+                nsfw_level INTEGER DEFAULT 64,
+                trained_words TEXT DEFAULT '[]',
+                description TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                file_path TEXT UNIQUE NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                file_hash TEXT,
+                file_modified TEXT,
+                file_extension TEXT,
+                preview_path TEXT,
+                preview_url TEXT,
+                has_civitai_data INTEGER DEFAULT 0,
+                scanned_at TEXT,
+                PRIMARY KEY (file_path),
+                FOREIGN KEY (model_id) REFERENCES civitai_models(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+                id INTEGER PRIMARY KEY,
+                version_id INTEGER NOT NULL,
+                page INTEGER NOT NULL,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                nsfw INTEGER DEFAULT 0,
+                nsfw_level TEXT,
+                browsing_level INTEGER DEFAULT 1,
+                created_at TEXT,
+                data TEXT NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pagination (
+                version_id INTEGER PRIMARY KEY,
+                total_count INTEGER DEFAULT 0,
+                total_pages INTEGER DEFAULT 1,
+                fetched_pages INTEGER DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create all indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_file_modified ON model_versions(file_modified)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_published_at ON model_versions(published_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_has_civitai ON model_versions(has_civitai_data)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_civitai_model_type ON civitai_models(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version ON images(version_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version_page ON images(version_id, page)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_nsfw_level ON images(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_browsing_level ON images(browsing_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_created_at ON images(created_at)")
+
+    # ==================== Model Operations (delegated) ====================
+
+    def upsert_civitai_model(self, model_data: Dict[str, Any]):
+        """Insert or update a Civitai model record."""
+        self._models.upsert_civitai_model(model_data)
+
+    def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
+        """Get a Civitai model by ID."""
+        return self._models.get_civitai_model(model_id)
+
+    def set_bookmark(self, model_id: int, bookmarked: bool) -> bool:
+        """Set bookmark status for a model."""
+        return self._models.set_bookmark(model_id, bookmarked)
+
+    def upsert_version(self, version_data: Dict[str, Any]):
+        """Insert or update a model version record."""
+        self._models.upsert_version(version_data)
+
+    def delete_version(self, file_path: str):
+        """Delete a version record by file path."""
+        self._models.delete_version(file_path)
+
+    def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get a version by file path."""
+        return self._models.get_version(file_path)
+
+    def get_versions_for_model(self, model_id: int) -> List[Dict[str, Any]]:
+        """Get all local versions for a Civitai model."""
+        return self._models.get_versions_for_model(model_id)
+
+    def get_local_version_count(self, model_id: int) -> int:
+        """Get count of local versions for a model."""
+        return self._models.get_local_version_count(model_id)
+
+    def query_models_grouped(
         self,
         search: Optional[str] = None,
         model_type: Optional[str] = None,
         base_model: Optional[str] = None,
-        nsfw_levels: Optional[List[str]] = None,
-        nsfw_max: Optional[str] = None,
+        nsfw_levels: Optional[List[int]] = None,
+        nsfw_mode: str = "max",
         has_civitai: Optional[bool] = None,
-        sort_by: str = "display_name",
-        sort_order: str = "asc",
+        is_bookmarked: Optional[bool] = None,
+        min_versions: Optional[int] = None,
+        sort_by: str = "file_modified",
+        sort_order: str = "desc",
         limit: int = 50,
         offset: int = 0
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """
-        Query models with filters, sorting, and pagination.
+        """Query models grouped by civitai_model_id."""
+        return self._models.query_models_grouped(
+            search=search,
+            model_type=model_type,
+            base_model=base_model,
+            nsfw_levels=nsfw_levels,
+            nsfw_mode=nsfw_mode,
+            has_civitai=has_civitai,
+            is_bookmarked=is_bookmarked,
+            min_versions=min_versions,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            limit=limit,
+            offset=offset
+        )
 
-        Returns:
-            Tuple of (list of model dicts, total count matching filters)
-        """
-        conditions = []
-        params = []
-
-        # Search filter (display_name, file_name, tags)
-        if search:
-            conditions.append("(display_name LIKE ? OR file_name LIKE ? OR tags LIKE ?)")
-            search_pattern = f"%{search}%"
-            params.extend([search_pattern, search_pattern, search_pattern])
-
-        # Model type filter
-        if model_type:
-            conditions.append("model_type = ?")
-            params.append(model_type)
-
-        # Base model filter
-        if base_model:
-            conditions.append("base_model = ?")
-            params.append(base_model)
-
-        # NSFW level filter
-        if nsfw_levels:
-            placeholders = ",".join("?" * len(nsfw_levels))
-            conditions.append(f"nsfw_level IN ({placeholders})")
-            params.extend(nsfw_levels)
-        elif nsfw_max:
-            # Filter by max level
-            level_order = ["PG", "PG-13", "R", "X", "XXX"]
-            if nsfw_max in level_order:
-                max_idx = level_order.index(nsfw_max)
-                allowed = level_order[:max_idx + 1]
-                placeholders = ",".join("?" * len(allowed))
-                conditions.append(f"nsfw_level IN ({placeholders})")
-                params.extend(allowed)
-
-        # Has civitai data filter
-        if has_civitai is not None:
-            conditions.append("has_civitai_data = ?")
-            params.append(1 if has_civitai else 0)
-
-        # Build WHERE clause
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
-
-        # Validate sort field
-        valid_sort_fields = {
-            "display_name", "file_name", "file_size", "file_modified",
-            "model_type", "base_model", "nsfw_level", "rating", "download_count",
-            "published_at"
-        }
-        if sort_by not in valid_sort_fields:
-            sort_by = "display_name"
-
-        sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
-
-        # Get total count
-        with self._cursor() as cursor:
-            cursor.execute(f"SELECT COUNT(*) FROM models WHERE {where_clause}", params)
-            total_count = cursor.fetchone()[0]
-
-        # Get paginated results
-        with self._cursor() as cursor:
-            query = f"""
-                SELECT * FROM models
-                WHERE {where_clause}
-                ORDER BY {sort_by} {sort_dir}
-                LIMIT ? OFFSET ?
-            """
-            cursor.execute(query, params + [limit, offset])
-            rows = cursor.fetchall()
-
-        models = [self._row_to_dict(row) for row in rows]
-        return models, total_count
-
-    def get_all_model_paths(self) -> List[str]:
-        """Get all model file paths in the database."""
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM models")
-            return [row[0] for row in cursor.fetchall()]
+    def get_all_version_paths(self) -> List[str]:
+        """Get all version file paths in the database."""
+        return self._models.get_all_version_paths()
 
     def get_distinct_values(self, column: str) -> List[str]:
-        """Get distinct values for a column (for filter dropdowns)."""
-        valid_columns = {"model_type", "base_model", "nsfw_level", "creator"}
-        if column not in valid_columns:
-            return []
+        """Get distinct values for a column."""
+        return self._models.get_distinct_values(column)
 
-        with self._cursor() as cursor:
-            cursor.execute(f"SELECT DISTINCT {column} FROM models WHERE {column} IS NOT NULL AND {column} != '' ORDER BY {column}")
-            return [row[0] for row in cursor.fetchall()]
+    def get_distinct_model_types(self) -> List[str]:
+        """Get distinct model types."""
+        return self._models.get_distinct_model_types()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
-        with self._cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM models")
-            total = cursor.fetchone()[0]
+        return self._models.get_stats()
 
-            cursor.execute("SELECT COUNT(*) FROM models WHERE has_civitai_data = 1")
-            with_civitai = cursor.fetchone()[0]
+    # ==================== Image Operations (delegated) ====================
 
-        return {
-            "total_models": total,
-            "with_civitai_data": with_civitai,
-            "without_civitai_data": total - with_civitai
-        }
+    def get_pagination_state(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """Get pagination state for a version."""
+        return self._images.get_pagination_state(version_id)
+
+    def update_pagination_state(
+        self,
+        version_id: int,
+        total_count: int,
+        total_pages: int,
+        fetched_pages: int
+    ):
+        """Update pagination state for a version."""
+        self._images.update_pagination_state(version_id, total_count, total_pages, fetched_pages)
+
+    def store_images(self, version_id: int, page: int, images: List[Dict[str, Any]]):
+        """Store a page of images in the cache."""
+        self._images.store_images(version_id, page, images)
+
+    def get_images(self, version_id: int, page: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get cached images for a version."""
+        return self._images.get_images(version_id, page)
+
+    def get_all_images_for_version(self, version_id: int) -> List[Dict[str, Any]]:
+        """Get all cached images for a version."""
+        return self._images.get_all_images_for_version(version_id)
+
+    def get_cached_page_count(self, version_id: int) -> int:
+        """Get how many pages have been cached for a version."""
+        return self._images.get_cached_page_count(version_id)
+
+    def get_max_nsfw_levels(self, version_ids: List[int]) -> Dict[int, int]:
+        """Get max NSFW level for each version from cached images."""
+        return self._images.get_max_nsfw_levels(version_ids)
+
+    def get_max_nsfw_level(self, version_id: int) -> int:
+        """Get max NSFW level for a single version."""
+        return self._images.get_max_nsfw_level(version_id)
+
+    def clear_version_images(self, version_id: int):
+        """Clear all cached images for a version."""
+        self._images.clear_version(version_id)
+
+    def get_image_cache_stats(self) -> Dict[str, Any]:
+        """Get image cache statistics."""
+        stats = self._images.get_cache_stats()
+        # Add db size
+        db_size = 0
+        if os.path.exists(self.db_path):
+            db_size = os.path.getsize(self.db_path) / (1024 * 1024)
+        stats["db_size_mb"] = round(db_size, 2)
+        return stats
+
+    # ==================== Combined Operations ====================
+
+    def clear_all(self):
+        """Clear all records (models and images)."""
+        self._models.clear_all()
+        self._images.clear_all()
 
     def set_metadata(self, key: str, value: str):
-        """Set a metadata value."""
+        """Set a metadata value in schema_info."""
         with self._cursor() as cursor:
             cursor.execute(
-                "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+                "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
                 (key, value)
             )
 
     def get_metadata(self, key: str) -> Optional[str]:
-        """Get a metadata value."""
+        """Get a metadata value from schema_info."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
+            cursor.execute("SELECT value FROM schema_info WHERE key = ?", (key,))
             row = cursor.fetchone()
             return row[0] if row else None
-
-    def clear_all(self):
-        """Clear all model records."""
-        with self._cursor() as cursor:
-            cursor.execute("DELETE FROM models")
-
-    def _row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
-        """Convert a database row to a dictionary."""
-        return {
-            "file_path": row["file_path"],
-            "file_name": row["file_name"],
-            "file_size": row["file_size"],
-            "file_modified": row["file_modified"],
-            "file_extension": row["file_extension"],
-            "display_name": row["display_name"],
-            "model_type": row["model_type"],
-            "base_model": row["base_model"],
-            "nsfw_level": row["nsfw_level"],
-            "has_civitai_data": bool(row["has_civitai_data"]),
-            "civitai_model_id": row["civitai_model_id"],
-            "civitai_version_id": row["civitai_version_id"],
-            "preview_path": row["preview_path"],
-            "preview_url": row["preview_url"],
-            "trained_words": json.loads(row["trained_words"] or "[]"),
-            "tags": json.loads(row["tags"] or "[]"),
-            "rating": row["rating"],
-            "download_count": row["download_count"],
-            "creator": row["creator"],
-            "published_at": row["published_at"],
-        }
 
     def close(self):
         """Close the database connection."""

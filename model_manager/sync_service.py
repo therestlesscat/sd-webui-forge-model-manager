@@ -9,8 +9,8 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Callable
 
 from .civitai_api import CivitaiClient, CivitaiAPIError, CivitaiNotFoundError
-from .storage import read_civitai_info, write_civitai_info, is_partial_civitai_data
-from .images_cache import get_images_cache
+from .storage import write_civitai_info
+from .models_db import get_models_db
 
 
 @dataclass
@@ -127,17 +127,14 @@ class SyncService:
         result = SyncResult()
         model_name = os.path.basename(model_path)
 
-        # Check if already has complete civitai data
+        # Check if already synced (using database as source of truth)
         if not force:
-            existing_data = read_civitai_info(model_path)
-            if existing_data:
-                # Check if data is complete (has description, tags, stats from full model endpoint)
-                if not is_partial_civitai_data(existing_data):
-                    print(f"[ModelManager] Skipping {model_name} (already has complete civitai data)")
-                    result.skipped = True
-                    return result
-                else:
-                    print(f"[ModelManager] {model_name} has partial data, fetching full model info...")
+            db = get_models_db()
+            existing = db.get_version(model_path)
+            if existing and existing.get("has_civitai_data"):
+                print(f"[ModelManager] Skipping {model_name} (already synced)")
+                result.skipped = True
+                return result
 
         print(f"[ModelManager] Processing {model_name}...")
 
@@ -206,20 +203,23 @@ class SyncService:
                 total_pages = images_result.get("total_pages", 1)
                 result.image_count = len(images)
 
-                # Store images in SQLite cache
+                # Store images in database
                 if images:
-                    cache = get_images_cache()
+                    db = get_models_db()
                     # Clear any existing images for this version
-                    cache.clear_version(version_id)
+                    db.clear_version_images(version_id)
                     # Store page 1 images
-                    cache.store_images(version_id, page=1, images=images)
+                    db.store_images(version_id, page=1, images=images)
                     # Store pagination state
-                    cache.update_pagination_state(
+                    db.update_pagination_state(
                         version_id=version_id,
                         total_count=total_count,
                         total_pages=total_pages,
                         fetched_pages=1
                     )
+
+            # Update database with model and version data
+            self._update_database(model_path, data_to_save, file_hash)
 
             result.success = True
             print(f"[ModelManager] Synced {model_name}: {result.image_count} of {total_count} images")
@@ -237,6 +237,146 @@ class SyncService:
         except Exception as e:
             result.error = f"Unexpected error: {e}"
             return result
+
+    def _update_database(self, model_path: str, civitai_data: Dict, file_hash: Optional[str]):
+        """
+        Update the database with model and version data from Civitai response.
+
+        Args:
+            model_path: Path to the local model file.
+            civitai_data: Full Civitai model response (or version-only if model fetch failed).
+            file_hash: SHA256 hash of the model file.
+        """
+        try:
+            db = get_models_db()
+            file_name = os.path.basename(model_path)
+            file_ext = os.path.splitext(model_path)[1].lower()
+
+            # Get file stats
+            file_size = 0
+            file_modified = None
+            try:
+                stat = os.stat(model_path)
+                file_size = stat.st_size
+                from datetime import datetime
+                file_modified = datetime.fromtimestamp(stat.st_mtime).isoformat()
+            except OSError:
+                pass
+
+            model_id = civitai_data.get("id")
+            versions = civitai_data.get("modelVersions", [])
+
+            if model_id and versions:
+                # Full model response - extract and save model-level data
+                stats = civitai_data.get("stats", {})
+                creator = civitai_data.get("creator", {})
+
+                # Calculate rating from thumbs
+                thumbs_up = stats.get("thumbsUpCount", 0)
+                thumbs_down = stats.get("thumbsDownCount", 0)
+                rating = 0
+                if thumbs_up + thumbs_down > 0:
+                    rating = round((thumbs_up / (thumbs_up + thumbs_down)) * 5, 2)
+
+                civitai_model = {
+                    "id": model_id,
+                    "name": civitai_data.get("name", ""),
+                    "description": civitai_data.get("description"),
+                    "type": civitai_data.get("type", "Checkpoint"),
+                    "nsfw": civitai_data.get("nsfw", False),
+                    "nsfw_level": civitai_data.get("nsfwLevel", 64),  # Default to Unknown
+                    "tags": civitai_data.get("tags", []),
+                    "creator_username": creator.get("username") if creator else None,
+                    "creator_image_url": creator.get("image") if creator else None,
+                    "stats_download_count": stats.get("downloadCount", 0),
+                    "stats_thumbs_up": thumbs_up,
+                    "stats_rating": rating,
+                    "allow_no_credit": civitai_data.get("allowNoCredit", True),
+                    "allow_commercial_use": civitai_data.get("allowCommercialUse"),
+                    "allow_derivatives": civitai_data.get("allowDerivatives", True),
+                    "allow_different_license": civitai_data.get("allowDifferentLicense", True),
+                    "supports_generation": civitai_data.get("supportsGeneration", False),
+                }
+                db.upsert_civitai_model(civitai_model)
+
+                # Find the matched version (first in list since we reordered it)
+                matched_version = versions[0] if versions else None
+
+                if matched_version:
+                    version_stats = matched_version.get("stats", {})
+                    version_data = {
+                        "id": matched_version.get("id"),
+                        "model_id": model_id,
+                        "version_name": matched_version.get("name"),
+                        "base_model": matched_version.get("baseModel"),
+                        "published_at": matched_version.get("publishedAt"),
+                        "created_at": matched_version.get("createdAt"),
+                        "nsfw_level": matched_version.get("nsfwLevel", 64),  # Default to Unknown
+                        "trained_words": matched_version.get("trainedWords", []),
+                        "description": matched_version.get("description"),
+                        "stats_download_count": version_stats.get("downloadCount", 0),
+                        "stats_thumbs_up": version_stats.get("thumbsUpCount", 0),
+                        "file_path": model_path,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "file_hash": file_hash,
+                        "file_modified": file_modified,
+                        "file_extension": file_ext,
+                        "has_civitai_data": True,
+                    }
+
+                    # Find preview
+                    self._find_preview(model_path, version_data, matched_version.get("images", []))
+                    db.upsert_version(version_data)
+
+            else:
+                # Version-only response (model fetch failed)
+                version_id = civitai_data.get("id")
+                version_model_id = civitai_data.get("modelId")
+                version_stats = civitai_data.get("stats", {})
+
+                version_data = {
+                    "id": version_id,
+                    "model_id": version_model_id,
+                    "version_name": civitai_data.get("name"),
+                    "base_model": civitai_data.get("baseModel"),
+                    "published_at": civitai_data.get("publishedAt"),
+                    "created_at": civitai_data.get("createdAt"),
+                    "nsfw_level": civitai_data.get("nsfwLevel", 64),  # Default to Unknown
+                    "trained_words": civitai_data.get("trainedWords", []),
+                    "description": civitai_data.get("description"),
+                    "stats_download_count": version_stats.get("downloadCount", 0),
+                    "stats_thumbs_up": version_stats.get("thumbsUpCount", 0),
+                    "file_path": model_path,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "file_hash": file_hash,
+                    "file_modified": file_modified,
+                    "file_extension": file_ext,
+                    "has_civitai_data": True,
+                }
+
+                # Find preview
+                self._find_preview(model_path, version_data, civitai_data.get("images", []))
+                db.upsert_version(version_data)
+
+        except Exception as e:
+            print(f"[ModelManager] Error updating database for {os.path.basename(model_path)}: {e}")
+
+    def _find_preview(self, model_path: str, version_data: Dict, images: List):
+        """Find preview image for the model."""
+        base = os.path.splitext(model_path)[0]
+        preview_extensions = [".preview.png", ".preview.jpg", ".preview.jpeg", ".png", ".jpg"]
+
+        for ext in preview_extensions:
+            preview_path = base + ext
+            if os.path.exists(preview_path):
+                version_data["preview_path"] = preview_path
+                return
+
+        # No local preview - check for Civitai image URL
+        if images and images[0].get("url"):
+            version_data["preview_url"] = images[0]["url"]
 
     def sync_all(
         self,

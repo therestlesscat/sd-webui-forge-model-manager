@@ -1,108 +1,30 @@
 """
-SQLite cache for storing Civitai model images.
+Internal module for image and pagination table operations.
 
-All images are stored here during sync and load-more operations.
-Uses page-based pagination for simplicity and reliability.
+This module handles images and pagination tables.
+Used by ModelsDatabase facade - do not import directly.
 """
-import os
 import json
-import sqlite3
-import threading
-from typing import Optional, List, Dict, Any
-from contextlib import contextmanager
+from typing import Optional, List, Dict, Any, Callable
 
 
-class ImagesCache:
+class ImagesOps:
     """
-    SQLite-based cache for model images.
+    Operations for images and pagination tables.
 
-    Schema:
-        images (
-            id INTEGER PRIMARY KEY,  -- Civitai image ID
-            version_id INTEGER,      -- Civitai model version ID
-            page INTEGER,            -- Page number (1 = first page from sync)
-            data TEXT,               -- Full image JSON
-            created_at TIMESTAMP
-        )
-
-        pagination (
-            version_id INTEGER PRIMARY KEY,
-            total_count INTEGER,     -- Total images available on Civitai
-            total_pages INTEGER,     -- Total pages available
-            fetched_pages INTEGER,   -- How many pages we've fetched (1 = just sync)
-            updated_at TIMESTAMP
-        )
+    Receives a cursor factory from the parent facade.
     """
 
-    DB_NAME = "images_cache.db"
-
-    def __init__(self, extension_dir: str):
+    def __init__(self, cursor_factory: Callable):
         """
-        Initialize the cache.
+        Initialize with cursor factory from facade.
 
         Args:
-            extension_dir: Path to the extension directory.
+            cursor_factory: Callable that returns a context manager yielding a cursor.
         """
-        self.db_path = os.path.join(extension_dir, self.DB_NAME)
-        self._local = threading.local()
-        self._init_db()
+        self._cursor = cursor_factory
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
-        if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path)
-            self._local.connection.row_factory = sqlite3.Row
-        return self._local.connection
-
-    @contextmanager
-    def _cursor(self):
-        """Context manager for database cursor."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            yield cursor
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cursor.close()
-
-    def _init_db(self):
-        """Create database tables if they don't exist."""
-        with self._cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS images (
-                    id INTEGER PRIMARY KEY,
-                    version_id INTEGER NOT NULL,
-                    page INTEGER NOT NULL,
-                    data TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_images_version
-                ON images(version_id, page)
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pagination (
-                    version_id INTEGER PRIMARY KEY,
-                    total_count INTEGER DEFAULT 0,
-                    total_pages INTEGER DEFAULT 1,
-                    fetched_pages INTEGER DEFAULT 1,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            # Migrate old cursors table if exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='cursors'
-            """)
-            if cursor.fetchone():
-                cursor.execute("DROP TABLE cursors")
+    # ==================== Pagination ====================
 
     def get_pagination_state(self, version_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -152,6 +74,8 @@ class ImagesCache:
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (version_id, total_count, total_pages, fetched_pages))
 
+    # ==================== Images ====================
+
     def store_images(
         self,
         version_id: int,
@@ -170,10 +94,21 @@ class ImagesCache:
             for img in images:
                 img_id = img.get("id")
                 if img_id:
+                    # Extract fields for proper columns
+                    url = img.get("url")
+                    width = img.get("width")
+                    height = img.get("height")
+                    nsfw_bool = img.get("nsfw")
+                    nsfw = 1 if nsfw_bool else 0
+                    nsfw_level = img.get("nsfwLevel")
+                    browsing_level = img.get("browsingLevel", 1)
+                    created_at = img.get("createdAt")
+
                     cursor.execute("""
-                        INSERT OR REPLACE INTO images (id, version_id, page, data)
-                        VALUES (?, ?, ?, ?)
-                    """, (img_id, version_id, page, json.dumps(img)))
+                        INSERT OR REPLACE INTO images
+                        (id, version_id, page, url, width, height, nsfw, nsfw_level, browsing_level, created_at, data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (img_id, version_id, page, url, width, height, nsfw, nsfw_level, browsing_level, created_at, json.dumps(img)))
 
     def get_images(
         self,
@@ -235,6 +170,64 @@ class ImagesCache:
             row = cursor.fetchone()
             return row["max_page"] or 0
 
+    # ==================== NSFW Levels ====================
+
+    def get_max_nsfw_levels(self, version_ids: List[int]) -> Dict[int, int]:
+        """
+        Get max NSFW level for each version from cached images.
+
+        Uses max of:
+        - browsing_level (primary, from column)
+        - nsfw_level (string: None=1, Soft=4, Mature=8, X=16)
+        - nsfw boolean: true=4, false=1
+
+        Args:
+            version_ids: List of Civitai version IDs
+
+        Returns:
+            Dict mapping version_id to max nsfwLevel
+        """
+        if not version_ids:
+            return {}
+
+        with self._cursor() as cursor:
+            placeholders = ','.join(['?'] * len(version_ids))
+            cursor.execute(f"""
+                SELECT version_id,
+                       MAX(
+                           MAX(
+                               COALESCE(browsing_level, 1),
+                               CASE nsfw_level
+                                   WHEN 'Soft' THEN 4
+                                   WHEN 'Mature' THEN 8
+                                   WHEN 'X' THEN 16
+                                   ELSE 1
+                               END,
+                               CASE WHEN nsfw THEN 4 ELSE 1 END
+                           )
+                       ) as max_nsfw
+                FROM images
+                WHERE version_id IN ({placeholders})
+                GROUP BY version_id
+            """, version_ids)
+
+            return {row["version_id"]: row["max_nsfw"] or 1 for row in cursor.fetchall()}
+
+    def get_max_nsfw_level(self, version_id: int) -> int:
+        """
+        Get max NSFW level for a single version from cached images.
+
+        Args:
+            version_id: Civitai version ID
+
+        Returns:
+            Max nsfwLevel (default 1 if no images)
+        """
+        result = self.get_max_nsfw_levels([version_id])
+        return result.get(version_id, 1)
+
+    # ==================== Cleanup ====================
+
     def clear_version(self, version_id: int):
         """
         Clear all cached data for a version.
@@ -247,17 +240,19 @@ class ImagesCache:
             cursor.execute("DELETE FROM pagination WHERE version_id = ?", (version_id,))
 
     def clear_all(self):
-        """Clear all cached data."""
+        """Clear all image and pagination data."""
         with self._cursor() as cursor:
             cursor.execute("DELETE FROM images")
             cursor.execute("DELETE FROM pagination")
 
+    # ==================== Stats ====================
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """
-        Get cache statistics.
+        Get image cache statistics.
 
         Returns:
-            Dict with total_images, total_versions, db_size_mb.
+            Dict with total_images, total_versions.
         """
         with self._cursor() as cursor:
             cursor.execute("SELECT COUNT(*) as count FROM images")
@@ -266,42 +261,7 @@ class ImagesCache:
             cursor.execute("SELECT COUNT(DISTINCT version_id) as count FROM images")
             total_versions = cursor.fetchone()["count"]
 
-        db_size = 0
-        if os.path.exists(self.db_path):
-            db_size = os.path.getsize(self.db_path) / (1024 * 1024)  # MB
-
         return {
             "total_images": total_images,
-            "total_versions": total_versions,
-            "db_size_mb": round(db_size, 2)
+            "total_versions": total_versions
         }
-
-    def close(self):
-        """Close the database connection."""
-        if hasattr(self._local, 'connection') and self._local.connection:
-            self._local.connection.close()
-            self._local.connection = None
-
-
-# Global cache instance
-_cache_instance: Optional[ImagesCache] = None
-_cache_lock = threading.Lock()
-
-
-def get_images_cache() -> ImagesCache:
-    """
-    Get the global images cache instance.
-
-    Returns:
-        ImagesCache instance.
-    """
-    global _cache_instance
-
-    if _cache_instance is None:
-        with _cache_lock:
-            if _cache_instance is None:
-                # Get extension directory
-                ext_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                _cache_instance = ImagesCache(ext_dir)
-
-    return _cache_instance

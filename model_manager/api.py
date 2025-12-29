@@ -12,7 +12,6 @@ from .scanner import scan_models, filter_models, sort_models
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
 from .models_db import get_models_db
-from .images_cache import get_images_cache
 from .civitai_api import CivitaiClient
 
 
@@ -30,20 +29,37 @@ _scan_progress: Optional[ScanProgress] = None
 def setup_api(app: FastAPI):
     """Register API endpoints."""
 
+    # NSFW level bitmask mapping
+    NSFW_LEVEL_MAP = {
+        "PG": 1,
+        "PG-13": 2,
+        "R": 4,
+        "X": 8,
+        "XXX": 16,
+        "Blocked": 32,
+        "Unknown": 64,  # Highest level - includes all models
+    }
+
     @app.get("/model-manager/models")
     async def get_models(
         search: str = "",
         type: str = "",
         base_model: str = "",
         nsfw_max: str = "",
-        nsfw_levels: str = "",  # Comma-separated list of levels
+        nsfw_levels: str = "",  # Comma-separated list of levels (PG, PG-13, R, X, XXX, Unknown)
+        nsfw_mode: str = "max",  # "max" = up to selected level, "contains" = has any selected level
         has_civitai: str = "",
+        is_bookmarked: Optional[bool] = None,  # None = all, True = bookmarked only
+        min_versions: str = "",  # Minimum number of local versions
         sort_by: str = "name",
         sort_order: str = "asc",
         page: int = 1,
         page_size: int = 0,  # 0 = use setting
     ):
-        """Get models with optional filters and pagination using database."""
+        """
+        Get models with optional filters and pagination using database.
+        Returns models grouped by Civitai model ID (latest version per group).
+        """
         try:
             from modules import shared
 
@@ -53,7 +69,7 @@ def setup_api(app: FastAPI):
 
             # Valid sort columns in DB
             valid_sort_columns = {
-                "display_name", "file_name", "file_size", "file_modified",
+                "name", "display_name", "file_name", "file_size", "file_modified",
                 "model_type", "base_model", "nsfw_level", "rating",
                 "download_count", "published_at"
             }
@@ -73,20 +89,42 @@ def setup_api(app: FastAPI):
             elif sort_by in valid_sort_columns:
                 db_sort_by = sort_by
             else:
-                db_sort_by = "display_name"
+                db_sort_by = "name"
 
             # Calculate offset
             offset = (page - 1) * page_size
 
-            # Query database
+            # Convert NSFW level names to integers
+            nsfw_level_ints = None
+            if nsfw_levels:
+                level_names = [l.strip() for l in nsfw_levels.split(",") if l.strip()]
+                nsfw_level_ints = []
+                for name in level_names:
+                    if name in NSFW_LEVEL_MAP:
+                        nsfw_level_ints.append(NSFW_LEVEL_MAP[name])
+                # Remove duplicates and ensure we have at least some levels
+                if nsfw_level_ints:
+                    nsfw_level_ints = list(set(nsfw_level_ints))
+
+            # Parse min_versions
+            min_versions_int = None
+            if min_versions:
+                try:
+                    min_versions_int = int(min_versions)
+                except ValueError:
+                    pass
+
+            # Query database with grouped query
             db = get_models_db()
-            models, total_count = db.query_models(
+            models, total_count = db.query_models_grouped(
                 search=search if search else None,
                 model_type=type if type and type != "All" else None,
                 base_model=base_model if base_model and base_model != "All" else None,
-                nsfw_levels=[l.strip() for l in nsfw_levels.split(",") if l.strip()] if nsfw_levels else None,
-                nsfw_max=nsfw_max if nsfw_max else None,
+                nsfw_levels=nsfw_level_ints,
+                nsfw_mode=nsfw_mode if nsfw_mode in ("max", "contains") else "max",
                 has_civitai=True if has_civitai == "Yes" else (False if has_civitai == "No" else None),
+                is_bookmarked=is_bookmarked,
+                min_versions=min_versions_int,
                 sort_by=db_sort_by,
                 sort_order=sort_order,
                 limit=page_size,
@@ -125,10 +163,7 @@ def setup_api(app: FastAPI):
                     status_code=404
                 )
 
-            # Load metadata from .civitai.info
-            model_info, version_info, _ = load_model_metadata(path)
-
-            # Build response
+            # Build response with file info
             stat = os.stat(path)
             result = {
                 "file_path": path,
@@ -137,35 +172,70 @@ def setup_api(app: FastAPI):
                 "file_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
             }
 
-            if model_info:
-                result["civitai_model"] = {
-                    "id": model_info.id,
-                    "name": model_info.name,
-                    "description": model_info.description,
-                    "type": model_info.type.value,
-                    "nsfw": model_info.nsfw.value,
-                    "tags": model_info.tags,
-                    "creator": model_info.creator,
-                    "rating": model_info.rating,
-                    "download_count": model_info.download_count,
-                }
-
+            # Try database first (more reliable - uses filename matching during scan)
             version_id = None
-            if version_info:
-                version_id = version_info.id
+            db = get_models_db()
+            db_version = db.get_version(path)
+
+            if db_version and db_version.get("id"):
+                version_id = db_version["id"]
                 result["civitai_version"] = {
-                    "id": version_info.id,
-                    "name": version_info.name,
-                    "base_model": version_info.base_model,
-                    "trained_words": version_info.trained_words,
-                    "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
+                    "id": version_id,
+                    "name": db_version.get("version_name"),
+                    "base_model": db_version.get("base_model"),
+                    "trained_words": db_version.get("trained_words", []),
+                    "published_at": db_version.get("published_at"),
                 }
 
-            # Get images from SQLite cache
+                # Get model info from database if available
+                model_id = db_version.get("model_id")
+                if model_id:
+                    db_model = db.get_civitai_model(model_id)
+                    if db_model:
+                        result["civitai_model"] = {
+                            "id": db_model["id"],
+                            "name": db_model.get("name"),
+                            "description": db_model.get("description"),
+                            "type": db_model.get("type"),
+                            "nsfw": db_model.get("nsfw_level"),
+                            "tags": db_model.get("tags", []),
+                            "creator": db_model.get("creator_username"),
+                            "rating": db_model.get("stats_rating", 0),
+                            "download_count": db_model.get("stats_download_count", 0),
+                        }
+
+            # Fall back to .civitai.info parsing (with filename matching)
+            if not version_id:
+                model_info, version_info, _ = load_model_metadata(path)
+
+                if model_info:
+                    result["civitai_model"] = {
+                        "id": model_info.id,
+                        "name": model_info.name,
+                        "description": model_info.description,
+                        "type": model_info.type.value,
+                        "nsfw": model_info.nsfw.value,
+                        "tags": model_info.tags,
+                        "creator": model_info.creator,
+                        "rating": model_info.rating,
+                        "download_count": model_info.download_count,
+                    }
+
+                if version_info:
+                    version_id = version_info.id
+                    result["civitai_version"] = {
+                        "id": version_info.id,
+                        "name": version_info.name,
+                        "base_model": version_info.base_model,
+                        "trained_words": version_info.trained_words,
+                        "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
+                    }
+
+            # Get images from database
             if version_id:
-                cache = get_images_cache()
-                images = cache.get_all_images_for_version(version_id)
-                pagination = cache.get_pagination_state(version_id)
+                db = get_models_db()
+                images = db.get_all_images_for_version(version_id)
+                pagination = db.get_pagination_state(version_id)
 
                 if images:
                     result["images"] = images  # Raw image data from cache
@@ -183,6 +253,97 @@ def setup_api(app: FastAPI):
         except Exception as e:
             import traceback
             print(f"[ModelManager] API error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/models/versions")
+    async def get_model_versions(model_id: int):
+        """
+        Get all local versions for a Civitai model.
+
+        Args:
+            model_id: Civitai model ID.
+
+        Returns:
+            List of all local versions for this model.
+        """
+        try:
+            db = get_models_db()
+            versions = db.get_versions_for_model(model_id)
+
+            return JSONResponse({
+                "success": True,
+                "model_id": model_id,
+                "versions": versions,
+                "count": len(versions)
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Get versions error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.post("/model-manager/images/resync")
+    async def resync_images(version_id: int = Form(default=0)):
+        """
+        Clear and re-fetch images for a version.
+
+        Args:
+            version_id: Civitai version ID.
+
+        Returns:
+            New images and count.
+        """
+        try:
+            if not version_id:
+                return JSONResponse(
+                    {"success": False, "error": "version_id is required"},
+                    status_code=400
+                )
+
+            from .civitai_api import CivitaiClient
+
+            # Clear existing images for this version
+            db = get_models_db()
+            db.clear_version_images(version_id)
+
+            # Fetch fresh images from Civitai
+            client = CivitaiClient.from_settings()
+            images_result = client.get_model_images(version_id, limit=200, page=1)
+
+            images = images_result.get("images", [])
+            total_count = images_result.get("total_count", len(images))
+            total_pages = images_result.get("total_pages", 1)
+
+            # Store in database
+            if images:
+                db.store_images(version_id, page=1, images=images)
+                db.update_pagination_state(
+                    version_id=version_id,
+                    total_count=total_count,
+                    total_pages=total_pages,
+                    fetched_pages=1
+                )
+
+            print(f"[ModelManager] Resynced {len(images)} images for version {version_id}")
+
+            return JSONResponse({
+                "success": True,
+                "images": images,
+                "total_count": total_count,
+                "fetched_count": len(images)
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Resync images error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},
@@ -209,9 +370,9 @@ def setup_api(app: FastAPI):
                     status_code=400
                 )
 
-            # Get current pagination state from cache
-            cache = get_images_cache()
-            pagination = cache.get_pagination_state(version_id)
+            # Get current pagination state from database
+            db = get_models_db()
+            pagination = db.get_pagination_state(version_id)
 
             if not pagination:
                 return JSONResponse({
@@ -255,11 +416,11 @@ def setup_api(app: FastAPI):
                     "message": "No more images available"
                 })
 
-            # Store images in cache
-            cache.store_images(version_id, next_page, new_images)
+            # Store images in database
+            db.store_images(version_id, next_page, new_images)
 
             # Update pagination state
-            cache.update_pagination_state(
+            db.update_pagination_state(
                 version_id=version_id,
                 total_count=total_count,
                 total_pages=total_pages,
@@ -299,10 +460,10 @@ def setup_api(app: FastAPI):
             All cached images and pagination state.
         """
         try:
-            cache = get_images_cache()
+            db = get_models_db()
 
-            images = cache.get_all_images_for_version(version_id)
-            pagination = cache.get_pagination_state(version_id)
+            images = db.get_all_images_for_version(version_id)
+            pagination = db.get_pagination_state(version_id)
 
             return JSONResponse({
                 "success": True,
@@ -547,6 +708,69 @@ def setup_api(app: FastAPI):
                 status_code=500
             )
 
+    @app.post("/model-manager/models/force-sync")
+    async def force_sync_model(model_id: int = Form(...)):
+        """
+        Force sync a model and all its local versions.
+
+        Fetches fresh data from Civitai for the model and all versions
+        that exist locally.
+
+        Args:
+            model_id: Civitai model ID.
+
+        Returns:
+            Success status and count of synced versions.
+        """
+        try:
+            db = get_models_db()
+
+            # Find all local versions of this model
+            versions = db.get_versions_for_model(model_id)
+
+            if not versions:
+                return JSONResponse({
+                    "success": False,
+                    "error": "No local versions found for this model"
+                }, status_code=404)
+
+            # Create sync service and sync each version
+            sync_service = SyncService()
+            synced_count = 0
+            errors = []
+
+            for version in versions:
+                file_path = version.get("file_path")
+                if not file_path:
+                    continue
+
+                import os
+                if not os.path.exists(file_path):
+                    errors.append(f"File not found: {file_path}")
+                    continue
+
+                result = sync_service.sync_model(file_path, force=True)
+                if result.success:
+                    synced_count += 1
+                elif result.error:
+                    errors.append(f"{os.path.basename(file_path)}: {result.error}")
+
+            return JSONResponse({
+                "success": True,
+                "synced_count": synced_count,
+                "total_versions": len(versions),
+                "errors": errors if errors else None
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Force sync error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
     @app.post("/model-manager/models/delete")
     async def delete_model(path: str = Form(...)):
         """
@@ -618,7 +842,7 @@ def setup_api(app: FastAPI):
 
             # Remove from database
             db = get_models_db()
-            db.delete_model(path)
+            db.delete_version(path)
 
             # Clear images from cache if we have version info
             try:
@@ -664,6 +888,100 @@ def setup_api(app: FastAPI):
         except Exception as e:
             import traceback
             print(f"[ModelManager] UI options error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.post("/model-manager/bookmark")
+    async def toggle_bookmark(
+        model_id: int = Form(...),
+        bookmarked: bool = Form(...)
+    ):
+        """
+        Set bookmark status for a model.
+
+        Args:
+            model_id: Civitai model ID.
+            bookmarked: True to bookmark, False to remove bookmark.
+
+        Returns:
+            Success status.
+        """
+        try:
+            db = get_models_db()
+            success = db.set_bookmark(model_id, bookmarked)
+
+            if not success:
+                return JSONResponse(
+                    {"success": False, "error": "Model not found"},
+                    status_code=404
+                )
+
+            return JSONResponse({
+                "success": True,
+                "model_id": model_id,
+                "is_bookmarked": bookmarked
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Bookmark error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/resolve-hash")
+    async def resolve_hash(hash: str):
+        """
+        Resolve a model hash to Civitai version info.
+
+        Args:
+            hash: Model file hash (SHA256 or AutoV2).
+
+        Returns:
+            Version info with model ID, version ID, name, and download URL.
+        """
+        try:
+            if not hash or len(hash) < 10:
+                return JSONResponse(
+                    {"success": False, "error": "Invalid hash"},
+                    status_code=400
+                )
+
+            client = CivitaiClient.from_settings()
+            try:
+                version_data = client.get_model_by_hash(hash)
+            finally:
+                client.close()
+
+            if not version_data:
+                return JSONResponse({
+                    "success": False,
+                    "error": "Not found on Civitai"
+                }, status_code=404)
+
+            version_id = version_data.get("id")
+            model_id = version_data.get("modelId")
+            model_name = version_data.get("model", {}).get("name", "Unknown")
+            version_name = version_data.get("name", "")
+
+            return JSONResponse({
+                "success": True,
+                "version_id": version_id,
+                "model_id": model_id,
+                "model_name": model_name,
+                "version_name": version_name,
+                "download_url": f"https://civitai.com/api/download/models/{version_id}" if version_id else None,
+                "view_url": f"https://civitai.com/model-versions/{version_id}" if version_id else None
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Hash resolve error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},

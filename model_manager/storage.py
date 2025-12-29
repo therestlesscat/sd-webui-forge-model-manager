@@ -187,7 +187,7 @@ def write_images_json(model_path: str, images_data) -> bool:
 
 _debug_nsfw_logged = False
 
-def parse_civitai_info(data: Dict[str, Any]) -> Tuple[Optional[CivitaiModelInfo], Optional[ModelVersion]]:
+def parse_civitai_info(data: Dict[str, Any], filename: Optional[str] = None) -> Tuple[Optional[CivitaiModelInfo], Optional[ModelVersion]]:
     """
     Parse .civitai.info data into model and version objects.
 
@@ -195,6 +195,10 @@ def parse_civitai_info(data: Dict[str, Any]) -> Tuple[Optional[CivitaiModelInfo]
     1. Full model response (has 'modelVersions' array)
     2. Version-only response (from by-hash API)
     3. Mixed format
+
+    Args:
+        data: Raw civitai.info JSON data
+        filename: Optional filename to match version by (e.g., "model_v1.safetensors")
 
     Returns:
         Tuple of (CivitaiModelInfo, ModelVersion) - either may be None
@@ -225,9 +229,28 @@ def parse_civitai_info(data: Dict[str, Any]) -> Tuple[Optional[CivitaiModelInfo]
     if "modelVersions" in data:
         model_info = CivitaiModelInfo.from_civitai(data)
 
-        # Get the first version (usually the one that matches the local file)
+        # Find matching version by filename if provided
         version_info = None
-        if model_info.versions:
+        if filename and model_info.versions:
+            # Try to match by filename in files array
+            for version in model_info.versions:
+                # Check if this version has a matching file
+                version_data = None
+                for v in data.get("modelVersions", []):
+                    if v.get("id") == version.id:
+                        version_data = v
+                        break
+
+                if version_data:
+                    for f in version_data.get("files", []):
+                        if f.get("name") == filename:
+                            version_info = version
+                            break
+                if version_info:
+                    break
+
+        # Fallback to first version if no filename match
+        if not version_info and model_info.versions:
             version_info = model_info.versions[0]
 
         return model_info, version_info
@@ -260,7 +283,10 @@ def load_model_metadata(model_path: str) -> Tuple[Optional[CivitaiModelInfo], Op
     """
     # Read civitai info
     civitai_data = read_civitai_info(model_path)
-    model_info, version_info = parse_civitai_info(civitai_data)
+
+    # Get filename for matching the correct version
+    filename = os.path.basename(model_path)
+    model_info, version_info = parse_civitai_info(civitai_data, filename)
 
     # Read images (our custom format with full metadata)
     images = []
