@@ -235,9 +235,9 @@ class ModelsOps:
             )"""
 
             if nsfw_mode == "contains":
-                # Contains mode: show models that have ANY of the selected levels
+                # Contains mode: show models with exact match of combined levels
                 combined_mask = sum(nsfw_levels)
-                conditions.append(f"(({effective_level_expr}) & ?) != 0")
+                conditions.append(f"({effective_level_expr}) = ?")
                 params.append(combined_mask)
             else:
                 # Max mode (default): show models whose highest level <= max selected
