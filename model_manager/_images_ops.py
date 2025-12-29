@@ -198,6 +198,7 @@ class ImagesOps:
                            MAX(
                                COALESCE(browsing_level, 1),
                                CASE nsfw_level
+                                   WHEN 'None' THEN 1
                                    WHEN 'Soft' THEN 4
                                    WHEN 'Mature' THEN 8
                                    WHEN 'X' THEN 16
