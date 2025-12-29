@@ -53,6 +53,17 @@ def on_ui_settings():
         ).info("Number of models to display per page.")
     )
 
+    shared.opts.add_option(
+        "model_manager_database_path",
+        shared.OptionInfo(
+            default="",
+            label="Custom Database Path",
+            component=gr.Textbox,
+            component_args={"placeholder": "e.g., F:\\shared\\models.db"},
+            section=section,
+        ).info("Full path to database file (including filename). Leave empty to use default location in extension folder. Requires restart to take effect.")
+    )
+
 
 def create_ui():
     """Create the Model Manager tab UI."""
