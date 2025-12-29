@@ -211,18 +211,22 @@
             cb.addEventListener('change', (e) => {
                 const useMax = useMaxCb.checked;
 
-                if (useMax && e.target.checked) {
-                    // In max mode: clicking a level auto-selects all up to it
+                if (useMax) {
+                    // In max mode: clicking a level always sets it as max
                     const clickedLevel = e.target.value;
                     const clickedIndex = NSFW_LEVEL_ORDER.indexOf(clickedLevel);
 
-                    levelCheckboxes.forEach(otherCb => {
-                        const otherIndex = NSFW_LEVEL_ORDER.indexOf(otherCb.value);
-                        otherCb.checked = otherIndex <= clickedIndex;
-                    });
+                    // Use setTimeout to override after the default toggle
+                    setTimeout(() => {
+                        levelCheckboxes.forEach(otherCb => {
+                            const otherIndex = NSFW_LEVEL_ORDER.indexOf(otherCb.value);
+                            otherCb.checked = otherIndex <= clickedIndex;
+                        });
+                        updateNsfwDisplay();
+                    }, 0);
+                } else {
+                    updateNsfwDisplay();
                 }
-
-                updateNsfwDisplay();
             });
         });
 
