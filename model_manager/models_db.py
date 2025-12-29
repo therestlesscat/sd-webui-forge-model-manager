@@ -30,10 +30,20 @@ class ModelsDatabase:
 
     DB_NAME = "models.db"
 
-    def __init__(self, extension_dir: str):
-        """Initialize the database."""
-        self.db_dir = extension_dir
-        self.db_path = os.path.join(extension_dir, self.DB_NAME)
+    def __init__(self, extension_dir: str, custom_db_path: Optional[str] = None):
+        """Initialize the database.
+
+        Args:
+            extension_dir: The extension directory (used as fallback for db location)
+            custom_db_path: Optional full path to database file (including filename)
+        """
+        if custom_db_path:
+            self.db_path = custom_db_path
+            self.db_dir = os.path.dirname(custom_db_path)
+        else:
+            self.db_dir = extension_dir
+            self.db_path = os.path.join(extension_dir, self.DB_NAME)
+
         self._local = threading.local()
         self._init_db()
 
@@ -623,6 +633,18 @@ def get_models_db() -> ModelsDatabase:
         with _db_lock:
             if _db_instance is None:
                 ext_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                _db_instance = ModelsDatabase(ext_dir)
+
+                # Check for custom database path in settings
+                custom_db_path = None
+                try:
+                    from modules import shared
+                    custom_path = getattr(shared.opts, 'model_manager_database_path', '')
+                    if custom_path and custom_path.strip():
+                        custom_db_path = custom_path.strip()
+                        print(f"[ModelManager] Using custom database path: {custom_db_path}")
+                except Exception as e:
+                    print(f"[ModelManager] Could not read custom database path setting: {e}")
+
+                _db_instance = ModelsDatabase(ext_dir, custom_db_path)
 
     return _db_instance
