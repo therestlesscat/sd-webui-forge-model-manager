@@ -120,6 +120,7 @@ def create_ui():
                                     <label class="mm-multiselect-item"><input type="checkbox" value="R"> R</label>
                                     <label class="mm-multiselect-item"><input type="checkbox" value="X"> X</label>
                                     <label class="mm-multiselect-item"><input type="checkbox" value="XXX"> XXX</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Blocked"> Blocked</label>
                                     <label class="mm-multiselect-item"><input type="checkbox" value="Unknown"> Unknown</label>
                                     <div class="mm-multiselect-divider"></div>
                                     <label class="mm-multiselect-item"><input type="checkbox" id="mm_nsfw_use_max" checked> Use max level</label>
