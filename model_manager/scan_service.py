@@ -258,12 +258,16 @@ class ScanService:
             version_data["stats_download_count"] = version_stats.get("downloadCount", 0)
             version_data["stats_thumbs_up"] = version_stats.get("thumbsUpCount", 0)
 
-            # Get file hash if available
+            # Get file hashes if available (from Civitai data)
             files = matched_version.get("files", [])
             for f in files:
                 if f.get("name") == version_data["file_name"]:
-                    hashes = f.get("hashes", {})
-                    version_data["file_hash"] = hashes.get("SHA256")
+                    civitai_hashes = f.get("hashes", {})
+                    if civitai_hashes:
+                        # Convert to our lowercase format
+                        version_data["file_hashes"] = {
+                            k.lower(): v for k, v in civitai_hashes.items()
+                        }
                     break
 
         # Calculate effective NSFW level considering images

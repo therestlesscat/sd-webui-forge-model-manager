@@ -16,7 +16,7 @@ from ._images_ops import ImagesOps
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 
 class ModelsDatabase:
@@ -25,7 +25,7 @@ class ModelsDatabase:
 
     Provides unified access to:
     - Model/version operations (via ModelsOps)
-    - Image/pagination operations (via ImagesOps)
+    - Image operations (via ImagesOps)
     """
 
     DB_NAME = "models.db"
@@ -105,6 +105,12 @@ class ModelsDatabase:
 
         if from_version < 5:
             self._migrate_to_v5(cursor)
+
+        if from_version < 6:
+            self._migrate_to_v6(cursor)
+
+        if from_version < 7:
+            self._migrate_to_v7(cursor)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
@@ -292,6 +298,99 @@ class ModelsDatabase:
 
         print("[ModelManager] Schema v5 migration complete.")
 
+    def _migrate_to_v6(self, cursor):
+        """Add cursor-based image pagination columns and drop pagination table."""
+        print("[ModelManager] Migrating to schema v6 (cursor-based image pagination)...")
+
+        # Add new columns to model_versions
+        cursor.execute("PRAGMA table_info(model_versions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "next_images_cursor" not in columns:
+            cursor.execute("ALTER TABLE model_versions ADD COLUMN next_images_cursor TEXT DEFAULT NULL")
+            print("[ModelManager] Added next_images_cursor column to model_versions.")
+
+        if "images_sync_last_date" not in columns:
+            cursor.execute("ALTER TABLE model_versions ADD COLUMN images_sync_last_date TEXT DEFAULT NULL")
+            print("[ModelManager] Added images_sync_last_date column to model_versions.")
+
+        # Drop pagination table (no longer needed with cursor-based pagination)
+        cursor.execute("DROP TABLE IF EXISTS pagination")
+        print("[ModelManager] Dropped pagination table.")
+
+        # Clear all existing images (force re-sync with new cursor logic)
+        cursor.execute("DELETE FROM images")
+        print("[ModelManager] Cleared images table for cursor-based re-sync.")
+
+        print("[ModelManager] Schema v6 migration complete.")
+
+    def _migrate_to_v7(self, cursor):
+        """Replace file_hash with file_hashes JSON column for multi-hash support."""
+        print("[ModelManager] Migrating to schema v7 (multi-hash support)...")
+
+        # Need to recreate table to remove file_hash and add file_hashes
+        cursor.execute("""
+            CREATE TABLE model_versions_new (
+                id INTEGER,
+                model_id INTEGER,
+                version_name TEXT,
+                base_model TEXT,
+                published_at TEXT,
+                created_at TEXT,
+                nsfw_level INTEGER DEFAULT 64,
+                trained_words TEXT DEFAULT '[]',
+                description TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                file_path TEXT UNIQUE NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                file_hashes TEXT DEFAULT NULL,
+                file_modified TEXT,
+                file_extension TEXT,
+                preview_path TEXT,
+                preview_url TEXT,
+                has_civitai_data INTEGER DEFAULT 0,
+                scanned_at TEXT,
+                next_images_cursor TEXT DEFAULT NULL,
+                images_sync_last_date TEXT DEFAULT NULL,
+                PRIMARY KEY (file_path),
+                FOREIGN KEY (model_id) REFERENCES civitai_models(id)
+            )
+        """)
+
+        # Copy data, converting old file_hash to file_hashes JSON if exists
+        cursor.execute("""
+            INSERT INTO model_versions_new
+            SELECT
+                id, model_id, version_name, base_model, published_at, created_at,
+                nsfw_level, trained_words, description,
+                stats_download_count, stats_thumbs_up,
+                file_path, file_name, file_size,
+                CASE WHEN file_hash IS NOT NULL AND file_hash != ''
+                     THEN json_object('sha256', file_hash)
+                     ELSE NULL
+                END,
+                file_modified, file_extension,
+                preview_path, preview_url, has_civitai_data, scanned_at,
+                next_images_cursor, images_sync_last_date
+            FROM model_versions
+        """)
+
+        cursor.execute("DROP TABLE model_versions")
+        cursor.execute("ALTER TABLE model_versions_new RENAME TO model_versions")
+
+        # Recreate indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_file_modified ON model_versions(file_modified)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_published_at ON model_versions(published_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_has_civitai ON model_versions(has_civitai_data)")
+
+        print("[ModelManager] Replaced file_hash with file_hashes column.")
+        print("[ModelManager] Schema v7 migration complete.")
+
     def _migrate_to_v2(self, cursor):
         """Migrate from v1 (flat models table) to v2 (normalized schema)."""
         print("[ModelManager] Migrating to schema v2 (normalized model/version tables)...")
@@ -404,13 +503,15 @@ class ModelsDatabase:
                 file_path TEXT UNIQUE NOT NULL,
                 file_name TEXT NOT NULL,
                 file_size INTEGER,
-                file_hash TEXT,
+                file_hashes TEXT DEFAULT NULL,
                 file_modified TEXT,
                 file_extension TEXT,
                 preview_path TEXT,
                 preview_url TEXT,
                 has_civitai_data INTEGER DEFAULT 0,
                 scanned_at TEXT,
+                next_images_cursor TEXT DEFAULT NULL,
+                images_sync_last_date TEXT DEFAULT NULL,
                 PRIMARY KEY (file_path),
                 FOREIGN KEY (model_id) REFERENCES civitai_models(id)
             )
@@ -429,16 +530,6 @@ class ModelsDatabase:
                 browsing_level INTEGER DEFAULT 1,
                 created_at TEXT,
                 data TEXT NOT NULL
-            )
-        """)
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pagination (
-                version_id INTEGER PRIMARY KEY,
-                total_count INTEGER DEFAULT 0,
-                total_pages INTEGER DEFAULT 1,
-                fetched_pages INTEGER DEFAULT 1,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -539,20 +630,6 @@ class ModelsDatabase:
 
     # ==================== Image Operations (delegated) ====================
 
-    def get_pagination_state(self, version_id: int) -> Optional[Dict[str, Any]]:
-        """Get pagination state for a version."""
-        return self._images.get_pagination_state(version_id)
-
-    def update_pagination_state(
-        self,
-        version_id: int,
-        total_count: int,
-        total_pages: int,
-        fetched_pages: int
-    ):
-        """Update pagination state for a version."""
-        self._images.update_pagination_state(version_id, total_count, total_pages, fetched_pages)
-
     def store_images(self, version_id: int, page: int, images: List[Dict[str, Any]]):
         """Store a page of images in the cache."""
         self._images.store_images(version_id, page, images)
@@ -580,6 +657,39 @@ class ModelsDatabase:
     def clear_version_images(self, version_id: int):
         """Clear all cached images for a version."""
         self._images.clear_version(version_id)
+
+    def update_version_images_state(
+        self,
+        version_id: int,
+        next_cursor: Optional[str],
+        update_sync_date: bool = True
+    ):
+        """
+        Update image sync state for a version.
+
+        Args:
+            version_id: Civitai version ID (the 'id' column in model_versions).
+            next_cursor: Next cursor for pagination (None if all loaded).
+            update_sync_date: Whether to update images_sync_last_date.
+        """
+        with self._cursor() as cursor:
+            if update_sync_date:
+                cursor.execute("""
+                    UPDATE model_versions
+                    SET next_images_cursor = ?,
+                        images_sync_last_date = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (next_cursor, version_id))
+            else:
+                cursor.execute("""
+                    UPDATE model_versions
+                    SET next_images_cursor = ?
+                    WHERE id = ?
+                """, (next_cursor, version_id))
+
+    def get_version_by_id(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """Get a version record by its Civitai version ID."""
+        return self._models.get_version_by_id(version_id)
 
     def get_image_cache_stats(self) -> Dict[str, Any]:
         """Get image cache statistics."""

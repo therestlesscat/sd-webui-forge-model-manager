@@ -92,8 +92,8 @@
     let currentImages = [];
     let currentVersionId = null;
     let currentModelPath = null;
-    let imageTotalCount = 0;
-    let hasMoreImages = false;
+    let nextImagesCursor = null;  // Cursor for loading more images
+    let imagesSyncDate = null;    // Last sync date (null = never synced)
     let isLoadingMore = false;
 
     // Wait for DOM
@@ -482,8 +482,8 @@
         currentImages = [];
         currentVersionId = null;
         currentModelPath = model.file_path;
-        imageTotalCount = 0;
-        hasMoreImages = false;
+        nextImagesCursor = null;
+        imagesSyncDate = null;
 
         // Reset version state
         currentVersions = [];
@@ -533,31 +533,34 @@
                     updateDescription(data.model.civitai_model.description);
                 }
 
-                // Store pagination info if available
+                // Store images
                 const images = data.model.images || [];
                 currentImages = images;
 
-                // Use pagination info from API response
-                if (data.model.images_pagination) {
-                    const pagination = data.model.images_pagination;
-                    imageTotalCount = pagination.total_count || images.length;
-                    hasMoreImages = pagination.fetched_pages < pagination.total_pages;
-                    if (pagination.version_id) {
-                        currentVersionId = pagination.version_id;
-                    }
-                } else {
-                    // Fallback: assume there's more if we got 200
-                    imageTotalCount = images.length;
-                    hasMoreImages = images.length >= 200;
-                }
+                // Get cursor state from images_state
+                const imagesState = data.model.images_state || {};
+                currentVersionId = imagesState.version_id || null;
+                nextImagesCursor = imagesState.next_cursor || null;
+                imagesSyncDate = imagesState.sync_date || null;
 
-                console.log(`[ModelManager] Loaded ${images.length} images (total: ${imageTotalCount}, hasMore: ${hasMoreImages})`);
+                console.log(`[ModelManager] Loaded ${images.length} images (cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
 
                 renderModelImages(images);
+                updateImagesCountCell();
             }
         } catch (error) {
             console.error('[ModelManager] Failed to load model details:', error);
+            updateImagesCountCell();  // Update even on error to show "None"
         }
+    }
+
+    // Update the images count cell in the Information table
+    function updateImagesCountCell() {
+        const cell = document.getElementById('mm_images_count_cell');
+        if (!cell) return;
+
+        const downloaded = currentImages.length;
+        cell.textContent = downloaded > 0 ? `${downloaded}` : 'None';
     }
 
     // Switch to a different version within the same model group
@@ -572,8 +575,8 @@
         // Reset image state
         currentImages = [];
         currentVersionId = null;
-        imageTotalCount = 0;
-        hasMoreImages = false;
+        nextImagesCursor = null;
+        imagesSyncDate = null;
 
         // Update version selector UI
         updateVersionSelectorUI();
@@ -625,6 +628,12 @@
             triggerSection.innerHTML = version.trained_words.map(w =>
                 `<span class="trigger-word" onclick="navigator.clipboard.writeText('${escapeHtml(w)}')">${escapeHtml(w)}</span>`
             ).join('');
+        }
+
+        // Reset images count to loading state
+        const imagesCell = document.getElementById('mm_images_count_cell');
+        if (imagesCell) {
+            imagesCell.textContent = 'Loading...';
         }
     }
 
@@ -774,6 +783,7 @@
                         ${model.creator ? `<tr><td>Creator</td><td>${escapeHtml(model.creator)}</td></tr>` : ''}
                         ${model.rating > 0 ? `<tr><td>Rating</td><td>★ ${model.rating.toFixed(1)} (${formatNumber(model.download_count)} downloads)</td></tr>` : ''}
                         <tr><td>File</td><td class="file-path-cell">${escapeHtml(shortenFilePath(model.file_path))}</td></tr>
+                        <tr id="mm_images_count_row"><td>Images</td><td id="mm_images_count_cell">Loading...</td></tr>
                     </table>
                 </div>
 
@@ -855,12 +865,13 @@
             const data = await response.json();
 
             if (data.success) {
-                setStatus(`Resynced ${data.fetched_count} images (${data.total_count} total available)`);
-                // Update images display
+                setStatus(`Resynced ${data.fetched_count} images`);
+                // Update images display and cursor state
                 currentImages = data.images || [];
-                imageTotalCount = data.total_count || 0;
-                hasMoreImages = data.fetched_count < data.total_count;
+                nextImagesCursor = data.next_cursor || null;
+                imagesSyncDate = new Date().toISOString();
                 renderModelImages(currentImages);
+                updateImagesCountCell();
             } else {
                 setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
             }
@@ -1068,13 +1079,20 @@
             return;
         }
 
-        // Load more button
-        const loadMoreHtml = hasMoreImages
+        // Download button visibility:
+        // - Show if never synced (imagesSyncDate is null) OR
+        // - Show if cursor exists (more images available)
+        const showDownloadBtn = (nextImagesCursor !== null && nextImagesCursor !== '') || (imagesSyncDate === null);
+        const neverSynced = imagesSyncDate === null;
+        const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
+        const infoText = neverSynced ? 'Images not yet downloaded' : `${images.length} images downloaded`;
+
+        const downloadMoreHtml = showDownloadBtn
             ? `<div class="mm-load-more">
                  <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()">
-                   Load More Images
+                   ${buttonText}
                  </button>
-                 <span class="mm-load-more-info">Showing ${images.length}${imageTotalCount > 0 ? ` of ${imageTotalCount}` : ''} images</span>
+                 <span class="mm-load-more-info">${infoText}</span>
                </div>`
             : '';
 
@@ -1084,7 +1102,7 @@
                 <span class="mm-images-count">${images.length} images</span>
             </div>
             <div class="model-images-list">${imageCards}</div>
-            ${loadMoreHtml}
+            ${downloadMoreHtml}
         `;
         container.style.display = 'block';
     }
@@ -1478,7 +1496,7 @@
         }
     });
 
-    // Load more images
+    // Download more images (appends to existing list without resetting scroll)
     window.mmLoadMoreImages = async function() {
         if (isLoadingMore || !currentVersionId) return;
 
@@ -1486,7 +1504,7 @@
         const loadMoreBtn = document.getElementById('mm_load_more_btn');
         if (loadMoreBtn) {
             loadMoreBtn.disabled = true;
-            loadMoreBtn.textContent = 'Loading...';
+            loadMoreBtn.textContent = 'Downloading...';
         }
 
         try {
@@ -1499,34 +1517,73 @@
             const data = await response.json();
 
             if (data.success && data.images && data.images.length > 0) {
-                // Add new images to current list
+                const startIndex = currentImages.length;
                 currentImages = currentImages.concat(data.images);
-                imageTotalCount = data.total_count || imageTotalCount;
-                hasMoreImages = data.has_more;
 
-                // Re-render with all images
-                renderModelImages(currentImages);
+                // Update cursor state from response
+                nextImagesCursor = data.next_cursor || null;
+                imagesSyncDate = new Date().toISOString();  // Mark as synced
 
-                console.log(`[ModelManager] Loaded ${data.images.length} more images (${currentImages.length}/${imageTotalCount} total)`);
+                // Append new images to DOM (preserves scroll position)
+                const imagesList = document.querySelector('.model-images-list');
+                if (imagesList) {
+                    const newCardsHtml = data.images.map((img, idx) =>
+                        renderImageCard(img, startIndex + idx)
+                    ).filter(Boolean).join('');
+                    imagesList.insertAdjacentHTML('beforeend', newCardsHtml);
+                }
+
+                // Update all count displays
+                updateAllImageCounts();
+
+                // Update or hide button based on cursor
+                if (nextImagesCursor) {
+                    loadMoreBtn.textContent = 'Download More Images';
+                    loadMoreBtn.disabled = false;
+                } else {
+                    const loadMoreSection = document.querySelector('.mm-load-more');
+                    if (loadMoreSection) loadMoreSection.remove();
+                }
+
+                console.log(`[ModelManager] Downloaded ${data.images.length} more images (${currentImages.length} total, has_more: ${nextImagesCursor !== null})`);
             } else {
-                hasMoreImages = false;
-                // Re-render to hide the load more button
-                renderModelImages(currentImages);
+                // No more images
+                nextImagesCursor = null;
+                const loadMoreSection = document.querySelector('.mm-load-more');
+                if (loadMoreSection) loadMoreSection.remove();
 
                 if (data.message) {
                     console.log('[ModelManager]', data.message);
                 }
             }
         } catch (error) {
-            console.error('[ModelManager] Load more error:', error);
+            console.error('[ModelManager] Download more error:', error);
             if (loadMoreBtn) {
-                loadMoreBtn.textContent = 'Load More Images';
+                loadMoreBtn.textContent = 'Download More Images';
                 loadMoreBtn.disabled = false;
             }
         } finally {
             isLoadingMore = false;
         }
     };
+
+    // Update all image count displays
+    function updateAllImageCounts() {
+        // Header count
+        const headerCount = document.querySelector('.mm-images-count');
+        if (headerCount) {
+            headerCount.textContent = `${currentImages.length} images`;
+        }
+
+        // Load more info
+        const loadMoreInfo = document.querySelector('.mm-load-more-info');
+        if (loadMoreInfo) {
+            loadMoreInfo.textContent = `${currentImages.length} images downloaded`;
+        }
+
+        // Info table cell
+        updateImagesCountCell();
+    }
 
     // Convert full file path to dropdown-compatible path
     // Full: F:\...\models\Stable-diffusion\_SD_1_5\model.safetensors

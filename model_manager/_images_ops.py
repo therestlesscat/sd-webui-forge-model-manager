@@ -1,7 +1,7 @@
 """
-Internal module for image and pagination table operations.
+Internal module for image table operations.
 
-This module handles images and pagination tables.
+This module handles images table operations.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any, Callable
 
 class ImagesOps:
     """
-    Operations for images and pagination tables.
+    Operations for images table.
 
     Receives a cursor factory from the parent facade.
     """
@@ -23,56 +23,6 @@ class ImagesOps:
             cursor_factory: Callable that returns a context manager yielding a cursor.
         """
         self._cursor = cursor_factory
-
-    # ==================== Pagination ====================
-
-    def get_pagination_state(self, version_id: int) -> Optional[Dict[str, Any]]:
-        """
-        Get pagination state for a version.
-
-        Args:
-            version_id: Civitai model version ID.
-
-        Returns:
-            Dict with total_count, total_pages, fetched_pages, or None.
-        """
-        with self._cursor() as cursor:
-            cursor.execute(
-                "SELECT * FROM pagination WHERE version_id = ?",
-                (version_id,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "version_id": row["version_id"],
-                    "total_count": row["total_count"],
-                    "total_pages": row["total_pages"],
-                    "fetched_pages": row["fetched_pages"]
-                }
-        return None
-
-    def update_pagination_state(
-        self,
-        version_id: int,
-        total_count: int,
-        total_pages: int,
-        fetched_pages: int
-    ):
-        """
-        Update pagination state for a version.
-
-        Args:
-            version_id: Civitai model version ID.
-            total_count: Total images available.
-            total_pages: Total pages available.
-            fetched_pages: How many pages we've fetched.
-        """
-        with self._cursor() as cursor:
-            cursor.execute("""
-                INSERT OR REPLACE INTO pagination
-                (version_id, total_count, total_pages, fetched_pages, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (version_id, total_count, total_pages, fetched_pages))
 
     # ==================== Images ====================
 
@@ -231,20 +181,18 @@ class ImagesOps:
 
     def clear_version(self, version_id: int):
         """
-        Clear all cached data for a version.
+        Clear all cached images for a version.
 
         Args:
             version_id: Civitai model version ID.
         """
         with self._cursor() as cursor:
             cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
-            cursor.execute("DELETE FROM pagination WHERE version_id = ?", (version_id,))
 
     def clear_all(self):
-        """Clear all image and pagination data."""
+        """Clear all image data."""
         with self._cursor() as cursor:
             cursor.execute("DELETE FROM images")
-            cursor.execute("DELETE FROM pagination")
 
     # ==================== Stats ====================
 
