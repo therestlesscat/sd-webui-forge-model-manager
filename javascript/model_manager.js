@@ -1543,7 +1543,10 @@
 
     // Download more images (appends to existing list without resetting scroll)
     window.mmLoadMoreImages = async function() {
-        if (isLoadingMore || !currentVersionId) return;
+        // Guard: prevent calls if already loading, no version selected, or no more images to load
+        // Allow call if: first download (imagesSyncDate null) OR cursor exists (more images available)
+        const canLoadMore = imagesSyncDate === null || (nextImagesCursor !== null && nextImagesCursor !== '');
+        if (isLoadingMore || !currentVersionId || !canLoadMore) return;
 
         isLoadingMore = true;
         const loadMoreBtn = document.getElementById('mm_load_more_btn');
@@ -1562,24 +1565,36 @@
             const data = await response.json();
 
             if (data.success && data.images && data.images.length > 0) {
-                const startIndex = currentImages.length;
-                currentImages = currentImages.concat(data.images);
+                // Deduplicate: filter out images that already exist in currentImages
+                const existingIds = new Set(currentImages.map(img => img.id));
+                const newImages = data.images.filter(img => !existingIds.has(img.id));
 
-                // Update cursor state from response
-                nextImagesCursor = data.next_cursor || null;
-                imagesSyncDate = new Date().toISOString();  // Mark as synced
+                if (newImages.length > 0) {
+                    const startIndex = currentImages.length;
+                    currentImages = currentImages.concat(newImages);
 
-                // Append new images to DOM (preserves scroll position)
-                const imagesList = document.querySelector('.model-images-list');
-                if (imagesList) {
-                    const newCardsHtml = data.images.map((img, idx) =>
-                        renderImageCard(img, startIndex + idx)
-                    ).filter(Boolean).join('');
-                    imagesList.insertAdjacentHTML('beforeend', newCardsHtml);
+                    // Update cursor state from response
+                    nextImagesCursor = data.next_cursor || null;
+                    imagesSyncDate = new Date().toISOString();  // Mark as synced
+
+                    // Append new images to DOM (preserves scroll position)
+                    const imagesList = document.querySelector('.model-images-list');
+                    if (imagesList) {
+                        const newCardsHtml = newImages.map((img, idx) =>
+                            renderImageCard(img, startIndex + idx)
+                        ).filter(Boolean).join('');
+                        imagesList.insertAdjacentHTML('beforeend', newCardsHtml);
+                    }
+
+                    // Update all count displays
+                    updateAllImageCounts();
+
+                    console.log(`[ModelManager] Downloaded ${newImages.length} new images (${data.images.length - newImages.length} duplicates filtered, ${currentImages.length} total, has_more: ${nextImagesCursor !== null})`);
+                } else {
+                    // All returned images were duplicates
+                    console.log(`[ModelManager] All ${data.images.length} returned images were duplicates, skipped`);
+                    nextImagesCursor = data.next_cursor || null;
                 }
-
-                // Update all count displays
-                updateAllImageCounts();
 
                 // Update or hide button based on cursor
                 if (nextImagesCursor) {
@@ -1589,8 +1604,6 @@
                     const loadMoreSection = document.querySelector('.mm-load-more');
                     if (loadMoreSection) loadMoreSection.remove();
                 }
-
-                console.log(`[ModelManager] Downloaded ${data.images.length} more images (${currentImages.length} total, has_more: ${nextImagesCursor !== null})`);
             } else {
                 // No more images
                 nextImagesCursor = null;
