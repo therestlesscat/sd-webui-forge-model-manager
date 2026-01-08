@@ -113,8 +113,8 @@ class ModelsOps:
                     nsfw_level, trained_words, description,
                     stats_download_count, stats_thumbs_up,
                     file_path, file_name, file_size, file_hashes, file_modified, file_extension,
-                    preview_path, preview_url, has_civitai_data, scanned_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    has_civitai_data, scanned_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 version_data.get("id"),
                 version_data.get("model_id"),
@@ -133,8 +133,6 @@ class ModelsOps:
                 file_hashes,
                 version_data.get("file_modified"),
                 version_data.get("file_extension"),
-                version_data.get("preview_path"),
-                version_data.get("preview_url"),
                 1 if version_data.get("has_civitai_data") else 0,
                 datetime.now().isoformat()
             ))
@@ -194,11 +192,16 @@ class ModelsOps:
         sort_by: str = "file_modified",
         sort_order: str = "desc",
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        preview_least_nsfw: bool = True
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Query models grouped by civitai_model_id.
         Returns latest version per group with version count.
+
+        Args:
+            preview_least_nsfw: If True, preview is image with lowest NSFW level.
+                               If False, preview is most recent image by created_at.
         """
         conditions = []
         params = []
@@ -224,27 +227,12 @@ class ModelsOps:
 
         if nsfw_levels:
             # Effective NSFW level = max(model nsfw, version nsfw, max image nsfw)
-            # Max image NSFW is calculated dynamically from images table
-            # Image NSFW = max(browsing_level, nsfw_level mapping, nsfw bool)
-            # nsfw_level: None=1, Soft=4, Mature=8, X=16
-            # nsfw bool: true=4, false=1
+            # Image effective_nsfw_level is pre-calculated at sync time
             effective_level_expr = """MAX(
                 COALESCE(m.nsfw_level, 64),
                 COALESCE(v.nsfw_level, 64),
                 COALESCE((
-                    SELECT MAX(
-                        MAX(
-                            COALESCE(browsing_level, 64),
-                            CASE nsfw_level
-                                WHEN 'None' THEN 1
-                                WHEN 'Soft' THEN 4
-                                WHEN 'Mature' THEN 8
-                                WHEN 'X' THEN 16
-                                ELSE 64
-                            END,
-                            CASE WHEN nsfw THEN 4 ELSE 1 END
-                        )
-                    ) FROM images WHERE version_id = v.id
+                    SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id
                 ), 64)
             )"""
 
@@ -280,7 +268,10 @@ class ModelsOps:
             "nsfw_level": "nsfw_level",
             "rating": "COALESCE(cm_stats_rating, 0)",
             "download_count": "COALESCE(cm_stats_download_count, stats_download_count)",
-            "published_at": "published_at"
+            "published_at": "published_at",
+            "scanned_at": "scanned_at",
+            "downloaded_at": "downloaded_at",
+            "updated_at": "cm_updated_at"
         }
         sort_field = valid_sort_fields.get(sort_by, "file_modified")
         sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
@@ -292,6 +283,22 @@ class ModelsOps:
             outer_conditions.append("local_version_count >= ?")
             outer_params.append(min_versions)
         outer_where = " AND ".join(outer_conditions)
+
+        # Build preview subquery based on setting
+        if preview_least_nsfw:
+            preview_subquery = """(
+                SELECT url FROM images
+                WHERE version_id = v.id
+                ORDER BY effective_nsfw_level ASC, created_at DESC, id DESC
+                LIMIT 1
+            )"""
+        else:
+            preview_subquery = """(
+                SELECT url FROM images
+                WHERE version_id = v.id
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+            )"""
 
         # Query for latest version per model group
         query = f"""
@@ -316,21 +323,11 @@ class ModelsOps:
                     m.allow_different_license as cm_allow_different_license,
                     m.supports_generation as cm_supports_generation,
                     m.is_bookmarked as cm_is_bookmarked,
+                    m.updated_at as cm_updated_at,
                     COALESCE((
-                        SELECT MAX(
-                            MAX(
-                                COALESCE(browsing_level, 1),
-                                CASE nsfw_level
-                                    WHEN 'None' THEN 1
-                                    WHEN 'Soft' THEN 4
-                                    WHEN 'Mature' THEN 8
-                                    WHEN 'X' THEN 16
-                                    ELSE 1
-                                END,
-                                CASE WHEN nsfw THEN 4 ELSE 1 END
-                            )
-                        ) FROM images WHERE version_id = v.id
-                    ), 1) as max_image_nsfw,
+                        SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id
+                    ), 64) as max_image_nsfw,
+                    {preview_subquery} as preview_url,
                     ROW_NUMBER() OVER (
                         PARTITION BY COALESCE(v.model_id, v.file_path)
                         ORDER BY v.published_at DESC NULLS LAST
@@ -493,10 +490,9 @@ class ModelsOps:
             "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else None,
             "file_modified": row["file_modified"],
             "file_extension": row["file_extension"],
-            "preview_path": row["preview_path"],
-            "preview_url": row["preview_url"],
             "has_civitai_data": bool(row["has_civitai_data"]),
             "scanned_at": row["scanned_at"],
+            "downloaded_at": row["downloaded_at"] if "downloaded_at" in row.keys() else None,
             "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
             "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
         }
@@ -521,15 +517,16 @@ class ModelsOps:
             "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else None,
             "file_modified": row["file_modified"],
             "file_extension": row["file_extension"],
-            "preview_path": row["preview_path"],
-            "preview_url": row["preview_url"],
+            "preview_url": row["preview_url"] if "preview_url" in row.keys() else None,
             "has_civitai_data": bool(row["has_civitai_data"]),
             "scanned_at": row["scanned_at"],
+            "downloaded_at": row["downloaded_at"] if "downloaded_at" in row.keys() else None,
             "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
             "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
             "local_version_count": row["local_version_count"],
             "max_image_nsfw": row["max_image_nsfw"],
             "is_bookmarked": bool(row["cm_is_bookmarked"]) if row["cm_is_bookmarked"] else False,
+            "updated_at": row["cm_updated_at"] if "cm_updated_at" in row.keys() else None,
         }
 
         # Civitai model data (if available)

@@ -563,8 +563,6 @@ class SyncService:
                         "has_civitai_data": True,
                     }
 
-                    # Find preview
-                    self._find_preview(model_path, version_data, matched_version.get("images", []))
                     db.upsert_version(version_data)
 
             else:
@@ -594,8 +592,6 @@ class SyncService:
                     "has_civitai_data": True,
                 }
 
-                # Find preview
-                self._find_preview(model_path, version_data, civitai_data.get("images", []))
                 db.upsert_version(version_data)
 
         except Exception as e:
@@ -630,21 +626,6 @@ class SyncService:
             result["tensor_sha256"] = hashes.tensor_sha256
         return result
 
-    def _find_preview(self, model_path: str, version_data: Dict, images: List):
-        """Find preview image for the model."""
-        base = os.path.splitext(model_path)[0]
-        preview_extensions = [".preview.png", ".preview.jpg", ".preview.jpeg", ".png", ".jpg"]
-
-        for ext in preview_extensions:
-            preview_path = base + ext
-            if os.path.exists(preview_path):
-                version_data["preview_path"] = preview_path
-                return
-
-        # No local preview - check for Civitai image URL
-        if images and images[0].get("url"):
-            version_data["preview_url"] = images[0]["url"]
-
     def sync_all(
         self,
         model_paths: Optional[List[str]] = None,
@@ -669,9 +650,10 @@ class SyncService:
 
         # Get all models if not specified
         if model_paths is None:
-            from .scanner import scan_models
-            models = scan_models()
-            model_paths = [m.file_path for m in models]
+            from .scan_service import ScanService
+            scan_svc = ScanService()
+            directories = scan_svc._get_model_directories()
+            model_paths = scan_svc.find_model_files(directories)
 
         self._progress = SyncProgress(total=len(model_paths))
 

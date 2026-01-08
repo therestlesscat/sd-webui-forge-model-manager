@@ -13,10 +13,11 @@ from contextlib import contextmanager
 
 from ._models_ops import ModelsOps
 from ._images_ops import ImagesOps
+from ._browser_cache_ops import BrowserCacheOps
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 10
 
 
 class ModelsDatabase:
@@ -50,12 +51,16 @@ class ModelsDatabase:
         # Initialize operation delegates
         self._models = ModelsOps(self._cursor)
         self._images = ImagesOps(self._cursor)
+        self._browser_cache = BrowserCacheOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path)
+            # Add timeout to wait for locks (30 seconds) and enable WAL mode for better concurrency
+            self._local.connection = sqlite3.connect(self.db_path, timeout=30.0)
             self._local.connection.row_factory = sqlite3.Row
+            # Enable WAL mode for better concurrent read/write performance
+            self._local.connection.execute("PRAGMA journal_mode=WAL")
         return self._local.connection
 
     @contextmanager
@@ -111,6 +116,15 @@ class ModelsDatabase:
 
         if from_version < 7:
             self._migrate_to_v7(cursor)
+
+        if from_version < 8:
+            self._migrate_to_v8(cursor)
+
+        if from_version < 9:
+            self._migrate_to_v9(cursor)
+
+        if from_version < 10:
+            self._migrate_to_v10(cursor)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
@@ -391,6 +405,133 @@ class ModelsDatabase:
         print("[ModelManager] Replaced file_hash with file_hashes column.")
         print("[ModelManager] Schema v7 migration complete.")
 
+    def _migrate_to_v8(self, cursor):
+        """Remove preview columns and simplify images NSFW to effective_nsfw_level."""
+        print("[ModelManager] Migrating to schema v8 (preview from images, simplified NSFW)...")
+
+        # Recreate model_versions without preview_path and preview_url
+        cursor.execute("""
+            CREATE TABLE model_versions_new (
+                id INTEGER,
+                model_id INTEGER,
+                version_name TEXT,
+                base_model TEXT,
+                published_at TEXT,
+                created_at TEXT,
+                nsfw_level INTEGER DEFAULT 64,
+                trained_words TEXT DEFAULT '[]',
+                description TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                file_path TEXT UNIQUE NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                file_hashes TEXT DEFAULT NULL,
+                file_modified TEXT,
+                file_extension TEXT,
+                has_civitai_data INTEGER DEFAULT 0,
+                scanned_at TEXT,
+                next_images_cursor TEXT DEFAULT NULL,
+                images_sync_last_date TEXT DEFAULT NULL,
+                PRIMARY KEY (file_path),
+                FOREIGN KEY (model_id) REFERENCES civitai_models(id)
+            )
+        """)
+
+        # Copy data (excluding preview_path and preview_url)
+        cursor.execute("""
+            INSERT INTO model_versions_new
+            SELECT
+                id, model_id, version_name, base_model, published_at, created_at,
+                nsfw_level, trained_words, description,
+                stats_download_count, stats_thumbs_up,
+                file_path, file_name, file_size, file_hashes,
+                file_modified, file_extension,
+                has_civitai_data, scanned_at,
+                next_images_cursor, images_sync_last_date
+            FROM model_versions
+        """)
+
+        cursor.execute("DROP TABLE model_versions")
+        cursor.execute("ALTER TABLE model_versions_new RENAME TO model_versions")
+
+        # Recreate indexes for model_versions
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_file_modified ON model_versions(file_modified)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_published_at ON model_versions(published_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_has_civitai ON model_versions(has_civitai_data)")
+
+        print("[ModelManager] Removed preview_path and preview_url from model_versions.")
+
+        # Recreate images table with effective_nsfw_level instead of nsfw, nsfw_level, browsing_level
+        cursor.execute("""
+            CREATE TABLE images_new (
+                id INTEGER PRIMARY KEY,
+                version_id INTEGER NOT NULL,
+                page INTEGER NOT NULL,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                effective_nsfw_level INTEGER DEFAULT 1,
+                created_at TEXT,
+                data TEXT NOT NULL
+            )
+        """)
+
+        # We can't easily migrate the NSFW data, so just clear and re-sync
+        cursor.execute("DROP TABLE images")
+        cursor.execute("ALTER TABLE images_new RENAME TO images")
+
+        # Recreate indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version ON images(version_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version_nsfw ON images(version_id, effective_nsfw_level)")
+
+        # Reset image sync state to force re-sync
+        cursor.execute("UPDATE model_versions SET next_images_cursor = NULL, images_sync_last_date = NULL")
+
+        print("[ModelManager] Simplified images table with effective_nsfw_level.")
+        print("[ModelManager] Schema v8 migration complete. Images will re-sync on next load.")
+
+    def _migrate_to_v9(self, cursor):
+        """Add civitai_browser_cache table for Civitai Browser feature."""
+        print("[ModelManager] Migrating to schema v9 (Civitai Browser cache)...")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS civitai_browser_cache (
+                model_id INTEGER NOT NULL,
+                version_id INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                data_id TEXT NOT NULL,
+                cached_at TEXT NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY (version_id, type, data_id)
+            )
+        """)
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_browser_cache_version_type ON civitai_browser_cache(version_id, type)")
+
+        print("[ModelManager] Schema v9 migration complete.")
+
+    def _migrate_to_v10(self, cursor):
+        """Add downloaded_at column and scanned_at index to model_versions."""
+        print("[ModelManager] Migrating to schema v10 (adding downloaded_at column)...")
+
+        # Check if column already exists
+        cursor.execute("PRAGMA table_info(model_versions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "downloaded_at" not in columns:
+            cursor.execute("ALTER TABLE model_versions ADD COLUMN downloaded_at TEXT DEFAULT NULL")
+            print("[ModelManager] Added downloaded_at column to model_versions.")
+
+        # Create indexes for sorting by date
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_scanned_at ON model_versions(scanned_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_downloaded_at ON model_versions(downloaded_at)")
+
+        print("[ModelManager] Schema v10 migration complete.")
+
     def _migrate_to_v2(self, cursor):
         """Migrate from v1 (flat models table) to v2 (normalized schema)."""
         print("[ModelManager] Migrating to schema v2 (normalized model/version tables)...")
@@ -462,8 +603,91 @@ class ModelsDatabase:
         }
         return mapping.get(text, 64)  # Default to Unknown
 
+    def _create_v8_schema(self, cursor):
+        """Create v8 schema for fresh installs."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS civitai_models (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                type TEXT NOT NULL DEFAULT 'Checkpoint',
+                nsfw INTEGER DEFAULT 0,
+                nsfw_level INTEGER DEFAULT 64,
+                tags TEXT DEFAULT '[]',
+                creator_username TEXT,
+                creator_image_url TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                stats_rating REAL DEFAULT 0,
+                allow_no_credit INTEGER DEFAULT 1,
+                allow_commercial_use TEXT,
+                allow_derivatives INTEGER DEFAULT 1,
+                allow_different_license INTEGER DEFAULT 1,
+                supports_generation INTEGER DEFAULT 0,
+                is_bookmarked INTEGER DEFAULT 0,
+                updated_at TEXT
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_versions (
+                id INTEGER,
+                model_id INTEGER,
+                version_name TEXT,
+                base_model TEXT,
+                published_at TEXT,
+                created_at TEXT,
+                nsfw_level INTEGER DEFAULT 64,
+                trained_words TEXT DEFAULT '[]',
+                description TEXT,
+                stats_download_count INTEGER DEFAULT 0,
+                stats_thumbs_up INTEGER DEFAULT 0,
+                file_path TEXT UNIQUE NOT NULL,
+                file_name TEXT NOT NULL,
+                file_size INTEGER,
+                file_hashes TEXT DEFAULT NULL,
+                file_modified TEXT,
+                file_extension TEXT,
+                has_civitai_data INTEGER DEFAULT 0,
+                scanned_at TEXT,
+                downloaded_at TEXT DEFAULT NULL,
+                next_images_cursor TEXT DEFAULT NULL,
+                images_sync_last_date TEXT DEFAULT NULL,
+                PRIMARY KEY (file_path),
+                FOREIGN KEY (model_id) REFERENCES civitai_models(id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+                id INTEGER PRIMARY KEY,
+                version_id INTEGER NOT NULL,
+                page INTEGER NOT NULL,
+                url TEXT,
+                width INTEGER,
+                height INTEGER,
+                effective_nsfw_level INTEGER DEFAULT 64,
+                created_at TEXT,
+                data TEXT NOT NULL
+            )
+        """)
+
+        # Create all indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_file_modified ON model_versions(file_modified)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_published_at ON model_versions(published_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_has_civitai ON model_versions(has_civitai_data)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_scanned_at ON model_versions(scanned_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_downloaded_at ON model_versions(downloaded_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_civitai_model_type ON civitai_models(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_is_bookmarked ON civitai_models(is_bookmarked)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version ON images(version_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version_nsfw ON images(version_id, effective_nsfw_level)")
+
     def _create_v2_tables(self, cursor):
-        """Create v2 schema tables."""
+        """Create v2 schema tables (original v2 schema, migrations transform to current)."""
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS civitai_models (
                 id INTEGER PRIMARY KEY,
@@ -503,15 +727,13 @@ class ModelsDatabase:
                 file_path TEXT UNIQUE NOT NULL,
                 file_name TEXT NOT NULL,
                 file_size INTEGER,
-                file_hashes TEXT DEFAULT NULL,
+                file_hash TEXT,
                 file_modified TEXT,
                 file_extension TEXT,
                 preview_path TEXT,
                 preview_url TEXT,
                 has_civitai_data INTEGER DEFAULT 0,
                 scanned_at TEXT,
-                next_images_cursor TEXT DEFAULT NULL,
-                images_sync_last_date TEXT DEFAULT NULL,
                 PRIMARY KEY (file_path),
                 FOREIGN KEY (model_id) REFERENCES civitai_models(id)
             )
@@ -533,7 +755,7 @@ class ModelsDatabase:
             )
         """)
 
-        # Create all indexes
+        # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_model_id ON model_versions(model_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_base_model ON model_versions(base_model)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_nsfw_level ON model_versions(nsfw_level)")
@@ -569,6 +791,15 @@ class ModelsDatabase:
         """Delete a version record by file path."""
         self._models.delete_version(file_path)
 
+    def set_downloaded_at(self, file_path: str):
+        """Set downloaded_at timestamp for a version (called after Civitai download)."""
+        with self._cursor() as cursor:
+            cursor.execute("""
+                UPDATE model_versions
+                SET downloaded_at = ?
+                WHERE file_path = ?
+            """, (datetime.now().isoformat(), file_path))
+
     def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get a version by file path."""
         return self._models.get_version(file_path)
@@ -594,7 +825,8 @@ class ModelsDatabase:
         sort_by: str = "file_modified",
         sort_order: str = "desc",
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        preview_least_nsfw: bool = True
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Query models grouped by civitai_model_id."""
         return self._models.query_models_grouped(
@@ -609,7 +841,8 @@ class ModelsDatabase:
             sort_by=sort_by,
             sort_order=sort_order,
             limit=limit,
-            offset=offset
+            offset=offset,
+            preview_least_nsfw=preview_least_nsfw
         )
 
     def get_all_version_paths(self) -> List[str]:
@@ -700,6 +933,42 @@ class ModelsDatabase:
             db_size = os.path.getsize(self.db_path) / (1024 * 1024)
         stats["db_size_mb"] = round(db_size, 2)
         return stats
+
+    # ==================== Browser Cache Operations (delegated) ====================
+
+    def get_cached_browse_images(self, version_id: int) -> List[Dict[str, Any]]:
+        """Get cached images for Civitai browser."""
+        return self._browser_cache.get_cached_images(version_id)
+
+    def store_browse_images(
+        self,
+        model_id: int,
+        version_id: int,
+        images: List[Dict[str, Any]]
+    ):
+        """Store images in Civitai browser cache."""
+        self._browser_cache.store_images(model_id, version_id, images)
+
+    def get_browse_cursor(self, version_id: int) -> Optional[str]:
+        """Get cached cursor for Civitai browser pagination."""
+        return self._browser_cache.get_cursor(version_id)
+
+    def store_browse_cursor(
+        self,
+        model_id: int,
+        version_id: int,
+        cursor_value: str
+    ):
+        """Store cursor in Civitai browser cache."""
+        self._browser_cache.store_cursor(model_id, version_id, cursor_value)
+
+    def clear_browse_version_cache(self, version_id: int):
+        """Clear all cached data for a version in Civitai browser."""
+        self._browser_cache.clear_version_cache(version_id)
+
+    def get_browse_cached_image_count(self, version_id: int) -> int:
+        """Get count of cached images for a version in Civitai browser."""
+        return self._browser_cache.get_cached_image_count(version_id)
 
     # ==================== Combined Operations ====================
 
