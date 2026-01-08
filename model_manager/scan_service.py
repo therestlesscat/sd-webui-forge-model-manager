@@ -148,9 +148,6 @@ class ScanService:
             # Infer model type from path when no civitai data
             version_data["base_model"] = None
 
-        # Find preview
-        self._find_preview(model_path, version_data, civitai_data)
-
         return civitai_model, version_data
 
     def _infer_model_type(self, path: str) -> str:
@@ -311,25 +308,6 @@ class ScanService:
         # Get max level
         if levels:
             version_data["nsfw_level"] = max(levels)
-
-    def _find_preview(self, model_path: str, version_data: Dict, civitai_data: Optional[Dict]):
-        """Find preview image for the model."""
-        base = os.path.splitext(model_path)[0]
-        preview_extensions = [".preview.png", ".preview.jpg", ".preview.jpeg", ".png", ".jpg"]
-
-        for ext in preview_extensions:
-            preview_path = base + ext
-            if os.path.exists(preview_path):
-                version_data["preview_path"] = preview_path
-                return
-
-        # No local preview - check for Civitai image URL
-        if civitai_data:
-            versions = civitai_data.get("modelVersions", [])
-            if versions:
-                images = versions[0].get("images", [])
-                if images and images[0].get("url"):
-                    version_data["preview_url"] = images[0]["url"]
 
     def scan_models(
         self,

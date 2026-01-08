@@ -26,6 +26,42 @@ class ImagesOps:
 
     # ==================== Images ====================
 
+    @staticmethod
+    def calculate_effective_nsfw_level(img: Dict[str, Any]) -> int:
+        """
+        Calculate effective NSFW level from image data.
+
+        Uses max of:
+        - browsingLevel (primary, integer from API)
+        - nsfwLevel (string: None=1, Soft=4, Mature=8, X=16)
+        - nsfw boolean: true=2, false=1
+
+        NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
+
+        Args:
+            img: Image dict from Civitai API.
+
+        Returns:
+            Effective NSFW level.
+        """
+        # browsingLevel is the primary source (integer)
+        browsing_level = img.get("browsingLevel") or 64  # Default to Unknown
+
+        # nsfwLevel string mapping
+        nsfw_level_str = img.get("nsfwLevel", "")
+        nsfw_level_map = {
+            "None": 1,
+            "Soft": 4,
+            "Mature": 8,
+            "X": 16,
+        }
+        nsfw_level = nsfw_level_map.get(nsfw_level_str, 64)  # Default to Unknown
+
+        # nsfw boolean
+        nsfw_bool = 2 if img.get("nsfw") else 1
+
+        return max(browsing_level, nsfw_level, nsfw_bool)
+
     def store_images(
         self,
         version_id: int,
@@ -44,21 +80,17 @@ class ImagesOps:
             for img in images:
                 img_id = img.get("id")
                 if img_id:
-                    # Extract fields for proper columns
                     url = img.get("url")
                     width = img.get("width")
                     height = img.get("height")
-                    nsfw_bool = img.get("nsfw")
-                    nsfw = 1 if nsfw_bool else 0
-                    nsfw_level = img.get("nsfwLevel")
-                    browsing_level = img.get("browsingLevel", 1)
+                    effective_nsfw_level = self.calculate_effective_nsfw_level(img)
                     created_at = img.get("createdAt")
 
                     cursor.execute("""
                         INSERT OR REPLACE INTO images
-                        (id, version_id, page, url, width, height, nsfw, nsfw_level, browsing_level, created_at, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (img_id, version_id, page, url, width, height, nsfw, nsfw_level, browsing_level, created_at, json.dumps(img)))
+                        (id, version_id, page, url, width, height, effective_nsfw_level, created_at, data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (img_id, version_id, page, url, width, height, effective_nsfw_level, created_at, json.dumps(img)))
 
     def get_images(
         self,
@@ -126,16 +158,11 @@ class ImagesOps:
         """
         Get max NSFW level for each version from cached images.
 
-        Uses max of:
-        - browsing_level (primary, from column)
-        - nsfw_level (string: None=1, Soft=4, Mature=8, X=16)
-        - nsfw boolean: true=4, false=1
-
         Args:
             version_ids: List of Civitai version IDs
 
         Returns:
-            Dict mapping version_id to max nsfwLevel
+            Dict mapping version_id to max effective_nsfw_level
         """
         if not version_ids:
             return {}
@@ -143,26 +170,13 @@ class ImagesOps:
         with self._cursor() as cursor:
             placeholders = ','.join(['?'] * len(version_ids))
             cursor.execute(f"""
-                SELECT version_id,
-                       MAX(
-                           MAX(
-                               COALESCE(browsing_level, 1),
-                               CASE nsfw_level
-                                   WHEN 'None' THEN 1
-                                   WHEN 'Soft' THEN 4
-                                   WHEN 'Mature' THEN 8
-                                   WHEN 'X' THEN 16
-                                   ELSE 1
-                               END,
-                               CASE WHEN nsfw THEN 4 ELSE 1 END
-                           )
-                       ) as max_nsfw
+                SELECT version_id, MAX(effective_nsfw_level) as max_nsfw
                 FROM images
                 WHERE version_id IN ({placeholders})
                 GROUP BY version_id
             """, version_ids)
 
-            return {row["version_id"]: row["max_nsfw"] or 1 for row in cursor.fetchall()}
+            return {row["version_id"]: row["max_nsfw"] or 64 for row in cursor.fetchall()}
 
     def get_max_nsfw_level(self, version_id: int) -> int:
         """
@@ -172,10 +186,10 @@ class ImagesOps:
             version_id: Civitai version ID
 
         Returns:
-            Max nsfwLevel (default 1 if no images)
+            Max effective_nsfw_level (default 64/Unknown if no images)
         """
         result = self.get_max_nsfw_levels([version_id])
-        return result.get(version_id, 1)
+        return result.get(version_id, 64)
 
     # ==================== Cleanup ====================
 

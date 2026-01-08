@@ -8,7 +8,6 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 from modules import script_callbacks
 
-from .scanner import scan_models, filter_models, sort_models
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
 from .models_db import get_models_db
@@ -67,6 +66,19 @@ def setup_api(app: FastAPI):
             if page_size <= 0:
                 page_size = int(getattr(shared.opts, 'model_manager_page_size', 10))
 
+            # Parse card size setting (format: WIDTHxHEIGHT)
+            def parse_card_size(size_str: str):
+                try:
+                    if 'x' in size_str.lower():
+                        parts = size_str.lower().split('x')
+                        return int(parts[0].strip()), int(parts[1].strip())
+                except (ValueError, IndexError):
+                    pass
+                return 200, 280  # Default
+
+            card_size_str = getattr(shared.opts, 'model_manager_card_size', '200x280')
+            card_width, card_height = parse_card_size(card_size_str)
+
             # Valid sort columns in DB
             valid_sort_columns = {
                 "name", "display_name", "file_name", "file_size", "file_modified",
@@ -114,6 +126,9 @@ def setup_api(app: FastAPI):
                 except ValueError:
                     pass
 
+            # Get preview setting
+            preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+
             # Query database with grouped query
             db = get_models_db()
             models, total_count = db.query_models_grouped(
@@ -128,7 +143,8 @@ def setup_api(app: FastAPI):
                 sort_by=db_sort_by,
                 sort_order=sort_order,
                 limit=page_size,
-                offset=offset
+                offset=offset,
+                preview_least_nsfw=preview_least_nsfw
             )
 
             return JSONResponse({
@@ -137,6 +153,8 @@ def setup_api(app: FastAPI):
                 "total": total_count,
                 "page": page,
                 "page_size": page_size,
+                "card_width": card_width,
+                "card_height": card_height,
                 "has_more": offset + len(models) < total_count,
             })
 
@@ -979,6 +997,517 @@ def setup_api(app: FastAPI):
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    # ==================== Civitai Browser Endpoints ====================
+
+    @app.get("/model-manager/civitai/models")
+    async def civitai_search_models(
+        query: str = "",
+        types: str = "",          # Comma-separated: Checkpoint,LORA,etc
+        base_models: str = "",    # Comma-separated: SD 1.5,SDXL,etc
+        nsfw: bool = False,
+        sort: str = "Most Downloaded",
+        period: str = "AllTime",
+        tag: str = "",
+        cursor: str = "",         # Cursor for pagination (empty = first page)
+        limit: int = 0,  # 0 = use setting
+    ):
+        """
+        Search Civitai models with local ownership detection.
+
+        Uses cursor-based pagination. Pass cursor from previous response's nextCursor.
+        Returns models from Civitai with ownership indicators for locally owned versions.
+        """
+        try:
+            from modules import shared
+
+            # Use setting for page size if not specified
+            if limit <= 0:
+                limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 10))
+
+            # Parse card size setting (format: WIDTHxHEIGHT)
+            def parse_card_size(size_str: str):
+                try:
+                    if 'x' in size_str.lower():
+                        parts = size_str.lower().split('x')
+                        return int(parts[0].strip()), int(parts[1].strip())
+                except (ValueError, IndexError):
+                    pass
+                return 200, 280  # Default
+
+            card_size_str = getattr(shared.opts, 'model_manager_civitai_card_size', '200x280')
+            card_width, card_height = parse_card_size(card_size_str)
+
+            # Parse comma-separated values
+            type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
+            base_model_list = [b.strip() for b in base_models.split(",") if b.strip()] if base_models else None
+
+            # Search Civitai
+            client = CivitaiClient.from_settings()
+            try:
+                result = client.search_models(
+                    query=query,
+                    types=type_list,
+                    base_models=base_model_list,
+                    sort=sort,
+                    period=period,
+                    nsfw=nsfw,
+                    tag=tag,
+                    limit=limit,
+                    cursor=cursor if cursor else None
+                )
+            finally:
+                client.close()
+
+            items = result.get("items", [])
+            next_cursor = result.get("nextCursor")
+
+            # Get local ownership info
+            db = get_models_db()
+
+            # Collect all model_ids and version_ids from results
+            model_ids = set()
+            version_ids = set()
+            for model in items:
+                model_ids.add(model.get("id"))
+                for version in model.get("modelVersions", []):
+                    version_ids.add(version.get("id"))
+
+            # Query local database for owned versions
+            owned_versions = set()
+            owned_models = set()
+
+            if model_ids or version_ids:
+                # Query versions table for matches
+                with db._cursor() as db_cursor:
+                    # Check by model_id
+                    if model_ids:
+                        placeholders = ",".join("?" * len(model_ids))
+                        db_cursor.execute(f"""
+                            SELECT DISTINCT model_id, id FROM model_versions
+                            WHERE model_id IN ({placeholders})
+                        """, list(model_ids))
+                        for row in db_cursor.fetchall():
+                            owned_models.add(row["model_id"])
+                            owned_versions.add(row["id"])
+
+                    # Check by version_id
+                    if version_ids:
+                        placeholders = ",".join("?" * len(version_ids))
+                        db_cursor.execute(f"""
+                            SELECT DISTINCT model_id, id FROM model_versions
+                            WHERE id IN ({placeholders})
+                        """, list(version_ids))
+                        for row in db_cursor.fetchall():
+                            owned_models.add(row["model_id"])
+                            owned_versions.add(row["id"])
+
+            # Attach ownership info to each model and version
+            for model in items:
+                model_id = model.get("id")
+                model["owned_locally"] = model_id in owned_models
+                model["owned_versions"] = [
+                    v.get("id") for v in model.get("modelVersions", [])
+                    if v.get("id") in owned_versions
+                ]
+                # Mark each version with ownership
+                for version in model.get("modelVersions", []):
+                    version["owned_locally"] = version.get("id") in owned_versions
+
+            return JSONResponse({
+                "success": True,
+                "models": items,
+                "nextCursor": next_cursor,
+                "pageSize": limit,
+                "cardWidth": card_width,
+                "cardHeight": card_height
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai search error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/models/{model_id}")
+    async def civitai_get_model(model_id: int):
+        """
+        Get full model details from Civitai with local ownership status.
+        """
+        try:
+            client = CivitaiClient.from_settings()
+            try:
+                model = client.get_model(model_id)
+            finally:
+                client.close()
+
+            if not model:
+                return JSONResponse(
+                    {"success": False, "error": "Model not found"},
+                    status_code=404
+                )
+
+            # Get local ownership info
+            db = get_models_db()
+            version_ids = [v.get("id") for v in model.get("modelVersions", [])]
+
+            owned_versions = set()
+            if version_ids:
+                with db._cursor() as cursor:
+                    placeholders = ",".join("?" * len(version_ids))
+                    cursor.execute(f"""
+                        SELECT id FROM model_versions
+                        WHERE id IN ({placeholders})
+                    """, version_ids)
+                    owned_versions = {row["id"] for row in cursor.fetchall()}
+
+            model["owned_locally"] = len(owned_versions) > 0
+            model["owned_versions"] = list(owned_versions)
+
+            # Mark each version with ownership
+            for version in model.get("modelVersions", []):
+                version["owned_locally"] = version.get("id") in owned_versions
+
+            return JSONResponse({
+                "success": True,
+                "model": model
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai get model error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/versions/{version_id}/images")
+    async def civitai_get_version_images(
+        version_id: int,
+        model_id: int = 0,
+        use_cache: bool = True
+    ):
+        """
+        Get images for a Civitai version with caching.
+
+        First checks cache, then fetches from Civitai if needed.
+        """
+        try:
+            db = get_models_db()
+
+            # Check cache first
+            if use_cache:
+                cached_images = db.get_cached_browse_images(version_id)
+                cached_cursor = db.get_browse_cursor(version_id)
+
+                if cached_images:
+                    return JSONResponse({
+                        "success": True,
+                        "images": cached_images,
+                        "next_cursor": cached_cursor,
+                        "from_cache": True,
+                        "cached_count": len(cached_images)
+                    })
+
+            # Fetch from Civitai (first batch)
+            client = CivitaiClient.from_settings()
+            try:
+                result = client.get_model_images(version_id, cursor=None, limit=10)
+            finally:
+                client.close()
+
+            images = result.get("images", [])
+            next_cursor = result.get("next_cursor")
+
+            # Cache images
+            if images:
+                db.store_browse_images(model_id, version_id, images)
+                if next_cursor:
+                    db.store_browse_cursor(model_id, version_id, next_cursor)
+
+            return JSONResponse({
+                "success": True,
+                "images": images,
+                "next_cursor": next_cursor,
+                "from_cache": False,
+                "fetched_count": len(images)
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai images error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.post("/model-manager/civitai/versions/{version_id}/images/load-more")
+    async def civitai_load_more_images(version_id: int, model_id: int = Form(...)):
+        """
+        Load more images for a Civitai version using cached cursor.
+        """
+        try:
+            db = get_models_db()
+
+            # Get cached cursor
+            cursor = db.get_browse_cursor(version_id)
+
+            if not cursor:
+                return JSONResponse({
+                    "success": True,
+                    "images": [],
+                    "next_cursor": None,
+                    "message": "No more images (no cursor)"
+                })
+
+            # Fetch from Civitai
+            client = CivitaiClient.from_settings()
+            try:
+                result = client.get_model_images(version_id, cursor=cursor, limit=10)
+            finally:
+                client.close()
+
+            images = result.get("images", [])
+            next_cursor = result.get("next_cursor")
+
+            # Store new images and update cursor
+            if images:
+                db.store_browse_images(model_id, version_id, images)
+
+            if next_cursor:
+                db.store_browse_cursor(model_id, version_id, next_cursor)
+            else:
+                # Clear cursor to indicate no more images
+                db.store_browse_cursor(model_id, version_id, "")
+
+            return JSONResponse({
+                "success": True,
+                "images": images,
+                "next_cursor": next_cursor,
+                "fetched_count": len(images)
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai load more error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/versions/{version_id}/images/cached")
+    async def civitai_get_cached_images(version_id: int):
+        """
+        Get only cached images for a version (no API call).
+        """
+        try:
+            db = get_models_db()
+
+            images = db.get_cached_browse_images(version_id)
+            cursor = db.get_browse_cursor(version_id)
+
+            return JSONResponse({
+                "success": True,
+                "images": images,
+                "next_cursor": cursor if cursor else None,
+                "cached_count": len(images)
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai cached images error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.post("/model-manager/civitai/download")
+    async def civitai_download_model(
+        version_id: int = Form(...),
+        model_id: int = Form(...),
+        file_index: int = Form(default=0)
+    ):
+        """
+        Start downloading a model version from Civitai.
+
+        Requires model_id and version_id. Fetches full model/version data
+        then queues the download.
+        """
+        try:
+            from .download_service import get_download_service
+
+            # Fetch model and version data from Civitai
+            client = CivitaiClient.from_settings()
+            try:
+                model_data = client.get_model(model_id)
+            finally:
+                client.close()
+
+            if not model_data:
+                return JSONResponse(
+                    {"success": False, "error": "Model not found on Civitai"},
+                    status_code=404
+                )
+
+            # Find the requested version
+            version_data = None
+            for v in model_data.get("modelVersions", []):
+                if v.get("id") == version_id:
+                    version_data = v
+                    break
+
+            if not version_data:
+                return JSONResponse(
+                    {"success": False, "error": "Version not found"},
+                    status_code=404
+                )
+
+            # Queue download
+            service = get_download_service()
+            progress = service.queue_download(
+                version_id=version_id,
+                model_data=model_data,
+                version_data=version_data,
+                file_index=file_index
+            )
+
+            return JSONResponse({
+                "success": True,
+                "message": "Download queued",
+                "progress": progress.to_dict()
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Civitai download error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/download/progress")
+    async def civitai_download_progress(version_id: Optional[int] = None):
+        """
+        Get download progress for one or all downloads.
+        """
+        try:
+            from .download_service import get_download_service
+
+            service = get_download_service()
+
+            if version_id:
+                progress = service.get_progress(version_id)
+                if not progress:
+                    return JSONResponse({
+                        "success": True,
+                        "progress": None,
+                        "message": "No download found for this version"
+                    })
+                return JSONResponse({
+                    "success": True,
+                    "progress": progress.to_dict()
+                })
+            else:
+                all_progress = service.get_all_progress()
+                return JSONResponse({
+                    "success": True,
+                    "downloads": all_progress
+                })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Download progress error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.post("/model-manager/civitai/download/cancel")
+    async def civitai_cancel_download(version_id: int = Form(default=0)):
+        """
+        Cancel a download. If version_id=0, cancels all downloads.
+        """
+        try:
+            from .download_service import get_download_service
+
+            service = get_download_service()
+
+            if version_id:
+                service.cancel(version_id)
+                return JSONResponse({
+                    "success": True,
+                    "message": f"Cancelled download for version {version_id}"
+                })
+            else:
+                service.cancel_all()
+                return JSONResponse({
+                    "success": True,
+                    "message": "Cancelled all downloads"
+                })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Cancel download error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/tags")
+    async def civitai_search_tags(
+        query: str = "",
+        limit: int = 20,
+    ):
+        """
+        Search Civitai tags for autocomplete.
+
+        Args:
+            query: Search text to filter tags.
+            limit: Max results to return (default 20).
+
+        Returns:
+            List of tag names matching the query.
+        """
+        try:
+            # Don't search if query is too short
+            if len(query) < 3:
+                return JSONResponse({
+                    "success": True,
+                    "tags": []
+                })
+
+            client = CivitaiClient.from_settings()
+            try:
+                result = client.search_tags(query=query, limit=limit)
+            finally:
+                client.close()
+
+            # Extract just the tag names
+            tags = [tag.get("name") for tag in result.get("items", []) if tag.get("name")]
+
+            return JSONResponse({
+                "success": True,
+                "tags": tags
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Tags search error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e), "tags": []},
                 status_code=500
             )
 

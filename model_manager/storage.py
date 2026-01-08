@@ -7,7 +7,7 @@ import os
 from typing import Optional, Dict, Any, Tuple
 
 from .models import (
-    CivitaiModelInfo, ModelVersion, ModelImage, LocalModel
+    CivitaiModelInfo, ModelVersion, ModelImage
 )
 
 

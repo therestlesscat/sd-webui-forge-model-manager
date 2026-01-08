@@ -91,6 +91,7 @@ Model NSFW = max(model.nsfw, version.nsfw, max(images[].nsfw))
 - Commit frequently at logical checkpoints
 - Never create workflow-specific modules - keep everything generic
 - **Never hallucinate imports or function names** - always verify what functions/classes actually exist in a module by reading the file before writing import statements
+- **When showing edits** - always include method name if editing inside a method, class name if editing at class/global scope
 
 ## Backlog (Future Features)
 

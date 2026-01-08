@@ -276,6 +276,95 @@ class CivitaiClient:
         except CivitaiNotFoundError:
             return None
 
+    def search_models(
+        self,
+        query: str = "",
+        types: Optional[List[str]] = None,
+        base_models: Optional[List[str]] = None,
+        sort: str = "Most Downloaded",
+        period: str = "AllTime",
+        nsfw: bool = False,
+        tag: str = "",
+        limit: int = 10,
+        cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Search models on Civitai using cursor-based pagination.
+
+        Args:
+            query: Search text.
+            types: Model types (Checkpoint, LORA, etc).
+            base_models: Base models (SD 1.5, SDXL, Pony, Flux, etc).
+            sort: Sort order (Most Downloaded, Highest Rated, Newest).
+            period: Time period (AllTime, Year, Month, Week, Day).
+            nsfw: Include NSFW models.
+            tag: Filter by tag.
+            limit: Results per page.
+            cursor: Cursor for pagination (from previous response's nextCursor).
+
+        Returns:
+            Dict with 'items' (models), 'metadata', and 'nextCursor'.
+        """
+        params = {
+            "limit": limit,
+            "sort": sort,
+            "period": period,
+        }
+
+        if cursor:
+            params["cursor"] = cursor
+        if query:
+            params["query"] = query
+        if types:
+            params["types"] = ",".join(types)
+        if base_models:
+            params["baseModels"] = ",".join(base_models)
+        if nsfw:
+            params["nsfw"] = "true"
+        if tag:
+            params["tag"] = tag
+
+        data = self._request("GET", "/models", params)
+        metadata = data.get("metadata", {}) or {}
+
+        return {
+            "items": data.get("items", []),
+            "metadata": metadata,
+            "nextCursor": metadata.get("nextCursor")
+        }
+
+    def search_tags(
+        self,
+        query: str = "",
+        limit: int = 20,
+        page: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Search tags on Civitai.
+
+        Args:
+            query: Search text to filter tags by name.
+            limit: Results per page (max 200).
+            page: Page number.
+
+        Returns:
+            Dict with 'items' (tags) and 'metadata' (pagination info).
+        """
+        params = {
+            "limit": limit,
+            "page": page,
+        }
+
+        if query:
+            params["query"] = query
+
+        data = self._request("GET", "/tags", params)
+
+        return {
+            "items": data.get("items", []),
+            "metadata": data.get("metadata", {})
+        }
+
     def get_model_images(
         self,
         version_id: int,

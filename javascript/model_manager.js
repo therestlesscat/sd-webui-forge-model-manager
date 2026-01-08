@@ -22,10 +22,25 @@
     let pageSize = 0;
     let firstVisibleItemIndex = 0;  // Absolute index of first item on current page
 
-    // Card sizing constants (should match CSS)
-    const CARD_MIN_WIDTH = 180;  // minmax(180px, 1fr) in CSS
+    // Card sizing (default values, updated from API)
+    let cardWidth = 200;
+    let cardHeight = 280;
     const CARD_GAP = 15;         // gap: 15px in CSS
     const ROWS_TO_SHOW = 2;      // Show 2 rows of cards
+
+    // Apply card size from API response
+    function applyCardSize(width, height) {
+        if (width && height && (width !== cardWidth || height !== cardHeight)) {
+            cardWidth = width;
+            cardHeight = height;
+            const container = document.getElementById('model_manager_app');
+            if (container) {
+                container.style.setProperty('--mm-card-width', `${width}px`);
+                container.style.setProperty('--mm-card-height', `${height}px`);
+                console.log(`[ModelManager] Card size set to ${width}x${height}`);
+            }
+        }
+    }
 
     // Calculate page size based on grid width
     function calculatePageSize() {
@@ -35,14 +50,14 @@
         const gridWidth = grid.clientWidth;
         if (gridWidth <= 0) return 10;
 
-        // Calculate how many cards fit per row
+        // Calculate how many cards fit per row using current card width
         // Formula: (gridWidth + gap) / (cardWidth + gap)
-        const cardsPerRow = Math.floor((gridWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP));
+        const cardsPerRow = Math.floor((gridWidth + CARD_GAP) / (cardWidth + CARD_GAP));
         const calculatedSize = Math.max(1, cardsPerRow) * ROWS_TO_SHOW;
 
         // Minimum 4, maximum 50
         const finalSize = Math.max(4, Math.min(50, calculatedSize));
-        console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px)`);
+        console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px, card width: ${cardWidth}px)`);
         return finalSize;
     }
 
@@ -95,6 +110,17 @@
     let nextImagesCursor = null;  // Cursor for loading more images
     let imagesSyncDate = null;    // Last sync date (null = never synced)
     let isLoadingMore = false;
+
+    // Helper to detect video URLs
+    function isVideoUrl(url, type) {
+        if (!url) return false;
+        if (type === 'video') return true;
+        const lowerUrl = url.toLowerCase();
+        return lowerUrl.endsWith('.mp4') ||
+               lowerUrl.endsWith('.webm') ||
+               lowerUrl.includes('.mp4?') ||
+               lowerUrl.includes('.webm?');
+    }
 
     // Wait for DOM
     function onReady(callback) {
@@ -269,6 +295,11 @@
             const data = await apiCall('/model-manager/models', filters);
 
             if (data.success) {
+                // Apply card size from API response
+                if (data.card_width && data.card_height) {
+                    applyCardSize(data.card_width, data.card_height);
+                }
+
                 currentModels = data.models;
                 currentPage = data.page || 1;
                 pageSize = data.page_size || calculatedPageSize;
@@ -322,9 +353,7 @@
 
     // Render model card
     function renderModelCard(model, index) {
-        const previewSrc = model.preview_path
-            ? `/file=${encodeURIComponent(model.preview_path)}`
-            : (model.preview_url || '');
+        const previewSrc = model.preview_url || '';
 
         const hasPreview = previewSrc !== '';
         const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23666' font-size='10'%3ENo Image%3C/text%3E%3C/svg%3E";
@@ -370,10 +399,18 @@
             ? '<div class="mm-bookmark-indicator" title="Bookmarked">★</div>'
             : '';
 
+        // Check if preview is a video
+        const isVideo = isVideoUrl(previewSrc);
+        const previewHtml = hasPreview
+            ? (isVideo
+                ? `<video src="${previewSrc}" loop muted autoplay playsinline></video>`
+                : `<img src="${previewSrc}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
+            : `<img src="${placeholderSvg}" alt="${name}">`;
+
         return `
             <div class="model-card ${civitaiClass} ${nsfwClass}" data-index="${index}" data-model-id="${model.civitai_model_id || ''}" onclick="window.mmSelectModel(${index})">
                 <div class="model-card-image">
-                    <img src="${hasPreview ? previewSrc : placeholderSvg}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">
+                    ${previewHtml}
                     ${!model.has_civitai_data ? '<div class="no-data-overlay">No Civitai Data</div>' : ''}
                     ${bookmarkIndicator}
                 </div>
@@ -1219,12 +1256,20 @@
             ? 'mm-nsfw-indicator'
             : '';
 
+        // Detect video
+        const isVideo = isVideoUrl(src, img.type);
+        const mediaHtml = isVideo
+            ? `<video src="${escapeHtml(src)}" controls loop muted
+                      onclick="event.stopPropagation()"
+                      title="Click to play"></video>`
+            : `<img src="${escapeHtml(src)}" alt="Example image" loading="lazy"
+                    onclick="window.open('${escapeHtml(src)}', '_blank')"
+                    title="Click to view full size">`;
+
         return `
             <div class="mm-image-card" data-index="${index}">
                 <div class="mm-image-left">
-                    <img src="${escapeHtml(src)}" alt="Example image" loading="lazy"
-                         onclick="window.open('${escapeHtml(src)}', '_blank')"
-                         title="Click to view full size">
+                    ${mediaHtml}
                     ${nsfwClass ? `<span class="mm-nsfw-badge">${nsfwLevel}</span>` : ''}
                 </div>
                 <div class="mm-image-right">
