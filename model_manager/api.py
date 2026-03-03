@@ -197,9 +197,25 @@ def setup_api(app: FastAPI):
         try:
             from modules import shared
 
+            def parse_card_size(size_str: str):
+                try:
+                    if 'x' in size_str.lower():
+                        parts = size_str.lower().split('x')
+                        return int(parts[0].strip()), int(parts[1].strip())
+                except (ValueError, IndexError):
+                    pass
+                return 200, 280
+
+            card_size_str = getattr(shared.opts, 'model_manager_card_size', '200x280')
+            card_width, card_height = parse_card_size(card_size_str)
+            page_size = int(getattr(shared.opts, 'model_manager_page_size', 10))
+
             return JSONResponse({
                 "success": True,
                 "preview_least_nsfw": getattr(shared.opts, 'model_manager_preview_least_nsfw', True),
+                "page_size": page_size,
+                "card_width": card_width,
+                "card_height": card_height,
             })
         except Exception as e:
             import traceback

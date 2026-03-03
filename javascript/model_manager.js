@@ -32,6 +32,10 @@
     let previewLeastNsfwInitialized = false;
     let previewLeastNsfwUserTouched = false;
     let filterDefaultsPromise = null;
+    let defaultPageSize = 10;
+    let calibratedPageSize = 10;
+    let layoutCalibrationPromise = null;
+    let isLayoutCalibrated = false;
 
     // Apply card size from API response
     function applyCardSize(width, height) {
@@ -50,10 +54,10 @@
     // Calculate page size based on grid width
     function calculatePageSize() {
         const grid = document.getElementById('mm_grid');
-        if (!grid) return 10;  // Default fallback
+        if (!grid) return defaultPageSize;  // Default fallback
 
         const gridWidth = grid.clientWidth;
-        if (gridWidth <= 0) return 10;
+        if (gridWidth <= 0) return defaultPageSize;
 
         // Calculate how many cards fit per row using current card width
         // Formula: (gridWidth + gap) / (cardWidth + gap)
@@ -64,6 +68,102 @@
         const finalSize = Math.max(4, Math.min(50, calculatedSize));
         console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px, card width: ${cardWidth}px)`);
         return finalSize;
+    }
+
+    function showLayoutCalibrationOverlay(message = 'Preparing layout...') {
+        const app = document.getElementById('model_manager_app');
+        if (!app) return;
+
+        app.classList.add('mm-layout-calibrating');
+        let overlay = document.getElementById('mm_layout_overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'mm_layout_overlay';
+            overlay.className = 'mm-layout-overlay';
+            overlay.innerHTML = `
+                <div class="mm-layout-overlay-content">
+                    <div class="mm-layout-spinner"></div>
+                    <div class="mm-layout-message"></div>
+                </div>
+            `;
+            app.appendChild(overlay);
+        }
+
+        const messageEl = overlay.querySelector('.mm-layout-message');
+        if (messageEl) {
+            messageEl.textContent = message;
+        }
+    }
+
+    function hideLayoutCalibrationOverlay() {
+        const app = document.getElementById('model_manager_app');
+        if (app) {
+            app.classList.remove('mm-layout-calibrating');
+        }
+
+        const overlay = document.getElementById('mm_layout_overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+    }
+
+    async function ensureLayoutCalibration() {
+        if (isLayoutCalibrated) return;
+
+        if (!layoutCalibrationPromise) {
+            layoutCalibrationPromise = (async () => {
+                showLayoutCalibrationOverlay('Optimizing initial model layout...');
+                setStatus('Preparing layout...');
+
+                try {
+                    await ensureFilterDefaults();
+
+                    let bestSize = Math.max(4, Math.min(50, defaultPageSize));
+                    let lastCandidate = null;
+                    let stableHits = 0;
+
+                    const maxAttempts = 8;
+                    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+
+                        const grid = document.getElementById('mm_grid');
+                        const gridWidth = grid ? grid.clientWidth : 0;
+                        const minStableWidth = Math.max(120, cardWidth + CARD_GAP);
+                        if (gridWidth < minStableWidth) {
+                            continue;
+                        }
+
+                        const candidate = calculatePageSize();
+                        bestSize = candidate;
+
+                        if (candidate === lastCandidate) {
+                            stableHits += 1;
+                        } else {
+                            stableHits = 1;
+                            lastCandidate = candidate;
+                        }
+
+                        if (stableHits >= 2) {
+                            break;
+                        }
+                    }
+
+                    calibratedPageSize = bestSize;
+                    isLayoutCalibrated = true;
+                    console.log(`[ModelManager] Layout calibration complete: page_size=${calibratedPageSize}, default_page_size=${defaultPageSize}, card=${cardWidth}x${cardHeight}`);
+                    setStatus('Layout ready. Select filters and click Load Models.');
+                } catch (e) {
+                    calibratedPageSize = Math.max(4, Math.min(50, defaultPageSize));
+                    isLayoutCalibrated = true;
+                    console.warn('[ModelManager] Layout calibration failed, using fallback page size:', calibratedPageSize, e);
+                    setStatus('Layout ready (fallback). Select filters and click Load Models.');
+                } finally {
+                    hideLayoutCalibrationOverlay();
+                }
+            })();
+        }
+
+        await layoutCalibrationPromise;
     }
 
     // Recalculate pagination after page size change (without reloading data)
@@ -510,10 +610,12 @@
         if (loadBtn) loadBtn.disabled = true;
 
         try {
-            await ensureFilterDefaults();
+            await ensureLayoutCalibration();
 
             // Calculate page size dynamically based on viewport
-            const calculatedPageSize = calculatePageSize();
+            const calculatedPageSize = isLayoutCalibrated
+                ? calculatePageSize()
+                : Math.max(4, Math.min(50, calibratedPageSize || defaultPageSize));
 
             const filters = getFilters();
             filters.page = page;
@@ -560,13 +662,27 @@
     }
 
     async function ensureFilterDefaults() {
-        if (previewLeastNsfwInitialized) return;
+        if (filterDefaultsPromise) {
+            await filterDefaultsPromise;
+            return;
+        }
 
-        if (!filterDefaultsPromise) {
-            filterDefaultsPromise = (async () => {
-                try {
-                    const data = await apiCall('/model-manager/filter-defaults');
-                    if (data.success && data.preview_least_nsfw !== undefined) {
+        filterDefaultsPromise = (async () => {
+            try {
+                const data = await apiCall('/model-manager/filter-defaults');
+                if (data.success) {
+                    if (data.page_size) {
+                        const parsedSize = Number(data.page_size);
+                        if (Number.isFinite(parsedSize) && parsedSize > 0) {
+                            defaultPageSize = parsedSize;
+                        }
+                    }
+
+                    if (data.card_width && data.card_height) {
+                        applyCardSize(Number(data.card_width), Number(data.card_height));
+                    }
+
+                    if (!previewLeastNsfwInitialized && !previewLeastNsfwUserTouched && data.preview_least_nsfw !== undefined) {
                         const checkbox = document.getElementById('mm_preview_least_nsfw');
                         if (checkbox) {
                             checkbox.checked = Boolean(data.preview_least_nsfw);
@@ -574,11 +690,11 @@
                             console.log(`[ModelManager] Initialized SFW Preview default: ${checkbox.checked}`);
                         }
                     }
-                } catch (e) {
-                    console.warn('[ModelManager] Failed to load filter defaults:', e);
                 }
-            })();
-        }
+            } catch (e) {
+                console.warn('[ModelManager] Failed to load filter defaults:', e);
+            }
+        })();
 
         await filterDefaultsPromise;
     }
@@ -3074,8 +3190,8 @@
         // Load saved filters if available
         loadSearchFilters();
 
-        // Preload server defaults for any filters not restored from saved values
-        ensureFilterDefaults();
+        // Calibrate layout once before first user-driven model load
+        ensureLayoutCalibration();
 
         // Check for saved scroll position and show restore button
         updateScrollRestoreButton();
