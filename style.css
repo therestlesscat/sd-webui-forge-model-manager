@@ -1110,6 +1110,16 @@ body.mm-modal-open {
     border-top: none;
 }
 
+.mm-image-pagination-top {
+    margin-top: 0;
+    margin-bottom: 12px;
+    padding-top: 0;
+}
+
+.mm-image-pagination-bottom {
+    margin-top: 10px;
+}
+
 /* NSFW Filter Warning Panel */
 .mm-nsfw-warning {
     display: flex;
