@@ -829,6 +829,7 @@
                     const oldPages = getImagePageCount(oldCount);
                     const newPages = getImagePageCount(currentImages.length);
                     if (newPages > oldPages) {
+                        await scrollToBrowserImagesTop();
                         currentImagePage = newPages;
                     }
                 }

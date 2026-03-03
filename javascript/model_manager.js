@@ -2018,6 +2018,7 @@
                     const oldPages = getImagePageCount(oldCount);
                     const newPages = getImagePageCount(currentImages.length);
                     if (newPages > oldPages) {
+                        await scrollToModelImagesTop();
                         currentImagePage = newPages;
                     }
 
