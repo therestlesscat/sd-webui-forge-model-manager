@@ -95,7 +95,8 @@ class ImagesOps:
     def get_images(
         self,
         version_id: int,
-        page: Optional[int] = None
+        page: Optional[int] = None,
+        max_nsfw_level: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Get cached images for a version.
@@ -103,36 +104,84 @@ class ImagesOps:
         Args:
             version_id: Civitai model version ID.
             page: Specific page number, or None for all pages.
+            max_nsfw_level: If set, only return images with effective_nsfw_level <= this value.
+                           Use 5 for SFW only (PG + PG-13).
 
         Returns:
             List of image dicts.
         """
         with self._cursor() as cursor:
+            if max_nsfw_level is not None:
+                nsfw_filter = " AND effective_nsfw_level <= ?"
+                nsfw_param = (max_nsfw_level,)
+            else:
+                nsfw_filter = ""
+                nsfw_param = ()
+
             if page is not None:
                 cursor.execute(
-                    "SELECT data FROM images WHERE version_id = ? AND page = ? ORDER BY id",
-                    (version_id, page)
+                    f"SELECT data FROM images WHERE version_id = ? AND page = ?{nsfw_filter} ORDER BY id",
+                    (version_id, page) + nsfw_param
                 )
             else:
                 cursor.execute(
-                    "SELECT data FROM images WHERE version_id = ? ORDER BY page, id",
-                    (version_id,)
+                    f"SELECT data FROM images WHERE version_id = ?{nsfw_filter} ORDER BY page, id",
+                    (version_id,) + nsfw_param
                 )
 
             rows = cursor.fetchall()
             return [json.loads(row["data"]) for row in rows]
 
-    def get_all_images_for_version(self, version_id: int) -> List[Dict[str, Any]]:
+    def get_all_images_for_version(
+        self,
+        version_id: int,
+        max_nsfw_level: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
         Get all cached images for a version (all pages).
 
         Args:
             version_id: Civitai model version ID.
+            max_nsfw_level: If set, only return images with effective_nsfw_level <= this value.
 
         Returns:
             List of all cached image dicts.
         """
-        return self.get_images(version_id, page=None)
+        return self.get_images(version_id, page=None, max_nsfw_level=max_nsfw_level)
+
+    def get_image_counts(self, version_id: int, max_nsfw_level: Optional[int] = None) -> Dict[str, int]:
+        """
+        Get total and filtered image counts for a version.
+
+        Args:
+            version_id: Civitai model version ID.
+            max_nsfw_level: If set, count images with effective_nsfw_level <= this value.
+
+        Returns:
+            Dict with 'total' and 'filtered' counts, and 'hidden' (total - filtered).
+        """
+        with self._cursor() as cursor:
+            # Total count
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ?",
+                (version_id,)
+            )
+            total = cursor.fetchone()[0]
+
+            if max_nsfw_level is not None:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM images WHERE version_id = ? AND effective_nsfw_level <= ?",
+                    (version_id, max_nsfw_level)
+                )
+                filtered = cursor.fetchone()[0]
+            else:
+                filtered = total
+
+            return {
+                "total": total,
+                "filtered": filtered,
+                "hidden": total - filtered
+            }
 
     def get_cached_page_count(self, version_id: int) -> int:
         """

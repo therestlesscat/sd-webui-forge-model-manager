@@ -15,10 +15,13 @@
     let selectedModel = null;
     let selectedVersionIndex = 0;
     let currentImages = [];
+    let currentImagePage = 1;
     let nextImagesCursor = null;
     let isLoadingImages = false;
     let activeDownloads = {};
     let showAllNsfwImages = false;  // Toggle for showing all images regardless of NSFW filter
+    const IMAGE_PAGE_SIZE = 100;
+    let lazyMediaObserver = null;
 
     // Card sizing (default values, updated from API)
     let cardWidth = 200;
@@ -109,6 +112,7 @@
 
     // Placeholder SVG for missing images
     const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23666' font-size='10'%3ENo Image%3C/text%3E%3C/svg%3E";
+    const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
     // Calculate effective NSFW level using same algorithm as Python backend
     // NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
@@ -135,6 +139,100 @@
     // Check if image is safe to show (NSFW level <= 5)
     function isImageSafe(img) {
         return calculateEffectiveNsfwLevel(img) <= 5;
+    }
+
+    function getImagePageCount(totalImages) {
+        return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
+    }
+
+    function setupLazyMedia(container) {
+        if (!container) return;
+
+        const lazyNodes = container.querySelectorAll('.mm-lazy-media[data-src]');
+        if (lazyNodes.length === 0) return;
+
+        const loadNode = (node) => {
+            const src = node.getAttribute('data-src');
+            if (!src) return;
+            node.setAttribute('src', src);
+            node.removeAttribute('data-src');
+            node.classList.remove('mm-lazy-media');
+            if (node.tagName === 'VIDEO') {
+                node.load();
+            }
+        };
+
+        if (!('IntersectionObserver' in window)) {
+            lazyNodes.forEach(loadNode);
+            return;
+        }
+
+        if (!lazyMediaObserver) {
+            lazyMediaObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    loadNode(entry.target);
+                    lazyMediaObserver.unobserve(entry.target);
+                });
+            }, {
+                root: null,
+                rootMargin: '350px 0px',
+                threshold: 0.01,
+            });
+        }
+
+        lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
+    }
+
+    function renderImagePagination(totalPages) {
+        if (totalPages <= 1) return '';
+
+        const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
+        const prevDisabled = currentImagePage <= 1 ? 'disabled' : '';
+        const nextDisabled = currentImagePage >= totalPages ? 'disabled' : '';
+        const lastDisabled = currentImagePage >= totalPages ? 'disabled' : '';
+
+        const maxVisible = 5;
+        let startPage = Math.max(1, currentImagePage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        if (endPage - startPage < maxVisible - 1) {
+            startPage = Math.max(1, endPage - maxVisible + 1);
+        }
+
+        const pageNumbers = [];
+        if (startPage > 1) {
+            pageNumbers.push({ page: 1, label: '1' });
+            if (startPage > 2) {
+                pageNumbers.push({ page: null, label: '...' });
+            }
+        }
+        for (let i = startPage; i <= endPage; i++) {
+            pageNumbers.push({ page: i, label: String(i) });
+        }
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                pageNumbers.push({ page: null, label: '...' });
+            }
+            pageNumbers.push({ page: totalPages, label: String(totalPages) });
+        }
+
+        const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
+            if (page === null) {
+                return `<span class="mm-page-ellipsis">${label}</span>`;
+            }
+            const activeClass = page === currentImagePage ? 'active' : '';
+            return `<button class="mm-page-num ${activeClass}" onclick="window.cbGoToImagePage(${page})">${label}</button>`;
+        }).join('');
+
+        return `
+            <div class="mm-image-pagination mm-pagination">
+                <button class="mm-btn mm-page-btn" onclick="window.cbFirstImagePage()" ${firstDisabled}>|&lt;</button>
+                <button class="mm-btn mm-page-btn" onclick="window.cbPrevImagePage()" ${prevDisabled}>← Prev</button>
+                <div class="mm-page-numbers">${pageNumbersHtml}</div>
+                <button class="mm-btn mm-page-btn" onclick="window.cbNextImagePage()" ${nextDisabled}>Next →</button>
+                <button class="mm-btn mm-page-btn" onclick="window.cbLastImagePage()" ${lastDisabled}>&gt;|</button>
+            </div>
+        `;
     }
 
     // Wait for DOM
@@ -631,6 +729,7 @@
 
         // Reset state
         currentImages = [];
+        currentImagePage = 1;
         nextImagesCursor = null;
         isLoadingImages = true;
 
@@ -685,10 +784,17 @@
 
             if (result.success) {
                 if (result.images && result.images.length > 0) {
+                    const oldCount = currentImages.length;
                     // Append new images (avoid duplicates by checking IDs)
                     const existingIds = new Set(currentImages.map(img => img.id));
                     const newImages = result.images.filter(img => !existingIds.has(img.id));
                     currentImages = [...currentImages, ...newImages];
+
+                    const oldPages = getImagePageCount(oldCount);
+                    const newPages = getImagePageCount(currentImages.length);
+                    if (newPages > oldPages) {
+                        currentImagePage = newPages;
+                    }
                 }
                 // Update cursor from server response
                 nextImagesCursor = result.next_cursor || null;
@@ -743,6 +849,12 @@
             hiddenCount = currentImages.length - imagesToShow.length;
         }
 
+        const totalPages = getImagePageCount(imagesToShow.length);
+        currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
+        const pageStart = (currentImagePage - 1) * IMAGE_PAGE_SIZE;
+        const pageEnd = Math.min(pageStart + IMAGE_PAGE_SIZE, imagesToShow.length);
+        const pageImages = imagesToShow.slice(pageStart, pageEnd);
+
         // Build NSFW filter warning panel with checkbox
         // Show warning when there are hidden images, OR when showAllNsfwImages is true and there would be hidden images
         const wouldHideCount = currentImages.filter(img => !isImageSafe(img)).length;
@@ -759,36 +871,38 @@
                </div>`
             : '';
 
-        const imageCards = imagesToShow.map((img, index) => {
+        const imageCards = pageImages.map((img) => {
             // Find original index for correct metadata lookup
             const originalIndex = currentImages.indexOf(img);
             return renderImageCard(img, originalIndex);
         }).join('');
 
         // Only show "Load More" button if there's a cursor (more images available)
-        const loadMoreHtml = nextImagesCursor
+        const loadMoreHtml = currentImagePage === totalPages && nextImagesCursor
             ? `<div class="mm-load-more">
                 <button class="mm-btn secondary" id="cb_load_more_btn" onclick="window.cbLoadMoreImages()">
                     Load More Images
                 </button>
                 <span class="mm-load-more-info">${currentImages.length} images loaded</span>
                </div>`
-            : `<div class="mm-load-more">
+            : (currentImagePage === totalPages ? `<div class="mm-load-more">
                 <span class="mm-load-more-info">${currentImages.length} images (all loaded)</span>
-               </div>`;
+               </div>` : '');
 
         container.innerHTML = `
             <div class="mm-images-header">
                 <h4>Example Images</h4>
-                <span class="mm-images-count">${imagesToShow.length}${hiddenCount > 0 ? ` of ${currentImages.length}` : ''} images</span>
+                <span class="mm-images-count">${imagesToShow.length > 0 ? `${pageStart + 1}-${pageEnd} of ${imagesToShow.length}` : '0'}${hiddenCount > 0 ? ` (${hiddenCount} hidden)` : ''} images (Page ${currentImagePage}/${totalPages})</span>
             </div>
             ${nsfwWarningHtml}
             <div class="model-images-list">${imageCards}</div>
             ${hiddenCount > 0 ? nsfwWarningHtml : ''}
             ${loadMoreHtml}
+            ${renderImagePagination(totalPages)}
         `;
 
         container.style.display = 'block';
+        setupLazyMedia(container);
 
         // Update the images count in the details table
         updateImagesCount();
@@ -797,6 +911,46 @@
     // Toggle show all images checkbox
     window.cbToggleShowAllImages = function(checked) {
         showAllNsfwImages = checked;
+        currentImagePage = 1;
+        renderImages();
+    };
+
+    window.cbFirstImagePage = function() {
+        if (currentImagePage === 1) return;
+        currentImagePage = 1;
+        renderImages();
+    };
+
+    window.cbLastImagePage = function() {
+        const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
+            ? currentImages.filter(img => isImageSafe(img)).length
+            : currentImages.length);
+        if (currentImagePage === totalPages) return;
+        currentImagePage = totalPages;
+        renderImages();
+    };
+
+    window.cbPrevImagePage = function() {
+        if (currentImagePage <= 1) return;
+        currentImagePage -= 1;
+        renderImages();
+    };
+
+    window.cbNextImagePage = function() {
+        const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
+            ? currentImages.filter(img => isImageSafe(img)).length
+            : currentImages.length);
+        if (currentImagePage >= totalPages) return;
+        currentImagePage += 1;
+        renderImages();
+    };
+
+    window.cbGoToImagePage = function(page) {
+        const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
+            ? currentImages.filter(img => isImageSafe(img)).length
+            : currentImages.length);
+        if (page < 1 || page > totalPages || page === currentImagePage) return;
+        currentImagePage = page;
         renderImages();
     };
 
@@ -814,7 +968,6 @@
     // Render single image card - EXACTLY like Model Manager
     function renderImageCard(img, index) {
         const src = img.url || '';
-        if (!src) return '';
 
         // Detect media type from URL or type field
         const isVideo = isVideoUrl(src, img.type);
@@ -927,11 +1080,12 @@
 
         // Render media element (image or video)
         const mediaHtml = isVideo
-            ? `<video src="${escapeHtml(src)}" controls loop muted
+            ? `<video data-src="${escapeHtml(src)}" class="mm-lazy-media" preload="none" controls loop muted
                       onclick="event.stopPropagation()"
                       title="Click to play"></video>`
-            : `<img src="${escapeHtml(src)}" alt="Example image" loading="lazy"
-                    onclick="window.open('${escapeHtml(src)}', '_blank')"
+            : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
+                    onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
+                    onclick="${src ? `window.open('${escapeHtml(src)}', '_blank')` : 'return false;'}"
                     title="Click to view full size">`;
 
         return `

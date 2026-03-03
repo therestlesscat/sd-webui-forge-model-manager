@@ -2,6 +2,14 @@
 Model Manager UI - Main extension script.
 Provides a tab for browsing and managing local models.
 """
+import os
+import sys
+
+# Add parent directory to path for imports
+ext_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ext_dir not in sys.path:
+    sys.path.insert(0, ext_dir)
+
 import gradio as gr
 from modules import script_callbacks, shared
 
@@ -334,6 +342,12 @@ def create_ui():
                             <label>Min Versions</label>
                             <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">
                         </div>
+                        <div class="filter-group">
+                            <label>Model Preview</label>
+                            <label class="mm-checkbox-label">
+                                <input type="checkbox" id="mm_preview_least_nsfw"> Hide NSFW
+                            </label>
+                        </div>
                         <div class="filter-group-bordered">
                             <div class="filter-group">
                                 <label>Sort By</label>
@@ -355,6 +369,38 @@ def create_ui():
                                     <option value="asc">Ascending</option>
                                     <option value="desc">Descending</option>
                                 </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label>Commercial Use</label>
+                            <div class="mm-multiselect" id="mm_commercial_dropdown">
+                                <div class="mm-multiselect-display" onclick="window.mmToggleCommercialDropdown()">
+                                    <span id="mm_commercial_display">All</span>
+                                    <span class="mm-multiselect-arrow">▼</span>
+                                </div>
+                                <div class="mm-multiselect-panel" id="mm_commercial_panel">
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="None" checked> None (No commercial)</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Image" checked> Image (Sell images)</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Rent" checked> Rent (Gen services)</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="RentCivit" checked> RentCivit (Civitai gen)</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Sell" checked> Sell (Sell model)</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="filter-group">
+                            <label>Allow Derivatives</label>
+                            <div class="mm-checkbox-group">
+                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_derivatives_yes" value="true" checked> Yes</label>
+                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_derivatives_no" value="false" checked> No</label>
+                            </div>
+                        </div>
+                        <div class="filter-group">
+                            <label>Allow Different License</label>
+                            <div class="mm-checkbox-group">
+                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_different_license_yes" value="true" checked> Yes</label>
+                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_different_license_no" value="false" checked> No</label>
                             </div>
                         </div>
                     </div>
@@ -435,6 +481,23 @@ script_callbacks.on_ui_settings(on_ui_settings)
 script_callbacks.on_ui_tabs(create_all_tabs)
 
 # Import API module to register endpoints
-from model_manager import api
+# Force reload to pick up changes on UI restart
+print("[ModelManager] Importing API module...")
+try:
+    import importlib
+    # Remove ALL model_manager cached modules to force fresh import
+    modules_to_remove = [key for key in sys.modules.keys() if key.startswith('model_manager')]
+    if modules_to_remove:
+        print(f"[ModelManager] Removing cached modules: {modules_to_remove}")
+        for mod in modules_to_remove:
+            del sys.modules[mod]
+    from model_manager import api
+    print(f"[ModelManager] API module imported from: {api.__file__}")
+    print(f"[ModelManager] API module has setup_api: {hasattr(api, 'setup_api')}")
+    print(f"[ModelManager] API module has on_app_started: {hasattr(api, 'on_app_started')}")
+except Exception as e:
+    print(f"[ModelManager] ERROR importing API module: {e}")
+    import traceback
+    traceback.print_exc()
 
 print("[ModelManager] Extension loaded")
