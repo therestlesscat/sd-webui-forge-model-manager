@@ -180,7 +180,7 @@
         lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
     }
 
-    function renderImagePagination(totalPages) {
+    function renderImagePagination(totalPages, position = 'bottom') {
         if (totalPages <= 1) return '';
 
         const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
@@ -221,7 +221,7 @@
         }).join('');
 
         return `
-            <div class="mm-image-pagination mm-pagination">
+            <div class="mm-image-pagination mm-pagination mm-image-pagination-${position}">
                 <button class="mm-btn mm-page-btn" onclick="window.mmFirstImagePage()" ${firstDisabled}>|&lt;</button>
                 <button class="mm-btn mm-page-btn" onclick="window.mmPrevImagePage()" ${prevDisabled}>← Prev</button>
                 <div class="mm-page-numbers">${pageNumbersHtml}</div>
@@ -1421,9 +1421,10 @@
                 <span class="mm-images-count">${pageStart + 1}-${pageEnd} of ${images.length} images (Page ${currentImagePage}/${totalPages})</span>
             </div>
             ${nsfwWarningHtml}
+            ${renderImagePagination(totalPages, 'top')}
             <div class="model-images-list">${imageCards}</div>
             ${downloadMoreHtml}
-            ${renderImagePagination(totalPages)}
+            ${renderImagePagination(totalPages, 'bottom')}
         `;
         container.style.display = 'block';
         setupLazyMedia(container);
