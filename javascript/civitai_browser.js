@@ -235,6 +235,42 @@
         `;
     }
 
+    function scrollToBrowserImagesTop() {
+        return new Promise((resolve) => {
+            const container = document.getElementById('cb_images');
+            if (!container) {
+                resolve();
+                return;
+            }
+
+            const list = container.querySelector('.model-images-list') || container;
+            const targetY = Math.max(0, window.scrollY + list.getBoundingClientRect().top - 12);
+
+            if (Math.abs(window.scrollY - targetY) < 4) {
+                resolve();
+                return;
+            }
+
+            let finished = false;
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                window.removeEventListener('scroll', onScroll);
+                resolve();
+            };
+
+            const onScroll = () => {
+                if (Math.abs(window.scrollY - targetY) < 4) {
+                    finish();
+                }
+            };
+
+            window.addEventListener('scroll', onScroll, { passive: true });
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+            setTimeout(finish, 500);
+        });
+    }
+
     // Wait for DOM
     function onReady(callback) {
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -946,11 +982,13 @@
         renderImages();
     };
 
-    window.cbGoToImagePage = function(page) {
+    window.cbGoToImagePage = async function(page) {
         const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
             ? currentImages.filter(img => isImageSafe(img)).length
             : currentImages.length);
         if (page < 1 || page > totalPages || page === currentImagePage) return;
+
+        await scrollToBrowserImagesTop();
         currentImagePage = page;
         renderImages();
     };
