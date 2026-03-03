@@ -17,7 +17,7 @@ from ._browser_cache_ops import BrowserCacheOps
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class ModelsDatabase:
@@ -125,6 +125,9 @@ class ModelsDatabase:
 
         if from_version < 10:
             self._migrate_to_v10(cursor)
+
+        if from_version < 11:
+            self._migrate_to_v11(cursor)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
@@ -532,6 +535,27 @@ class ModelsDatabase:
 
         print("[ModelManager] Schema v10 migration complete.")
 
+    def _migrate_to_v11(self, cursor):
+        """Add query-optimized indexes for model list and preview lookups."""
+        print("[ModelManager] Migrating to schema v11 (query optimization indexes)...")
+        self._create_v11_indexes(cursor)
+        print("[ModelManager] Schema v11 migration complete.")
+
+    def _create_v11_indexes(self, cursor):
+        """Create indexes used by grouped model list and preview queries."""
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_version_nsfw_created_id "
+            "ON images(version_id, effective_nsfw_level, created_at DESC, id DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_version_created_id "
+            "ON images(version_id, created_at DESC, id DESC)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_version_model_published "
+            "ON model_versions(model_id, published_at DESC)"
+        )
+
     def _migrate_to_v2(self, cursor):
         """Migrate from v1 (flat models table) to v2 (normalized schema)."""
         print("[ModelManager] Migrating to schema v2 (normalized model/version tables)...")
@@ -685,6 +709,7 @@ class ModelsDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_is_bookmarked ON civitai_models(is_bookmarked)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version ON images(version_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_version_nsfw ON images(version_id, effective_nsfw_level)")
+        self._create_v11_indexes(cursor)
 
     def _create_v2_tables(self, cursor):
         """Create v2 schema tables (original v2 schema, migrations transform to current)."""

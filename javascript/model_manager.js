@@ -30,6 +30,8 @@
 
     // Track if preview_least_nsfw checkbox has been initialized from setting
     let previewLeastNsfwInitialized = false;
+    let previewLeastNsfwUserTouched = false;
+    let filterDefaultsPromise = null;
 
     // Apply card size from API response
     function applyCardSize(width, height) {
@@ -286,7 +288,10 @@
 
         // Handle preview_least_nsfw checkbox
         const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
-        const previewLeastNsfwFilter = previewLeastNsfwCheckbox ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked } : {};
+        const shouldSendPreviewFilter = previewLeastNsfwCheckbox && (previewLeastNsfwInitialized || previewLeastNsfwUserTouched);
+        const previewLeastNsfwFilter = shouldSendPreviewFilter
+            ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked }
+            : {};
 
         // Handle license filters
         // Commercial use is now multi-select checkboxes - only filter if not all selected
@@ -469,6 +474,8 @@
         if (loadBtn) loadBtn.disabled = true;
 
         try {
+            await ensureFilterDefaults();
+
             // Calculate page size dynamically based on viewport
             const calculatedPageSize = calculatePageSize();
 
@@ -514,6 +521,30 @@
             isLoading = false;
             if (loadBtn) loadBtn.disabled = false;
         }
+    }
+
+    async function ensureFilterDefaults() {
+        if (previewLeastNsfwInitialized) return;
+
+        if (!filterDefaultsPromise) {
+            filterDefaultsPromise = (async () => {
+                try {
+                    const data = await apiCall('/model-manager/filter-defaults');
+                    if (data.success && data.preview_least_nsfw !== undefined) {
+                        const checkbox = document.getElementById('mm_preview_least_nsfw');
+                        if (checkbox) {
+                            checkbox.checked = Boolean(data.preview_least_nsfw);
+                            previewLeastNsfwInitialized = true;
+                            console.log(`[ModelManager] Initialized SFW Preview default: ${checkbox.checked}`);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[ModelManager] Failed to load filter defaults:', e);
+                }
+            })();
+        }
+
+        await filterDefaultsPromise;
     }
 
     // Update status with pagination info
@@ -2790,6 +2821,7 @@
 
     // Save/Load search filters functionality
     function saveSearchFilters() {
+        const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
         const filters = {
             search: document.getElementById('mm_search')?.value || '',
             type: document.getElementById('mm_type')?.value || '',
@@ -2800,6 +2832,7 @@
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
             nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
+            preview_least_nsfw: previewCheckbox ? previewCheckbox.checked : null,
             nsfw_levels: []
         };
 
@@ -2827,18 +2860,26 @@
         try {
             const filters = JSON.parse(saved);
 
-            if (filters.search) document.getElementById('mm_search').value = filters.search;
-            if (filters.type) document.getElementById('mm_type').value = filters.type;
-            if (filters.base_model) document.getElementById('mm_base_model').value = filters.base_model;
-            if (filters.civitai) document.getElementById('mm_civitai').value = filters.civitai;
-            if (filters.is_bookmarked) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
-            if (filters.min_versions) document.getElementById('mm_min_versions').value = filters.min_versions;
-            if (filters.sort_by) document.getElementById('mm_sort_by').value = filters.sort_by;
-            if (filters.sort_order) document.getElementById('mm_sort_order').value = filters.sort_order;
+            if (Object.prototype.hasOwnProperty.call(filters, 'search')) document.getElementById('mm_search').value = filters.search;
+            if (Object.prototype.hasOwnProperty.call(filters, 'type')) document.getElementById('mm_type').value = filters.type;
+            if (Object.prototype.hasOwnProperty.call(filters, 'base_model')) document.getElementById('mm_base_model').value = filters.base_model;
+            if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
+            if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
+            if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
+            if (Object.prototype.hasOwnProperty.call(filters, 'sort_by')) document.getElementById('mm_sort_by').value = filters.sort_by;
+            if (Object.prototype.hasOwnProperty.call(filters, 'sort_order')) document.getElementById('mm_sort_order').value = filters.sort_order;
 
             // Set NSFW checkboxes
             const useMaxCb = document.getElementById('mm_nsfw_use_max');
             if (useMaxCb) useMaxCb.checked = filters.nsfw_use_max || false;
+
+            if (Object.prototype.hasOwnProperty.call(filters, 'preview_least_nsfw') && filters.preview_least_nsfw !== null) {
+                const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
+                if (previewCheckbox) {
+                    previewCheckbox.checked = Boolean(filters.preview_least_nsfw);
+                    previewLeastNsfwInitialized = true;
+                }
+            }
 
             const nsfwCheckboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
             nsfwCheckboxes.forEach(cb => {
@@ -2883,6 +2924,7 @@
         const refreshBtn = document.getElementById('mm_refresh_btn');
         const scanCancelBtn = document.getElementById('mm_scan_cancel_btn');
         const searchInput = document.getElementById('mm_search');
+        const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
 
         if (!loadBtn) {
             console.log('[ModelManager] Button not found yet, retrying...');
@@ -2982,10 +3024,19 @@
             });
         }
 
+        if (previewLeastNsfwCheckbox) {
+            previewLeastNsfwCheckbox.addEventListener('change', () => {
+                previewLeastNsfwUserTouched = true;
+            });
+        }
+
         console.log('[ModelManager] Ready - click handlers bound');
 
         // Load saved filters if available
         loadSearchFilters();
+
+        // Preload server defaults for any filters not restored from saved values
+        ensureFilterDefaults();
 
         // Check for saved scroll position and show restore button
         updateScrollRestoreButton();
