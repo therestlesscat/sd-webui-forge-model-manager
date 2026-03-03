@@ -3,6 +3,7 @@ API endpoints for Model Manager.
 Provides REST API for model listing, filtering, and details.
 """
 import threading
+import time
 from typing import Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
@@ -65,6 +66,7 @@ def setup_api(app: FastAPI):
         Returns models grouped by Civitai model ID (latest version per group).
         """
         try:
+            request_start = time.perf_counter()
             from modules import shared
 
             # Use setting for page size if not specified
@@ -134,9 +136,11 @@ def setup_api(app: FastAPI):
             # Get preview setting - use parameter if provided, otherwise use setting
             if preview_least_nsfw is None:
                 preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+            preview_least_nsfw = bool(preview_least_nsfw)
 
             # Query database with grouped query
             db = get_models_db()
+            query_start = time.perf_counter()
             models, total_count = db.query_models_grouped(
                 search=search if search else None,
                 model_type=type if type and type != "All" else None,
@@ -155,11 +159,12 @@ def setup_api(app: FastAPI):
                 offset=offset,
                 preview_least_nsfw=preview_least_nsfw
             )
+            query_ms = (time.perf_counter() - query_start) * 1000
 
             # Get the setting value for JS to initialize checkbox
             preview_least_nsfw_setting = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
 
-            return JSONResponse({
+            response = JSONResponse({
                 "success": True,
                 "models": models,
                 "total": total_count,
@@ -170,10 +175,35 @@ def setup_api(app: FastAPI):
                 "has_more": offset + len(models) < total_count,
                 "preview_least_nsfw_setting": preview_least_nsfw_setting,
             })
+            total_ms = (time.perf_counter() - request_start) * 1000
+            print(
+                f"[ModelManager] /models page={page} size={page_size} returned={len(models)} total={total_count} "
+                f"query_ms={query_ms:.1f} total_ms={total_ms:.1f}"
+            )
+            return response
 
         except Exception as e:
             import traceback
             print(f"[ModelManager] API error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e)},
+                status_code=500
+            )
+
+    @app.get("/model-manager/filter-defaults")
+    async def get_filter_defaults():
+        """Get default filter values needed before first model load."""
+        try:
+            from modules import shared
+
+            return JSONResponse({
+                "success": True,
+                "preview_least_nsfw": getattr(shared.opts, 'model_manager_preview_least_nsfw', True),
+            })
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Filter defaults error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},
