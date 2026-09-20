@@ -440,7 +440,7 @@ def create_ui():
                     <div class="filter-row">
                         <div class="filter-group" style="flex: 1;">
                             <label>Search</label>
-                            <input type="text" id="mm_search" placeholder="Search by name, trigger words...">
+                            <input type="text" id="mm_search" placeholder="Search by name or trigger words, or target one model: model:123 / version:456 / hash:ABC / file:name" title="Prefixed searches match exactly: model:&lt;id&gt;, version:&lt;id&gt;, hash:&lt;any hash&gt;, file:&lt;filename&gt;">
                         </div>
                     </div>
                     <div class="filter-buttons-row">

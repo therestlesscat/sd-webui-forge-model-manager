@@ -2281,6 +2281,50 @@
     };
 
     // Close details panel
+    // Jump straight to one model, e.g. from the Civitai Browser.
+    // Every filter is relaxed first - an active NSFW or type filter would
+    // otherwise hide the very model the caller asked to show.
+    window.mmShowModel = async function(query) {
+        const setValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.value = value;
+        };
+        const setChecked = (selector, checked) => {
+            document.querySelectorAll(selector).forEach(cb => { cb.checked = checked; });
+        };
+
+        setValue('mm_type', '');
+        setValue('mm_civitai', '');
+        setValue('mm_base_model', '');
+        setValue('mm_is_bookmarked', '');
+        setValue('mm_min_versions', '');
+
+        setChecked('#mm_nsfw_panel input[type="checkbox"][value]', true);
+        const useMax = document.getElementById('mm_nsfw_use_max');
+        if (useMax) useMax.checked = true;
+        updateNsfwDisplay();
+
+        setChecked('#mm_commercial_panel input[type="checkbox"][value]', true);
+        updateCommercialDisplay();
+
+        ['mm_allow_derivatives_yes', 'mm_allow_derivatives_no',
+         'mm_allow_different_license_yes', 'mm_allow_different_license_no'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.checked = true;
+        });
+
+        setValue('mm_search', query);
+
+        await loadModels(1);
+
+        // A targeted lookup normally returns exactly one model - open it
+        if (currentModels.length === 1) {
+            await window.mmSelectModel(0);
+        } else if (currentModels.length === 0) {
+            setStatus(`Nothing found for "${query}". It may not be downloaded, or the database needs a refresh.`, true);
+        }
+    };
+
     window.mmCloseDetails = function() {
         const detailsContainer = document.getElementById('mm_details');
         const imagesContainer = document.getElementById('mm_images');

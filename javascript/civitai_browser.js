@@ -688,6 +688,11 @@
             ? `<button class="mm-btn primary" onclick="window.cbDownload(${model.id}, ${version?.id})">Download</button>`
             : (isOwned ? `<button class="mm-btn secondary" disabled>Already Owned</button>` : '');
 
+        // Only offer the jump for models that are actually in the library
+        const showInManagerBtn = model.owned_locally
+            ? `<button class="mm-btn secondary" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+            : '';
+
         container.innerHTML = `
             <div class="model-details-content">
                 <div class="detail-header">
@@ -725,6 +730,7 @@
                 <div class="detail-section detail-actions">
                     <a class="mm-btn secondary" href="https://civitai.com/models/${model.id}?modelVersionId=${version?.id}" target="_blank">View on Civitai</a>
                     ${downloadBtn}
+                    ${showInManagerBtn}
                 </div>
             </div>
         `;
@@ -1697,6 +1703,29 @@
     window.cbOpenModel = openModel;
     window.cbCloseDetails = closeDetails;
     window.cbSelectVersion = selectVersion;
+    // Open this model over in the Model Manager tab
+    window.cbShowInModelManager = function(modelId) {
+        if (typeof window.mmShowModel !== 'function') {
+            updateStatus('Model Manager tab has not initialised yet - open it once and try again.');
+            return;
+        }
+
+        const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+        const tabs = root.querySelector('#tabs');
+        const tabButton = tabs && Array.from(tabs.querySelectorAll('button'))
+            .find(b => b.textContent.trim() === 'Model Manager');
+
+        if (tabButton) {
+            tabButton.click();
+        } else {
+            console.warn('[CivitaiBrowser] Could not find the Model Manager tab button');
+        }
+
+        // The grid sizes itself from the viewport, so let the tab become
+        // visible before loading - measuring a hidden tab gives nonsense
+        setTimeout(() => window.mmShowModel('model:' + modelId), 100);
+    };
+
     window.cbDownload = startDownload;
     window.cbCancelDownload = cancelDownload;
     window.cbDismissDownload = dismissDownload;

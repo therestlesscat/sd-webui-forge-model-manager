@@ -192,6 +192,44 @@ class ModelsOps:
 
     # ==================== Grouped Queries ====================
 
+    @staticmethod
+    def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
+        """
+        Turn a "prefix:value" search into an exact lookup.
+
+        Lets something else - the Civitai Browser's "Show in Model Manager"
+        button, say - point at one specific model instead of hoping a free-text
+        search happens to match it.
+
+        Supported: model:<id>, version:<id>, hash:<any hash>, file:<name>.
+        Anything else (including a plain search that happens to contain a
+        colon) returns None so the caller falls back to free-text matching.
+
+        Returns:
+            Tuple of (SQL condition with one placeholder, value), or None.
+        """
+        prefix, separator, value = search.partition(":")
+        if not separator:
+            return None
+
+        prefix = prefix.strip().lower()
+        value = value.strip()
+        if not value:
+            return None
+
+        if prefix in ("model", "version") and value.isdigit():
+            column = "v.model_id" if prefix == "model" else "v.id"
+            return f"{column} = ?", int(value)
+
+        if prefix == "hash":
+            # file_hashes is a JSON object of hash type -> uppercase hash
+            return "UPPER(COALESCE(v.file_hashes, '')) LIKE ?", f"%{value.upper()}%"
+
+        if prefix == "file":
+            return "v.file_name LIKE ?", f"%{value}%"
+
+        return None
+
     def query_models_grouped(
         self,
         search: Optional[str] = None,
@@ -224,14 +262,20 @@ class ModelsOps:
 
         # Build WHERE conditions for versions
         if search:
-            conditions.append("""(
-                v.file_name LIKE ? OR
-                v.trained_words LIKE ? OR
-                COALESCE(m.name, v.file_name) LIKE ? OR
-                COALESCE(m.tags, '[]') LIKE ?
-            )""")
-            search_pattern = f"%{search}%"
-            params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
+            targeted = self._targeted_search_condition(search)
+            if targeted:
+                condition, value = targeted
+                conditions.append(condition)
+                params.append(value)
+            else:
+                conditions.append("""(
+                    v.file_name LIKE ? OR
+                    v.trained_words LIKE ? OR
+                    COALESCE(m.name, v.file_name) LIKE ? OR
+                    COALESCE(m.tags, '[]') LIKE ?
+                )""")
+                search_pattern = f"%{search}%"
+                params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
 
         if model_type:
             conditions.append("COALESCE(m.type, 'Unknown') = ?")
