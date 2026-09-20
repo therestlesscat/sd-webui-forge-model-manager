@@ -23,6 +23,11 @@ class DownloadProgress:
     status: str = "pending"  # pending, downloading, complete, error, cancelled
     error: Optional[str] = None
     file_path: Optional[str] = None
+    # The database row is written by a background sync that outlives the
+    # download itself (hashing a multi-GB file takes seconds), so the UI needs
+    # to know when the model is actually queryable - not merely downloaded.
+    synced: bool = False
+    sync_error: Optional[str] = None
 
     @property
     def percent(self) -> float:
@@ -43,7 +48,9 @@ class DownloadProgress:
             "percent": round(self.percent, 1),
             "status": self.status,
             "error": self.error,
-            "file_path": self.file_path
+            "file_path": self.file_path,
+            "synced": self.synced,
+            "sync_error": self.sync_error,
         }
 
 
@@ -432,7 +439,7 @@ class DownloadService:
             progress.file_path = target_path
             progress.status = "complete"
 
-            self._sync_downloaded_file(target_path)
+            self._sync_downloaded_file(target_path, progress)
 
             return progress
 
@@ -475,8 +482,15 @@ class DownloadService:
 
         return progress
 
-    def _sync_downloaded_file(self, file_path: str):
-        """Sync downloaded file to database (runs in background thread to not block download queue)."""
+    def _sync_downloaded_file(self, file_path: str, progress: Optional[DownloadProgress] = None):
+        """
+        Sync a downloaded file into the database.
+
+        Runs in a background thread so it does not block the download queue.
+        When given the progress record, marks it synced once finished - success
+        or failure - so callers can tell when the model is actually queryable
+        rather than just present on disk.
+        """
         def do_sync():
             try:
                 from .sync_service import SyncService
@@ -492,10 +506,20 @@ class DownloadService:
                         print(f"[ModelManager] Set downloaded_at for: {file_path}")
                     except Exception as e:
                         print(f"[ModelManager] Failed to set downloaded_at: {e}")
+                elif progress is not None:
+                    progress.sync_error = result.error
+                    print(f"[ModelManager] Sync warning: {result.error}")
                 else:
                     print(f"[ModelManager] Sync warning: {result.error}")
             except Exception as e:
+                if progress is not None:
+                    progress.sync_error = str(e)
                 print(f"[ModelManager] Failed to sync downloaded file: {e}")
+            finally:
+                # Flag it either way - the UI should stop waiting even if the
+                # sync failed, rather than spin forever
+                if progress is not None:
+                    progress.synced = True
 
         # Run sync in background thread to not block download queue
         sync_thread = threading.Thread(target=do_sync, daemon=True)
