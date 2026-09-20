@@ -88,6 +88,21 @@ def on_ui_settings():
         ).info("Subfolder template for downloads. Placeholders: {baseModel}, {modelName}, {creator}, {modelId}")
     )
 
+    shared.opts.add_option(
+        "model_manager_civitai_min_prompt_images",
+        shared.OptionInfo(
+            default=1,
+            label="Civitai Browser: Minimum images with usable prompt",
+            component=gr.Slider,
+            component_args={
+                "minimum": 1,
+                "maximum": 20,
+                "step": 1,
+            },
+            section=section,
+        ).info("When 'Only with usable prompts' is enabled, a model must have at least this many images (out of the first 20) carrying a prompt plus steps/sampler/CFG.")
+    )
+
     # Card size settings
     shared.opts.add_option(
         "model_manager_card_size",
@@ -197,6 +212,9 @@ def create_civitai_browser_ui():
                         <div class="filter-group">
                             <label class="cb-checkbox-label">
                                 <input type="checkbox" id="cb_nsfw"> Include NSFW
+                            </label>
+                            <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
+                                <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
                             </label>
                         </div>
                         <div class="filter-buttons-group">
