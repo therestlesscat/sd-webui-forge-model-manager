@@ -206,7 +206,10 @@ class ModelsOps:
         sort_order: str = "desc",
         limit: int = 50,
         offset: int = 0,
-        preview_least_nsfw: bool = True
+        preview_least_nsfw: bool = True,
+        commercial_use: Optional[str] = None,
+        allow_derivatives: Optional[bool] = None,
+        allow_different_license: Optional[bool] = None
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Query models grouped by civitai_model_id.
@@ -267,6 +270,33 @@ class ModelsOps:
         if is_bookmarked is not None:
             conditions.append("COALESCE(m.is_bookmarked, 0) = ?")
             params.append(1 if is_bookmarked else 0)
+
+        # License filters (only apply to models with Civitai data)
+        # allow_commercial_use is stored as PostgreSQL-style array literal: "{Image,RentCivit,Rent}"
+        # Filter can have multiple comma-separated values; model matches if it contains ANY of them
+        if commercial_use:
+            values = [v.strip() for v in commercial_use.split(',') if v.strip()]
+            if values:
+                value_conditions = []
+                for v in values:
+                    # Boundary-aware matching: value must be delimited by { } or ,
+                    # Matches: {V} (only), {V,... (first), ...,V} (last), ...,V,... (middle)
+                    value_conditions.append(
+                        "(m.allow_commercial_use LIKE ? OR "
+                        "m.allow_commercial_use LIKE ? OR "
+                        "m.allow_commercial_use LIKE ? OR "
+                        "m.allow_commercial_use LIKE ?)"
+                    )
+                    params.extend([f"{{{v}}}", f"{{{v},%", f"%,{v}}}", f"%,{v},%"])
+                conditions.append("(" + " OR ".join(value_conditions) + ")")
+
+        if allow_derivatives is not None:
+            conditions.append("m.allow_derivatives = ?")
+            params.append(1 if allow_derivatives else 0)
+
+        if allow_different_license is not None:
+            conditions.append("m.allow_different_license = ?")
+            params.append(1 if allow_different_license else 0)
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
