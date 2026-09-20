@@ -21,6 +21,7 @@ from .civitai_api import (
     decode_filter_token,
 )
 
+print("[ModelManager API] === api.py TOP-LEVEL CODE EXECUTING ===")
 
 # Global sync state
 _active_sync: Optional[SyncService] = None
@@ -159,6 +160,10 @@ def setup_api(app: FastAPI):
         has_civitai: str = "",
         is_bookmarked: Optional[bool] = None,  # None = all, True = bookmarked only
         min_versions: str = "",  # Minimum number of local versions
+        preview_least_nsfw: Optional[bool] = None,  # None = use setting, True/False = override
+        commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
+        allow_derivatives: Optional[bool] = None,  # None = all, True/False = filter
+        allow_different_license: Optional[bool] = None,  # None = all, True/False = filter
         sort_by: str = "name",
         sort_order: str = "asc",
         page: int = 1,
@@ -235,8 +240,9 @@ def setup_api(app: FastAPI):
                 except ValueError:
                     pass
 
-            # Get preview setting
-            preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+            # Get preview setting - use parameter if provided, otherwise use setting
+            if preview_least_nsfw is None:
+                preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
 
             # Query database with grouped query
             db = get_models_db()
@@ -249,12 +255,18 @@ def setup_api(app: FastAPI):
                 has_civitai=True if has_civitai == "Yes" else (False if has_civitai == "No" else None),
                 is_bookmarked=is_bookmarked,
                 min_versions=min_versions_int,
+                commercial_use=commercial_use if commercial_use else None,
+                allow_derivatives=allow_derivatives,
+                allow_different_license=allow_different_license,
                 sort_by=db_sort_by,
                 sort_order=sort_order,
                 limit=page_size,
                 offset=offset,
                 preview_least_nsfw=preview_least_nsfw
             )
+
+            # Get the setting value for JS to initialize checkbox
+            preview_least_nsfw_setting = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
 
             return JSONResponse({
                 "success": True,
@@ -265,6 +277,7 @@ def setup_api(app: FastAPI):
                 "card_width": card_width,
                 "card_height": card_height,
                 "has_more": offset + len(models) < total_count,
+                "preview_least_nsfw_setting": preview_least_nsfw_setting,
             })
 
         except Exception as e:
@@ -277,7 +290,7 @@ def setup_api(app: FastAPI):
             )
 
     @app.get("/model-manager/models/details")
-    async def get_model_details(path: str):
+    async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None):
         """Get detailed info for a specific model by file path."""
         try:
             from .storage import load_model_metadata
@@ -361,8 +374,18 @@ def setup_api(app: FastAPI):
             # Get images and cursor state from database
             if version_id:
                 db = get_models_db()
-                images = db.get_all_images_for_version(version_id)
                 version_record = db.get_version_by_id(version_id)
+
+                # Determine NSFW filter - use parameter if provided, else use setting
+                from modules import shared
+                if hide_nsfw_images is None:
+                    hide_nsfw_images = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+
+                # max_nsfw_level=5 means only PG (1) and PG-13 (2, 4) are shown
+                max_nsfw_level = 5 if hide_nsfw_images else None
+
+                images = db.get_all_images_for_version(version_id, max_nsfw_level=max_nsfw_level)
+                image_counts = db.get_image_counts(version_id, max_nsfw_level=max_nsfw_level)
 
                 if images:
                     result["images"] = images  # Raw image data from cache
@@ -372,6 +395,10 @@ def setup_api(app: FastAPI):
                     "version_id": version_id,
                     "next_cursor": version_record.get("next_images_cursor") if version_record else None,
                     "sync_date": version_record.get("images_sync_last_date") if version_record else None,
+                    "total_count": image_counts["total"],
+                    "filtered_count": image_counts["filtered"],
+                    "hidden_count": image_counts["hidden"],
+                    "hide_nsfw_images": hide_nsfw_images,
                 }
 
             return JSONResponse({"success": True, "model": result})
@@ -1752,7 +1779,10 @@ def setup_api(app: FastAPI):
 
 # Register API on app start
 def on_app_started(demo, app):
+    print(f"[ModelManager] on_app_started called with app: {app}")
     setup_api(app)
 
 
+print("[ModelManager] Registering on_app_started callback...")
 script_callbacks.on_app_started(on_app_started)
+print("[ModelManager] on_app_started callback registered")

@@ -822,6 +822,9 @@ class ModelsDatabase:
         has_civitai: Optional[bool] = None,
         is_bookmarked: Optional[bool] = None,
         min_versions: Optional[int] = None,
+        commercial_use: Optional[str] = None,
+        allow_derivatives: Optional[bool] = None,
+        allow_different_license: Optional[bool] = None,
         sort_by: str = "file_modified",
         sort_order: str = "desc",
         limit: int = 50,
@@ -838,6 +841,9 @@ class ModelsDatabase:
             has_civitai=has_civitai,
             is_bookmarked=is_bookmarked,
             min_versions=min_versions,
+            commercial_use=commercial_use,
+            allow_derivatives=allow_derivatives,
+            allow_different_license=allow_different_license,
             sort_by=sort_by,
             sort_order=sort_order,
             limit=limit,
@@ -867,13 +873,30 @@ class ModelsDatabase:
         """Store a page of images in the cache."""
         self._images.store_images(version_id, page, images)
 
-    def get_images(self, version_id: int, page: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get cached images for a version."""
-        return self._images.get_images(version_id, page)
+    def get_images(
+        self,
+        version_id: int,
+        page: Optional[int] = None,
+        max_nsfw_level: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get cached images for a version, optionally filtered by NSFW level."""
+        return self._images.get_images(version_id, page, max_nsfw_level)
 
-    def get_all_images_for_version(self, version_id: int) -> List[Dict[str, Any]]:
-        """Get all cached images for a version."""
-        return self._images.get_all_images_for_version(version_id)
+    def get_all_images_for_version(
+        self,
+        version_id: int,
+        max_nsfw_level: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all cached images for a version, optionally filtered by NSFW level."""
+        return self._images.get_all_images_for_version(version_id, max_nsfw_level)
+
+    def get_image_counts(
+        self,
+        version_id: int,
+        max_nsfw_level: Optional[int] = None
+    ) -> Dict[str, int]:
+        """Get total and filtered image counts for a version."""
+        return self._images.get_image_counts(version_id, max_nsfw_level)
 
     def get_cached_page_count(self, version_id: int) -> int:
         """Get how many pages have been cached for a version."""

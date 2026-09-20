@@ -28,6 +28,9 @@
     const CARD_GAP = 15;         // gap: 15px in CSS
     const ROWS_TO_SHOW = 2;      // Show 2 rows of cards
 
+    // Track if preview_least_nsfw checkbox has been initialized from setting
+    let previewLeastNsfwInitialized = false;
+
     // Apply card size from API response
     function applyCardSize(width, height) {
         if (width && height && (width !== cardWidth || height !== cardHeight)) {
@@ -111,6 +114,12 @@
     let imagesSyncDate = null;    // Last sync date (null = never synced)
     let isLoadingMore = false;
 
+    // NSFW image filtering state
+    let hideNsfwImages = true;  // Default to hide, will be set from setting on first load
+    let hideNsfwImagesInitialized = false;
+    let totalImageCount = 0;
+    let hiddenImageCount = 0;
+
     // Helper to detect video URLs
     function isVideoUrl(url, type) {
         if (!url) return false;
@@ -177,6 +186,36 @@
         const bookmarkedVal = document.getElementById('mm_is_bookmarked')?.value || '';
         const bookmarkedFilter = bookmarkedVal === 'true' ? { is_bookmarked: true } : {};
 
+        // Handle preview_least_nsfw checkbox
+        const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
+        const previewLeastNsfwFilter = previewLeastNsfwCheckbox ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked } : {};
+
+        // Handle license filters
+        // Commercial use is now multi-select checkboxes - only filter if not all selected
+        const commercialCheckboxes = document.querySelectorAll('#mm_commercial_panel input[type="checkbox"][value]');
+        const selectedCommercial = [];
+        commercialCheckboxes.forEach(cb => {
+            if (cb.checked) selectedCommercial.push(cb.value);
+        });
+        // Don't filter if all 5 selected or none selected
+        const commercialFilter = (selectedCommercial.length > 0 && selectedCommercial.length < 5)
+            ? { commercial_use: selectedCommercial.join(',') }
+            : {};
+
+        // Allow Derivatives: both checked = no filter, one checked = filter for that value
+        const derivYes = document.getElementById('mm_allow_derivatives_yes')?.checked;
+        const derivNo = document.getElementById('mm_allow_derivatives_no')?.checked;
+        const derivativesFilter = (derivYes && !derivNo) ? { allow_derivatives: 'true' }
+            : (!derivYes && derivNo) ? { allow_derivatives: 'false' }
+            : {};
+
+        // Allow Different License: both checked = no filter, one checked = filter for that value
+        const diffLicYes = document.getElementById('mm_allow_different_license_yes')?.checked;
+        const diffLicNo = document.getElementById('mm_allow_different_license_no')?.checked;
+        const diffLicenseFilter = (diffLicYes && !diffLicNo) ? { allow_different_license: 'true' }
+            : (!diffLicYes && diffLicNo) ? { allow_different_license: 'false' }
+            : {};
+
         const filters = {
             search: document.getElementById('mm_search')?.value || '',
             type: document.getElementById('mm_type')?.value || '',
@@ -185,6 +224,10 @@
             has_civitai: document.getElementById('mm_civitai')?.value || '',
             ...bookmarkedFilter,
             min_versions: document.getElementById('mm_min_versions')?.value || '',
+            ...previewLeastNsfwFilter,
+            ...commercialFilter,
+            ...derivativesFilter,
+            ...diffLicenseFilter,
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
         };
@@ -195,6 +238,12 @@
     // Toggle NSFW dropdown
     window.mmToggleNsfwDropdown = function() {
         const panel = document.getElementById('mm_nsfw_panel');
+        if (panel) panel.classList.toggle('open');
+    };
+
+    // Toggle Commercial Use dropdown
+    window.mmToggleCommercialDropdown = function() {
+        const panel = document.getElementById('mm_commercial_panel');
         if (panel) panel.classList.toggle('open');
     };
 
@@ -220,6 +269,42 @@
         } else {
             display.textContent = selected.length > 0 ? selected.join(', ') : 'None';
         }
+    }
+
+    // Update Commercial Use display text
+    function updateCommercialDisplay() {
+        const display = document.getElementById('mm_commercial_display');
+        const checkboxes = document.querySelectorAll('#mm_commercial_panel input[type="checkbox"][value]');
+        const selected = [];
+
+        checkboxes.forEach(cb => {
+            if (cb.checked) selected.push(cb.value);
+        });
+
+        // Show "All" if all 5 options are selected or none selected
+        if (selected.length === 5 || selected.length === 0) {
+            display.textContent = 'All';
+        } else {
+            display.textContent = selected.join(', ');
+        }
+    }
+
+    // Setup Commercial Use controls
+    function setupCommercialControls() {
+        const checkboxes = document.querySelectorAll('#mm_commercial_panel input[type="checkbox"][value]');
+
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', updateCommercialDisplay);
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('mm_commercial_dropdown');
+            const panel = document.getElementById('mm_commercial_panel');
+            if (dropdown && panel && !dropdown.contains(e.target)) {
+                panel.classList.remove('open');
+            }
+        });
     }
 
     // Handle "Use max" checkbox toggle and level selection
@@ -298,6 +383,16 @@
                 // Apply card size from API response
                 if (data.card_width && data.card_height) {
                     applyCardSize(data.card_width, data.card_height);
+                }
+
+                // Initialize preview_least_nsfw checkbox from setting on first load
+                if (!previewLeastNsfwInitialized && data.preview_least_nsfw_setting !== undefined) {
+                    const checkbox = document.getElementById('mm_preview_least_nsfw');
+                    if (checkbox) {
+                        checkbox.checked = data.preview_least_nsfw_setting;
+                        console.log(`[ModelManager] Initialized SFW Preview checkbox: ${data.preview_least_nsfw_setting}`);
+                    }
+                    previewLeastNsfwInitialized = true;
                 }
 
                 currentModels = data.models;
@@ -558,7 +653,8 @@
     // Load details for a specific version
     async function loadVersionDetails(filePath) {
         try {
-            const data = await apiCall('/model-manager/models/details', { path: filePath });
+            const params = { path: filePath, hide_nsfw_images: hideNsfwImages };
+            const data = await apiCall('/model-manager/models/details', params);
             if (data.success && data.model) {
                 // Store version ID for load-more
                 if (data.model.civitai_version) {
@@ -579,8 +675,17 @@
                 currentVersionId = imagesState.version_id || null;
                 nextImagesCursor = imagesState.next_cursor || null;
                 imagesSyncDate = imagesState.sync_date || null;
+                totalImageCount = imagesState.total_count || 0;
+                hiddenImageCount = imagesState.hidden_count || 0;
 
-                console.log(`[ModelManager] Loaded ${images.length} images (cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
+                // Initialize hideNsfwImages from setting on first load
+                if (!hideNsfwImagesInitialized && imagesState.hide_nsfw_images !== undefined) {
+                    hideNsfwImages = imagesState.hide_nsfw_images;
+                    hideNsfwImagesInitialized = true;
+                    console.log(`[ModelManager] Initialized hideNsfwImages: ${hideNsfwImages}`);
+                }
+
+                console.log(`[ModelManager] Loaded ${images.length} images (total: ${totalImageCount}, hidden: ${hiddenImageCount}, cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
 
                 renderModelImages(images);
                 updateImagesCountCell();
@@ -590,6 +695,14 @@
             updateImagesCountCell();  // Update even on error to show "None"
         }
     }
+
+    // Toggle NSFW image filter and reload images
+    window.mmToggleHideNsfwImages = async function(checked) {
+        hideNsfwImages = checked;
+        if (currentModelPath) {
+            await loadVersionDetails(currentModelPath);
+        }
+    };
 
     // Update the images count cell in the Information table
     function updateImagesCountCell() {
@@ -819,6 +932,11 @@
                         ${model.published_at ? `<tr><td>Published</td><td>${formatDate(model.published_at)}</td></tr>` : ''}
                         ${model.creator ? `<tr><td>Creator</td><td>${escapeHtml(model.creator)}</td></tr>` : ''}
                         ${model.rating > 0 ? `<tr><td>Rating</td><td>★ ${model.rating.toFixed(1)} (${formatNumber(model.download_count)} downloads)</td></tr>` : ''}
+                        ${model.civitai_model ? `
+                        <tr><td rowspan="3" class="license-label-cell">License</td><td>Commercial: ${formatCommercialUse(model.civitai_model.allow_commercial_use)}</td></tr>
+                        <tr><td>Derivatives: ${model.civitai_model.allow_derivatives ? 'Yes' : 'No'}</td></tr>
+                        <tr><td>Different License: ${model.civitai_model.allow_different_license ? 'Yes' : 'No'}</td></tr>
+                        ` : ''}
                         <tr><td>File</td><td class="file-path-cell">${escapeHtml(shortenFilePath(model.file_path))}</td></tr>
                         <tr id="mm_images_count_row"><td>Images</td><td id="mm_images_count_cell">Loading...</td></tr>
                     </table>
@@ -1104,7 +1222,33 @@
         const container = document.getElementById('mm_images');
         if (!container) return;
 
+        // Build NSFW filter warning panel if there are hidden images or filter is active
+        const showNsfwWarning = totalImageCount > 0 && (hiddenImageCount > 0 || !hideNsfwImages);
+        const nsfwWarningHtml = showNsfwWarning
+            ? `<div class="mm-nsfw-warning">
+                <span>${hideNsfwImages
+                    ? `Showing ${images.length} of ${totalImageCount} images (${hiddenImageCount} hidden due to NSFW filter)`
+                    : `Showing all ${totalImageCount} images`}</span>
+                <label class="mm-show-all-label">
+                    <input type="checkbox" id="mm_hide_nsfw_images" ${hideNsfwImages ? 'checked' : ''} onchange="window.mmToggleHideNsfwImages(this.checked)">
+                    Hide NSFW
+                </label>
+               </div>`
+            : '';
+
         if (!images || images.length === 0) {
+            // Still show warning if there are hidden images
+            if (hiddenImageCount > 0) {
+                container.innerHTML = `
+                    <div class="mm-images-header">
+                        <h4>Example Images</h4>
+                    </div>
+                    ${nsfwWarningHtml}
+                    <div class="model-images-list"><p class="mm-no-images">No SFW images available. Uncheck "Hide NSFW" to see all images.</p></div>
+                `;
+                container.style.display = 'block';
+                return;
+            }
             container.style.display = 'none';
             return;
         }
@@ -1122,7 +1266,7 @@
         const showDownloadBtn = (nextImagesCursor !== null && nextImagesCursor !== '') || (imagesSyncDate === null);
         const neverSynced = imagesSyncDate === null;
         const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
-        const infoText = neverSynced ? 'Images not yet downloaded' : `${images.length} images downloaded`;
+        const infoText = neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`;
 
         const downloadMoreHtml = showDownloadBtn
             ? `<div class="mm-load-more">
@@ -1138,6 +1282,7 @@
                 <h4>Example Images</h4>
                 <span class="mm-images-count">${images.length} images</span>
             </div>
+            ${nsfwWarningHtml}
             <div class="model-images-list">${imageCards}</div>
             ${downloadMoreHtml}
         `;
@@ -2412,6 +2557,30 @@
         }
     }
 
+    // Format commercial use value for display
+    // Value comes in PostgreSQL array format: "{Image,RentCivit,Rent}"
+    function formatCommercialUse(value) {
+        if (!value) return 'Unknown';
+
+        const labels = {
+            'None': 'No commercial use',
+            'Image': 'Sell generated images',
+            'Rent': 'Use in generation services',
+            'RentCivit': 'Civitai generation only',
+            'Sell': 'Sell model allowed'
+        };
+
+        // Parse brace-delimited format: {val1,val2,val3}
+        const match = value.match(/^\{(.+)\}$/);
+        if (match) {
+            const values = match[1].split(',').map(v => v.trim());
+            return values.map(v => labels[v] || v).join(', ');
+        }
+
+        // Fallback for single value or other formats
+        return labels[value] || value;
+    }
+
     // Debounce helper
     function debounce(func, wait) {
         let timeout;
@@ -2583,6 +2752,9 @@
 
         // Setup NSFW controls
         setupNsfwControls();
+
+        // Setup Commercial Use controls
+        setupCommercialControls();
 
         // Remove any existing listeners by cloning
         const newLoadBtn = loadBtn.cloneNode(true);
