@@ -89,6 +89,21 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_civitai_requests_per_second",
+        shared.OptionInfo(
+            default=6,
+            label="Civitai: Requests per second",
+            component=gr.Slider,
+            component_args={
+                "minimum": 1,
+                "maximum": 10,
+                "step": 1,
+            },
+            section=section,
+        ).info("How fast to call the Civitai API when an API key is set. Higher is faster but more likely to be rate limited. Requires restart.")
+    )
+
+    shared.opts.add_option(
         "model_manager_civitai_min_prompt_images",
         shared.OptionInfo(
             default=1,

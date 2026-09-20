@@ -6,6 +6,7 @@ import json
 import time
 import threading
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List, Dict, Any, Tuple, Callable
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -110,9 +111,11 @@ class CivitaiClient:
     GENERATION_DATA_PROC = "image.getGenerationData"
     GENERATION_DATA_BATCH = 20  # 50+ returns HTTP 400
 
-    # Rate limits (requests per second)
-    AUTH_RATE = 2.0
-    AUTH_BURST = 10
+    # Rate limits (requests per second).
+    # Civitai was measured serving ~10 req/s without complaint; these stay well
+    # under that. AUTH_RATE is the default for the setting, not a hard cap.
+    AUTH_RATE = 6.0
+    AUTH_BURST = 12
     UNAUTH_RATE = 0.5
     UNAUTH_BURST = 5
 
@@ -123,12 +126,18 @@ class CivitaiClient:
     # Request timeout
     REQUEST_TIMEOUT = 30  # seconds
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        requests_per_second: Optional[float] = None
+    ):
         """
         Initialize the client.
 
         Args:
             api_key: Optional Civitai API key for higher rate limits.
+            requests_per_second: Override the authenticated request rate.
+                Ignored without an API key.
         """
         self.api_key = api_key
         self.session = requests.Session()
@@ -136,9 +145,12 @@ class CivitaiClient:
 
         # Set up rate limiter based on auth status
         if api_key:
-            self.rate_limiter = TokenBucketRateLimiter(self.AUTH_RATE, self.AUTH_BURST)
+            rate = float(requests_per_second or self.AUTH_RATE)
+            rate = max(0.5, min(rate, 10.0))
+            burst = max(int(rate * 2), 5)
+            self.rate_limiter = TokenBucketRateLimiter(rate, burst)
             self.session.headers["Authorization"] = f"Bearer {api_key}"
-            print("[ModelManager] Civitai client initialized with API key")
+            print(f"[ModelManager] Civitai client initialized with API key ({rate:g} req/s)")
         else:
             self.rate_limiter = TokenBucketRateLimiter(self.UNAUTH_RATE, self.UNAUTH_BURST)
             print("[ModelManager] Civitai client initialized without API key (lower rate limits)")
@@ -158,7 +170,16 @@ class CivitaiClient:
             print(f"[ModelManager] Error reading API key from settings: {e}")
             api_key = None
 
-        return cls(api_key)
+        rate = None
+        try:
+            from modules import shared
+            configured = getattr(shared.opts, 'model_manager_civitai_requests_per_second', None)
+            if configured:
+                rate = float(configured)
+        except Exception:
+            pass
+
+        return cls(api_key, requests_per_second=rate)
 
     def _request(
         self,
@@ -583,6 +604,7 @@ def search_models_with_usable_prompts(
     start_token: Optional[str] = None,
     max_checks: Optional[int] = None,
     batch_size: int = 20,
+    workers: int = 4,
 ) -> Dict[str, Any]:
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -650,21 +672,43 @@ def search_models_with_usable_prompts(
                 index = 0
                 continue
 
-        model = batch[index]
-        index += 1
-        checked += 1
+        # Check several models at once - each check is a couple of network
+        # round trips, so this is the difference between a page taking seconds
+        # and taking tens of seconds. Results are consumed strictly in order so
+        # the resume token stays exact.
+        remaining_budget = (max_checks - checked) if max_checks is not None else len(batch)
+        take = max(1, min(workers, len(batch) - index, remaining_budget))
+        chunk = batch[index:index + take]
 
-        try:
-            usable = count_usable_images(model)
-        except Exception as e:
-            # Never let one bad model abort the whole page
-            print(f"[ModelManager] Prompt check failed for model {model.get('id')}: {e}")
-            usable = 0
+        def check(model):
+            try:
+                return count_usable_images(model)
+            except Exception as e:
+                # Never let one bad model abort the whole page
+                print(f"[ModelManager] Prompt check failed for model {model.get('id')}: {e}")
+                return 0
 
-        if usable >= min_usable:
-            models.append(model)
+        if len(chunk) == 1:
+            counts = [check(chunk[0])]
         else:
-            dropped += 1
+            with ThreadPoolExecutor(max_workers=len(chunk)) as executor:
+                counts = list(executor.map(check, chunk))
+
+        checked += len(chunk)
+
+        # Anything checked past the end of the page is left for the next one.
+        # Its images are cached now, so re-checking it there costs nothing.
+        consumed = 0
+        for model, usable in zip(chunk, counts):
+            if len(models) >= page_size:
+                break
+            consumed += 1
+            if usable >= min_usable:
+                models.append(model)
+            else:
+                dropped += 1
+
+        index += consumed
 
     if exhausted:
         next_token = None
