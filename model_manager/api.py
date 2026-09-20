@@ -11,7 +11,7 @@ from modules import script_callbacks
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
 from .models_db import get_models_db
-from .civitai_api import CivitaiClient
+from .civitai_api import CivitaiClient, enrich_images_with_generation_data
 
 
 # Global sync state
@@ -338,10 +338,12 @@ def setup_api(app: FastAPI):
             client = CivitaiClient.from_settings()
             try:
                 result = client.get_model_images(version_id, cursor=None, limit=100)
+                images = result.get("images", [])
+                # /images returns meta: null - fetch generation data separately
+                enrich_images_with_generation_data(client, images)
             finally:
                 client.close()
 
-            images = result.get("images", [])
             next_cursor = result.get("next_cursor")
 
             # Store in database
@@ -410,10 +412,12 @@ def setup_api(app: FastAPI):
                     cursor=cursor,
                     limit=100
                 )
+                new_images = result.get("images", [])
+                # /images returns meta: null - fetch generation data separately
+                enrich_images_with_generation_data(client, new_images)
             finally:
                 client.close()
 
-            new_images = result.get("images", [])
             next_cursor = result.get("next_cursor")
 
             if not new_images:
@@ -1207,6 +1211,24 @@ def setup_api(app: FastAPI):
                 cached_cursor = db.get_browse_cursor(version_id)
 
                 if cached_images:
+                    # Rows cached while the API returned `meta: null` have no
+                    # prompt - backfill them now that we can fetch it again.
+                    needs_backfill = any(
+                        not (img.get("meta") or {}).get("prompt") for img in cached_images
+                    )
+
+                    if needs_backfill:
+                        client = CivitaiClient.from_settings()
+                        try:
+                            enriched = enrich_images_with_generation_data(client, cached_images)
+                        finally:
+                            client.close()
+
+                        if enriched:
+                            db.update_browse_images(version_id, cached_images)
+                            print(f"[ModelManager] Backfilled generation data for {enriched} "
+                                  f"cached images (version {version_id})")
+
                     return JSONResponse({
                         "success": True,
                         "images": cached_images,
@@ -1219,10 +1241,12 @@ def setup_api(app: FastAPI):
             client = CivitaiClient.from_settings()
             try:
                 result = client.get_model_images(version_id, cursor=None, limit=10)
+                images = result.get("images", [])
+                # /images returns meta: null - fetch generation data separately
+                enrich_images_with_generation_data(client, images)
             finally:
                 client.close()
 
-            images = result.get("images", [])
             next_cursor = result.get("next_cursor")
 
             # Cache images
@@ -1271,10 +1295,12 @@ def setup_api(app: FastAPI):
             client = CivitaiClient.from_settings()
             try:
                 result = client.get_model_images(version_id, cursor=cursor, limit=10)
+                images = result.get("images", [])
+                # /images returns meta: null - fetch generation data separately
+                enrich_images_with_generation_data(client, images)
             finally:
                 client.close()
 
-            images = result.get("images", [])
             next_cursor = result.get("next_cursor")
 
             # Store new images and update cursor

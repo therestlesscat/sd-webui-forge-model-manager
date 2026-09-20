@@ -1,11 +1,13 @@
 """
 Civitai API client with rate limiting and retry logic.
 """
+import json
 import time
 import threading
 import requests
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from urllib.parse import quote
 
 
 class CivitaiAPIError(Exception):
@@ -98,6 +100,15 @@ class CivitaiClient:
 
     BASE_URL = "https://civitai.com/api/v1"
 
+    # Internal tRPC endpoint used by the Civitai website.
+    # The public /api/v1/images endpoint stopped returning image `meta`
+    # (generation parameters) - it is always null. This endpoint still
+    # returns it, supports batching, and requires an API key.
+    # Undocumented: treat failures as non-fatal and degrade gracefully.
+    TRPC_BASE_URL = "https://civitai.com/api/trpc/"
+    GENERATION_DATA_PROC = "image.getGenerationData"
+    GENERATION_DATA_BATCH = 20  # 50+ returns HTTP 400
+
     # Rate limits (requests per second)
     AUTH_RATE = 2.0
     AUTH_BURST = 10
@@ -152,8 +163,9 @@ class CivitaiClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        params: Optional[Dict[str, Any]] = None,
+        absolute_url: Optional[str] = None
+    ) -> Any:
         """
         Make a rate-limited request with retry logic.
 
@@ -161,22 +173,29 @@ class CivitaiClient:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (e.g., "/models/123")
             params: Query parameters
+            absolute_url: Full URL to use instead of BASE_URL + endpoint.
 
         Returns:
-            JSON response as dict.
+            Parsed JSON response (dict for the v1 API, list for tRPC batches).
 
         Raises:
             CivitaiNotFoundError: If resource not found (404)
             CivitaiRateLimitError: If rate limited and retries exhausted
             CivitaiAPIError: For other API errors
         """
-        url = f"{self.BASE_URL}{endpoint}"
+        url = absolute_url or f"{self.BASE_URL}{endpoint}"
         last_error = None
 
         # Log auth status on first request
         auth_header = self.session.headers.get("Authorization", "")
         has_auth = bool(auth_header)
-        print(f"[ModelManager] Request: {method} {endpoint} (auth={'yes' if has_auth else 'no'})")
+        if absolute_url and absolute_url.startswith(self.TRPC_BASE_URL):
+            # Batched tRPC calls repeat the procedure name once per item
+            procedures = absolute_url[len(self.TRPC_BASE_URL):].split("?")[0].split(",")
+            label = f"trpc/{procedures[0]} x{len(procedures)}"
+        else:
+            label = endpoint or url.split("?")[0]
+        print(f"[ModelManager] Request: {method} {label} (auth={'yes' if has_auth else 'no'})")
 
         for attempt in range(self.MAX_RETRIES + 1):
             # Wait for rate limiter
@@ -407,6 +426,67 @@ class CivitaiClient:
             "next_cursor": next_cursor
         }
 
+    def get_generation_data(self, image_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Get generation data (prompt, params, resources) for images.
+
+        The public /api/v1/images endpoint returns `meta: null` for every
+        image, so generation parameters come from the website's own tRPC
+        endpoint instead. Requests are batched (20 per call).
+
+        Requires an API key - returns {} without one, so callers fall back
+        to whatever the public API gave them.
+
+        Args:
+            image_ids: Civitai image IDs to look up.
+
+        Returns:
+            Dict mapping image ID to its generation data. IDs that could not
+            be resolved are simply absent.
+        """
+        if not self.api_key:
+            return {}
+
+        ids = [int(i) for i in image_ids if i]
+        if not ids:
+            return {}
+
+        results: Dict[int, Dict[str, Any]] = {}
+
+        for start in range(0, len(ids), self.GENERATION_DATA_BATCH):
+            chunk = ids[start:start + self.GENERATION_DATA_BATCH]
+
+            procedures = ",".join([self.GENERATION_DATA_PROC] * len(chunk))
+            payload = {str(i): {"json": {"id": image_id}} for i, image_id in enumerate(chunk)}
+            url = (
+                f"{self.TRPC_BASE_URL}{procedures}"
+                f"?batch=1&input={quote(json.dumps(payload))}"
+            )
+
+            try:
+                data = self._request("GET", "", absolute_url=url)
+            except CivitaiAPIError as e:
+                print(f"[ModelManager] Generation data batch failed: {e}")
+                continue
+
+            # tRPC batch responses are a list positionally matching the input
+            if not isinstance(data, list):
+                print("[ModelManager] Unexpected generation data response shape")
+                continue
+
+            for index, entry in enumerate(data):
+                if index >= len(chunk) or not isinstance(entry, dict):
+                    continue
+                # Per-entry errors are isolated - skip just that image
+                if entry.get("error"):
+                    continue
+                result = entry.get("result") or {}
+                gen_data = (result.get("data") or {}).get("json") or {}
+                if gen_data:
+                    results[chunk[index]] = gen_data
+
+        return results
+
     def close(self):
         """Close the session."""
         self.session.close()
@@ -416,3 +496,93 @@ class CivitaiClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+def _map_civitai_resources(resources: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """
+    Convert generation-data resources into the `civitaiResources` shape the UI
+    expects (type / name / modelVersionId, used for View + Download links).
+    """
+    mapped = []
+
+    for resource in resources or []:
+        if not isinstance(resource, dict):
+            continue
+
+        version_id = resource.get("versionId") or resource.get("modelVersionId")
+        entry = {
+            "type": resource.get("modelType") or "Unknown",
+            "name": resource.get("modelName") or resource.get("versionName") or "Unknown",
+            "modelId": resource.get("modelId"),
+            "modelVersionId": version_id,
+            "modelVersionName": resource.get("versionName"),
+        }
+
+        if resource.get("strength") is not None:
+            entry["weight"] = resource.get("strength")
+
+        mapped.append(entry)
+
+    return mapped
+
+
+def enrich_images_with_generation_data(
+    client: CivitaiClient,
+    images: List[Dict[str, Any]]
+) -> int:
+    """
+    Fill in missing generation metadata on images, in place.
+
+    Only images that lack a usable prompt are looked up. Failures are logged
+    and swallowed - images are left as-is rather than breaking the caller.
+
+    Args:
+        client: Civitai client to use for the lookup.
+        images: Image dicts from the /images endpoint (modified in place).
+
+    Returns:
+        Number of images that were enriched.
+    """
+    if not images:
+        return 0
+
+    needs_lookup = [
+        img.get("id") for img in images
+        if img.get("id") and not (img.get("meta") or {}).get("prompt")
+    ]
+    if not needs_lookup:
+        return 0
+
+    try:
+        generation_data = client.get_generation_data(needs_lookup)
+    except Exception as e:
+        print(f"[ModelManager] Generation data lookup failed: {e}")
+        return 0
+
+    if not generation_data:
+        return 0
+
+    enriched = 0
+
+    for img in images:
+        data = generation_data.get(img.get("id"))
+        if not data:
+            continue
+
+        meta = data.get("meta") or {}
+        if not meta:
+            continue
+
+        # Keep anything the existing meta had that the new one lacks
+        merged = dict(meta)
+        for key, value in (img.get("meta") or {}).items():
+            merged.setdefault(key, value)
+
+        civitai_resources = _map_civitai_resources(data.get("resources"))
+        if civitai_resources:
+            merged["civitaiResources"] = civitai_resources
+
+        img["meta"] = merged
+        enriched += 1
+
+    return enriched
