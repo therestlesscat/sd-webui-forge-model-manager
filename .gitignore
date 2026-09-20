@@ -6,6 +6,11 @@ __pycache__/
 
 # Databases (local data)
 *.db
+# SQLite sidecar files, present while the database is open
+*.db-wal
+*.db-shm
+# Timestamped backups made before migrations and risky operations
+*.db.backup_*
 
 # IDE
 .idea/
