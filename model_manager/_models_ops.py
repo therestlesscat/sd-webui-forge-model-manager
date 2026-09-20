@@ -114,7 +114,15 @@ class ModelsOps:
     # ==================== Model Versions ====================
 
     def upsert_version(self, version_data: Dict[str, Any]):
-        """Insert or update a model version record."""
+        """
+        Insert or update a model version record.
+
+        Updates only the columns supplied here. INSERT OR REPLACE would delete
+        the existing row and insert a fresh one, silently resetting every
+        column not named below - downloaded_at, and the image pagination state
+        - so a scan or a re-sync would erase when a model was obtained and how
+        far its gallery had been fetched.
+        """
         with self._cursor() as cursor:
             # Handle file_hashes - can be dict or already JSON string
             file_hashes = version_data.get("file_hashes")
@@ -122,13 +130,32 @@ class ModelsOps:
                 file_hashes = json.dumps(file_hashes)
 
             cursor.execute("""
-                INSERT OR REPLACE INTO model_versions (
+                INSERT INTO model_versions (
                     id, model_id, version_name, base_model, published_at, created_at,
                     nsfw_level, trained_words, description,
                     stats_download_count, stats_thumbs_up,
                     file_path, file_name, file_size, file_hashes, file_modified, file_extension,
                     has_civitai_data, scanned_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(file_path) DO UPDATE SET
+                    id = excluded.id,
+                    model_id = excluded.model_id,
+                    version_name = excluded.version_name,
+                    base_model = excluded.base_model,
+                    published_at = excluded.published_at,
+                    created_at = excluded.created_at,
+                    nsfw_level = excluded.nsfw_level,
+                    trained_words = excluded.trained_words,
+                    description = excluded.description,
+                    stats_download_count = excluded.stats_download_count,
+                    stats_thumbs_up = excluded.stats_thumbs_up,
+                    file_name = excluded.file_name,
+                    file_size = excluded.file_size,
+                    file_hashes = excluded.file_hashes,
+                    file_modified = excluded.file_modified,
+                    file_extension = excluded.file_extension,
+                    has_civitai_data = excluded.has_civitai_data,
+                    scanned_at = excluded.scanned_at
             """, (
                 version_data.get("id"),
                 version_data.get("model_id"),
