@@ -817,13 +817,29 @@ class ModelsDatabase:
         self._models.delete_version(file_path)
 
     def set_downloaded_at(self, file_path: str):
-        """Set downloaded_at timestamp for a version (called after Civitai download)."""
+        """
+        Record when a version was downloaded (called after a Civitai download).
+
+        Uses the file's own modification time, which is when the download
+        finished writing. Wall-clock "now" would instead capture when the
+        follow-up sync completed - that trails the download by seconds for a
+        small file and much longer for a large one, which reorders a batch of
+        downloads relative to the order they actually arrived.
+
+        Never overwrites an existing value: re-syncing a model must not rewrite
+        the day it was obtained.
+        """
+        try:
+            downloaded_at = datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+        except OSError:
+            downloaded_at = datetime.now().isoformat()
+
         with self._cursor() as cursor:
             cursor.execute("""
                 UPDATE model_versions
                 SET downloaded_at = ?
-                WHERE file_path = ?
-            """, (datetime.now().isoformat(), file_path))
+                WHERE file_path = ? AND downloaded_at IS NULL
+            """, (downloaded_at, file_path))
 
     def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get a version by file path."""
