@@ -358,7 +358,10 @@ class ModelsOps:
             "download_count": "COALESCE(cm_stats_download_count, stats_download_count)",
             "published_at": "published_at",
             "scanned_at": "scanned_at",
-            "downloaded_at": "downloaded_at",
+            # downloaded_at is only set for models fetched through the
+            # Civitai Browser. Everything acquired another way falls back
+            # to the file timestamp, which is when it landed on disk.
+            "downloaded_at": "COALESCE(downloaded_at, file_modified)",
             "updated_at": "cm_updated_at"
         }
         sort_field = valid_sort_fields.get(sort_by, "file_modified")
