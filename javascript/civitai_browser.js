@@ -1567,6 +1567,28 @@
 
     // Poll download progress
     let downloadPollInterval = null;
+    let needsWebUiRefresh = false;  // a download landed; the WebUI needs to re-scan
+
+    // Tell the WebUI about a newly downloaded file.
+    //
+    // Downloading writes the file but the WebUI has already listed its model
+    // directories, so a new checkpoint does not appear in the native dropdown
+    // until something re-scans. Click the refresh control next to that
+    // dropdown - the same one a user would press. Forge and Forge Neo both
+    // expose it as #forge_refresh_checkpoint, and both hand back only new
+    // choices, so the current selection is left alone.
+    function refreshWebUiModelList() {
+        const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+        const refreshButton = root.querySelector('#forge_refresh_checkpoint');
+
+        if (refreshButton) {
+            refreshButton.click();
+            console.log('[CivitaiBrowser] Refreshed the WebUI model list');
+        } else {
+            console.warn('[CivitaiBrowser] Could not find the checkpoint refresh button; '
+                + 'the new model may need a manual refresh');
+        }
+    }
 
     // Mark a freshly downloaded version as owned without re-running the
     // search. Re-searching would close the details panel the user is looking
@@ -1610,6 +1632,7 @@
                         // for `synced` or the model still looks un-owned.
                         if (dl.status === 'complete' && dl.synced && !(prev && prev.synced)) {
                             markVersionOwned(dl.version_id);
+                            needsWebUiRefresh = true;
                         }
                         activeDownloads[dl.version_id] = dl;
                     });
@@ -1625,6 +1648,13 @@
                     if (!hasActive) {
                         clearInterval(downloadPollInterval);
                         downloadPollInterval = null;
+
+                        // Once per batch - re-scanning walks every model
+                        // directory, so there is no point doing it per file
+                        if (needsWebUiRefresh) {
+                            needsWebUiRefresh = false;
+                            refreshWebUiModelList();
+                        }
                     }
                 }
             } catch (e) {
