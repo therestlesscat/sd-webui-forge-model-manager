@@ -2,10 +2,11 @@
 API endpoints for Model Manager.
 Provides REST API for model listing, filtering, and details.
 """
+import json
 import threading
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from modules import script_callbacks
 
 from .sync_service import SyncService, SyncProgress
@@ -16,6 +17,7 @@ from .civitai_api import (
     enrich_images_with_generation_data,
     image_has_usable_prompt,
     search_models_with_usable_prompts,
+    iter_models_with_usable_prompts,
     decode_filter_token,
 )
 
@@ -29,6 +31,53 @@ _sync_progress: Optional[SyncProgress] = None
 _active_scan: Optional[ScanService] = None
 _scan_thread: Optional[threading.Thread] = None
 _scan_progress: Optional[ScanProgress] = None
+
+
+def annotate_local_ownership(db, models: List[Dict[str, Any]]):
+    """
+    Mark which of these models and versions already exist locally, in place.
+
+    Args:
+        db: Models database.
+        models: Models from a Civitai search response.
+    """
+    if not models:
+        return
+
+    model_ids = {m.get("id") for m in models if m.get("id")}
+    version_ids = {
+        v.get("id")
+        for m in models
+        for v in (m.get("modelVersions") or [])
+        if v.get("id")
+    }
+
+    owned_models = set()
+    owned_versions = set()
+
+    if model_ids or version_ids:
+        with db._cursor() as cursor:
+            for column, ids in (("model_id", model_ids), ("id", version_ids)):
+                if not ids:
+                    continue
+                placeholders = ",".join("?" * len(ids))
+                cursor.execute(
+                    f"SELECT DISTINCT model_id, id FROM model_versions "
+                    f"WHERE {column} IN ({placeholders})",
+                    list(ids)
+                )
+                for row in cursor.fetchall():
+                    owned_models.add(row["model_id"])
+                    owned_versions.add(row["id"])
+
+    for model in models:
+        model["owned_locally"] = model.get("id") in owned_models
+        model["owned_versions"] = [
+            v.get("id") for v in (model.get("modelVersions") or [])
+            if v.get("id") in owned_versions
+        ]
+        for version in (model.get("modelVersions") or []):
+            version["owned_locally"] = version.get("id") in owned_versions
 
 
 # How many images to sample when judging whether a model has usable prompts.
@@ -1165,55 +1214,7 @@ def setup_api(app: FastAPI):
 
             # Get local ownership info
             db = get_models_db()
-
-            # Collect all model_ids and version_ids from results
-            model_ids = set()
-            version_ids = set()
-            for model in items:
-                model_ids.add(model.get("id"))
-                for version in model.get("modelVersions", []):
-                    version_ids.add(version.get("id"))
-
-            # Query local database for owned versions
-            owned_versions = set()
-            owned_models = set()
-
-            if model_ids or version_ids:
-                # Query versions table for matches
-                with db._cursor() as db_cursor:
-                    # Check by model_id
-                    if model_ids:
-                        placeholders = ",".join("?" * len(model_ids))
-                        db_cursor.execute(f"""
-                            SELECT DISTINCT model_id, id FROM model_versions
-                            WHERE model_id IN ({placeholders})
-                        """, list(model_ids))
-                        for row in db_cursor.fetchall():
-                            owned_models.add(row["model_id"])
-                            owned_versions.add(row["id"])
-
-                    # Check by version_id
-                    if version_ids:
-                        placeholders = ",".join("?" * len(version_ids))
-                        db_cursor.execute(f"""
-                            SELECT DISTINCT model_id, id FROM model_versions
-                            WHERE id IN ({placeholders})
-                        """, list(version_ids))
-                        for row in db_cursor.fetchall():
-                            owned_models.add(row["model_id"])
-                            owned_versions.add(row["id"])
-
-            # Attach ownership info to each model and version
-            for model in items:
-                model_id = model.get("id")
-                model["owned_locally"] = model_id in owned_models
-                model["owned_versions"] = [
-                    v.get("id") for v in model.get("modelVersions", [])
-                    if v.get("id") in owned_versions
-                ]
-                # Mark each version with ownership
-                for version in model.get("modelVersions", []):
-                    version["owned_locally"] = version.get("id") in owned_versions
+            annotate_local_ownership(db, items)
 
             return JSONResponse({
                 "success": True,
@@ -1233,6 +1234,119 @@ def setup_api(app: FastAPI):
                 {"success": False, "error": str(e)},
                 status_code=500
             )
+
+    @app.get("/model-manager/civitai/models/stream")
+    async def civitai_search_models_stream(
+        query: str = "",
+        types: str = "",
+        base_models: str = "",
+        nsfw: bool = False,
+        sort: str = "Most Downloaded",
+        period: str = "AllTime",
+        tag: str = "",
+        cursor: str = "",
+        limit: int = 0,
+    ):
+        """
+        Search Civitai with the usable-prompt filter, streaming results.
+
+        Checking models costs API calls, so a page can take a while to fill.
+        This emits newline-delimited JSON as the work happens, letting the UI
+        show each model the moment it qualifies instead of waiting for the
+        whole page:
+
+            {"type": "meta",     ...}                 once, first
+            {"type": "progress", "checked", ...}      periodically
+            {"type": "model",    "model": {...}}      per qualifying model
+            {"type": "done",     "nextCursor", ...}   once, last
+            {"type": "error",    "error": "..."}      on failure
+
+        Results and paging are identical to the non-streaming endpoint.
+        """
+        from modules import shared
+
+        if limit <= 0:
+            limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 10))
+
+        def parse_card_size(size_str: str):
+            try:
+                if 'x' in size_str.lower():
+                    parts = size_str.lower().split('x')
+                    return int(parts[0].strip()), int(parts[1].strip())
+            except (ValueError, IndexError):
+                pass
+            return 200, 280
+
+        card_width, card_height = parse_card_size(
+            getattr(shared.opts, 'model_manager_civitai_card_size', '200x280'))
+
+        search_params = dict(
+            query=query,
+            types=[t.strip() for t in types.split(",") if t.strip()] if types else None,
+            base_models=[b.strip() for b in base_models.split(",") if b.strip()] if base_models else None,
+            sort=sort,
+            period=period,
+            nsfw=nsfw,
+            tag=tag,
+        )
+        min_usable = max(int(getattr(
+            shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
+
+        def generate():
+            client = CivitaiClient.from_settings()
+            db = get_models_db()
+            try:
+                yield json.dumps({
+                    "type": "meta",
+                    "pageSize": limit,
+                    "cardWidth": card_width,
+                    "cardHeight": card_height,
+                    "minUsable": min_usable,
+                }) + "\n"
+
+                for kind, payload in iter_models_with_usable_prompts(
+                    client,
+                    search_params,
+                    lambda m: count_usable_prompt_images(client, db, m),
+                    page_size=limit,
+                    min_usable=min_usable,
+                    start_token=cursor if cursor else None,
+                    max_checks=max(limit * 4, 20),
+                    batch_size=max(limit * 2, 20),
+                    workers=PROMPT_CHECK_WORKERS,
+                ):
+                    if kind == "model":
+                        annotate_local_ownership(db, [payload])
+                        yield json.dumps({"type": "model", "model": payload}) + "\n"
+                    elif kind == "progress":
+                        yield json.dumps({"type": "progress", **payload}) + "\n"
+                    elif kind == "done":
+                        yield json.dumps({
+                            "type": "done",
+                            "nextCursor": payload["nextCursor"],
+                            "filterStats": {
+                                "checked": payload["checked"],
+                                "dropped": payload["dropped"],
+                                "budgetReached": payload["budget_reached"],
+                                "minUsable": min_usable,
+                            },
+                        }) + "\n"
+
+            except Exception as e:
+                import traceback
+                print(f"[ModelManager] Civitai stream error: {e}")
+                traceback.print_exc()
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+            finally:
+                client.close()
+
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
+            # proxies and buffering layers would otherwise hold the whole
+            # response back, defeating the point of streaming
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/model-manager/civitai/models/{model_id}")
     async def civitai_get_model(model_id: int):
