@@ -390,7 +390,7 @@ def create_ui():
                                     <option value="file_modified">File Modified</option>
                                     <option value="published_at">Published At</option>
                                     <option value="scanned_at">Scanned At</option>
-                                    <option value="downloaded_at">Downloaded At</option>
+                                    <option value="downloaded_at" selected>Downloaded At</option>
                                     <option value="updated_at">Updated At</option>
                                     <option value="rating">Rating</option>
                                     <option value="download_count">Download Count</option>
@@ -400,7 +400,7 @@ def create_ui():
                                 <label>Order</label>
                                 <select id="mm_sort_order">
                                     <option value="asc">Ascending</option>
-                                    <option value="desc">Descending</option>
+                                    <option value="desc" selected>Descending</option>
                                 </select>
                             </div>
                         </div>

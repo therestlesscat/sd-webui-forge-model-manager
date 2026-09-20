@@ -165,8 +165,8 @@ def setup_api(app: FastAPI):
         commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
         allow_derivatives: Optional[bool] = None,  # None = all, True/False = filter
         allow_different_license: Optional[bool] = None,  # None = all, True/False = filter
-        sort_by: str = "name",
-        sort_order: str = "asc",
+        sort_by: str = "downloaded_at",
+        sort_order: str = "desc",
         page: int = 1,
         page_size: int = 0,  # 0 = use setting
     ):
@@ -199,7 +199,10 @@ def setup_api(app: FastAPI):
             valid_sort_columns = {
                 "name", "display_name", "file_name", "file_size", "file_modified",
                 "model_type", "base_model", "nsfw_level", "rating",
-                "download_count", "published_at"
+                "download_count", "published_at",
+                # offered by the sort dropdown; without these they silently
+                # fell through to sorting by name
+                "downloaded_at", "scanned_at", "updated_at",
             }
 
             # Map short aliases to DB columns
