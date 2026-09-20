@@ -30,6 +30,12 @@
 
     // Track if preview_least_nsfw checkbox has been initialized from setting
     let previewLeastNsfwInitialized = false;
+    let previewLeastNsfwUserTouched = false;
+    let filterDefaultsPromise = null;
+    let defaultPageSize = 10;
+    let calibratedPageSize = 10;
+    let layoutCalibrationPromise = null;
+    let isLayoutCalibrated = false;
 
     // Apply card size from API response
     function applyCardSize(width, height) {
@@ -48,10 +54,10 @@
     // Calculate page size based on grid width
     function calculatePageSize() {
         const grid = document.getElementById('mm_grid');
-        if (!grid) return 10;  // Default fallback
+        if (!grid) return defaultPageSize;  // Default fallback
 
         const gridWidth = grid.clientWidth;
-        if (gridWidth <= 0) return 10;
+        if (gridWidth <= 0) return defaultPageSize;
 
         // Calculate how many cards fit per row using current card width
         // Formula: (gridWidth + gap) / (cardWidth + gap)
@@ -62,6 +68,102 @@
         const finalSize = Math.max(4, Math.min(50, calculatedSize));
         console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px, card width: ${cardWidth}px)`);
         return finalSize;
+    }
+
+    function showLayoutCalibrationOverlay(message = 'Preparing layout...') {
+        const app = document.getElementById('model_manager_app');
+        if (!app) return;
+
+        app.classList.add('mm-layout-calibrating');
+        let overlay = document.getElementById('mm_layout_overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'mm_layout_overlay';
+            overlay.className = 'mm-layout-overlay';
+            overlay.innerHTML = `
+                <div class="mm-layout-overlay-content">
+                    <div class="mm-layout-spinner"></div>
+                    <div class="mm-layout-message"></div>
+                </div>
+            `;
+            app.appendChild(overlay);
+        }
+
+        const messageEl = overlay.querySelector('.mm-layout-message');
+        if (messageEl) {
+            messageEl.textContent = message;
+        }
+    }
+
+    function hideLayoutCalibrationOverlay() {
+        const app = document.getElementById('model_manager_app');
+        if (app) {
+            app.classList.remove('mm-layout-calibrating');
+        }
+
+        const overlay = document.getElementById('mm_layout_overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+    }
+
+    async function ensureLayoutCalibration() {
+        if (isLayoutCalibrated) return;
+
+        if (!layoutCalibrationPromise) {
+            layoutCalibrationPromise = (async () => {
+                showLayoutCalibrationOverlay('Optimizing initial model layout...');
+                setStatus('Preparing layout...');
+
+                try {
+                    await ensureFilterDefaults();
+
+                    let bestSize = Math.max(4, Math.min(50, defaultPageSize));
+                    let lastCandidate = null;
+                    let stableHits = 0;
+
+                    const maxAttempts = 8;
+                    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+
+                        const grid = document.getElementById('mm_grid');
+                        const gridWidth = grid ? grid.clientWidth : 0;
+                        const minStableWidth = Math.max(120, cardWidth + CARD_GAP);
+                        if (gridWidth < minStableWidth) {
+                            continue;
+                        }
+
+                        const candidate = calculatePageSize();
+                        bestSize = candidate;
+
+                        if (candidate === lastCandidate) {
+                            stableHits += 1;
+                        } else {
+                            stableHits = 1;
+                            lastCandidate = candidate;
+                        }
+
+                        if (stableHits >= 2) {
+                            break;
+                        }
+                    }
+
+                    calibratedPageSize = bestSize;
+                    isLayoutCalibrated = true;
+                    console.log(`[ModelManager] Layout calibration complete: page_size=${calibratedPageSize}, default_page_size=${defaultPageSize}, card=${cardWidth}x${cardHeight}`);
+                    setStatus('Layout ready. Select filters and click Load Models.');
+                } catch (e) {
+                    calibratedPageSize = Math.max(4, Math.min(50, defaultPageSize));
+                    isLayoutCalibrated = true;
+                    console.warn('[ModelManager] Layout calibration failed, using fallback page size:', calibratedPageSize, e);
+                    setStatus('Layout ready (fallback). Select filters and click Load Models.');
+                } finally {
+                    hideLayoutCalibrationOverlay();
+                }
+            })();
+        }
+
+        await layoutCalibrationPromise;
     }
 
     // Recalculate pagination after page size change (without reloading data)
@@ -110,9 +212,13 @@
     let currentImages = [];
     let currentVersionId = null;
     let currentModelPath = null;
+    let currentImagePage = 1;
     let nextImagesCursor = null;  // Cursor for loading more images
     let imagesSyncDate = null;    // Last sync date (null = never synced)
     let isLoadingMore = false;
+    const IMAGE_PAGE_SIZE = 100;
+    let lazyMediaObserver = null;
+    const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
     // NSFW image filtering state
     let hideNsfwImages = true;  // Default to hide, will be set from setting on first load
@@ -129,6 +235,136 @@
                lowerUrl.endsWith('.webm') ||
                lowerUrl.includes('.mp4?') ||
                lowerUrl.includes('.webm?');
+    }
+
+    function getImagePageCount(totalImages) {
+        return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
+    }
+
+    function setupLazyMedia(container) {
+        if (!container) return;
+
+        const lazyNodes = container.querySelectorAll('.mm-lazy-media[data-src]');
+        if (lazyNodes.length === 0) return;
+
+        const loadNode = (node) => {
+            const src = node.getAttribute('data-src');
+            if (!src) return;
+            node.setAttribute('src', src);
+            node.removeAttribute('data-src');
+            node.classList.remove('mm-lazy-media');
+            if (node.tagName === 'VIDEO') {
+                node.load();
+            }
+        };
+
+        if (!('IntersectionObserver' in window)) {
+            lazyNodes.forEach(loadNode);
+            return;
+        }
+
+        if (!lazyMediaObserver) {
+            lazyMediaObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return;
+                    loadNode(entry.target);
+                    lazyMediaObserver.unobserve(entry.target);
+                });
+            }, {
+                root: null,
+                rootMargin: '350px 0px',
+                threshold: 0.01,
+            });
+        }
+
+        lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
+    }
+
+    function renderImagePagination(totalPages, position = 'bottom') {
+        if (totalPages <= 1) return '';
+
+        const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
+        const prevDisabled = currentImagePage <= 1 ? 'disabled' : '';
+        const nextDisabled = currentImagePage >= totalPages ? 'disabled' : '';
+        const lastDisabled = currentImagePage >= totalPages ? 'disabled' : '';
+
+        const maxVisible = 5;
+        let startPage = Math.max(1, currentImagePage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        if (endPage - startPage < maxVisible - 1) {
+            startPage = Math.max(1, endPage - maxVisible + 1);
+        }
+
+        const pageNumbers = [];
+        if (startPage > 1) {
+            pageNumbers.push({ page: 1, label: '1' });
+            if (startPage > 2) {
+                pageNumbers.push({ page: null, label: '...' });
+            }
+        }
+        for (let i = startPage; i <= endPage; i++) {
+            pageNumbers.push({ page: i, label: String(i) });
+        }
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                pageNumbers.push({ page: null, label: '...' });
+            }
+            pageNumbers.push({ page: totalPages, label: String(totalPages) });
+        }
+
+        const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
+            if (page === null) {
+                return `<span class="mm-page-ellipsis">${label}</span>`;
+            }
+            const activeClass = page === currentImagePage ? 'active' : '';
+            return `<button class="mm-page-num ${activeClass}" onclick="window.mmGoToImagePage(${page})">${label}</button>`;
+        }).join('');
+
+        return `
+            <div class="mm-image-pagination mm-pagination mm-image-pagination-${position}">
+                <button class="mm-btn mm-page-btn" onclick="window.mmFirstImagePage()" ${firstDisabled}>|&lt;</button>
+                <button class="mm-btn mm-page-btn" onclick="window.mmPrevImagePage()" ${prevDisabled}>← Prev</button>
+                <div class="mm-page-numbers">${pageNumbersHtml}</div>
+                <button class="mm-btn mm-page-btn" onclick="window.mmNextImagePage()" ${nextDisabled}>Next →</button>
+                <button class="mm-btn mm-page-btn" onclick="window.mmLastImagePage()" ${lastDisabled}>&gt;|</button>
+            </div>
+        `;
+    }
+
+    function scrollToModelImagesTop() {
+        return new Promise((resolve) => {
+            const container = document.getElementById('mm_images');
+            if (!container) {
+                resolve();
+                return;
+            }
+
+            const list = container.querySelector('.model-images-list') || container;
+            const targetY = Math.max(0, window.scrollY + list.getBoundingClientRect().top - 12);
+
+            if (Math.abs(window.scrollY - targetY) < 4) {
+                resolve();
+                return;
+            }
+
+            let finished = false;
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                window.removeEventListener('scroll', onScroll);
+                resolve();
+            };
+
+            const onScroll = () => {
+                if (Math.abs(window.scrollY - targetY) < 4) {
+                    finish();
+                }
+            };
+
+            window.addEventListener('scroll', onScroll, { passive: true });
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+            setTimeout(finish, 500);
+        });
     }
 
     // Wait for DOM
@@ -188,7 +424,10 @@
 
         // Handle preview_least_nsfw checkbox
         const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
-        const previewLeastNsfwFilter = previewLeastNsfwCheckbox ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked } : {};
+        const shouldSendPreviewFilter = previewLeastNsfwCheckbox && (previewLeastNsfwInitialized || previewLeastNsfwUserTouched);
+        const previewLeastNsfwFilter = shouldSendPreviewFilter
+            ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked }
+            : {};
 
         // Handle license filters
         // Commercial use is now multi-select checkboxes - only filter if not all selected
@@ -371,8 +610,12 @@
         if (loadBtn) loadBtn.disabled = true;
 
         try {
+            await ensureLayoutCalibration();
+
             // Calculate page size dynamically based on viewport
-            const calculatedPageSize = calculatePageSize();
+            const calculatedPageSize = isLayoutCalibrated
+                ? calculatePageSize()
+                : Math.max(4, Math.min(50, calibratedPageSize || defaultPageSize));
 
             const filters = getFilters();
             filters.page = page;
@@ -416,6 +659,44 @@
             isLoading = false;
             if (loadBtn) loadBtn.disabled = false;
         }
+    }
+
+    async function ensureFilterDefaults() {
+        if (filterDefaultsPromise) {
+            await filterDefaultsPromise;
+            return;
+        }
+
+        filterDefaultsPromise = (async () => {
+            try {
+                const data = await apiCall('/model-manager/filter-defaults');
+                if (data.success) {
+                    if (data.page_size) {
+                        const parsedSize = Number(data.page_size);
+                        if (Number.isFinite(parsedSize) && parsedSize > 0) {
+                            defaultPageSize = parsedSize;
+                        }
+                    }
+
+                    if (data.card_width && data.card_height) {
+                        applyCardSize(Number(data.card_width), Number(data.card_height));
+                    }
+
+                    if (!previewLeastNsfwInitialized && !previewLeastNsfwUserTouched && data.preview_least_nsfw !== undefined) {
+                        const checkbox = document.getElementById('mm_preview_least_nsfw');
+                        if (checkbox) {
+                            checkbox.checked = Boolean(data.preview_least_nsfw);
+                            previewLeastNsfwInitialized = true;
+                            console.log(`[ModelManager] Initialized SFW Preview default: ${checkbox.checked}`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[ModelManager] Failed to load filter defaults:', e);
+            }
+        })();
+
+        await filterDefaultsPromise;
     }
 
     // Update status with pagination info
@@ -614,6 +895,7 @@
         currentImages = [];
         currentVersionId = null;
         currentModelPath = model.file_path;
+        currentImagePage = 1;
         nextImagesCursor = null;
         imagesSyncDate = null;
 
@@ -699,6 +981,7 @@
     // Toggle NSFW image filter and reload images
     window.mmToggleHideNsfwImages = async function(checked) {
         hideNsfwImages = checked;
+        currentImagePage = 1;
         if (currentModelPath) {
             await loadVersionDetails(currentModelPath);
         }
@@ -725,6 +1008,7 @@
         // Reset image state
         currentImages = [];
         currentVersionId = null;
+        currentImagePage = 1;
         nextImagesCursor = null;
         imagesSyncDate = null;
 
@@ -1222,6 +1506,9 @@
         const container = document.getElementById('mm_images');
         if (!container) return;
 
+        const totalPages = getImagePageCount(images.length);
+        currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
+
         // Build NSFW filter warning panel if there are hidden images or filter is active
         const showNsfwWarning = totalImageCount > 0 && (hiddenImageCount > 0 || !hideNsfwImages);
         const nsfwWarningHtml = showNsfwWarning
@@ -1253,7 +1540,10 @@
             return;
         }
 
-        const imageCards = images.map((img, index) => renderImageCard(img, index)).filter(Boolean).join('');
+        const pageStart = (currentImagePage - 1) * IMAGE_PAGE_SIZE;
+        const pageEnd = Math.min(pageStart + IMAGE_PAGE_SIZE, images.length);
+        const pageImages = images.slice(pageStart, pageEnd);
+        const imageCards = pageImages.map((img, index) => renderImageCard(img, pageStart + index)).filter(Boolean).join('');
 
         if (!imageCards) {
             container.style.display = 'none';
@@ -1268,7 +1558,7 @@
         const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
         const infoText = neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`;
 
-        const downloadMoreHtml = showDownloadBtn
+        const downloadMoreHtml = showDownloadBtn && currentImagePage === totalPages
             ? `<div class="mm-load-more">
                  <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()">
                    ${buttonText}
@@ -1280,19 +1570,21 @@
         container.innerHTML = `
             <div class="mm-images-header">
                 <h4>Example Images</h4>
-                <span class="mm-images-count">${images.length} images</span>
+                <span class="mm-images-count">${pageStart + 1}-${pageEnd} of ${images.length} images (Page ${currentImagePage}/${totalPages})</span>
             </div>
             ${nsfwWarningHtml}
+            ${renderImagePagination(totalPages, 'top')}
             <div class="model-images-list">${imageCards}</div>
             ${downloadMoreHtml}
+            ${renderImagePagination(totalPages, 'bottom')}
         `;
         container.style.display = 'block';
+        setupLazyMedia(container);
     }
 
     // Render a single image card in list format
     function renderImageCard(img, index) {
         const src = img.url || '';
-        if (!src) return '';
 
         const meta = img.meta || {};
         const prompt = meta.prompt || '';
@@ -1404,11 +1696,12 @@
         // Detect video
         const isVideo = isVideoUrl(src, img.type);
         const mediaHtml = isVideo
-            ? `<video src="${escapeHtml(src)}" controls loop muted
+            ? `<video data-src="${escapeHtml(src)}" class="mm-lazy-media" preload="none" controls loop muted
                       onclick="event.stopPropagation()"
                       title="Click to play"></video>`
-            : `<img src="${escapeHtml(src)}" alt="Example image" loading="lazy"
-                    onclick="window.open('${escapeHtml(src)}', '_blank')"
+            : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
+                    onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
+                    onclick="${src ? `window.open('${escapeHtml(src)}', '_blank')` : 'return false;'}"
                     title="Click to view full size">`;
 
         return `
@@ -1715,21 +2008,21 @@
                 const newImages = data.images.filter(img => !existingIds.has(img.id));
 
                 if (newImages.length > 0) {
-                    const startIndex = currentImages.length;
+                    const oldCount = currentImages.length;
                     currentImages = currentImages.concat(newImages);
 
                     // Update cursor state from response
                     nextImagesCursor = data.next_cursor || null;
                     imagesSyncDate = new Date().toISOString();  // Mark as synced
 
-                    // Append new images to DOM (preserves scroll position)
-                    const imagesList = document.querySelector('.model-images-list');
-                    if (imagesList) {
-                        const newCardsHtml = newImages.map((img, idx) =>
-                            renderImageCard(img, startIndex + idx)
-                        ).filter(Boolean).join('');
-                        imagesList.insertAdjacentHTML('beforeend', newCardsHtml);
+                    const oldPages = getImagePageCount(oldCount);
+                    const newPages = getImagePageCount(currentImages.length);
+                    if (newPages > oldPages) {
+                        await scrollToModelImagesTop();
+                        currentImagePage = newPages;
                     }
+
+                    renderModelImages(currentImages);
 
                     // Update all count displays
                     updateAllImageCounts();
@@ -1742,18 +2035,14 @@
                 }
 
                 // Update or hide button based on cursor
-                if (nextImagesCursor) {
+                if (nextImagesCursor && loadMoreBtn) {
                     loadMoreBtn.textContent = 'Download More Images';
                     loadMoreBtn.disabled = false;
-                } else {
-                    const loadMoreSection = document.querySelector('.mm-load-more');
-                    if (loadMoreSection) loadMoreSection.remove();
                 }
             } else {
                 // No more images
                 nextImagesCursor = null;
-                const loadMoreSection = document.querySelector('.mm-load-more');
-                if (loadMoreSection) loadMoreSection.remove();
+                renderModelImages(currentImages);
 
                 if (data.message) {
                     console.log('[ModelManager]', data.message);
@@ -1775,7 +2064,12 @@
         // Header count
         const headerCount = document.querySelector('.mm-images-count');
         if (headerCount) {
-            headerCount.textContent = `${currentImages.length} images`;
+            const totalPages = getImagePageCount(currentImages.length);
+            const pageStart = currentImages.length > 0 ? ((currentImagePage - 1) * IMAGE_PAGE_SIZE) + 1 : 0;
+            const pageEnd = Math.min(currentImagePage * IMAGE_PAGE_SIZE, currentImages.length);
+            headerCount.textContent = currentImages.length > 0
+                ? `${pageStart}-${pageEnd} of ${currentImages.length} images (Page ${currentImagePage}/${totalPages})`
+                : '0 images';
         }
 
         // Load more info
@@ -1787,6 +2081,41 @@
         // Info table cell
         updateImagesCountCell();
     }
+
+    window.mmFirstImagePage = function() {
+        if (currentImagePage === 1) return;
+        currentImagePage = 1;
+        renderModelImages(currentImages);
+    };
+
+    window.mmLastImagePage = function() {
+        const totalPages = getImagePageCount(currentImages.length);
+        if (currentImagePage === totalPages) return;
+        currentImagePage = totalPages;
+        renderModelImages(currentImages);
+    };
+
+    window.mmPrevImagePage = function() {
+        if (currentImagePage <= 1) return;
+        currentImagePage -= 1;
+        renderModelImages(currentImages);
+    };
+
+    window.mmNextImagePage = function() {
+        const totalPages = getImagePageCount(currentImages.length);
+        if (currentImagePage >= totalPages) return;
+        currentImagePage += 1;
+        renderModelImages(currentImages);
+    };
+
+    window.mmGoToImagePage = async function(page) {
+        const totalPages = getImagePageCount(currentImages.length);
+        if (page < 1 || page > totalPages || page === currentImagePage) return;
+
+        await scrollToModelImagesTop();
+        currentImagePage = page;
+        renderModelImages(currentImages);
+    };
 
     // Convert full file path to dropdown-compatible path
     // Full: F:\...\models\Stable-diffusion\_SD_1_5\model.safetensors
@@ -2692,6 +3021,7 @@
 
     // Save/Load search filters functionality
     function saveSearchFilters() {
+        const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
         const filters = {
             search: document.getElementById('mm_search')?.value || '',
             type: document.getElementById('mm_type')?.value || '',
@@ -2702,6 +3032,7 @@
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
             nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
+            preview_least_nsfw: previewCheckbox ? previewCheckbox.checked : null,
             nsfw_levels: []
         };
 
@@ -2729,18 +3060,26 @@
         try {
             const filters = JSON.parse(saved);
 
-            if (filters.search) document.getElementById('mm_search').value = filters.search;
-            if (filters.type) document.getElementById('mm_type').value = filters.type;
-            if (filters.base_model) document.getElementById('mm_base_model').value = filters.base_model;
-            if (filters.civitai) document.getElementById('mm_civitai').value = filters.civitai;
-            if (filters.is_bookmarked) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
-            if (filters.min_versions) document.getElementById('mm_min_versions').value = filters.min_versions;
-            if (filters.sort_by) document.getElementById('mm_sort_by').value = filters.sort_by;
-            if (filters.sort_order) document.getElementById('mm_sort_order').value = filters.sort_order;
+            if (Object.prototype.hasOwnProperty.call(filters, 'search')) document.getElementById('mm_search').value = filters.search;
+            if (Object.prototype.hasOwnProperty.call(filters, 'type')) document.getElementById('mm_type').value = filters.type;
+            if (Object.prototype.hasOwnProperty.call(filters, 'base_model')) document.getElementById('mm_base_model').value = filters.base_model;
+            if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
+            if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
+            if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
+            if (Object.prototype.hasOwnProperty.call(filters, 'sort_by')) document.getElementById('mm_sort_by').value = filters.sort_by;
+            if (Object.prototype.hasOwnProperty.call(filters, 'sort_order')) document.getElementById('mm_sort_order').value = filters.sort_order;
 
             // Set NSFW checkboxes
             const useMaxCb = document.getElementById('mm_nsfw_use_max');
             if (useMaxCb) useMaxCb.checked = filters.nsfw_use_max || false;
+
+            if (Object.prototype.hasOwnProperty.call(filters, 'preview_least_nsfw') && filters.preview_least_nsfw !== null) {
+                const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
+                if (previewCheckbox) {
+                    previewCheckbox.checked = Boolean(filters.preview_least_nsfw);
+                    previewLeastNsfwInitialized = true;
+                }
+            }
 
             const nsfwCheckboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
             nsfwCheckboxes.forEach(cb => {
@@ -2785,6 +3124,7 @@
         const refreshBtn = document.getElementById('mm_refresh_btn');
         const scanCancelBtn = document.getElementById('mm_scan_cancel_btn');
         const searchInput = document.getElementById('mm_search');
+        const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
 
         if (!loadBtn) {
             console.log('[ModelManager] Button not found yet, retrying...');
@@ -2884,10 +3224,19 @@
             });
         }
 
+        if (previewLeastNsfwCheckbox) {
+            previewLeastNsfwCheckbox.addEventListener('change', () => {
+                previewLeastNsfwUserTouched = true;
+            });
+        }
+
         console.log('[ModelManager] Ready - click handlers bound');
 
         // Load saved filters if available
         loadSearchFilters();
+
+        // Calibrate layout once before first user-driven model load
+        ensureLayoutCalibration();
 
         // Check for saved scroll position and show restore button
         updateScrollRestoreButton();
