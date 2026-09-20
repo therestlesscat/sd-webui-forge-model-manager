@@ -1567,7 +1567,34 @@
 
     // Poll download progress
     let downloadPollInterval = null;
-    let pendingModelRefresh = false;  // Track if we need to refresh models after downloads complete
+
+    // Mark a freshly downloaded version as owned without re-running the
+    // search. Re-searching would close the details panel the user is looking
+    // at, and costs a round trip just to learn what we already know.
+    function markVersionOwned(versionId) {
+        let touchedOpenModel = false;
+
+        currentModels.forEach(model => {
+            (model.modelVersions || []).forEach(version => {
+                if (version.id !== versionId) return;
+
+                version.owned_locally = true;
+                model.owned_locally = true;
+                if (!Array.isArray(model.owned_versions)) model.owned_versions = [];
+                if (!model.owned_versions.includes(versionId)) {
+                    model.owned_versions.push(versionId);
+                }
+                if (selectedModel && selectedModel.id === model.id) {
+                    touchedOpenModel = true;
+                }
+            });
+        });
+
+        renderGrid();
+        if (touchedOpenModel) {
+            renderModelDetails();
+        }
+    }
 
     function pollDownloadProgress() {
         if (downloadPollInterval) return;
@@ -1576,31 +1603,28 @@
             try {
                 const result = await apiCall('/model-manager/civitai/download/progress');
                 if (result.success && result.downloads) {
-                    // Track newly completed downloads for model refresh
                     result.downloads.forEach(dl => {
                         const prev = activeDownloads[dl.version_id];
-                        // If status changed to complete, mark for refresh
-                        if (dl.status === 'complete' && (!prev || prev.status !== 'complete')) {
-                            pendingModelRefresh = true;
+                        // The file lands well before its database row does - the
+                        // sync that writes it hashes the whole file first. Wait
+                        // for `synced` or the model still looks un-owned.
+                        if (dl.status === 'complete' && dl.synced && !(prev && prev.synced)) {
+                            markVersionOwned(dl.version_id);
                         }
                         activeDownloads[dl.version_id] = dl;
                     });
 
                     renderDownloads();
 
-                    // Check if there are any active (downloading/pending) downloads
-                    const hasActive = Object.values(activeDownloads).some(dl => dl.status === 'downloading' || dl.status === 'pending');
+                    // Keep polling until downloads have finished *and* been
+                    // synced, so the grid is not refreshed too early
+                    const hasActive = Object.values(activeDownloads).some(dl =>
+                        dl.status === 'downloading' || dl.status === 'pending' ||
+                        (dl.status === 'complete' && !dl.synced));
 
                     if (!hasActive) {
-                        // All downloads finished, stop polling
                         clearInterval(downloadPollInterval);
                         downloadPollInterval = null;
-
-                        // Refresh models once if any completed successfully
-                        if (pendingModelRefresh) {
-                            pendingModelRefresh = false;
-                            searchModels(currentPage);
-                        }
                     }
                 }
             } catch (e) {
