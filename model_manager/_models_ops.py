@@ -6,6 +6,7 @@ Used by ModelsDatabase facade - do not import directly.
 """
 import os
 import json
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Callable
 from contextlib import contextmanager
@@ -297,10 +298,10 @@ class ModelsOps:
             )"""
 
             if nsfw_mode == "contains":
-                # Contains mode: show models with exact match of combined levels
-                combined_mask = sum(nsfw_levels)
-                conditions.append(f"({effective_level_expr}) = ?")
-                params.append(combined_mask)
+                # Contains mode: include models matching ANY selected level
+                placeholders = ','.join(['?'] * len(nsfw_levels))
+                conditions.append(f"({effective_level_expr}) IN ({placeholders})")
+                params.extend(nsfw_levels)
             else:
                 # Max mode (default): show models whose highest level <= max selected
                 max_level = max(nsfw_levels)
@@ -371,25 +372,11 @@ class ModelsOps:
             outer_params.append(min_versions)
         outer_where = " AND ".join(outer_conditions)
 
-        # Build preview subquery based on setting
-        if preview_least_nsfw:
-            preview_subquery = """(
-                SELECT url FROM images
-                WHERE version_id = v.id
-                ORDER BY effective_nsfw_level ASC, created_at DESC, id DESC
-                LIMIT 1
-            )"""
-        else:
-            preview_subquery = """(
-                SELECT url FROM images
-                WHERE version_id = v.id
-                ORDER BY created_at DESC, id DESC
-                LIMIT 1
-            )"""
+        preview_url_column = "ips.preview_url_least_nsfw" if preview_least_nsfw else "ips.preview_url_recent"
 
         # Query for latest version per model group
         query = f"""
-            WITH ranked AS (
+            WITH filtered_versions AS (
                 SELECT
                     v.*,
                     m.id as cm_id,
@@ -410,21 +397,57 @@ class ModelsOps:
                     m.allow_different_license as cm_allow_different_license,
                     m.supports_generation as cm_supports_generation,
                     m.is_bookmarked as cm_is_bookmarked,
-                    m.updated_at as cm_updated_at,
-                    COALESCE((
-                        SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id
-                    ), 64) as max_image_nsfw,
-                    {preview_subquery} as preview_url,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(v.model_id, v.file_path)
-                        ORDER BY v.published_at DESC NULLS LAST
-                    ) as rn,
-                    COUNT(*) OVER (
-                        PARTITION BY COALESCE(v.model_id, v.file_path)
-                    ) as local_version_count
+                    m.updated_at as cm_updated_at
                 FROM model_versions v
                 LEFT JOIN civitai_models m ON v.model_id = m.id
                 WHERE {where_clause}
+            ),
+            image_aggregates AS (
+                SELECT
+                    i.version_id,
+                    MAX(i.effective_nsfw_level) as max_image_nsfw
+                FROM images i
+                INNER JOIN filtered_versions fv ON fv.id = i.version_id
+                GROUP BY i.version_id
+            ),
+            image_preview_ranked AS (
+                SELECT
+                    i.version_id,
+                    i.url,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY i.version_id
+                        ORDER BY i.effective_nsfw_level ASC, i.created_at DESC, i.id DESC
+                    ) as rn_least_nsfw,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY i.version_id
+                        ORDER BY i.created_at DESC, i.id DESC
+                    ) as rn_recent
+                FROM images i
+                INNER JOIN filtered_versions fv ON fv.id = i.version_id
+            ),
+            image_preview_selected AS (
+                SELECT
+                    version_id,
+                    MAX(CASE WHEN rn_least_nsfw = 1 THEN url END) as preview_url_least_nsfw,
+                    MAX(CASE WHEN rn_recent = 1 THEN url END) as preview_url_recent
+                FROM image_preview_ranked
+                GROUP BY version_id
+            ),
+            ranked AS (
+                SELECT
+                    fv.*,
+                    COALESCE(ia.max_image_nsfw, 64) as max_image_nsfw,
+                    {preview_url_column} as preview_url,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                        ORDER BY fv.published_at DESC NULLS LAST
+                    ) as rn,
+                    COUNT(*) OVER (
+                        PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                    ) as local_version_count
+                FROM filtered_versions fv
+                LEFT JOIN image_aggregates ia ON ia.version_id = fv.id
+                LEFT JOIN image_preview_selected ips ON ips.version_id = fv.id
             )
             SELECT * FROM ranked WHERE {outer_where}
             ORDER BY {sort_field} {sort_dir}
@@ -432,19 +455,27 @@ class ModelsOps:
 
         # Get total count
         count_query = f"""
-            WITH ranked AS (
+            WITH filtered_versions AS (
                 SELECT
+                    v.id,
+                    v.model_id,
                     v.file_path,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY COALESCE(v.model_id, v.file_path)
-                        ORDER BY v.published_at DESC NULLS LAST
-                    ) as rn,
-                    COUNT(*) OVER (
-                        PARTITION BY COALESCE(v.model_id, v.file_path)
-                    ) as local_version_count
+                    v.published_at
                 FROM model_versions v
                 LEFT JOIN civitai_models m ON v.model_id = m.id
                 WHERE {where_clause}
+            ),
+            ranked AS (
+                SELECT
+                    fv.file_path,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                        ORDER BY fv.published_at DESC NULLS LAST
+                    ) as rn,
+                    COUNT(*) OVER (
+                        PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                    ) as local_version_count
+                FROM filtered_versions fv
             )
             SELECT COUNT(*) FROM ranked WHERE {outer_where}
         """
@@ -452,14 +483,23 @@ class ModelsOps:
         # Combine inner params (WHERE clause) with outer params (version count filter)
         all_params = params + outer_params
 
+        count_start = time.perf_counter()
         with self._cursor() as cursor:
             cursor.execute(count_query, all_params)
             total_count = cursor.fetchone()[0]
+        count_ms = (time.perf_counter() - count_start) * 1000
 
+        data_start = time.perf_counter()
         with self._cursor() as cursor:
             paginated_query = f"{query} LIMIT ? OFFSET ?"
             cursor.execute(paginated_query, all_params + [limit, offset])
             rows = cursor.fetchall()
+        data_ms = (time.perf_counter() - data_start) * 1000
+
+        print(
+            f"[ModelManager] query_models_grouped count_ms={count_ms:.1f} data_ms={data_ms:.1f} "
+            f"rows={len(rows)} total={total_count}"
+        )
 
         models = [self._grouped_row_to_dict(row) for row in rows]
         return models, total_count
