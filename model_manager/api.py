@@ -35,6 +35,10 @@ _scan_progress: Optional[ScanProgress] = None
 # One /images call plus one generation-data batch, so ~2 requests per model.
 PROMPT_SAMPLE_SIZE = 20
 
+# Models checked concurrently. Each check is ~2 requests, so this multiplies
+# throughput up to whatever the client's rate limiter allows.
+PROMPT_CHECK_WORKERS = 4
+
 
 def count_usable_prompt_images(client, db, model, sample_size: int = PROMPT_SAMPLE_SIZE) -> int:
     """
@@ -1135,6 +1139,7 @@ def setup_api(app: FastAPI):
                         start_token=cursor if cursor else None,
                         max_checks=max(limit * 4, 20),
                         batch_size=max(limit * 2, 20),
+                        workers=PROMPT_CHECK_WORKERS,
                     )
                     items = filtered["models"]
                     next_cursor = filtered["nextCursor"]
