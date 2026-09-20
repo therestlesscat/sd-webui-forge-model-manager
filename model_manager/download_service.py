@@ -144,17 +144,20 @@ class DownloadService:
         if model_type == "TextualInversion" or folder_name is None:
             return getattr(cmd_opts, 'embeddings_dir', os.path.join(paths.models_path, 'embeddings'))
 
-        # Check for command-line overrides
-        if model_type == "Checkpoint" and getattr(cmd_opts, 'ckpt_dir', None):
-            return cmd_opts.ckpt_dir
-        elif model_type in ("LORA", "LoCon") and getattr(cmd_opts, 'lora_dir', None):
-            return cmd_opts.lora_dir
-        elif model_type == "VAE" and getattr(cmd_opts, 'vae_dir', None):
-            return cmd_opts.vae_dir
-        elif model_type == "Hypernetwork" and getattr(cmd_opts, 'hypernetwork_dir', None):
-            return cmd_opts.hypernetwork_dir
-        elif model_type == "Controlnet" and getattr(cmd_opts, 'controlnet_dir', None):
-            return cmd_opts.controlnet_dir
+        # Check for command-line overrides. Forge and Neo name these options
+        # differently, so look up both - see MODEL_DIR_OPTIONS.
+        from .scan_service import MODEL_DIR_OPTIONS, collect_cmd_dirs
+
+        lookup_type = "LORA" if model_type in ("LORA", "LoCon") else model_type
+        option_names = MODEL_DIR_OPTIONS.get(lookup_type)
+
+        if option_names:
+            # text encoders are scanned alongside VAEs but are not a download
+            # target, so never resolve a download path to that directory
+            option_names = tuple(n for n in option_names if n != "text_encoder_dirs")
+            for directory in collect_cmd_dirs(cmd_opts, *option_names):
+                if os.path.isdir(directory):
+                    return directory
 
         # Default: models/<folder_name>
         return os.path.join(paths.models_path, folder_name)

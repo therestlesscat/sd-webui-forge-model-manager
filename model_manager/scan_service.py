@@ -30,6 +30,48 @@ NSFW_BITS = {
 NSFW_SEVERITY = ["PG", "PG-13", "R", "X", "XXX", "Unknown"]
 
 
+# Command-line options that point at model directories, per model type.
+#
+# Forge uses singular options holding one path (--ckpt-dir). Forge Neo renamed
+# them to repeatable plural options holding a list (--ckpt-dirs), and added
+# --text-encoder-dirs. Both names are checked so the extension works on either.
+MODEL_DIR_OPTIONS = {
+    "Checkpoint": ("ckpt_dir", "ckpt_dirs"),
+    "LORA": ("lora_dir", "lora_dirs"),
+    "VAE": ("vae_dir", "vae_dirs", "text_encoder_dirs"),
+    "Hypernetwork": ("hypernetwork_dir",),
+    "Controlnet": ("controlnet_dir",),
+}
+
+
+def collect_cmd_dirs(cmd_opts, *option_names) -> List[str]:
+    """
+    Read directory paths from command-line options.
+
+    Handles both a single path (Forge) and a list of paths (Neo), and skips
+    options the running WebUI does not define.
+
+    Args:
+        cmd_opts: The WebUI's parsed command-line options.
+        option_names: Attribute names to read, in priority order.
+
+    Returns:
+        List of directory paths (may be empty; not checked for existence).
+    """
+    found = []
+
+    for name in option_names:
+        value = getattr(cmd_opts, name, None)
+        if not value:
+            continue
+        if isinstance(value, (list, tuple)):
+            found.extend(str(v) for v in value if v)
+        else:
+            found.append(str(value))
+
+    return found
+
+
 def get_nsfw_from_bitmask(value: int) -> int:
     """Return the bitmask value as-is (already an int)."""
     if not value or not isinstance(value, int):
@@ -416,13 +458,11 @@ class ScanService:
 
         try:
             from modules import shared
-            # Get model paths from WebUI
+
             if hasattr(shared, 'cmd_opts'):
                 cmd = shared.cmd_opts
-                if hasattr(cmd, 'ckpt_dir') and cmd.ckpt_dir:
-                    directories.append(cmd.ckpt_dir)
-                if hasattr(cmd, 'lora_dir') and cmd.lora_dir:
-                    directories.append(cmd.lora_dir)
+                for names in MODEL_DIR_OPTIONS.values():
+                    directories.extend(collect_cmd_dirs(cmd, *names))
 
             # Default paths
             if hasattr(shared, 'models_path'):
@@ -436,8 +476,20 @@ class ScanService:
         except ImportError:
             pass
 
-        # Filter to existing directories
-        return [d for d in directories if d and os.path.isdir(d)]
+        # Drop duplicates (case-insensitively on Windows) and missing dirs
+        seen = set()
+        result = []
+        for directory in directories:
+            if not directory:
+                continue
+            path = os.path.abspath(str(directory))
+            key = os.path.normcase(path)
+            if key in seen or not os.path.isdir(path):
+                continue
+            seen.add(key)
+            result.append(path)
+
+        return result
 
     def cancel(self):
         """Cancel the scan operation."""
