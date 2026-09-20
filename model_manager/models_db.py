@@ -949,6 +949,10 @@ class ModelsDatabase:
         """Store images in Civitai browser cache."""
         self._browser_cache.store_images(model_id, version_id, images)
 
+    def update_browse_images(self, version_id: int, images: List[Dict[str, Any]]):
+        """Update payloads of already-cached Civitai browser images."""
+        self._browser_cache.update_image_data(version_id, images)
+
     def get_browse_cursor(self, version_id: int) -> Optional[str]:
         """Get cached cursor for Civitai browser pagination."""
         return self._browser_cache.get_cursor(version_id)

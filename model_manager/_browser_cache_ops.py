@@ -81,6 +81,30 @@ class BrowserCacheOps:
                         json.dumps(img)
                     ))
 
+    def update_image_data(self, version_id: int, images: List[Dict[str, Any]]):
+        """
+        Update the stored payload of already-cached images.
+
+        Used when re-fetching generation metadata for rows that were cached
+        while the API was returning `meta: null`. Keeps model_id and cached_at.
+
+        Args:
+            version_id: Civitai version ID.
+            images: Image data dicts to write back.
+        """
+        if not images:
+            return
+
+        with self._cursor() as cursor:
+            for img in images:
+                img_id = img.get("id")
+                if img_id:
+                    cursor.execute("""
+                        UPDATE civitai_browser_cache
+                        SET data = ?
+                        WHERE version_id = ? AND type = 'image' AND data_id = ?
+                    """, (json.dumps(img), version_id, str(img_id)))
+
     # ==================== Cursor Cache ====================
 
     def get_cursor(self, version_id: int) -> Optional[str]:

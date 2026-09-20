@@ -10,7 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
-from .civitai_api import CivitaiClient, CivitaiAPIError, CivitaiNotFoundError
+from .civitai_api import (
+    CivitaiClient,
+    CivitaiAPIError,
+    CivitaiNotFoundError,
+    enrich_images_with_generation_data,
+)
 from .storage import write_civitai_info
 from .models_db import get_models_db
 
@@ -442,6 +447,10 @@ class SyncService:
                 print(f"[ModelManager] Fetching images for {model_name}...")
                 images_result = self.client.get_model_images(version_id, cursor=None, limit=100)
                 images = images_result.get("images", [])
+                # /images returns meta: null - generation data comes from a
+                # separate endpoint. Without this, a forced re-sync would
+                # replace existing prompts with nulls.
+                enrich_images_with_generation_data(self.client, images)
                 next_cursor = images_result.get("next_cursor")
                 result.image_count = len(images)
 
