@@ -11,7 +11,13 @@ from modules import script_callbacks
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
 from .models_db import get_models_db
-from .civitai_api import CivitaiClient, enrich_images_with_generation_data
+from .civitai_api import (
+    CivitaiClient,
+    enrich_images_with_generation_data,
+    image_has_usable_prompt,
+    search_models_with_usable_prompts,
+    decode_filter_token,
+)
 
 
 # Global sync state
@@ -23,6 +29,56 @@ _sync_progress: Optional[SyncProgress] = None
 _active_scan: Optional[ScanService] = None
 _scan_thread: Optional[threading.Thread] = None
 _scan_progress: Optional[ScanProgress] = None
+
+
+# How many images to sample when judging whether a model has usable prompts.
+# One /images call plus one generation-data batch, so ~2 requests per model.
+PROMPT_SAMPLE_SIZE = 20
+
+
+def count_usable_prompt_images(client, db, model, sample_size: int = PROMPT_SAMPLE_SIZE) -> int:
+    """
+    Count how many of a model's first images carry a usable prompt.
+
+    Answers "is this model worth opening" for the browse filter. Results are
+    written to the browse cache, so the work also pre-loads the gallery: a
+    model that passes the filter opens instantly with its prompts already in
+    place. Cached versions cost no requests at all.
+
+    Args:
+        client: Civitai client.
+        db: Models database (for the browse cache).
+        model: Model dict from the search response.
+        sample_size: How many images to look at.
+
+    Returns:
+        Number of sampled images with a usable prompt.
+    """
+    versions = model.get("modelVersions") or []
+    if not versions:
+        return 0
+
+    version = versions[0]
+    version_id = version.get("id")
+    if not version_id:
+        return 0
+
+    cached = db.get_cached_browse_images(version_id)
+    if cached:
+        return sum(1 for img in cached if image_has_usable_prompt(img))
+
+    result = client.get_model_images(version_id, cursor=None, limit=sample_size)
+    images = result.get("images", []) or []
+    enrich_images_with_generation_data(client, images)
+
+    if images:
+        model_id = model.get("id")
+        db.store_browse_images(model_id, version_id, images)
+        next_cursor = result.get("next_cursor")
+        if next_cursor:
+            db.store_browse_cursor(model_id, version_id, next_cursor)
+
+    return sum(1 for img in images if image_has_usable_prompt(img))
 
 
 def setup_api(app: FastAPI):
@@ -1016,6 +1072,7 @@ def setup_api(app: FastAPI):
         period: str = "AllTime",
         tag: str = "",
         cursor: str = "",         # Cursor for pagination (empty = first page)
+        require_prompt: bool = False,  # Only models with usable-prompt images
         limit: int = 0,  # 0 = use setting
     ):
         """
@@ -1048,25 +1105,58 @@ def setup_api(app: FastAPI):
             type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
             base_model_list = [b.strip() for b in base_models.split(",") if b.strip()] if base_models else None
 
+            search_params = dict(
+                query=query,
+                types=type_list,
+                base_models=base_model_list,
+                sort=sort,
+                period=period,
+                nsfw=nsfw,
+                tag=tag,
+            )
+
             # Search Civitai
             client = CivitaiClient.from_settings()
+            filter_stats = None
             try:
-                result = client.search_models(
-                    query=query,
-                    types=type_list,
-                    base_models=base_model_list,
-                    sort=sort,
-                    period=period,
-                    nsfw=nsfw,
-                    tag=tag,
-                    limit=limit,
-                    cursor=cursor if cursor else None
-                )
+                if require_prompt:
+                    # Civitai cannot filter on prompt availability, so models are
+                    # checked locally and the page is filled from what survives.
+                    min_usable = int(getattr(
+                        shared.opts, 'model_manager_civitai_min_prompt_images', 1))
+                    db_for_check = get_models_db()
+
+                    filtered = search_models_with_usable_prompts(
+                        client,
+                        search_params,
+                        lambda m: count_usable_prompt_images(client, db_for_check, m),
+                        page_size=limit,
+                        min_usable=max(min_usable, 1),
+                        start_token=cursor if cursor else None,
+                        max_checks=max(limit * 4, 20),
+                        batch_size=max(limit * 2, 20),
+                    )
+                    items = filtered["models"]
+                    next_cursor = filtered["nextCursor"]
+                    filter_stats = {
+                        "checked": filtered["checked"],
+                        "dropped": filtered["dropped"],
+                        "budgetReached": filtered["budget_reached"],
+                        "minUsable": max(min_usable, 1),
+                    }
+                else:
+                    # Un-ticking the filter mid-listing can hand us a filter
+                    # token; Civitai would reject it, so unwrap the real cursor
+                    plain_cursor, _ = decode_filter_token(cursor if cursor else None)
+                    result = client.search_models(
+                        **search_params,
+                        limit=limit,
+                        cursor=plain_cursor
+                    )
+                    items = result.get("items", [])
+                    next_cursor = result.get("nextCursor")
             finally:
                 client.close()
-
-            items = result.get("items", [])
-            next_cursor = result.get("nextCursor")
 
             # Get local ownership info
             db = get_models_db()
@@ -1126,7 +1216,8 @@ def setup_api(app: FastAPI):
                 "nextCursor": next_cursor,
                 "pageSize": limit,
                 "cardWidth": card_width,
-                "cardHeight": card_height
+                "cardHeight": card_height,
+                "filterStats": filter_stats,
             })
 
         except Exception as e:

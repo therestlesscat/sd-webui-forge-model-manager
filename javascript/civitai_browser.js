@@ -183,7 +183,24 @@
             period: document.getElementById('cb_period')?.value || 'AllTime',
             nsfw: document.getElementById('cb_nsfw')?.checked || false,
             tag: selectedTag,
+            require_prompt: document.getElementById('cb_require_prompt')?.checked || false,
         };
+    }
+
+    // An image is only useful if it carries a prompt AND the settings needed
+    // to reproduce it - mirrors image_has_usable_prompt() in civitai_api.py
+    function hasUsablePrompt(img) {
+        const meta = img.meta || {};
+        if (!(meta.prompt || '').trim()) return false;
+        if (!meta.steps) return false;
+        if (!(meta.sampler || meta.Sampler)) return false;
+        if (!(meta.cfgScale || meta['CFG scale'])) return false;
+        return true;
+    }
+
+    // Is the prompt filter currently on?
+    function requirePromptEnabled() {
+        return document.getElementById('cb_require_prompt')?.checked || false;
     }
 
     // Update status
@@ -250,7 +267,16 @@
 
                 renderGrid();
                 closeDetails();
-                updateStatus(`Showing ${currentModels.length} models (page ${currentPage})`);
+
+                let status = `Showing ${currentModels.length} models (page ${currentPage})`;
+                const stats = result.filterStats;
+                if (stats) {
+                    status += ` - checked ${stats.checked}, skipped ${stats.dropped} without usable prompts`;
+                    if (stats.budgetReached) {
+                        status += '. Stopped early to avoid a long wait; press Next to keep looking.';
+                    }
+                }
+                updateStatus(status);
             } else {
                 updateStatus(`Error: ${result.error}`);
             }
@@ -743,8 +769,22 @@
             hiddenCount = currentImages.length - imagesToShow.length;
         }
 
+        // Hide images with nothing to send to txt2img while the filter is on
+        let promptHiddenCount = 0;
+        if (requirePromptEnabled()) {
+            const withPrompts = imagesToShow.filter(hasUsablePrompt);
+            promptHiddenCount = imagesToShow.length - withPrompts.length;
+            imagesToShow = withPrompts;
+        }
+
         // Build NSFW filter warning panel with checkbox
         // Show warning when there are hidden images, OR when showAllNsfwImages is true and there would be hidden images
+        const promptWarningHtml = promptHiddenCount > 0
+            ? `<div class="cb-nsfw-warning">
+                <span>${promptHiddenCount} image(s) hidden - no usable prompt. Untick 'Only with usable prompts' to see them.</span>
+               </div>`
+            : '';
+
         const wouldHideCount = currentImages.filter(img => !isImageSafe(img)).length;
         const showWarning = !nsfwEnabled && wouldHideCount > 0;
         const nsfwWarningHtml = showWarning
@@ -780,9 +820,10 @@
         container.innerHTML = `
             <div class="mm-images-header">
                 <h4>Example Images</h4>
-                <span class="mm-images-count">${imagesToShow.length}${hiddenCount > 0 ? ` of ${currentImages.length}` : ''} images</span>
+                <span class="mm-images-count">${imagesToShow.length}${(hiddenCount + promptHiddenCount) > 0 ? ` of ${currentImages.length}` : ''} images</span>
             </div>
             ${nsfwWarningHtml}
+            ${promptWarningHtml}
             <div class="model-images-list">${imageCards}</div>
             ${hiddenCount > 0 ? nsfwWarningHtml : ''}
             ${loadMoreHtml}

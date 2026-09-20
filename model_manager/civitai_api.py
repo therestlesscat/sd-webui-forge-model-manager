@@ -1,11 +1,12 @@
 """
 Civitai API client with rate limiting and retry logic.
 """
+import base64
 import json
 import time
 import threading
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple, Callable
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -496,6 +497,191 @@ class CivitaiClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+# Prefix marking a browse cursor that also carries a within-batch offset.
+# Plain Civitai cursors are passed through untouched.
+FILTER_TOKEN_PREFIX = "mmfilter:"
+
+
+def image_has_usable_prompt(img: Dict[str, Any]) -> bool:
+    """
+    True if an image carries a prompt *and* the parameters needed to reproduce it.
+
+    A bare prompt is not much use without steps/sampler/cfg - "Send to txt2img"
+    would produce something unrelated.
+
+    Args:
+        img: Image dict, already enriched with generation data.
+
+    Returns:
+        Whether the image is worth showing when filtering for usable prompts.
+    """
+    meta = img.get("meta") or {}
+
+    if not (meta.get("prompt") or "").strip():
+        return False
+    if not meta.get("steps"):
+        return False
+    if not (meta.get("sampler") or meta.get("Sampler")):
+        return False
+    if not (meta.get("cfgScale") or meta.get("CFG scale")):
+        return False
+
+    return True
+
+
+def encode_filter_token(cursor: Optional[str], index: int) -> Optional[str]:
+    """
+    Pack a search cursor plus a within-batch offset into one opaque token.
+
+    When models are filtered out, page boundaries stop lining up with Civitai's
+    cursors: a page can end midway through a batch. Recording which batch we
+    were in and how far we got makes the next page resume exactly there, and
+    keeps the frontend's existing cursor array working unchanged.
+    """
+    if cursor is None and index <= 0:
+        return None
+
+    payload = json.dumps({"c": cursor or "", "i": index}, separators=(",", ":"))
+    encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+    return FILTER_TOKEN_PREFIX + encoded
+
+
+def decode_filter_token(token: Optional[str]) -> Tuple[Optional[str], int]:
+    """
+    Unpack a token from encode_filter_token().
+
+    A plain Civitai cursor (or nothing) yields an offset of 0, so unfiltered
+    and filtered browsing can share the same cursor plumbing.
+
+    Returns:
+        Tuple of (cursor, index within that batch).
+    """
+    if not token:
+        return None, 0
+
+    if not token.startswith(FILTER_TOKEN_PREFIX):
+        return token, 0
+
+    try:
+        raw = base64.urlsafe_b64decode(token[len(FILTER_TOKEN_PREFIX):].encode("ascii"))
+        data = json.loads(raw.decode("utf-8"))
+        return (data.get("c") or None), int(data.get("i", 0))
+    except Exception:
+        # A malformed token should restart the listing, not break it
+        print("[ModelManager] Ignoring malformed browse token")
+        return None, 0
+
+
+def search_models_with_usable_prompts(
+    client: CivitaiClient,
+    search_params: Dict[str, Any],
+    count_usable_images: Callable[[Dict[str, Any]], int],
+    page_size: int,
+    min_usable: int = 1,
+    start_token: Optional[str] = None,
+    max_checks: Optional[int] = None,
+    batch_size: int = 20,
+) -> Dict[str, Any]:
+    """
+    Search models, keeping only those with enough usable-prompt images.
+
+    Civitai cannot filter on this, so models are pulled in batches and checked
+    one at a time until the page is full. Models that fail the check are
+    skipped; the returned token records exactly where to resume, so the ones
+    that were never reached show up on the next page rather than being lost.
+
+    Checking costs API calls, so `max_checks` bounds the work per page. Hitting
+    that bound returns a short page rather than stalling - the token still
+    points at the next unchecked model.
+
+    Args:
+        client: Civitai client.
+        search_params: Arguments for client.search_models (without limit/cursor).
+        count_usable_images: Returns how many usable-prompt images a model has.
+        page_size: How many models to return.
+        min_usable: Minimum usable-prompt images for a model to qualify.
+        start_token: Token from a previous call, or a plain cursor, or None.
+        max_checks: Maximum models to check before giving up on filling the page.
+        batch_size: Models to pull from Civitai per search call.
+
+    Returns:
+        Dict with models, nextCursor, and counts describing what was skipped.
+    """
+    cursor, index = decode_filter_token(start_token)
+
+    models: List[Dict[str, Any]] = []
+    batch: Optional[List[Dict[str, Any]]] = None
+    batch_next_cursor: Optional[str] = None
+    checked = 0
+    dropped = 0
+    exhausted = False
+    budget_reached = False
+
+    while len(models) < page_size:
+        if max_checks is not None and checked >= max_checks:
+            budget_reached = True
+            break
+
+        # Need another batch? (first pass, or current one fully consumed)
+        if batch is None or index >= len(batch):
+            if batch is not None:
+                if not batch_next_cursor:
+                    exhausted = True
+                    break
+                cursor = batch_next_cursor
+                index = 0
+
+            result = client.search_models(**search_params, limit=batch_size, cursor=cursor)
+            batch = result.get("items", []) or []
+            batch_next_cursor = result.get("nextCursor")
+
+            if not batch:
+                exhausted = True
+                break
+
+            # A token can point past the end if the batch shrank; treat as consumed
+            if index >= len(batch):
+                if not batch_next_cursor:
+                    exhausted = True
+                    break
+                cursor = batch_next_cursor
+                index = 0
+                continue
+
+        model = batch[index]
+        index += 1
+        checked += 1
+
+        try:
+            usable = count_usable_images(model)
+        except Exception as e:
+            # Never let one bad model abort the whole page
+            print(f"[ModelManager] Prompt check failed for model {model.get('id')}: {e}")
+            usable = 0
+
+        if usable >= min_usable:
+            models.append(model)
+        else:
+            dropped += 1
+
+    if exhausted:
+        next_token = None
+    elif batch is not None and index >= len(batch):
+        # Batch fully consumed - resume at the start of the next one
+        next_token = encode_filter_token(batch_next_cursor, 0) if batch_next_cursor else None
+    else:
+        next_token = encode_filter_token(cursor, index)
+
+    return {
+        "models": models,
+        "nextCursor": next_token,
+        "checked": checked,
+        "dropped": dropped,
+        "budget_reached": budget_reached,
+        "exhausted": exhausted,
+    }
 
 
 def _map_civitai_resources(resources: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
