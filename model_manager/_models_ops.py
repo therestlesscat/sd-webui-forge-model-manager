@@ -122,6 +122,16 @@ class ModelsOps:
         column not named below - downloaded_at, and the image pagination state
         - so a scan or a re-sync would erase when a model was obtained and how
         far its gallery had been fetched.
+
+        ADDING A COLUMN: it must be added in three places - the INSERT column
+        list, the VALUES tuple, and the ON CONFLICT ... DO UPDATE SET list.
+        Miss the SET list and the column is written on insert but silently
+        never updated afterwards.
+
+        Columns deliberately absent from the SET list are owned by other
+        flows and must not be touched here: downloaded_at (set once, from the
+        download), next_images_cursor and images_sync_last_date (written by
+        image syncing, and written *before* this runs during a sync).
         """
         with self._cursor() as cursor:
             # Handle file_hashes - can be dict or already JSON string
