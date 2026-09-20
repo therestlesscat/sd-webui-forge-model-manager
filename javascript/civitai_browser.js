@@ -45,6 +45,11 @@
     let cursors = [""];
     let hasMorePages = true;
 
+    // In-flight streaming search, so a new search can cancel the old one
+    let activeStream = null;
+    // While streaming, pagination controls are held back until the page is final
+    let isStreaming = false;
+
     // LocalStorage key prefix for cursor cache
     const CURSOR_CACHE_PREFIX = "civitai_cursors_";
 
@@ -209,6 +214,116 @@
         if (status) status.textContent = message;
     }
 
+    // Search with the prompt filter, rendering models as they are found.
+    // Checking models costs API calls, so a page can take a while to fill -
+    // showing each one as it qualifies beats staring at a spinner.
+    async function searchModelsStreaming(page, cursor) {
+        if (activeStream) activeStream.abort();
+        const controller = new AbortController();
+        activeStream = controller;
+
+        const filters = getFilters();
+        const params = new URLSearchParams();
+        Object.entries({ ...filters, cursor: cursor })
+            .forEach(([k, v]) => {
+                if (k === 'require_prompt') return;      // implied by this endpoint
+                if (v !== undefined && v !== null && v !== '' && v !== false) {
+                    params.append(k, v);
+                }
+            });
+
+        currentModels = [];
+        currentPage = page;
+        isStreaming = true;
+        renderGrid();
+        closeDetails();
+        updateStatus('Checking models for usable prompts...');
+
+        let finished = false;
+
+        try {
+            const response = await fetch(
+                '/model-manager/civitai/models/stream?' + params.toString(),
+                { signal: controller.signal }
+            );
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();          // keep any partial line
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    let evt;
+                    try {
+                        evt = JSON.parse(line);
+                    } catch (e) {
+                        console.warn('[CivitaiBrowser] Bad stream line:', line);
+                        continue;
+                    }
+
+                    if (evt.type === 'meta') {
+                        if (evt.cardWidth && evt.cardHeight) {
+                            applyCardSize(evt.cardWidth, evt.cardHeight);
+                        }
+                        pageSize = evt.pageSize || pageSize;
+                    } else if (evt.type === 'model') {
+                        currentModels.push(evt.model);
+                        renderGrid();
+                        updateStatus(`Found ${currentModels.length} of ${pageSize}...`);
+                    } else if (evt.type === 'progress') {
+                        updateStatus(`Checked ${evt.checked} models, found ${evt.found} of ${pageSize}`
+                            + (evt.dropped ? ` (${evt.dropped} without usable prompts)` : ''));
+                    } else if (evt.type === 'done') {
+                        finished = true;
+                        if (evt.nextCursor) {
+                            cursors[page] = evt.nextCursor;
+                            hasMorePages = true;
+                        } else {
+                            hasMorePages = false;
+                        }
+                        if (page >= 2) {
+                            saveToCache(getFiltersHash(), cursors, page);
+                            const resumeBtn = document.getElementById('cb_resume_btn');
+                            if (resumeBtn) resumeBtn.style.display = 'none';
+                        }
+
+                        const stats = evt.filterStats || {};
+                        let status = `Showing ${currentModels.length} models (page ${page})`;
+                        status += ` - checked ${stats.checked}, skipped ${stats.dropped} without usable prompts`;
+                        if (stats.budgetReached) {
+                            status += '. Stopped early to avoid a long wait; press Next to keep looking.';
+                        }
+                        isStreaming = false;
+                        renderGrid();
+                        updateStatus(status);
+                    } else if (evt.type === 'error') {
+                        throw new Error(evt.error);
+                    }
+                }
+            }
+        } catch (e) {
+            if (e.name === 'AbortError') return;        // superseded by a newer search
+            console.error('[CivitaiBrowser] Stream error:', e);
+            updateStatus(`Error: ${e.message}`);
+        } finally {
+            if (activeStream === controller) activeStream = null;
+            if (!finished) {
+                // stream cut short - show whatever arrived rather than nothing
+                isStreaming = false;
+                renderGrid();
+            }
+        }
+    }
+
     // Search models using cursor-based pagination
     async function searchModels(page = 1) {
         // Ensure page is a valid positive integer
@@ -225,6 +340,19 @@
         }
 
         if (isLoading) return;
+
+        // The prompt filter has to check models one by one, so stream results
+        // in as they are found instead of blocking on the whole page
+        if (requirePromptEnabled()) {
+            isLoading = true;
+            try {
+                await searchModelsStreaming(page, cursors[cursorIndex] || "");
+            } finally {
+                isLoading = false;
+            }
+            return;
+        }
+
         isLoading = true;
 
         const filters = getFilters();
@@ -294,14 +422,16 @@
         if (!grid) return;
 
         if (currentModels.length === 0) {
-            grid.innerHTML = '<div class="model-grid-empty">No models found.</div>';
+            grid.innerHTML = isStreaming
+                ? '<div class="model-grid-empty">Checking models for usable prompts...</div>'
+                : '<div class="model-grid-empty">No models found.</div>';
             return;
         }
 
         const cards = currentModels.map((model, index) => renderCard(model, index)).join('');
         // Show pagination if we have visited pages or there might be more
         const maxPageVisited = cursors.length;  // cursors.length = number of pages we can navigate to
-        const showPagination = maxPageVisited > 1 || hasMorePages;
+        const showPagination = !isStreaming && (maxPageVisited > 1 || hasMorePages);
         const paginationHtml = showPagination ? renderPaginationControls() : '';
         grid.innerHTML = `<div class="model-grid-inner">${cards}</div>${paginationHtml}`;
     }

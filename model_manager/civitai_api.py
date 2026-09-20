@@ -607,6 +607,36 @@ def search_models_with_usable_prompts(
     workers: int = 4,
 ) -> Dict[str, Any]:
     """
+    Collect a full page of models with usable prompts.
+
+    Thin wrapper over iter_models_with_usable_prompts() for callers that want
+    the whole page at once rather than results as they are found.
+    """
+    summary: Dict[str, Any] = {}
+
+    for kind, payload in iter_models_with_usable_prompts(
+        client, search_params, count_usable_images, page_size,
+        min_usable=min_usable, start_token=start_token, max_checks=max_checks,
+        batch_size=batch_size, workers=workers,
+    ):
+        if kind == "done":
+            summary = payload
+
+    return summary
+
+
+def iter_models_with_usable_prompts(
+    client: CivitaiClient,
+    search_params: Dict[str, Any],
+    count_usable_images: Callable[[Dict[str, Any]], int],
+    page_size: int,
+    min_usable: int = 1,
+    start_token: Optional[str] = None,
+    max_checks: Optional[int] = None,
+    batch_size: int = 20,
+    workers: int = 4,
+):
+    """
     Search models, keeping only those with enough usable-prompt images.
 
     Civitai cannot filter on this, so models are pulled in batches and checked
@@ -628,8 +658,14 @@ def search_models_with_usable_prompts(
         max_checks: Maximum models to check before giving up on filling the page.
         batch_size: Models to pull from Civitai per search call.
 
-    Returns:
-        Dict with models, nextCursor, and counts describing what was skipped.
+    Yields events as the work happens, so a caller can show results while the
+    rest are still being checked:
+        ("progress", {"checked", "dropped", "found"}) before each chunk
+        ("model", model) as each qualifying model is found
+        ("done", summary) once, last, with nextCursor and final counts
+
+    Yields:
+        Tuples of (event kind, payload).
     """
     cursor, index = decode_filter_token(start_token)
 
@@ -676,6 +712,8 @@ def search_models_with_usable_prompts(
         # round trips, so this is the difference between a page taking seconds
         # and taking tens of seconds. Results are consumed strictly in order so
         # the resume token stays exact.
+        yield "progress", {"checked": checked, "dropped": dropped, "found": len(models)}
+
         remaining_budget = (max_checks - checked) if max_checks is not None else len(batch)
         take = max(1, min(workers, len(batch) - index, remaining_budget))
         chunk = batch[index:index + take]
@@ -705,6 +743,7 @@ def search_models_with_usable_prompts(
             consumed += 1
             if usable >= min_usable:
                 models.append(model)
+                yield "model", model
             else:
                 dropped += 1
 
@@ -718,7 +757,7 @@ def search_models_with_usable_prompts(
     else:
         next_token = encode_filter_token(cursor, index)
 
-    return {
+    yield "done", {
         "models": models,
         "nextCursor": next_token,
         "checked": checked,
