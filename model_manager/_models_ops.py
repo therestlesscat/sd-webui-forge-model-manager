@@ -361,7 +361,7 @@ class ModelsOps:
             # downloaded_at is only set for models fetched through the
             # Civitai Browser. Everything acquired another way falls back
             # to the file timestamp, which is when it landed on disk.
-            "downloaded_at": "COALESCE(downloaded_at, file_modified)",
+            "downloaded_at": "group_acquired_at",
             "updated_at": "cm_updated_at"
         }
         sort_field = valid_sort_fields.get(sort_by, "file_modified")
@@ -447,7 +447,15 @@ class ModelsOps:
                     ) as rn,
                     COUNT(*) OVER (
                         PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                    ) as local_version_count
+                    ) as local_version_count,
+                    -- Newest acquisition across every version of this model.
+                    -- The row shown for a group is its latest *published*
+                    -- version, which is frequently not the one most recently
+                    -- downloaded - so sorting on the shown row's own date puts
+                    -- freshly downloaded models in the wrong position.
+                    MAX(COALESCE(fv.downloaded_at, fv.file_modified)) OVER (
+                        PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                    ) as group_acquired_at
                 FROM filtered_versions fv
                 LEFT JOIN image_aggregates ia ON ia.version_id = fv.id
                 LEFT JOIN image_preview_selected ips ON ips.version_id = fv.id
@@ -654,6 +662,9 @@ class ModelsOps:
             "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
             "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
             "local_version_count": row["local_version_count"],
+            # Newest acquisition across the group - what the default sort uses,
+            # and the honest "when did I get this" for a grouped model
+            "group_acquired_at": row["group_acquired_at"] if "group_acquired_at" in row.keys() else None,
             "max_image_nsfw": row["max_image_nsfw"],
             "is_bookmarked": bool(row["cm_is_bookmarked"]) if row["cm_is_bookmarked"] else False,
             "updated_at": row["cm_updated_at"] if "cm_updated_at" in row.keys() else None,
