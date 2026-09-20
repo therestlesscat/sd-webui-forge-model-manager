@@ -29,6 +29,19 @@ class ModelsOps:
 
     # ==================== Civitai Models ====================
 
+    @staticmethod
+    def _format_commercial_use(value: Any) -> Optional[str]:
+        """
+        Normalise allowCommercialUse for storage.
+
+        Civitai returns a list (e.g. ["Image", "Rent"]), which SQLite cannot
+        bind. Existing rows hold the PostgreSQL array literal "{Image,Rent}",
+        and the commercial-use filter matches that format, so keep writing it.
+        """
+        if isinstance(value, (list, tuple, set)):
+            return "{" + ",".join(str(v) for v in value) + "}"
+        return value
+
     def upsert_civitai_model(self, model_data: Dict[str, Any]):
         """Insert or update a Civitai model record. Preserves is_bookmarked on update."""
         with self._cursor() as cursor:
@@ -72,7 +85,7 @@ class ModelsOps:
                 model_data.get("stats_thumbs_up", 0),
                 model_data.get("stats_rating", 0),
                 1 if model_data.get("allow_no_credit", True) else 0,
-                model_data.get("allow_commercial_use"),
+                self._format_commercial_use(model_data.get("allow_commercial_use")),
                 1 if model_data.get("allow_derivatives", True) else 0,
                 1 if model_data.get("allow_different_license", True) else 0,
                 1 if model_data.get("supports_generation") else 0,

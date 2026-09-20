@@ -464,8 +464,13 @@ class SyncService:
                 # Update cursor and sync date
                 db.update_version_images_state(version_id, next_cursor)
 
-            # Update database with model and version data
-            self._update_database(model_path, data_to_save, hashes)
+            # Update database with model and version data. A failure here
+            # means the model will not show up in the UI, so it must not be
+            # reported as a successful sync.
+            db_error = self._update_database(model_path, data_to_save, hashes)
+            if db_error:
+                result.error = f"Database update failed: {db_error}"
+                return result
 
             result.success = True
             has_more = next_cursor is not None if version_id else False
@@ -485,7 +490,7 @@ class SyncService:
             result.error = f"Unexpected error: {e}"
             return result
 
-    def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult):
+    def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult) -> Optional[str]:
         """
         Update the database with model and version data from Civitai response.
 
@@ -493,6 +498,9 @@ class SyncService:
             model_path: Path to the local model file.
             civitai_data: Full Civitai model response (or version-only if model fetch failed).
             hashes: HashResult with all computed hashes.
+
+        Returns:
+            None on success, or an error message describing the failure.
         """
         try:
             db = get_models_db()
@@ -603,8 +611,13 @@ class SyncService:
 
                 db.upsert_version(version_data)
 
+            return None
+
         except Exception as e:
+            import traceback
             print(f"[ModelManager] Error updating database for {os.path.basename(model_path)}: {e}")
+            traceback.print_exc()
+            return str(e)
 
     def _hashes_to_dict(self, hashes: HashResult) -> Dict[str, str]:
         """
