@@ -564,6 +564,15 @@ body.mm-modal-open {
     color: #f44336;
 }
 
+/* Action button sitting on the details header row, beside the model name.
+   The header is a flex row and .close-details pushes itself to the far right,
+   so this lands directly after the title and must not be squashed by a long
+   model name. */
+.detail-header .cb-header-action {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 .mm-sync-model-btn {
     background: var(--primary-400, #60a5fa);
     border: none;

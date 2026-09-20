@@ -688,15 +688,18 @@
             ? `<button class="mm-btn primary" onclick="window.cbDownload(${model.id}, ${version?.id})">Download</button>`
             : (isOwned ? `<button class="mm-btn secondary" disabled>Already Owned</button>` : '');
 
-        // Only offer the jump for models that are actually in the library
+        // Only offer the jump for models that are actually in the library.
+        // Lives on the header row so it stays reachable while scrolling the
+        // details panel, rather than only at the very bottom.
         const showInManagerBtn = model.owned_locally
-            ? `<button class="mm-btn secondary" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+            ? `<button class="mm-btn secondary mm-btn-small cb-header-action" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
             : '';
 
         container.innerHTML = `
             <div class="model-details-content">
                 <div class="detail-header">
                     <h3>${escapeHtml(model.name)}</h3>
+                    ${showInManagerBtn}
                     <button class="close-details" onclick="window.cbCloseDetails()">×</button>
                 </div>
 
@@ -730,7 +733,6 @@
                 <div class="detail-section detail-actions">
                     <a class="mm-btn secondary" href="https://civitai.com/models/${model.id}?modelVersionId=${version?.id}" target="_blank">View on Civitai</a>
                     ${downloadBtn}
-                    ${showInManagerBtn}
                 </div>
             </div>
         `;
