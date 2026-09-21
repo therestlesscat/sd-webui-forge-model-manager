@@ -2025,52 +2025,149 @@
 
     // Match VAE name from metadata to dropdown option
     // Metadata often has VAE without extension, dropdown has with extension
-    function matchVAEName(vaeName) {
+    // Forge Neo's "VAE / Text Encoder" control: a Gradio multiselect backed by
+    // the forge_additional_modules setting. Classic Forge and A1111 instead
+    // expose a single-value #setting_sd_vae plus a selectVAE() global, which
+    // Neo does not have at all - so the old reset-to-None silently did nothing
+    // there and whatever was selected last stayed selected.
+    const NEO_MODULES_ID = 'setting_sd_modules';
+
+    function getModulesControl() {
+        return gradioApp().querySelector(`#${NEO_MODULES_ID}`);
+    }
+
+    function nextFrame(ms = 60) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** The options Gradio is currently offering, as {label, element} pairs. */
+    function readModuleOptions(container) {
+        // The open list is portalled in some Gradio builds, so fall back to a
+        // document-wide lookup - only one dropdown can be open at a time.
+        let nodes = container.querySelectorAll('[data-testid="dropdown-option"]');
+        if (!nodes.length) {
+            nodes = gradioApp().querySelectorAll('[data-testid="dropdown-option"]');
+        }
+        return Array.from(nodes).map((el) => ({
+            label: el.getAttribute('aria-label') || el.textContent.trim(),
+            element: el,
+        }));
+    }
+
+    /**
+     * Match a VAE name from image metadata to one of `labels`.
+     *
+     * Metadata usually carries the bare name while the control lists the file,
+     * so "vae-ft-mse-840000" has to find "vae-ft-mse-840000.safetensors".
+     */
+    function matchVAEName(vaeName, labels) {
         if (!vaeName) return null;
+        if (!labels || !labels.length) return vaeName;
 
-        // Try to find VAE dropdown and get options
-        const vaeDropdown = gradioApp().querySelector('#setting_sd_vae select, #setting_sd_vae input');
-        if (!vaeDropdown) {
-            console.log('[ModelManager] VAE dropdown not found, using name as-is:', vaeName);
-            return vaeName;
-        }
+        if (labels.includes(vaeName)) return vaeName;
 
-        // Get all options from dropdown
-        let options = [];
-        if (vaeDropdown.tagName === 'SELECT') {
-            options = Array.from(vaeDropdown.options).map(o => o.value);
-        } else {
-            // For input-based dropdowns, check datalist or sibling elements
-            const datalist = gradioApp().querySelector('#setting_sd_vae datalist');
-            if (datalist) {
-                options = Array.from(datalist.options).map(o => o.value);
-            }
-        }
-
-        if (options.length === 0) {
-            console.log('[ModelManager] No VAE options found, using name as-is:', vaeName);
-            return vaeName;
-        }
-
-        // Try exact match first
-        if (options.includes(vaeName)) {
-            return vaeName;
-        }
-
-        // Try matching without extension (metadata) to with extension (dropdown)
-        const vaeNameLower = vaeName.toLowerCase();
-        for (const option of options) {
-            const optionLower = option.toLowerCase();
-            // Check if option starts with the VAE name (handles extension difference)
-            if (optionLower.startsWith(vaeNameLower) ||
-                optionLower.replace(/\.(safetensors|pt|ckpt)$/i, '') === vaeNameLower) {
-                console.log('[ModelManager] Matched VAE:', vaeName, '->', option);
-                return option;
+        const wanted = vaeName.toLowerCase();
+        for (const label of labels) {
+            const lower = label.toLowerCase();
+            if (lower.startsWith(wanted) ||
+                lower.replace(/\.(safetensors|pt|ckpt|bin)$/i, '') === wanted) {
+                console.log('[ModelManager] Matched VAE:', vaeName, '->', label);
+                return label;
             }
         }
 
         console.log('[ModelManager] No VAE match found for:', vaeName);
-        return vaeName; // Return as-is, let WebUI handle it
+        return null;
+    }
+
+    /** Drop every module currently selected. */
+    function clearModules(container) {
+        // One ✕ clears the lot; otherwise drop the tokens one by one. Both are
+        // real click paths, so Gradio commits the change to the setting.
+        const removeAll = container.querySelector('.token-remove.remove-all');
+        if (removeAll) {
+            removeAll.click();
+            return;
+        }
+        container.querySelectorAll('.token .token-remove, .token > .token-remove')
+            .forEach((button) => button.click());
+    }
+
+    function selectedModuleLabels(container) {
+        return Array.from(container.querySelectorAll('.wrap-inner .token'))
+            .map((token) => token.textContent.replace(/\s*×\s*$/, '').trim())
+            .filter(Boolean);
+    }
+
+    /**
+     * Point Neo's VAE / Text Encoder control at exactly `names`.
+     *
+     * An image whose metadata names no VAE must end up with none selected:
+     * leaving a previous pick in place is how a Qwen VAE ends up decoding an
+     * SDXL latent, which produces a flat single-colour image.
+     *
+     * Returns false when the control is absent, i.e. this is not Forge Neo.
+     */
+    async function applyForgeModules(names) {
+        const container = getModulesControl();
+        if (!container) return false;
+
+        clearModules(container);
+        await nextFrame();
+
+        if (!names.length) {
+            console.log('[ModelManager] Cleared VAE / Text Encoder (none in metadata)');
+            return true;
+        }
+
+        const input = container.querySelector('input');
+        if (!input) {
+            console.warn('[ModelManager] VAE control has no input; left cleared');
+            return true;
+        }
+
+        for (const name of names) {
+            input.focus();
+            input.value = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            await nextFrame();
+
+            const options = readModuleOptions(container);
+            const match = matchVAEName(name, options.map((o) => o.label));
+            const option = match && options.find((o) => o.label === match);
+
+            if (!option) {
+                console.warn(`[ModelManager] VAE "${name}" is not offered by this install;`
+                             + ' leaving it unselected rather than guessing');
+                continue;
+            }
+
+            option.element.click();
+            await nextFrame();
+        }
+
+        input.blur();
+        console.log('[ModelManager] VAE / Text Encoder now:', selectedModuleLabels(container));
+        return true;
+    }
+
+    /**
+     * Apply a VAE choice on whichever UI this is.
+     *
+     * `vaeName` of null means the image named none, which must clear the
+     * selection rather than leave the last one in place.
+     */
+    async function applyVaeSelection(vaeName) {
+        if (await applyForgeModules(vaeName ? [vaeName] : [])) return;
+
+        // Classic Forge / A1111.
+        if (typeof selectVAE === 'function') {
+            selectVAE(vaeName || 'None');
+            console.log('[ModelManager] Set VAE via selectVAE:', vaeName || 'None');
+            return;
+        }
+
+        console.warn('[ModelManager] No VAE control found; leaving it alone');
     }
 
     // Cache for samplers and schedulers loaded from API
@@ -2368,23 +2465,10 @@
                 }
             }
 
-            // VAE in metadata is often without extension, but dropdown has extension
-            // Try to match by finding a dropdown option that starts with the VAE name
-            if (vaePath) {
-                vaePath = matchVAEName(vaePath);
-            }
-
             // Set checkpoint if available
             if (checkpointPath && typeof selectCheckpoint === 'function') {
                 console.log('[ModelManager] Setting checkpoint:', checkpointPath);
                 selectCheckpoint(checkpointPath);
-            }
-
-            // Set VAE - use metadata value or reset to None
-            const vaeValue = vaePath || 'None';
-            if (typeof selectVAE === 'function') {
-                console.log('[ModelManager] Setting VAE:', vaeValue);
-                selectVAE(vaeValue);
             }
 
             // Extract scheduler from metadata or sampler string
@@ -2435,6 +2519,11 @@
             // Also reset hires fix if not present in metadata
             setTimeout(() => {
                 setGradioDropdown('txt2img_scheduler', scheduler);
+
+                // After the paste: it re-renders much of the page, and it never
+                // touches the modules itself - Neo reads "Module 1"/"Module 2"
+                // from an infotext, not the "VAE:" line we write.
+                applyVaeSelection(vaePath);
 
                 // Reset hires fix if image doesn't have hires data
                 // InputAccordion uses a hidden checkbox - need to set value and dispatch events
