@@ -406,6 +406,22 @@ class CivitaiClient:
             "metadata": data.get("metadata", {})
         }
 
+    def get_enums(self) -> Dict[str, List[str]]:
+        """
+        Fetch the enums Civitai accepts as filter values.
+
+        Keys include ModelType, BaseModel, ActiveBaseModel (the subset still
+        being published) and BaseModelType. Hardcoding these goes stale every
+        time Civitai ships a new base model.
+
+        Returns:
+            Dict of enum name to list of values.
+        """
+        data = self._request("GET", "/enums")
+        if not isinstance(data, dict):
+            return {}
+        return {k: v for k, v in data.items() if isinstance(v, list)}
+
     def get_model_images(
         self,
         version_id: int,

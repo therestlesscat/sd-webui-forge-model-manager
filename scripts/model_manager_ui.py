@@ -215,7 +215,12 @@ def create_civitai_browser_ui():
                                 <select id="cb_sort">
                                     <option value="Most Downloaded">Most Downloaded</option>
                                     <option value="Highest Rated">Highest Rated</option>
+                                    <option value="Most Liked">Most Liked</option>
+                                    <option value="Most Collected">Most Collected</option>
+                                    <option value="Most Discussed">Most Discussed</option>
+                                    <option value="Most Images">Most Images</option>
                                     <option value="Newest">Newest</option>
+                                    <option value="Oldest">Oldest</option>
                                 </select>
                             </div>
                         </div>
