@@ -134,14 +134,15 @@ body.mm-modal-open {
     flex: 0;
 }
 
-/* Filter buttons row */
+/* Filter buttons row. Right-aligned: the search buttons sit on the first row
+   with no box around them, the boxed action groups on the second. */
 .filter-buttons-row {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
     margin-top: 10px;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
 }
 
 .filter-buttons-group {
@@ -149,6 +150,19 @@ body.mm-modal-open {
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
+}
+
+/* A boxed set of related actions. Deliberately not .filter-buttons-group,
+   which the Civitai Browser also uses and should stay unboxed. */
+.mm-button-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    background: var(--input-background-fill, #111827);
 }
 
 /* All filter buttons same height */

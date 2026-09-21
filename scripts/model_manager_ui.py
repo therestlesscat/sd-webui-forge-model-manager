@@ -457,22 +457,22 @@ def create_ui():
                         </div>
                     </div>
                     <div class="filter-buttons-row">
-                        <div class="filter-buttons-group">
-                            <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
-                            <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
-                            <button id="mm_refresh_btn" class="mm-btn secondary" title="Scan model directories and refresh database">Refresh DB</button>
-                            <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
-                        </div>
-                        <div class="filter-buttons-group">
+                        <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
+                        <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
+                    </div>
+                    <div class="filter-buttons-row">
+                        <div class="mm-button-group" title="Fetch data from Civitai">
                             <button id="mm_sync_btn" class="mm-btn secondary" title="Identify models by hashing every file, then fetch their Civitai data. Slow: it reads every byte of every model.">Sync with Civitai</button>
-                            <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                             <label class="mm-checkbox-label" title="Re-download data even if already exists">
                                 <input type="checkbox" id="mm_sync_force"> Force
                             </label>
-                        </div>
-                        <div class="filter-buttons-group">
                             <button id="mm_sync_meta_btn" class="mm-btn secondary" title="Refresh descriptions, tags, stats and licences for models already identified. No hashing, so this is fast.">Sync with Civitai Metadata (Models)</button>
                             <button id="mm_sync_meta_images_btn" class="mm-btn secondary" title="The same refresh, and also refetch each model's example images. Slower: images cannot be batched.">Sync with Civitai Metadata (Models + Images)</button>
+                            <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
+                        </div>
+                        <div class="mm-button-group" title="Rescan the model directories on disk">
+                            <button id="mm_refresh_btn" class="mm-btn secondary" title="Scan model directories and refresh database">Refresh DB</button>
+                            <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
                     </div>
                 </div>
