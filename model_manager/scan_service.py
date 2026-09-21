@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .models_db import get_models_db
+from .db import get_models_db
 from .storage import read_civitai_info
 
 
@@ -329,7 +329,7 @@ class ScanService:
         version_id = version_data.get("id")
         if version_id:
             try:
-                from .models_db import get_models_db
+                from .db import get_models_db
                 db = get_models_db()
                 images = db.get_all_images_for_version(version_id)
             except Exception:
