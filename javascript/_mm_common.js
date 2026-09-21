@@ -26,7 +26,7 @@ window.MMCommon = (function() {
         }
     }
 
-    async function apiCall(endpoint, params = {}) {
+    async function apiCall({ endpoint, params = {} }) {
         const url = new URL(endpoint, window.location.origin);
         Object.entries(params).forEach(([key, value]) => {
             if (value !== undefined && value !== null && value !== '') {
@@ -51,7 +51,7 @@ window.MMCommon = (function() {
         return num.toString();
     }
 
-    function isVideoUrl(url, type) {
+    function isVideoUrl({ url, type }) {
         if (!url) return false;
         if (type === 'video') return true;
         const lowerUrl = url.toLowerCase();
@@ -137,16 +137,16 @@ window.MMCommon = (function() {
      * `prefix` names the tab's global handlers: 'mm' calls window.mmGoToImagePage
      * and friends, 'cb' calls the window.cb* equivalents.
      */
-    function renderImagePagination(currentImagePage, totalPages, position, prefix) {
+    function renderImagePagination({ currentPage, totalPages, position, prefix }) {
         if (totalPages <= 1) return '';
 
-        const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const prevDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const nextDisabled = currentImagePage >= totalPages ? 'disabled' : '';
-        const lastDisabled = currentImagePage >= totalPages ? 'disabled' : '';
+        const firstDisabled = currentPage <= 1 ? 'disabled' : '';
+        const prevDisabled = currentPage <= 1 ? 'disabled' : '';
+        const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
+        const lastDisabled = currentPage >= totalPages ? 'disabled' : '';
 
         const maxVisible = 5;
-        let startPage = Math.max(1, currentImagePage - Math.floor(maxVisible / 2));
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
         let endPage = Math.min(totalPages, startPage + maxVisible - 1);
         if (endPage - startPage < maxVisible - 1) {
             startPage = Math.max(1, endPage - maxVisible + 1);
@@ -173,7 +173,7 @@ window.MMCommon = (function() {
             if (page === null) {
                 return `<span class="mm-page-ellipsis">${label}</span>`;
             }
-            const activeClass = page === currentImagePage ? 'active' : '';
+            const activeClass = page === currentPage ? 'active' : '';
             return `<button class="mm-page-num ${activeClass}" onclick="window.${prefix}GoToImagePage(${page})">${label}</button>`;
         }).join('');
 
@@ -192,7 +192,7 @@ window.MMCommon = (function() {
      * Push a card size onto a tab's container as CSS custom properties.
      * Each tab owns its container id, variable prefix and log tag.
      */
-    function applyCardSize(width, height, containerId, cssPrefix, logTag) {
+    function applyCardSize({ width, height, containerId, cssPrefix, logTag }) {
         const container = document.getElementById(containerId);
         if (!container) return;
         container.style.setProperty(`--${cssPrefix}-card-width`, `${width}px`);

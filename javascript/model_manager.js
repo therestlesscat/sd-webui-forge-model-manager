@@ -55,7 +55,12 @@
         if (width && height && (width !== cardWidth || height !== cardHeight)) {
             cardWidth = width;
             cardHeight = height;
-            window.MMCommon.applyCardSize(width, height, 'model_manager_app', 'mm', 'ModelManager');
+            window.MMCommon.applyCardSize({
+                width, height,
+                containerId: 'model_manager_app',
+                cssPrefix: 'mm',
+                logTag: 'ModelManager',
+            });
         }
     }
 
@@ -237,9 +242,9 @@
 
 
     function renderImagePagination(totalPages, position = 'bottom') {
-        return window.MMCommon.renderImagePagination(
-            currentImagePage, totalPages, position, 'mm'
-        );
+        return window.MMCommon.renderImagePagination({
+            currentPage: currentImagePage, totalPages, position, prefix: 'mm',
+        });
     }
 
     function scrollToModelImagesTop() {
@@ -513,7 +518,7 @@
             const filters = getFilters();
             filters.page = page;
             filters.page_size = calculatedPageSize;
-            const data = await apiCall('/model-manager/models', filters);
+            const data = await apiCall({ endpoint: '/model-manager/models', params: filters });
 
             if (data.success) {
                 // Apply card size from API response
@@ -562,7 +567,7 @@
 
         filterDefaultsPromise = (async () => {
             try {
-                const data = await apiCall('/model-manager/filter-defaults');
+                const data = await apiCall({ endpoint: '/model-manager/filter-defaults' });
                 if (data.success) {
                     if (data.page_size) {
                         const parsedSize = Number(data.page_size);
@@ -669,7 +674,7 @@
             : '';
 
         // Check if preview is a video
-        const isVideo = isVideoUrl(previewSrc);
+        const isVideo = isVideoUrl({ url: previewSrc });
         const previewHtml = hasPreview
             ? (isVideo
                 ? `<video src="${previewSrc}" loop muted autoplay playsinline></video>`
@@ -805,7 +810,7 @@
         const hasMultipleVersions = model.model_id && (model.local_version_count || 1) > 1;
         if (hasMultipleVersions) {
             try {
-                const versionsData = await apiCall('/model-manager/models/versions', { model_id: model.model_id });
+                const versionsData = await apiCall({ endpoint: '/model-manager/models/versions', params: { model_id: model.model_id } });
                 if (versionsData.success && versionsData.versions) {
                     currentVersions = versionsData.versions;
                     // Find current version in list (it should be there since it's the latest)
@@ -829,7 +834,7 @@
     async function loadVersionDetails(filePath) {
         try {
             const params = { path: filePath, hide_nsfw_images: hideNsfwImages };
-            const data = await apiCall('/model-manager/models/details', params);
+            const data = await apiCall({ endpoint: '/model-manager/models/details', params });
             if (data.success && data.model) {
                 // Store version ID for load-more
                 if (data.model.civitai_version) {
@@ -1587,7 +1592,7 @@
             : '';
 
         // Detect video
-        const isVideo = isVideoUrl(src, img.type);
+        const isVideo = isVideoUrl({ url: src, type: img.type });
         const mediaHtml = isVideo
             ? `<video data-src="${escapeHtml(src)}" class="mm-lazy-media" preload="none" controls loop muted
                       onclick="event.stopPropagation()"
@@ -2579,7 +2584,7 @@
     // Poll sync progress
     async function pollSyncProgress() {
         try {
-            const data = await apiCall('/model-manager/sync/progress');
+            const data = await apiCall({ endpoint: '/model-manager/sync/progress' });
 
             if (data.success && data.progress) {
                 const p = data.progress;
@@ -2689,7 +2694,7 @@
     // Poll scan progress
     async function pollScanProgress() {
         try {
-            const data = await apiCall('/model-manager/scan/progress');
+            const data = await apiCall({ endpoint: '/model-manager/scan/progress' });
 
             if (data.success && data.progress) {
                 const p = data.progress;
@@ -3106,7 +3111,7 @@
 
         // Check for ongoing scan
         try {
-            const scanData = await apiCall('/model-manager/scan/progress');
+            const scanData = await apiCall({ endpoint: '/model-manager/scan/progress' });
             if (scanData.success && scanData.progress && !scanData.progress.is_complete) {
                 console.log('[ModelManager] Found ongoing scan, resuming...');
                 isScanning = true;
@@ -3124,7 +3129,7 @@
 
         // Check for ongoing sync
         try {
-            const syncData = await apiCall('/model-manager/sync/progress');
+            const syncData = await apiCall({ endpoint: '/model-manager/sync/progress' });
             if (syncData.success && syncData.progress && !syncData.progress.is_complete) {
                 console.log('[ModelManager] Found ongoing sync, resuming...');
                 isSyncing = true;
