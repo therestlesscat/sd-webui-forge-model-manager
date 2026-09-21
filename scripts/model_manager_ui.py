@@ -437,17 +437,21 @@ def create_ui():
                         </div>
                         <div class="filter-group">
                             <label>Allow Derivatives</label>
-                            <div class="mm-checkbox-group">
-                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_derivatives_yes" value="true" checked> Yes</label>
-                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_derivatives_no" value="false" checked> No</label>
-                            </div>
+                            <select id="mm_allow_derivatives" title="Unknown covers models with no Civitai data, which have no licence to read">
+                                <option value="" selected>Any</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                                <option value="unknown">Unknown</option>
+                            </select>
                         </div>
                         <div class="filter-group">
                             <label>Allow Different License</label>
-                            <div class="mm-checkbox-group">
-                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_different_license_yes" value="true" checked> Yes</label>
-                                <label class="mm-checkbox-label"><input type="checkbox" id="mm_allow_different_license_no" value="false" checked> No</label>
-                            </div>
+                            <select id="mm_allow_different_license" title="Unknown covers models with no Civitai data, which have no licence to read">
+                                <option value="" selected>Any</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                                <option value="unknown">Unknown</option>
+                            </select>
                         </div>
                     </div>
                     <div class="filter-row">
