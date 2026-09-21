@@ -771,6 +771,35 @@ def _migrate_to_v14(cursor):
     print("[ModelManager] Migration to v14 complete")
 
 
+def _migrate_to_v15(cursor):
+    """Separate "we fetched this from Civitai" from "we wrote this row".
+
+    updated_at is stamped every time a civitai_models row is written, and a
+    scan writes one for every model it finds - reading the sidecar on disk,
+    without asking Civitai anything. So a Refresh DB made every model look as
+    though it had just been synced, and the sync dialog's staleness windows,
+    which are the whole point of choosing one, all read zero.
+
+    civitai_synced_at is only stamped when the data actually came back from
+    Civitai. Existing rows inherit updated_at, which is the best estimate
+    available and errs towards calling them fresh.
+    """
+    print("[ModelManager] Migrating to schema v15 (recording real Civitai syncs)...")
+
+    cursor.execute("PRAGMA table_info(civitai_models)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "civitai_synced_at" not in columns:
+        cursor.execute("ALTER TABLE civitai_models ADD COLUMN civitai_synced_at TEXT")
+        cursor.execute("UPDATE civitai_models SET civitai_synced_at = updated_at")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_model_civitai_synced_at"
+            " ON civitai_models(civitai_synced_at)"
+        )
+
+    print("[ModelManager] Migration to v15 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -815,6 +844,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 14:
         _migrate_to_v14(cursor)
+
+    if from_version < 15:
+        _migrate_to_v15(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
