@@ -17,9 +17,11 @@ from .client import (
 )
 from .licensing import paid_access_info
 from .prompt_filter import (
+    apply_generation_data,
     decode_filter_token,
     encode_filter_token,
     enrich_images_with_generation_data,
+    generation_ids_needing_lookup,
     image_has_usable_prompt,
     iter_models_with_usable_prompts,
     search_models_with_usable_prompts,
@@ -29,7 +31,8 @@ __all__ = [
     "CivitaiAPIError", "CivitaiClient", "CivitaiNotFoundError",
     "CivitaiRateLimitError", "TokenBucketRateLimiter",
     "paid_access_info",
-    "decode_filter_token", "encode_filter_token",
-    "enrich_images_with_generation_data", "image_has_usable_prompt",
+    "apply_generation_data", "decode_filter_token", "encode_filter_token",
+    "enrich_images_with_generation_data", "generation_ids_needing_lookup",
+    "image_has_usable_prompt",
     "iter_models_with_usable_prompts", "search_models_with_usable_prompts",
 ]

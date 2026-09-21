@@ -307,13 +307,7 @@ def enrich_images_with_generation_data(
     Returns:
         Number of images that were enriched.
     """
-    if not images:
-        return 0
-
-    needs_lookup = [
-        img.get("id") for img in images
-        if img.get("id") and not (img.get("meta") or {}).get("prompt")
-    ]
+    needs_lookup = generation_ids_needing_lookup(images)
     if not needs_lookup:
         return 0
 
@@ -323,6 +317,35 @@ def enrich_images_with_generation_data(
         print(f"[ModelManager] Generation data lookup failed: {e}")
         return 0
 
+    return apply_generation_data(images, generation_data)
+
+
+def generation_ids_needing_lookup(images: List[Dict[str, Any]]) -> List[int]:
+    """
+    The image ids whose generation data still has to be fetched.
+
+    Split out from enrich_images_with_generation_data() so a caller holding
+    several galleries can pool their ids into one set of batches. The lookup
+    costs one request per 30 ids however they are grouped, so a batch filled
+    from a single gallery is mostly half-empty - see SyncService.
+    """
+    if not images:
+        return []
+    return [
+        img.get("id") for img in images
+        if img.get("id") and not (img.get("meta") or {}).get("prompt")
+    ]
+
+
+def apply_generation_data(images: List[Dict[str, Any]],
+                          generation_data: Dict[int, Dict[str, Any]]) -> int:
+    """
+    Write looked-up generation data onto `images`, in place.
+
+    The other half of enrich_images_with_generation_data(): it takes what the
+    lookup returned rather than performing it, so one pooled lookup can be
+    spread back over the galleries its ids came from.
+    """
     if not generation_data:
         return 0
 
