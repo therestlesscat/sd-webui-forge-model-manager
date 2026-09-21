@@ -2918,6 +2918,38 @@ function fillStaleWindows(windows) {
     select.value = chosen || String(windows[2] ? windows[2].days : 7);
 }
 
+/**
+ * "These search results" only means something once a search has run.
+ *
+ * Before that the grid is empty, so the option would either sync nothing or
+ * quietly sync everything depending on how the empty filter set was read. It
+ * is disabled instead, and carries its count once there is one - without
+ * waiting to be picked, since the count is half of what makes it choosable.
+ */
+async function syncDialogResultsScope() {
+    const radio = document.querySelector('input[name="mm_sync_scope"][value="results"]');
+    if (!radio) return;
+    const row = radio.closest('.mm-dialog-option');
+    const label = document.getElementById('mm_scope_results');
+
+    const searched = totalModels > 0;
+    radio.disabled = !searched;
+    if (row) row.classList.toggle('mm-dialog-muted', !searched);
+
+    if (!searched) {
+        if (radio.checked) {
+            const all = document.querySelector('input[name="mm_sync_scope"][value="all"]');
+            if (all) all.checked = true;
+        }
+        if (label) label.textContent = '';
+        return;
+    }
+
+    if (label) label.textContent = '...';
+    const paths = await resolveResultPaths();
+    if (label) label.textContent = `(${paths.length})`;
+}
+
 /** Prompts only mean anything once the images they belong to are refetched. */
 function syncDialogDependencies() {
     const images = document.getElementById('mm_sync_images');
@@ -2940,6 +2972,7 @@ function openSyncDialog() {
     if (!dialog) return;
     dialog.style.display = 'flex';
     syncDialogDependencies();
+    syncDialogResultsScope();
     refreshSyncEstimate();
 }
 
