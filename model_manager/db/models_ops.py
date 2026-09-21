@@ -314,6 +314,41 @@ class ModelsOps:
                 for row in cursor.fetchall()
             ]
 
+    def insert_missing_versions(self, rows: List[Dict[str, Any]]) -> int:
+        """
+        Record files the database has never seen, and leave the rest alone.
+
+        Insert-only on purpose. upsert_version() names id and model_id in its
+        SET list, so upserting a bare row for a file that is already
+        identified would wipe the very ids that make it identified. Here a
+        file_path that already has a row is simply skipped.
+
+        Args:
+            rows: file_path, file_name, file_extension, file_size, file_modified.
+
+        Returns:
+            How many rows were actually inserted.
+        """
+        if not rows:
+            return 0
+
+        now = datetime.now().isoformat()
+        with self._cursor() as cursor:
+            before = cursor.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
+            cursor.executemany("""
+                INSERT INTO model_versions (
+                    file_path, file_name, file_extension, file_size, file_modified,
+                    has_civitai_data, nsfw_level, scanned_at
+                ) VALUES (?, ?, ?, ?, ?, 0, 1, ?)
+                ON CONFLICT(file_path) DO NOTHING
+            """, [
+                (r.get("file_path"), r.get("file_name"), r.get("file_extension"),
+                 r.get("file_size"), r.get("file_modified"), now)
+                for r in rows if r.get("file_path")
+            ])
+            after = cursor.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
+            return after - before
+
     def count_unidentified(self) -> Dict[str, int]:
         """
         How many local files Civitai has no data for, and why not.

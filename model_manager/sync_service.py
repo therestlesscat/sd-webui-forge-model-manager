@@ -48,6 +48,8 @@ class SyncProgress:
     skipped: int = 0
     errors: int = 0
     not_found: int = 0
+    added: int = 0          # files the database had never seen
+    removed: int = 0        # rows whose file is no longer on disk
     current_model: str = ""
     error_messages: List[str] = field(default_factory=list)
     is_complete: bool = False
@@ -294,6 +296,61 @@ class SyncService:
             result.error = f"Unexpected error: {e}"
             return result
 
+    def _record_found_files(self, model_paths: List[str]) -> int:
+        """
+        Give every file found a row, so local-only models are not invisible.
+
+        Civitai does not know most LoRAs, VAEs and text encoders, and a sync
+        that recorded only what Civitai recognised left them out of the library
+        entirely: the file is on disk and the grid has never heard of it. Rows
+        already present are left untouched - see insert_missing_versions() for
+        why that matters.
+        """
+        rows = []
+        for path in model_paths:
+            row = {
+                "file_path": path,
+                "file_name": os.path.basename(path),
+                "file_extension": os.path.splitext(path)[1].lower(),
+                "file_size": 0,
+                "file_modified": None,
+            }
+            try:
+                stat = os.stat(path)
+                row["file_size"] = stat.st_size
+                row["file_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+            except OSError:
+                pass
+            rows.append(row)
+
+        added = get_models_db().insert_missing_versions(rows)
+        if added:
+            print(f"[ModelManager] Recorded {added} file(s) the database had not seen")
+        return added
+
+    def _forget_missing_files(self, found_paths: List[str]) -> int:
+        """
+        Drop rows for files that are no longer on disk.
+
+        Only ever called with the whole result of a disk walk. A partial list -
+        a target set, a search, an explicit path - is not evidence that
+        anything was deleted, and diffing against one would empty the library.
+        """
+        db = get_models_db()
+        if not found_paths:
+            # A walk that found nothing is a misconfigured directory setting or
+            # a drive that is not mounted, not a library that was deleted.
+            print("[ModelManager] Walk found no model files; leaving the database alone")
+            return 0
+
+        found = set(found_paths)
+        gone = [p for p in db.get_all_version_paths() if p and p not in found]
+        for path in gone:
+            db.delete_version(path)
+        if gone:
+            print(f"[ModelManager] Removed {len(gone)} model(s) no longer on disk")
+        return len(gone)
+
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
         """
         Keep only the files that already resolve to Civitai, or only those that do not.
@@ -491,16 +548,27 @@ class SyncService:
             max_workers = configured_hash_threads()
 
         # Get all models if not specified
-        if model_paths is None:
+        walked = model_paths is None
+        if walked:
             from .scan_service import ScanService
             scan_svc = ScanService()
             directories = scan_svc._get_model_directories()
             model_paths = scan_svc.find_model_files(directories)
 
+        # Both of these rest on having seen the whole disk, so they run before
+        # `targets` narrows the list: the complete set is the evidence, not
+        # whichever subset is about to be worked on.
+        added = removed = 0
+        if walked:
+            added = self._record_found_files(model_paths)
+            removed = self._forget_missing_files(model_paths)
+
         if targets in ("identified", "unidentified"):
             model_paths = self._filter_by_identification(model_paths, targets)
 
         self._progress = SyncProgress(total=len(model_paths))
+        self._progress.added = added
+        self._progress.removed = removed
 
         print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
 
@@ -637,14 +705,22 @@ class SyncService:
         missing = [v for v in versions if not os.path.exists(v["file_path"])]
         versions = [v for v in versions if os.path.exists(v["file_path"])]
 
+        # Proof about one row rather than a diff: this file was about to be
+        # refreshed and it is not there, so the row goes. Sound whatever the
+        # scope is, because nothing is inferred from what was not looked at.
+        for version in missing:
+            db.delete_version(version["file_path"])
+        if missing:
+            print(f"[ModelManager] Removed {len(missing)} model(s) no longer on disk")
+
         # With images this runs twice over the list - metadata, then galleries
         # - so the bar counts both passes rather than filling up halfway.
         passes = 2 if include_images else 1
         self._progress = SyncProgress(total=len(versions) * passes)
-        self._progress.skipped = len(missing)
+        self._progress.removed = len(missing)
         for version in missing:
             self._progress.error_messages.append(
-                f"File not found: {os.path.basename(version['file_path'])}"
+                f"Removed, file no longer on disk: {os.path.basename(version['file_path'])}"
             )
 
         if not versions:
