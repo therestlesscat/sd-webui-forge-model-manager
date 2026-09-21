@@ -547,7 +547,7 @@ class DownloadService:
         def do_sync():
             try:
                 from .sync_service import SyncService
-                from .models_db import get_models_db
+                from .db import get_models_db
                 sync = SyncService()
                 result = sync.sync_model(file_path, force=True)
                 if result.success:
