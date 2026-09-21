@@ -17,7 +17,7 @@ from ._browser_cache_ops import BrowserCacheOps
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 class ModelsDatabase:
@@ -131,6 +131,9 @@ class ModelsDatabase:
 
         if from_version < 12:
             self._migrate_to_v12(cursor)
+
+        if from_version < 13:
+            self._migrate_to_v13(cursor)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
@@ -564,6 +567,34 @@ class ModelsDatabase:
             )
 
         print("[ModelManager] Migration to v12 complete")
+
+    def _migrate_to_v13(self, cursor):
+        """Record when a Civitai hash lookup came back empty.
+
+        A model that was never on Civitai - most LoRAs, VAEs and text encoders
+        arrive from elsewhere - has has_civitai_data 0 forever, which is the
+        only thing a sync checks before deciding to work on a file. So every
+        run re-read those files in full to recompute six hashes and asked
+        Civitai again, always for nothing.
+
+        This column is that missing memory. It is advisory: a forced sync
+        ignores it, because a model can appear on Civitai later.
+        """
+        print("[ModelManager] Migrating to schema v13 (remembering failed Civitai lookups)...")
+
+        cursor.execute("PRAGMA table_info(model_versions)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if "civitai_lookup_failed_at" not in columns:
+            cursor.execute(
+                "ALTER TABLE model_versions ADD COLUMN civitai_lookup_failed_at TEXT"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_version_lookup_failed "
+                "ON model_versions(civitai_lookup_failed_at)"
+            )
+
+        print("[ModelManager] Migration to v13 complete")
     def _create_v11_indexes(self, cursor):
         """Create indexes used by grouped model list and preview queries."""
         cursor.execute(
@@ -838,6 +869,28 @@ class ModelsDatabase:
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         self._models.delete_version(file_path)
+
+    def set_lookup_failed(self, file_path: str, failed: bool = True):
+        """
+        Note whether Civitai knows this file, so a sync can stop retrying.
+
+        Called with False once a lookup succeeds, so a model that turns up on
+        Civitai later stops being marked.
+        """
+        stamp = datetime.now().isoformat() if failed else None
+        with self._cursor() as cursor:
+            cursor.execute(
+                "UPDATE model_versions SET civitai_lookup_failed_at = ? WHERE file_path = ?",
+                (stamp, file_path)
+            )
+
+    def count_lookup_failed(self) -> int:
+        """How many files a sync will skip because Civitai did not know them."""
+        with self._cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM model_versions WHERE civitai_lookup_failed_at IS NOT NULL"
+            )
+            return cursor.fetchone()[0]
 
     def set_downloaded_at(self, file_path: str):
         """

@@ -397,6 +397,16 @@ class SyncService:
                 print(f"[ModelManager] Skipping {model_name} (already synced)")
                 result.skipped = True
                 return result
+            # Civitai has already been asked about this file and did not know
+            # it. Most LoRAs, VAEs and text encoders never came from Civitai,
+            # so without this the next run would re-read the whole file to
+            # recompute its hashes and ask again, for nothing. Force ignores
+            # this, because a model can appear on Civitai later.
+            if existing and existing.get("civitai_lookup_failed_at"):
+                print(f"[ModelManager] Skipping {model_name} "
+                      f"(not on Civitai as of {existing['civitai_lookup_failed_at'][:10]})")
+                result.skipped = True
+                return result
 
         print(f"[ModelManager] Processing {model_name}...")
 
@@ -414,6 +424,7 @@ class SyncService:
 
             if not version_data:
                 print(f"[ModelManager] {model_name} not found on Civitai (tried all hash types)")
+                get_models_db().set_lookup_failed(model_path)
                 result.not_found = True
                 return result
 
@@ -473,6 +484,10 @@ class SyncService:
                 result.error = f"Database update failed: {db_error}"
                 return result
 
+            # It was found, so drop any earlier "not on Civitai" note. The
+            # accessor rather than `db`, which is only bound on some paths.
+            get_models_db().set_lookup_failed(model_path, failed=False)
+
             result.success = True
             has_more = next_cursor is not None if version_id else False
             print(f"[ModelManager] Synced {model_name}: {result.image_count} images (has_more: {has_more})")
@@ -480,6 +495,7 @@ class SyncService:
             return result
 
         except CivitaiNotFoundError:
+            get_models_db().set_lookup_failed(model_path)
             result.not_found = True
             return result
 

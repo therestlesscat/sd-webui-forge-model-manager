@@ -133,7 +133,9 @@ class ModelsOps:
         Columns deliberately absent from the SET list are owned by other
         flows and must not be touched here: downloaded_at (set once, from the
         download), next_images_cursor and images_sync_last_date (written by
-        image syncing, and written *before* this runs during a sync).
+        image syncing, and written *before* this runs during a sync), and
+        civitai_lookup_failed_at (written by the sync itself, either side of
+        this call).
         """
         with self._cursor() as cursor:
             # Handle file_hashes - can be dict or already JSON string
@@ -703,6 +705,7 @@ class ModelsOps:
             "downloaded_at": row["downloaded_at"] if "downloaded_at" in row.keys() else None,
             "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
             "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
+            "civitai_lookup_failed_at": row["civitai_lookup_failed_at"] if "civitai_lookup_failed_at" in row.keys() else None,
         }
 
     def _grouped_row_to_dict(self, row) -> Dict[str, Any]:
