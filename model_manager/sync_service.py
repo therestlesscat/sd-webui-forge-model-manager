@@ -893,7 +893,6 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     images_total = 0
     if include_images and include_prompts:
         counts = db.count_images_by_version()
-        known = [counts[v["id"]] for v in versions if counts.get(v["id"])]
         average = round(sum(counts.values()) / len(counts)) if counts else 0
         per_version = [counts.get(v["id"]) or average
                        for v in versions if v.get("id")]
@@ -902,7 +901,6 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         for start in range(0, len(per_version), SyncService.GALLERY_CHUNK):
             chunk = per_version[start:start + SyncService.GALLERY_CHUNK]
             prompt_requests += math.ceil(sum(chunk) / CivitaiClient.GENERATION_DATA_BATCH)
-        del known
 
     total = metadata_requests + image_requests + prompt_requests
     return {

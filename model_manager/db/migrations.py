@@ -777,7 +777,8 @@ def run_migrations(cursor, from_version: int, to_version: int,
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
     if from_version < 2:
-        _migrate_to_v2(cursor, db_path, db_dir)
+        # Only v4 takes the path and the directory; it makes a backup first.
+        _migrate_to_v2(cursor)
 
     if from_version < 3:
         _migrate_to_v3(cursor)
