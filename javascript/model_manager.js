@@ -6,6 +6,19 @@
 (function() {
     'use strict';
 
+    // Helpers shared with the Civitai Browser - see javascript/_mm_common.js
+    const {
+        onReady,
+        apiCall,
+        escapeHtml,
+        formatNumber,
+        isVideoUrl,
+        getImagePageCount,
+        setupLazyMedia,
+        renderResource,
+    } = window.MMCommon;
+    const IMAGE_PAGE_SIZE = window.MMCommon.IMAGE_PAGE_SIZE;
+
     // State
     let currentModels = [];
     let selectedModelIndex = null;
@@ -42,12 +55,7 @@
         if (width && height && (width !== cardWidth || height !== cardHeight)) {
             cardWidth = width;
             cardHeight = height;
-            const container = document.getElementById('model_manager_app');
-            if (container) {
-                container.style.setProperty('--mm-card-width', `${width}px`);
-                container.style.setProperty('--mm-card-height', `${height}px`);
-                console.log(`[ModelManager] Card size set to ${width}x${height}`);
-            }
+            window.MMCommon.applyCardSize(width, height, 'model_manager_app', 'mm', 'ModelManager');
         }
     }
 
@@ -216,8 +224,6 @@
     let nextImagesCursor = null;  // Cursor for loading more images
     let imagesSyncDate = null;    // Last sync date (null = never synced)
     let isLoadingMore = false;
-    const IMAGE_PAGE_SIZE = 100;
-    let lazyMediaObserver = null;
     const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
     // NSFW image filtering state
@@ -227,108 +233,13 @@
     let hiddenImageCount = 0;
 
     // Helper to detect video URLs
-    function isVideoUrl(url, type) {
-        if (!url) return false;
-        if (type === 'video') return true;
-        const lowerUrl = url.toLowerCase();
-        return lowerUrl.endsWith('.mp4') ||
-               lowerUrl.endsWith('.webm') ||
-               lowerUrl.includes('.mp4?') ||
-               lowerUrl.includes('.webm?');
-    }
 
-    function getImagePageCount(totalImages) {
-        return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
-    }
 
-    function setupLazyMedia(container) {
-        if (!container) return;
-
-        const lazyNodes = container.querySelectorAll('.mm-lazy-media[data-src]');
-        if (lazyNodes.length === 0) return;
-
-        const loadNode = (node) => {
-            const src = node.getAttribute('data-src');
-            if (!src) return;
-            node.setAttribute('src', src);
-            node.removeAttribute('data-src');
-            node.classList.remove('mm-lazy-media');
-            if (node.tagName === 'VIDEO') {
-                node.load();
-            }
-        };
-
-        if (!('IntersectionObserver' in window)) {
-            lazyNodes.forEach(loadNode);
-            return;
-        }
-
-        if (!lazyMediaObserver) {
-            lazyMediaObserver = new IntersectionObserver((entries) => {
-                entries.forEach((entry) => {
-                    if (!entry.isIntersecting) return;
-                    loadNode(entry.target);
-                    lazyMediaObserver.unobserve(entry.target);
-                });
-            }, {
-                root: null,
-                rootMargin: '350px 0px',
-                threshold: 0.01,
-            });
-        }
-
-        lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
-    }
 
     function renderImagePagination(totalPages, position = 'bottom') {
-        if (totalPages <= 1) return '';
-
-        const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const prevDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const nextDisabled = currentImagePage >= totalPages ? 'disabled' : '';
-        const lastDisabled = currentImagePage >= totalPages ? 'disabled' : '';
-
-        const maxVisible = 5;
-        let startPage = Math.max(1, currentImagePage - Math.floor(maxVisible / 2));
-        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-        if (endPage - startPage < maxVisible - 1) {
-            startPage = Math.max(1, endPage - maxVisible + 1);
-        }
-
-        const pageNumbers = [];
-        if (startPage > 1) {
-            pageNumbers.push({ page: 1, label: '1' });
-            if (startPage > 2) {
-                pageNumbers.push({ page: null, label: '...' });
-            }
-        }
-        for (let i = startPage; i <= endPage; i++) {
-            pageNumbers.push({ page: i, label: String(i) });
-        }
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                pageNumbers.push({ page: null, label: '...' });
-            }
-            pageNumbers.push({ page: totalPages, label: String(totalPages) });
-        }
-
-        const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
-            if (page === null) {
-                return `<span class="mm-page-ellipsis">${label}</span>`;
-            }
-            const activeClass = page === currentImagePage ? 'active' : '';
-            return `<button class="mm-page-num ${activeClass}" onclick="window.mmGoToImagePage(${page})">${label}</button>`;
-        }).join('');
-
-        return `
-            <div class="mm-image-pagination mm-pagination mm-image-pagination-${position}">
-                <button class="mm-btn mm-page-btn" onclick="window.mmFirstImagePage()" ${firstDisabled}>|&lt;</button>
-                <button class="mm-btn mm-page-btn" onclick="window.mmPrevImagePage()" ${prevDisabled}>← Prev</button>
-                <div class="mm-page-numbers">${pageNumbersHtml}</div>
-                <button class="mm-btn mm-page-btn" onclick="window.mmNextImagePage()" ${nextDisabled}>Next →</button>
-                <button class="mm-btn mm-page-btn" onclick="window.mmLastImagePage()" ${lastDisabled}>&gt;|</button>
-            </div>
-        `;
+        return window.MMCommon.renderImagePagination(
+            currentImagePage, totalPages, position, 'mm'
+        );
     }
 
     function scrollToModelImagesTop() {
@@ -368,26 +279,8 @@
     }
 
     // Wait for DOM
-    function onReady(callback) {
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            setTimeout(callback, 100);
-        } else {
-            document.addEventListener('DOMContentLoaded', callback);
-        }
-    }
 
     // API call helper
-    async function apiCall(endpoint, params = {}) {
-        const url = new URL(endpoint, window.location.origin);
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null && value !== '') {
-                url.searchParams.append(key, value);
-            }
-        });
-
-        const response = await fetch(url);
-        return response.json();
-    }
 
     // NSFW level order for "use max" mode
     const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
@@ -1737,32 +1630,6 @@
     }
 
     // Render a single resource (LoRA, VAE, etc)
-    function renderResource(resource) {
-        const type = resource.type || 'unknown';
-        const name = resource.name || 'Unknown';
-        const weight = resource.weight !== undefined ? resource.weight : null;
-
-        let typeClass = 'mm-resource-other';
-        let typeLabel = type;
-
-        if (type.toLowerCase() === 'lora') {
-            typeClass = 'mm-resource-lora';
-            typeLabel = 'LoRA';
-        } else if (type.toLowerCase() === 'vae') {
-            typeClass = 'mm-resource-vae';
-            typeLabel = 'VAE';
-        } else if (type.toLowerCase() === 'embedding' || type.toLowerCase() === 'ti') {
-            typeClass = 'mm-resource-embed';
-            typeLabel = 'Embed';
-        }
-
-        const weightStr = weight !== null ? ` (${weight})` : '';
-
-        return `<span class="mm-resource ${typeClass}" title="${escapeHtml(type)}: ${escapeHtml(name)}${weightStr}">
-                  <span class="mm-resource-type">${typeLabel}</span>
-                  <span class="mm-resource-name">${escapeHtml(name)}${weightStr}</span>
-                </span>`;
-    }
 
     // Show image metadata in modal
     window.mmShowImageMeta = function(imageIndex) {
@@ -2894,12 +2761,6 @@
     }
 
     // Utility functions
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
     function formatFileSize(bytes) {
         if (!bytes) return '0 B';
@@ -2913,12 +2774,6 @@
         return `${size.toFixed(1)} ${units[unitIndex]}`;
     }
 
-    function formatNumber(num) {
-        if (!num) return '0';
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-        return num.toString();
-    }
 
     function formatDate(dateStr) {
         if (!dateStr) return 'Unknown';

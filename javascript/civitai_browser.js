@@ -7,6 +7,19 @@
 (function() {
     'use strict';
 
+    // Helpers shared with the Model Manager - see javascript/_mm_common.js
+    const {
+        onReady,
+        apiCall,
+        escapeHtml,
+        formatNumber,
+        isVideoUrl,
+        getImagePageCount,
+        setupLazyMedia,
+        renderResource,
+    } = window.MMCommon;
+    const IMAGE_PAGE_SIZE = window.MMCommon.IMAGE_PAGE_SIZE;
+
     // State
     let currentModels = [];
     let currentPage = 1;
@@ -20,8 +33,6 @@
     let isLoadingImages = false;
     let activeDownloads = {};
     let showAllNsfwImages = false;  // Toggle for showing all images regardless of NSFW filter
-    const IMAGE_PAGE_SIZE = 100;
-    let lazyMediaObserver = null;
 
     // Card sizing (default values, updated from API)
     let cardWidth = 200;
@@ -32,12 +43,7 @@
         if (width && height && (width !== cardWidth || height !== cardHeight)) {
             cardWidth = width;
             cardHeight = height;
-            const container = document.getElementById('civitai_browser_app');
-            if (container) {
-                container.style.setProperty('--cb-card-width', `${width}px`);
-                container.style.setProperty('--cb-card-height', `${height}px`);
-                console.log(`[CivitaiBrowser] Card size set to ${width}x${height}`);
-            }
+            window.MMCommon.applyCardSize(width, height, 'civitai_browser_app', 'cb', 'CivitaiBrowser');
         }
     }
 
@@ -146,98 +152,12 @@
         return calculateEffectiveNsfwLevel(img) <= 5;
     }
 
-    function getImagePageCount(totalImages) {
-        return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
-    }
 
-    function setupLazyMedia(container) {
-        if (!container) return;
-
-        const lazyNodes = container.querySelectorAll('.mm-lazy-media[data-src]');
-        if (lazyNodes.length === 0) return;
-
-        const loadNode = (node) => {
-            const src = node.getAttribute('data-src');
-            if (!src) return;
-            node.setAttribute('src', src);
-            node.removeAttribute('data-src');
-            node.classList.remove('mm-lazy-media');
-            if (node.tagName === 'VIDEO') {
-                node.load();
-            }
-        };
-
-        if (!('IntersectionObserver' in window)) {
-            lazyNodes.forEach(loadNode);
-            return;
-        }
-
-        if (!lazyMediaObserver) {
-            lazyMediaObserver = new IntersectionObserver((entries) => {
-                entries.forEach((entry) => {
-                    if (!entry.isIntersecting) return;
-                    loadNode(entry.target);
-                    lazyMediaObserver.unobserve(entry.target);
-                });
-            }, {
-                root: null,
-                rootMargin: '350px 0px',
-                threshold: 0.01,
-            });
-        }
-
-        lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
-    }
 
     function renderImagePagination(totalPages, position = 'bottom') {
-        if (totalPages <= 1) return '';
-
-        const firstDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const prevDisabled = currentImagePage <= 1 ? 'disabled' : '';
-        const nextDisabled = currentImagePage >= totalPages ? 'disabled' : '';
-        const lastDisabled = currentImagePage >= totalPages ? 'disabled' : '';
-
-        const maxVisible = 5;
-        let startPage = Math.max(1, currentImagePage - Math.floor(maxVisible / 2));
-        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-        if (endPage - startPage < maxVisible - 1) {
-            startPage = Math.max(1, endPage - maxVisible + 1);
-        }
-
-        const pageNumbers = [];
-        if (startPage > 1) {
-            pageNumbers.push({ page: 1, label: '1' });
-            if (startPage > 2) {
-                pageNumbers.push({ page: null, label: '...' });
-            }
-        }
-        for (let i = startPage; i <= endPage; i++) {
-            pageNumbers.push({ page: i, label: String(i) });
-        }
-        if (endPage < totalPages) {
-            if (endPage < totalPages - 1) {
-                pageNumbers.push({ page: null, label: '...' });
-            }
-            pageNumbers.push({ page: totalPages, label: String(totalPages) });
-        }
-
-        const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
-            if (page === null) {
-                return `<span class="mm-page-ellipsis">${label}</span>`;
-            }
-            const activeClass = page === currentImagePage ? 'active' : '';
-            return `<button class="mm-page-num ${activeClass}" onclick="window.cbGoToImagePage(${page})">${label}</button>`;
-        }).join('');
-
-        return `
-            <div class="mm-image-pagination mm-pagination mm-image-pagination-${position}">
-                <button class="mm-btn mm-page-btn" onclick="window.cbFirstImagePage()" ${firstDisabled}>|&lt;</button>
-                <button class="mm-btn mm-page-btn" onclick="window.cbPrevImagePage()" ${prevDisabled}>← Prev</button>
-                <div class="mm-page-numbers">${pageNumbersHtml}</div>
-                <button class="mm-btn mm-page-btn" onclick="window.cbNextImagePage()" ${nextDisabled}>Next →</button>
-                <button class="mm-btn mm-page-btn" onclick="window.cbLastImagePage()" ${lastDisabled}>&gt;|</button>
-            </div>
-        `;
+        return window.MMCommon.renderImagePagination(
+            currentImagePage, totalPages, position, 'cb'
+        );
     }
 
     function scrollToBrowserImagesTop() {
@@ -277,25 +197,8 @@
     }
 
     // Wait for DOM
-    function onReady(callback) {
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            setTimeout(callback, 100);
-        } else {
-            document.addEventListener('DOMContentLoaded', callback);
-        }
-    }
 
     // API call helper
-    async function apiCall(endpoint, params = {}) {
-        const url = new URL(endpoint, window.location.origin);
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null && value !== '') {
-                url.searchParams.append(key, value);
-            }
-        });
-        const response = await fetch(url);
-        return response.json();
-    }
 
     // POST API call helper
     async function apiPost(endpoint, data = {}) {
@@ -1175,15 +1078,6 @@
     };
 
     // Helper to detect video URLs
-    function isVideoUrl(url, type) {
-        if (!url) return false;
-        if (type === 'video') return true;
-        const lowerUrl = url.toLowerCase();
-        return lowerUrl.endsWith('.mp4') ||
-               lowerUrl.endsWith('.webm') ||
-               lowerUrl.includes('.mp4?') ||
-               lowerUrl.includes('.webm?');
-    }
 
     // Render single image card - EXACTLY like Model Manager
     function renderImageCard(img, index) {
@@ -1338,32 +1232,6 @@
     }
 
     // Render a single resource (LoRA, VAE, etc)
-    function renderResource(resource) {
-        const type = resource.type || 'unknown';
-        const name = resource.name || 'Unknown';
-        const weight = resource.weight !== undefined ? resource.weight : null;
-
-        let typeClass = 'mm-resource-other';
-        let typeLabel = type;
-
-        if (type.toLowerCase() === 'lora') {
-            typeClass = 'mm-resource-lora';
-            typeLabel = 'LoRA';
-        } else if (type.toLowerCase() === 'vae') {
-            typeClass = 'mm-resource-vae';
-            typeLabel = 'VAE';
-        } else if (type.toLowerCase() === 'embedding' || type.toLowerCase() === 'ti') {
-            typeClass = 'mm-resource-embed';
-            typeLabel = 'Embed';
-        }
-
-        const weightStr = weight !== null ? ` (${weight})` : '';
-
-        return `<span class="mm-resource ${typeClass}" title="${escapeHtml(type)}: ${escapeHtml(name)}${weightStr}">
-                  <span class="mm-resource-type">${typeLabel}</span>
-                  <span class="mm-resource-name">${escapeHtml(name)}${weightStr}</span>
-                </span>`;
-    }
 
     // Split sampler/scheduler if combined
     function splitSamplerScheduler(sampler) {
@@ -1673,18 +1541,7 @@
     }
 
     // Utility functions
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    function formatNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-        return num.toString();
-    }
 
     function formatFileSize(bytes) {
         if (!bytes) return 'Unknown';
