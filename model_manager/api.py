@@ -413,6 +413,8 @@ def setup_api(app: FastAPI):
                             "tags": db_model.get("tags", []),
                             "creator": db_model.get("creator_username"),
                             "rating": db_model.get("stats_rating", 0),
+                            "thumbs_up": db_model.get("stats_thumbs_up", 0),
+                            "thumbs_down": db_model.get("stats_thumbs_down", 0),
                             "download_count": db_model.get("stats_download_count", 0),
                         }
 

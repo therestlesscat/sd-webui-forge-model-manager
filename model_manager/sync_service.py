@@ -545,6 +545,7 @@ class SyncService:
                     "creator_image_url": creator.get("image") if creator else None,
                     "stats_download_count": stats.get("downloadCount", 0),
                     "stats_thumbs_up": thumbs_up,
+                    "stats_thumbs_down": thumbs_down,
                     "stats_rating": rating,
                     "allow_no_credit": civitai_data.get("allowNoCredit", True),
                     "allow_commercial_use": civitai_data.get("allowCommercialUse"),

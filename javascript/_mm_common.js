@@ -51,6 +51,28 @@ window.MMCommon = (function() {
         return num.toString();
     }
 
+    /**
+     * A model's reception, as Civitai reports it since star ratings went away.
+     *
+     * Renders nothing when nobody has voted, so a card is not cluttered with
+     * two zeroes. A down count of zero still shows once there are up votes,
+     * because "52.9K up, 0 down" is worth knowing.
+     */
+    function renderThumbs(up, down) {
+        const ups = Number(up) || 0;
+        const downs = Number(down) || 0;
+        if (!ups && !downs) return '';
+
+        const total = ups + downs;
+        const share = Math.round((ups / total) * 100);
+        const title = `${ups.toLocaleString()} up, ${downs.toLocaleString()} down (${share}% positive)`;
+
+        return `<span class="mm-thumbs" title="${escapeHtml(title)}">`
+             + `<span class="mm-thumbs-up">▲ ${formatNumber(ups)}</span>`
+             + `<span class="mm-thumbs-down">▼ ${formatNumber(downs)}</span>`
+             + `</span>`;
+    }
+
     function isVideoUrl({ url, type }) {
         if (!url) return false;
         if (type === 'video') return true;
@@ -206,6 +228,7 @@ window.MMCommon = (function() {
         apiCall,
         escapeHtml,
         formatNumber,
+        renderThumbs,
         isVideoUrl,
         getImagePageCount,
         setupLazyMedia,

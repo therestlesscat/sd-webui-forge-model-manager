@@ -12,6 +12,7 @@
         apiCall,
         escapeHtml,
         formatNumber,
+        renderThumbs,
         isVideoUrl,
         getImagePageCount,
         setupLazyMedia,
@@ -654,9 +655,10 @@
             ? `<span class="badge base-model">${escapeHtml(model.base_model)}</span>`
             : '';
 
-        const ratingHtml = model.rating > 0
-            ? `<span title="Rating">★ ${model.rating.toFixed(1)}</span>`
-            : '';
+        // Civitai retired star ratings; thumbs are what it reports now, and
+        // our stats_rating is only those two numbers folded into one. Show the
+        // pair rather than the derivation.
+        const thumbsHtml = renderThumbs(model.thumbs_up, model.thumbs_down);
 
         const downloadsHtml = model.download_count > 0
             ? `<span title="Downloads">↓ ${formatNumber(model.download_count)}</span>`
@@ -697,7 +699,7 @@
                     </div>
                     <div class="model-card-stats">
                         <span>${formatFileSize(model.file_size)}</span>
-                        ${ratingHtml}
+                        ${thumbsHtml}
                         ${downloadsHtml}
                     </div>
                 </div>
