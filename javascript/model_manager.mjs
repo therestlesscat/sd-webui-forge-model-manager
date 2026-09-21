@@ -2807,6 +2807,9 @@ function syncDialogChoice() {
         staleDays: scope === 'stale'
             ? parseInt(document.getElementById('mm_sync_stale_days')?.value || '0', 10)
             : 0,
+        downloadedDays: scope === 'downloaded'
+            ? parseInt(document.getElementById('mm_sync_downloaded_days')?.value || '0', 10)
+            : 0,
         images: document.getElementById('mm_sync_images')?.checked || false,
         prompts: document.getElementById('mm_sync_prompts')?.checked || false,
         rehash: document.getElementById('mm_sync_rehash')?.checked || false,
@@ -2860,6 +2863,7 @@ function refreshSyncEstimate() {
                 include_images: choice.images,
                 include_prompts: choice.images && choice.prompts,
                 stale_days: choice.staleDays,
+                downloaded_days: choice.downloadedDays,
             };
             if (choice.scope === 'results') {
                 params.paths = (await resolveResultPaths()).join(',');
@@ -2878,7 +2882,8 @@ function refreshSyncEstimate() {
             cost('mm_cost_images', requests.images, seconds.images);
             cost('mm_cost_prompts', requests.prompts, seconds.prompts);
 
-            fillStaleWindows(windows);
+            fillWindows('mm_sync_stale_days', windows);
+            fillWindows('mm_sync_downloaded_days', data.download_windows);
 
             const allEl = document.getElementById('mm_scope_all');
             if (allEl && typeof estimate.all_versions === 'number') {
@@ -2902,9 +2907,9 @@ function refreshSyncEstimate() {
     }, 120);
 }
 
-/** The staleness windows, each carrying how many models it would take. */
-function fillStaleWindows(windows) {
-    const select = document.getElementById('mm_sync_stale_days');
+/** A window dropdown, each option carrying how many models it would take. */
+function fillWindows(selectId, windows) {
+    const select = document.getElementById(selectId);
     if (!select || !windows || !windows.length) return;
 
     const chosen = select.value;
@@ -2995,12 +3000,14 @@ async function startSyncFromDialog() {
         includeImages: choice.images,
         includePrompts: choice.images && choice.prompts,
         staleDays: choice.staleDays,
+        downloadedDays: choice.downloadedDays,
         paths,
     });
 }
 
 async function startMetadataSync({ includeImages = false, includePrompts = true,
-                                   staleDays = 0, paths = null } = {}) {
+                                   staleDays = 0, downloadedDays = 0,
+                                   paths = null } = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -3014,6 +3021,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             include_images: String(includeImages),
             include_prompts: String(includePrompts),
             stale_days: String(staleDays),
+            downloaded_days: String(downloadedDays),
         });
         if (paths && paths.length) body.set('paths', paths.join(','));
 
@@ -3443,9 +3451,17 @@ function bindElements() {
             if (e.target.id === 'mm_sync_images' || e.target.id === 'mm_sync_rehash') {
                 syncDialogDependencies();
             }
-            if (e.target.id === 'mm_sync_stale_days') {
-                const stale = syncDialog.querySelector('input[name="mm_sync_scope"][value="stale"]');
-                if (stale) stale.checked = true;
+            // Touching a window picks the scope it belongs to, so the two
+            // do not have to be set in the right order.
+            const SCOPE_OF = {
+                mm_sync_stale_days: 'stale',
+                mm_sync_downloaded_days: 'downloaded',
+            };
+            const scope = SCOPE_OF[e.target.id];
+            if (scope) {
+                const radio = syncDialog.querySelector(
+                    `input[name="mm_sync_scope"][value="${scope}"]`);
+                if (radio) radio.checked = true;
             }
             refreshSyncEstimate();
         });

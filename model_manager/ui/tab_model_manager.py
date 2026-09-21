@@ -212,6 +212,11 @@ def create_ui():
                                 <span>Not synced in</span>
                                 <select id="mm_sync_stale_days" class="mm-dialog-select"></select>
                             </label>
+                            <label class="mm-dialog-option">
+                                <input type="radio" name="mm_sync_scope" value="downloaded">
+                                <span>Downloaded in</span>
+                                <select id="mm_sync_downloaded_days" class="mm-dialog-select"></select>
+                            </label>
                         </div>
 
                         <div class="mm-dialog-section">

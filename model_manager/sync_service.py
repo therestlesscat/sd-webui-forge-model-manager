@@ -555,6 +555,7 @@ class SyncService:
         include_images: bool = False,
         include_prompts: bool = True,
         synced_before: Optional[str] = None,
+        downloaded_after: Optional[str] = None,
         callback: Optional[Callable[[SyncProgress], None]] = None,
         max_workers: Optional[int] = None
     ) -> SyncProgress:
@@ -582,6 +583,8 @@ class SyncService:
                 a request per thirty images, which is most of a full sync.
             synced_before: Only refresh models last refreshed before this ISO
                 timestamp, for "everything I have not touched in a week".
+            downloaded_after: Only refresh versions downloaded since this ISO
+                timestamp, for "whatever I added this week".
             callback: Called after each version with progress.
             max_workers: Threads used for the per-version work. None derives
                 it from the configured request rate, which is what actually
@@ -597,7 +600,8 @@ class SyncService:
             max_workers = self._workers_for_rate()
 
         db = get_models_db()
-        versions = db.get_linked_versions(synced_before=synced_before)
+        versions = db.get_linked_versions(synced_before=synced_before,
+                                          downloaded_after=downloaded_after)
 
         if model_paths is not None:
             wanted = set(model_paths)
@@ -861,6 +865,7 @@ def configured_rate() -> float:
 
 def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
                            synced_before: Optional[str] = None,
+                           downloaded_after: Optional[str] = None,
                            include_images: bool = False,
                            include_prompts: bool = True,
                            rate: Optional[float] = None) -> Dict[str, Any]:
@@ -879,6 +884,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     Args:
         model_paths: Restrict to these files, or None for everything.
         synced_before: Only models last refreshed before this ISO timestamp.
+        downloaded_after: Only versions downloaded since this ISO timestamp.
         include_images: Whether galleries would be refetched.
         include_prompts: Whether generation data would be looked up.
         rate: Requests per second, or None to read the setting.
@@ -887,7 +893,8 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         Counts, a request breakdown, and the seconds each part would take.
     """
     db = get_models_db()
-    versions = db.get_linked_versions(synced_before=synced_before)
+    versions = db.get_linked_versions(synced_before=synced_before,
+                                      downloaded_after=downloaded_after)
 
     if model_paths is not None:
         wanted = set(model_paths)
@@ -936,17 +943,29 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     }
 
 
-def sync_window_counts(model_paths: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+def sync_window_counts(model_paths: Optional[List[str]] = None,
+                       basis: str = "synced") -> List[Dict[str, Any]]:
     """
-    How many versions each staleness window would select.
+    How many versions each window would select.
 
     The dialog shows these beside the windows, so "not synced in 7 days" is
     never a guess about what it will do.
+
+    Args:
+        model_paths: Restrict to these files, or None for everything.
+        basis: "synced" counts models not refreshed within the window;
+            "downloaded" counts versions that arrived inside it. The two run
+            in opposite directions - one is looking for the neglected, the
+            other for the new - which is why they are separate scopes rather
+            than one control with a sign.
     """
     db = get_models_db()
     out = []
     for label, days in SYNC_WINDOWS:
-        versions = db.get_linked_versions(synced_before=window_cutoff(days))
+        if basis == "downloaded":
+            versions = db.get_linked_versions(downloaded_after=window_cutoff(days))
+        else:
+            versions = db.get_linked_versions(synced_before=window_cutoff(days))
         if model_paths is not None:
             wanted = set(model_paths)
             versions = [v for v in versions if v["file_path"] in wanted]

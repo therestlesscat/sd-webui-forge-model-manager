@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 class ModelsDatabase:
@@ -229,9 +229,10 @@ class ModelsDatabase:
         """How many images are cached per version. See db/images_ops.py."""
         return self._images.count_by_version(version_ids)
 
-    def get_linked_versions(self, synced_before: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_linked_versions(self, synced_before: Optional[str] = None,
+                            downloaded_after: Optional[str] = None) -> List[Dict[str, Any]]:
         """Local versions that already resolve to a Civitai model."""
-        return self._models.get_linked_versions(synced_before)
+        return self._models.get_linked_versions(synced_before, downloaded_after)
 
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""

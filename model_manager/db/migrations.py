@@ -800,6 +800,28 @@ def _migrate_to_v15(cursor):
     print("[ModelManager] Migration to v15 complete")
 
 
+def _migrate_to_v16(cursor):
+    """Forget the sync times inherited from updated_at.
+
+    v15 gave civitai_synced_at the value of updated_at, which was the best
+    estimate available - except that updated_at is exactly the field v15
+    existed to stop trusting. A scan stamps it for every model it finds, so
+    what was copied in was "when you last pressed Refresh DB", dressed up as
+    "when Civitai was last asked". Every model therefore claimed to have been
+    synced moments ago and the staleness windows stayed empty.
+
+    NULL means no record of a sync, which the windows already read as "due" -
+    so they now offer everything until each model is genuinely synced, and are
+    right from then on. A model synced today loses that fact once, which is
+    the cheaper mistake: the other direction hides it forever.
+    """
+    print("[ModelManager] Migrating to schema v16 (forgetting inherited sync times)...")
+
+    cursor.execute("UPDATE civitai_models SET civitai_synced_at = NULL")
+    print("[ModelManager] Cleared %d inherited sync times" % cursor.rowcount)
+    print("[ModelManager] Migration to v16 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -847,6 +869,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 15:
         _migrate_to_v15(cursor)
+
+    if from_version < 16:
+        _migrate_to_v16(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
