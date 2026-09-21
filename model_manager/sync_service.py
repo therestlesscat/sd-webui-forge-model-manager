@@ -17,6 +17,7 @@ from .civitai_api import (
     enrich_images_with_generation_data,
 )
 from .storage import write_civitai_info
+from .nsfw import UNKNOWN
 from .db import get_models_db
 
 # Try to import blake3, fall back gracefully if not available
@@ -556,7 +557,7 @@ class SyncService:
                     "description": civitai_data.get("description"),
                     "type": civitai_data.get("type", "Checkpoint"),
                     "nsfw": civitai_data.get("nsfw", False),
-                    "nsfw_level": civitai_data.get("nsfwLevel", 64),  # Default to Unknown
+                    "nsfw_level": civitai_data.get("nsfwLevel", UNKNOWN),
                     "tags": civitai_data.get("tags", []),
                     "creator_username": creator.get("username") if creator else None,
                     "creator_image_url": creator.get("image") if creator else None,
@@ -584,7 +585,7 @@ class SyncService:
                         "base_model": matched_version.get("baseModel"),
                         "published_at": matched_version.get("publishedAt"),
                         "created_at": matched_version.get("createdAt"),
-                        "nsfw_level": matched_version.get("nsfwLevel", 64),  # Default to Unknown
+                        "nsfw_level": matched_version.get("nsfwLevel", UNKNOWN),
                         "trained_words": matched_version.get("trainedWords", []),
                         "description": matched_version.get("description"),
                         "stats_download_count": version_stats.get("downloadCount", 0),
@@ -613,7 +614,7 @@ class SyncService:
                     "base_model": civitai_data.get("baseModel"),
                     "published_at": civitai_data.get("publishedAt"),
                     "created_at": civitai_data.get("createdAt"),
-                    "nsfw_level": civitai_data.get("nsfwLevel", 64),  # Default to Unknown
+                    "nsfw_level": civitai_data.get("nsfwLevel", UNKNOWN),
                     "trained_words": civitai_data.get("trainedWords", []),
                     "description": civitai_data.get("description"),
                     "stats_download_count": version_stats.get("downloadCount", 0),

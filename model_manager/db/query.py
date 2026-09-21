@@ -18,6 +18,8 @@ does.
 import json
 import os
 import time
+
+from ..nsfw import UNKNOWN, max_mode_ceiling, model_level_sql
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
@@ -115,26 +117,24 @@ def query_models_grouped(
         params.append(base_model)
 
     if nsfw_levels:
-        # Effective NSFW level = max(model nsfw, version nsfw, max image nsfw)
-        # Image effective_nsfw_level is pre-calculated at sync time
-        effective_level_expr = """MAX(
-            COALESCE(m.nsfw_level, 64),
-            COALESCE(v.nsfw_level, 64),
-            COALESCE((
-                SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id
-            ), 64)
-        )"""
+        # The same rule as nsfw.model_level(), expressed for the database so
+        # the grid can filter without loading every row.
+        effective_level_expr = model_level_sql(
+            "m.nsfw_level",
+            "v.nsfw_level",
+            "SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id",
+        )
 
         if nsfw_mode == "contains":
-            # Contains mode: include models matching ANY selected level
+            # Exactly the chosen levels, nothing else.
             placeholders = ','.join(['?'] * len(nsfw_levels))
             conditions.append(f"({effective_level_expr}) IN ({placeholders})")
             params.extend(nsfw_levels)
         else:
-            # Max mode (default): show models whose highest level <= max selected
-            max_level = max(nsfw_levels)
+            # Everything up to the highest chosen level. See max_mode_ceiling
+            # for why this is a `<` against a doubled bound.
             conditions.append(f"({effective_level_expr}) < ?")
-            params.append(max_level * 2)
+            params.append(max_mode_ceiling(nsfw_levels))
 
     if has_civitai is not None:
         conditions.append("v.has_civitai_data = ?")
@@ -274,7 +274,7 @@ def query_models_grouped(
         ranked AS (
             SELECT
                 fv.*,
-                COALESCE(ia.max_image_nsfw, 64) as max_image_nsfw,
+                COALESCE(ia.max_image_nsfw, {UNKNOWN}) as max_image_nsfw,
                 {preview_url_column} as preview_url,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)

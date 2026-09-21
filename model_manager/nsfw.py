@@ -146,6 +146,37 @@ def max_image_level(images: Iterable[Dict[str, Any]]) -> int:
 
 # ------------------------------------------------------------------- models
 
+def max_mode_ceiling(levels: Iterable[int]) -> int:
+    """
+    The exclusive upper bound for a "nothing above this" filter.
+
+    Levels are bit flags, so a model can sit at 3 - PG|PG-13 - meaning its
+    gallery spans both. Asking for "PG-13 and below" therefore cannot be
+    `<= 2`, which would exclude that model; it has to be "no bit set at or
+    above the next flag up", which is `< 4`.
+
+    Returns the bound to compare with `<`, so callers do not have to know
+    that doubling the highest chosen level is what expresses it.
+    """
+    chosen = [level for level in levels if level]
+    return (max(chosen) * 2) if chosen else (UNKNOWN * 2)
+
+
+def model_level_sql(model_column: str, version_column: str, images_subquery: str) -> str:
+    """
+    model_level(), written as SQL.
+
+    The grid filters on this in the database rather than in Python, so the
+    rule exists twice; keeping the SQL here means it is at least beside the
+    Python it has to agree with.
+    """
+    return (
+        f"MAX(COALESCE({model_column}, {UNKNOWN}), "
+        f"COALESCE({version_column}, {UNKNOWN}), "
+        f"COALESCE(({images_subquery}), {UNKNOWN}))"
+    )
+
+
 def model_level(model_level_: Optional[int],
                 version_level: Optional[int],
                 highest_image_level: Optional[int]) -> int:
