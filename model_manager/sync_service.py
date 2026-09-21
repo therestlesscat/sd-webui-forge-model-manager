@@ -436,22 +436,7 @@ class SyncService:
         Returns:
             Dict mapping hash type to value.
         """
-        result = {}
-        if hashes.sha256:
-            result["sha256"] = hashes.sha256
-        if hashes.autov2:
-            result["autov2"] = hashes.autov2
-        if hashes.autov3:
-            result["autov3"] = hashes.autov3
-        if hashes.autov1:
-            result["autov1"] = hashes.autov1
-        if hashes.crc32:
-            result["crc32"] = hashes.crc32
-        if hashes.blake3:
-            result["blake3"] = hashes.blake3
-        if hashes.tensor_sha256:
-            result["tensor_sha256"] = hashes.tensor_sha256
-        return result
+        return hashes.to_dict()
 
     def sync_all(
         self,
