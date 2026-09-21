@@ -234,6 +234,10 @@ class ModelsDatabase:
         """Local versions that already resolve to a Civitai model."""
         return self._models.get_linked_versions(synced_before, downloaded_after)
 
+    def insert_missing_versions(self, rows: List[Dict[str, Any]]) -> int:
+        """Record files not already in the database. See db/models_ops.py."""
+        return self._models.insert_missing_versions(rows)
+
     def count_unidentified(self) -> Dict[str, int]:
         """How many local files have no Civitai data. See db/models_ops.py."""
         return self._models.count_unidentified()
