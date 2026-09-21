@@ -351,15 +351,29 @@ class DownloadService:
             self._release_tqdm_position(progress.version_id)
 
     @staticmethod
-    def pick_file_index(files: List[Dict[str, Any]], file_index: Optional[int] = None) -> int:
+    def pick_file_index(
+        files: List[Dict[str, Any]],
+        file_index: Optional[int] = None,
+        file_id: Optional[int] = None
+    ) -> int:
         """
         Choose which of a version's files to download.
 
         files[0] is not the primary file for roughly one version in eleven -
         it is often the full fp32 weights, about twice the size of the pruned
-        fp16 file most people want. Honour an explicit index, otherwise take
-        whichever file Civitai marks primary.
+        fp16 file most people want. So, in order of preference:
+
+          - `file_id`, which the file picker sends. It survives the list being
+            ordered differently between the search that drew the picker and the
+            fetch that serves the download, which an index would not.
+          - `file_index`, a position in this list.
+          - whichever file Civitai marks primary.
         """
+        if file_id is not None:
+            for index, file_info in enumerate(files):
+                if file_info.get("id") == file_id:
+                    return index
+
         if file_index is not None and 0 <= file_index < len(files):
             return file_index
 
@@ -374,7 +388,8 @@ class DownloadService:
         version_id: int,
         model_data: Dict[str, Any],
         version_data: Dict[str, Any],
-        file_index: Optional[int] = None
+        file_index: Optional[int] = None,
+        file_id: Optional[int] = None
     ) -> DownloadProgress:
         """Download a model version from Civitai."""
         from modules import shared
@@ -416,7 +431,7 @@ class DownloadService:
                 progress.error = "No files available for download"
                 return progress
 
-            file_info = files[self.pick_file_index(files, file_index)]
+            file_info = files[self.pick_file_index(files, file_index, file_id)]
             file_name = file_info.get("name", f"model_{version_id}.safetensors")
             download_url = file_info.get("downloadUrl") or version_data.get("downloadUrl")
 
@@ -492,13 +507,14 @@ class DownloadService:
         version_id: int,
         model_data: Dict[str, Any],
         version_data: Dict[str, Any],
-        file_index: Optional[int] = None
+        file_index: Optional[int] = None,
+        file_id: Optional[int] = None
     ) -> DownloadProgress:
         """Queue a download for parallel processing."""
         progress = DownloadProgress(version_id=version_id)
         files = version_data.get("files", [])
         progress.file_name = (
-            files[self.pick_file_index(files, file_index)].get("name", "Unknown")
+            files[self.pick_file_index(files, file_index, file_id)].get("name", "Unknown")
             if files else "Unknown"
         )
 
@@ -513,7 +529,8 @@ class DownloadService:
             version_id,
             model_data,
             version_data,
-            file_index
+            file_index,
+            file_id
         )
 
         return progress

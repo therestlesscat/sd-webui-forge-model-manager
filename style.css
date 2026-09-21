@@ -1853,6 +1853,18 @@ body.mm-modal-open {
     color: #fbbf24 !important;
 }
 
+/* Picks which of a version's files to download. Only rendered when a
+   version actually ships more than one. */
+#civitai_browser_app .cb-file-select {
+    max-width: 260px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color-primary, #374151);
+    background: var(--input-background-fill, #1f2937);
+    color: var(--body-text-color, #e5e7eb);
+    font-size: 0.85em;
+}
+
 /* A filter that does not apply to the current Type */
 .cb-filter-disabled {
     opacity: 0.45;

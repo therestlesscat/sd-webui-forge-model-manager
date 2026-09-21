@@ -1677,7 +1677,8 @@ def setup_api(app: FastAPI):
     async def civitai_download_model(
         version_id: int = Form(...),
         model_id: int = Form(...),
-        file_index: Optional[int] = Form(default=None)
+        file_index: Optional[int] = Form(default=None),
+        file_id: Optional[int] = Form(default=None)
     ):
         """
         Start downloading a model version from Civitai.
@@ -1685,9 +1686,9 @@ def setup_api(app: FastAPI):
         Requires model_id and version_id. Fetches full model/version data
         then queues the download.
 
-        file_index picks one of the version's files by position. Leave it out
-        and the file Civitai marks primary is used, which is not always the
-        first one.
+        file_id names one of the version's files outright and is what the file
+        picker sends; file_index picks one by position. Leave both out and the
+        file Civitai marks primary is used, which is not always the first one.
         """
         try:
             from .download_service import get_download_service
@@ -1724,7 +1725,8 @@ def setup_api(app: FastAPI):
                 version_id=version_id,
                 model_data=model_data,
                 version_data=version_data,
-                file_index=file_index
+                file_index=file_index,
+                file_id=file_id
             )
 
             return JSONResponse({
