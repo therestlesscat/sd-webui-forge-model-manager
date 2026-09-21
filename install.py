@@ -25,7 +25,6 @@ def install():
     """Install required dependencies."""
     deps = [
         ("blake3", "blake3"),  # (pip package name, import name)
-        ("aria2", "aria2"),    # Fast parallel downloader
     ]
 
     pkgs = []

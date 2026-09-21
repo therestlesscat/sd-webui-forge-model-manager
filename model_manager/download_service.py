@@ -59,7 +59,7 @@ class DownloadService:
     Service for downloading models from Civitai.
 
     Features:
-    - aria2c support for faster downloads (with fallback to requests)
+    - Streaming HTTP downloads with retries and terminal progress bars
     - Parallel download queue
     - Folder template processing
     - Automatic metadata file creation
