@@ -109,7 +109,11 @@ class CivitaiClient:
     # Undocumented: treat failures as non-fatal and degrade gracefully.
     TRPC_BASE_URL = "https://civitai.com/api/trpc/"
     GENERATION_DATA_PROC = "image.getGenerationData"
-    GENERATION_DATA_BATCH = 20  # 50+ returns HTTP 400
+    # Civitai's tRPC endpoint accepts at most 30 procedures per request:
+    # 31 is rejected with HTTP 400, 30 is not. The rate limiter charges
+    # one token per request whatever the batch holds, so the difference
+    # between 20 and 30 is a third off every gallery refresh.
+    GENERATION_DATA_BATCH = 30
 
     # Rate limits (requests per second).
     # Civitai was measured serving ~10 req/s without complaint; these stay well

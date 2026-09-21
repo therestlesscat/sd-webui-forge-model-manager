@@ -14,7 +14,9 @@ from .civitai import (
     CivitaiClient,
     CivitaiAPIError,
     CivitaiNotFoundError,
+    apply_generation_data,
     enrich_images_with_generation_data,
+    generation_ids_needing_lookup,
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
 from .storage import write_civitai_info
@@ -559,7 +561,7 @@ class SyncService:
         model_paths: Optional[List[str]] = None,
         include_images: bool = False,
         callback: Optional[Callable[[SyncProgress], None]] = None,
-        max_workers: int = 4
+        max_workers: Optional[int] = None
     ) -> SyncProgress:
         """
         Refresh Civitai data for models that already resolve, without hashing.
@@ -580,13 +582,18 @@ class SyncService:
                 expensive half: images cannot be batched, and the existing
                 rows for a version are replaced.
             callback: Called after each version with progress.
-            max_workers: Threads used for the per-version work.
+            max_workers: Threads used for the per-version work. None derives
+                it from the configured request rate, which is what actually
+                bounds the sync - a thread beyond that only waits for a token.
 
         Returns:
             Final SyncProgress with summary.
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
+
+        if max_workers is None:
+            max_workers = self._workers_for_rate()
 
         db = get_models_db()
         versions = db.get_linked_versions()
@@ -598,7 +605,10 @@ class SyncService:
         missing = [v for v in versions if not os.path.exists(v["file_path"])]
         versions = [v for v in versions if os.path.exists(v["file_path"])]
 
-        self._progress = SyncProgress(total=len(versions))
+        # With images this runs twice over the list - metadata, then galleries
+        # - so the bar counts both passes rather than filling up halfway.
+        passes = 2 if include_images else 1
+        self._progress = SyncProgress(total=len(versions) * passes)
         self._progress.skipped = len(missing)
         for version in missing:
             self._progress.error_messages.append(
@@ -650,9 +660,6 @@ class SyncService:
                     json.loads(json.dumps(model_data)), version["id"]
                 )
 
-                if include_images:
-                    self._refresh_images(version["id"], name)
-
                 if not write_civitai_info(path, payload):
                     raise RuntimeError("could not write civitai.info")
 
@@ -681,25 +688,108 @@ class SyncService:
                 if self._cancel_requested:
                     break
 
+        if include_images and not self._cancel_requested:
+            self._refresh_galleries(versions, callback, max_workers)
+
         self._progress.is_complete = True
         self._progress.current_model = ""
         print(f"[ModelManager] Metadata sync complete: {self._progress.synced} updated, "
               f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
         return self._progress
 
-    def _refresh_images(self, version_id: int, model_name: str) -> None:
-        """Replace a version's cached gallery with a fresh first page."""
-        images_result = self.client.get_model_images(version_id, cursor=None, limit=100)
-        images = images_result.get("images", [])
-        # /images returns meta: null; generation data comes from elsewhere.
-        enrich_images_with_generation_data(self.client, images)
+    # Galleries are refreshed a chunk of versions at a time, not one by one.
+    # The generation data behind them is fetched by id, 30 ids per request,
+    # and a batch filled from one gallery is mostly half-empty: 90 images
+    # means three full requests and one carrying ten. Pooling a chunk's ids
+    # fills every batch but the last, which over this library is ~470 fewer
+    # requests - and the rate limiter charges one token per request.
+    GALLERY_CHUNK = 40
 
+    def _workers_for_rate(self) -> int:
+        """
+        How many threads the configured request rate can keep busy.
+
+        Every request takes a token from one shared bucket, so throughput is
+        the rate, not the thread count; threads only exist to cover the time
+        a request spends in flight. One thread per request-per-second covers a
+        round trip of up to a second, which is past what Civitai takes.
+        """
+        rate = getattr(getattr(self.client, "rate_limiter", None),
+                       "tokens_per_second", 4.0)
+        return max(4, min(int(rate + 0.5), 12))
+
+    def _refresh_galleries(self,
+                           versions: List[Dict[str, Any]],
+                           callback: Optional[Callable[[SyncProgress], None]],
+                           max_workers: int) -> None:
+        """Replace each version's cached gallery with a fresh first page."""
         db = get_models_db()
-        db.clear_version_images(version_id)
-        if images:
-            db.store_images(version_id, page=1, images=images)
-        db.update_version_images_state(version_id, images_result.get("next_cursor"))
-        print(f"[ModelManager] Refreshed {len(images)} images for {model_name}")
+
+        for start in range(0, len(versions), self.GALLERY_CHUNK):
+            if self._cancel_requested:
+                return
+
+            chunk = versions[start:start + self.GALLERY_CHUNK]
+            galleries: List[Tuple[int, List[Dict[str, Any]]]] = []
+
+            def fetch(version: Dict[str, Any]) -> None:
+                if self._cancel_requested or not version.get("id"):
+                    # Linked to a model but with no version id of its own, so
+                    # there is no gallery to ask for.
+                    return
+                name = os.path.basename(version["file_path"])
+                with self._progress_lock:
+                    self._progress.current_model = f"Images: {name}"
+                try:
+                    result = self.client.get_model_images(
+                        version["id"], cursor=None, limit=100
+                    )
+                    images = result.get("images", [])
+                except Exception as e:
+                    with self._progress_lock:
+                        self._progress.errors += 1
+                        self._progress.error_messages.append(f"{name}: images: {e}")
+                    images = []
+                with self._progress_lock:
+                    galleries.append((version["id"], images))
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for future in as_completed([executor.submit(fetch, v) for v in chunk]):
+                    future.result()
+
+            # One pooled lookup for the whole chunk, then hand each gallery
+            # back the rows that belong to it.
+            pooled: List[int] = []
+            for _, images in galleries:
+                pooled.extend(generation_ids_needing_lookup(images))
+
+            generation_data: Dict[int, Dict[str, Any]] = {}
+            if pooled:
+                try:
+                    generation_data = self.client.get_generation_data(pooled)
+                except Exception as e:
+                    print(f"[ModelManager] Generation data lookup failed: {e}")
+
+            with self._progress_lock:
+                self._progress.processed += len(chunk) - len(galleries)
+
+            for version_id, images in galleries:
+                if generation_data:
+                    apply_generation_data(images, generation_data)
+                try:
+                    db.clear_version_images(version_id)
+                    if images:
+                        db.store_images(version_id, page=1, images=images)
+                except Exception as e:
+                    with self._progress_lock:
+                        self._progress.errors += 1
+                        self._progress.error_messages.append(f"images {version_id}: {e}")
+
+                with self._progress_lock:
+                    self._progress.processed += 1
+
+            if callback:
+                callback(self._progress)
 
     def cancel(self):
         """Request cancellation of the sync operation."""
