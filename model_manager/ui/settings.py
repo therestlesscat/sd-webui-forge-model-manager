@@ -105,6 +105,27 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_hash_threads",
+        shared.OptionInfo(
+            default=4,
+            label="Sync: Hashing threads",
+            component=gr.Slider,
+            component_args={
+                "minimum": 1,
+                "maximum": 16,
+                "step": 1,
+            },
+            section=section,
+        ).info("How many model files to hash at once when identifying them. "
+               "Identifying a file means reading all of it, so this is usually "
+               "limited by the drive rather than the CPU, and past the point "
+               "where the drive is saturated more threads buy nothing. Raise it "
+               "for a fast NVMe or an array, lower it for a spinning disk, where "
+               "parallel reads make the head seek, or if a sync makes the machine "
+               "unresponsive.")
+    )
+
+    shared.opts.add_option(
         "model_manager_civitai_min_prompt_images",
         shared.OptionInfo(
             default=1,
