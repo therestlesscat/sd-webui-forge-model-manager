@@ -379,6 +379,41 @@ class CivitaiClient:
             "nextCursor": metadata.get("nextCursor")
         }
 
+    # /models accepts at most 100 ids, and limit caps at 100.
+    MODELS_BY_ID_BATCH = 100
+
+    def get_models_by_ids(self, model_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Fetch several models in one request each 100, keyed by id.
+
+        A metadata refresh needs the full model payload for every model in the
+        library. Asking per model is one call each; `ids` collapses that to one
+        call per hundred, which is the difference between minutes and seconds.
+
+        Ids Civitai no longer serves are simply absent from the result, so
+        callers must treat a missing key as "not found" rather than an error.
+
+        Args:
+            model_ids: Civitai model ids.
+
+        Returns:
+            Dict of model id to the model payload.
+        """
+        found: Dict[int, Dict[str, Any]] = {}
+        unique = list(dict.fromkeys(int(m) for m in model_ids if m))
+
+        for start in range(0, len(unique), self.MODELS_BY_ID_BATCH):
+            batch = unique[start:start + self.MODELS_BY_ID_BATCH]
+            data = self._request("GET", "/models", {
+                "ids": ",".join(str(m) for m in batch),
+                "limit": len(batch),
+            })
+            for item in (data or {}).get("items", []) or []:
+                if item.get("id"):
+                    found[item["id"]] = item
+
+        return found
+
     def search_tags(
         self,
         query: str = "",

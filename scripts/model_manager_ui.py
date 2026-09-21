@@ -464,11 +464,15 @@ def create_ui():
                             <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
                         <div class="filter-buttons-group">
-                            <button id="mm_sync_btn" class="mm-btn secondary">Sync with Civitai</button>
+                            <button id="mm_sync_btn" class="mm-btn secondary" title="Identify models by hashing every file, then fetch their Civitai data. Slow: it reads every byte of every model.">Sync with Civitai</button>
                             <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                             <label class="mm-checkbox-label" title="Re-download data even if already exists">
                                 <input type="checkbox" id="mm_sync_force"> Force
                             </label>
+                        </div>
+                        <div class="filter-buttons-group">
+                            <button id="mm_sync_meta_btn" class="mm-btn secondary" title="Refresh descriptions, tags, stats and licences for models already identified. No hashing, so this is fast.">Sync with Civitai Metadata (Models)</button>
+                            <button id="mm_sync_meta_images_btn" class="mm-btn secondary" title="The same refresh, and also refetch each model's example images. Slower: images cannot be batched.">Sync with Civitai Metadata (Models + Images)</button>
                         </div>
                     </div>
                 </div>
