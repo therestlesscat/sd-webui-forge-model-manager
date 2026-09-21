@@ -326,6 +326,7 @@ class CivitaiClient:
         period: str = "AllTime",
         nsfw: bool = False,
         tag: str = "",
+        checkpoint_type: str = "",
         limit: int = 10,
         cursor: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -340,6 +341,8 @@ class CivitaiClient:
             period: Time period (AllTime, Year, Month, Week, Day).
             nsfw: Include NSFW models.
             tag: Filter by tag.
+            checkpoint_type: "Trained" or "Merge". Checkpoints only; the API
+                rejects anything else, so an empty value is left off.
             limit: Results per page.
             cursor: Cursor for pagination (from previous response's nextCursor).
 
@@ -364,6 +367,8 @@ class CivitaiClient:
             params["nsfw"] = "true"
         if tag:
             params["tag"] = tag
+        if checkpoint_type in ("Trained", "Merge"):
+            params["checkpointType"] = checkpoint_type
 
         data = self._request("GET", "/models", params)
         metadata = data.get("metadata", {}) or {}
@@ -539,6 +544,40 @@ class CivitaiClient:
 # Prefix marking a browse cursor that also carries a within-batch offset.
 # Plain Civitai cursors are passed through untouched.
 FILTER_TOKEN_PREFIX = "mmfilter:"
+
+
+def paid_access_info(version_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Describe the paywall on a model version, or None if it is free.
+
+    Civitai gates a version behind Buzz in two ways, and neither shows up in
+    `availability`, which stays "Public" for both:
+
+      - early access: `paidAccess.endsAt` (also `earlyAccessDeadline`) is the
+        moment it becomes free
+      - permanent: `paidAccess.permanent` is true and it never does
+
+    Downloading either without having bought it returns HTTP 401/403.
+
+    Returns:
+        Dict with 'permanent' and 'ends_at', or None when the version is free.
+    """
+    paid = version_data.get("paidAccess")
+    deadline = version_data.get("earlyAccessDeadline")
+
+    if not isinstance(paid, dict):
+        # Some responses carry only the deadline.
+        if deadline:
+            return {"permanent": False, "ends_at": deadline}
+        return None
+
+    permanent = bool(paid.get("permanent"))
+    ends_at = paid.get("endsAt") or deadline
+
+    if not permanent and not ends_at:
+        return None
+
+    return {"permanent": permanent, "ends_at": ends_at}
 
 
 def image_has_usable_prompt(img: Dict[str, Any]) -> bool:

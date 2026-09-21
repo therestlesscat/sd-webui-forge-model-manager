@@ -222,9 +222,14 @@
 
     // Get filter values
     function getFilters() {
+        const types = document.getElementById('cb_type')?.value || '';
         return {
             query: document.getElementById('cb_search')?.value || '',
-            types: document.getElementById('cb_type')?.value || '',
+            types,
+            // Civitai rejects checkpointType on anything but checkpoints.
+            checkpoint_type: types === 'Checkpoint'
+                ? (document.getElementById('cb_checkpoint_type')?.value || '')
+                : '',
             base_models: document.getElementById('cb_base_model')?.value || '',
             sort: document.getElementById('cb_sort')?.value || 'Most Downloaded',
             period: document.getElementById('cb_period')?.value || 'AllTime',
@@ -561,6 +566,12 @@
         const ownedClass = owned ? 'owned' : '';
         const ownedBadge = owned ? '<div class="cb-owned-badge">Owned</div>' : '';
 
+        // Buzz paywall on the version this card is previewing
+        const paidBadge = isPaid(firstVersion)
+            ? `<div class="cb-paid-badge" title="${escapeHtml(paidAccessLabel(firstVersion))}">`
+              + `${firstVersion.paid_access.permanent ? 'Paid' : 'Early Access'}</div>`
+            : '';
+
         const ratingHtml = rating > 0
             ? `<span title="Rating">★ ${rating}</span>`
             : '';
@@ -581,6 +592,7 @@
                 <div class="model-card-image">
                     ${previewHtml}
                     ${ownedBadge}
+                    ${paidBadge}
                 </div>
                 <div class="model-card-info">
                     <div class="model-card-name" title="${name}">${nameShort}</div>
@@ -595,6 +607,23 @@
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Describe a version's paywall, or '' when it is free.
+     *
+     * `paid_access` is attached by the backend: Civitai leaves `availability`
+     * as "Public" for paid versions, so the field is the only marker.
+     */
+    function paidAccessLabel(version) {
+        const paid = version?.paid_access;
+        if (!paid) return '';
+        if (paid.permanent) return 'Paid';
+        return paid.ends_at ? `Early Access until ${formatDate(paid.ends_at)}` : 'Early Access';
+    }
+
+    function isPaid(version) {
+        return !!version?.paid_access;
     }
 
     // Get thumbnail URL
@@ -653,11 +682,14 @@
         const pills = versions.map((version, index) => {
             const activeClass = index === selectedVersionIndex ? 'active' : '';
             const ownedClass = version.owned_locally ? 'owned' : '';
+            const paidClass = isPaid(version) ? 'paid' : '';
             const versionName = version.name || `v${index + 1}`;
-            const ownedIndicator = version.owned_locally ? ' ✓' : '';
-            const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}${version.owned_locally ? '\n(Owned)' : ''}`;
+            const ownedIndicator = version.owned_locally ? ' ✓' : (isPaid(version) ? ' ⬥' : '');
+            const paidNote = paidAccessLabel(version);
+            const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}`
+                + `${version.owned_locally ? '\n(Owned)' : ''}${paidNote ? '\n' + paidNote : ''}`;
 
-            return `<button class="mm-version-pill ${activeClass} ${ownedClass}"
+            return `<button class="mm-version-pill ${activeClass} ${ownedClass} ${paidClass}"
                            onclick="window.cbSelectVersion(${index})"
                            title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${ownedIndicator}</button>`;
         }).join('');
@@ -725,10 +757,18 @@
         // Stats
         const stats = model.stats || {};
 
-        // Download button
-        const downloadBtn = file && !isOwned
-            ? `<button class="mm-btn primary" onclick="window.cbDownload(${model.id}, ${version?.id})">Download</button>`
-            : (isOwned ? `<button class="mm-btn secondary" disabled>Already Owned</button>` : '');
+        // Download button. A paid version answers the download URL with
+        // 401/403 until it is bought on Civitai, so do not offer it.
+        const paidLabel = paidAccessLabel(version);
+        let downloadBtn = '';
+        if (isOwned) {
+            downloadBtn = `<button class="mm-btn secondary" disabled>Already Owned</button>`;
+        } else if (paidLabel) {
+            downloadBtn = `<button class="mm-btn secondary" disabled `
+                + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
+        } else if (file) {
+            downloadBtn = `<button class="mm-btn primary" onclick="window.cbDownload(${model.id}, ${version?.id})">Download</button>`;
+        }
 
         // Only offer the jump for models that are actually in the library.
         // Lives on the header row so it stays reachable while scrolling the
@@ -756,6 +796,7 @@
                         <tr><td>Type</td><td>${model.type || 'Unknown'}</td></tr>
                         <tr><td>Base Model</td><td>${version?.baseModel || 'Unknown'}</td></tr>
                         <tr><td>Creator</td><td>${escapeHtml(model.creator?.username || 'Unknown')}</td></tr>
+                        ${paidLabel ? `<tr><td>Access</td><td class="cb-paid-cell">${escapeHtml(paidLabel)}</td></tr>` : ''}
                         <tr><td>Published</td><td>${version?.publishedAt ? formatDate(version.publishedAt) : 'Unknown'}</td></tr>
                         <tr><td>Updated</td><td>${version?.updatedAt ? formatDate(version.updatedAt) : 'Unknown'}</td></tr>
                         <tr><td>Rating</td><td>★ ${(stats.rating || 0).toFixed(1)} (${formatNumber(stats.ratingCount || 0)} ratings)</td></tr>
@@ -1707,12 +1748,28 @@
         if (!typesFilled || !baseFilled) return false;
 
         enumsLoaded = true;
+        syncCheckpointTypeEnabled();
         console.log(`[CivitaiBrowser] Loaded ${result.model_types.length} model types, `
                     + `${result.base_models.length} base models from Civitai`);
         return true;
     }
 
     // Initialize tag input
+    // Trained/Merge only applies to checkpoints, so grey it out otherwise
+    // rather than letting it silently do nothing.
+    function syncCheckpointTypeEnabled() {
+        const typeSelect = document.getElementById('cb_type');
+        const checkpointType = document.getElementById('cb_checkpoint_type');
+        if (!typeSelect || !checkpointType) return;
+
+        const applies = typeSelect.value === 'Checkpoint';
+        checkpointType.disabled = !applies;
+        checkpointType.title = applies
+            ? 'Show only trained checkpoints or only merges'
+            : 'Only applies when Type is Checkpoint';
+        checkpointType.closest('.filter-group')?.classList.toggle('cb-filter-disabled', !applies);
+    }
+
     function initTagInput() {
         const input = document.getElementById('cb_tag_input');
         const dropdown = document.getElementById('cb_tag_dropdown');
@@ -1803,6 +1860,12 @@
                 if (e.key === 'Enter') searchModels(1);
             });
         }
+
+        const typeSelect = document.getElementById('cb_type');
+        if (typeSelect) {
+            typeSelect.addEventListener('change', syncCheckpointTypeEnabled);
+        }
+        syncCheckpointTypeEnabled();
 
         // Initialize tag input (try now and also watch for dynamic loading)
         initTagInput();
