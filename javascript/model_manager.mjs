@@ -15,6 +15,8 @@ import {
     setupLazyMedia,
     renderResource,
     IMAGE_PAGE_SIZE,
+    applyCardSize as sharedApplyCardSize,
+    renderImagePagination as sharedImagePagination,
 } from './shared/common.mjs';
 
 // State
@@ -53,7 +55,7 @@ function applyCardSize(width, height) {
     if (width && height && (width !== cardWidth || height !== cardHeight)) {
         cardWidth = width;
         cardHeight = height;
-        window.MMCommon.applyCardSize({
+        sharedApplyCardSize({
             width, height,
             containerId: 'model_manager_app',
             cssPrefix: 'mm',
@@ -240,7 +242,7 @@ let hiddenImageCount = 0;
 
 
 function renderImagePagination(totalPages, position = 'bottom') {
-    return window.MMCommon.renderImagePagination({
+    return sharedImagePagination({
         currentPage: currentImagePage, totalPages, position, prefix: 'mm',
     });
 }
