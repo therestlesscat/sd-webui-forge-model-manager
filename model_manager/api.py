@@ -12,7 +12,7 @@ from modules import script_callbacks
 
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
-from .models_db import get_models_db
+from .db import get_models_db
 from .civitai_api import (
     CivitaiClient,
     paid_access_info,

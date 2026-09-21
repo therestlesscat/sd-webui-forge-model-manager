@@ -17,7 +17,7 @@ from .civitai_api import (
     enrich_images_with_generation_data,
 )
 from .storage import write_civitai_info
-from .models_db import get_models_db
+from .db import get_models_db
 
 # Try to import blake3, fall back gracefully if not available
 try:
