@@ -73,6 +73,42 @@ window.MMCommon = (function() {
              + `</span>`;
     }
 
+    /**
+     * How explicit an image is, on Civitai's scale:
+     *   PG 1 · PG-13 2 · R 4 · X 8 · XXX 16 · Blocked 32 · Unknown 64
+     *
+     * browsingLevel is the integer Civitai maintains, so it wins whenever it
+     * is there. The legacy string and the bare boolean stay as fallbacks
+     * because none of these fields has been dependable.
+     *
+     * Mirrors image_level() in model_manager/nsfw.py - the two must agree, or
+     * the grid and the server disagree about what to hide.
+     */
+    const NSFW_LEGACY_LEVELS = { None: 1, Soft: 2, Mature: 4, X: 16 };
+    const NSFW_UNKNOWN = 64;
+    const NSFW_SFW_MAX = 3;  // PG | PG-13
+
+    function nsfwImageLevel(image) {
+        const browsing = image?.browsingLevel;
+        if (typeof browsing === 'number' && browsing > 0) return browsing;
+
+        const legacy = image?.nsfwLevel;
+        if (typeof legacy === 'number' && legacy > 0) return legacy;
+        if (typeof legacy === 'string' && NSFW_LEGACY_LEVELS[legacy]) {
+            return NSFW_LEGACY_LEVELS[legacy];
+        }
+
+        if (image?.nsfw === true) return 4;   // cautious: nothing else to go on
+        if (image?.nsfw === false) return 1;
+
+        return NSFW_UNKNOWN;
+    }
+
+    /** Is this image safe for a work-safe view? */
+    function isImageSafe(image) {
+        return nsfwImageLevel(image) <= NSFW_SFW_MAX;
+    }
+
     function isVideoUrl({ url, type }) {
         if (!url) return false;
         if (type === 'video') return true;
@@ -229,6 +265,8 @@ window.MMCommon = (function() {
         escapeHtml,
         formatNumber,
         renderThumbs,
+        nsfwImageLevel,
+        isImageSafe,
         isVideoUrl,
         getImagePageCount,
         setupLazyMedia,

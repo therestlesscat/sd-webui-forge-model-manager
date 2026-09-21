@@ -13,6 +13,7 @@ from modules import script_callbacks
 from .sync_service import SyncService, SyncProgress
 from .scan_service import ScanService, ScanProgress
 from .db import get_models_db
+from .nsfw import NAME_TO_LEVEL, SFW_MAX
 from .civitai_api import (
     CivitaiClient,
     paid_access_info,
@@ -163,16 +164,6 @@ def setup_api(app: FastAPI):
     """Register API endpoints."""
 
     # NSFW level bitmask mapping
-    NSFW_LEVEL_MAP = {
-        "PG": 1,
-        "PG-13": 2,
-        "R": 4,
-        "X": 8,
-        "XXX": 16,
-        "Blocked": 32,
-        "Unknown": 64,  # Highest level - includes all models
-    }
-
     @app.get("/model-manager/models")
     async def get_models(
         search: str = "",
@@ -255,8 +246,8 @@ def setup_api(app: FastAPI):
                 level_names = [l.strip() for l in nsfw_levels.split(",") if l.strip()]
                 nsfw_level_ints = []
                 for name in level_names:
-                    if name in NSFW_LEVEL_MAP:
-                        nsfw_level_ints.append(NSFW_LEVEL_MAP[name])
+                    if name in NAME_TO_LEVEL:
+                        nsfw_level_ints.append(NAME_TO_LEVEL[name])
                 # Remove duplicates and ensure we have at least some levels
                 if nsfw_level_ints:
                     nsfw_level_ints = list(set(nsfw_level_ints))
@@ -456,8 +447,7 @@ def setup_api(app: FastAPI):
                 if hide_nsfw_images is None:
                     hide_nsfw_images = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
 
-                # max_nsfw_level=5 means only PG (1) and PG-13 (2, 4) are shown
-                max_nsfw_level = 5 if hide_nsfw_images else None
+                max_nsfw_level = SFW_MAX if hide_nsfw_images else None
 
                 images = db.get_all_images_for_version(version_id, max_nsfw_level=max_nsfw_level)
                 image_counts = db.get_image_counts(version_id, max_nsfw_level=max_nsfw_level)

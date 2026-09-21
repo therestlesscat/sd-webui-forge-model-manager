@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 class ModelsDatabase:

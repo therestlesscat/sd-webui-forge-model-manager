@@ -14,6 +14,8 @@
         escapeHtml,
         formatNumber,
         renderThumbs,
+        nsfwImageLevel,
+        isImageSafe,
         isVideoUrl,
         getImagePageCount,
         setupLazyMedia,
@@ -134,33 +136,6 @@
 
     // Calculate effective NSFW level using same algorithm as Python backend
     // NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
-    function calculateEffectiveNsfwLevel(img) {
-        // browsingLevel is the primary source (integer)
-        const browsingLevel = img.browsingLevel || 64;  // Default to Unknown
-
-        // nsfwLevel string mapping
-        const nsfwLevelStr = img.nsfwLevel || '';
-        const nsfwLevelMap = {
-            'None': 1,
-            'Soft': 4,
-            'Mature': 8,
-            'X': 16,
-        };
-        const nsfwLevel = nsfwLevelMap[nsfwLevelStr] || 64;  // Default to Unknown
-
-        // nsfw boolean
-        const nsfwBool = img.nsfw ? 2 : 1;
-
-        return Math.max(browsingLevel, nsfwLevel, nsfwBool);
-    }
-
-    // Check if image is safe to show (NSFW level <= 5)
-    function isImageSafe(img) {
-        return calculateEffectiveNsfwLevel(img) <= 5;
-    }
-
-
-
     function renderImagePagination(totalPages, position = 'bottom') {
         return window.MMCommon.renderImagePagination({
             currentPage: currentImagePage, totalPages, position, prefix: 'cb',

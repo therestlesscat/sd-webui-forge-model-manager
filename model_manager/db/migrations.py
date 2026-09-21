@@ -15,6 +15,7 @@ ADDING A MIGRATION
 A migration must tolerate being re-run: check PRAGMA table_info before adding
 a column, and use CREATE ... IF NOT EXISTS.
 """
+import json
 import os
 import shutil
 import sqlite3
@@ -731,6 +732,45 @@ def _create_v2_tables(cursor):
 # ==================== Model Operations (delegated) ====================
 
 
+def _migrate_to_v14(cursor):
+    """Recompute every stored image level under the corrected rule.
+
+    effective_nsfw_level is stamped when an image is written, so changing how
+    it is judged leaves every existing row on the old verdict. The raw payload
+    is stored alongside it, so the levels can be recomputed in place rather
+    than refetched.
+
+    The old legacy-string map read Soft as R and Mature as X - one grade
+    harsher than Civitai means - so models were filtered out of views they
+    belonged in.
+    """
+    print("[ModelManager] Migrating to schema v14 (recomputing image NSFW levels)...")
+
+    from ..nsfw import image_level
+
+    cursor.execute("SELECT id, version_id, effective_nsfw_level, data FROM images")
+    rows = cursor.fetchall()
+
+    changed = []
+    for image_id, version_id, stored, data in rows:
+        if not data:
+            continue
+        try:
+            level = image_level(json.loads(data))
+        except (ValueError, TypeError):
+            continue
+        if level != stored:
+            changed.append((level, image_id, version_id))
+
+    cursor.executemany(
+        "UPDATE images SET effective_nsfw_level = ? WHERE id = ? AND version_id = ?",
+        changed
+    )
+
+    print(f"[ModelManager] Reclassified {len(changed)} of {len(rows)} images")
+    print("[ModelManager] Migration to v14 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -771,6 +811,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 13:
         _migrate_to_v13(cursor)
+
+    if from_version < 14:
+        _migrate_to_v14(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
