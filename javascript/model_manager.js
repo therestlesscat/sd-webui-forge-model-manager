@@ -2184,6 +2184,54 @@
     }
 
     /**
+     * The VAE an image was made with, whatever Civitai called the field.
+     *
+     * Counted over 67,458 stored images, a VAE name turns up under several
+     * spellings, and they do not overlap:
+     *
+     *   VAE       11,304   the usual A1111 field
+     *   vaes       2,392   a list, from ComfyUI workflows Civitai normalised.
+     *                      Every one of these has no VAE field at all, so
+     *                      reading only VAE misses them entirely
+     *   vae_name      62   ComfyUI's own node field, when it survives
+     *   Vae / vae     13   case, as written by whatever made the image
+     *
+     * "VAE hash" is deliberately not read: it identifies a file we cannot
+     * name, and a hash in the dropdown would match nothing.
+     */
+    /**
+     * Does this name a file, or is it a way of saying "no separate VAE"?
+     *
+     * Seen in the library: "Default (model)" 131, "automatic" 30, "Default"
+     * 14, "Baked VAE" 5. All of them mean the checkpoint's own VAE, which is
+     * what an empty selection already gives, so they must not be searched for
+     * in the dropdown.
+     */
+    function isVaeFileName(value) {
+        const name = String(value || '').trim();
+        if (!name) return false;
+        return !/^(automatic|none|null|default.*|baked vae|use same vae)$/i.test(name);
+    }
+
+    function vaeFromMeta(meta) {
+        if (!meta) return null;
+
+        const direct = meta.VAE || meta.Vae || meta.vae || meta.vae_name;
+        if (typeof direct === 'string' && isVaeFileName(direct)) return direct.trim();
+
+        // ComfyUI workflows arrive with a list, newest-normalised first.
+        const listed = Array.isArray(meta.vaes)
+            ? meta.vaes.find(v => typeof v === 'string' && isVaeFileName(v))
+            : null;
+        if (listed) return listed.trim();
+
+        const resource = (meta.resources || []).find(r => r && r.type === 'vae');
+        if (resource && resource.name) return resource.name;
+
+        return null;
+    }
+
+    /**
      * Apply a VAE choice on whichever UI this is.
      *
      * `vaeName` of null means the image named none, which must clear the
@@ -2480,22 +2528,7 @@
                 checkpointPath = getDropdownPath(model.file_path, 'Checkpoint');
             }
 
-            // Try to find VAE from image metadata
-            let vaePath = null;
-
-            // First check meta.VAE field (common in image metadata)
-            if (meta.VAE) {
-                vaePath = meta.VAE;
-            }
-
-            // Fallback: check resources array
-            if (!vaePath) {
-                const resources = meta.resources || [];
-                const vaeResource = resources.find(r => r.type === 'vae');
-                if (vaeResource && vaeResource.name) {
-                    vaePath = vaeResource.name;
-                }
-            }
+            const vaePath = vaeFromMeta(meta);
 
             // Set checkpoint if available
             if (checkpointPath && typeof selectCheckpoint === 'function') {
