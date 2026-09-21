@@ -5,6 +5,7 @@ This module handles images table operations.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
+from ..nsfw import image_level
 from typing import Optional, List, Dict, Any, Callable
 
 
@@ -27,6 +28,10 @@ class ImagesOps:
     # ==================== Images ====================
 
     @staticmethod
+    def calculate_effective_nsfw_level(img: Dict[str, Any]) -> int:
+        """How explicit an image is. The rule lives in model_manager.nsfw."""
+        return image_level(img)
+
     def calculate_effective_nsfw_level(img: Dict[str, Any]) -> int:
         """
         Calculate effective NSFW level from image data.

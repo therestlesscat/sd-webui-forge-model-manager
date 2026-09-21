@@ -13,19 +13,11 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import get_models_db
+from .nsfw import UNKNOWN, level_name, max_image_level, model_level
 from .storage import read_civitai_info
 
 
 # NSFW level bitmask values (from Civitai API)
-NSFW_BITS = {
-    1: "PG",
-    2: "PG-13",
-    4: "R",
-    8: "X",
-    16: "XXX",
-    32: "Blocked",
-}
-
 # NSFW severity order for comparison (higher index = more severe)
 NSFW_SEVERITY = ["PG", "PG-13", "R", "X", "XXX", "Unknown"]
 
@@ -70,37 +62,6 @@ def collect_cmd_dirs(cmd_opts, *option_names) -> List[str]:
             found.append(str(value))
 
     return found
-
-
-def get_nsfw_from_bitmask(value: int) -> int:
-    """Return the bitmask value as-is (already an int)."""
-    if not value or not isinstance(value, int):
-        return 1  # Default to PG
-    return value
-
-
-def get_highest_nsfw_bit(value: int) -> str:
-    """Convert bitmask to highest NSFW level string."""
-    if not value or not isinstance(value, int):
-        return "Unknown"
-
-    # Find highest set bit
-    for bit in [32, 16, 8, 4, 2, 1]:
-        if value & bit:
-            return NSFW_BITS.get(bit, "Unknown")
-    return "Unknown"
-
-
-def compare_nsfw_levels(level1: int, level2: int) -> int:
-    """Compare two NSFW levels. Returns >0 if level1 > level2."""
-    return level1 - level2
-
-
-def max_nsfw_level(levels: List[int]) -> int:
-    """Get the maximum NSFW level from a list of bitmasks."""
-    if not levels:
-        return 1  # Default to PG
-    return max(levels)
 
 
 @dataclass
@@ -316,41 +277,32 @@ class ScanService:
         return civitai_model
 
     def _calculate_nsfw_level(self, civitai_data: Dict, version_data: Dict):
-        """Calculate the effective NSFW level from all sources."""
-        levels = []
+        """
+        Settle a version's NSFW level from everything we know about it.
 
-        # Version-level NSFW (most authoritative)
-        version_nsfw = version_data.get("nsfw_level", 64)  # Default to Unknown
-        if version_nsfw:
-            levels.append(version_nsfw)
-
-        # Get images from database if we have a version ID
+        Its own rating, plus the worst picture in its gallery - preferring the
+        images already stored, and falling back to the ones the payload came
+        with. See model_manager.nsfw for how a single image is judged.
+        """
         images = []
         version_id = version_data.get("id")
         if version_id:
             try:
                 from .db import get_models_db
-                db = get_models_db()
-                images = db.get_all_images_for_version(version_id)
+                images = get_models_db().get_all_images_for_version(version_id)
             except Exception:
                 pass
 
-        # Fall back to images in civitai_data if no cached images
         if not images:
-            # Check in matched version
             versions = civitai_data.get("modelVersions", [])
             if versions:
-                images = versions[0].get("images", [])
+                images = versions[0].get("images", []) or []
 
-        # Extract NSFW from images
-        for img in images:
-            nsfw_val = img.get("nsfwLevel")
-            if nsfw_val and isinstance(nsfw_val, int):
-                levels.append(nsfw_val)
-
-        # Get max level
-        if levels:
-            version_data["nsfw_level"] = max(levels)
+        version_data["nsfw_level"] = model_level(
+            None,
+            version_data.get("nsfw_level"),
+            max_image_level(images) if images else None,
+        )
 
     def scan_models(
         self,
