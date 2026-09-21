@@ -848,27 +848,11 @@ def configured_hash_threads() -> int:
     return 4
 
 
-def configured_rate() -> float:
-    """Requests per second the client will be allowed, as the settings have it."""
-    try:
-        from modules import shared
-        configured = getattr(shared.opts, 'model_manager_civitai_requests_per_second', None)
-        api_key = getattr(shared.opts, 'model_manager_civitai_api_key', '')
-        if not api_key:
-            return CivitaiClient.UNAUTH_RATE
-        if configured:
-            return max(0.5, min(float(configured), 10.0))
-        return CivitaiClient.AUTH_RATE
-    except Exception:
-        return CivitaiClient.AUTH_RATE
-
-
 def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
                            synced_before: Optional[str] = None,
                            downloaded_after: Optional[str] = None,
                            include_images: bool = False,
-                           include_prompts: bool = True,
-                           rate: Optional[float] = None) -> Dict[str, Any]:
+                           include_prompts: bool = True) -> Dict[str, Any]:
     """
     What a metadata sync would cost, before anyone commits to it.
 
@@ -876,6 +860,12 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     the dialog is the number of requests that will be made: models a hundred
     per request, one gallery page per version, and generation data thirty ids
     per request pooled across a chunk of versions.
+
+    Requests, deliberately, and not minutes. How long those requests take
+    depends on the rate limit in force, the round trip to Civitai, and whether
+    any of them are retried after a 429 - none of which this knows, and two of
+    which differ per machine. A count that is right everywhere is worth more
+    than a duration that is only right here.
 
     The image figures rest on the galleries already cached, which is the only
     guide there is before fetching them. A version whose gallery has never
@@ -887,10 +877,9 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         downloaded_after: Only versions downloaded since this ISO timestamp.
         include_images: Whether galleries would be refetched.
         include_prompts: Whether generation data would be looked up.
-        rate: Requests per second, or None to read the setting.
 
     Returns:
-        Counts, a request breakdown, and the seconds each part would take.
+        How much is in scope, and how many requests each part would take.
     """
     db = get_models_db()
     versions = db.get_linked_versions(synced_before=synced_before,
@@ -901,7 +890,6 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         versions = [v for v in versions if v["file_path"] in wanted]
 
     models = len({v["model_id"] for v in versions})
-    rate = rate or configured_rate()
 
     metadata_requests = math.ceil(models / 100) if models else 0
     image_requests = sum(1 for v in versions if v.get("id")) if include_images else 0
@@ -927,18 +915,11 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         "all_versions": len(db.get_linked_versions()),
         "models": models,
         "images": images_total,
-        "rate": rate,
         "requests": {
             "metadata": metadata_requests,
             "images": image_requests,
             "prompts": prompt_requests,
             "total": total,
-        },
-        "seconds": {
-            "metadata": metadata_requests / rate,
-            "images": image_requests / rate,
-            "prompts": prompt_requests / rate,
-            "total": total / rate,
         },
     }
 

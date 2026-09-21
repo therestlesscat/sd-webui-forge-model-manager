@@ -239,7 +239,7 @@ def create_ui():
                             <label class="mm-dialog-option" title="Read every byte of every model file to identify it again. Only needed for files Civitai has never matched.">
                                 <input type="checkbox" id="mm_sync_rehash">
                                 <span>Re-identify by hashing</span>
-                                <span class="mm-dialog-cost">hours</span>
+                                <span class="mm-dialog-cost">reads every file</span>
                             </label>
                             <label class="mm-dialog-option mm-dialog-sub" id="mm_sync_force_row" style="display: none;" title="Re-download data even where it already exists">
                                 <input type="checkbox" id="mm_sync_force">

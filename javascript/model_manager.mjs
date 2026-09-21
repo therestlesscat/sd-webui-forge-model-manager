@@ -2816,15 +2816,6 @@ function syncDialogChoice() {
     };
 }
 
-/** A duration a person can read, from a count of seconds. */
-function formatDuration(seconds) {
-    if (!seconds || seconds < 1) return 'a moment';
-    if (seconds < 90) return `${Math.round(seconds)} s`;
-    if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
-    const hours = seconds / 3600;
-    return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
-}
-
 /** The file paths the filter bar currently selects, fetched once per opening. */
 async function resolveResultPaths() {
     if (syncResultPaths) return syncResultPaths;
@@ -2848,11 +2839,11 @@ function refreshSyncEstimate() {
         const startBtn = document.getElementById('mm_sync_dialog_start');
 
         if (choice.rehash) {
-            // Hashing reads every byte of every file, so a request count says
-            // nothing useful about how long it takes.
+            // Hashing is bound by the disk, not by requests, so the count
+            // below would be describing the wrong thing entirely.
             if (estimateEl) {
-                estimateEl.textContent = 'Hashing reads every model file in full'
-                    + ' - expect hours, and disk rather than network.';
+                estimateEl.textContent = 'Reads every model file in full, to work out'
+                    + ' what each one is. Bound by the disk rather than by Civitai.';
             }
             if (startBtn) startBtn.disabled = false;
             return;
@@ -2872,15 +2863,18 @@ function refreshSyncEstimate() {
             if (!data || !data.success) return;
 
             const { estimate, windows } = data;
-            const { requests, seconds } = estimate;
+            const { requests } = estimate;
 
-            const cost = (id, count, secs) => {
+            // Requests, not minutes: how long they take depends on the rate
+            // limit, the round trip and any retries - none of which this knows,
+            // and two of which differ from one machine to the next.
+            const cost = (id, count) => {
                 const el = document.getElementById(id);
-                if (el) el.textContent = count ? formatDuration(secs) : '-';
+                if (el) el.textContent = count ? `${count.toLocaleString()} req` : '-';
             };
-            cost('mm_cost_metadata', requests.metadata, seconds.metadata);
-            cost('mm_cost_images', requests.images, seconds.images);
-            cost('mm_cost_prompts', requests.prompts, seconds.prompts);
+            cost('mm_cost_metadata', requests.metadata);
+            cost('mm_cost_images', requests.images);
+            cost('mm_cost_prompts', requests.prompts);
 
             fillWindows('mm_sync_stale_days', windows);
             fillWindows('mm_sync_downloaded_days', data.download_windows);
@@ -2896,8 +2890,8 @@ function refreshSyncEstimate() {
 
             if (estimateEl) {
                 estimateEl.textContent = estimate.versions
-                    ? `${estimate.versions} models, ${requests.total.toLocaleString()} requests,`
-                      + ` about ${formatDuration(seconds.total)} at ${estimate.rate} req/s`
+                    ? `${estimate.versions.toLocaleString()} models`
+                      + ` - ${requests.total.toLocaleString()} requests to Civitai`
                     : 'Nothing selected - this would do nothing.';
             }
             if (startBtn) startBtn.disabled = !estimate.versions;
