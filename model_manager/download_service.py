@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
-from .civitai_api import paid_access_info
+from .civitai import paid_access_info
 
 
 @dataclass
