@@ -18,6 +18,8 @@ import {
     setupLazyMedia,
     renderResource,
     IMAGE_PAGE_SIZE,
+    applyCardSize as sharedApplyCardSize,
+    renderImagePagination as sharedImagePagination,
 } from './shared/common.mjs';
 
 // State
@@ -44,7 +46,7 @@ function applyCardSize(width, height) {
     if (width && height && (width !== cardWidth || height !== cardHeight)) {
         cardWidth = width;
         cardHeight = height;
-        window.MMCommon.applyCardSize({
+        sharedApplyCardSize({
             width, height,
             containerId: 'civitai_browser_app',
             cssPrefix: 'cb',
@@ -134,7 +136,7 @@ const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.or
 // Calculate effective NSFW level using same algorithm as Python backend
 // NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
 function renderImagePagination(totalPages, position = 'bottom') {
-    return window.MMCommon.renderImagePagination({
+    return sharedImagePagination({
         currentPage: currentImagePage, totalPages, position, prefix: 'cb',
     });
 }
