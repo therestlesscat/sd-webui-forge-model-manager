@@ -1622,6 +1622,96 @@
         renderTagDropdown();
     }
 
+    // Civitai's own type/base-model lists, fetched once per page load. Until
+    // they arrive (or if the request fails) the static options in the page
+    // stand in, so the tab still works offline.
+    let enumsLoaded = false;
+    let enumsRequest = null;
+
+    function makeOption(value, label) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        return option;
+    }
+
+    /**
+     * Refill a <select> with `values`, keeping whatever was selected.
+     * The "All" entry from the static markup is kept as the first option.
+     *
+     * Options are built as nodes rather than markup: a model type is whatever
+     * Civitai says it is, and escapeHtml() does not escape quotes, so pasting
+     * one into a value="" attribute would be a way out of it.
+     */
+    function fillSelect(selectId, values, labelFor) {
+        const select = document.getElementById(selectId);
+        if (!select || !values.length) return false;
+
+        const previous = select.value;
+        const allOption = select.querySelector('option[value=""]');
+
+        select.innerHTML = '';
+        select.appendChild(allOption || makeOption('', 'All'));
+        for (const value of values) {
+            select.appendChild(makeOption(value, labelFor ? labelFor(value) : value));
+        }
+
+        // Keep the user's choice if Civitai still offers it.
+        select.value = previous;
+        if (select.selectedIndex === -1) select.value = '';
+        return true;
+    }
+
+    // Civitai's raw enum names, where they are not what the UI should say.
+    const TYPE_LABELS = {
+        TextualInversion: 'Embedding',
+        LORA: 'LoRA',
+        Controlnet: 'ControlNet',
+    };
+
+    function sortBaseModels(values) {
+        // 'Other' is a catch-all, so it belongs at the bottom rather than in
+        // the middle of the alphabet.
+        const named = values.filter(v => v !== 'Other');
+        named.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        return values.includes('Other') ? named.concat('Other') : named;
+    }
+
+    // Asked for once per page load and reused. The retry below is for the
+    // dropdowns not existing yet, not for a failed request, so it must not
+    // fire a fresh call every time it ticks.
+    function fetchEnums() {
+        if (!enumsRequest) {
+            enumsRequest = apiCall({ endpoint: '/model-manager/civitai/enums' })
+                .catch(error => {
+                    console.warn('[CivitaiBrowser] Could not reach the enums endpoint, '
+                                 + 'keeping the static options', error);
+                    return null;
+                });
+        }
+        return enumsRequest;
+    }
+
+    async function loadEnums() {
+        if (enumsLoaded) return true;
+
+        const result = await fetchEnums();
+        if (!result || !result.success) {
+            return false;  // the options already in the page stand in
+        }
+
+        // Both selects have to exist - Gradio builds the tab lazily.
+        const typesFilled = fillSelect('cb_type', result.model_types || [],
+                                       value => TYPE_LABELS[value] || value);
+        const baseFilled = fillSelect('cb_base_model', sortBaseModels(result.base_models || []));
+        if (!typesFilled || !baseFilled) return false;
+
+        enumsLoaded = true;
+        console.log(`[CivitaiBrowser] Loaded ${result.model_types.length} model types, `
+                    + `${result.base_models.length} base models from Civitai`);
+        return true;
+    }
+
     // Initialize tag input
     function initTagInput() {
         const input = document.getElementById('cb_tag_input');
@@ -1716,13 +1806,17 @@
 
         // Initialize tag input (try now and also watch for dynamic loading)
         initTagInput();
+        loadEnums();
 
         // Retry initialization for dynamically loaded elements (Gradio tabs)
         const initRetry = setInterval(() => {
             if (!tagInputInitialized) {
                 initTagInput();
             }
-            if (tagInputInitialized) {
+            if (!enumsLoaded) {
+                loadEnums();
+            }
+            if (tagInputInitialized && enumsLoaded) {
                 clearInterval(initRetry);
             }
         }, 500);
@@ -1752,6 +1846,7 @@
     // Expose functions to window for inline handlers
     window.cbSearch = function() {
         initTagInput();
+        loadEnums();
         const hash = getFiltersHash();
 
         // Try loading from cache

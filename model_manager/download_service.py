@@ -70,6 +70,7 @@ class DownloadService:
         "Checkpoint": "Stable-diffusion",
         "LORA": "Lora",
         "LoCon": "Lora",
+        "DoRA": "Lora",
         "TextualInversion": None,  # Special case: embeddings folder
         "Hypernetwork": "hypernetworks",
         "VAE": "VAE",
@@ -155,7 +156,7 @@ class DownloadService:
         # differently, so look up both - see MODEL_DIR_OPTIONS.
         from .scan_service import MODEL_DIR_OPTIONS, collect_cmd_dirs
 
-        lookup_type = "LORA" if model_type in ("LORA", "LoCon") else model_type
+        lookup_type = "LORA" if model_type in ("LORA", "LoCon", "DoRA") else model_type
         option_names = MODEL_DIR_OPTIONS.get(lookup_type)
 
         if option_names:

@@ -29,6 +29,14 @@ _active_sync: Optional[SyncService] = None
 _sync_thread: Optional[threading.Thread] = None
 _sync_progress: Optional[SyncProgress] = None
 
+# Cached Civitai enums (model types, base models). They change only when
+# Civitai ships a new base model, and the browser asks for them on every tab
+# load, so serve them from memory and refresh a few times a day.
+_enums_cache: Optional[Dict[str, List[str]]] = None
+_enums_cached_at: float = 0.0
+_enums_lock = threading.Lock()
+ENUMS_TTL_SECONDS = 6 * 60 * 60
+
 # Global scan state
 _active_scan: Optional[ScanService] = None
 _scan_thread: Optional[threading.Thread] = None
@@ -1820,6 +1828,53 @@ def setup_api(app: FastAPI):
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e), "tags": []},
+                status_code=500
+            )
+
+    @app.get("/model-manager/civitai/enums")
+    async def civitai_enums():
+        """
+        Model types and base models Civitai currently accepts as filters.
+
+        Feeds the Civitai Browser's Type and Base Model dropdowns so they do not
+        have to be hardcoded. Cached for ENUMS_TTL_SECONDS. On failure the
+        browser keeps the static options already in the page, so a Civitai
+        outage or a missing network just leaves the dropdowns as they were.
+        """
+        global _enums_cache, _enums_cached_at
+
+        try:
+            with _enums_lock:
+                fresh = (
+                    _enums_cache is not None
+                    and (time.time() - _enums_cached_at) < ENUMS_TTL_SECONDS
+                )
+                if not fresh:
+                    client = CivitaiClient.from_settings()
+                    try:
+                        _enums_cache = client.get_enums()
+                    finally:
+                        client.close()
+                    _enums_cached_at = time.time()
+
+                enums = _enums_cache or {}
+
+            # ActiveBaseModel drops the base models Civitai has retired, which
+            # is what a browse filter wants; fall back to the full list.
+            base_models = enums.get("ActiveBaseModel") or enums.get("BaseModel") or []
+
+            return JSONResponse({
+                "success": True,
+                "model_types": enums.get("ModelType", []),
+                "base_models": base_models,
+            })
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Enums error: {e}")
+            traceback.print_exc()
+            return JSONResponse(
+                {"success": False, "error": str(e), "model_types": [], "base_models": []},
                 status_code=500
             )
 
