@@ -5,7 +5,7 @@ This module handles images table operations.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
-from ..nsfw import image_level
+from ..nsfw import UNKNOWN, image_level
 from typing import Optional, List, Dict, Any, Callable
 
 
@@ -195,7 +195,7 @@ class ImagesOps:
                 GROUP BY version_id
             """, version_ids)
 
-            return {row["version_id"]: row["max_nsfw"] or 64 for row in cursor.fetchall()}
+            return {row["version_id"]: row["max_nsfw"] or UNKNOWN for row in cursor.fetchall()}
 
     def get_max_nsfw_level(self, version_id: int) -> int:
         """
@@ -211,6 +211,35 @@ class ImagesOps:
         return result.get(version_id, UNKNOWN)
 
     # ==================== Cleanup ====================
+
+    def count_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:
+        """
+        How many images are cached for each version.
+
+        The sync dialog costs a gallery refresh from these: generation data is
+        fetched 30 ids per request, so what a refresh will cost depends on how
+        many images the galleries hold. Last time's counts are the only guide
+        available before the fetch, and galleries change slowly.
+
+        Args:
+            version_ids: Restrict to these versions, or None for every one.
+
+        Returns:
+            Version id -> image count. Versions with no cached images are absent.
+        """
+        with self._cursor() as cursor:
+            if version_ids is None:
+                cursor.execute("SELECT version_id, COUNT(*) AS n FROM images GROUP BY version_id")
+            else:
+                ids = [int(v) for v in version_ids if v]
+                if not ids:
+                    return {}
+                cursor.execute(
+                    "SELECT version_id, COUNT(*) AS n FROM images WHERE version_id IN (%s)"
+                    " GROUP BY version_id" % ",".join("?" * len(ids)),
+                    ids,
+                )
+            return {row["version_id"]: row["n"] for row in cursor.fetchall()}
 
     def clear_version(self, version_id: int):
         """
