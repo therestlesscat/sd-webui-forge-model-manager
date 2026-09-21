@@ -2800,6 +2800,7 @@ async function cancelSync() {
 let syncEstimateTimer = null;
 let syncResultPaths = null;     // resolved lazily, for the "these results" scope
 let syncDepthBeforeRehash = null;   // restored when the hashing option is cleared
+let syncScopeBeforeRehash = null;   // and so is the scope
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
 
 /**
@@ -3028,7 +3029,55 @@ function syncDialogDependencies() {
     if (promptsRow) promptsRow.classList.toggle('mm-dialog-muted', hashing || !images.checked);
 
     if (force) force.style.display = hashing ? '' : 'none';
+    syncDialogScopeLock(hashing);
     updateRehashLabels();
+}
+
+/**
+ * Identifying files covers the whole library, so the scope is not a choice.
+ *
+ * It walks the model folders and works on files the database has never seen,
+ * which no search could have matched and no sync date could describe. The
+ * scope controls are therefore held at "All models" while it is selected,
+ * rather than being read and then ignored - which is what happened before,
+ * because this path starts a full sync that takes no paths from the dialog.
+ */
+function syncDialogScopeLock(hashing) {
+    const radios = Array.from(document.querySelectorAll('input[name="mm_sync_scope"]'));
+    if (!radios.length) return;
+    const windows = ['mm_sync_stale_days', 'mm_sync_downloaded_days']
+        .map((id) => document.getElementById(id)).filter(Boolean);
+
+    if (hashing) {
+        if (!syncScopeBeforeRehash) {
+            const chosen = radios.find((r) => r.checked);
+            syncScopeBeforeRehash = chosen ? chosen.value : 'all';
+        }
+        radios.forEach((radio) => {
+            radio.checked = radio.value === 'all';
+            radio.disabled = true;
+            const row = radio.closest('.mm-dialog-option');
+            if (row) row.classList.toggle('mm-dialog-muted', radio.value !== 'all');
+        });
+        windows.forEach((select) => { select.disabled = true; });
+        return;
+    }
+
+    if (!syncScopeBeforeRehash) return;
+
+    const previous = radios.find((r) => r.value === syncScopeBeforeRehash);
+    if (previous) previous.checked = true;
+    syncScopeBeforeRehash = null;
+
+    radios.forEach((radio) => {
+        radio.disabled = false;
+        const row = radio.closest('.mm-dialog-option');
+        if (row) row.classList.remove('mm-dialog-muted');
+    });
+    windows.forEach((select) => { select.disabled = false; });
+
+    // "These search results" has its own reason to be disabled.
+    syncDialogResultsScope();
 }
 
 function openSyncDialog() {
