@@ -169,12 +169,17 @@ def model_level_sql(model_column: str, version_column: str, images_subquery: str
     The grid filters on this in the database rather than in Python, so the
     rule exists twice; keeping the SQL here means it is at least beside the
     Python it has to agree with.
+
+    Unknown is dropped to 0 before the MAX and restored afterwards, because
+    it is not a level on the scale - see model_level().
     """
-    return (
-        f"MAX(COALESCE({model_column}, {UNKNOWN}), "
-        f"COALESCE({version_column}, {UNKNOWN}), "
-        f"COALESCE(({images_subquery}), {UNKNOWN}))"
-    )
+    def known(expr: str) -> str:
+        return f"COALESCE(NULLIF({expr}, {UNKNOWN}), 0)"
+
+    highest = (f"MAX({known(model_column)}, "
+               f"{known(version_column)}, "
+               f"{known('(%s)' % images_subquery)})")
+    return f"COALESCE(NULLIF({highest}, 0), {UNKNOWN})"
 
 
 def model_level(model_level_: Optional[int],
@@ -187,11 +192,14 @@ def model_level(model_level_: Optional[int],
     in its gallery - because a gallery is what someone actually sees when they
     open it, whatever the model is nominally rated.
 
-    Absent values count as Unknown rather than as safe: a model nobody has
-    rated is not thereby harmless.
+    Unknown is the absence of a rating, not a rating above XXX, so it does not
+    take part in the comparison. It used to: UNKNOWN is 64, the largest value
+    on the scale, so a single missing component carried the whole model past
+    every ceiling a filter could set. Civitai leaves nsfwLevel off most version
+    payloads, which made 746 of 747 local versions unfilterable.
+
+    A model is Unknown only when nothing about it is known.
     """
-    return max(
-        model_level_ or UNKNOWN,
-        version_level or UNKNOWN,
-        highest_image_level or UNKNOWN,
-    )
+    known = [level for level in (model_level_, version_level, highest_image_level)
+             if level and level != UNKNOWN]
+    return max(known) if known else UNKNOWN
