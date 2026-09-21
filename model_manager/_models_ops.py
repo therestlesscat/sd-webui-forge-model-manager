@@ -557,6 +557,30 @@ class ModelsOps:
 
     # ==================== Utility Methods ====================
 
+    def get_linked_versions(self) -> List[Dict[str, Any]]:
+        """
+        Every local version that already resolves to a Civitai model.
+
+        A metadata refresh reuses the ids and hashes recorded by an earlier
+        sync, so it never has to re-read a multi-gigabyte file. Versions with
+        no model_id have never resolved and cannot be refreshed this way.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("""
+                SELECT id, model_id, file_path, file_hashes
+                FROM model_versions
+                WHERE model_id IS NOT NULL AND file_path IS NOT NULL
+            """)
+            return [
+                {
+                    "id": row["id"],
+                    "model_id": row["model_id"],
+                    "file_path": row["file_path"],
+                    "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else {},
+                }
+                for row in cursor.fetchall()
+            ]
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:

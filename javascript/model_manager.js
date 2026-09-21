@@ -2760,6 +2760,46 @@
         }
     }
 
+    /**
+     * Refresh Civitai data for models that were already identified.
+     *
+     * "Sync with Civitai" hashes every file to work out what it is. Once that
+     * has happened the answer is stored, so this only re-reads the metadata,
+     * a hundred models per request. Images are optional because they are the
+     * slow half - they cannot be batched.
+     */
+    async function startMetadataSync(includeImages) {
+        if (isSyncing) return;
+
+        isSyncing = true;
+        updateSyncUI(true);
+        setStatus(includeImages
+            ? 'Refreshing Civitai metadata and images...'
+            : 'Refreshing Civitai metadata...');
+
+        try {
+            const response = await fetch('/model-manager/sync/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `include_images=${includeImages}`
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                pollSyncProgress();
+            } else {
+                setStatus(`Metadata sync failed: ${data.error}`, true);
+                isSyncing = false;
+                updateSyncUI(false);
+            }
+        } catch (error) {
+            console.error('[ModelManager] Metadata sync error:', error);
+            setStatus(`Metadata sync failed: ${error.message}`, true);
+            isSyncing = false;
+            updateSyncUI(false);
+        }
+    }
+
     // Update UI based on sync state
     function updateSyncUI(syncing) {
         const syncBtn = document.getElementById('mm_sync_btn');
@@ -2771,6 +2811,8 @@
         if (syncBtn) syncBtn.disabled = syncing || isScanning;
         if (loadBtn) loadBtn.disabled = syncing || isScanning;
         if (refreshBtn) refreshBtn.disabled = syncing || isScanning;
+        document.querySelectorAll('#mm_sync_meta_btn, #mm_sync_meta_images_btn')
+            .forEach((button) => { button.disabled = syncing || isScanning; });
         if (cancelBtn) cancelBtn.style.display = syncing ? 'inline-block' : 'none';
         if (progressDiv) progressDiv.style.display = syncing ? 'block' : 'none';
 
@@ -2879,6 +2921,8 @@
         if (refreshBtn) refreshBtn.disabled = scanning || isSyncing;
         if (loadBtn) loadBtn.disabled = scanning || isSyncing;
         if (syncBtn) syncBtn.disabled = scanning || isSyncing;
+        document.querySelectorAll('#mm_sync_meta_btn, #mm_sync_meta_images_btn')
+            .forEach((button) => { button.disabled = scanning || isSyncing; });
         if (scanCancelBtn) scanCancelBtn.style.display = scanning ? 'inline-block' : 'none';
         if (scanProgressDiv) scanProgressDiv.style.display = scanning ? 'block' : 'none';
 
@@ -3149,6 +3193,24 @@
                 startSync();
             });
         }
+
+        // Bind the two metadata sync buttons, which share the sync progress
+        // bar and its Cancel button.
+        [
+            ['mm_sync_meta_btn', false],
+            ['mm_sync_meta_images_btn', true],
+        ].forEach(([id, includeImages]) => {
+            const button = document.getElementById(id);
+            if (!button) return;
+            const fresh = button.cloneNode(true);
+            button.parentNode.replaceChild(fresh, button);
+            fresh.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log(`[ModelManager] Metadata sync clicked (images=${includeImages})`);
+                startMetadataSync(includeImages);
+            });
+        });
 
         // Bind sync cancel button
         if (cancelBtn) {

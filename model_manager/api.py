@@ -763,6 +763,64 @@ def setup_api(app: FastAPI):
             "message": "Sync started"
         })
 
+    @app.post("/model-manager/sync/metadata")
+    async def start_metadata_sync(
+        include_images: str = Form(default="false"),
+        paths: str = Form(default="")  # Comma-separated paths, empty = all models
+    ):
+        """
+        Refresh Civitai data for models that already resolve, without hashing.
+
+        /model-manager/sync identifies files: it reads every byte to hash them
+        and asks Civitai what they are. Once that has happened the answer is
+        stored, so refreshing descriptions, tags, stats and licences needs only
+        the ids we hold - fetched a hundred models per request.
+
+        Args:
+            include_images: Also refetch each version's gallery ("true"/"false").
+            paths: Comma-separated model paths, or empty for all.
+
+        Shares the progress and cancel endpoints with the full sync. Returns
+        immediately; poll /model-manager/sync/progress.
+        """
+        global _active_sync, _sync_thread, _sync_progress
+
+        with_images = str(include_images).lower() in ('true', '1', 'yes')
+
+        if _sync_thread is not None and _sync_thread.is_alive():
+            return JSONResponse(
+                {"success": False, "error": "Sync already in progress"},
+                status_code=409
+            )
+
+        model_paths = None
+        if paths:
+            model_paths = [p.strip() for p in paths.split(",") if p.strip()]
+
+        _active_sync = SyncService()
+
+        def run_metadata_sync():
+            global _sync_progress
+            try:
+                _sync_progress = _active_sync.sync_metadata(
+                    model_paths=model_paths,
+                    include_images=with_images
+                )
+            except Exception as e:
+                import traceback
+                print(f"[ModelManager] Metadata sync error: {e}")
+                traceback.print_exc()
+                _sync_progress = SyncProgress(is_complete=True)
+                _sync_progress.error_messages.append(str(e))
+
+        _sync_thread = threading.Thread(target=run_metadata_sync, daemon=True)
+        _sync_thread.start()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Metadata sync started" + (" (with images)" if with_images else "")
+        })
+
     @app.get("/model-manager/sync/progress")
     async def get_sync_progress():
         """Get current sync progress."""

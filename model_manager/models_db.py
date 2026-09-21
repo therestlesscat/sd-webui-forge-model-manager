@@ -915,6 +915,10 @@ class ModelsDatabase:
             preview_least_nsfw=preview_least_nsfw
         )
 
+    def get_linked_versions(self) -> List[Dict[str, Any]]:
+        """Local versions that already resolve to a Civitai model."""
+        return self._models.get_linked_versions()
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         return self._models.get_all_version_paths()

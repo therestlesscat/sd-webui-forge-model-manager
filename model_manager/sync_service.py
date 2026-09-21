@@ -68,6 +68,22 @@ class HashResult:
     blake3: Optional[str] = None          # Full file BLAKE3 (64 chars)
     tensor_sha256: Optional[str] = None   # Full tensor-only SHA256 (safetensors)
 
+    @classmethod
+    def from_stored(cls, stored: Optional[Dict[str, str]]) -> "HashResult":
+        """Rebuild from the dict _hashes_to_dict() wrote to the database.
+
+        A metadata refresh reuses hashes an earlier sync already computed,
+        rather than reading every byte of the file again.
+        """
+        stored = stored or {}
+        return cls(**{
+            field: stored.get(field)
+            for field in (
+                "sha256", "autov2", "autov3", "autov1",
+                "crc32", "blake3", "tensor_sha256",
+            )
+        })
+
 
 class ModelHasher:
     """
@@ -415,28 +431,13 @@ class SyncService:
 
             # Prepare data to save
             if full_model_data:
-                # We have full model data - reorder versions to put matched version first
-                model_versions = full_model_data.get("modelVersions", [])
-
-                # Find the matched version and move it to front
-                matched_version = None
-                other_versions = []
-                for v in model_versions:
-                    if v.get("id") == version_id:
-                        matched_version = v
-                    else:
-                        other_versions.append(v)
-
-                # Rebuild versions list with matched version first
-                if matched_version:
-                    full_model_data["modelVersions"] = [matched_version] + other_versions
-
-                # Save full model data
                 data_to_save = full_model_data
             else:
                 # Fallback to version-only data if full model fetch failed
                 print(f"[ModelManager] Warning: Could not fetch full model data for {model_name}")
                 data_to_save = version_data
+
+            data_to_save = self._payload_with_version_first(data_to_save, version_id)
 
             if not write_civitai_info(model_path, data_to_save):
                 result.error = "Failed to write civitai.info"
@@ -733,6 +734,173 @@ class SyncService:
               f"{self._progress.errors} errors")
 
         return self._progress
+
+    @staticmethod
+    def _payload_with_version_first(model_data: Dict, version_id: Optional[int]) -> Dict:
+        """
+        Put the version we hold locally at the front of modelVersions.
+
+        Everything downstream - the sidecar, _update_database, the details
+        panel - reads modelVersions[0] as "the one this file is".
+        """
+        versions = model_data.get("modelVersions")
+        if not versions or version_id is None:
+            return model_data
+
+        matched = [v for v in versions if v.get("id") == version_id]
+        if not matched:
+            return model_data
+
+        others = [v for v in versions if v.get("id") != version_id]
+        model_data["modelVersions"] = matched + others
+        return model_data
+
+    def sync_metadata(
+        self,
+        model_paths: Optional[List[str]] = None,
+        include_images: bool = False,
+        callback: Optional[Callable[[SyncProgress], None]] = None,
+        max_workers: int = 4
+    ) -> SyncProgress:
+        """
+        Refresh Civitai data for models that already resolve, without hashing.
+
+        sync_all() exists to *identify* a file: it reads every byte to compute
+        hashes and asks Civitai which version they belong to. Once that has
+        happened the answer is recorded, so refreshing descriptions, tags,
+        stats and licences only needs the model ids we already hold. That turns
+        an hours-long pass over a large library into a handful of requests,
+        since ids are fetched a hundred at a time.
+
+        Versions that have never resolved are counted as skipped - identifying
+        them requires the hashing that sync_all() does.
+
+        Args:
+            model_paths: Restrict to these files, or None for everything.
+            include_images: Also refetch each version's gallery. This is the
+                expensive half: images cannot be batched, and the existing
+                rows for a version are replaced.
+            callback: Called after each version with progress.
+            max_workers: Threads used for the per-version work.
+
+        Returns:
+            Final SyncProgress with summary.
+        """
+        self._cancel_requested = False
+        self._progress_lock = threading.Lock()
+
+        db = get_models_db()
+        versions = db.get_linked_versions()
+
+        if model_paths is not None:
+            wanted = set(model_paths)
+            versions = [v for v in versions if v["file_path"] in wanted]
+
+        missing = [v for v in versions if not os.path.exists(v["file_path"])]
+        versions = [v for v in versions if os.path.exists(v["file_path"])]
+
+        self._progress = SyncProgress(total=len(versions))
+        self._progress.skipped = len(missing)
+        for version in missing:
+            self._progress.error_messages.append(
+                f"File not found: {os.path.basename(version['file_path'])}"
+            )
+
+        if not versions:
+            self._progress.is_complete = True
+            return self._progress
+
+        model_ids = list(dict.fromkeys(v["model_id"] for v in versions))
+        print(f"[ModelManager] Metadata sync: {len(versions)} versions across "
+              f"{len(model_ids)} models (images={include_images})")
+
+        self._progress.current_model = f"Fetching {len(model_ids)} models from Civitai..."
+        if callback:
+            callback(self._progress)
+
+        try:
+            fetched = self.client.get_models_by_ids(model_ids)
+        except Exception as e:
+            self._progress.is_complete = True
+            self._progress.error_messages.append(f"Could not fetch models: {e}")
+            return self._progress
+
+        print(f"[ModelManager] Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")
+
+        def process(version: Dict[str, Any]) -> None:
+            if self._cancel_requested:
+                return
+
+            path = version["file_path"]
+            name = os.path.basename(path)
+            model_data = fetched.get(version["model_id"])
+
+            with self._progress_lock:
+                self._progress.current_model = name
+
+            if not model_data:
+                with self._progress_lock:
+                    self._progress.processed += 1
+                    self._progress.not_found += 1
+                return
+
+            try:
+                # A fresh copy per version: the reordering below is per file,
+                # and several local files can share one model.
+                payload = self._payload_with_version_first(
+                    json.loads(json.dumps(model_data)), version["id"]
+                )
+
+                if include_images:
+                    self._refresh_images(version["id"], name)
+
+                if not write_civitai_info(path, payload):
+                    raise RuntimeError("could not write civitai.info")
+
+                db_error = self._update_database(
+                    path, payload, HashResult.from_stored(version["file_hashes"])
+                )
+                if db_error:
+                    raise RuntimeError(db_error)
+
+                with self._progress_lock:
+                    self._progress.processed += 1
+                    self._progress.synced += 1
+
+            except Exception as e:
+                with self._progress_lock:
+                    self._progress.processed += 1
+                    self._progress.errors += 1
+                    self._progress.error_messages.append(f"{name}: {e}")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process, v) for v in versions]
+            for future in as_completed(futures):
+                future.result()
+                if callback:
+                    callback(self._progress)
+                if self._cancel_requested:
+                    break
+
+        self._progress.is_complete = True
+        self._progress.current_model = ""
+        print(f"[ModelManager] Metadata sync complete: {self._progress.synced} updated, "
+              f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
+        return self._progress
+
+    def _refresh_images(self, version_id: int, model_name: str) -> None:
+        """Replace a version's cached gallery with a fresh first page."""
+        images_result = self.client.get_model_images(version_id, cursor=None, limit=100)
+        images = images_result.get("images", [])
+        # /images returns meta: null; generation data comes from elsewhere.
+        enrich_images_with_generation_data(self.client, images)
+
+        db = get_models_db()
+        db.clear_version_images(version_id)
+        if images:
+            db.store_images(version_id, page=1, images=images)
+        db.update_version_images_state(version_id, images_result.get("next_cursor"))
+        print(f"[ModelManager] Refreshed {len(images)} images for {model_name}")
 
     def cancel(self):
         """Request cancellation of the sync operation."""
