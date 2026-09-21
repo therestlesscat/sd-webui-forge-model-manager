@@ -357,7 +357,7 @@ class SyncService:
                     "allow_different_license": civitai_data.get("allowDifferentLicense", True),
                     "supports_generation": civitai_data.get("supportsGeneration", False),
                 }
-                db.upsert_civitai_model(civitai_model)
+                db.upsert_civitai_model(civitai_model, from_civitai=True)
 
                 # Find the matched version (first in list since we reordered it)
                 matched_version = versions[0] if versions else None

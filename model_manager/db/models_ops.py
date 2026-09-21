@@ -45,8 +45,20 @@ class ModelsOps:
             return "{" + ",".join(str(v) for v in value) + "}"
         return value
 
-    def upsert_civitai_model(self, model_data: Dict[str, Any]):
-        """Insert or update a Civitai model record. Preserves is_bookmarked on update."""
+    def upsert_civitai_model(self, model_data: Dict[str, Any],
+                             from_civitai: bool = False):
+        """
+        Insert or update a Civitai model record. Preserves is_bookmarked.
+
+        Args:
+            model_data: The model as Civitai describes it.
+            from_civitai: True when this data just came back from the API.
+                A scan writes these rows too, from the sidecar on disk, having
+                asked Civitai nothing - so only a real fetch may claim the
+                model was synced. Otherwise a Refresh DB makes every model
+                look freshly synced and the staleness windows all read zero.
+        """
+        now = datetime.now().isoformat()
         with self._cursor() as cursor:
             cursor.execute("""
                 INSERT INTO civitai_models (
@@ -54,8 +66,9 @@ class ModelsOps:
                     creator_username, creator_image_url,
                     stats_download_count, stats_thumbs_up, stats_thumbs_down, stats_rating,
                     allow_no_credit, allow_commercial_use, allow_derivatives,
-                    allow_different_license, supports_generation, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    allow_different_license, supports_generation, updated_at,
+                    civitai_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -74,7 +87,10 @@ class ModelsOps:
                     allow_derivatives = excluded.allow_derivatives,
                     allow_different_license = excluded.allow_different_license,
                     supports_generation = excluded.supports_generation,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    -- only moves forward when the data came from the API
+                    civitai_synced_at = COALESCE(excluded.civitai_synced_at,
+                                                 civitai_models.civitai_synced_at)
             """, (
                 model_data.get("id"),
                 model_data.get("name"),
@@ -94,7 +110,8 @@ class ModelsOps:
                 1 if model_data.get("allow_derivatives", True) else 0,
                 1 if model_data.get("allow_different_license", True) else 0,
                 1 if model_data.get("supports_generation") else 0,
-                datetime.now().isoformat()
+                now,
+                now if from_civitai else None
             ))
 
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
@@ -262,13 +279,13 @@ class ModelsOps:
         where = "v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
         params: List[Any] = []
         if synced_before:
-            where += " AND (m.updated_at IS NULL OR m.updated_at < ?)"
+            where += " AND (m.civitai_synced_at IS NULL OR m.civitai_synced_at < ?)"
             params.append(synced_before)
 
         with self._cursor() as cursor:
             cursor.execute("""
                 SELECT v.id, v.model_id, v.file_path, v.file_hashes,
-                       m.updated_at AS model_synced_at
+                       m.civitai_synced_at AS model_synced_at
                 FROM model_versions v
                 LEFT JOIN civitai_models m ON m.id = v.model_id
                 WHERE %s
