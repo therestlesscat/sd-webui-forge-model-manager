@@ -2104,6 +2104,17 @@
         return null;
     }
 
+    /**
+     * Commit a choice in Gradio's open option list.
+     *
+     * The list is bound to mousedown, not click: element.click() dispatches a
+     * click event only, so the list opens and then nothing is ever selected.
+     * The token remove buttons are the other way round and do take click.
+     */
+    function pressOption(element) {
+        element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    }
+
     /** Drop every module currently selected. */
     function clearModules(container) {
         // One ✕ clears the lot; otherwise drop the tokens one by one. Both are
@@ -2166,7 +2177,7 @@
                 continue;
             }
 
-            option.element.click();
+            pressOption(option.element);
             await nextFrame();
         }
 
