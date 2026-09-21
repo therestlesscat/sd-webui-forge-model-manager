@@ -2799,6 +2799,45 @@ async function cancelSync() {
 
 let syncEstimateTimer = null;
 let syncResultPaths = null;     // resolved lazily, for the "these results" scope
+let syncDepthBeforeRehash = null;   // restored when the hashing option is cleared
+let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
+
+/**
+ * The hashing option's own cost, in files rather than requests.
+ *
+ * The asterisk is the point: this comes from the database, which holds what
+ * the last scan found. A file added since is not counted, and the sync walks
+ * the model folders itself - so the number is a floor.
+ */
+function describeUnidentified(counts, force) {
+    if (force) {
+        return `${counts.total.toLocaleString()} files* to read in full`
+            + ` - every one, including the ${counts.identified.toLocaleString()} already identified.`;
+    }
+    const parts = [];
+    if (counts.never_asked) parts.push(`${counts.never_asked.toLocaleString()} never asked about`);
+    if (counts.asked_not_found) {
+        parts.push(`${counts.asked_not_found.toLocaleString()} asked before and not on Civitai`);
+    }
+    return `${counts.unidentified.toLocaleString()} files* to read in full`
+        + (parts.length ? ` - ${parts.join(', ')}.` : '.');
+}
+
+/** The count beside the hashing option, and what Force would add to it. */
+function updateRehashLabels() {
+    const costEl = document.getElementById('mm_cost_rehash');
+    const forceEl = document.getElementById('mm_sync_force_label');
+    if (costEl) {
+        costEl.textContent = syncUnidentified
+            ? `${syncUnidentified.unidentified.toLocaleString()} files*`
+            : 'scans disk';
+    }
+    if (forceEl) {
+        forceEl.textContent = syncUnidentified
+            ? `Also re-read the ${syncUnidentified.identified.toLocaleString()} already identified`
+            : 'Also re-read the files already identified';
+    }
+}
 
 function syncDialogChoice() {
     const scope = document.querySelector('input[name="mm_sync_scope"]:checked')?.value || 'all';
@@ -2813,6 +2852,7 @@ function syncDialogChoice() {
         images: document.getElementById('mm_sync_images')?.checked || false,
         prompts: document.getElementById('mm_sync_prompts')?.checked || false,
         rehash: document.getElementById('mm_sync_rehash')?.checked || false,
+        force: document.getElementById('mm_sync_force')?.checked || false,
     };
 }
 
@@ -2839,11 +2879,16 @@ function refreshSyncEstimate() {
         const startBtn = document.getElementById('mm_sync_dialog_start');
 
         if (choice.rehash) {
-            // Hashing is bound by the disk, not by requests, so the count
-            // below would be describing the wrong thing entirely.
+            // Costed in files, not requests: this one is bound by reading
+            // bytes off the disk. The count comes from the database, so
+            // opening the dialog stays instant - the sync walks the model
+            // folders itself and may find more, which the asterisk says.
             if (estimateEl) {
-                estimateEl.textContent = 'Reads every model file in full, to work out'
-                    + ' what each one is. Bound by the disk rather than by Civitai.';
+                estimateEl.textContent = syncUnidentified
+                    ? `${describeUnidentified(syncUnidentified, choice.force)}`
+                      + ' Also scans your model folders for files that are not in'
+                      + ' the database yet, so the real number may be higher.'
+                    : 'Scans your model folders and reads each unmatched file in full.';
             }
             if (startBtn) startBtn.disabled = false;
             return;
@@ -2875,6 +2920,9 @@ function refreshSyncEstimate() {
             cost('mm_cost_metadata', requests.metadata);
             cost('mm_cost_images', requests.images);
             cost('mm_cost_prompts', requests.prompts);
+
+            syncUnidentified = data.unidentified || null;
+            updateRehashLabels();
 
             fillWindows('mm_sync_stale_days', windows);
             fillWindows('mm_sync_downloaded_days', data.download_windows);
@@ -2953,15 +3001,34 @@ async function syncDialogResultsScope() {
 function syncDialogDependencies() {
     const images = document.getElementById('mm_sync_images');
     const prompts = document.getElementById('mm_sync_prompts');
-    const row = document.getElementById('mm_sync_prompts_row');
+    const promptsRow = document.getElementById('mm_sync_prompts_row');
+    const imagesRow = images && images.closest('.mm-dialog-option');
     const rehash = document.getElementById('mm_sync_rehash');
     const force = document.getElementById('mm_sync_force_row');
+    const hashing = !!(rehash && rehash.checked);
 
-    if (prompts && images) {
-        prompts.disabled = !images.checked;
-        if (row) row.classList.toggle('mm-dialog-muted', !images.checked);
+    // Identifying a file fetches its metadata, its gallery and the prompts
+    // behind it - sync_model() does all three - so the depth is not a choice
+    // while it is on. Whatever was chosen before comes back afterwards.
+    if (hashing && images && prompts) {
+        if (!syncDepthBeforeRehash) {
+            syncDepthBeforeRehash = { images: images.checked, prompts: prompts.checked };
+        }
+        images.checked = true;
+        prompts.checked = true;
+    } else if (!hashing && syncDepthBeforeRehash && images && prompts) {
+        images.checked = syncDepthBeforeRehash.images;
+        prompts.checked = syncDepthBeforeRehash.prompts;
+        syncDepthBeforeRehash = null;
     }
-    if (force) force.style.display = (rehash && rehash.checked) ? '' : 'none';
+
+    if (images) images.disabled = hashing;
+    if (prompts) prompts.disabled = hashing || !images.checked;
+    if (imagesRow) imagesRow.classList.toggle('mm-dialog-muted', hashing);
+    if (promptsRow) promptsRow.classList.toggle('mm-dialog-muted', hashing || !images.checked);
+
+    if (force) force.style.display = hashing ? '' : 'none';
+    updateRehashLabels();
 }
 
 function openSyncDialog() {
@@ -3442,7 +3509,8 @@ function bindElements() {
     const syncDialog = document.getElementById('mm_sync_dialog');
     if (syncDialog) {
         syncDialog.addEventListener('change', (e) => {
-            if (e.target.id === 'mm_sync_images' || e.target.id === 'mm_sync_rehash') {
+            if (e.target.id === 'mm_sync_images' || e.target.id === 'mm_sync_rehash'
+                    || e.target.id === 'mm_sync_force') {
                 syncDialogDependencies();
             }
             // Touching a window picks the scope it belongs to, so the two

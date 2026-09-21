@@ -236,14 +236,14 @@ def create_ui():
                                 <span>Image prompts</span>
                                 <span class="mm-dialog-cost" id="mm_cost_prompts"></span>
                             </label>
-                            <label class="mm-dialog-option" title="Read every byte of every model file to identify it again. Only needed for files Civitai has never matched.">
+                            <label class="mm-dialog-option" title="Read each unmatched file in full and ask Civitai what it is. Also looks for model files that are not in the database yet.">
                                 <input type="checkbox" id="mm_sync_rehash">
-                                <span>Re-identify by hashing</span>
-                                <span class="mm-dialog-cost">reads every file</span>
+                                <span>Identify unmatched files</span>
+                                <span class="mm-dialog-cost" id="mm_cost_rehash">-</span>
                             </label>
-                            <label class="mm-dialog-option mm-dialog-sub" id="mm_sync_force_row" style="display: none;" title="Re-download data even where it already exists">
+                            <label class="mm-dialog-option mm-dialog-sub" id="mm_sync_force_row" style="display: none;" title="Read the files that are already identified as well, in case Civitai now knows one it did not before">
                                 <input type="checkbox" id="mm_sync_force">
-                                <span>Force refresh</span>
+                                <span id="mm_sync_force_label">Also re-read the files already identified</span>
                             </label>
                         </div>
 

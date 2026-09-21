@@ -234,6 +234,10 @@ class ModelsDatabase:
         """Local versions that already resolve to a Civitai model."""
         return self._models.get_linked_versions(synced_before, downloaded_after)
 
+    def count_unidentified(self) -> Dict[str, int]:
+        """How many local files have no Civitai data. See db/models_ops.py."""
+        return self._models.count_unidentified()
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         return self._models.get_all_version_paths()
