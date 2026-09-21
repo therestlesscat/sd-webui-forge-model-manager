@@ -2786,7 +2786,10 @@
             const data = await response.json();
 
             if (data.success) {
-                pollSyncProgress();
+                // pollSyncProgress() is a single sample that clears this
+                // interval once the run reports complete - without the
+                // interval the bar freezes and isSyncing is never released.
+                syncPollInterval = setInterval(pollSyncProgress, 1000);
             } else {
                 setStatus(`Metadata sync failed: ${data.error}`, true);
                 isSyncing = false;
