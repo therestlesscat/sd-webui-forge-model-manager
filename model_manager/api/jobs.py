@@ -13,6 +13,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..scan_service import ScanService, ScanProgress
+from ..db import get_models_db
 from ..sync_service import (
     SyncService,
     SyncProgress,
@@ -200,6 +201,10 @@ def register(app: FastAPI):
                 "estimate": estimate,
                 "windows": sync_window_counts(model_paths),
                 "download_windows": sync_window_counts(model_paths, basis="downloaded"),
+                # For the hashing option, which is costed in files rather than
+                # in requests. From the database, so opening the dialog does
+                # not walk the disk; the sync itself will, and may find more.
+                "unidentified": get_models_db().count_unidentified(),
             })
         except Exception as e:
             import traceback

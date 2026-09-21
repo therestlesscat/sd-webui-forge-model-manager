@@ -314,6 +314,38 @@ class ModelsOps:
                 for row in cursor.fetchall()
             ]
 
+    def count_unidentified(self) -> Dict[str, int]:
+        """
+        How many local files Civitai has no data for, and why not.
+
+        The sync dialog costs its hashing option from these. It counts what is
+        in the database, which is what the last scan found - a file added
+        since is not here, and will turn up when the sync walks the model
+        folders itself. So the number is a floor, not a total.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN has_civitai_data = 1 THEN 1 ELSE 0 END) AS identified,
+                    SUM(CASE WHEN COALESCE(has_civitai_data, 0) = 0
+                              AND civitai_lookup_failed_at IS NOT NULL
+                             THEN 1 ELSE 0 END) AS asked_not_found
+                FROM model_versions
+                WHERE file_path IS NOT NULL
+            """)
+            row = cursor.fetchone()
+            total = row["total"] or 0
+            identified = row["identified"] or 0
+            asked = row["asked_not_found"] or 0
+            return {
+                "total": total,
+                "identified": identified,
+                "unidentified": total - identified,
+                "asked_not_found": asked,
+                "never_asked": total - identified - asked,
+            }
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:
