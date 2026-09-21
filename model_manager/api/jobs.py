@@ -37,13 +37,17 @@ def register(app: FastAPI):
     @app.post("/model-manager/sync")
     async def start_sync(
         force: str = Form(default="false"),  # Form data comes as string
+        targets: str = Form(default="all"),
         paths: str = Form(default="")  # Comma-separated paths, empty = all models
     ):
         """
-        Start syncing models with Civitai.
+        Start syncing models with Civitai, identifying each file by its hash.
 
         Args:
             force: Re-sync even if civitai data exists ("true" or "false").
+            targets: "all", "identified", or "unidentified" - which of the
+                files on disk to work on. Anything but "all" implies force,
+                since picking a set is the point of asking.
             paths: Comma-separated model paths, or empty for all.
 
         Returns immediately. Poll /model-manager/sync/progress for status.
@@ -51,8 +55,11 @@ def register(app: FastAPI):
         global _active_sync, _sync_thread, _sync_progress
 
         # Parse force as boolean (form data sends strings)
-        force_bool = str(force).lower() in ('true', '1', 'yes')
-        print(f"[ModelManager] Sync requested with force={force} -> {force_bool}")
+        target_set = targets if targets in ("all", "identified", "unidentified") else "all"
+        # Choosing a set is itself a request to re-read them, so it forces.
+        force_bool = (str(force).lower() in ('true', '1', 'yes')
+                      or target_set != "all")
+        print(f"[ModelManager] Sync requested: targets={target_set} force={force_bool}")
 
         # Check if sync already running
         if _sync_thread is not None and _sync_thread.is_alive():
@@ -74,7 +81,8 @@ def register(app: FastAPI):
             try:
                 _sync_progress = _active_sync.sync_all(
                     model_paths=model_paths,
-                    force=force_bool
+                    force=force_bool,
+                    targets=target_set
                 )
             except Exception as e:
                 import traceback
