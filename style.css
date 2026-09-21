@@ -2181,6 +2181,7 @@ body.mm-modal-open {
 
 .mm-dialog {
     background: var(--background-fill-primary, #1f2937);
+    color: var(--body-text-color, #fff);
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -2250,11 +2251,28 @@ body.mm-modal-open {
 
 .mm-dialog-select {
     background: var(--input-background-fill, #111827);
-    color: inherit;
+    color: var(--body-text-color, #fff);
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 6px;
     padding: 2px 6px;
     font-size: 12px;
+}
+
+/* The open option list is drawn by the browser, not from this stylesheet, so
+   it takes the document's colour scheme rather than the colours above. The
+   WebUI never declares one, which left a white popup hanging off a dark
+   dialog. Gradio puts .dark on an ancestor when the theme is dark, so say it
+   there - following the theme rather than the operating system, which
+   prefers-color-scheme would do instead. */
+.dark .mm-dialog-select {
+    color-scheme: dark;
+}
+
+/* Firefox and the Linux builds honour these; Chrome on Windows does not, and
+   relies on the scheme above. Harmless where they are ignored. */
+.mm-dialog-select option {
+    background: var(--input-background-fill, #111827);
+    color: var(--body-text-color, #fff);
 }
 
 .mm-dialog-estimate {
