@@ -95,6 +95,7 @@ def register(app: FastAPI):
         include_images: str = Form(default="false"),
         include_prompts: str = Form(default="true"),
         stale_days: int = Form(default=0),
+        downloaded_days: int = Form(default=0),
         paths: str = Form(default="")  # Comma-separated paths, empty = all models
     ):
         """
@@ -112,6 +113,8 @@ def register(app: FastAPI):
                 sync, so the dialog lets it be left out.
             stale_days: Only models last refreshed longer ago than this many
                 days. 0 means every model, however recently it was refreshed.
+            downloaded_days: Only versions downloaded within this many days.
+                0 means every version, however long ago it arrived.
             paths: Comma-separated model paths, or empty for all.
 
         Shares the progress and cancel endpoints with the full sync. Returns
@@ -122,6 +125,7 @@ def register(app: FastAPI):
         with_images = str(include_images).lower() in ('true', '1', 'yes')
         with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
         synced_before = window_cutoff(stale_days) if stale_days > 0 else None
+        downloaded_after = window_cutoff(downloaded_days) if downloaded_days > 0 else None
 
         if _sync_thread is not None and _sync_thread.is_alive():
             return JSONResponse(
@@ -142,7 +146,8 @@ def register(app: FastAPI):
                     model_paths=model_paths,
                     include_images=with_images,
                     include_prompts=with_prompts,
-                    synced_before=synced_before
+                    synced_before=synced_before,
+                    downloaded_after=downloaded_after
                 )
             except Exception as e:
                 import traceback
@@ -164,6 +169,7 @@ def register(app: FastAPI):
         include_images: str = "false",
         include_prompts: str = "true",
         stale_days: int = 0,
+        downloaded_days: int = 0,
         paths: str = ""
     ):
         """
@@ -185,6 +191,7 @@ def register(app: FastAPI):
             estimate = estimate_metadata_sync(
                 model_paths=model_paths,
                 synced_before=window_cutoff(stale_days) if stale_days > 0 else None,
+                downloaded_after=window_cutoff(downloaded_days) if downloaded_days > 0 else None,
                 include_images=with_images,
                 include_prompts=with_prompts,
             )
@@ -192,6 +199,7 @@ def register(app: FastAPI):
                 "success": True,
                 "estimate": estimate,
                 "windows": sync_window_counts(model_paths),
+                "download_windows": sync_window_counts(model_paths, basis="downloaded"),
             })
         except Exception as e:
             import traceback
