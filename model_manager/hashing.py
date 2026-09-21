@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 # Try to import blake3, fall back gracefully if not available
@@ -37,21 +37,43 @@ class HashResult:
     blake3: Optional[str] = None          # Full file BLAKE3 (64 chars)
     tensor_sha256: Optional[str] = None   # Full tensor-only SHA256 (safetensors)
 
+    # Hash kinds this class does not model, carried through untouched. A scan
+    # stores every kind Civitai names, lowercased, and Civitai names more than
+    # the six above - sha256_12 on 412 of this library's versions, sshs_12 on
+    # three. Without somewhere to put them, a metadata refresh read the seven
+    # it knew and wrote back only those, so the rest were dropped on every
+    # sync. sha256_12 is a prefix of sha256 and could be recomputed; sshs_12
+    # could not, and was simply lost.
+    extra: Dict[str, str] = field(default_factory=dict)
+
+    KNOWN = ("sha256", "autov2", "autov3", "autov1",
+             "crc32", "blake3", "tensor_sha256")
+
     @classmethod
     def from_stored(cls, stored: Optional[Dict[str, str]]) -> "HashResult":
         """Rebuild from the dict _hashes_to_dict() wrote to the database.
 
         A metadata refresh reuses hashes an earlier sync already computed,
-        rather than reading every byte of the file again.
+        rather than reading every byte of the file again. Kinds this class
+        has no field for survive the trip in `extra`.
         """
         stored = stored or {}
-        return cls(**{
-            field: stored.get(field)
-            for field in (
-                "sha256", "autov2", "autov3", "autov1",
-                "crc32", "blake3", "tensor_sha256",
-            )
-        })
+        if not isinstance(stored, dict):
+            return cls()
+        return cls(
+            extra={k: v for k, v in stored.items()
+                   if k not in cls.KNOWN and v},
+            **{name: stored.get(name) for name in cls.KNOWN}
+        )
+
+    def to_dict(self) -> Dict[str, str]:
+        """Every hash held here, in the form the database stores."""
+        out = {name: getattr(self, name) for name in self.KNOWN
+               if getattr(self, name)}
+        # A named field wins over a stray key of the same name.
+        for key, value in self.extra.items():
+            out.setdefault(key, value)
+        return out
 
 
 class ModelHasher:
