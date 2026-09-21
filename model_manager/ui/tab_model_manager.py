@@ -180,17 +180,73 @@ def create_ui():
                     </div>
                     <div class="filter-buttons-row">
                         <div class="mm-button-group" title="Fetch data from Civitai">
-                            <button id="mm_sync_btn" class="mm-btn secondary" title="Identify models by hashing every file, then fetch their Civitai data. Slow: it reads every byte of every model.">Sync with Civitai</button>
-                            <label class="mm-checkbox-label" title="Re-download data even if already exists">
-                                <input type="checkbox" id="mm_sync_force"> Force
-                            </label>
-                            <button id="mm_sync_meta_btn" class="mm-btn secondary" title="Refresh descriptions, tags, stats and licences for models already identified. No hashing, so this is fast.">Sync with Civitai Metadata (Models)</button>
-                            <button id="mm_sync_meta_images_btn" class="mm-btn secondary" title="The same refresh, and also refetch each model's example images. Slower: images cannot be batched.">Sync with Civitai Metadata (Models + Images)</button>
+                            <button id="mm_sync_btn" class="mm-btn secondary" title="Choose which models to refresh, and how much of each">Sync with Civitai...</button>
                             <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
                         <div class="mm-button-group" title="Rescan the model directories on disk">
                             <button id="mm_refresh_btn" class="mm-btn secondary" title="Scan model directories and refresh database">Refresh DB</button>
                             <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sync dialog: what to refresh, and what that will cost -->
+                <div id="mm_sync_dialog" class="mm-dialog-backdrop" style="display: none;">
+                    <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_sync_dialog_title">
+                        <h3 id="mm_sync_dialog_title">Sync with Civitai</h3>
+
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Models</div>
+                            <label class="mm-dialog-option">
+                                <input type="radio" name="mm_sync_scope" value="all" checked>
+                                <span>All models</span>
+                                <span class="mm-dialog-count" id="mm_scope_all"></span>
+                            </label>
+                            <label class="mm-dialog-option">
+                                <input type="radio" name="mm_sync_scope" value="results">
+                                <span>These search results</span>
+                                <span class="mm-dialog-count" id="mm_scope_results"></span>
+                            </label>
+                            <label class="mm-dialog-option">
+                                <input type="radio" name="mm_sync_scope" value="stale">
+                                <span>Not synced in</span>
+                                <select id="mm_sync_stale_days" class="mm-dialog-select"></select>
+                            </label>
+                        </div>
+
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Include</div>
+                            <label class="mm-dialog-option" title="Descriptions, tags, stats, licences. Always included.">
+                                <input type="checkbox" checked disabled>
+                                <span>Metadata</span>
+                                <span class="mm-dialog-cost" id="mm_cost_metadata"></span>
+                            </label>
+                            <label class="mm-dialog-option" title="Refetch each model's example images">
+                                <input type="checkbox" id="mm_sync_images">
+                                <span>Example images</span>
+                                <span class="mm-dialog-cost" id="mm_cost_images"></span>
+                            </label>
+                            <label class="mm-dialog-option" id="mm_sync_prompts_row" title="The prompt and settings behind each image. Civitai serves these one small batch at a time, so this is most of a full sync.">
+                                <input type="checkbox" id="mm_sync_prompts" checked disabled>
+                                <span>Image prompts</span>
+                                <span class="mm-dialog-cost" id="mm_cost_prompts"></span>
+                            </label>
+                            <label class="mm-dialog-option" title="Read every byte of every model file to identify it again. Only needed for files Civitai has never matched.">
+                                <input type="checkbox" id="mm_sync_rehash">
+                                <span>Re-identify by hashing</span>
+                                <span class="mm-dialog-cost">hours</span>
+                            </label>
+                            <label class="mm-dialog-option mm-dialog-sub" id="mm_sync_force_row" style="display: none;" title="Re-download data even where it already exists">
+                                <input type="checkbox" id="mm_sync_force">
+                                <span>Force refresh</span>
+                            </label>
+                        </div>
+
+                        <div class="mm-dialog-estimate" id="mm_sync_estimate">Estimating...</div>
+
+                        <div class="mm-dialog-actions">
+                            <button id="mm_sync_dialog_cancel" class="mm-btn secondary">Cancel</button>
+                            <button id="mm_sync_dialog_start" class="mm-btn primary">Start</button>
                         </div>
                     </div>
                 </div>

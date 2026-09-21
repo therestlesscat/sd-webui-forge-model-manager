@@ -2162,3 +2162,112 @@ body.mm-modal-open {
         gap: 10px;
     }
 }
+
+/* ============================================================
+   Sync dialog
+   Which models to refresh, how much of each, and what it costs.
+   ============================================================ */
+
+.mm-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10001;
+    padding: 20px;
+}
+
+.mm-dialog {
+    background: var(--background-fill-primary, #1f2937);
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+}
+
+.mm-dialog h3 {
+    margin: 0 0 16px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mm-dialog-section {
+    margin-bottom: 16px;
+}
+
+.mm-dialog-heading {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+    margin-bottom: 6px;
+}
+
+.mm-dialog-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.mm-dialog-option:hover {
+    background: var(--input-background-fill, #111827);
+}
+
+.mm-dialog-option input {
+    margin: 0;
+    flex: none;
+}
+
+/* The label takes the slack, so the cost column lines up on the right. */
+.mm-dialog-option > span:first-of-type {
+    flex: 1;
+}
+
+.mm-dialog-sub {
+    padding-left: 24px;
+}
+
+/* A choice that does nothing until the one above it is made. */
+.mm-dialog-muted {
+    opacity: 0.45;
+}
+
+.mm-dialog-count,
+.mm-dialog-cost {
+    font-size: 12px;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mm-dialog-select {
+    background: var(--input-background-fill, #111827);
+    color: inherit;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
+.mm-dialog-estimate {
+    background: var(--input-background-fill, #111827);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.mm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}

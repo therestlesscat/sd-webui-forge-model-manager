@@ -907,6 +907,9 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     total = metadata_requests + image_requests + prompt_requests
     return {
         "versions": len(versions),
+        # What "All models" would come to, so the dialog can show it beside
+        # that option whichever scope is currently selected.
+        "all_versions": len(db.get_linked_versions()),
         "models": models,
         "images": images_total,
         "rate": rate,
