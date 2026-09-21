@@ -286,8 +286,8 @@ class ModelsOps:
         offset: int = 0,
         preview_least_nsfw: bool = True,
         commercial_use: Optional[str] = None,
-        allow_derivatives: Optional[bool] = None,
-        allow_different_license: Optional[bool] = None
+        allow_derivatives: Optional[str] = None,
+        allow_different_license: Optional[str] = None
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Query models grouped by civitai_model_id.
@@ -374,13 +374,19 @@ class ModelsOps:
                     params.extend([f"{{{v}}}", f"{{{v},%", f"%,{v}}}", f"%,{v},%"])
                 conditions.append("(" + " OR ".join(value_conditions) + ")")
 
-        if allow_derivatives is not None:
-            conditions.append("m.allow_derivatives = ?")
-            params.append(1 if allow_derivatives else 0)
-
-        if allow_different_license is not None:
-            conditions.append("m.allow_different_license = ?")
-            params.append(1 if allow_different_license else 0)
+        # Four-valued, because the data is: a model with no Civitai row has
+        # no licence at all, and the LEFT JOIN leaves these NULL. "unknown"
+        # is the only way to ask for those - "true"/"false" exclude them,
+        # which is why picking either quietly drops every unsynced model.
+        for column, choice in (
+            ("allow_derivatives", allow_derivatives),
+            ("allow_different_license", allow_different_license),
+        ):
+            if choice == "unknown":
+                conditions.append(f"m.{column} IS NULL")
+            elif choice in ("true", "false"):
+                conditions.append(f"m.{column} = ?")
+                params.append(1 if choice == "true" else 0)
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 

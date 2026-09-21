@@ -341,18 +341,13 @@
             : {};
 
         // Allow Derivatives: both checked = no filter, one checked = filter for that value
-        const derivYes = document.getElementById('mm_allow_derivatives_yes')?.checked;
-        const derivNo = document.getElementById('mm_allow_derivatives_no')?.checked;
-        const derivativesFilter = (derivYes && !derivNo) ? { allow_derivatives: 'true' }
-            : (!derivYes && derivNo) ? { allow_derivatives: 'false' }
-            : {};
+        // Licence filters are four-valued: '' asks nothing, 'unknown' asks for
+        // the models with no Civitai data, which have no licence to read.
+        const derivatives = document.getElementById('mm_allow_derivatives')?.value || '';
+        const derivativesFilter = derivatives ? { allow_derivatives: derivatives } : {};
 
-        // Allow Different License: both checked = no filter, one checked = filter for that value
-        const diffLicYes = document.getElementById('mm_allow_different_license_yes')?.checked;
-        const diffLicNo = document.getElementById('mm_allow_different_license_no')?.checked;
-        const diffLicenseFilter = (diffLicYes && !diffLicNo) ? { allow_different_license: 'true' }
-            : (!diffLicYes && diffLicNo) ? { allow_different_license: 'false' }
-            : {};
+        const diffLicense = document.getElementById('mm_allow_different_license')?.value || '';
+        const diffLicenseFilter = diffLicense ? { allow_different_license: diffLicense } : {};
 
         const filters = {
             search: document.getElementById('mm_search')?.value || '',
@@ -2634,11 +2629,8 @@
         setChecked('#mm_commercial_panel input[type="checkbox"][value]', true);
         updateCommercialDisplay();
 
-        ['mm_allow_derivatives_yes', 'mm_allow_derivatives_no',
-         'mm_allow_different_license_yes', 'mm_allow_different_license_no'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.checked = true;
-        });
+        setValue('mm_allow_derivatives', '');
+        setValue('mm_allow_different_license', '');
 
         setValue('mm_search', query);
 
@@ -3064,6 +3056,8 @@
             min_versions: document.getElementById('mm_min_versions')?.value || '',
             sort_by: document.getElementById('mm_sort_by')?.value || 'name',
             sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
+            allow_derivatives: document.getElementById('mm_allow_derivatives')?.value || '',
+            allow_different_license: document.getElementById('mm_allow_different_license')?.value || '',
             nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
             preview_least_nsfw: previewCheckbox ? previewCheckbox.checked : null,
             nsfw_levels: []
@@ -3101,6 +3095,8 @@
             if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
             if (Object.prototype.hasOwnProperty.call(filters, 'sort_by')) document.getElementById('mm_sort_by').value = filters.sort_by;
             if (Object.prototype.hasOwnProperty.call(filters, 'sort_order')) document.getElementById('mm_sort_order').value = filters.sort_order;
+            if (Object.prototype.hasOwnProperty.call(filters, 'allow_derivatives')) document.getElementById('mm_allow_derivatives').value = filters.allow_derivatives;
+            if (Object.prototype.hasOwnProperty.call(filters, 'allow_different_license')) document.getElementById('mm_allow_different_license').value = filters.allow_different_license;
 
             // Set NSFW checkboxes
             const useMaxCb = document.getElementById('mm_nsfw_use_max');

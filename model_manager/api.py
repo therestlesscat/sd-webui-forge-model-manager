@@ -186,8 +186,9 @@ def setup_api(app: FastAPI):
         min_versions: str = "",  # Minimum number of local versions
         preview_least_nsfw: Optional[bool] = None,  # None = use setting, True/False = override
         commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
-        allow_derivatives: Optional[bool] = None,  # None = all, True/False = filter
-        allow_different_license: Optional[bool] = None,  # None = all, True/False = filter
+        # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
+        allow_derivatives: str = "",
+        allow_different_license: str = "",
         sort_by: str = "downloaded_at",
         sort_order: str = "desc",
         page: int = 1,
@@ -286,8 +287,8 @@ def setup_api(app: FastAPI):
                 is_bookmarked=is_bookmarked,
                 min_versions=min_versions_int,
                 commercial_use=commercial_use if commercial_use else None,
-                allow_derivatives=allow_derivatives,
-                allow_different_license=allow_different_license,
+                allow_derivatives=allow_derivatives or None,
+                allow_different_license=allow_different_license or None,
                 sort_by=db_sort_by,
                 sort_order=sort_order,
                 limit=page_size,
