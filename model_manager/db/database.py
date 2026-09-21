@@ -61,7 +61,7 @@ class ModelsDatabase:
 
         self._models = ModelsOps(self._cursor)
         self._images = ImagesOps(self._cursor)
-        self._browser = BrowserCacheOps(self._cursor)
+        self._browser_cache = BrowserCacheOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
