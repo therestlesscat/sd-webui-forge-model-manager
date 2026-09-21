@@ -27,6 +27,7 @@
     let isLoading = false;
     let selectedModel = null;
     let selectedVersionIndex = 0;
+    let selectedFileIndex = null;  // null = whichever file Civitai marks primary
     let currentImages = [];
     let currentImagePage = 1;
     let nextImagesCursor = null;
@@ -627,15 +628,51 @@
     }
 
     /**
-     * The file a download of this version will produce.
+     * Index of the file a download of this version will produce.
      *
      * Mirrors DownloadService.pick_file_index: files[0] is often the full
      * fp32 weights, roughly twice the size of the pruned file Civitai marks
-     * primary. The panel has to name the file the button will fetch.
+     * primary, so the primary one is the default rather than the first.
      */
-    function primaryFile(version) {
+    function primaryFileIndex(version) {
         const files = version?.files || [];
-        return files.find(f => f.primary) || files[0];
+        const primary = files.findIndex(f => f.primary);
+        return primary === -1 ? 0 : primary;
+    }
+
+    function primaryFile(version) {
+        return (version?.files || [])[primaryFileIndex(version)];
+    }
+
+    /** The file currently chosen for download - the picker's, or the primary. */
+    function chosenFileIndex(version) {
+        const files = version?.files || [];
+        if (selectedFileIndex !== null && selectedFileIndex >= 0
+            && selectedFileIndex < files.length) {
+            return selectedFileIndex;
+        }
+        return primaryFileIndex(version);
+    }
+
+    /**
+     * How a file reads in the picker: "pruned fp16 - 1.99 GB".
+     *
+     * metadata carries format/size/fp for model files; anything without it
+     * (a VAE, a config, training data) falls back to its name and type.
+     */
+    function describeFile(file) {
+        const meta = file?.metadata || {};
+        const parts = [meta.size, meta.fp].filter(Boolean);
+
+        if (!parts.length) {
+            const type = file?.type && file.type !== 'Model' ? file.type : '';
+            parts.push(type || file?.name || 'File');
+        } else if (file?.type && file.type !== 'Model') {
+            parts.push(file.type);
+        }
+
+        const size = file?.sizeKB ? formatFileSize(file.sizeKB * 1024) : '';
+        return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
     }
 
     // Get thumbnail URL
@@ -677,6 +714,7 @@
 
         selectedModel = null;
         selectedVersionIndex = 0;
+        selectedFileIndex = null;
         currentImages = [];
         nextImagesCursor = null;
     }
@@ -725,7 +763,9 @@
         const versions = model.modelVersions || [];
         const version = getSelectedVersion() || versions[0];
         const isOwned = version?.owned_locally || model.owned_versions?.includes(version?.id);
-        const file = primaryFile(version);
+        const versionFiles = version?.files || [];
+        const fileIndex = chosenFileIndex(version);
+        const file = versionFiles[fileIndex];
 
         // Version selector pills
         const versionSelectorHtml = renderVersionSelector();
@@ -766,6 +806,16 @@
         const fileSize = file?.sizeKB ? formatFileSize(file.sizeKB * 1024) : 'Unknown';
         const fileName = file?.name || 'Unknown';
 
+        // Only worth a control when there is something to choose between.
+        const fileOptions = versionFiles.length > 1
+            ? `<select class="cb-file-select" onchange="window.cbSelectFile(this.value)"
+                       title="Which file to download">
+                 ${versionFiles.map((f, i) => `<option value="${i}" ${i === fileIndex ? 'selected' : ''}
+                        title="${escapeHtml(f.name || '')}">${escapeHtml(describeFile(f))}`
+                        + `${f.primary ? ' (default)' : ''}</option>`).join('')}
+               </select>`
+            : '';
+
         // Stats
         const stats = model.stats || {};
 
@@ -779,7 +829,8 @@
             downloadBtn = `<button class="mm-btn secondary" disabled `
                 + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
         } else if (file) {
-            downloadBtn = `<button class="mm-btn primary" onclick="window.cbDownload(${model.id}, ${version?.id})">Download</button>`;
+            downloadBtn = `<button class="mm-btn primary" id="cb_download_btn" `
+                + `onclick="window.cbDownload(${model.id}, ${version?.id}, ${file?.id ?? 'null'})">Download</button>`;
         }
 
         // Only offer the jump for models that are actually in the library.
@@ -815,8 +866,8 @@
                         <tr><td>Downloads</td><td>${formatNumber(stats.downloadCount || 0)}</td></tr>
                         <tr><td>Favorites</td><td>${formatNumber(stats.favoriteCount || 0)}</td></tr>
                         <tr><td>Comments</td><td>${formatNumber(stats.commentCount || 0)}</td></tr>
-                        <tr><td>File</td><td>${escapeHtml(fileName)}</td></tr>
-                        <tr><td>File Size</td><td>${fileSize}</td></tr>
+                        <tr><td>File</td><td id="cb_file_name">${escapeHtml(fileName)}</td></tr>
+                        <tr><td>File Size</td><td id="cb_file_size">${fileSize}</td></tr>
                         <tr><td>Images</td><td id="cb_images_count">${currentImages.length || '...'}</td></tr>
                     </table>
                 </div>
@@ -828,6 +879,7 @@
                 <div class="detail-section detail-actions">
                     <a class="mm-btn secondary" href="https://civitai.com/models/${model.id}?modelVersionId=${version?.id}" target="_blank">View on Civitai</a>
                     ${downloadBtn}
+                    ${fileOptions}
                 </div>
             </div>
         `;
@@ -864,9 +916,39 @@
     };
 
     // Select version
+    /**
+     * Point the download at a different file of the current version.
+     *
+     * Updates the two rows and the button in place rather than re-rendering
+     * the panel, which would scroll the reader back to the top.
+     */
+    function selectFile(fileIndex) {
+        const index = parseInt(fileIndex, 10);
+        const version = getSelectedVersion();
+        const file = (version?.files || [])[index];
+        if (!file) return;
+
+        selectedFileIndex = index;
+
+        const nameCell = document.getElementById('cb_file_name');
+        if (nameCell) nameCell.textContent = file.name || 'Unknown';
+
+        const sizeCell = document.getElementById('cb_file_size');
+        if (sizeCell) {
+            sizeCell.textContent = file.sizeKB ? formatFileSize(file.sizeKB * 1024) : 'Unknown';
+        }
+
+        const button = document.getElementById('cb_download_btn');
+        if (button) {
+            button.setAttribute('onclick',
+                `window.cbDownload(${selectedModel?.id}, ${version?.id}, ${file.id ?? 'null'})`);
+        }
+    }
+
     function selectVersion(versionIndex) {
         if (versionIndex === selectedVersionIndex) return;
         selectedVersionIndex = versionIndex;
+        selectedFileIndex = null;  // a different version has different files
 
         // Update pills UI
         document.querySelectorAll('.mm-version-pill').forEach((pill, idx) => {
@@ -1375,13 +1457,15 @@
     };
 
     // Start download
-    async function startDownload(modelId, versionId) {
+    async function startDownload(modelId, versionId, fileId) {
         try {
             updateStatus('Starting download...');
 
             const result = await apiPost('/model-manager/civitai/download', {
                 model_id: modelId,
-                version_id: versionId
+                version_id: versionId,
+                // Omitted when unknown, which leaves the backend on the primary.
+                file_id: fileId ?? undefined
             });
 
             if (result.success) {
@@ -1987,6 +2071,7 @@
     window.cbOpenModel = openModel;
     window.cbCloseDetails = closeDetails;
     window.cbSelectVersion = selectVersion;
+    window.cbSelectFile = selectFile;
     // Open this model over in the Model Manager tab
     window.cbShowInModelManager = function(modelId) {
         if (typeof window.mmShowModel !== 'function') {
