@@ -176,6 +176,14 @@ def create_civitai_browser_ui():
                             </select>
                         </div>
                         <div class="filter-group">
+                            <label>Checkpoint</label>
+                            <select id="cb_checkpoint_type" title="Only applies when Type is Checkpoint">
+                                <option value="">All</option>
+                                <option value="Trained">Trained</option>
+                                <option value="Merge">Merge</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
                             <label>Base Model</label>
                             <select id="cb_base_model">
                                 <option value="">All</option>

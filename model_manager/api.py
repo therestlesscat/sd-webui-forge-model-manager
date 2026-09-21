@@ -15,6 +15,7 @@ from .scan_service import ScanService, ScanProgress
 from .models_db import get_models_db
 from .civitai_api import (
     CivitaiClient,
+    paid_access_info,
     enrich_images_with_generation_data,
     image_has_usable_prompt,
     search_models_with_usable_prompts,
@@ -41,6 +42,20 @@ ENUMS_TTL_SECONDS = 6 * 60 * 60
 _active_scan: Optional[ScanService] = None
 _scan_thread: Optional[threading.Thread] = None
 _scan_progress: Optional[ScanProgress] = None
+
+
+def annotate_paid_access(models: List[Dict[str, Any]]):
+    """
+    Mark which versions Civitai charges Buzz for, in place.
+
+    Adds `paid_access` to each version: None when it is free, otherwise
+    {'permanent': bool, 'ends_at': str|None}. Downloading a paid version
+    without buying it fails with 401/403, so the browser needs to say so
+    before the user clicks.
+    """
+    for model in models:
+        for version in model.get("modelVersions", []) or []:
+            version["paid_access"] = paid_access_info(version)
 
 
 def annotate_local_ownership(db, models: List[Dict[str, Any]]):
@@ -1208,6 +1223,7 @@ def setup_api(app: FastAPI):
         sort: str = "Most Downloaded",
         period: str = "AllTime",
         tag: str = "",
+        checkpoint_type: str = "",  # Trained or Merge; checkpoints only
         cursor: str = "",         # Cursor for pagination (empty = first page)
         require_prompt: bool = False,  # Only models with usable-prompt images
         limit: int = 0,  # 0 = use setting
@@ -1250,6 +1266,7 @@ def setup_api(app: FastAPI):
                 period=period,
                 nsfw=nsfw,
                 tag=tag,
+                checkpoint_type=checkpoint_type,
             )
 
             # Search Civitai
@@ -1299,6 +1316,7 @@ def setup_api(app: FastAPI):
             # Get local ownership info
             db = get_models_db()
             annotate_local_ownership(db, items)
+            annotate_paid_access(items)
 
             return JSONResponse({
                 "success": True,
@@ -1328,6 +1346,7 @@ def setup_api(app: FastAPI):
         sort: str = "Most Downloaded",
         period: str = "AllTime",
         tag: str = "",
+        checkpoint_type: str = "",
         cursor: str = "",
         limit: int = 0,
     ):
@@ -1372,6 +1391,7 @@ def setup_api(app: FastAPI):
             period=period,
             nsfw=nsfw,
             tag=tag,
+            checkpoint_type=checkpoint_type,
         )
         min_usable = max(int(getattr(
             shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
@@ -1401,6 +1421,7 @@ def setup_api(app: FastAPI):
                 ):
                     if kind == "model":
                         annotate_local_ownership(db, [payload])
+                        annotate_paid_access([payload])
                         yield json.dumps({"type": "model", "model": payload}) + "\n"
                     elif kind == "progress":
                         yield json.dumps({"type": "progress", **payload}) + "\n"
@@ -1470,6 +1491,8 @@ def setup_api(app: FastAPI):
             # Mark each version with ownership
             for version in model.get("modelVersions", []):
                 version["owned_locally"] = version.get("id") in owned_versions
+
+            annotate_paid_access([model])
 
             return JSONResponse({
                 "success": True,
@@ -1654,13 +1677,17 @@ def setup_api(app: FastAPI):
     async def civitai_download_model(
         version_id: int = Form(...),
         model_id: int = Form(...),
-        file_index: int = Form(default=0)
+        file_index: Optional[int] = Form(default=None)
     ):
         """
         Start downloading a model version from Civitai.
 
         Requires model_id and version_id. Fetches full model/version data
         then queues the download.
+
+        file_index picks one of the version's files by position. Leave it out
+        and the file Civitai marks primary is used, which is not always the
+        first one.
         """
         try:
             from .download_service import get_download_service

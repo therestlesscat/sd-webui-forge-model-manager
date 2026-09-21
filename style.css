@@ -1829,6 +1829,39 @@ body.mm-modal-open {
     z-index: 1;
 }
 
+/* Versions Civitai charges Buzz for: early access, or permanently paid.
+   Sits under the Owned badge so both can show at once. */
+#civitai_browser_app .cb-paid-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: #b45309;
+    color: #fff7ed;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    z-index: 1;
+}
+
+#civitai_browser_app .cb-paid-cell {
+    color: #fbbf24;
+}
+
+.mm-version-pill.paid {
+    border-color: #b45309;
+    color: #fbbf24 !important;
+}
+
+/* A filter that does not apply to the current Type */
+.cb-filter-disabled {
+    opacity: 0.45;
+}
+
+.cb-filter-disabled select {
+    cursor: not-allowed;
+}
+
 /* Pagination */
 .cb-pagination {
     display: flex;

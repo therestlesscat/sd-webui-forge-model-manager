@@ -12,6 +12,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
+from .civitai_api import paid_access_info
+
 
 @dataclass
 class DownloadProgress:
@@ -348,12 +350,31 @@ class DownloadService:
             # Always release tqdm position
             self._release_tqdm_position(progress.version_id)
 
+    @staticmethod
+    def pick_file_index(files: List[Dict[str, Any]], file_index: Optional[int] = None) -> int:
+        """
+        Choose which of a version's files to download.
+
+        files[0] is not the primary file for roughly one version in eleven -
+        it is often the full fp32 weights, about twice the size of the pruned
+        fp16 file most people want. Honour an explicit index, otherwise take
+        whichever file Civitai marks primary.
+        """
+        if file_index is not None and 0 <= file_index < len(files):
+            return file_index
+
+        for index, file_info in enumerate(files):
+            if file_info.get("primary"):
+                return index
+
+        return 0
+
     def download_version(
         self,
         version_id: int,
         model_data: Dict[str, Any],
         version_data: Dict[str, Any],
-        file_index: int = 0
+        file_index: Optional[int] = None
     ) -> DownloadProgress:
         """Download a model version from Civitai."""
         from modules import shared
@@ -366,6 +387,20 @@ class DownloadService:
             self._cancel_flags[version_id] = False
 
         try:
+            # Refuse a version that has to be bought before creating anything:
+            # its download URL answers 401/403 without a purchase, and
+            # _download_file would burn three retries on a bare HTTP error.
+            paid = paid_access_info(version_data)
+            if paid:
+                progress.status = "error"
+                progress.error = (
+                    "This version is permanently paid on Civitai - buy it there first"
+                    if paid["permanent"] else
+                    f"This version is in early access until {paid['ends_at']} - "
+                    "buy it on Civitai or wait for it to go free"
+                )
+                return progress
+
             model_type = model_data.get("type", "Other")
             base_path = self.get_base_path(model_type)
 
@@ -381,10 +416,7 @@ class DownloadService:
                 progress.error = "No files available for download"
                 return progress
 
-            if file_index >= len(files):
-                file_index = 0
-
-            file_info = files[file_index]
+            file_info = files[self.pick_file_index(files, file_index)]
             file_name = file_info.get("name", f"model_{version_id}.safetensors")
             download_url = file_info.get("downloadUrl") or version_data.get("downloadUrl")
 
@@ -460,12 +492,15 @@ class DownloadService:
         version_id: int,
         model_data: Dict[str, Any],
         version_data: Dict[str, Any],
-        file_index: int = 0
+        file_index: Optional[int] = None
     ) -> DownloadProgress:
         """Queue a download for parallel processing."""
         progress = DownloadProgress(version_id=version_id)
         files = version_data.get("files", [])
-        progress.file_name = files[file_index].get("name", "Unknown") if files else "Unknown"
+        progress.file_name = (
+            files[self.pick_file_index(files, file_index)].get("name", "Unknown")
+            if files else "Unknown"
+        )
 
         with self._lock:
             self._active_downloads[version_id] = progress
