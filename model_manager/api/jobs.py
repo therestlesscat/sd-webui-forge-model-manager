@@ -13,7 +13,13 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..scan_service import ScanService, ScanProgress
-from ..sync_service import SyncService, SyncProgress
+from ..sync_service import (
+    SyncService,
+    SyncProgress,
+    estimate_metadata_sync,
+    sync_window_counts,
+    window_cutoff,
+)
 
 # There is one scan and one sync at a time; these say which, and how far along.
 _active_sync: Optional[SyncService] = None
@@ -87,6 +93,8 @@ def register(app: FastAPI):
     @app.post("/model-manager/sync/metadata")
     async def start_metadata_sync(
         include_images: str = Form(default="false"),
+        include_prompts: str = Form(default="true"),
+        stale_days: int = Form(default=0),
         paths: str = Form(default="")  # Comma-separated paths, empty = all models
     ):
         """
@@ -99,6 +107,11 @@ def register(app: FastAPI):
 
         Args:
             include_images: Also refetch each version's gallery ("true"/"false").
+            include_prompts: Look up the generation data behind those images.
+                It costs a request per thirty images, which is most of a full
+                sync, so the dialog lets it be left out.
+            stale_days: Only models last refreshed longer ago than this many
+                days. 0 means every model, however recently it was refreshed.
             paths: Comma-separated model paths, or empty for all.
 
         Shares the progress and cancel endpoints with the full sync. Returns
@@ -107,6 +120,8 @@ def register(app: FastAPI):
         global _active_sync, _sync_thread, _sync_progress
 
         with_images = str(include_images).lower() in ('true', '1', 'yes')
+        with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
+        synced_before = window_cutoff(stale_days) if stale_days > 0 else None
 
         if _sync_thread is not None and _sync_thread.is_alive():
             return JSONResponse(
@@ -125,7 +140,9 @@ def register(app: FastAPI):
             try:
                 _sync_progress = _active_sync.sync_metadata(
                     model_paths=model_paths,
-                    include_images=with_images
+                    include_images=with_images,
+                    include_prompts=with_prompts,
+                    synced_before=synced_before
                 )
             except Exception as e:
                 import traceback
@@ -141,6 +158,45 @@ def register(app: FastAPI):
             "success": True,
             "message": "Metadata sync started" + (" (with images)" if with_images else "")
         })
+
+    @app.get("/model-manager/sync/estimate")
+    async def get_sync_estimate(
+        include_images: str = "false",
+        include_prompts: str = "true",
+        stale_days: int = 0,
+        paths: str = ""
+    ):
+        """
+        What a metadata sync would cost, before anyone starts one.
+
+        The dialog asks for this as its controls change, so the choice between
+        "metadata only" and "with images and prompts" is made against minutes
+        and requests rather than against a guess. Counts come out of the same
+        code that does the batching, so they cannot drift from it.
+
+        Returns the estimate for the current selection, plus how many versions
+        each staleness window would take - the numbers shown beside them.
+        """
+        try:
+            with_images = str(include_images).lower() in ('true', '1', 'yes')
+            with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
+            model_paths = [p.strip() for p in paths.split(",") if p.strip()] if paths else None
+
+            estimate = estimate_metadata_sync(
+                model_paths=model_paths,
+                synced_before=window_cutoff(stale_days) if stale_days > 0 else None,
+                include_images=with_images,
+                include_prompts=with_prompts,
+            )
+            return JSONResponse({
+                "success": True,
+                "estimate": estimate,
+                "windows": sync_window_counts(model_paths),
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/sync/progress")
     async def get_sync_progress():

@@ -240,26 +240,46 @@ class ModelsOps:
         """Query models grouped by Civitai model id. See db/query.py."""
         return query_models_grouped(self._cursor, **filters)
 
-    def get_linked_versions(self) -> List[Dict[str, Any]]:
+    def get_linked_versions(self,
+                            synced_before: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Every local version that already resolves to a Civitai model.
 
         A metadata refresh reuses the ids and hashes recorded by an earlier
         sync, so it never has to re-read a multi-gigabyte file. Versions with
         no model_id have never resolved and cannot be refreshed this way.
+
+        Args:
+            synced_before: ISO timestamp. Keep only versions whose model was
+                last refreshed before it, so a caller can ask for "everything
+                I have not touched in a week" without fetching the rest. A
+                model that has never been refreshed always qualifies.
+
+        Returns:
+            One dict per version, each with its stored hashes and the time its
+            model was last refreshed (None if never).
         """
+        where = "v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
+        params: List[Any] = []
+        if synced_before:
+            where += " AND (m.updated_at IS NULL OR m.updated_at < ?)"
+            params.append(synced_before)
+
         with self._cursor() as cursor:
             cursor.execute("""
-                SELECT id, model_id, file_path, file_hashes
-                FROM model_versions
-                WHERE model_id IS NOT NULL AND file_path IS NOT NULL
-            """)
+                SELECT v.id, v.model_id, v.file_path, v.file_hashes,
+                       m.updated_at AS model_synced_at
+                FROM model_versions v
+                LEFT JOIN civitai_models m ON m.id = v.model_id
+                WHERE %s
+            """ % where, params)
             return [
                 {
                     "id": row["id"],
                     "model_id": row["model_id"],
                     "file_path": row["file_path"],
                     "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else {},
+                    "model_synced_at": row["model_synced_at"],
                 }
                 for row in cursor.fetchall()
             ]

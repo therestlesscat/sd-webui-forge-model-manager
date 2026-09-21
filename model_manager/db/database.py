@@ -224,9 +224,13 @@ class ModelsDatabase:
             preview_least_nsfw=preview_least_nsfw
         )
 
-    def get_linked_versions(self) -> List[Dict[str, Any]]:
+    def count_images_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:
+        """How many images are cached per version. See db/images_ops.py."""
+        return self._images.count_by_version(version_ids)
+
+    def get_linked_versions(self, synced_before: Optional[str] = None) -> List[Dict[str, Any]]:
         """Local versions that already resolve to a Civitai model."""
-        return self._models.get_linked_versions()
+        return self._models.get_linked_versions(synced_before)
 
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""

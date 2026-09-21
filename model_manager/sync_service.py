@@ -8,6 +8,8 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
+import math
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
 from .civitai import (
@@ -560,6 +562,8 @@ class SyncService:
         self,
         model_paths: Optional[List[str]] = None,
         include_images: bool = False,
+        include_prompts: bool = True,
+        synced_before: Optional[str] = None,
         callback: Optional[Callable[[SyncProgress], None]] = None,
         max_workers: Optional[int] = None
     ) -> SyncProgress:
@@ -581,6 +585,12 @@ class SyncService:
             include_images: Also refetch each version's gallery. This is the
                 expensive half: images cannot be batched, and the existing
                 rows for a version are replaced.
+            include_prompts: Look up the generation data behind those images.
+                Civitai's public endpoint returns meta: null, so without this
+                the galleries arrive without prompts - and with it, they cost
+                a request per thirty images, which is most of a full sync.
+            synced_before: Only refresh models last refreshed before this ISO
+                timestamp, for "everything I have not touched in a week".
             callback: Called after each version with progress.
             max_workers: Threads used for the per-version work. None derives
                 it from the configured request rate, which is what actually
@@ -596,7 +606,7 @@ class SyncService:
             max_workers = self._workers_for_rate()
 
         db = get_models_db()
-        versions = db.get_linked_versions()
+        versions = db.get_linked_versions(synced_before=synced_before)
 
         if model_paths is not None:
             wanted = set(model_paths)
@@ -689,7 +699,7 @@ class SyncService:
                     break
 
         if include_images and not self._cancel_requested:
-            self._refresh_galleries(versions, callback, max_workers)
+            self._refresh_galleries(versions, callback, max_workers, include_prompts)
 
         self._progress.is_complete = True
         self._progress.current_model = ""
@@ -721,7 +731,8 @@ class SyncService:
     def _refresh_galleries(self,
                            versions: List[Dict[str, Any]],
                            callback: Optional[Callable[[SyncProgress], None]],
-                           max_workers: int) -> None:
+                           max_workers: int,
+                           include_prompts: bool = True) -> None:
         """Replace each version's cached gallery with a fresh first page."""
         db = get_models_db()
 
@@ -760,8 +771,9 @@ class SyncService:
             # One pooled lookup for the whole chunk, then hand each gallery
             # back the rows that belong to it.
             pooled: List[int] = []
-            for _, images in galleries:
-                pooled.extend(generation_ids_needing_lookup(images))
+            if include_prompts:
+                for _, images in galleries:
+                    pooled.extend(generation_ids_needing_lookup(images))
 
             generation_data: Dict[int, Dict[str, Any]] = {}
             if pooled:
@@ -800,3 +812,132 @@ class SyncService:
     def progress(self) -> SyncProgress:
         """Get current sync progress."""
         return self._progress
+
+
+# ---------------------------------------------------------------- estimating
+
+# The staleness windows the sync dialog offers, shortest first. They are here
+# rather than in the UI so the counts beside them and the filter behind them
+# cannot drift apart.
+SYNC_WINDOWS: List[Tuple[str, int]] = [
+    ("1 day", 1),
+    ("2 days", 2),
+    ("7 days", 7),
+    ("1 month", 30),
+    ("3 months", 90),
+    ("6 months", 180),
+]
+
+
+def window_cutoff(days: int) -> str:
+    """The timestamp `days` ago, in the form the database stores."""
+    return (datetime.now() - timedelta(days=days)).isoformat()
+
+
+def configured_rate() -> float:
+    """Requests per second the client will be allowed, as the settings have it."""
+    try:
+        from modules import shared
+        configured = getattr(shared.opts, 'model_manager_civitai_requests_per_second', None)
+        api_key = getattr(shared.opts, 'model_manager_civitai_api_key', '')
+        if not api_key:
+            return CivitaiClient.UNAUTH_RATE
+        if configured:
+            return max(0.5, min(float(configured), 10.0))
+        return CivitaiClient.AUTH_RATE
+    except Exception:
+        return CivitaiClient.AUTH_RATE
+
+
+def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
+                           synced_before: Optional[str] = None,
+                           include_images: bool = False,
+                           include_prompts: bool = True,
+                           rate: Optional[float] = None) -> Dict[str, Any]:
+    """
+    What a metadata sync would cost, before anyone commits to it.
+
+    Counted the way sync_metadata() actually batches, so the number shown in
+    the dialog is the number of requests that will be made: models a hundred
+    per request, one gallery page per version, and generation data thirty ids
+    per request pooled across a chunk of versions.
+
+    The image figures rest on the galleries already cached, which is the only
+    guide there is before fetching them. A version whose gallery has never
+    been cached is costed at the library's average.
+
+    Args:
+        model_paths: Restrict to these files, or None for everything.
+        synced_before: Only models last refreshed before this ISO timestamp.
+        include_images: Whether galleries would be refetched.
+        include_prompts: Whether generation data would be looked up.
+        rate: Requests per second, or None to read the setting.
+
+    Returns:
+        Counts, a request breakdown, and the seconds each part would take.
+    """
+    db = get_models_db()
+    versions = db.get_linked_versions(synced_before=synced_before)
+
+    if model_paths is not None:
+        wanted = set(model_paths)
+        versions = [v for v in versions if v["file_path"] in wanted]
+
+    models = len({v["model_id"] for v in versions})
+    rate = rate or configured_rate()
+
+    metadata_requests = math.ceil(models / 100) if models else 0
+    image_requests = sum(1 for v in versions if v.get("id")) if include_images else 0
+
+    prompt_requests = 0
+    images_total = 0
+    if include_images and include_prompts:
+        counts = db.count_images_by_version()
+        known = [counts[v["id"]] for v in versions if counts.get(v["id"])]
+        average = round(sum(counts.values()) / len(counts)) if counts else 0
+        per_version = [counts.get(v["id"]) or average
+                       for v in versions if v.get("id")]
+        images_total = sum(per_version)
+        # Pooled per chunk, exactly as _refresh_galleries does it.
+        for start in range(0, len(per_version), SyncService.GALLERY_CHUNK):
+            chunk = per_version[start:start + SyncService.GALLERY_CHUNK]
+            prompt_requests += math.ceil(sum(chunk) / CivitaiClient.GENERATION_DATA_BATCH)
+        del known
+
+    total = metadata_requests + image_requests + prompt_requests
+    return {
+        "versions": len(versions),
+        "models": models,
+        "images": images_total,
+        "rate": rate,
+        "requests": {
+            "metadata": metadata_requests,
+            "images": image_requests,
+            "prompts": prompt_requests,
+            "total": total,
+        },
+        "seconds": {
+            "metadata": metadata_requests / rate,
+            "images": image_requests / rate,
+            "prompts": prompt_requests / rate,
+            "total": total / rate,
+        },
+    }
+
+
+def sync_window_counts(model_paths: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """
+    How many versions each staleness window would select.
+
+    The dialog shows these beside the windows, so "not synced in 7 days" is
+    never a guess about what it will do.
+    """
+    db = get_models_db()
+    out = []
+    for label, days in SYNC_WINDOWS:
+        versions = db.get_linked_versions(synced_before=window_cutoff(days))
+        if model_paths is not None:
+            wanted = set(model_paths)
+            versions = [v for v in versions if v["file_path"] in wanted]
+        out.append({"label": label, "days": days, "versions": len(versions)})
+    return out
