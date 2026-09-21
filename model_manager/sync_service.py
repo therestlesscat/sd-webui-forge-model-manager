@@ -294,6 +294,24 @@ class SyncService:
             result.error = f"Unexpected error: {e}"
             return result
 
+    def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
+        """
+        Keep only the files that already resolve to Civitai, or only those that do not.
+
+        A path the database has never seen counts as unidentified: it is a file
+        that arrived since the last scan, which is exactly what someone asking
+        for the unidentified ones wants swept up.
+        """
+        db = get_models_db()
+        identified = set()
+        for version in db.get_linked_versions():
+            if version.get("file_path"):
+                identified.add(version["file_path"])
+
+        if targets == "identified":
+            return [p for p in model_paths if p in identified]
+        return [p for p in model_paths if p not in identified]
+
     def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult) -> Optional[str]:
         """
         Update the database with model and version data from Civitai response.
@@ -442,6 +460,7 @@ class SyncService:
         self,
         model_paths: Optional[List[str]] = None,
         force: bool = False,
+        targets: str = "all",
         callback: Optional[Callable[[SyncProgress], None]] = None,
         max_workers: Optional[int] = None
     ) -> SyncProgress:
@@ -450,6 +469,11 @@ class SyncService:
 
         Args:
             model_paths: Specific paths to sync, or None for all models.
+            targets: Which of the files found to work on - "all", "identified"
+                for the ones that already resolve to a Civitai model, or
+                "unidentified" for the ones that do not. A file on disk that
+                the database has never seen is unidentified by definition, and
+                so is one Civitai was asked about and did not recognise.
             force: Re-sync even if civitai data exists.
             callback: Called after each model with progress update.
             max_workers: Number of parallel threads, or None to take the
@@ -472,6 +496,9 @@ class SyncService:
             scan_svc = ScanService()
             directories = scan_svc._get_model_directories()
             model_paths = scan_svc.find_model_files(directories)
+
+        if targets in ("identified", "unidentified"):
+            model_paths = self._filter_by_identification(model_paths, targets)
 
         self._progress = SyncProgress(total=len(model_paths))
 

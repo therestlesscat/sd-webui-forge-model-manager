@@ -217,6 +217,15 @@ def create_ui():
                                 <span>Downloaded in</span>
                                 <select id="mm_sync_downloaded_days" class="mm-dialog-select"></select>
                             </label>
+                            <label class="mm-dialog-option" title="Read each file in full and ask Civitai what it is, by hash. Also finds model files that are not in the database yet.">
+                                <input type="radio" name="mm_sync_scope" value="force">
+                                <span>Force sync</span>
+                                <select id="mm_sync_force_mode" class="mm-dialog-select">
+                                    <option value="all">All</option>
+                                    <option value="identified">All identified</option>
+                                    <option value="unidentified" selected>All unidentified</option>
+                                </select>
+                            </label>
                         </div>
 
                         <div class="mm-dialog-section">
@@ -235,15 +244,6 @@ def create_ui():
                                 <input type="checkbox" id="mm_sync_prompts" checked disabled>
                                 <span>Image prompts</span>
                                 <span class="mm-dialog-cost" id="mm_cost_prompts"></span>
-                            </label>
-                            <label class="mm-dialog-option" title="Read each unmatched file in full and ask Civitai what it is. Also looks for model files that are not in the database yet.">
-                                <input type="checkbox" id="mm_sync_rehash">
-                                <span>Identify unmatched files</span>
-                                <span class="mm-dialog-cost" id="mm_cost_rehash">-</span>
-                            </label>
-                            <label class="mm-dialog-option mm-dialog-sub" id="mm_sync_force_row" style="display: none;" title="Read the files that are already identified as well, in case Civitai now knows one it did not before">
-                                <input type="checkbox" id="mm_sync_force">
-                                <span id="mm_sync_force_label">Also re-read the files already identified</span>
                             </label>
                         </div>
 

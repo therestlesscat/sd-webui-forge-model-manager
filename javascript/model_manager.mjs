@@ -2690,21 +2690,21 @@ window.mmCloseDetails = function() {
 // ==================== SYNC FUNCTIONS ====================
 
 // Start sync with Civitai
-async function startSync() {
+/**
+ * Identify files by hashing them, and ask Civitai what they are.
+ *
+ * `targets` picks which of the files on disk to read: all of them, only the
+ * ones that already resolve to a Civitai model, or only the ones that do not.
+ */
+async function startSync(targets = 'all') {
     if (isSyncing) return;
-
-    const forceCheckbox = document.getElementById('mm_sync_force');
-    const forceRefresh = forceCheckbox ? forceCheckbox.checked : false;
-
-    console.log('[ModelManager] Force checkbox element:', forceCheckbox);
-    console.log('[ModelManager] Force checkbox checked:', forceRefresh);
 
     isSyncing = true;
     updateSyncUI(true);
-    setStatus(forceRefresh ? 'Starting sync with Civitai (force refresh)...' : 'Starting sync with Civitai...');
+    setStatus(`Starting force sync (${targets})...`);
 
     try {
-        const bodyData = `force=${forceRefresh}`;
+        const bodyData = `force=true&targets=${encodeURIComponent(targets)}`;
         console.log('[ModelManager] Sending sync request with body:', bodyData);
 
         const response = await fetch('/model-manager/sync', {
@@ -2799,8 +2799,7 @@ async function cancelSync() {
 
 let syncEstimateTimer = null;
 let syncResultPaths = null;     // resolved lazily, for the "these results" scope
-let syncDepthBeforeRehash = null;   // restored when the hashing option is cleared
-let syncScopeBeforeRehash = null;   // and so is the scope
+let syncDepthBeforeRehash = null;   // restored when the scope leaves "force"
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
 
 /**
@@ -2810,34 +2809,46 @@ let syncUnidentified = null;        // {unidentified, never_asked, asked_not_fou
  * the last scan found. A file added since is not counted, and the sync walks
  * the model folders itself - so the number is a floor.
  */
-function describeUnidentified(counts, force) {
-    if (force) {
-        return `${counts.total.toLocaleString()} files* to read in full`
-            + ` - every one, including the ${counts.identified.toLocaleString()} already identified.`;
+function describeForceSync(counts, mode) {
+    if (!counts) return 'Scans your model folders and reads each file in full.';
+
+    const files = mode === 'identified' ? counts.identified
+        : mode === 'unidentified' ? counts.unidentified
+        : counts.total;
+    const head = `${files.toLocaleString()} files* to read in full`;
+
+    if (mode === 'identified') {
+        return `${head} - the ones that already resolve to a Civitai model,`
+            + ' read again in case anything about them has changed.';
     }
-    const parts = [];
-    if (counts.never_asked) parts.push(`${counts.never_asked.toLocaleString()} never asked about`);
-    if (counts.asked_not_found) {
-        parts.push(`${counts.asked_not_found.toLocaleString()} asked before and not on Civitai`);
+    if (mode === 'unidentified') {
+        const parts = [];
+        if (counts.never_asked) {
+            parts.push(`${counts.never_asked.toLocaleString()} never asked about`);
+        }
+        if (counts.asked_not_found) {
+            parts.push(`${counts.asked_not_found.toLocaleString()} asked before and not on Civitai`);
+        }
+        return `${head}${parts.length ? ` - ${parts.join(', ')}` : ''}.`;
     }
-    return `${counts.unidentified.toLocaleString()} files* to read in full`
-        + (parts.length ? ` - ${parts.join(', ')}.` : '.');
+    return `${head} - every model you have, identified or not.`;
 }
 
-/** The count beside the hashing option, and what Force would add to it. */
-function updateRehashLabels() {
-    const costEl = document.getElementById('mm_cost_rehash');
-    const forceEl = document.getElementById('mm_sync_force_label');
-    if (costEl) {
-        costEl.textContent = syncUnidentified
-            ? `${syncUnidentified.unidentified.toLocaleString()} files*`
-            : 'scans disk';
-    }
-    if (forceEl) {
-        forceEl.textContent = syncUnidentified
-            ? `Also re-read the ${syncUnidentified.identified.toLocaleString()} already identified`
-            : 'Also re-read the files already identified';
-    }
+/** The counts beside each force-sync mode. */
+function updateForceModeLabels() {
+    const select = document.getElementById('mm_sync_force_mode');
+    if (!select) return;
+    const counts = syncUnidentified;
+    const LABELS = [['all', 'All', 'total'],
+                    ['identified', 'All identified', 'identified'],
+                    ['unidentified', 'All unidentified', 'unidentified']];
+    Array.from(select.options).forEach((option) => {
+        const row = LABELS.find((l) => l[0] === option.value);
+        if (!row) return;
+        option.textContent = counts
+            ? `${row[1]} (${counts[row[2]].toLocaleString()}*)`
+            : row[1];
+    });
 }
 
 function syncDialogChoice() {
@@ -2852,8 +2863,11 @@ function syncDialogChoice() {
             : 0,
         images: document.getElementById('mm_sync_images')?.checked || false,
         prompts: document.getElementById('mm_sync_prompts')?.checked || false,
-        rehash: document.getElementById('mm_sync_rehash')?.checked || false,
-        force: document.getElementById('mm_sync_force')?.checked || false,
+        // A force sync reads files rather than asking about ids, so it is a
+        // scope of its own rather than a depth.
+        forceMode: scope === 'force'
+            ? (document.getElementById('mm_sync_force_mode')?.value || 'all')
+            : null,
     };
 }
 
@@ -2879,17 +2893,15 @@ function refreshSyncEstimate() {
         const estimateEl = document.getElementById('mm_sync_estimate');
         const startBtn = document.getElementById('mm_sync_dialog_start');
 
-        if (choice.rehash) {
+        if (choice.scope === 'force') {
             // Costed in files, not requests: this one is bound by reading
             // bytes off the disk. The count comes from the database, so
             // opening the dialog stays instant - the sync walks the model
             // folders itself and may find more, which the asterisk says.
             if (estimateEl) {
-                estimateEl.textContent = syncUnidentified
-                    ? `${describeUnidentified(syncUnidentified, choice.force)}`
-                      + ' Also scans your model folders for files that are not in'
-                      + ' the database yet, so the real number may be higher.'
-                    : 'Scans your model folders and reads each unmatched file in full.';
+                estimateEl.textContent = describeForceSync(syncUnidentified, choice.forceMode)
+                    + ' Also scans your model folders for files that are not in'
+                    + ' the database yet, so the real number may be higher.';
             }
             if (startBtn) startBtn.disabled = false;
             return;
@@ -2923,7 +2935,7 @@ function refreshSyncEstimate() {
             cost('mm_cost_prompts', requests.prompts);
 
             syncUnidentified = data.unidentified || null;
-            updateRehashLabels();
+            updateForceModeLabels();
 
             fillWindows('mm_sync_stale_days', windows);
             fillWindows('mm_sync_downloaded_days', data.download_windows);
@@ -3004,9 +3016,8 @@ function syncDialogDependencies() {
     const prompts = document.getElementById('mm_sync_prompts');
     const promptsRow = document.getElementById('mm_sync_prompts_row');
     const imagesRow = images && images.closest('.mm-dialog-option');
-    const rehash = document.getElementById('mm_sync_rehash');
-    const force = document.getElementById('mm_sync_force_row');
-    const hashing = !!(rehash && rehash.checked);
+    const scope = document.querySelector('input[name="mm_sync_scope"]:checked');
+    const hashing = !!(scope && scope.value === 'force');
 
     // Identifying a file fetches its metadata, its gallery and the prompts
     // behind it - sync_model() does all three - so the depth is not a choice
@@ -3028,56 +3039,7 @@ function syncDialogDependencies() {
     if (imagesRow) imagesRow.classList.toggle('mm-dialog-muted', hashing);
     if (promptsRow) promptsRow.classList.toggle('mm-dialog-muted', hashing || !images.checked);
 
-    if (force) force.style.display = hashing ? '' : 'none';
-    syncDialogScopeLock(hashing);
-    updateRehashLabels();
-}
-
-/**
- * Identifying files covers the whole library, so the scope is not a choice.
- *
- * It walks the model folders and works on files the database has never seen,
- * which no search could have matched and no sync date could describe. The
- * scope controls are therefore held at "All models" while it is selected,
- * rather than being read and then ignored - which is what happened before,
- * because this path starts a full sync that takes no paths from the dialog.
- */
-function syncDialogScopeLock(hashing) {
-    const radios = Array.from(document.querySelectorAll('input[name="mm_sync_scope"]'));
-    if (!radios.length) return;
-    const windows = ['mm_sync_stale_days', 'mm_sync_downloaded_days']
-        .map((id) => document.getElementById(id)).filter(Boolean);
-
-    if (hashing) {
-        if (!syncScopeBeforeRehash) {
-            const chosen = radios.find((r) => r.checked);
-            syncScopeBeforeRehash = chosen ? chosen.value : 'all';
-        }
-        radios.forEach((radio) => {
-            radio.checked = radio.value === 'all';
-            radio.disabled = true;
-            const row = radio.closest('.mm-dialog-option');
-            if (row) row.classList.toggle('mm-dialog-muted', radio.value !== 'all');
-        });
-        windows.forEach((select) => { select.disabled = true; });
-        return;
-    }
-
-    if (!syncScopeBeforeRehash) return;
-
-    const previous = radios.find((r) => r.value === syncScopeBeforeRehash);
-    if (previous) previous.checked = true;
-    syncScopeBeforeRehash = null;
-
-    radios.forEach((radio) => {
-        radio.disabled = false;
-        const row = radio.closest('.mm-dialog-option');
-        if (row) row.classList.remove('mm-dialog-muted');
-    });
-    windows.forEach((select) => { select.disabled = false; });
-
-    // "These search results" has its own reason to be disabled.
-    syncDialogResultsScope();
+    updateForceModeLabels();
 }
 
 function openSyncDialog() {
@@ -3100,8 +3062,8 @@ async function startSyncFromDialog() {
     const choice = syncDialogChoice();
     closeSyncDialog();
 
-    if (choice.rehash) {
-        startSync();
+    if (choice.scope === 'force') {
+        startSync(choice.forceMode || 'all');
         return;
     }
 
@@ -3558,8 +3520,8 @@ function bindElements() {
     const syncDialog = document.getElementById('mm_sync_dialog');
     if (syncDialog) {
         syncDialog.addEventListener('change', (e) => {
-            if (e.target.id === 'mm_sync_images' || e.target.id === 'mm_sync_rehash'
-                    || e.target.id === 'mm_sync_force') {
+            if (e.target.id === 'mm_sync_images' || e.target.name === 'mm_sync_scope'
+                    || e.target.id === 'mm_sync_force_mode') {
                 syncDialogDependencies();
             }
             // Touching a window picks the scope it belongs to, so the two
@@ -3567,6 +3529,7 @@ function bindElements() {
             const SCOPE_OF = {
                 mm_sync_stale_days: 'stale',
                 mm_sync_downloaded_days: 'downloaded',
+                mm_sync_force_mode: 'force',
             };
             const scope = SCOPE_OF[e.target.id];
             if (scope) {
