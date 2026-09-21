@@ -9,6 +9,7 @@ import json
 import time
 from datetime import datetime
 from .query import query_models_grouped
+from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable
 from contextlib import contextmanager
 
@@ -80,7 +81,7 @@ class ModelsOps:
                 model_data.get("description"),
                 model_data.get("type", "Checkpoint"),
                 1 if model_data.get("nsfw") else 0,
-                model_data.get("nsfw_level", 64),  # Default to Unknown
+                model_data.get("nsfw_level", UNKNOWN),
                 json.dumps(model_data.get("tags", [])),
                 model_data.get("creator_username"),
                 model_data.get("creator_image_url"),
@@ -178,7 +179,7 @@ class ModelsOps:
                 version_data.get("base_model"),
                 version_data.get("published_at"),
                 version_data.get("created_at"),
-                version_data.get("nsfw_level", 64),  # Default to Unknown
+                version_data.get("nsfw_level", UNKNOWN),
                 json.dumps(version_data.get("trained_words", [])),
                 version_data.get("description"),
                 version_data.get("stats_download_count", 0),

@@ -206,7 +206,7 @@ class ScanService:
                 "description": data.get("description"),
                 "type": data.get("type", self._infer_model_type(model_path)),
                 "nsfw": data.get("nsfw", False),
-                "nsfw_level": data.get("nsfwLevel", 64),  # Default to Unknown
+                "nsfw_level": data.get("nsfwLevel", UNKNOWN),
                 "tags": data.get("tags", []),
                 "creator_username": creator.get("username") if creator else None,
                 "creator_image_url": creator.get("image") if creator else None,
@@ -253,7 +253,7 @@ class ScanService:
             version_data["base_model"] = matched_version.get("baseModel")
             version_data["published_at"] = matched_version.get("publishedAt")
             version_data["created_at"] = matched_version.get("createdAt")
-            version_data["nsfw_level"] = matched_version.get("nsfwLevel", 64)  # Default to Unknown
+            version_data["nsfw_level"] = matched_version.get("nsfwLevel", UNKNOWN)
             version_data["trained_words"] = matched_version.get("trainedWords", [])
             version_data["description"] = matched_version.get("description")
             version_data["stats_download_count"] = version_stats.get("downloadCount", 0)

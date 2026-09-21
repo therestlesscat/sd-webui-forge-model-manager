@@ -32,41 +32,6 @@ class ImagesOps:
         """How explicit an image is. The rule lives in model_manager.nsfw."""
         return image_level(img)
 
-    def calculate_effective_nsfw_level(img: Dict[str, Any]) -> int:
-        """
-        Calculate effective NSFW level from image data.
-
-        Uses max of:
-        - browsingLevel (primary, integer from API)
-        - nsfwLevel (string: None=1, Soft=4, Mature=8, X=16)
-        - nsfw boolean: true=2, false=1
-
-        NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
-
-        Args:
-            img: Image dict from Civitai API.
-
-        Returns:
-            Effective NSFW level.
-        """
-        # browsingLevel is the primary source (integer)
-        browsing_level = img.get("browsingLevel") or 64  # Default to Unknown
-
-        # nsfwLevel string mapping
-        nsfw_level_str = img.get("nsfwLevel", "")
-        nsfw_level_map = {
-            "None": 1,
-            "Soft": 4,
-            "Mature": 8,
-            "X": 16,
-        }
-        nsfw_level = nsfw_level_map.get(nsfw_level_str, 64)  # Default to Unknown
-
-        # nsfw boolean
-        nsfw_bool = 2 if img.get("nsfw") else 1
-
-        return max(browsing_level, nsfw_level, nsfw_bool)
-
     def store_images(
         self,
         version_id: int,
@@ -243,7 +208,7 @@ class ImagesOps:
             Max effective_nsfw_level (default 64/Unknown if no images)
         """
         result = self.get_max_nsfw_levels([version_id])
-        return result.get(version_id, 64)
+        return result.get(version_id, UNKNOWN)
 
     # ==================== Cleanup ====================
 
