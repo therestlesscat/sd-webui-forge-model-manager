@@ -2031,9 +2031,33 @@
     // Neo does not have at all - so the old reset-to-None silently did nothing
     // there and whatever was selected last stayed selected.
     const NEO_MODULES_ID = 'setting_sd_modules';
+    const MODULES_LABEL = 'VAE / Text Encoder';
 
+    /**
+     * Find the multiselect holding the VAE / Text Encoder modules.
+     *
+     * Neo gives it elem_id="setting_sd_modules". Classic Forge builds the same
+     * gr.Dropdown with no elem_id and no elem_classes, so there it has to be
+     * found by its label. Both render Gradio's div.wrap-inner, which is also
+     * what Neo's own modelHelp.js keys off.
+     */
     function getModulesControl() {
-        return gradioApp().querySelector(`#${NEO_MODULES_ID}`);
+        const app = gradioApp();
+
+        const byId = app.querySelector(`#${NEO_MODULES_ID}`);
+        if (byId) return byId;
+
+        for (const span of app.querySelectorAll('span')) {
+            if (!span.textContent.trim().startsWith(MODULES_LABEL)) continue;
+            // Climb to the ancestor that actually holds the selection.
+            let node = span.parentElement;
+            while (node) {
+                if (node.querySelector('div.wrap-inner')) return node;
+                node = node.parentElement;
+            }
+        }
+
+        return null;
     }
 
     function nextFrame(ms = 60) {
