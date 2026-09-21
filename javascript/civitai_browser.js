@@ -43,7 +43,12 @@
         if (width && height && (width !== cardWidth || height !== cardHeight)) {
             cardWidth = width;
             cardHeight = height;
-            window.MMCommon.applyCardSize(width, height, 'civitai_browser_app', 'cb', 'CivitaiBrowser');
+            window.MMCommon.applyCardSize({
+                width, height,
+                containerId: 'civitai_browser_app',
+                cssPrefix: 'cb',
+                logTag: 'CivitaiBrowser',
+            });
         }
     }
 
@@ -155,9 +160,9 @@
 
 
     function renderImagePagination(totalPages, position = 'bottom') {
-        return window.MMCommon.renderImagePagination(
-            currentImagePage, totalPages, position, 'cb'
-        );
+        return window.MMCommon.renderImagePagination({
+            currentPage: currentImagePage, totalPages, position, prefix: 'cb',
+        });
     }
 
     function scrollToBrowserImagesTop() {
@@ -402,7 +407,7 @@
                 cursor: cursor
             };
 
-            const result = await apiCall('/model-manager/civitai/models', params);
+            const result = await apiCall({ endpoint: '/model-manager/civitai/models', params });
 
             if (result.success) {
                 // Apply card size from API response
@@ -543,7 +548,7 @@
         const previewImage = firstImage?.url || '';
         const previewUrl = previewImage ? getThumbnailUrl(previewImage, 250) : '';
         const hasPreview = previewUrl !== '';
-        const previewIsVideo = isVideoUrl(previewUrl, firstImage?.type);
+        const previewIsVideo = isVideoUrl({ url: previewUrl, type: firstImage?.type });
 
         // Base model badge
         const baseModel = firstVersion?.baseModel || '';
@@ -843,8 +848,9 @@
         }
 
         try {
-            const result = await apiCall(`/model-manager/civitai/versions/${version.id}/images`, {
-                model_id: selectedModel.id
+            const result = await apiCall({
+                endpoint: `/model-manager/civitai/versions/${version.id}/images`,
+                params: { model_id: selectedModel.id },
             });
 
             if (result.success) {
@@ -1084,7 +1090,7 @@
         const src = img.url || '';
 
         // Detect media type from URL or type field
-        const isVideo = isVideoUrl(src, img.type);
+        const isVideo = isVideoUrl({ url: src, type: img.type });
 
         const meta = img.meta || {};
         const prompt = meta.prompt || '';
@@ -1491,7 +1497,7 @@
 
         downloadPollInterval = setInterval(async () => {
             try {
-                const result = await apiCall('/model-manager/civitai/download/progress');
+                const result = await apiCall({ endpoint: '/model-manager/civitai/download/progress' });
                 if (result.success && result.downloads) {
                     result.downloads.forEach(dl => {
                         const prev = activeDownloads[dl.version_id];
@@ -1576,7 +1582,7 @@
         }
 
         try {
-            const result = await apiCall('/model-manager/civitai/tags', { query, limit: 20 });
+            const result = await apiCall({ endpoint: '/model-manager/civitai/tags', params: { query, limit: 20 } });
             if (result.success) {
                 tagSuggestions = result.tags || [];
                 tagSelectedIndex = -1;
