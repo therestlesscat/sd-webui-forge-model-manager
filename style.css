@@ -2298,8 +2298,15 @@ body.mm-modal-open {
     background-color: rgba(255, 255, 255, 0.07);
 }
 
-/* The popup is dressed by the colour scheme above. Naming colours here as
-   well only risks disagreeing with it. */
+/* Chrome paints the open option list with the select's own background-color,
+   and the tint above is translucent - which left the list see-through. The
+   options therefore need something opaque, and it cannot be
+   --input-background-fill, which is white here. --background-fill-primary is
+   what the dialog itself is drawn with, so it is known to follow the theme. */
+.mm-dialog-select option {
+    background: var(--background-fill-primary, #1f2937);
+    color: var(--body-text-color, #fff);
+}
 
 .mm-dialog-estimate {
     background: rgba(0, 0, 0, 0.05);
