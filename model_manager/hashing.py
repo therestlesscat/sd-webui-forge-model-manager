@@ -15,7 +15,7 @@ import json
 import os
 import zlib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Try to import blake3, fall back gracefully if not available
 try:
@@ -113,6 +113,13 @@ class ModelHasher:
             blake3_hasher = blake3.blake3() if BLAKE3_AVAILABLE else None
             crc = 0
 
+            # AutoV3 hashes a safetensors file's tensors, skipping the header.
+            # Those bytes go past in this same read, so they are hashed here
+            # rather than in a second pass over the whole file - which is what
+            # this used to do, and it doubled the I/O of every sync.
+            tensor_hasher = None
+            tensor_offset = 0
+
             # For AutoV1: need to capture 64KB at 1MB offset
             autov1_data = b""
             autov1_offset = 1048576  # 1MB
@@ -124,7 +131,19 @@ class ModelHasher:
                 header_size = 0
                 if is_safetensors:
                     header_bytes = f.read(8)
-                    if len(header_bytes) == 8:
+                    if len(header_bytes) < 8:
+                        # Too short to carry a header length, so it is not a
+                        # safetensors file whatever it is called. Those bytes
+                        # have been taken off the stream and the loop below
+                        # starts past them, so hash them here - otherwise a
+                        # truncated file hashes as though it were empty, and
+                        # every such file shares one hash.
+                        sha256_hasher.update(header_bytes)
+                        if blake3_hasher:
+                            blake3_hasher.update(header_bytes)
+                        crc = zlib.crc32(header_bytes, crc)
+                        bytes_read = len(header_bytes)
+                    else:
                         header_size = int.from_bytes(header_bytes, "little")
                         # Update hashes with header size bytes
                         sha256_hasher.update(header_bytes)
@@ -132,6 +151,11 @@ class ModelHasher:
                             blake3_hasher.update(header_bytes)
                         crc = zlib.crc32(header_bytes, crc)
                         bytes_read = 8
+
+                        if header_size > 0:
+                            # 8 bytes of length, then the header itself
+                            tensor_offset = 8 + header_size
+                            tensor_hasher = hashlib.sha256()
 
                         # Check if 1MB offset falls within header
                         if autov1_offset < bytes_read:
@@ -144,9 +168,16 @@ class ModelHasher:
                         blake3_hasher.update(chunk)
                     crc = zlib.crc32(chunk, crc)
 
-                    # Capture AutoV1 data if we're in the right range
                     chunk_start = bytes_read
                     chunk_end = bytes_read + len(chunk)
+
+                    # The tensors, once this chunk reaches past the header
+                    if tensor_hasher is not None and chunk_end > tensor_offset:
+                        tensor_hasher.update(
+                            chunk[max(0, tensor_offset - chunk_start):]
+                        )
+
+                    # Capture AutoV1 data if we're in the right range
 
                     if chunk_start < autov1_offset + autov1_size and chunk_end > autov1_offset:
                         # Calculate overlap with AutoV1 range
@@ -169,43 +200,15 @@ class ModelHasher:
                 autov1_hash = hashlib.sha256(autov1_data[:autov1_size]).hexdigest().upper()
                 result.autov1 = autov1_hash[:8]
 
-            # For safetensors, calculate tensor-only hash (AutoV3)
-            if is_safetensors and header_size > 0:
-                result.tensor_sha256, result.autov3 = cls._calculate_tensor_hash(file_path, header_size)
+            # For safetensors, the tensor-only hash (AutoV3), gathered above
+            if tensor_hasher is not None:
+                result.tensor_sha256 = tensor_hasher.hexdigest().upper()
+                result.autov3 = result.tensor_sha256[:12]
 
         except Exception as e:
             print(f"[ModelManager] Error calculating hashes for {os.path.basename(file_path)}: {e}")
 
         return result
-
-    @classmethod
-    def _calculate_tensor_hash(cls, file_path: str, header_size: int) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Calculate tensor-only SHA256 for safetensors files.
-
-        Args:
-            file_path: Path to safetensors file.
-            header_size: Size of the header (from first 8 bytes).
-
-        Returns:
-            Tuple of (full tensor SHA256, AutoV3 - first 12 chars).
-        """
-        try:
-            sha256_hasher = hashlib.sha256()
-            offset = 8 + header_size  # Skip header size bytes + header
-
-            with open(file_path, "rb") as f:
-                f.seek(offset)
-                for chunk in iter(lambda: f.read(cls.CHUNK_SIZE), b""):
-                    sha256_hasher.update(chunk)
-
-            tensor_sha256 = sha256_hasher.hexdigest().upper()
-            autov3 = tensor_sha256[:12]
-            return tensor_sha256, autov3
-
-        except Exception as e:
-            print(f"[ModelManager] Error calculating tensor hash: {e}")
-            return None, None
 
     @classmethod
     def get_fallback_order(cls, file_path: str) -> List[str]:

@@ -443,7 +443,7 @@ class SyncService:
         model_paths: Optional[List[str]] = None,
         force: bool = False,
         callback: Optional[Callable[[SyncProgress], None]] = None,
-        max_workers: int = 4
+        max_workers: Optional[int] = None
     ) -> SyncProgress:
         """
         Sync multiple models with Civitai using multiple threads.
@@ -452,13 +452,19 @@ class SyncService:
             model_paths: Specific paths to sync, or None for all models.
             force: Re-sync even if civitai data exists.
             callback: Called after each model with progress update.
-            max_workers: Number of parallel threads (default 4).
+            max_workers: Number of parallel threads, or None to take the
+                setting. Hashing is bound by reading and hashing bytes, and
+                both scale with threads, so this is the dial that matters for
+                a full sync.
 
         Returns:
             Final SyncProgress with summary.
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
+
+        if max_workers is None:
+            max_workers = configured_hash_threads()
 
         # Get all models if not specified
         if model_paths is None:
@@ -817,6 +823,25 @@ SYNC_WINDOWS: List[Tuple[str, int]] = [
 def window_cutoff(days: int) -> str:
     """The timestamp `days` ago, in the form the database stores."""
     return (datetime.now() - timedelta(days=days)).isoformat()
+
+
+def configured_hash_threads() -> int:
+    """
+    How many files to hash at once, as the settings have it.
+
+    Unlike the metadata sync, this is not bound by an API rate: it is bound by
+    reading and hashing bytes, and both scale nearly linearly with threads. The
+    right number depends on the disk the models are on, which is why it is a
+    setting rather than a constant.
+    """
+    try:
+        from modules import shared
+        configured = getattr(shared.opts, 'model_manager_hash_threads', None)
+        if configured:
+            return max(1, min(int(configured), 16))
+    except Exception:
+        pass
+    return 4
 
 
 def configured_rate() -> float:
