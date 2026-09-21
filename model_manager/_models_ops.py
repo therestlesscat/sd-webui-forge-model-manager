@@ -50,10 +50,10 @@ class ModelsOps:
                 INSERT INTO civitai_models (
                     id, name, description, type, nsfw, nsfw_level, tags,
                     creator_username, creator_image_url,
-                    stats_download_count, stats_thumbs_up, stats_rating,
+                    stats_download_count, stats_thumbs_up, stats_thumbs_down, stats_rating,
                     allow_no_credit, allow_commercial_use, allow_derivatives,
                     allow_different_license, supports_generation, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -65,6 +65,7 @@ class ModelsOps:
                     creator_image_url = excluded.creator_image_url,
                     stats_download_count = excluded.stats_download_count,
                     stats_thumbs_up = excluded.stats_thumbs_up,
+                    stats_thumbs_down = excluded.stats_thumbs_down,
                     stats_rating = excluded.stats_rating,
                     allow_no_credit = excluded.allow_no_credit,
                     allow_commercial_use = excluded.allow_commercial_use,
@@ -84,6 +85,7 @@ class ModelsOps:
                 model_data.get("creator_image_url"),
                 model_data.get("stats_download_count", 0),
                 model_data.get("stats_thumbs_up", 0),
+                model_data.get("stats_thumbs_down", 0),
                 model_data.get("stats_rating", 0),
                 1 if model_data.get("allow_no_credit", True) else 0,
                 self._format_commercial_use(model_data.get("allow_commercial_use")),
@@ -430,6 +432,7 @@ class ModelsOps:
                     m.creator_image_url as cm_creator_image_url,
                     m.stats_download_count as cm_stats_download_count,
                     m.stats_thumbs_up as cm_stats_thumbs_up,
+                    m.stats_thumbs_down as cm_stats_thumbs_down,
                     m.stats_rating as cm_stats_rating,
                     m.allow_no_credit as cm_allow_no_credit,
                     m.allow_commercial_use as cm_allow_commercial_use,
@@ -721,6 +724,7 @@ class ModelsOps:
                 "creator_image_url": row["cm_creator_image_url"],
                 "stats_download_count": row["cm_stats_download_count"],
                 "stats_thumbs_up": row["cm_stats_thumbs_up"],
+                "stats_thumbs_down": row["cm_stats_thumbs_down"],
                 "stats_rating": row["cm_stats_rating"],
                 "allow_no_credit": bool(row["cm_allow_no_credit"]) if row["cm_allow_no_credit"] is not None else True,
                 "allow_commercial_use": row["cm_allow_commercial_use"],
@@ -734,6 +738,8 @@ class ModelsOps:
             result["creator"] = row["cm_creator_username"]
             result["download_count"] = row["cm_stats_download_count"] or row["stats_download_count"]
             result["rating"] = row["cm_stats_rating"] or 0
+            result["thumbs_up"] = row["cm_stats_thumbs_up"] or 0
+            result["thumbs_down"] = row["cm_stats_thumbs_down"] or 0
         else:
             result["civitai_model"] = None
             result["display_name"] = os.path.splitext(row["file_name"])[0]
@@ -742,5 +748,7 @@ class ModelsOps:
             result["creator"] = None
             result["download_count"] = row["stats_download_count"] or 0
             result["rating"] = 0
+            result["thumbs_up"] = row["stats_thumbs_up"] or 0
+            result["thumbs_down"] = 0
 
         return result

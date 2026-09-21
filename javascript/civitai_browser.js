@@ -13,6 +13,7 @@
         apiCall,
         escapeHtml,
         formatNumber,
+        renderThumbs,
         isVideoUrl,
         getImagePageCount,
         setupLazyMedia,
@@ -546,7 +547,6 @@
         const nameShort = name.length > 30 ? name.substring(0, 30) + '...' : name;
         const type = model.type || 'Unknown';
         const downloads = formatNumber(model.stats?.downloadCount || 0);
-        const rating = (model.stats?.rating || 0).toFixed(1);
 
         // Get preview image from first version
         const firstVersion = model.modelVersions?.[0];
@@ -573,9 +573,9 @@
               + `${firstVersion.paid_access.permanent ? 'Paid' : 'Early Access'}</div>`
             : '';
 
-        const ratingHtml = rating > 0
-            ? `<span title="Rating">★ ${rating}</span>`
-            : '';
+        // stats.rating no longer exists in the API, so the star it used to draw
+        // never rendered. Thumbs are what Civitai reports now.
+        const thumbsHtml = renderThumbs(model.stats?.thumbsUpCount, model.stats?.thumbsDownCount);
 
         const downloadsHtml = downloads
             ? `<span title="Downloads">↓ ${downloads}</span>`
@@ -602,7 +602,7 @@
                         ${baseModelBadge}
                     </div>
                     <div class="model-card-stats">
-                        ${ratingHtml}
+                        ${thumbsHtml}
                         ${downloadsHtml}
                     </div>
                 </div>
@@ -691,6 +691,8 @@
 
         selectedModel = model;
         selectedVersionIndex = 0;
+        // Start matching the search, then let the toggle take over.
+        showAllNsfwImages = document.getElementById('cb_nsfw')?.checked || false;
 
         // Highlight selected card
         document.querySelectorAll('#cb_grid .model-card').forEach((card, i) => {
@@ -1081,15 +1083,14 @@
             return;
         }
 
-        // Check if NSFW filter is enabled (checkbox unchecked)
-        const nsfwCheckbox = document.getElementById('cb_nsfw');
-        const nsfwEnabled = nsfwCheckbox?.checked || false;
-
-        // Filter images if NSFW not enabled and showAllNsfwImages is false
+        // The toggle below governs the image list on its own. It is seeded
+        // from the search box when a model is opened, so a search without NSFW
+        // still opens filtered - but the images are all fetched either way
+        // (get_model_images asks for every level), so revealing them is local.
         let imagesToShow = currentImages;
         let hiddenCount = 0;
 
-        if (!nsfwEnabled && !showAllNsfwImages) {
+        if (!showAllNsfwImages) {
             imagesToShow = currentImages.filter(img => isImageSafe(img));
             hiddenCount = currentImages.length - imagesToShow.length;
         }
@@ -1117,17 +1118,19 @@
                </div>`
             : '';
 
-        const wouldHideCount = currentImages.filter(img => !isImageSafe(img)).length;
-        const showWarning = !nsfwEnabled && wouldHideCount > 0;
-        const nsfwWarningHtml = showWarning
+        // Always offered, so NSFW images can be revealed whatever the search
+        // asked for - not only once something has already been hidden.
+        const nsfwNsfwCount = currentImages.filter(img => !isImageSafe(img)).length;
+        const nsfwToggleHtml = `
+            <label class="cb-show-all-label" title="Show images above the level the search asked for">
+                <input type="checkbox" id="cb_show_all_images" ${showAllNsfwImages ? 'checked' : ''}
+                       onchange="window.cbToggleShowAllImages(this.checked)">
+                Show NSFW${nsfwNsfwCount > 0 ? ` (${nsfwNsfwCount})` : ''}
+            </label>`;
+
+        const nsfwWarningHtml = hiddenCount > 0
             ? `<div class="cb-nsfw-warning">
-                <span>${showAllNsfwImages
-                    ? `Showing all ${currentImages.length} images (${wouldHideCount} NSFW)`
-                    : `Showing ${imagesToShow.length} of ${currentImages.length} images (${hiddenCount} hidden due to NSFW filter)`}</span>
-                <label class="cb-show-all-label">
-                    <input type="checkbox" id="cb_show_all_images" ${showAllNsfwImages ? 'checked' : ''} onchange="window.cbToggleShowAllImages(this.checked)">
-                    Show All
-                </label>
+                <span>Showing ${imagesToShow.length} of ${currentImages.length} images (${hiddenCount} hidden as NSFW)</span>
                </div>`
             : '';
 
@@ -1153,6 +1156,7 @@
             <div class="mm-images-header">
                 <h4>Example Images</h4>
                 <span class="mm-images-count">${imagesToShow.length > 0 ? `${pageStart + 1}-${pageEnd} of ${imagesToShow.length}` : '0'}${(hiddenCount + promptHiddenCount) > 0 ? ` (${hiddenCount + promptHiddenCount} hidden)` : ''} images (Page ${currentImagePage}/${totalPages})</span>
+                ${nsfwToggleHtml}
             </div>
             ${nsfwWarningHtml}
             ${promptWarningHtml}

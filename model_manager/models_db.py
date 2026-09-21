@@ -17,7 +17,7 @@ from ._browser_cache_ops import BrowserCacheOps
 
 
 # Schema version for migrations
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class ModelsDatabase:
@@ -128,6 +128,9 @@ class ModelsDatabase:
 
         if from_version < 11:
             self._migrate_to_v11(cursor)
+
+        if from_version < 12:
+            self._migrate_to_v12(cursor)
 
         cursor.execute(
             "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
@@ -541,6 +544,26 @@ class ModelsDatabase:
         self._create_v11_indexes(cursor)
         print("[ModelManager] Schema v11 migration complete.")
 
+
+    def _migrate_to_v12(self, cursor):
+        """Add thumbs-down, so a model's reception can be read as a ratio.
+
+        Civitai retired star ratings; thumbs up and down are what it reports
+        now. stats_thumbs_up was already stored, its counterpart was not, and
+        stats_rating is derived from the pair at sync time. Existing rows read
+        0 until they are synced again.
+        """
+        print("[ModelManager] Migrating to schema v12 (adding stats_thumbs_down column)...")
+
+        cursor.execute("PRAGMA table_info(civitai_models)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        if "stats_thumbs_down" not in columns:
+            cursor.execute(
+                "ALTER TABLE civitai_models ADD COLUMN stats_thumbs_down INTEGER DEFAULT 0"
+            )
+
+        print("[ModelManager] Migration to v12 complete")
     def _create_v11_indexes(self, cursor):
         """Create indexes used by grouped model list and preview queries."""
         cursor.execute(
