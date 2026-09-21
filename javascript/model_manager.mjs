@@ -2792,7 +2792,182 @@ async function cancelSync() {
  * a hundred models per request. Images are optional because they are the
  * slow half - they cannot be batched.
  */
-async function startMetadataSync(includeImages) {
+// The sync dialog asks two questions - which models, and how much of each -
+// and answers a third before either is committed to: what it will cost. The
+// estimate comes from the server, counted by the same code that does the
+// batching, so the figure cannot drift from what actually happens.
+
+let syncEstimateTimer = null;
+let syncResultPaths = null;     // resolved lazily, for the "these results" scope
+
+function syncDialogChoice() {
+    const scope = document.querySelector('input[name="mm_sync_scope"]:checked')?.value || 'all';
+    return {
+        scope,
+        staleDays: scope === 'stale'
+            ? parseInt(document.getElementById('mm_sync_stale_days')?.value || '0', 10)
+            : 0,
+        images: document.getElementById('mm_sync_images')?.checked || false,
+        prompts: document.getElementById('mm_sync_prompts')?.checked || false,
+        rehash: document.getElementById('mm_sync_rehash')?.checked || false,
+    };
+}
+
+/** A duration a person can read, from a count of seconds. */
+function formatDuration(seconds) {
+    if (!seconds || seconds < 1) return 'a moment';
+    if (seconds < 90) return `${Math.round(seconds)} s`;
+    if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
+    const hours = seconds / 3600;
+    return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
+}
+
+/** The file paths the filter bar currently selects, fetched once per opening. */
+async function resolveResultPaths() {
+    if (syncResultPaths) return syncResultPaths;
+    const filters = getFilters();
+    filters.paths_only = true;
+    const data = await apiCall({ endpoint: '/model-manager/models', params: filters });
+    syncResultPaths = (data && data.success) ? (data.paths || []) : [];
+    return syncResultPaths;
+}
+
+/**
+ * Ask the server what the current choice would cost, and show it.
+ *
+ * Debounced, because every control in the dialog calls it.
+ */
+function refreshSyncEstimate() {
+    clearTimeout(syncEstimateTimer);
+    syncEstimateTimer = setTimeout(async () => {
+        const choice = syncDialogChoice();
+        const estimateEl = document.getElementById('mm_sync_estimate');
+        const startBtn = document.getElementById('mm_sync_dialog_start');
+
+        if (choice.rehash) {
+            // Hashing reads every byte of every file, so a request count says
+            // nothing useful about how long it takes.
+            if (estimateEl) {
+                estimateEl.textContent = 'Hashing reads every model file in full'
+                    + ' - expect hours, and disk rather than network.';
+            }
+            if (startBtn) startBtn.disabled = false;
+            return;
+        }
+
+        try {
+            const params = {
+                include_images: choice.images,
+                include_prompts: choice.images && choice.prompts,
+                stale_days: choice.staleDays,
+            };
+            if (choice.scope === 'results') {
+                params.paths = (await resolveResultPaths()).join(',');
+            }
+            const data = await apiCall({ endpoint: '/model-manager/sync/estimate', params });
+            if (!data || !data.success) return;
+
+            const { estimate, windows } = data;
+            const { requests, seconds } = estimate;
+
+            const cost = (id, count, secs) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = count ? formatDuration(secs) : '-';
+            };
+            cost('mm_cost_metadata', requests.metadata, seconds.metadata);
+            cost('mm_cost_images', requests.images, seconds.images);
+            cost('mm_cost_prompts', requests.prompts, seconds.prompts);
+
+            fillStaleWindows(windows);
+
+            const allEl = document.getElementById('mm_scope_all');
+            if (allEl && typeof estimate.all_versions === 'number') {
+                allEl.textContent = `(${estimate.all_versions})`;
+            }
+            const resultsEl = document.getElementById('mm_scope_results');
+            if (resultsEl && syncResultPaths) {
+                resultsEl.textContent = `(${syncResultPaths.length})`;
+            }
+
+            if (estimateEl) {
+                estimateEl.textContent = estimate.versions
+                    ? `${estimate.versions} models, ${requests.total.toLocaleString()} requests,`
+                      + ` about ${formatDuration(seconds.total)} at ${estimate.rate} req/s`
+                    : 'Nothing selected - this would do nothing.';
+            }
+            if (startBtn) startBtn.disabled = !estimate.versions;
+        } catch (error) {
+            console.error('[ModelManager] Sync estimate failed:', error);
+        }
+    }, 120);
+}
+
+/** The staleness windows, each carrying how many models it would take. */
+function fillStaleWindows(windows) {
+    const select = document.getElementById('mm_sync_stale_days');
+    if (!select || !windows || !windows.length) return;
+
+    const chosen = select.value;
+    select.textContent = '';
+    windows.forEach((w) => {
+        const option = document.createElement('option');
+        option.value = String(w.days);
+        option.textContent = `${w.label} (${w.versions})`;
+        select.appendChild(option);
+    });
+    select.value = chosen || String(windows[2] ? windows[2].days : 7);
+}
+
+/** Prompts only mean anything once the images they belong to are refetched. */
+function syncDialogDependencies() {
+    const images = document.getElementById('mm_sync_images');
+    const prompts = document.getElementById('mm_sync_prompts');
+    const row = document.getElementById('mm_sync_prompts_row');
+    const rehash = document.getElementById('mm_sync_rehash');
+    const force = document.getElementById('mm_sync_force_row');
+
+    if (prompts && images) {
+        prompts.disabled = !images.checked;
+        if (row) row.classList.toggle('mm-dialog-muted', !images.checked);
+    }
+    if (force) force.style.display = (rehash && rehash.checked) ? '' : 'none';
+}
+
+function openSyncDialog() {
+    if (isSyncing) return;
+    syncResultPaths = null;
+    const dialog = document.getElementById('mm_sync_dialog');
+    if (!dialog) return;
+    dialog.style.display = 'flex';
+    syncDialogDependencies();
+    refreshSyncEstimate();
+}
+
+function closeSyncDialog() {
+    const dialog = document.getElementById('mm_sync_dialog');
+    if (dialog) dialog.style.display = 'none';
+}
+
+async function startSyncFromDialog() {
+    const choice = syncDialogChoice();
+    closeSyncDialog();
+
+    if (choice.rehash) {
+        startSync();
+        return;
+    }
+
+    const paths = choice.scope === 'results' ? await resolveResultPaths() : null;
+    startMetadataSync({
+        includeImages: choice.images,
+        includePrompts: choice.images && choice.prompts,
+        staleDays: choice.staleDays,
+        paths,
+    });
+}
+
+async function startMetadataSync({ includeImages = false, includePrompts = true,
+                                   staleDays = 0, paths = null } = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -2802,10 +2977,17 @@ async function startMetadataSync(includeImages) {
         : 'Refreshing Civitai metadata...');
 
     try {
+        const body = new URLSearchParams({
+            include_images: String(includeImages),
+            include_prompts: String(includePrompts),
+            stale_days: String(staleDays),
+        });
+        if (paths && paths.length) body.set('paths', paths.join(','));
+
         const response = await fetch('/model-manager/sync/metadata', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `include_images=${includeImages}`
+            body: body.toString()
         });
         const data = await response.json();
 
@@ -2838,8 +3020,6 @@ function updateSyncUI(syncing) {
     if (syncBtn) syncBtn.disabled = syncing || isScanning;
     if (loadBtn) loadBtn.disabled = syncing || isScanning;
     if (refreshBtn) refreshBtn.disabled = syncing || isScanning;
-    document.querySelectorAll('#mm_sync_meta_btn, #mm_sync_meta_images_btn')
-        .forEach((button) => { button.disabled = syncing || isScanning; });
     if (cancelBtn) cancelBtn.style.display = syncing ? 'inline-block' : 'none';
     if (progressDiv) progressDiv.style.display = syncing ? 'block' : 'none';
 
@@ -2948,8 +3128,6 @@ function updateScanUI(scanning) {
     if (refreshBtn) refreshBtn.disabled = scanning || isSyncing;
     if (loadBtn) loadBtn.disabled = scanning || isSyncing;
     if (syncBtn) syncBtn.disabled = scanning || isSyncing;
-    document.querySelectorAll('#mm_sync_meta_btn, #mm_sync_meta_images_btn')
-        .forEach((button) => { button.disabled = scanning || isSyncing; });
     if (scanCancelBtn) scanCancelBtn.style.display = scanning ? 'inline-block' : 'none';
     if (scanProgressDiv) scanProgressDiv.style.display = scanning ? 'block' : 'none';
 
@@ -3220,28 +3398,35 @@ function bindElements() {
         newSyncBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('[ModelManager] Sync button clicked');
-            startSync();
+            openSyncDialog();
         });
     }
 
-    // Bind the two metadata sync buttons, which share the sync progress
-    // bar and its Cancel button.
-    [
-        ['mm_sync_meta_btn', false],
-        ['mm_sync_meta_images_btn', true],
-    ].forEach(([id, includeImages]) => {
-        const button = document.getElementById(id);
-        if (!button) return;
-        const fresh = button.cloneNode(true);
-        button.parentNode.replaceChild(fresh, button);
-        fresh.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log(`[ModelManager] Metadata sync clicked (images=${includeImages})`);
-            startMetadataSync(includeImages);
+    // The dialog behind that button. Every control re-costs the choice, so
+    // the figure at the bottom always describes what Start would do.
+    const syncDialog = document.getElementById('mm_sync_dialog');
+    if (syncDialog) {
+        syncDialog.addEventListener('change', (e) => {
+            if (e.target.id === 'mm_sync_images' || e.target.id === 'mm_sync_rehash') {
+                syncDialogDependencies();
+            }
+            if (e.target.id === 'mm_sync_stale_days') {
+                const stale = syncDialog.querySelector('input[name="mm_sync_scope"][value="stale"]');
+                if (stale) stale.checked = true;
+            }
+            refreshSyncEstimate();
         });
-    });
+        syncDialog.addEventListener('click', (e) => {
+            if (e.target === syncDialog) closeSyncDialog();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && syncDialog.style.display !== 'none') closeSyncDialog();
+        });
+        const dialogCancel = document.getElementById('mm_sync_dialog_cancel');
+        if (dialogCancel) dialogCancel.addEventListener('click', closeSyncDialog);
+        const dialogStart = document.getElementById('mm_sync_dialog_start');
+        if (dialogStart) dialogStart.addEventListener('click', startSyncFromDialog);
+    }
 
     // Bind sync cancel button
     if (cancelBtn) {

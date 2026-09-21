@@ -34,6 +34,11 @@ def register(app: FastAPI):
         # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
         allow_derivatives: str = "",
         allow_different_license: str = "",
+        # Return only the file paths the filters select, with no paging. The
+        # sync dialog uses it to turn "these results" into a scope; it reuses
+        # this endpoint so the filters cannot be parsed one way here and
+        # another way there.
+        paths_only: bool = False,
         sort_by: str = "downloaded_at",
         sort_order: str = "desc",
         page: int = 1,
@@ -136,10 +141,24 @@ def register(app: FastAPI):
                 allow_different_license=allow_different_license or None,
                 sort_by=db_sort_by,
                 sort_order=sort_order,
-                limit=page_size,
-                offset=offset,
+                limit=1000000 if paths_only else page_size,
+                offset=0 if paths_only else offset,
                 preview_least_nsfw=preview_least_nsfw
             )
+
+            if paths_only:
+                # Grouped rows carry one version each; a sync works on models,
+                # so every local version of a matched model belongs in scope.
+                model_ids = {m["model_id"] for m in models if m.get("model_id")}
+                paths = {m["file_path"] for m in models if m.get("file_path")}
+                for version in db.get_linked_versions():
+                    if version["model_id"] in model_ids:
+                        paths.add(version["file_path"])
+                return JSONResponse({
+                    "success": True,
+                    "paths": sorted(paths),
+                    "models": total_count,
+                })
             query_ms = (time.perf_counter() - query_start) * 1000
 
             # Get the setting value for JS to initialize checkbox
