@@ -2218,8 +2218,17 @@ body.mm-modal-open {
     font-size: 13px;
 }
 
+/* Panels inside the dialog cannot take their colour from
+   --input-background-fill: this theme leaves it white even under .dark, which
+   is what put a white box behind the window dropdown and the estimate. A
+   translucent overlay tints whatever the dialog's own background is, so it is
+   right in either theme without naming a colour that has to be kept in step. */
 .mm-dialog-option:hover {
-    background: var(--input-background-fill, #111827);
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.dark .mm-dialog-option:hover {
+    background: rgba(255, 255, 255, 0.07);
 }
 
 .mm-dialog-option input {
@@ -2256,7 +2265,7 @@ body.mm-modal-open {
        the box to this stylesheet - so the arrow below is ours too. */
     appearance: none;
     -webkit-appearance: none;
-    background-color: var(--input-background-fill, #111827);
+    background-color: rgba(0, 0, 0, 0.05);
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 7px center;
@@ -2286,22 +2295,23 @@ body.mm-modal-open {
    prefers-color-scheme would do instead. */
 .dark .mm-dialog-select {
     color-scheme: dark;
+    background-color: rgba(255, 255, 255, 0.07);
 }
 
-/* Firefox and the Linux builds honour these; Chrome on Windows does not, and
-   relies on the scheme above. Harmless where they are ignored. */
-.mm-dialog-select option {
-    background: var(--input-background-fill, #111827);
-    color: var(--body-text-color, #fff);
-}
+/* The popup is dressed by the colour scheme above. Naming colours here as
+   well only risks disagreeing with it. */
 
 .mm-dialog-estimate {
-    background: var(--input-background-fill, #111827);
+    background: rgba(0, 0, 0, 0.05);
     border-radius: 8px;
     padding: 10px 12px;
     font-size: 12px;
     line-height: 1.5;
     margin-bottom: 16px;
+}
+
+.dark .mm-dialog-estimate {
+    background: rgba(255, 255, 255, 0.07);
 }
 
 .mm-dialog-actions {
