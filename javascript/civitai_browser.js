@@ -626,6 +626,18 @@
         return !!version?.paid_access;
     }
 
+    /**
+     * The file a download of this version will produce.
+     *
+     * Mirrors DownloadService.pick_file_index: files[0] is often the full
+     * fp32 weights, roughly twice the size of the pruned file Civitai marks
+     * primary. The panel has to name the file the button will fetch.
+     */
+    function primaryFile(version) {
+        const files = version?.files || [];
+        return files.find(f => f.primary) || files[0];
+    }
+
     // Get thumbnail URL
     function getThumbnailUrl(url, width = 250) {
         if (!url) return '';
@@ -713,7 +725,7 @@
         const versions = model.modelVersions || [];
         const version = getSelectedVersion() || versions[0];
         const isOwned = version?.owned_locally || model.owned_versions?.includes(version?.id);
-        const file = version?.files?.[0];
+        const file = primaryFile(version);
 
         // Version selector pills
         const versionSelectorHtml = renderVersionSelector();
