@@ -207,6 +207,17 @@ check('and the search box is the second of them',
       BASIC.index('mm_search') > BASIC.rindex('<div class="filter-row">'))
 check('the search box is given the row to itself', 'style="flex: 1;"' in BASIC)
 
+# The row is not an equal split: the preview toggle is one checkbox, Sort By
+# carries the longest options. Both are tagged in the markup rather than
+# selected by position, so reordering the row cannot silently reassign them.
+check('the preview toggle is tagged compact',
+      'filter-group mm-filter-compact' in BASIC)
+check('and Sort By tagged wide', 'filter-group mm-filter-wide' in BASIC)
+check('CSS narrows the compact one',
+      '.filter-group.mm-filter-compact {' in CSS)
+check('and the wide rule outspecifies the box it sits in',
+      '.model-manager-filters .filter-group-bordered .filter-group.mm-filter-wide {' in CSS)
+
 # A <details> with no `open`: collapsed, with nothing for JavaScript to keep
 # in step. Adding `open` here would quietly undo the point of the split.
 check('advanced starts collapsed', '<details class="mm-advanced" id="mm_advanced">' in UI)
