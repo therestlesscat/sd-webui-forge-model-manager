@@ -188,6 +188,35 @@ check('the script decides when to show it',
       "showApiKeyBanner('mm_api_key_warning')" in JS)
 check('CSS styles it', '.mm-banner {' in CSS)
 
+# --- Basic and advanced filters ---------------------------------------------
+BASIC = UI[UI.index('<div class="model-manager-filters">'):UI.index('<details class="mm-advanced"')]
+ADVANCED = UI[UI.index('<details class="mm-advanced"'):UI.index('</details>')]
+
+for control in ('mm_type', 'mm_checkpoint_type', 'mm_nsfw_dropdown',
+                'mm_preview_least_nsfw', 'mm_sort_by', 'mm_sort_order', 'mm_search'):
+    check('%s stays in reach without expanding anything' % control, control in BASIC)
+
+for control in ('mm_civitai', 'mm_base_model', 'mm_is_bookmarked', 'mm_min_versions',
+                'mm_commercial_dropdown', 'mm_allow_derivatives',
+                'mm_allow_different_license'):
+    check('%s is behind Advanced' % control, control in ADVANCED)
+
+# One row of controls, then the search box on its own.
+check('the visible controls share a single row', BASIC.count('<div class="filter-row">'), 2)
+check('and the search box is the second of them',
+      BASIC.index('mm_search') > BASIC.rindex('<div class="filter-row">'))
+check('the search box is given the row to itself', 'style="flex: 1;"' in BASIC)
+
+# A <details> with no `open`: collapsed, with nothing for JavaScript to keep
+# in step. Adding `open` here would quietly undo the point of the split.
+check('advanced starts collapsed', '<details class="mm-advanced" id="mm_advanced">' in UI)
+check('really collapsed', 'mm-advanced" id="mm_advanced" open' in UI, False)
+check('it is a disclosure, not a scripted panel', 'mm_advanced' in JS, False)
+check('it sits below the search box and above the buttons',
+      UI.index('mm_search') < UI.index('<details class="mm-advanced"') <
+      UI.index('filter-buttons-row'))
+check('CSS styles the summary', '.mm-advanced-summary {' in CSS)
+
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
 CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()

@@ -28,3 +28,8 @@ tests/node_modules/
 tests/package-lock.json
 # Libraries the suites build for themselves, torn down and rebuilt each run
 tests/work/
+
+# Coverage data (the config, .coveragerc, is checked in)
+.coverage
+.coverage.*
+htmlcov/
