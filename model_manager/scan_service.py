@@ -214,11 +214,11 @@ class ScanService:
                 "stats_thumbs_up": stats.get("thumbsUpCount", 0),
                 "stats_thumbs_down": stats.get("thumbsDownCount", 0),
                 "stats_rating": rating,
-                "allow_no_credit": data.get("allowNoCredit", True),
+                "allow_no_credit": data.get("allowNoCredit"),
                 "allow_commercial_use": data.get("allowCommercialUse"),
-                "allow_derivatives": data.get("allowDerivatives", True),
-                "allow_different_license": data.get("allowDifferentLicense", True),
-                "supports_generation": data.get("supportsGeneration", False),
+                "allow_derivatives": data.get("allowDerivatives"),
+                "allow_different_license": data.get("allowDifferentLicense"),
+                "supports_generation": data.get("supportsGeneration"),
             }
 
             version_data["model_id"] = model_id

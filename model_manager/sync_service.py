@@ -426,11 +426,11 @@ class SyncService:
                     "stats_thumbs_up": thumbs_up,
                     "stats_thumbs_down": thumbs_down,
                     "stats_rating": rating,
-                    "allow_no_credit": civitai_data.get("allowNoCredit", True),
+                    "allow_no_credit": civitai_data.get("allowNoCredit"),
                     "allow_commercial_use": civitai_data.get("allowCommercialUse"),
-                    "allow_derivatives": civitai_data.get("allowDerivatives", True),
-                    "allow_different_license": civitai_data.get("allowDifferentLicense", True),
-                    "supports_generation": civitai_data.get("supportsGeneration", False),
+                    "allow_derivatives": civitai_data.get("allowDerivatives"),
+                    "allow_different_license": civitai_data.get("allowDifferentLicense"),
+                    "supports_generation": civitai_data.get("supportsGeneration"),
                 }
                 db.upsert_civitai_model(civitai_model, from_civitai=True)
 
