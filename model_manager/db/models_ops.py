@@ -55,7 +55,7 @@ class ModelsOps:
             from_civitai: True when this data just came back from the API.
                 A scan writes these rows too, from the sidecar on disk, having
                 asked Civitai nothing - so only a real fetch may claim the
-                model was synced. Otherwise a Refresh DB makes every model
+                model was synced. Otherwise a Scan Disk makes every model
                 look freshly synced and the staleness windows all read zero.
         """
         now = datetime.now().isoformat()

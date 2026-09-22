@@ -776,7 +776,7 @@ def _migrate_to_v15(cursor):
 
     updated_at is stamped every time a civitai_models row is written, and a
     scan writes one for every model it finds - reading the sidecar on disk,
-    without asking Civitai anything. So a Refresh DB made every model look as
+    without asking Civitai anything. So a Scan Disk made every model look as
     though it had just been synced, and the sync dialog's staleness windows,
     which are the whole point of choosing one, all read zero.
 
@@ -806,7 +806,7 @@ def _migrate_to_v16(cursor):
     v15 gave civitai_synced_at the value of updated_at, which was the best
     estimate available - except that updated_at is exactly the field v15
     existed to stop trusting. A scan stamps it for every model it finds, so
-    what was copied in was "when you last pressed Refresh DB", dressed up as
+    what was copied in was "when you last pressed Scan Disk", dressed up as
     "when Civitai was last asked". Every model therefore claimed to have been
     synced moments ago and the staleness windows stayed empty.
 
