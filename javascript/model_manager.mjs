@@ -349,15 +349,32 @@ function getFilters() {
 
     console.log('[ModelManager] NSFW mode:', nsfwFilter.nsfw_mode, 'levels:', nsfwFilter.nsfw_levels);
 
-    // Handle is_bookmarked filter
+    // The checkbox asks to SHOW NSFW in the preview; the API asks for the LEAST
+// NSFW image to be used as the preview. Those are opposites, and the backend
+// name stays as it is because it describes which stored column is read
+// (preview_url_least_nsfw or preview_url_recent). Converting in these two
+// places means the inversion cannot be applied to some call sites and not
+// others - which is the only way a filter like this goes wrong.
+function previewLeastNsfwFromCheckbox() {
+    const checkbox = document.getElementById('mm_preview_show_nsfw');
+    return checkbox ? !checkbox.checked : null;
+}
+
+function setPreviewCheckboxFrom(previewLeastNsfw) {
+    const checkbox = document.getElementById('mm_preview_show_nsfw');
+    if (checkbox) checkbox.checked = !previewLeastNsfw;
+    return Boolean(checkbox);
+}
+
+// Handle is_bookmarked filter
     const bookmarkedVal = document.getElementById('mm_is_bookmarked')?.value || '';
     const bookmarkedFilter = bookmarkedVal === 'true' ? { is_bookmarked: true } : {};
 
-    // Handle preview_least_nsfw checkbox
-    const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
+    // Handle the NSFW preview checkbox
+    const previewLeastNsfwCheckbox = document.getElementById('mm_preview_show_nsfw');
     const shouldSendPreviewFilter = previewLeastNsfwCheckbox && (previewLeastNsfwInitialized || previewLeastNsfwUserTouched);
     const previewLeastNsfwFilter = shouldSendPreviewFilter
-        ? { preview_least_nsfw: previewLeastNsfwCheckbox.checked }
+        ? { preview_least_nsfw: previewLeastNsfwFromCheckbox() }
         : {};
 
     // Handle license filters
@@ -565,10 +582,9 @@ async function loadModels(page = 1) {
 
             // Initialize preview_least_nsfw checkbox from setting on first load
             if (!previewLeastNsfwInitialized && data.preview_least_nsfw_setting !== undefined) {
-                const checkbox = document.getElementById('mm_preview_least_nsfw');
-                if (checkbox) {
-                    checkbox.checked = data.preview_least_nsfw_setting;
-                    console.log(`[ModelManager] Initialized SFW Preview checkbox: ${data.preview_least_nsfw_setting}`);
+                if (setPreviewCheckboxFrom(data.preview_least_nsfw_setting)) {
+                    console.log(`[ModelManager] Initialized NSFW preview checkbox from setting `
+                        + `preview_least_nsfw=${data.preview_least_nsfw_setting}`);
                 }
                 previewLeastNsfwInitialized = true;
             }
@@ -618,11 +634,10 @@ async function ensureFilterDefaults() {
                 }
 
                 if (!previewLeastNsfwInitialized && !previewLeastNsfwUserTouched && data.preview_least_nsfw !== undefined) {
-                    const checkbox = document.getElementById('mm_preview_least_nsfw');
-                    if (checkbox) {
-                        checkbox.checked = Boolean(data.preview_least_nsfw);
+                    if (setPreviewCheckboxFrom(data.preview_least_nsfw)) {
                         previewLeastNsfwInitialized = true;
-                        console.log(`[ModelManager] Initialized SFW Preview default: ${checkbox.checked}`);
+                        console.log(`[ModelManager] Initialized NSFW preview default: `
+                            + `preview_least_nsfw=${Boolean(data.preview_least_nsfw)}`);
                     }
                 }
             }
@@ -3452,7 +3467,6 @@ window.mmRestoreScrollPosition = function() {
 
 // Save/Load search filters functionality
 function saveSearchFilters() {
-    const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
     const filters = {
         search: document.getElementById('mm_search')?.value || '',
         type: document.getElementById('mm_type')?.value || '',
@@ -3465,7 +3479,7 @@ function saveSearchFilters() {
         allow_derivatives: document.getElementById('mm_allow_derivatives')?.value || '',
         allow_different_license: document.getElementById('mm_allow_different_license')?.value || '',
         nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
-        preview_least_nsfw: previewCheckbox ? previewCheckbox.checked : null,
+        preview_least_nsfw: previewLeastNsfwFromCheckbox(),
         nsfw_levels: []
     };
 
@@ -3508,10 +3522,10 @@ function loadSearchFilters() {
         const useMaxCb = document.getElementById('mm_nsfw_use_max');
         if (useMaxCb) useMaxCb.checked = filters.nsfw_use_max || false;
 
+        // Saved searches store the API's flag, not the checkbox's, so ones
+        // saved before the checkbox was reworded still restore correctly.
         if (Object.prototype.hasOwnProperty.call(filters, 'preview_least_nsfw') && filters.preview_least_nsfw !== null) {
-            const previewCheckbox = document.getElementById('mm_preview_least_nsfw');
-            if (previewCheckbox) {
-                previewCheckbox.checked = Boolean(filters.preview_least_nsfw);
+            if (setPreviewCheckboxFrom(filters.preview_least_nsfw)) {
                 previewLeastNsfwInitialized = true;
             }
         }
@@ -3559,7 +3573,7 @@ function bindElements() {
     const refreshBtn = document.getElementById('mm_refresh_btn');
     const scanCancelBtn = document.getElementById('mm_scan_cancel_btn');
     const searchInput = document.getElementById('mm_search');
-    const previewLeastNsfwCheckbox = document.getElementById('mm_preview_least_nsfw');
+    const previewLeastNsfwCheckbox = document.getElementById('mm_preview_show_nsfw');
 
     if (!loadBtn) {
         console.log('[ModelManager] Button not found yet, retrying...');
