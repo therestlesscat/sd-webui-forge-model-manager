@@ -1797,16 +1797,6 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-.cb-filters .filter-group input,
-.cb-filters .filter-group select {
-    padding: 8px 10px;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: var(--input-background-fill, #111827);
-    color: var(--body-text-color, #fff);
-    font-size: 0.9em;
-}
-
 /* Bordered group for Period + Sort */
 .cb-filters .filter-group-bordered {
     display: flex;
@@ -1837,14 +1827,10 @@ body.mm-modal-open {
     position: relative;
 }
 
+/* The wrapper is what the suggestions drop out of; the input itself takes the
+   shared control box, the same as the search box beside it. */
 .cb-tag-container input {
     width: 100%;
-    padding: 8px 10px;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: var(--input-background-fill, #111827);
-    color: var(--body-text-color, #fff);
-    font-size: 0.9em;
 }
 
 .cb-tag-dropdown {

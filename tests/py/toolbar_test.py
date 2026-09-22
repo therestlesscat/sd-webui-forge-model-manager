@@ -244,6 +244,17 @@ check('it sits below the search box and above the buttons',
       UI.index('filter-buttons-row'))
 check('CSS styles the summary', '.mm-advanced-summary {' in CSS)
 
+# The Civitai Browser kept its own copy of the control box, at the same
+# specificity as the shared rule and later in the file, so it won - which is
+# how its search and tag boxes ended up a different size from each other and
+# from everything in the other tab.
+check('the browser does not restate the control box',
+      '.cb-filters .filter-group input,' in CSS, False)
+check('nor does the tag box',
+      'padding' in CSS[CSS.index('.cb-tag-container input {'):
+                       CSS.index('}', CSS.index('.cb-tag-container input {'))],
+      False)
+
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
 CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()
