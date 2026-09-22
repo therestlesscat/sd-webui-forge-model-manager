@@ -207,6 +207,22 @@ check('and the search box is the second of them',
       BASIC.index('mm_search') > BASIC.rindex('<div class="filter-row">'))
 check('the search box is given the row to itself', 'style="flex: 1;"' in BASIC)
 
+# Controls of three different element types sit side by side in that row, so
+# the height is stated once rather than derived from padding - which is how
+# the two multi-selects ended up taller than the selects beside them.
+control_css = CSS[CSS.index('.filter-group input:not([type="checkbox"]),'):]
+control_css = control_css[:control_css.index('}')]
+check('the shared control rule covers the multi-selects',
+      '.mm-multiselect-display' in control_css)
+check('and the checkbox label beside them',
+      '.mm-checkbox-label' in control_css)
+check('it states a height', 'height: 36px' in control_css)
+check('and measures it from the border', 'box-sizing: border-box' in control_css)
+check('the multi-select no longer sets its own box',
+      'padding' in CSS[CSS.index(chr(10) + '.mm-multiselect-display {'):
+                       CSS.index('}', CSS.index(chr(10) + '.mm-multiselect-display {'))],
+      False)
+
 # The row is not an equal split: the preview toggle is one checkbox, Sort By
 # carries the longest options. Both are tagged in the markup rather than
 # selected by position, so reordering the row cannot silently reassign them.
