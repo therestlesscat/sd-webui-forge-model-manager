@@ -299,14 +299,23 @@ body.mm-modal-open {
    same reason, so that nothing outside the extension can size one button
    differently from another.
 
-   Height comes from --mm-btn-height so a context can ask for a shorter
-   button without redefining the box. Set that, never `height` or `padding`.
+   Colour works the same way. Gradio's preflight resets every button with
+   `.gradio-container-... button { background-color: transparent }`, which at
+   (0,1,1) outweighs any single class of ours - the old `.mm-btn.secondary`
+   only won because it named two. So the background is declared once, with
+   !important, and a variant changes the variable behind it rather than
+   fighting over the property.
+
+   Set --mm-btn-height, --mm-btn-bg and --mm-btn-bg-hover. Never `height`,
+   `padding` or `background`.
 */
 .mm-btn,
 .cb-btn,
 .cb-btn-small,
 .action-btn {
     --mm-btn-height: 36px;
+    --mm-btn-bg: var(--secondary-500, #6b7280);
+    --mm-btn-bg-hover: var(--secondary-600, #4b5563);
     box-sizing: border-box;
     display: inline-flex;
     align-items: center;
@@ -318,8 +327,8 @@ body.mm-modal-open {
     margin: 0 !important;
     border: none !important;
     border-radius: 6px;
-    background: var(--secondary-500, #6b7280);
-    color: #fff;
+    background: var(--mm-btn-bg) !important;
+    color: #fff !important;
     font-family: inherit;
     font-size: 0.9em;
     font-weight: 500;
@@ -337,35 +346,23 @@ body.mm-modal-open {
 .cb-btn:hover,
 .cb-btn-small:hover,
 .action-btn:hover {
-    background: var(--secondary-600, #4b5563);
+    background: var(--mm-btn-bg-hover) !important;
 }
 
 .mm-btn.primary,
 .cb-btn.primary,
 .cb-btn-small.primary,
 .action-btn.primary {
-    background: var(--primary-500, #3b82f6);
-}
-
-.mm-btn.primary:hover,
-.cb-btn.primary:hover,
-.cb-btn-small.primary:hover,
-.action-btn.primary:hover {
-    background: var(--primary-600, #2563eb);
+    --mm-btn-bg: var(--primary-500, #3b82f6);
+    --mm-btn-bg-hover: var(--primary-600, #2563eb);
 }
 
 .mm-btn.danger,
 .cb-btn.danger,
 .cb-btn-small.danger,
 .action-btn.danger {
-    background: #dc2626;
-}
-
-.mm-btn.danger:hover,
-.cb-btn.danger:hover,
-.cb-btn-small.danger:hover,
-.action-btn.danger:hover {
-    background: #b91c1c;
+    --mm-btn-bg: #dc2626;
+    --mm-btn-bg-hover: #b91c1c;
 }
 
 .mm-btn:disabled,
@@ -750,7 +747,8 @@ body.mm-modal-open {
 }
 
 .mm-sync-model-btn {
-    background: var(--primary-400, #60a5fa);
+    /* !important for the same preflight reset the shared buttons fight. */
+    background: var(--primary-400, #60a5fa) !important;
     border: none;
     border-radius: 4px;
     color: white;
@@ -761,7 +759,7 @@ body.mm-modal-open {
 }
 
 .mm-sync-model-btn:hover {
-    background: var(--primary-500, #3b82f6);
+    background: var(--primary-500, #3b82f6) !important;
 }
 
 /* Bookmark button in details header */
