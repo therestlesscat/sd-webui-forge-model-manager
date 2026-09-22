@@ -87,8 +87,8 @@ class ModelsOps:
                     stats_download_count, stats_thumbs_up, stats_thumbs_down, stats_rating,
                     allow_no_credit, allow_commercial_use, allow_derivatives,
                     allow_different_license, supports_generation, updated_at,
-                    civitai_synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    civitai_synced_at, checkpoint_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     -- The same rule as upsert_version(): a source that says
                     -- nothing about a field must not erase what is recorded.
@@ -115,7 +115,9 @@ class ModelsOps:
                     updated_at = excluded.updated_at,
                     -- only moves forward when the data came from the API
                     civitai_synced_at = COALESCE(excluded.civitai_synced_at,
-                                                 civitai_models.civitai_synced_at)
+                                                 civitai_models.civitai_synced_at),
+                    checkpoint_type = COALESCE(excluded.checkpoint_type,
+                                               civitai_models.checkpoint_type)
             """, (
                 model_data.get("id"),
                 model_data.get("name"),
@@ -138,7 +140,8 @@ class ModelsOps:
                 _flag(model_data.get("allow_different_license")),
                 _flag(model_data.get("supports_generation")),
                 now,
-                now if from_civitai else None
+                now if from_civitai else None,
+                model_data.get("checkpoint_type")
             ))
 
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
@@ -393,6 +396,40 @@ class ModelsOps:
             after = cursor.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
             return after - before
 
+    def set_checkpoint_types(self, types: Dict[int, str]) -> int:
+        """
+        Record which checkpoints are trained and which are merged.
+
+        Written on its own rather than through upsert_civitai_model() because
+        it arrives on its own: the classifier answers about a set of ids, with
+        no model payload attached.
+
+        Args:
+            types: Model id -> "Trained" or "Merge".
+
+        Returns:
+            How many rows were updated.
+        """
+        if not types:
+            return 0
+        with self._cursor() as cursor:
+            cursor.executemany(
+                "UPDATE civitai_models SET checkpoint_type = ? WHERE id = ?",
+                [(value, model_id) for model_id, value in types.items()]
+            )
+            return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else len(types)
+
+    def checkpoint_model_ids(self) -> List[int]:
+        """Civitai ids of the checkpoints that have a local file."""
+        with self._cursor() as cursor:
+            cursor.execute("""
+                SELECT DISTINCT m.id
+                FROM civitai_models m
+                JOIN model_versions v ON v.model_id = m.id
+                WHERE m.type = 'Checkpoint' AND v.file_path IS NOT NULL
+            """)
+            return [row["id"] for row in cursor.fetchall()]
+
     def count_unidentified(self) -> Dict[str, int]:
         """
         How many local files Civitai has no data for, and why not.
@@ -516,6 +553,7 @@ class ModelsOps:
             "allow_different_license": _permissive(row["allow_different_license"]),
             "supports_generation": bool(row["supports_generation"]),
             "updated_at": row["updated_at"],
+            "checkpoint_type": row["checkpoint_type"],
         }
 
     def _version_row_to_dict(self, row) -> Dict[str, Any]:

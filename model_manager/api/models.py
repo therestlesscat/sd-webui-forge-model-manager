@@ -34,6 +34,8 @@ def register(app: FastAPI):
         # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
         allow_derivatives: str = "",
         allow_different_license: str = "",
+        # "", "Trained", "Merge", or "unknown" - only checkpoints have one
+        checkpoint_type: str = "",
         # Return only the file paths the filters select, with no paging. The
         # sync dialog uses it to turn "these results" into a scope; it reuses
         # this endpoint so the filters cannot be parsed one way here and
@@ -139,6 +141,7 @@ def register(app: FastAPI):
                 commercial_use=commercial_use if commercial_use else None,
                 allow_derivatives=allow_derivatives or None,
                 allow_different_license=allow_different_license or None,
+                checkpoint_type=checkpoint_type or None,
                 sort_by=db_sort_by,
                 sort_order=sort_order,
                 limit=1000000 if paths_only else page_size,

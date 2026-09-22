@@ -822,6 +822,32 @@ def _migrate_to_v16(cursor):
     print("[ModelManager] Migration to v16 complete")
 
 
+def _migrate_to_v17(cursor):
+    """Somewhere to record whether a checkpoint was trained or merged.
+
+    Civitai accepts checkpointType as a search filter but returns it on
+    neither the model nor the version, so the value cannot simply be read off
+    the payload a sync already fetches - see get_checkpoint_types(). It is
+    stored rather than asked for each time.
+
+    NULL means nobody has established it, which is how the filter offers it:
+    the same three-valued treatment the licence columns get.
+    """
+    print("[ModelManager] Migrating to schema v17 (checkpoint trained or merged)...")
+
+    cursor.execute("PRAGMA table_info(civitai_models)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "checkpoint_type" not in columns:
+        cursor.execute("ALTER TABLE civitai_models ADD COLUMN checkpoint_type TEXT")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_model_checkpoint_type"
+            " ON civitai_models(checkpoint_type)"
+        )
+
+    print("[ModelManager] Migration to v17 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -872,6 +898,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 16:
         _migrate_to_v16(cursor)
+
+    if from_version < 17:
+        _migrate_to_v17(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 
 class ModelsDatabase:
@@ -199,6 +199,7 @@ class ModelsDatabase:
         commercial_use: Optional[str] = None,
         allow_derivatives: Optional[bool] = None,
         allow_different_license: Optional[bool] = None,
+        checkpoint_type: Optional[str] = None,
         sort_by: str = "file_modified",
         sort_order: str = "desc",
         limit: int = 50,
@@ -218,6 +219,7 @@ class ModelsDatabase:
             commercial_use=commercial_use,
             allow_derivatives=allow_derivatives,
             allow_different_license=allow_different_license,
+            checkpoint_type=checkpoint_type,
             sort_by=sort_by,
             sort_order=sort_order,
             limit=limit,
@@ -237,6 +239,14 @@ class ModelsDatabase:
     def insert_missing_versions(self, rows: List[Dict[str, Any]]) -> int:
         """Record files not already in the database. See db/models_ops.py."""
         return self._models.insert_missing_versions(rows)
+
+    def set_checkpoint_types(self, types: Dict[int, str]) -> int:
+        """Record Trained/Merge for these models. See db/models_ops.py."""
+        return self._models.set_checkpoint_types(types)
+
+    def checkpoint_model_ids(self) -> List[int]:
+        """Civitai ids of checkpoints with a local file. See db/models_ops.py."""
+        return self._models.checkpoint_model_ids()
 
     def count_unidentified(self) -> Dict[str, int]:
         """How many local files have no Civitai data. See db/models_ops.py."""

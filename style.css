@@ -1918,12 +1918,15 @@ body.mm-modal-open {
     font-size: 0.85em;
 }
 
-/* A filter that does not apply to the current Type */
-.cb-filter-disabled {
+/* A filter that does not apply to the current Type. Both tabs have one, and
+   they should look the same, so the rule names both rather than being copied. */
+.cb-filter-disabled,
+.mm-filter-disabled {
     opacity: 0.45;
 }
 
-.cb-filter-disabled select {
+.cb-filter-disabled select,
+.mm-filter-disabled select {
     cursor: not-allowed;
 }
 

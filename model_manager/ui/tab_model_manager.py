@@ -35,6 +35,15 @@ def create_ui():
                                 <option value="Upscaler">Upscaler</option>
                             </select>
                         </div>
+                        <div class="filter-group" id="mm_checkpoint_type_group">
+                            <label>Checkpoint Type</label>
+                            <select id="mm_checkpoint_type" title="Only applies when Type is Checkpoint">
+                                <option value="">Any</option>
+                                <option value="Trained">Trained</option>
+                                <option value="Merge">Merge</option>
+                                <option value="unknown">Unknown</option>
+                            </select>
+                        </div>
                         <div class="filter-group">
                             <label>Has Civitai Data</label>
                             <select id="mm_civitai">
