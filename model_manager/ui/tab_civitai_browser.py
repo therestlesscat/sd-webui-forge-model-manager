@@ -119,17 +119,20 @@ def create_civitai_browser_ui():
                             <!-- Every group is a caption over its controls, so
                                  the row lines up without being told to. -->
                             <label>Options</label>
-                            <label class="cb-checkbox-label">
-                                <input type="checkbox" id="cb_nsfw"> Include NSFW
-                            </label>
-                            <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
-                                <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
-                            </label>
+                            <div class="filter-checkboxes">
+                                <label class="cb-checkbox-label">
+                                    <input type="checkbox" id="cb_nsfw"> Include NSFW
+                                </label>
+                                <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
+                                    <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
+                                </label>
+                            </div>
                         </div>
-                        <div class="filter-buttons-group">
-                            <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()" oncontextmenu="window.cbClearSearchCache && window.cbClearSearchCache(); return false;" title="Right-click to clear pagination cache">Search</button>
-                            <button type="button" id="cb_resume_btn" class="cb-btn" onclick="window.cbResumePage && window.cbResumePage()" style="display: none;">Resume</button>
-                        </div>
+                    </div>
+                    <!-- The same row the Model Manager puts its actions on. -->
+                    <div class="filter-buttons-row">
+                        <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()" oncontextmenu="window.cbClearSearchCache && window.cbClearSearchCache(); return false;" title="Right-click to clear pagination cache">Search</button>
+                        <button type="button" id="cb_resume_btn" class="cb-btn" onclick="window.cbResumePage && window.cbResumePage()" style="display: none;">Resume</button>
                     </div>
                 </div>
 

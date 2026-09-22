@@ -3410,7 +3410,10 @@ function updateScrollRestoreButton() {
     if (savedPos && parseInt(savedPos) > 0) {
         // Create button if it doesn't exist
         if (!btn) {
-            const buttonsGroup = document.querySelector('.filter-buttons-group');
+            // .mm-scroll-restore-btn is display:none, so this button has
+            // never actually shown; the class it used to be appended to
+            // no longer exists either.
+            const buttonsGroup = document.querySelector('.filter-buttons-row');
             if (buttonsGroup) {
                 btn = document.createElement('button');
                 btn.id = 'mm_scroll_restore_btn';
