@@ -1,0 +1,20 @@
+# Coverage of the extension itself - the tests are not the subject.
+#
+#   python -m coverage run -p tests/py/<suite>.py    (once per suite)
+#   python -m coverage combine && python -m coverage report
+#
+# `source` names the package rather than the files that happened to run, so a
+# module no test imports at all still shows up, at 0%.
+#
+# Careful with `rm .coverage*` between runs - that glob eats this file too.
+[run]
+source = model_manager
+branch = True
+parallel = True
+
+[report]
+show_missing = True
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
