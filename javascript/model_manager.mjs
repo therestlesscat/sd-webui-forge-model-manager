@@ -2289,7 +2289,8 @@ async function loadUIOptionsFromAPI() {
 
         // Answered even when the rest of this call failed, so it is read
         // before the success check rather than inside it.
-        showApiKeyWarning(data.has_api_key === false);
+        apiKeyMissing = data.has_api_key === false;
+        showApiKeyWarning();
 
         if (data.success) {
             if (data.schedulers) {
@@ -2315,10 +2316,18 @@ async function loadUIOptionsFromAPI() {
  * tRPC endpoint that carries image prompts refuses outright, and some models
  * will not download - so most of what this extension does either crawls or
  * does not work. Not dismissible: it goes away by being fixed.
+ *
+ * The answer arrives before the page does. This module is a <script
+ * type="module"> in the head and asks at import, while the tab's markup is
+ * rendered by Gradio afterwards - so the banner is not there to be shown yet.
+ * The answer is remembered and applied again from init().
  */
-function showApiKeyWarning(missing) {
+let apiKeyMissing = null;
+
+function showApiKeyWarning() {
+    if (apiKeyMissing === null) return;      // no answer yet
     const banner = document.getElementById('mm_api_key_warning');
-    if (banner) banner.style.display = missing ? 'flex' : 'none';
+    if (banner) banner.style.display = apiKeyMissing ? 'flex' : 'none';
 }
 
 // Get scheduler options (from cache)
@@ -3585,6 +3594,9 @@ function bindElements() {
         console.log('[ModelManager] Load button clicked');
         loadModels(1);  // Reset to page 1 when filters change
     });
+
+    // The key answer may have arrived before this markup existed.
+    showApiKeyWarning();
 
     // Trained/Merge only applies to checkpoints, so it follows the Type
     // control rather than sitting there looking usable.
