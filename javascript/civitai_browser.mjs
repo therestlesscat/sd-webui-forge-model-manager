@@ -89,6 +89,31 @@ function getFiltersHash() {
     return hashFilters(getFilters());
 }
 
+let resumeWired = false;
+
+/**
+ * Attach updateResumeButton() to the filters, once the filters exist.
+ *
+ * init() runs on onReady(), which is ~100ms after the document is
+ * interactive - and Gradio renders its blocks after that. Doing this once in
+ * init() found no controls and no button, attached nothing, and left the
+ * offer depending on a Search press exactly as before. So it is retried from
+ * the same interval the tag input and the enums use.
+ *
+ * Returns nothing; sets resumeWired when the markup was there to wire.
+ */
+function wireResumeButton() {
+    const controls = document.querySelectorAll('.cb-filters input, .cb-filters select');
+    if (!controls.length || !document.getElementById('cb_resume_btn')) return;
+
+    controls.forEach(control => {
+        control.addEventListener('change', updateResumeButton);
+        control.addEventListener('input', updateResumeButton);
+    });
+    resumeWired = true;
+    updateResumeButton();
+}
+
 /**
  * Show "Resume" when there is a saved position for the filters now in the box.
  *
@@ -1979,20 +2004,10 @@ function init() {
     }
     syncCheckpointTypeEnabled();
 
-    // A saved position belongs to a filter set, so the offer has to follow the
-    // filters rather than wait for a Search press - which was the old rule,
-    // and made the button look broken: paging away hides it, and nothing
-    // showed it again until you searched.
-    document.querySelectorAll('.cb-filters input, .cb-filters select')
-        .forEach(control => {
-            control.addEventListener('change', updateResumeButton);
-            control.addEventListener('input', updateResumeButton);
-        });
-    updateResumeButton();
-
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
+    wireResumeButton();
 
     // Retry initialization for dynamically loaded elements (Gradio tabs)
     const initRetry = setInterval(() => {
@@ -2002,7 +2017,10 @@ function init() {
         if (!enumsLoaded) {
             loadEnums();
         }
-        if (tagInputInitialized && enumsLoaded) {
+        if (!resumeWired) {
+            wireResumeButton();
+        }
+        if (tagInputInitialized && enumsLoaded && resumeWired) {
             clearInterval(initRetry);
         }
     }, 500);
