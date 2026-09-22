@@ -2800,6 +2800,7 @@ async function cancelSync() {
 let syncEstimateTimer = null;
 let syncResultPaths = null;     // resolved lazily, for the "these results" scope
 let syncDepthBeforeRehash = null;   // restored when the scope leaves "force"
+let syncImagesWereOn = false;       // to tell "just switched on" from "still on"
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
 
 /**
@@ -3033,6 +3034,19 @@ function syncDialogDependencies() {
         prompts.checked = syncDepthBeforeRehash.prompts;
         syncDepthBeforeRehash = null;
     }
+
+    // A disabled box must not sit there ticked: that reads as "this will
+    // happen", when the whole point of disabling it is that it cannot. So
+    // prompts follow images on the way down, and are offered again - ticked,
+    // since that is the useful default - when images come back.
+    if (!hashing && images && prompts) {
+        if (!images.checked) {
+            prompts.checked = false;
+        } else if (!syncImagesWereOn) {
+            prompts.checked = true;
+        }
+    }
+    if (images) syncImagesWereOn = images.checked;
 
     if (images) images.disabled = hashing;
     if (prompts) prompts.disabled = hashing || !images.checked;

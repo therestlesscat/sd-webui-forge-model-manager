@@ -237,7 +237,7 @@ def create_ui():
                                 <span class="mm-dialog-cost" id="mm_cost_images"></span>
                             </label>
                             <label class="mm-dialog-option" id="mm_sync_prompts_row" title="The prompt and settings behind each image. Civitai serves these one small batch at a time, so this is most of a full sync.">
-                                <input type="checkbox" id="mm_sync_prompts" checked disabled>
+                                <input type="checkbox" id="mm_sync_prompts" disabled>
                                 <span>Image prompts</span>
                                 <span class="mm-dialog-cost" id="mm_cost_prompts"></span>
                             </label>
