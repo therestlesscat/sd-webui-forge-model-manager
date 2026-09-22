@@ -4,7 +4,20 @@
  */
 
 
-import {
+// The WebUI versions the tab scripts and nothing else: list_scripts() uses
+// os.listdir(), which does not recurse, so javascript/shared/ is never listed
+// and never gets a ?mtime. A plain import of it therefore resolved to a URL
+// that never changed, a browser cached it forever, and an export added here
+// was missing from the copy the browser held - which is a link error, so the
+// whole tab script stopped running until someone happened to force a reload.
+//
+// import.meta.url carries this script's own version, so the shared module is
+// asked for with the same one. A dynamic import is the only way to build that
+// URL at runtime, which is why this is not a plain import statement.
+const sharedModule = new URL('./shared/common.mjs', import.meta.url);
+sharedModule.search = new URL(import.meta.url).search;
+
+const {
     onReady,
     showApiKeyBanner,
     apiCall,
@@ -16,9 +29,9 @@ import {
     setupLazyMedia,
     renderResource,
     IMAGE_PAGE_SIZE,
-    applyCardSize as sharedApplyCardSize,
-    renderImagePagination as sharedImagePagination,
-} from './shared/common.mjs';
+    applyCardSize: sharedApplyCardSize,
+    renderImagePagination: sharedImagePagination,
+} = await import(sharedModule.href);
 
 // State
 let currentModels = [];
