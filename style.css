@@ -2334,3 +2334,22 @@ body.mm-modal-open {
     justify-content: flex-end;
     gap: 8px;
 }
+
+/* The Scan Disk confirmation: a lead line and a few points, nothing more. */
+.mm-dialog-narrow {
+    max-width: 360px;
+}
+
+.mm-dialog-lead {
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.mm-dialog-points {
+    margin: 0 0 16px;
+    padding-left: 18px;
+    font-size: 12px;
+    line-height: 1.7;
+    opacity: 0.85;
+}

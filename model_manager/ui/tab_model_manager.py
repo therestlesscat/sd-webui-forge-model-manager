@@ -252,6 +252,24 @@ def create_ui():
                     </div>
                 </div>
 
+                <!-- Scan Disk: what it will do, before it does it -->
+                <div id="mm_scan_dialog" class="mm-dialog-backdrop" style="display: none;">
+                    <div class="mm-dialog mm-dialog-narrow" role="dialog" aria-modal="true" aria-labelledby="mm_scan_dialog_title">
+                        <h3 id="mm_scan_dialog_title">Scan Disk</h3>
+                        <p class="mm-dialog-lead">Reads your model folders and the data files beside them.</p>
+                        <ul class="mm-dialog-points">
+                            <li>Adds models you have added</li>
+                            <li>Removes models you have deleted</li>
+                            <li>Updates names and sizes from disk</li>
+                            <li>Does not contact Civitai, and does not hash anything</li>
+                        </ul>
+                        <div class="mm-dialog-actions">
+                            <button id="mm_scan_dialog_cancel" class="mm-btn secondary">Cancel</button>
+                            <button id="mm_scan_dialog_start" class="mm-btn primary">Scan</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Scan Progress -->
                 <div id="mm_scan_progress" class="model-manager-sync-progress" style="display: none;">
                     <div class="sync-progress-bar">
