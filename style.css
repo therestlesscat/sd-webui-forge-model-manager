@@ -2356,3 +2356,33 @@ body.mm-modal-open {
     line-height: 1.7;
     opacity: 0.85;
 }
+
+/* A standing warning: something is configured such that the extension cannot
+   do its job properly. Not dismissible, because it goes away by being fixed. */
+.mm-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.08);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.mm-banner-icon {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: #f59e0b;
+    color: #1f2937;
+    font-weight: 700;
+    font-size: 12px;
+    text-align: center;
+    line-height: 18px;
+}
