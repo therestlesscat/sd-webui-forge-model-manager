@@ -3162,6 +3162,28 @@ function updateSyncUI(syncing) {
 // ==================== SCAN/REFRESH FUNCTIONS ====================
 
 // Start database refresh scan
+/**
+ * Say what Scan Disk will do before it does it.
+ *
+ * It adds and removes rows to match what is on disk, which is not something to
+ * discover after the fact - and unlike the sync dialog there is nothing to
+ * choose here, so it is a confirmation rather than a form.
+ */
+function openScanDialog() {
+    if (isScanning || isSyncing) return;
+    const dialog = document.getElementById('mm_scan_dialog');
+    if (!dialog) {
+        startScan();     // no dialog in the page: do the thing rather than nothing
+        return;
+    }
+    dialog.style.display = 'flex';
+}
+
+function closeScanDialog() {
+    const dialog = document.getElementById('mm_scan_dialog');
+    if (dialog) dialog.style.display = 'none';
+}
+
 async function startScan() {
     if (isScanning || isSyncing) return;
 
@@ -3585,9 +3607,28 @@ function bindElements() {
         newRefreshBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log('[ModelManager] Refresh button clicked');
-            startScan();
+            openScanDialog();
         });
+    }
+
+    // The confirmation behind it: same dismissal rules as the sync dialog.
+    const scanDialog = document.getElementById('mm_scan_dialog');
+    if (scanDialog) {
+        scanDialog.addEventListener('click', (e) => {
+            if (e.target === scanDialog) closeScanDialog();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && scanDialog.style.display !== 'none') closeScanDialog();
+        });
+        const scanCancel = document.getElementById('mm_scan_dialog_cancel');
+        if (scanCancel) scanCancel.addEventListener('click', closeScanDialog);
+        const scanStart = document.getElementById('mm_scan_dialog_start');
+        if (scanStart) {
+            scanStart.addEventListener('click', () => {
+                closeScanDialog();
+                startScan();
+            });
+        }
     }
 
     // Bind scan cancel button
