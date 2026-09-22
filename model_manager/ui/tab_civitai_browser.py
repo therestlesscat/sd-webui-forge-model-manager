@@ -18,6 +18,18 @@ def create_civitai_browser_ui():
                     <h2>Civitai Browser</h2>
                 </div>
 
+                <!-- Shown only when Civitai cannot be asked properly -->
+                <div id="cb_api_key_warning" class="mm-banner" style="display: none;">
+                    <span class="mm-banner-icon">!</span>
+                    <span>
+                        <strong>No Civitai API key.</strong>
+                        Searches are limited to 0.5 requests per second instead of 6,
+                        image prompts cannot be fetched at all, and some models refuse
+                        to download.
+                        Set one in <strong>Settings &rarr; Model Manager &rarr; Civitai API Key</strong>.
+                    </span>
+                </div>
+
                 <!-- Filter bar -->
                 <div class="cb-filters">
                     <div class="filter-row">

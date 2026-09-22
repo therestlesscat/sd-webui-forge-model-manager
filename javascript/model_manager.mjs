@@ -6,6 +6,7 @@
 
 import {
     onReady,
+    showApiKeyBanner,
     apiCall,
     escapeHtml,
     formatNumber,
@@ -2287,11 +2288,6 @@ async function loadUIOptionsFromAPI() {
         const response = await fetch('/model-manager/ui-options');
         const data = await response.json();
 
-        // Answered even when the rest of this call failed, so it is read
-        // before the success check rather than inside it.
-        apiKeyMissing = data.has_api_key === false;
-        showApiKeyWarning();
-
         if (data.success) {
             if (data.schedulers) {
                 cachedSchedulers = data.schedulers.filter(s => s && s !== 'Automatic');
@@ -2307,36 +2303,6 @@ async function loadUIOptionsFromAPI() {
         cachedSchedulers = [];
         cachedSamplers = [];
     }
-}
-
-/**
- * Warn that Civitai is being asked as an anonymous stranger.
- *
- * Without a key the rate limit is 0.5 requests a second rather than 6, the
- * tRPC endpoint that carries image prompts refuses outright, and some models
- * will not download - so most of what this extension does either crawls or
- * does not work. Not dismissible: it goes away by being fixed.
- *
- * Two things have to happen before this can be shown, and nothing orders them:
- * the answer arrives from a fetch started at import, and the markup arrives
- * when Gradio renders the tab. Calling this at two fixed moments was not
- * enough - whichever ran first found the other half missing and gave up. So
- * it waits for both, briefly, rather than assuming either.
- */
-const API_KEY_BANNER_TRIES = 20;        // 5 seconds, at 250ms apart
-let apiKeyMissing = null;
-
-function showApiKeyWarning(attempt = 0) {
-    const banner = document.getElementById('mm_api_key_warning');
-
-    if (apiKeyMissing === null || !banner) {
-        if (attempt < API_KEY_BANNER_TRIES) {
-            setTimeout(() => showApiKeyWarning(attempt + 1), 250);
-        }
-        return;
-    }
-
-    banner.style.display = apiKeyMissing ? 'flex' : 'none';
 }
 
 // Get scheduler options (from cache)
@@ -3604,8 +3570,9 @@ function bindElements() {
         loadModels(1);  // Reset to page 1 when filters change
     });
 
-    // The key answer may have arrived before this markup existed.
-    showApiKeyWarning();
+    // Both tabs carry this; the shared helper waits for the answer
+    // and the markup, in whichever order they turn up.
+    showApiKeyBanner('mm_api_key_warning');
 
     // Trained/Merge only applies to checkpoints, so it follows the Type
     // control rather than sitting there looking usable.
