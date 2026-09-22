@@ -116,6 +116,9 @@ def create_civitai_browser_ui():
                             </div>
                         </div>
                         <div class="filter-group">
+                            <!-- Every group is a caption over its controls, so
+                                 the row lines up without being told to. -->
+                            <label>Options</label>
                             <label class="cb-checkbox-label">
                                 <input type="checkbox" id="cb_nsfw"> Include NSFW
                             </label>
