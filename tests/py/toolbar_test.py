@@ -250,10 +250,13 @@ check('CSS styles the summary', '.mm-advanced-summary {' in CSS)
 # from everything in the other tab.
 check('the browser does not restate the control box',
       '.cb-filters .filter-group input,' in CSS, False)
-check('nor does the tag box',
-      'padding' in CSS[CSS.index('.cb-tag-container input {'):
-                       CSS.index('}', CSS.index('.cb-tag-container input {'))],
-      False)
+tag_input_css = CSS[CSS.index('.cb-tag-container input {'):]
+tag_input_css = tag_input_css[:tag_input_css.index('}')]
+check('nor does the tag box', 'padding' in tag_input_css, False)
+# Its wrapper is a plain block, so without this the input stays inline-block
+# and carries four pixels of descender space that the search box does not.
+check('and the tag box is blockified by hand',
+      'display: block' in tag_input_css)
 
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
