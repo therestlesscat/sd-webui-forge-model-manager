@@ -324,6 +324,23 @@ function syncCheckpointTypeEnabled() {
     checkpointType.closest('.filter-group')?.classList.toggle('mm-filter-disabled', !applies);
 }
 
+// The checkbox asks to SHOW NSFW in the preview; the API asks for the LEAST
+// NSFW image to be used as the preview. Those are opposites, and the backend
+// name stays as it is because it describes which stored column is read
+// (preview_url_least_nsfw or preview_url_recent). Converting in these two
+// places means the inversion cannot be applied to some call sites and not
+// others - which is the only way a filter like this goes wrong.
+function previewLeastNsfwFromCheckbox() {
+    const checkbox = document.getElementById('mm_preview_show_nsfw');
+    return checkbox ? !checkbox.checked : null;
+}
+
+function setPreviewCheckboxFrom(previewLeastNsfw) {
+    const checkbox = document.getElementById('mm_preview_show_nsfw');
+    if (checkbox) checkbox.checked = !previewLeastNsfw;
+    return Boolean(checkbox);
+}
+
 function getFilters() {
     const useMax = document.getElementById('mm_nsfw_use_max')?.checked || false;
     const checkboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
@@ -349,24 +366,7 @@ function getFilters() {
 
     console.log('[ModelManager] NSFW mode:', nsfwFilter.nsfw_mode, 'levels:', nsfwFilter.nsfw_levels);
 
-    // The checkbox asks to SHOW NSFW in the preview; the API asks for the LEAST
-// NSFW image to be used as the preview. Those are opposites, and the backend
-// name stays as it is because it describes which stored column is read
-// (preview_url_least_nsfw or preview_url_recent). Converting in these two
-// places means the inversion cannot be applied to some call sites and not
-// others - which is the only way a filter like this goes wrong.
-function previewLeastNsfwFromCheckbox() {
-    const checkbox = document.getElementById('mm_preview_show_nsfw');
-    return checkbox ? !checkbox.checked : null;
-}
-
-function setPreviewCheckboxFrom(previewLeastNsfw) {
-    const checkbox = document.getElementById('mm_preview_show_nsfw');
-    if (checkbox) checkbox.checked = !previewLeastNsfw;
-    return Boolean(checkbox);
-}
-
-// Handle is_bookmarked filter
+    // Handle is_bookmarked filter
     const bookmarkedVal = document.getElementById('mm_is_bookmarked')?.value || '';
     const bookmarkedFilter = bookmarkedVal === 'true' ? { is_bookmarked: true } : {};
 
