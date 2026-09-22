@@ -175,18 +175,14 @@ def create_ui():
                         </div>
                     </div>
                     <div class="filter-buttons-row">
-                        <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
-                        <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
-                    </div>
-                    <div class="filter-buttons-row">
-                        <div class="mm-button-group" title="Fetch data from Civitai">
+                        <div class="mm-button-group" title="Bring the library up to date">
                             <button id="mm_sync_btn" class="mm-btn secondary" title="Choose which models to refresh, and how much of each">Sync with Civitai...</button>
                             <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
-                        </div>
-                        <div class="mm-button-group" title="Rescan the model directories on disk">
-                            <button id="mm_refresh_btn" class="mm-btn secondary" title="Scan model directories and refresh database">Refresh DB</button>
+                            <button id="mm_refresh_btn" class="mm-btn secondary" title="Read the model folders and the data files beside them. No Civitai calls.">Scan Disk</button>
                             <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
+                        <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
+                        <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
                     </div>
                 </div>
 

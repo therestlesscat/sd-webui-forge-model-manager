@@ -145,6 +145,14 @@ body.mm-modal-open {
     justify-content: flex-end;
 }
 
+/* The library-updating group sits at the far left of the row, leaving Load
+   Models and Save Search where they were on the right. `auto` rather than a
+   second justify-content, so the row keeps one alignment rule and the group
+   simply claims the slack between itself and the rest. */
+.filter-buttons-row .mm-button-group {
+    margin-right: auto;
+}
+
 .filter-buttons-group {
     display: flex;
     flex-wrap: wrap;
