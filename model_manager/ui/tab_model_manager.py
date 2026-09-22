@@ -31,7 +31,9 @@ def create_ui():
                     </span>
                 </div>
 
-                <!-- Filter bar -->
+                <!-- Filter bar. The controls most searches use are on
+                     one row; the rest are behind Advanced, collapsed,
+                     so the grid starts higher up the page. -->
                 <div class="model-manager-filters">
                     <div class="filter-row">
                         <div class="filter-group">
@@ -56,40 +58,6 @@ def create_ui():
                             </select>
                         </div>
                         <div class="filter-group">
-                            <label>Has Civitai Data</label>
-                            <select id="mm_civitai">
-                                <option value="">All</option>
-                                <option value="Yes">Yes</option>
-                                <option value="No">No</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Base Model</label>
-                            <select id="mm_base_model">
-                                <option value="">All</option>
-                                <option value="Flux">Flux</option>
-                                <option value="Flux.1 D">Flux.1 D</option>
-                                <option value="Flux.1 S">Flux.1 S</option>
-                                <option value="HiDream">HiDream</option>
-                                <option value="Illustrious">Illustrious</option>
-                                <option value="NoobAI">NoobAI</option>
-                                <option value="Pony">Pony</option>
-                                <option value="Qwen">Qwen</option>
-                                <option value="SD 1.4">SD 1.4</option>
-                                <option value="SD 1.5">SD 1.5</option>
-                                <option value="SD 1.5 Hyper">SD 1.5 Hyper</option>
-                                <option value="SD 2.1">SD 2.1</option>
-                                <option value="SDXL">SDXL</option>
-                                <option value="SDXL 1.0">SDXL 1.0</option>
-                                <option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option>
-                                <option value="SDXL Lightning">SDXL Lightning</option>
-                                <option value="Wan Video 2.2 I2V-A14B">Wan Video 2.2 I2V-A14B</option>
-                                <option value="Wan Video 2.2 T2V-A14B">Wan Video 2.2 T2V-A14B</option>
-                                <option value="ZImageTurbo">ZImageTurbo</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
                             <label>NSFW Levels</label>
                             <div class="mm-multiselect" id="mm_nsfw_dropdown">
                                 <div class="mm-multiselect-display" onclick="window.mmToggleNsfwDropdown()">
@@ -108,19 +76,6 @@ def create_ui():
                                     <label class="mm-multiselect-item"><input type="checkbox" id="mm_nsfw_use_max" checked> Use max level</label>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                    <div class="filter-row">
-                        <div class="filter-group">
-                            <label>Bookmarked</label>
-                            <select id="mm_is_bookmarked">
-                                <option value="">All</option>
-                                <option value="true">Yes</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Min Versions</label>
-                            <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">
                         </div>
                         <div class="filter-group">
                             <label>Model Preview</label>
@@ -153,47 +108,97 @@ def create_ui():
                         </div>
                     </div>
                     <div class="filter-row">
-                        <div class="filter-group">
-                            <label>Commercial Use</label>
-                            <div class="mm-multiselect" id="mm_commercial_dropdown">
-                                <div class="mm-multiselect-display" onclick="window.mmToggleCommercialDropdown()">
-                                    <span id="mm_commercial_display">All</span>
-                                    <span class="mm-multiselect-arrow">▼</span>
-                                </div>
-                                <div class="mm-multiselect-panel" id="mm_commercial_panel">
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="None" checked> None (No commercial)</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="Image" checked> Image (Sell images)</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="Rent" checked> Rent (Gen services)</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="RentCivit" checked> RentCivit (Civitai gen)</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="Sell" checked> Sell (Sell model)</label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="filter-group">
-                            <label>Allow Derivatives</label>
-                            <select id="mm_allow_derivatives" title="Unknown covers models with no Civitai data, which have no licence to read">
-                                <option value="" selected>Any</option>
-                                <option value="true">Yes</option>
-                                <option value="false">No</option>
-                                <option value="unknown">Unknown</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Allow Different License</label>
-                            <select id="mm_allow_different_license" title="Unknown covers models with no Civitai data, which have no licence to read">
-                                <option value="" selected>Any</option>
-                                <option value="true">Yes</option>
-                                <option value="false">No</option>
-                                <option value="unknown">Unknown</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="filter-row">
                         <div class="filter-group" style="flex: 1;">
                             <label>Search</label>
-                            <input type="text" id="mm_search" placeholder="Search by name or trigger words, or target one model: model:123 / version:456 / hash:ABC / file:name" title="Prefixed searches match exactly: model:&lt;id&gt;, version:&lt;id&gt;, hash:&lt;any hash&gt;, file:&lt;filename&gt;">
+                            <input type="text" id="mm_search" placeholder="Search name or trigger words, or model: / version: / hash: / file:" title="Prefixed searches match exactly: model:&lt;id&gt;, version:&lt;id&gt;, hash:&lt;any hash&gt;, file:&lt;filename&gt;">
                         </div>
                     </div>
+                    <details class="mm-advanced" id="mm_advanced">
+                        <summary class="mm-advanced-summary">Advanced filters</summary>
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label>Has Civitai Data</label>
+                                <select id="mm_civitai">
+                                    <option value="">All</option>
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Base Model</label>
+                                <select id="mm_base_model">
+                                    <option value="">All</option>
+                                    <option value="Flux">Flux</option>
+                                    <option value="Flux.1 D">Flux.1 D</option>
+                                    <option value="Flux.1 S">Flux.1 S</option>
+                                    <option value="HiDream">HiDream</option>
+                                    <option value="Illustrious">Illustrious</option>
+                                    <option value="NoobAI">NoobAI</option>
+                                    <option value="Pony">Pony</option>
+                                    <option value="Qwen">Qwen</option>
+                                    <option value="SD 1.4">SD 1.4</option>
+                                    <option value="SD 1.5">SD 1.5</option>
+                                    <option value="SD 1.5 Hyper">SD 1.5 Hyper</option>
+                                    <option value="SD 2.1">SD 2.1</option>
+                                    <option value="SDXL">SDXL</option>
+                                    <option value="SDXL 1.0">SDXL 1.0</option>
+                                    <option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option>
+                                    <option value="SDXL Lightning">SDXL Lightning</option>
+                                    <option value="Wan Video 2.2 I2V-A14B">Wan Video 2.2 I2V-A14B</option>
+                                    <option value="Wan Video 2.2 T2V-A14B">Wan Video 2.2 T2V-A14B</option>
+                                    <option value="ZImageTurbo">ZImageTurbo</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Bookmarked</label>
+                                <select id="mm_is_bookmarked">
+                                    <option value="">All</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Min Versions</label>
+                                <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">
+                            </div>
+                        </div>
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label>Commercial Use</label>
+                                <div class="mm-multiselect" id="mm_commercial_dropdown">
+                                    <div class="mm-multiselect-display" onclick="window.mmToggleCommercialDropdown()">
+                                        <span id="mm_commercial_display">All</span>
+                                        <span class="mm-multiselect-arrow">▼</span>
+                                    </div>
+                                    <div class="mm-multiselect-panel" id="mm_commercial_panel">
+                                        <label class="mm-multiselect-item"><input type="checkbox" value="None" checked> None (No commercial)</label>
+                                        <label class="mm-multiselect-item"><input type="checkbox" value="Image" checked> Image (Sell images)</label>
+                                        <label class="mm-multiselect-item"><input type="checkbox" value="Rent" checked> Rent (Gen services)</label>
+                                        <label class="mm-multiselect-item"><input type="checkbox" value="RentCivit" checked> RentCivit (Civitai gen)</label>
+                                        <label class="mm-multiselect-item"><input type="checkbox" value="Sell" checked> Sell (Sell model)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="filter-group">
+                                <label>Allow Derivatives</label>
+                                <select id="mm_allow_derivatives" title="Unknown covers models with no Civitai data, which have no licence to read">
+                                    <option value="" selected>Any</option>
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                    <option value="unknown">Unknown</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Allow Different License</label>
+                                <select id="mm_allow_different_license" title="Unknown covers models with no Civitai data, which have no licence to read">
+                                    <option value="" selected>Any</option>
+                                    <option value="true">Yes</option>
+                                    <option value="false">No</option>
+                                    <option value="unknown">Unknown</option>
+                                </select>
+                            </div>
+                        </div>
+                    </details>
                     <div class="filter-buttons-row">
                         <div class="mm-button-group" title="Bring the library up to date">
                             <button id="mm_sync_btn" class="mm-btn secondary" title="Choose which models to refresh, and how much of each">Sync with Civitai...</button>

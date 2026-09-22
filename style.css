@@ -143,6 +143,53 @@ body.mm-modal-open {
     flex: 0;
 }
 
+/* Advanced filters: a <details>, so it collapses with no JavaScript and no
+   state to keep in step with the markup. The controls inside are ordinary
+   .filter-row / .filter-group, exactly as when they were always visible. */
+.mm-advanced {
+    margin-top: 10px;
+    border-top: 1px solid var(--border-color-primary, #374151);
+    padding-top: 10px;
+}
+
+.mm-advanced-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: max-content;
+    padding: 4px 0;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.85em;
+    cursor: pointer;
+    user-select: none;
+    /* The default triangle sits on a baseline of its own and cannot be
+       aligned with the label; drawn below instead. */
+    list-style: none;
+}
+
+.mm-advanced-summary::-webkit-details-marker {
+    display: none;
+}
+
+.mm-advanced-summary::before {
+    content: "▶";
+    font-size: 0.7em;
+    transition: transform 0.15s;
+}
+
+.mm-advanced[open] > .mm-advanced-summary::before {
+    transform: rotate(90deg);
+}
+
+.mm-advanced-summary:hover {
+    color: var(--body-text-color, #fff);
+}
+
+/* The rows inside need the gap the summary already spent. */
+.mm-advanced > .filter-row:first-of-type {
+    margin-top: 8px;
+}
+
 /* Filter buttons row. Right-aligned: the search buttons sit on the first row
    with no box around them, the boxed action groups on the second. */
 .filter-buttons-row {
