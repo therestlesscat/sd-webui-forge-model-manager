@@ -156,7 +156,8 @@ class SyncService:
 
         return None, None, None
 
-    def sync_model(self, model_path: str, force: bool = False) -> SyncResult:
+    def sync_model(self, model_path: str, force: bool = False,
+                   classify_checkpoint: bool = True) -> SyncResult:
         """
         Sync a single model with Civitai.
 
@@ -171,6 +172,11 @@ class SyncService:
         Args:
             model_path: Path to the model file.
             force: Re-sync even if civitai data exists.
+            classify_checkpoint: Ask whether a checkpoint was trained or merged.
+                Two requests, and worth it for one file - a download, say. Set
+                False when syncing many, and classify them together afterwards:
+                per file it would be two requests each rather than two per
+                hundred. See _classify_checkpoints().
 
         Returns:
             SyncResult with status and details.
@@ -276,6 +282,11 @@ class SyncService:
             # It was found, so drop any earlier "not on Civitai" note. The
             # accessor rather than `db`, which is only bound on some paths.
             get_models_db().set_lookup_failed(model_path, failed=False)
+
+            # Two requests, and worth it for one file: without this a model
+            # only learns its type at the next full sync.
+            if classify_checkpoint and model_id and data_to_save.get("type") == "Checkpoint":
+                self._classify_checkpoints({model_id: data_to_save})
 
             result.success = True
             has_more = next_cursor is not None if version_id else False
@@ -572,11 +583,15 @@ class SyncService:
 
         print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
 
+        synced_model_ids = set()
+
         def process_model(path: str) -> tuple:
             """Process a single model and return (path, result)."""
             if self._cancel_requested:
                 return path, None
-            return path, self.sync_model(path, force=force)
+            # Not per file: the classifier answers about a hundred ids at a
+            # time, so they are collected and asked about together below.
+            return path, self.sync_model(path, force=force, classify_checkpoint=False)
 
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -592,6 +607,9 @@ class SyncService:
                 path, result = future.result()
                 if result is None:
                     continue
+
+                if result.success and result.model_id:
+                    synced_model_ids.add(result.model_id)
 
                 model_name = os.path.basename(path)
 
@@ -614,6 +632,13 @@ class SyncService:
                             # Keep only last 10 errors
                             if len(self._progress.error_messages) > 10:
                                 self._progress.error_messages = self._progress.error_messages[-10:]
+
+        # One question for everything that was identified, rather than two
+        # requests per file. Only the checkpoints among them are asked about.
+        if synced_model_ids and not self._cancel_requested:
+            checkpoints = set(get_models_db().checkpoint_model_ids()) & synced_model_ids
+            if checkpoints:
+                self._classify_checkpoints({i: {"type": "Checkpoint"} for i in checkpoints})
 
         self._progress.current_model = ""
         self._progress.is_complete = True
@@ -796,6 +821,9 @@ class SyncService:
                 if self._cancel_requested:
                     break
 
+        if not self._cancel_requested:
+            self._classify_checkpoints(fetched)
+
         if include_images and not self._cancel_requested:
             self._refresh_galleries(versions, callback, max_workers, include_prompts)
 
@@ -825,6 +853,42 @@ class SyncService:
         rate = getattr(getattr(self.client, "rate_limiter", None),
                        "tokens_per_second", 4.0)
         return max(4, min(int(rate + 0.5), 12))
+
+    def _classify_checkpoints(self, fetched: Dict[int, Dict[str, Any]]) -> int:
+        """
+        Record which of the checkpoints just refreshed are trained or merged.
+
+        Civitai will filter on checkpointType but never returns it, so unlike
+        everything else a sync stores this cannot ride along with the payload
+        - it costs two requests per hundred checkpoints. Only checkpoints are
+        asked about; the question is meaningless for anything else.
+
+        Args:
+            fetched: What Civitai returned, keyed by model id.
+
+        Returns:
+            How many models were classified.
+        """
+        checkpoints = [model_id for model_id, model in fetched.items()
+                       if (model or {}).get("type") == "Checkpoint"]
+        if not checkpoints:
+            return 0
+
+        with self._progress_lock:
+            self._progress.current_model = (
+                f"Checking {len(checkpoints)} checkpoints for trained or merged..."
+            )
+
+        try:
+            types = self.client.get_checkpoint_types(checkpoints)
+        except Exception as e:
+            print(f"[ModelManager] Could not classify checkpoints: {e}")
+            return 0
+
+        if types:
+            get_models_db().set_checkpoint_types(types)
+            print(f"[ModelManager] Classified {len(types)} of {len(checkpoints)} checkpoints")
+        return len(types)
 
     def _refresh_galleries(self,
                            versions: List[Dict[str, Any]],
@@ -961,8 +1025,9 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
 
     Counted the way sync_metadata() actually batches, so the number shown in
     the dialog is the number of requests that will be made: models a hundred
-    per request, one gallery page per version, and generation data thirty ids
-    per request pooled across a chunk of versions.
+    per request, two more per hundred checkpoints to learn trained from merged,
+    one gallery page per version, and generation data thirty ids per request
+    pooled across a chunk of versions.
 
     Requests, deliberately, and not minutes. How long those requests take
     depends on the rate limit in force, the round trip to Civitai, and whether
@@ -995,6 +1060,13 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     models = len({v["model_id"] for v in versions})
 
     metadata_requests = math.ceil(models / 100) if models else 0
+
+    # Checkpoints cost two more requests per hundred, because checkpointType
+    # is a filter Civitai accepts but not a field it returns: the answer comes
+    # from which of two queries a model appears in. See get_checkpoint_types().
+    checkpoint_ids = {v["model_id"] for v in versions if v.get("model_id")} \
+        & set(db.checkpoint_model_ids())
+    checkpoint_requests = (2 * math.ceil(len(checkpoint_ids) / 100)) if checkpoint_ids else 0
     image_requests = sum(1 for v in versions if v.get("id")) if include_images else 0
 
     prompt_requests = 0
@@ -1010,7 +1082,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
             chunk = per_version[start:start + SyncService.GALLERY_CHUNK]
             prompt_requests += math.ceil(sum(chunk) / CivitaiClient.GENERATION_DATA_BATCH)
 
-    total = metadata_requests + image_requests + prompt_requests
+    total = metadata_requests + checkpoint_requests + image_requests + prompt_requests
     return {
         "versions": len(versions),
         # What "All models" would come to, so the dialog can show it beside
@@ -1020,6 +1092,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         "images": images_total,
         "requests": {
             "metadata": metadata_requests,
+            "checkpoints": checkpoint_requests,
             "images": image_requests,
             "prompts": prompt_requests,
             "total": total,

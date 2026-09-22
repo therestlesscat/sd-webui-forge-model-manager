@@ -78,7 +78,8 @@ def query_models_grouped(
     preview_least_nsfw: bool = True,
     commercial_use: Optional[str] = None,
     allow_derivatives: Optional[str] = None,
-    allow_different_license: Optional[str] = None
+    allow_different_license: Optional[str] = None,
+    checkpoint_type: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Query models grouped by civitai_model_id.
@@ -167,6 +168,15 @@ def query_models_grouped(
     # no licence at all, and the LEFT JOIN leaves these NULL. "unknown"
     # is the only way to ask for those - "true"/"false" exclude them,
     # which is why picking either quietly drops every unsynced model.
+    # Trained or merged, which only checkpoints have. Three-valued like the
+    # licence columns: NULL is a model nobody has established it for, which is
+    # every model Civitai no longer serves.
+    if checkpoint_type == "unknown":
+        conditions.append("m.checkpoint_type IS NULL")
+    elif checkpoint_type in ("Trained", "Merge"):
+        conditions.append("m.checkpoint_type = ?")
+        params.append(checkpoint_type)
+
     for column, choice in (
         ("allow_derivatives", allow_derivatives),
         ("allow_different_license", allow_different_license),
@@ -231,6 +241,7 @@ def query_models_grouped(
                 m.stats_rating as cm_stats_rating,
                 m.allow_no_credit as cm_allow_no_credit,
                 m.allow_commercial_use as cm_allow_commercial_use,
+                m.checkpoint_type as cm_checkpoint_type,
                 m.allow_derivatives as cm_allow_derivatives,
                 m.allow_different_license as cm_allow_different_license,
                 m.supports_generation as cm_supports_generation,
@@ -406,7 +417,8 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
             "stats_rating": row["cm_stats_rating"],
             "allow_no_credit": bool(row["cm_allow_no_credit"]) if row["cm_allow_no_credit"] is not None else True,
             "allow_commercial_use": row["cm_allow_commercial_use"],
-            "allow_derivatives": bool(row["cm_allow_derivatives"]) if row["cm_allow_derivatives"] is not None else True,
+            "checkpoint_type": row["cm_checkpoint_type"] if "cm_checkpoint_type" in row.keys() else None,
+        "allow_derivatives": bool(row["cm_allow_derivatives"]) if row["cm_allow_derivatives"] is not None else True,
             "allow_different_license": bool(row["cm_allow_different_license"]) if row["cm_allow_different_license"] is not None else True,
             "supports_generation": bool(row["cm_supports_generation"]) if row["cm_supports_generation"] is not None else False,
         }

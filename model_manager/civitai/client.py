@@ -386,6 +386,82 @@ class CivitaiClient:
     # /models accepts at most 100 ids, and limit caps at 100.
     MODELS_BY_ID_BATCH = 100
 
+    # Civitai accepts checkpointType as a filter but never returns it as a
+    # field - it is on neither the model nor the version payload, from either
+    # /models or /models/{id}. So the value is learned from which filtered
+    # query a model comes back in, rather than read from a response.
+    CHECKPOINT_TYPES = ("Trained", "Merge")
+
+    def get_checkpoint_types(self, model_ids: List[int]) -> Dict[int, str]:
+        """
+        Which of these checkpoint models are trained, and which are merges.
+
+        Asks once per type per batch of a hundred ids and takes the answer from
+        set membership: a model returned by the Trained query is trained, one
+        returned by the Merge query is a merge, and one returned by neither is
+        left out. Over this library the two sets are disjoint and together with
+        the leftovers they partition the batch exactly, which is what says the
+        server is applying both filters rather than ignoring one.
+
+        Since that is inference rather than a documented field, a batch whose
+        answers do not partition it is discarded rather than guessed at.
+
+        Args:
+            model_ids: Civitai model ids, which should be checkpoints. Asking
+                about anything else simply returns nothing for it.
+
+        Returns:
+            Model id -> "Trained" or "Merge". Ids with no answer are absent.
+        """
+        ids = [int(i) for i in model_ids if i]
+        if not ids:
+            return {}
+
+        out: Dict[int, str] = {}
+
+        for start in range(0, len(ids), self.MODELS_BY_ID_BATCH):
+            batch = ids[start:start + self.MODELS_BY_ID_BATCH]
+            wanted = set(batch)
+            answers: Dict[str, set] = {}
+
+            for kind in self.CHECKPOINT_TYPES:
+                try:
+                    data = self._request("GET", "/models", params={
+                        "ids": ",".join(str(i) for i in batch),
+                        "checkpointType": kind,
+                        "limit": self.MODELS_BY_ID_BATCH,
+                    })
+                except CivitaiAPIError as e:
+                    print(f"[ModelManager] checkpointType {kind} batch failed: {e}")
+                    answers = {}
+                    break
+
+                # An id we did not ask about means `ids` was not applied, and
+                # the whole answer is about somebody else's models.
+                returned = {m.get("id") for m in (data.get("items") or []) if m.get("id")}
+                answers[kind] = returned & wanted
+                if returned - wanted:
+                    print("[ModelManager] checkpointType answer included ids that were "
+                          "not asked for; ignoring this batch")
+                    answers = {}
+                    break
+
+            if len(answers) != len(self.CHECKPOINT_TYPES):
+                continue
+
+            trained, merged = answers["Trained"], answers["Merge"]
+            if trained & merged:
+                print("[ModelManager] a model came back as both Trained and Merge; "
+                      "ignoring this batch")
+                continue
+
+            for model_id in trained:
+                out[model_id] = "Trained"
+            for model_id in merged:
+                out[model_id] = "Merge"
+
+        return out
+
     def get_models_by_ids(self, model_ids: List[int]) -> Dict[int, Dict[str, Any]]:
         """
         Fetch several models in one request each 100, keyed by id.

@@ -291,6 +291,25 @@ function scrollToModelImagesTop() {
 const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
 
 // Get current filter values
+/**
+ * Trained or merged is a question only checkpoints answer.
+ *
+ * Disabled rather than hidden, so the filter bar keeps its shape and the
+ * control explains itself when it cannot be used.
+ */
+function syncCheckpointTypeEnabled() {
+    const typeSelect = document.getElementById('mm_type');
+    const checkpointType = document.getElementById('mm_checkpoint_type');
+    if (!typeSelect || !checkpointType) return;
+
+    const applies = typeSelect.value === 'Checkpoint';
+    checkpointType.disabled = !applies;
+    checkpointType.title = applies
+        ? 'Show only trained checkpoints, or only merges'
+        : 'Only applies when Type is Checkpoint';
+    checkpointType.closest('.filter-group')?.classList.toggle('mm-filter-disabled', !applies);
+}
+
 function getFilters() {
     const useMax = document.getElementById('mm_nsfw_use_max')?.checked || false;
     const checkboxes = document.querySelectorAll('#mm_nsfw_panel input[type="checkbox"][value]');
@@ -342,6 +361,14 @@ function getFilters() {
     // Allow Derivatives: both checked = no filter, one checked = filter for that value
     // Licence filters are four-valued: '' asks nothing, 'unknown' asks for
     // the models with no Civitai data, which have no licence to read.
+    // Only checkpoints have one, and the control is disabled otherwise, so
+    // reading it while it is disabled would send a filter the user cannot see.
+    const checkpointTypeEl = document.getElementById('mm_checkpoint_type');
+    const checkpointTypeFilter = (checkpointTypeEl && !checkpointTypeEl.disabled
+                                  && checkpointTypeEl.value)
+        ? { checkpoint_type: checkpointTypeEl.value }
+        : {};
+
     const derivatives = document.getElementById('mm_allow_derivatives')?.value || '';
     const derivativesFilter = derivatives ? { allow_derivatives: derivatives } : {};
 
@@ -357,6 +384,7 @@ function getFilters() {
         ...bookmarkedFilter,
         min_versions: document.getElementById('mm_min_versions')?.value || '',
         ...previewLeastNsfwFilter,
+        ...checkpointTypeFilter,
         ...commercialFilter,
         ...derivativesFilter,
         ...diffLicenseFilter,
@@ -2661,6 +2689,7 @@ window.mmShowModel = async function(query) {
     setChecked('#mm_commercial_panel input[type="checkbox"][value]', true);
     updateCommercialDisplay();
 
+    setValue('mm_checkpoint_type', '');
     setValue('mm_allow_derivatives', '');
     setValue('mm_allow_different_license', '');
 
@@ -3538,6 +3567,14 @@ function bindElements() {
         console.log('[ModelManager] Load button clicked');
         loadModels(1);  // Reset to page 1 when filters change
     });
+
+    // Trained/Merge only applies to checkpoints, so it follows the Type
+    // control rather than sitting there looking usable.
+    const typeFilter = document.getElementById('mm_type');
+    if (typeFilter) {
+        typeFilter.addEventListener('change', syncCheckpointTypeEnabled);
+    }
+    syncCheckpointTypeEnabled();
 
     // Bind sync button
     if (syncBtn) {
