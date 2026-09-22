@@ -2286,6 +2286,11 @@ async function loadUIOptionsFromAPI() {
     try {
         const response = await fetch('/model-manager/ui-options');
         const data = await response.json();
+
+        // Answered even when the rest of this call failed, so it is read
+        // before the success check rather than inside it.
+        showApiKeyWarning(data.has_api_key === false);
+
         if (data.success) {
             if (data.schedulers) {
                 cachedSchedulers = data.schedulers.filter(s => s && s !== 'Automatic');
@@ -2301,6 +2306,19 @@ async function loadUIOptionsFromAPI() {
         cachedSchedulers = [];
         cachedSamplers = [];
     }
+}
+
+/**
+ * Warn that Civitai is being asked as an anonymous stranger.
+ *
+ * Without a key the rate limit is 0.5 requests a second rather than 6, the
+ * tRPC endpoint that carries image prompts refuses outright, and some models
+ * will not download - so most of what this extension does either crawls or
+ * does not work. Not dismissible: it goes away by being fixed.
+ */
+function showApiKeyWarning(missing) {
+    const banner = document.getElementById('mm_api_key_warning');
+    if (banner) banner.style.display = missing ? 'flex' : 'none';
 }
 
 // Get scheduler options (from cache)
