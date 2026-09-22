@@ -149,6 +149,13 @@ class ModelsOps:
         Miss the SET list and the column is written on insert but silently
         never updated afterwards.
 
+        The metadata columns keep what they hold when the incoming value says
+        nothing - NULL, '[]', 0, or Unknown. A caller that knows a value has
+        genuinely become empty cannot express that here, which is the right
+        trade: the callers are a scan reading whatever sidecar is on disk and a
+        sync reading whatever Civitai returned, and neither can tell an absent
+        field from a cleared one.
+
         Columns deliberately absent from the SET list are owned by other
         flows and must not be touched here: downloaded_at (set once, from the
         download), next_images_cursor and images_sync_last_date (written by
@@ -171,20 +178,30 @@ class ModelsOps:
                     has_civitai_data, scanned_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(file_path) DO UPDATE SET
-                    id = excluded.id,
-                    model_id = excluded.model_id,
-                    version_name = excluded.version_name,
-                    base_model = excluded.base_model,
-                    published_at = excluded.published_at,
-                    created_at = excluded.created_at,
-                    nsfw_level = excluded.nsfw_level,
-                    trained_words = excluded.trained_words,
-                    description = excluded.description,
-                    stats_download_count = excluded.stats_download_count,
-                    stats_thumbs_up = excluded.stats_thumbs_up,
+                    -- Absent is not the same as empty. A .civitai.info that
+                    -- says nothing about trained words is not a model that has
+                    -- none, and a scan reading a thin sidecar must not empty
+                    -- the row it lands on. Each of these keeps what is already
+                    -- there when the incoming value carries no information:
+                    -- NULL, an empty list, a zero count, or Unknown.
+                    id = COALESCE(excluded.id, model_versions.id),
+                    model_id = COALESCE(excluded.model_id, model_versions.model_id),
+                    version_name = COALESCE(excluded.version_name, model_versions.version_name),
+                    base_model = COALESCE(excluded.base_model, model_versions.base_model),
+                    published_at = COALESCE(excluded.published_at, model_versions.published_at),
+                    created_at = COALESCE(excluded.created_at, model_versions.created_at),
+                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, 64),
+                                          model_versions.nsfw_level),
+                    trained_words = COALESCE(NULLIF(excluded.trained_words, '[]'),
+                                             model_versions.trained_words),
+                    description = COALESCE(excluded.description, model_versions.description),
+                    stats_download_count = COALESCE(NULLIF(excluded.stats_download_count, 0),
+                                                    model_versions.stats_download_count),
+                    stats_thumbs_up = COALESCE(NULLIF(excluded.stats_thumbs_up, 0),
+                                               model_versions.stats_thumbs_up),
                     file_name = excluded.file_name,
                     file_size = excluded.file_size,
-                    file_hashes = excluded.file_hashes,
+                    file_hashes = COALESCE(excluded.file_hashes, model_versions.file_hashes),
                     file_modified = excluded.file_modified,
                     file_extension = excluded.file_extension,
                     has_civitai_data = excluded.has_civitai_data,
