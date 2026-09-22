@@ -1,0 +1,217 @@
+"""
+The endpoints the browser actually calls, exercised through the app.
+
+check_api_contract.py already proves the parameter names match what the tabs
+send. This runs them: the filter parsing in models.py alone is nearly three
+hundred statements deciding what the grid shows, and none of it had ever been
+executed by a test.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+ROOT = os.path.dirname(TESTS)
+for _p in (ROOT, TESTS):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import webui_stub                                       # noqa: E402
+
+webui_stub.install()                                    # before model_manager
+
+try:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+except ImportError:
+    print('fastapi is not installed; run this with the WebUI\'s python')
+    sys.exit(0)
+
+import fixtures                                          # noqa: E402
+import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.api import setup_api                  # noqa: E402
+
+WORK = os.path.join(TESTS, 'work', 'api')
+
+fails = []
+def check(label, got, want=True):
+    if got != want:
+        fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
+
+
+db, facts = fixtures.build(WORK)
+dbmod._db_instance = db
+
+app = FastAPI()
+setup_api(app)
+client = TestClient(app)
+
+
+def get(url, **params):
+    # `url`, not `path`: several endpoints take a query parameter called path.
+    r = client.get(url, params=params)
+    return r.status_code, (r.json() if r.headers.get('content-type', '').startswith('application/json') else {})
+
+
+def post(url, **data):
+    r = client.post(url, data=data)
+    return r.status_code, (r.json() if r.headers.get('content-type', '').startswith('application/json') else {})
+
+
+# ------------------------------------------------------------------- the grid
+code, body = get('/model-manager/models')
+check('the grid answers', code, 200)
+check('and succeeds', body.get('success'), True)
+check('with every model in the fixture, plus the ungrouped local files',
+      body.get('total'), fixtures.MODELS + fixtures.LOCAL_ONLY)
+check('paged', body.get('page'), 1)
+check('and says whether there is more', 'has_more' in body, True)
+
+code, body = get('/model-manager/models', page_size=2, page=2)
+check('paging returns a page', len(body.get('models', [])), 2)
+check('and keeps the total', body.get('total'),
+      fixtures.MODELS + fixtures.LOCAL_ONLY)
+
+code, body = get('/model-manager/models', type='Checkpoint')
+check('filtering by type', body.get('total'), fixtures.CHECKPOINTS)
+
+code, body = get('/model-manager/models', type='LORA')
+check('and by another type', body.get('total'), fixtures.LORAS)
+
+code, body = get('/model-manager/models', checkpoint_type='Trained')
+check('by trained checkpoints', body.get('total'), fixtures.TRAINED)
+code, body = get('/model-manager/models', checkpoint_type='Merge')
+check('by merged ones', body.get('total'), fixtures.MERGED)
+
+code, body = get('/model-manager/models', nsfw_levels='PG', nsfw_mode='max')
+pg_only = body.get('total')
+code, body = get('/model-manager/models', nsfw_levels='XXX', nsfw_mode='max')
+check('a wider NSFW ceiling admits at least as much', body.get('total') >= pg_only, True)
+
+code, body = get('/model-manager/models', search='Model %d' % facts['checkpoint_ids'][0])
+check('searching by name finds one', body.get('total'), 1)
+
+code, body = get('/model-manager/models', has_civitai='No')
+check('models with no Civitai data are findable', body.get('total') >= 1, True)
+
+code, body = get('/model-manager/models', sort_by='name', sort_order='asc')
+names = [m.get('display_name') or m.get('name') for m in body.get('models', [])]
+check('sorting by name is ordered', names, sorted(names, key=lambda s: (s or '').lower()))
+
+code, body = get('/model-manager/models', paths_only=True, type='Checkpoint')
+check('paths_only answers with paths', code, 200)
+check('and nothing but paths', sorted(body), ['models', 'paths', 'success'])
+check('covering the checkpoints', len(body['paths']) >= fixtures.CHECKPOINTS, True)
+
+# ---------------------------------------------------------------- the filters
+for endpoint in ('/model-manager/filters', '/model-manager/filter-defaults',
+                 '/model-manager/stats'):
+    code, body = get(endpoint)
+    check('%s answers' % endpoint, code, 200)
+    check('%s succeeds' % endpoint, body.get('success'), True)
+
+code, body = get('/model-manager/stats')
+stats = body.get('stats', {})
+check('the stats count every version', stats.get('total_versions'), fixtures.VERSIONS)
+check('and the models behind them', stats.get('total_civitai_models'), fixtures.MODELS)
+check('and split identified from not',
+      (stats.get('with_civitai_data'), stats.get('without_civitai_data')),
+      (fixtures.LINKED_VERSIONS, fixtures.LOCAL_ONLY))
+
+# ----------------------------------------------------------------- one model
+first_path = facts['linked_paths'][0]
+code, body = get('/model-manager/models/details', path=first_path)
+check('details answer', code, 200)
+check('and succeed', body.get('success'), True)
+check('with the file it was asked about',
+      body.get('model', {}).get('file_path'), first_path)
+
+code, body = get('/model-manager/models/details', path=r'Z:\nope\missing.safetensors')
+check('details for an unknown file do not pretend', body.get('success'), False)
+
+code, body = get('/model-manager/models/versions', model_id=facts['checkpoint_ids'][0])
+check('versions answer', code, 200)
+check('with at least one', len(body.get('versions', [])) >= 1, True)
+
+# resolve-hash asks Civitai rather than the database, so stand in for it.
+import model_manager.api.models as models_api
+
+class _Resolver:
+    def __init__(self, answer):
+        self.answer = answer
+    @classmethod
+    def from_settings(cls):
+        return cls(_Resolver.answer_for_next)
+    def get_model_by_hash(self, value):
+        return self.answer
+    def close(self):
+        pass
+
+real_client = models_api.CivitaiClient
+models_api.CivitaiClient = _Resolver
+
+_Resolver.answer_for_next = {'id': 55, 'modelId': 66, 'name': 'v2',
+                             'model': {'name': 'Something'}}
+code, body = get('/model-manager/resolve-hash', hash='A' * 64)
+check('a hash Civitai knows resolves', body.get('success'), True)
+check('to its version', body.get('version_id'), 55)
+check('and its model', (body.get('model_id'), body.get('model_name')), (66, 'Something'))
+
+_Resolver.answer_for_next = None
+code, body = get('/model-manager/resolve-hash', hash='0' * 64)
+check('one it does not know says so', body.get('success'), False)
+check('with a 404', code, 404)
+
+code, body = get('/model-manager/resolve-hash', hash='short')
+check('and too short a hash is refused before asking', body.get('success'), False)
+
+models_api.CivitaiClient = real_client
+
+# ---------------------------------------------------------------- bookmarking
+model_id = facts['checkpoint_ids'][0]
+code, body = post('/model-manager/bookmark', model_id=model_id, bookmarked='true')
+check('bookmarking answers', code, 200)
+check('and takes', body.get('success'), True)
+code, body = get('/model-manager/models', is_bookmarked=True)
+check('the bookmark filters', body.get('total'), 1)
+post('/model-manager/bookmark', model_id=model_id, bookmarked='false')
+code, body = get('/model-manager/models', is_bookmarked=True)
+check('and unbookmarking undoes it', body.get('total'), 0)
+
+# -------------------------------------------------------------------- images
+version_id = facts['version_ids'][0]
+code, body = get('/model-manager/images/cached', version_id=version_id)
+check('cached images answer', code, 200)
+check('with what the fixture stored',
+      len(body.get('images', [])), fixtures.IMAGES_PER_VERSION)
+
+code, body = get('/model-manager/images/cached', version_id=999999)
+check('a version with none answers empty', body.get('images'), [])
+
+# --------------------------------------------------------------- the WebUI's
+code, body = get('/model-manager/ui-options')
+check('ui-options answers', code, 200)
+check('and reports no key, which the stub has', body.get('has_api_key'), False)
+
+webui_stub.install(model_manager_civitai_api_key='a-key')
+code, body = get('/model-manager/ui-options')
+check('and reports one when set', body.get('has_api_key'), True)
+webui_stub.install()
+
+# ------------------------------------------------------------------ deleting
+victim = facts['local_only_paths'][0]
+check('the file is there to begin with', os.path.exists(victim), True)
+code, body = post('/model-manager/models/delete', path=victim)
+check('deleting answers', code, 200)
+check('and succeeds', body.get('success'), True)
+check('the file is gone', os.path.exists(victim), False)
+code, body = get('/model-manager/models/details', path=victim)
+check('and so is its row', body.get('success'), False)
+
+code, body = post('/model-manager/models/delete', path=r'Z:\nope\missing.safetensors')
+check('deleting nothing answers 404 rather than crashing', code, 404)
+check('and says so', body.get('success'), False)
+
+print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
+sys.exit(1 if fails else 0)
