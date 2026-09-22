@@ -188,6 +188,19 @@ check('the script decides when to show it',
       "showApiKeyBanner('mm_api_key_warning')" in JS)
 check('CSS styles it', '.mm-banner {' in CSS)
 
+# The row reads left to right up to the action it exists for: the library
+# group on the left, then Save Search, then Load Models last. The scroll
+# restore button is built by script and lands immediately before Load Models,
+# so that one stays rightmost whether or not the button is there.
+ROW = UI[UI.index('<div class="filter-buttons-row">'):]
+ROW = ROW[:ROW.index('</div>' + chr(10) + ' ' * 16 + '</div>')]
+check('the library group comes first', ROW.index('mm-button-group') < ROW.index('mm_save_search_btn'))
+check('and Load Models is the last thing on the row',
+      ROW.index('mm_save_search_btn') < ROW.index('mm_load_btn'))
+check('the restore button is placed against Load Models, not at the start',
+      "buttonsRow.insertBefore(btn, loadBtn || null)" in JS)
+check('and never at firstChild', 'buttonsRow.firstChild' in JS, False)
+
 # --- Basic and advanced filters ---------------------------------------------
 BASIC = UI[UI.index('<div class="model-manager-filters">'):UI.index('<details class="mm-advanced"')]
 ADVANCED = UI[UI.index('<details class="mm-advanced"'):UI.index('</details>')]

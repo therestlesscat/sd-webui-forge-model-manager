@@ -3410,11 +3410,8 @@ function updateScrollRestoreButton() {
     if (savedPos && parseInt(savedPos) > 0) {
         // Create button if it doesn't exist
         if (!btn) {
-            // .mm-scroll-restore-btn is display:none, so this button has
-            // never actually shown; the class it used to be appended to
-            // no longer exists either.
-            const buttonsGroup = document.querySelector('.filter-buttons-row');
-            if (buttonsGroup) {
+            const buttonsRow = document.querySelector('.filter-buttons-row');
+            if (buttonsRow) {
                 btn = document.createElement('button');
                 btn.id = 'mm_scroll_restore_btn';
                 btn.className = 'mm-btn secondary mm-scroll-restore-btn';
@@ -3427,8 +3424,11 @@ function updateScrollRestoreButton() {
                     btn.style.display = 'none';
                     console.log('[ModelManager] Cleared scroll position');
                 };
-                // Insert as first button
-                buttonsGroup.insertBefore(btn, buttonsGroup.firstChild);
+                // Directly before Load Models, which stays the rightmost
+                // thing on the row. First child would put it left of the
+                // sync/scan group, at the other end of the row entirely.
+                const loadBtn = document.getElementById('mm_load_btn');
+                buttonsRow.insertBefore(btn, loadBtn || null);
             }
         }
         if (btn) {

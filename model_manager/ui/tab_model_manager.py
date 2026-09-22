@@ -206,8 +206,8 @@ def create_ui():
                             <button id="mm_refresh_btn" class="mm-btn secondary" title="Read the model folders and the data files beside them. No Civitai calls.">Scan Disk</button>
                             <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
                         </div>
-                        <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
                         <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
+                        <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
                     </div>
                 </div>
 
