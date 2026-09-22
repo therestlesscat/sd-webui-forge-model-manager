@@ -88,7 +88,7 @@ def create_civitai_browser_ui():
                                     <option value="Day">Day</option>
                                 </select>
                             </div>
-                            <div class="filter-group">
+                            <div class="filter-group filter-group-wide">
                                 <label>Sort</label>
                                 <select id="cb_sort">
                                     <option value="Most Downloaded">Most Downloaded</option>
