@@ -1,0 +1,8 @@
+{
+  "name": "sd-webui-forge-model-manager-tests",
+  "private": true,
+  "description": "Dependencies for the JavaScript suites. Run `npm install` here; nothing the extension ships needs them.",
+  "devDependencies": {
+    "linkedom": "^0.18.0"
+  }
+}

@@ -22,3 +22,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 nul
+
+# Test scaffolding
+tests/node_modules/
+tests/package-lock.json
+# Libraries the suites build for themselves, torn down and rebuilt each run
+tests/work/

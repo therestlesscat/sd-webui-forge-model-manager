@@ -1,0 +1,260 @@
+"""The Model Manager toolbar: two right-aligned rows, two boxed action groups."""
+
+import os
+import sys
+
+# The extension and the test helpers, found from this file rather than from a
+# working directory, so a suite runs from anywhere.
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+ROOT = os.path.dirname(TESTS)
+for _p in (ROOT, TESTS):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import fixtures                                       # noqa: E402
+
+WORK = os.path.join(TESTS, 'work', 'toolbar_test')
+import io
+import re
+import sys
+
+UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_model_manager.py'), encoding='utf-8').read()
+CSS = io.open(os.path.join(ROOT, 'style.css'), encoding='utf-8').read()
+JS = io.open(os.path.join(ROOT, 'javascript/model_manager.mjs'), encoding='utf-8').read()
+
+fails = []
+def check(label, got, want=True):
+    if got != want:
+        fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
+
+
+def block(html, start_marker, nth=0):
+    """The nth <div ...> block starting at a marker, by brace-free tag depth."""
+    idx = -1
+    for _ in range(nth + 1):
+        idx = html.index(start_marker, idx + 1)
+    depth = 0
+    i = idx
+    for m in re.finditer(r'<div\b|</div>', html[idx:]):
+        depth += 1 if m.group(0) == '<div' else -1
+        if depth == 0:
+            return html[idx:idx + m.end()]
+    raise AssertionError('unbalanced: ' + start_marker)
+
+
+# One row now: the two ways of updating the library, boxed together on the
+# left, and the search buttons where they were on the right.
+check('there is exactly one button row', UI.count('<div class="filter-buttons-row">'), 1)
+row = block(UI, '<div class="filter-buttons-row">')
+
+check('it has Load Models', 'id="mm_load_btn"' in row)
+check('and Save Search', 'id="mm_save_search_btn"' in row)
+check('and exactly one boxed group', row.count('class="mm-button-group"'), 1)
+
+update_group = block(row, '<div class="mm-button-group"')
+for control in ('mm_sync_btn', 'mm_sync_cancel_btn', 'mm_refresh_btn', 'mm_scan_cancel_btn'):
+    check('the group holds %s' % control, 'id="%s"' % control in update_group)
+check('the group is two actions and their cancels', update_group.count('<button'), 4)
+check('the search buttons stay out of it',
+      'mm_load_btn' in update_group or 'mm_save_search_btn' in update_group, False)
+
+check('the group comes first, so it sits on the left',
+      row.index('mm-button-group') < row.index('mm_load_btn'))
+check('syncing is offered before scanning',
+      row.index('mm_sync_btn') < row.index('mm_refresh_btn'))
+
+# The button says what it does now, rather than naming the database.
+check('the scan button is called Scan Disk', '>Scan Disk<' in row)
+check('and no longer Refresh DB', 'Refresh DB' in UI, False)
+
+for gone in ('mm_sync_meta_btn', 'mm_sync_meta_images_btn'):
+    check('%s is gone from the toolbar' % gone, gone in UI, False)
+check('Force is no longer in the toolbar row', 'mm_sync_force' in row, False)
+
+# --- every control survived the move, exactly once --------------------------
+CONTROLS = ['mm_load_btn', 'mm_save_search_btn', 'mm_refresh_btn', 'mm_scan_cancel_btn',
+            'mm_sync_btn', 'mm_sync_cancel_btn']
+for control in CONTROLS:
+    check('%s appears exactly once in the markup' % control, UI.count('id="%s"' % control), 1)
+
+# --- CSS --------------------------------------------------------------------
+row_css = CSS[CSS.index('.filter-buttons-row {'):]
+row_css = row_css[:row_css.index('}')]
+check('the row is right-aligned', 'justify-content: flex-end' in row_css, True)
+check('and still wraps', 'flex-wrap: wrap' in row_css, True)
+check('the group claims the slack, putting it on the left',
+      'margin-right: auto' in CSS[CSS.index('.filter-buttons-row .mm-button-group {'):
+                                  CSS.index('}', CSS.index('.filter-buttons-row .mm-button-group {'))])
+
+# Anchored at a line start: '.filter-buttons-row .mm-button-group {' ends
+# with the same text and would otherwise be found first.
+check('the boxed group has a border', '\n.mm-button-group {' in CSS)
+group_css = CSS[CSS.index('\n.mm-button-group {'):]
+group_css = group_css[:group_css.index('}')]
+for prop in ('border:', 'border-radius:', 'background:', 'display: flex'):
+    check('boxed group sets %s' % prop.rstrip(':'), prop in group_css)
+
+# The shared height rule is a descendant selector, so nesting must not break it.
+check('height rule still reaches nested buttons',
+      '.filter-buttons-row .mm-btn' in CSS)
+check('the Civitai Browser group is left unboxed',
+      '.filter-buttons-group {' in CSS and 'border' not in CSS[
+          CSS.index('.filter-buttons-group {'):
+          CSS.index('}', CSS.index('.filter-buttons-group {'))])
+
+# --- JS still addresses everything by id, not by nesting --------------------
+check('JS never walks up from a sync button', 'mm_sync_btn").parentNode' in JS, False)
+for control in CONTROLS:
+    if control == 'mm_save_search_btn':
+        continue  # bound via its own lookup elsewhere
+    check('JS still references %s' % control, control in JS)
+check('no handler still reaches for the removed buttons',
+      'mm_sync_meta_btn' in JS or 'mm_sync_meta_images_btn' in JS, False)
+
+# --- the dialog the button now opens ----------------------------------------
+dialog = block(UI, '<div id="mm_sync_dialog"')
+check('the dialog starts hidden', 'style="display: none;"' in dialog)
+check('the dialog is a modal to assistive tech', 'role="dialog"' in dialog
+      and 'aria-modal="true"' in dialog)
+check('and is labelled by its heading', 'aria-labelledby="mm_sync_dialog_title"' in dialog
+      and 'id="mm_sync_dialog_title"' in dialog)
+
+# scope: four mutually exclusive choices, one group
+scopes = re.findall(r'name="mm_sync_scope" value="(\w+)"', dialog)
+check('the five scopes', scopes, ['all', 'results', 'stale', 'downloaded', 'force'])
+check('exactly one is preselected',
+      dialog.count('name="mm_sync_scope"') - dialog.count('checked>'), len(scopes) - 1)
+check('the staleness windows live in a select', 'id="mm_sync_stale_days"' in dialog)
+check('and the download windows in their own',
+      'id="mm_sync_downloaded_days"' in dialog)
+check('force sync picks which files to read',
+      'id="mm_sync_force_mode"' in dialog)
+check('and offers all three sets',
+      re.findall(r'<option value="(\w+)"', dialog),
+      ['all', 'identified', 'unidentified'])
+check('all three are the same kind of control',
+      dialog.count('class="mm-dialog-select"'), 3)
+
+# depth: metadata is compulsory, the rest are choices
+check('metadata cannot be turned off', '<input type="checkbox" checked disabled>' in dialog)
+# Include is only about what data to fetch now; which files is a scope.
+for control in ('mm_sync_images', 'mm_sync_prompts'):
+    check('the dialog offers %s' % control, 'id="%s"' % control in dialog)
+for gone in ('mm_sync_rehash', 'mm_sync_force_row'):
+    check('%s is no longer a depth option' % gone, gone in dialog, False)
+check('prompts start disabled, waiting on images',
+      'id="mm_sync_prompts" disabled' in dialog)
+check('and unticked, since a locked tick would promise what cannot happen',
+      'id="mm_sync_prompts" checked' in dialog, False)
+check('the Include section is three lines',
+      dialog.count('type="checkbox"'), 3)
+
+check('there is somewhere to put the estimate', 'id="mm_sync_estimate"' in dialog)
+check('and a Start and a Cancel',
+      'id="mm_sync_dialog_start"' in dialog and 'id="mm_sync_dialog_cancel"' in dialog)
+
+# every id the dialog defines is one the script actually drives
+dialog_ids = set(re.findall(r'id="(mm_[\w]+)"', dialog))
+unused = sorted(i for i in dialog_ids if i not in JS and i != 'mm_sync_dialog_title')
+check('no dialog control is left unwired', unused, [])
+
+# --- the missing-key banner -------------------------------------------------
+banner = block(UI, '<div id="mm_api_key_warning"')
+check('the banner starts hidden', 'style="display: none;"' in banner)
+check('it names the setting exactly',
+      'Settings &rarr; Model Manager &rarr; Civitai API Key' in banner)
+check('and says why it matters', 'No Civitai API key' in banner)
+check('it sits above the filters',
+      UI.index('mm_api_key_warning') < UI.index('model-manager-filters'))
+check('the script decides when to show it',
+      "showApiKeyBanner('mm_api_key_warning')" in JS)
+check('CSS styles it', '.mm-banner {' in CSS)
+
+# Both tabs carry it, from one implementation rather than two copies.
+CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
+CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()
+COMMON = io.open(os.path.join(ROOT, 'javascript/shared/common.mjs'), encoding='utf-8').read()
+
+cb_banner = block(CB_UI, '<div id="cb_api_key_warning"')
+check('the browser has the banner too', 'style="display: none;"' in cb_banner)
+check('naming the same setting',
+      'Settings &rarr; Model Manager &rarr; Civitai API Key' in cb_banner)
+check('and it shares the styling', 'class="mm-banner"' in cb_banner)
+check('the browser script shows it',
+      "showApiKeyBanner('cb_api_key_warning')" in CB_JS)
+
+check('the waiting is written once', 'export function showApiKeyBanner' in COMMON)
+for script in (JS, CB_JS):
+    check('neither tab keeps its own copy',
+          'function showApiKeyBanner' in script.replace('export function', ''), False)
+check('and the answer is fetched once for both', COMMON.count('/model-manager/ui-options'), 1)
+
+# --- Scan Disk asks before it changes anything ------------------------------
+scan_dialog = block(UI, '<div id="mm_scan_dialog"')
+check('the scan dialog starts hidden', 'style="display: none;"' in scan_dialog)
+check('it is a modal to assistive tech',
+      'role="dialog"' in scan_dialog and 'aria-modal="true"' in scan_dialog)
+check('and is labelled by its heading',
+      'aria-labelledby="mm_scan_dialog_title"' in scan_dialog)
+check('it has a Cancel and a Scan',
+      'id="mm_scan_dialog_cancel"' in scan_dialog and 'id="mm_scan_dialog_start"' in scan_dialog)
+check('it says what it adds and removes',
+      scan_dialog.count('<li>'), 4)
+check('and that Civitai is not involved', 'Does not contact Civitai' in scan_dialog)
+check('it stays short', len(re.sub(r'<[^>]+>', ' ', scan_dialog).split()) < 60)
+for control in ('mm_scan_dialog', 'mm_scan_dialog_cancel', 'mm_scan_dialog_start'):
+    check('JS drives %s' % control, control in JS)
+
+# --- the dialog's own styling exists ----------------------------------------
+for rule in ('.mm-dialog-backdrop', '.mm-dialog ', '.mm-dialog-option',
+             '.mm-dialog-estimate', '.mm-dialog-actions', '.mm-dialog-muted'):
+    check('CSS defines %s' % rule.strip(), rule.strip() + ' {' in CSS or rule + '{' in CSS)
+# The dialog has to follow the WebUI's theme, including the parts of it the
+# browser draws itself.
+dialog_css = CSS[CSS.index('.mm-dialog {'):]
+dialog_css = dialog_css[:dialog_css.index('}')]
+check('the dialog sets its own text colour', 'color: var(--body-text-color' in dialog_css)
+
+select_css = CSS[CSS.index('.mm-dialog-select {'):]
+select_css = select_css[:select_css.index('}')]
+check('the select sets a real colour, not inherit',
+      'color: var(--body-text-color' in select_css and 'color: inherit' not in select_css)
+check('the browser does not paint the closed control',
+      'appearance: none' in select_css and '-webkit-appearance: none' in select_css)
+check('so the arrow is drawn by us', 'data:image/svg+xml' in select_css)
+check('the option list is told to be dark under .dark',
+      '.dark .mm-dialog-select {' in CSS
+      and 'color-scheme: dark' in CSS[CSS.index('.dark .mm-dialog-select {'):
+                                      CSS.index('}', CSS.index('.dark .mm-dialog-select {'))])
+# Chrome paints the open list with the select's background-color, which is a
+# translucent tint - so the options need an opaque colour of their own, and it
+# must not be the white variable.
+check('the options carry an opaque background', '.mm-dialog-select option {' in CSS)
+option_css = CSS[CSS.index('.mm-dialog-select option {'):]
+option_css = option_css[:option_css.index('}')]
+check('and it is not the white variable', 'input-background-fill' in option_css, False)
+check('it is the one the dialog itself uses',
+      'var(--background-fill-primary' in option_css)
+
+# This theme leaves --input-background-fill white even under .dark, so the
+# dialog's panels must not be coloured from it.
+dialog_block = CSS[CSS.index('   Sync dialog'):]
+live = [l for l in dialog_block.splitlines()
+        if not l.strip().startswith(('/*', '*', '--')) and '*/' not in l]
+live = '\n'.join(live)
+check('no dialog panel takes its colour from the white variable',
+      'input-background-fill' in live, False)
+for rule in ('.dark .mm-dialog-option:hover', '.dark .mm-dialog-select',
+             '.dark .mm-dialog-estimate'):
+    check('%s has a dark tint' % rule, rule + ' {' in dialog_block)
+check('the select keeps its chevron under .dark',
+      'background-color:' in dialog_block[dialog_block.index('.dark .mm-dialog-select {'):
+                                          dialog_block.index('}', dialog_block.index('.dark .mm-dialog-select {'))])
+
+check('the backdrop sits above the other modal',
+      int(re.search(r'\.mm-dialog-backdrop \{[^}]*z-index: (\d+)', CSS).group(1))
+      > int(re.search(r'\.mm-modal-overlay \{[^}]*z-index: (\d+)', CSS).group(1)))
+
+print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
+sys.exit(1 if fails else 0)
