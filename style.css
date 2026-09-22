@@ -143,6 +143,22 @@ body.mm-modal-open {
     flex: 0;
 }
 
+/* Two exceptions to the equal share every .filter-group gets. The preview
+   toggle is a single checkbox and needs only the width of its own label;
+   Sort By carries the longest options in the row ("Download Count"), and
+   truncating those is what the space is for. */
+.model-manager-filters .filter-group.mm-filter-compact {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+/* Specific enough to beat .filter-group-bordered .filter-group, which pins
+   every control in that box to 100px. */
+.model-manager-filters .filter-group-bordered .filter-group.mm-filter-wide {
+    min-width: 165px;
+    flex: 1;
+}
+
 /* Advanced filters: a <details>, so it collapses with no JavaScript and no
    state to keep in step with the markup. The controls inside are ordinary
    .filter-row / .filter-group, exactly as when they were always visible. */
