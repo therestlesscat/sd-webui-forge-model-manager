@@ -227,12 +227,12 @@ check('the multi-select no longer sets its own box',
 # carries the longest options. Both are tagged in the markup rather than
 # selected by position, so reordering the row cannot silently reassign them.
 check('the preview toggle is tagged compact',
-      'filter-group mm-filter-compact' in BASIC)
-check('and Sort By tagged wide', 'filter-group mm-filter-wide' in BASIC)
+      'filter-group filter-group-compact' in BASIC)
+check('and Sort By tagged wide', 'filter-group filter-group-wide' in BASIC)
 check('CSS narrows the compact one',
-      '.filter-group.mm-filter-compact {' in CSS)
+      '.filter-group.filter-group-compact {' in CSS)
 check('and the wide rule outspecifies the box it sits in',
-      '.filter-group-bordered .filter-group.mm-filter-wide {' in CSS)
+      '.filter-group-bordered .filter-group.filter-group-wide {' in CSS)
 
 # A <details> with no `open`: collapsed, with nothing for JavaScript to keep
 # in step. Adding `open` here would quietly undo the point of the split.
@@ -280,6 +280,10 @@ check('the actions sit below the whole row',
       CB_UI_EARLY.index('cb_search_btn'))
 check('on the row both tabs use', 'class="filter-buttons-row"' in CB_UI_EARLY)
 check('and CSS lays the checkboxes out', '.filter-checkboxes {' in CSS)
+check('the browser sort box gets the width its options need',
+      'class="filter-group filter-group-wide"' in CB_UI_EARLY)
+check('and the modifier is not named after one tab',
+      'mm-filter-wide' in CSS or 'mm-filter-compact' in CSS, False)
 
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()

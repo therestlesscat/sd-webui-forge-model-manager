@@ -157,18 +157,20 @@ body.mm-modal-open {
     flex: 0;
 }
 
-/* Two exceptions to the equal share every .filter-group gets. The preview
-   toggle is a single checkbox and needs only the width of its own label;
-   Sort By carries the longest options in the row ("Download Count"), and
-   truncating those is what the space is for. */
-.filter-group.mm-filter-compact {
+/* Two exceptions to the equal share every .filter-group gets, both used by
+   either tab. Compact is for a group holding one checkbox, which needs no
+   more than its own label. Wide is for a sort control: "Download Count" and
+   "Most Downloaded" are the longest strings in their rows, and the box they
+   sit in pins everything to 100px, so without this they read "Most
+   Download..." and the control says nothing. */
+.filter-group.filter-group-compact {
     flex: 0 0 auto;
     min-width: 0;
 }
 
 /* Specific enough to beat .filter-group-bordered .filter-group, which pins
    every control in that box to 100px. */
-.filter-group-bordered .filter-group.mm-filter-wide {
+.filter-group-bordered .filter-group.filter-group-wide {
     min-width: 165px;
     flex: 1;
 }
