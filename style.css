@@ -239,15 +239,8 @@ body.mm-modal-open {
     margin-right: auto;
 }
 
-.filter-buttons-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-}
-
-/* A boxed set of related actions. Deliberately not .filter-buttons-group,
-   which the Civitai Browser also uses and should stay unboxed. */
+/* A boxed set of related actions, for the buttons that belong together.
+   The rest of the row's buttons sit loose beside it. */
 .mm-button-group {
     display: flex;
     flex-wrap: wrap;
@@ -475,9 +468,10 @@ body.mm-modal-open {
     display: none;
 }
 
-/* Checkbox group for filter options */
-.mm-checkbox-group {
+/* Checkboxes side by side inside one filter group, rather than stacked. */
+.filter-checkboxes {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     align-items: center;
 }

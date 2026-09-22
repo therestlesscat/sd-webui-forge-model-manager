@@ -115,10 +115,10 @@ for variant in ('primary', 'danger'):
           '--mm-btn-bg:' in variant_css and 'background:' not in variant_css)
 check('so the row does not have to size buttons itself',
       '.filter-buttons-row .mm-btn' in CSS, False)
-check('the Civitai Browser group is left unboxed',
-      '.filter-buttons-group {' in CSS and 'border' not in CSS[
-          CSS.index('.filter-buttons-group {'):
-          CSS.index('}', CSS.index('.filter-buttons-group {'))])
+# The browser used to wrap its actions in .filter-buttons-group; they now sit
+# on .filter-buttons-row, the same row the Model Manager uses, so that class
+# is gone rather than kept as a second way to lay out the same buttons.
+check('the browser has no group of its own', '.filter-buttons-group' in CSS, False)
 
 # --- JS still addresses everything by id, not by nesting --------------------
 check('JS never walks up from a sync button', 'mm_sync_btn").parentNode' in JS, False)
@@ -265,6 +265,21 @@ check('nor does the tag box', 'padding' in tag_input_css, False)
 # and carries four pixels of descender space that the search box does not.
 check('and the tag box is blockified by hand',
       'display: block' in tag_input_css)
+
+# The browser's own row: two search boxes and the options beside them, with
+# the actions on a row of their own below - the shape the other tab has.
+CB_UI_EARLY = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'),
+                      encoding='utf-8').read()
+check('the options are laid out across, not stacked',
+      '<div class="filter-checkboxes">' in CB_UI_EARLY)
+check('both checkboxes are inside it',
+      CB_UI_EARLY.index('cb_nsfw') > CB_UI_EARLY.index('filter-checkboxes') and
+      CB_UI_EARLY.index('cb_require_prompt') > CB_UI_EARLY.index('filter-checkboxes'))
+check('the actions sit below the whole row',
+      CB_UI_EARLY.index('cb_search"') < CB_UI_EARLY.index('filter-buttons-row') <
+      CB_UI_EARLY.index('cb_search_btn'))
+check('on the row both tabs use', 'class="filter-buttons-row"' in CB_UI_EARLY)
+check('and CSS lays the checkboxes out', '.filter-checkboxes {' in CSS)
 
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
