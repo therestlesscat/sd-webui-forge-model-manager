@@ -2317,17 +2317,26 @@ async function loadUIOptionsFromAPI() {
  * will not download - so most of what this extension does either crawls or
  * does not work. Not dismissible: it goes away by being fixed.
  *
- * The answer arrives before the page does. This module is a <script
- * type="module"> in the head and asks at import, while the tab's markup is
- * rendered by Gradio afterwards - so the banner is not there to be shown yet.
- * The answer is remembered and applied again from init().
+ * Two things have to happen before this can be shown, and nothing orders them:
+ * the answer arrives from a fetch started at import, and the markup arrives
+ * when Gradio renders the tab. Calling this at two fixed moments was not
+ * enough - whichever ran first found the other half missing and gave up. So
+ * it waits for both, briefly, rather than assuming either.
  */
+const API_KEY_BANNER_TRIES = 20;        // 5 seconds, at 250ms apart
 let apiKeyMissing = null;
 
-function showApiKeyWarning() {
-    if (apiKeyMissing === null) return;      // no answer yet
+function showApiKeyWarning(attempt = 0) {
     const banner = document.getElementById('mm_api_key_warning');
-    if (banner) banner.style.display = apiKeyMissing ? 'flex' : 'none';
+
+    if (apiKeyMissing === null || !banner) {
+        if (attempt < API_KEY_BANNER_TRIES) {
+            setTimeout(() => showApiKeyWarning(attempt + 1), 250);
+        }
+        return;
+    }
+
+    banner.style.display = apiKeyMissing ? 'flex' : 'none';
 }
 
 // Get scheduler options (from cache)
