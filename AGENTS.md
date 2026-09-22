@@ -82,6 +82,38 @@ because that would mean the assumption no longer holds.
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
 
+## One stylesheet, one definition
+
+Both tabs share `style.css`, and both draw the same things: a filter bar, a
+grid of cards, a details panel, a pagination strip, buttons. They were built
+separately, each with its own class prefix, so for a long time each of those
+had two definitions.
+
+They drifted, and the drift was expensive. The Civitai Browser carried a
+parallel filter bar scoped to `.cb-filters` — the row, the group, the label,
+the bordered box, the control box — at the same specificity as the shared
+rules and later in the file, so every one of them won. Fixing the shared rule
+changed nothing in that tab, twice in a row, and the cause was invisible from
+the rule being edited.
+
+So:
+
+- **A component is defined once.** If both tabs draw it, one rule names both
+  classes: `.mm-btn, .cb-btn { ... }`. Do not scope a copy to a tab.
+- **A `cb-` or `mm-` class is for something only that tab has** — the
+  browser's downloads panel, the manager's sync dialog. Not for a variation on
+  something shared.
+- **A tab that needs a variation extends the shared rule**, with a modifier
+  class and a variable where there is one (`--mm-btn-height`, `--mm-btn-bg`),
+  rather than restating the box.
+- **State what decides a box; never let it be derived.** A `<select>`, an
+  `<input>` and a `<div>` compute three different heights from the same
+  padding, and Gradio's preflight resets `margin` and `background` on every
+  button inside a `gr.HTML` block at a specificity one class cannot beat.
+
+`tests/py/css_test.py` fails when a `cb-` rule and an `mm-` rule say the same
+thing, so the next component that would have been copied has to be shared.
+
 ## Conventions
 
 - Comments explain **why**, not what. If a line needs saying twice, the second
