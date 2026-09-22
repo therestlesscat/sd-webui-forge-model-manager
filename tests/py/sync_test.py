@@ -230,16 +230,12 @@ sync, client = service(
             'next_cursor': 'more'},
     types={70010: 'Merge'})
 result = sync.sync_model(FRESH)
-# NOTE: this SHOULD be a success, and everything it was meant to write is
-# written - the sidecar, the row, the images, the classification. It fails on
-# the very last step: _classify_checkpoints() takes self._progress_lock, and
-# that lock is only created by sync_all() and sync_metadata(), never by
-# __init__. So syncing a single checkpoint - which is exactly what happens
-# after downloading one from the browser - always reports an error.
-# Recorded as it behaves; a one-line fix in __init__ makes this line fail.
-check('a single checkpoint reports an error it should not',
-      result.error, "Unexpected error: 'SyncService' object has no attribute '_progress_lock'")
-check('though it did all the work', result.success, False)
+# A single checkpoint goes all the way through, classification included. It
+# used not to: _classify_checkpoints() takes self._progress_lock, which only
+# sync_all() and sync_metadata() created, so every download of a checkpoint
+# reported "no attribute '_progress_lock'" after writing everything correctly.
+check('a file Civitai recognises syncs', result.success, True)
+check('with nothing to report', result.error, None)
 check('naming the version', result.version_id, 70011)
 check('and the model', result.model_id, 70010)
 check('with its images counted', result.image_count, 2)
@@ -256,8 +252,8 @@ check('marked as identified', row['has_civitai_data'], True)
 check('with the hashes that found it', row['file_hashes']['sha256'], fresh_hashes.sha256)
 check('its trigger words', row['trained_words'], ['trigger'])
 check('and the images are stored', len(db.get_images(70011)), 2)
-check('and never got as far as asking whether it was trained or merged',
-      [a for a in client.asked if a[0] == 'types'], [])
+check('and it was asked whether it was trained or merged',
+      [a for a in client.asked if a[0] == 'types'], [('types', [70010])])
 
 # Civitai answers the hash but not the model: the version alone is enough.
 LONE = os.path.join(facts['models_dir'], 'Lora', 'lone.safetensors')
@@ -551,25 +547,18 @@ check('and asks no checkpoint question',
 check('while still finishing', progress.is_complete, True)
 
 # --------------------------------------------------------- classifying checkpoints
-def classifier(**answers):
-    """A service as a sync would have left it: with its progress lock made."""
-    sync, client = service(**answers)
-    sync._progress_lock = threading.Lock()
-    return sync, client
-
-
-sync, client = classifier(types={CHECKPOINT_ID: 'Merge'})
+sync, client = service(types={CHECKPOINT_ID: 'Merge'})
 check('the checkpoints among a batch are classified',
       sync._classify_checkpoints({CHECKPOINT_ID: {'type': 'Checkpoint'},
                                   999: {'type': 'LORA'}}), 1)
 check('and only they were asked about', client.asked[-1], ('types', [CHECKPOINT_ID]))
 
-sync, client = classifier()
+sync, client = service()
 check('a batch with no checkpoints asks nothing',
       sync._classify_checkpoints({1: {'type': 'LORA'}, 2: None}), 0)
 check('really nothing', client.asked, [])
 
-sync, client = classifier(types_raises=RuntimeError('classify failed'))
+sync, client = service(types_raises=RuntimeError('classify failed'))
 check('a classification that fails is not a crash',
       sync._classify_checkpoints({CHECKPOINT_ID: {'type': 'Checkpoint'}}), 0)
 
