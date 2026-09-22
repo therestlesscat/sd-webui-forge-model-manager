@@ -14,6 +14,26 @@ from typing import Optional, List, Dict, Any, Tuple, Callable
 from contextlib import contextmanager
 
 
+def _json_or_none(value):
+    """A JSON column, or NULL when there is nothing to say."""
+    return None if value is None else json.dumps(value)
+
+
+def _permissive(value):
+    """A licence flag as the rest of the code reads it: unknown means allowed."""
+    return True if value is None else bool(value)
+
+
+def _flag(value):
+    """1, 0, or NULL for "nobody said".
+
+    The licence columns are three-valued in every query that reads them -
+    query.py asks `IS NULL` for the unknown case - so an absent field has to
+    arrive here as NULL rather than as a cheerful default.
+    """
+    return None if value is None else (1 if value else 0)
+
+
 class ModelsOps:
     """
     Operations for civitai_models and model_versions tables.
@@ -70,23 +90,28 @@ class ModelsOps:
                     civitai_synced_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
+                    -- The same rule as upsert_version(): a source that says
+                    -- nothing about a field must not erase what is recorded.
+                    -- A scan reading a thin .civitai.info cannot see the
+                    -- licence flags or the vote counts, and used to write a
+                    -- permissive default and a zero over both.
                     name = excluded.name,
-                    description = excluded.description,
-                    type = excluded.type,
-                    nsfw = excluded.nsfw,
-                    nsfw_level = excluded.nsfw_level,
-                    tags = excluded.tags,
-                    creator_username = excluded.creator_username,
-                    creator_image_url = excluded.creator_image_url,
-                    stats_download_count = excluded.stats_download_count,
-                    stats_thumbs_up = excluded.stats_thumbs_up,
-                    stats_thumbs_down = excluded.stats_thumbs_down,
-                    stats_rating = excluded.stats_rating,
-                    allow_no_credit = excluded.allow_no_credit,
-                    allow_commercial_use = excluded.allow_commercial_use,
-                    allow_derivatives = excluded.allow_derivatives,
-                    allow_different_license = excluded.allow_different_license,
-                    supports_generation = excluded.supports_generation,
+                    description = COALESCE(excluded.description, civitai_models.description),
+                    type = COALESCE(excluded.type, civitai_models.type),
+                    nsfw = COALESCE(excluded.nsfw, civitai_models.nsfw),
+                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, 64), civitai_models.nsfw_level),
+                    tags = COALESCE(NULLIF(excluded.tags, '[]'), civitai_models.tags),
+                    creator_username = COALESCE(excluded.creator_username, civitai_models.creator_username),
+                    creator_image_url = COALESCE(excluded.creator_image_url, civitai_models.creator_image_url),
+                    stats_download_count = COALESCE(NULLIF(excluded.stats_download_count, 0), civitai_models.stats_download_count),
+                    stats_thumbs_up = COALESCE(NULLIF(excluded.stats_thumbs_up, 0), civitai_models.stats_thumbs_up),
+                    stats_thumbs_down = COALESCE(NULLIF(excluded.stats_thumbs_down, 0), civitai_models.stats_thumbs_down),
+                    stats_rating = COALESCE(NULLIF(excluded.stats_rating, 0), civitai_models.stats_rating),
+                    allow_no_credit = COALESCE(excluded.allow_no_credit, civitai_models.allow_no_credit),
+                    allow_commercial_use = COALESCE(excluded.allow_commercial_use, civitai_models.allow_commercial_use),
+                    allow_derivatives = COALESCE(excluded.allow_derivatives, civitai_models.allow_derivatives),
+                    allow_different_license = COALESCE(excluded.allow_different_license, civitai_models.allow_different_license),
+                    supports_generation = COALESCE(excluded.supports_generation, civitai_models.supports_generation),
                     updated_at = excluded.updated_at,
                     -- only moves forward when the data came from the API
                     civitai_synced_at = COALESCE(excluded.civitai_synced_at,
@@ -98,18 +123,20 @@ class ModelsOps:
                 model_data.get("type", "Checkpoint"),
                 1 if model_data.get("nsfw") else 0,
                 model_data.get("nsfw_level", UNKNOWN),
-                json.dumps(model_data.get("tags", [])),
+                # json.dumps(None) is the string "null", which COALESCE
+                # would happily keep. Absent has to reach SQL as NULL.
+                _json_or_none(model_data.get("tags")),
                 model_data.get("creator_username"),
                 model_data.get("creator_image_url"),
                 model_data.get("stats_download_count", 0),
                 model_data.get("stats_thumbs_up", 0),
                 model_data.get("stats_thumbs_down", 0),
                 model_data.get("stats_rating", 0),
-                1 if model_data.get("allow_no_credit", True) else 0,
+                _flag(model_data.get("allow_no_credit")),
                 self._format_commercial_use(model_data.get("allow_commercial_use")),
-                1 if model_data.get("allow_derivatives", True) else 0,
-                1 if model_data.get("allow_different_license", True) else 0,
-                1 if model_data.get("supports_generation") else 0,
+                _flag(model_data.get("allow_derivatives")),
+                _flag(model_data.get("allow_different_license")),
+                _flag(model_data.get("supports_generation")),
                 now,
                 now if from_civitai else None
             ))
@@ -481,10 +508,12 @@ class ModelsOps:
             "stats_download_count": row["stats_download_count"],
             "stats_thumbs_up": row["stats_thumbs_up"],
             "stats_rating": row["stats_rating"],
-            "allow_no_credit": bool(row["allow_no_credit"]),
+            "allow_no_credit": _permissive(row["allow_no_credit"]),
             "allow_commercial_use": row["allow_commercial_use"],
-            "allow_derivatives": bool(row["allow_derivatives"]),
-            "allow_different_license": bool(row["allow_different_license"]),
+            # NULL is "unknown", which query.py reads as permissive; the
+            # two must not disagree about the same row.
+            "allow_derivatives": _permissive(row["allow_derivatives"]),
+            "allow_different_license": _permissive(row["allow_different_license"]),
             "supports_generation": bool(row["supports_generation"]),
             "updated_at": row["updated_at"],
         }
