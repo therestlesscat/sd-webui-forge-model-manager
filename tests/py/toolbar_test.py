@@ -206,7 +206,7 @@ BASIC = UI[UI.index('<div class="model-manager-filters">'):UI.index('<details cl
 ADVANCED = UI[UI.index('<details class="mm-advanced"'):UI.index('</details>')]
 
 for control in ('mm_type', 'mm_checkpoint_type', 'mm_nsfw_dropdown',
-                'mm_preview_least_nsfw', 'mm_sort_by', 'mm_sort_order', 'mm_search'):
+                'mm_preview_show_nsfw', 'mm_sort_by', 'mm_sort_order', 'mm_search'):
     check('%s stays in reach without expanding anything' % control, control in BASIC)
 
 for control in ('mm_civitai', 'mm_base_model', 'mm_is_bookmarked', 'mm_min_versions',
@@ -235,6 +235,19 @@ check('the multi-select no longer sets its own box',
       'padding' in CSS[CSS.index(chr(10) + '.mm-multiselect-display {'):
                        CSS.index('}', CSS.index(chr(10) + '.mm-multiselect-display {'))],
       False)
+
+# The checkbox asks the opposite of what the API takes: it offers to SHOW
+# NSFW in the preview, while preview_least_nsfw asks for the least NSFW image
+# to be used. The conversion lives in two named functions so it cannot be
+# applied at some call sites and not others.
+check('the control is named for what it offers', 'id="mm_preview_show_nsfw"' in UI)
+check('and says so', 'Show NSFW In Model Preview' in UI)
+check('the old wording is gone', 'Hide NSFW' in UI, False)
+check('nothing reads the checkbox directly', "getElementById('mm_preview_show_nsfw').checked" in JS, False)
+check('the value sent is the inverse of the box',
+      'return checkbox ? !checkbox.checked : null;' in JS)
+check('and the box is set as the inverse of the value',
+      'if (checkbox) checkbox.checked = !previewLeastNsfw;' in JS)
 
 # The row is not an equal split: the preview toggle is one checkbox, Sort By
 # carries the longest options. Both are tagged in the markup rather than

@@ -78,9 +78,9 @@ def create_ui():
                             </div>
                         </div>
                         <div class="filter-group filter-group-compact">
-                            <label>Model Preview</label>
+                            <label>Options</label>
                             <label class="mm-checkbox-label">
-                                <input type="checkbox" id="mm_preview_least_nsfw"> Hide NSFW
+                                <input type="checkbox" id="mm_preview_show_nsfw"> Show NSFW In Model Preview
                             </label>
                         </div>
                         <div class="filter-group-bordered">
