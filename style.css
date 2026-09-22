@@ -1828,8 +1828,15 @@ body.mm-modal-open {
 }
 
 /* The wrapper is what the suggestions drop out of; the input itself takes the
-   shared control box, the same as the search box beside it. */
+   shared control box, the same as the search box beside it.
+
+   `display: block` is load-bearing. The search box is a flex item of its
+   .filter-group and is blockified; this one sits in a plain block wrapper, so
+   it stays inline-block and leaves four pixels of descender space under it -
+   which made the wrapper four pixels taller than the box it holds, and sat
+   the tag box four pixels above the search box on a bottom-aligned row. */
 .cb-tag-container input {
+    display: block;
     width: 100%;
 }
 
