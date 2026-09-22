@@ -89,6 +89,28 @@ function getFiltersHash() {
     return hashFilters(getFilters());
 }
 
+/**
+ * Show "Resume" when there is a saved position for the filters now in the box.
+ *
+ * The cursors are only valid for the filter set they were collected under -
+ * Civitai's cursor encodes the sort and period - so the saved position is
+ * keyed on the filters, and changing any of them means there is nothing to
+ * resume. That is why this has to be re-checked whenever a filter changes,
+ * not only when Search is pressed: otherwise the button reads as broken.
+ */
+function updateResumeButton() {
+    const btn = document.getElementById('cb_resume_btn');
+    if (!btn) return;
+
+    const cached = loadFromCache(getFiltersHash());
+    if (cached && cached.lastPage > 1 && cached.lastPage !== currentPage) {
+        btn.textContent = `Resume (page ${cached.lastPage})`;
+        btn.style.display = '';
+    } else {
+        btn.style.display = 'none';
+    }
+}
+
 // Hash filters to create a cache key
 function hashFilters(filters) {
     const str = JSON.stringify(filters);
@@ -329,9 +351,9 @@ async function searchModelsStreaming(page, cursor) {
                     }
                     if (page >= 2) {
                         saveToCache(getFiltersHash(), cursors, page);
-                        const resumeBtn = document.getElementById('cb_resume_btn');
-                        if (resumeBtn) resumeBtn.style.display = 'none';
                     }
+
+                    updateResumeButton();
 
                     const stats = evt.filterStats || {};
                     let status = `Showing ${currentModels.length} models (page ${page})`;
@@ -425,13 +447,11 @@ async function searchModels(page = 1) {
             // Save cursors and current page to cache (only for page 2+)
             if (page >= 2) {
                 saveToCache(getFiltersHash(), cursors, page);
-                // Hide resume button once user navigates beyond page 1
-                const resumeBtn = document.getElementById('cb_resume_btn');
-                if (resumeBtn) resumeBtn.style.display = 'none';
             }
 
             renderGrid();
             closeDetails();
+            updateResumeButton();
 
             let status = `Showing ${currentModels.length} models (page ${currentPage})`;
             const stats = result.filterStats;
@@ -1959,6 +1979,17 @@ function init() {
     }
     syncCheckpointTypeEnabled();
 
+    // A saved position belongs to a filter set, so the offer has to follow the
+    // filters rather than wait for a Search press - which was the old rule,
+    // and made the button look broken: paging away hides it, and nothing
+    // showed it again until you searched.
+    document.querySelectorAll('.cb-filters input, .cb-filters select')
+        .forEach(control => {
+            control.addEventListener('change', updateResumeButton);
+            control.addEventListener('input', updateResumeButton);
+        });
+    updateResumeButton();
+
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
@@ -2013,18 +2044,7 @@ window.cbSearch = function() {
         cursors = [""];
     }
     hasMorePages = true;
-
-    // Show/hide "Resume" button for last viewed page
-    const resumeBtn = document.getElementById('cb_resume_btn');
-    if (resumeBtn) {
-        if (cached && cached.lastPage && cached.lastPage > 1) {
-            resumeBtn.textContent = `Resume (page ${cached.lastPage})`;
-            resumeBtn.style.display = 'inline-block';
-        } else {
-            resumeBtn.style.display = 'none';
-        }
-    }
-
+    updateResumeButton();
     searchModels(1);
 };
 
@@ -2035,9 +2055,6 @@ window.cbResumePage = function() {
     if (cached && cached.lastPage && cached.cursors) {
         cursors = cached.cursors;
         searchModels(cached.lastPage);
-        // Hide button after resuming
-        const resumeBtn = document.getElementById('cb_resume_btn');
-        if (resumeBtn) resumeBtn.style.display = 'none';
     }
 };
 
