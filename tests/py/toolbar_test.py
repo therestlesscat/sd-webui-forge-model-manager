@@ -103,6 +103,16 @@ base = base[:base.index('}')]
 check('the shared button rule sets the height', 'height: var(--mm-btn-height)' in base)
 check('and pins the margin Gradio would otherwise add',
       'margin: 0 !important' in base)
+# Gradio's preflight resets every button's background at (0,1,1), which beats
+# any single class. The colour is declared once with !important and the
+# variants move the variable, so a variant never has to out-specify it.
+check('the background is declared once, past the preflight reset',
+      'background: var(--mm-btn-bg) !important' in base)
+for variant in ('primary', 'danger'):
+    variant_css = CSS[CSS.index('.mm-btn.%s,' % variant):]
+    variant_css = variant_css[:variant_css.index('}')]
+    check('the %s variant sets the variable, not the background' % variant,
+          '--mm-btn-bg:' in variant_css and 'background:' not in variant_css)
 check('so the row does not have to size buttons itself',
       '.filter-buttons-row .mm-btn' in CSS, False)
 check('the Civitai Browser group is left unboxed',
