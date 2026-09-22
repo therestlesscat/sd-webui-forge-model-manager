@@ -52,8 +52,11 @@ export function apiKeyStatus() {
     return apiKeyRequest;
 }
 
+const apiKeyBanners = new Set();
+
 export function showApiKeyBanner(bannerId, attempt = 0) {
     apiKeyStatus();                     // starts the one fetch, if needed
+    apiKeyBanners.add(bannerId);
 
     const banner = document.getElementById(bannerId);
     if (apiKeyMissing === null || !banner) {
@@ -64,6 +67,25 @@ export function showApiKeyBanner(bannerId, attempt = 0) {
     }
 
     banner.style.display = apiKeyMissing ? 'flex' : 'none';
+}
+
+/**
+ * Put the banners back after Gradio has redrawn the page.
+ *
+ * Gradio re-renders a gr.HTML block wholesale, and an inline style set on
+ * something inside it does not survive that - the element comes back as the
+ * markup declares it, which is hidden. Setting it once during startup is
+ * therefore not enough: it has to be reasserted whenever the UI is rebuilt,
+ * which is what this hook is for.
+ */
+if (typeof onAfterUiUpdate === 'function') {
+    onAfterUiUpdate(() => {
+        if (apiKeyMissing === null) return;
+        apiKeyBanners.forEach((bannerId) => {
+            const banner = document.getElementById(bannerId);
+            if (banner) banner.style.display = apiKeyMissing ? 'flex' : 'none';
+        });
+    });
 }
 
 // Shared across both tabs - only one tab renders images at a time
