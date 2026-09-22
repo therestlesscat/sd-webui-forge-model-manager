@@ -113,6 +113,15 @@ body.mm-modal-open {
     color: #fff !important;
 }
 
+/* Gradio paints placeholders in the same colour as typed text, so a hint
+   reads as content someone already entered. Dim it back. The colour is a
+   literal because the rule above sets the text colour to one too. */
+.filter-group input::placeholder {
+    color: #9ca3af !important;
+    /* Firefox dims placeholders with opacity on top of the colour. */
+    opacity: 1;
+}
+
 .filter-group input:focus,
 .filter-group select:focus {
     outline: none;
@@ -173,8 +182,7 @@ body.mm-modal-open {
     background: var(--input-background-fill, #111827);
 }
 
-/* All filter buttons same height */
-.filter-buttons-row .mm-btn,
+/* The checkbox sitting among the buttons has to match their box by hand. */
 .filter-buttons-row .mm-checkbox-label {
     height: 36px;
     min-height: 36px;
@@ -182,9 +190,6 @@ body.mm-modal-open {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-}
-
-.filter-buttons-row .mm-checkbox-label {
     padding: 0 12px;
     background: var(--input-background-fill, #111827);
     border: 1px solid var(--border-color-primary, #374151);
@@ -277,52 +282,124 @@ body.mm-modal-open {
 }
 
 
-/* Buttons */
-.mm-btn {
-    padding: 10px !important;
-    border: none;
+/* ------------------------------------------------------------------ Buttons
+
+   One definition for every button in both tabs. They were defined in six
+   places with three different paddings and heights set in some contexts but
+   not others, so two buttons side by side were the same size only by
+   coincidence.
+
+   Everything that decides a button's box is pinned here, including the
+   properties nothing in this file used to set. Gradio's own
+   `.prose button { margin: var(--spacing-sm) }` applies to every button
+   inside a gr.HTML block: with `align-items: center` a 4px bottom margin
+   lifts that button two pixels above its neighbour, which is what made the
+   primary button look misaligned. `margin: 0` is not a tidy-up, it is the
+   fix - and `font-family`, `line-height` and `box-sizing` are here for the
+   same reason, so that nothing outside the extension can size one button
+   differently from another.
+
+   Height comes from --mm-btn-height so a context can ask for a shorter
+   button without redefining the box. Set that, never `height` or `padding`.
+*/
+.mm-btn,
+.cb-btn,
+.cb-btn-small,
+.action-btn {
+    --mm-btn-height: 36px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: var(--mm-btn-height);
+    min-height: var(--mm-btn-height);
+    padding: 0 14px !important;
+    margin: 0 !important;
+    border: none !important;
     border-radius: 6px;
-    cursor: pointer;
+    background: var(--secondary-500, #6b7280);
+    color: #fff;
+    font-family: inherit;
     font-size: 0.9em;
     font-weight: 500;
+    line-height: 1;
+    text-align: center;
+    /* Some of these are <a> dressed as buttons. */
+    text-decoration: none;
+    white-space: nowrap;
+    vertical-align: middle;
+    cursor: pointer;
     transition: background 0.2s;
 }
 
-.mm-btn.primary {
-    background: var(--primary-500, #3b82f6);
-    color: white;
-}
-
-.mm-btn.primary:hover {
-    background: var(--primary-600, #2563eb);
-}
-
-.mm-btn.primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.mm-btn.secondary {
-    background: var(--secondary-500, #6b7280);
-    color: white;
-}
-
-.mm-btn.secondary:hover {
+.mm-btn:hover,
+.cb-btn:hover,
+.cb-btn-small:hover,
+.action-btn:hover {
     background: var(--secondary-600, #4b5563);
 }
 
-.mm-btn.secondary:disabled {
+.mm-btn.primary,
+.cb-btn.primary,
+.cb-btn-small.primary,
+.action-btn.primary {
+    background: var(--primary-500, #3b82f6);
+}
+
+.mm-btn.primary:hover,
+.cb-btn.primary:hover,
+.cb-btn-small.primary:hover,
+.action-btn.primary:hover {
+    background: var(--primary-600, #2563eb);
+}
+
+.mm-btn.danger,
+.cb-btn.danger,
+.cb-btn-small.danger,
+.action-btn.danger {
+    background: #dc2626;
+}
+
+.mm-btn.danger:hover,
+.cb-btn.danger:hover,
+.cb-btn-small.danger:hover,
+.action-btn.danger:hover {
+    background: #b91c1c;
+}
+
+.mm-btn:disabled,
+.cb-btn:disabled,
+.cb-btn-small:disabled,
+.action-btn:disabled,
+.mm-btn.disabled,
+.cb-btn.disabled,
+.action-btn.disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
 
-.mm-btn.danger {
-    background: #dc2626;
-    color: white;
+/* The buttons with a shape of their own - pills, icons, a close cross - do
+   not want the box above, but they do want Gradio's `.prose` margin gone, or
+   they sit out of line with whatever they are beside. Listed before the rules
+   that style them, so a deliberate margin further down still wins. */
+.mm-sync-model-btn,
+.mm-bookmark-btn,
+.mm-page-num,
+.mm-version-pill,
+.mm-description-toggle,
+.mm-modal-close,
+.close-details {
+    margin: 0;
 }
 
-.mm-btn.danger:hover {
-    background: #b91c1c;
+/* The small variant, for buttons inside a card or a table row. */
+.mm-btn-small,
+.cb-btn-small {
+    --mm-btn-height: 28px;
+    padding: 0 10px !important;
+    border-radius: 4px;
+    font-size: 0.85em;
 }
 
 /* Scroll restore button - now part of filter buttons row */
@@ -865,40 +942,6 @@ body.mm-modal-open {
     flex-wrap: wrap;
 }
 
-.detail-actions .action-btn {
-    padding: 8px 14px !important;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    font-size: 0.85em;
-    font-weight: 500;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    height: 36px;
-    box-sizing: border-box;
-}
-
-.action-btn.secondary {
-    background: var(--secondary-500, #6b7280);
-    color: white;
-}
-
-.action-btn.secondary:hover {
-    background: var(--secondary-600, #4b5563);
-}
-
-.action-btn.danger {
-    background: #dc2626;
-    color: white;
-}
-
-.action-btn.danger:hover {
-    background: #b91c1c;
-}
-
 /* Pagination */
 .model-grid-pagination {
     display: flex;
@@ -1180,16 +1223,10 @@ body.mm-modal-open {
     padding-top: 8px;
 }
 
-.mm-image-actions .mm-btn,
-.mm-image-actions a.mm-btn {
-    height: 32px;
-    min-height: 32px;
+/* Shorter, to leave room in a card. The box itself is the shared one. */
+.mm-image-actions .mm-btn {
+    --mm-btn-height: 32px;
     padding: 0 12px !important;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-    text-decoration: none;
 }
 
 .mm-send-btn {
@@ -1465,18 +1502,11 @@ body.mm-modal-open {
 }
 
 .mm-res-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 5px;
     white-space: nowrap;
-    text-align: right;
     width: 150px;
-}
-
-.mm-res-actions .mm-btn {
-    margin-left: 5px;
-}
-
-.mm-btn-small {
-    padding: 5px 10px !important;
-    font-size: 0.85em;
 }
 
 .mm-resources-table tr:last-child td {
@@ -1796,66 +1826,7 @@ body.mm-modal-open {
     font-size: 0.9em;
 }
 
-/* Buttons */
-.cb-btn {
-    padding: 8px 16px !important;
-    border-radius: 6px !important;
-    border: none !important;
-    cursor: pointer;
-    font-size: 0.9em;
-    font-weight: 500;
-    transition: background 0.2s;
-}
-
-.cb-btn.primary {
-    background: var(--primary-500, #3b82f6);
-    color: white;
-}
-
-.cb-btn.primary:hover {
-    background: var(--primary-600, #2563eb);
-}
-
-.cb-btn.secondary {
-    background: var(--secondary-500, #6b7280);
-    color: white;
-}
-
-.cb-btn.secondary:hover {
-    background: var(--secondary-600, #4b5563);
-}
-
-.cb-btn.danger {
-    background: #dc2626;
-    color: white;
-}
-
-.cb-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.cb-btn-small {
-    padding: 4px 8px;
-    font-size: 0.8em;
-    border-radius: 4px;
-    border: none;
-    cursor: pointer;
-}
-
-.cb-btn-small.danger {
-    background: #dc2626;
-    color: white;
-}
-
-.cb-btn-small.secondary {
-    background: var(--secondary-500, #6b7280);
-    color: white;
-}
-
-.cb-btn-small.secondary:hover {
-    background: var(--secondary-600, #4b5563);
-}
+/* Buttons: the Civitai Browser uses the shared definitions above. */
 
 /* Status */
 .cb-status {

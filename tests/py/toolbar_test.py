@@ -95,9 +95,16 @@ group_css = group_css[:group_css.index('}')]
 for prop in ('border:', 'border-radius:', 'background:', 'display: flex'):
     check('boxed group sets %s' % prop.rstrip(':'), prop in group_css)
 
-# The shared height rule is a descendant selector, so nesting must not break it.
-check('height rule still reaches nested buttons',
-      '.filter-buttons-row .mm-btn' in CSS)
+# The height used to come from a descendant selector on this row, which meant
+# nesting a button one level deeper silently changed its size. It now comes
+# from the shared button rule, so it reaches every button wherever it sits.
+base = CSS[CSS.index('.mm-btn,' + chr(10) + '.cb-btn,'):]
+base = base[:base.index('}')]
+check('the shared button rule sets the height', 'height: var(--mm-btn-height)' in base)
+check('and pins the margin Gradio would otherwise add',
+      'margin: 0 !important' in base)
+check('so the row does not have to size buttons itself',
+      '.filter-buttons-row .mm-btn' in CSS, False)
 check('the Civitai Browser group is left unboxed',
       '.filter-buttons-group {' in CSS and 'border' not in CSS[
           CSS.index('.filter-buttons-group {'):
