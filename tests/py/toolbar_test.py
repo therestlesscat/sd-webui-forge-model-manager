@@ -241,11 +241,17 @@ check('the multi-select no longer sets its own box',
 # to be used. The conversion lives in two named functions so it cannot be
 # applied at some call sites and not others.
 check('the control is named for what it offers', 'id="mm_preview_show_nsfw"' in UI)
-check('and says so', 'Show NSFW In Model Preview' in UI)
+check('and says so', 'Show NSFW Images In Model Preview' in UI)
 check('the old wording is gone', 'Hide NSFW' in UI, False)
 check('nothing reads the checkbox directly', "getElementById('mm_preview_show_nsfw').checked" in JS, False)
 check('the value sent is the inverse of the box',
       'return checkbox ? !checkbox.checked : null;' in JS)
+# Both are called from four other functions, so they have to be declared at
+# module scope. Nested inside one of their callers they parse fine and throw
+# ReferenceError everywhere else, which is how they were first written.
+for helper in ('previewLeastNsfwFromCheckbox', 'setPreviewCheckboxFrom'):
+    check('%s is declared at module scope' % helper,
+          (chr(10) + 'function %s(' % helper) in JS)
 check('and the box is set as the inverse of the value',
       'if (checkbox) checkbox.checked = !previewLeastNsfw;' in JS)
 

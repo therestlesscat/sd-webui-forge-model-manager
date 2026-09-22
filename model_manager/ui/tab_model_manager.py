@@ -80,7 +80,7 @@ def create_ui():
                         <div class="filter-group filter-group-compact">
                             <label>Options</label>
                             <label class="mm-checkbox-label">
-                                <input type="checkbox" id="mm_preview_show_nsfw"> Show NSFW In Model Preview
+                                <input type="checkbox" id="mm_preview_show_nsfw"> Show NSFW Images In Model Preview
                             </label>
                         </div>
                         <div class="filter-group-bordered">
