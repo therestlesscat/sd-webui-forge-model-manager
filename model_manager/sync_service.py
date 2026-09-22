@@ -76,6 +76,10 @@ class SyncService:
         self.client = client or CivitaiClient.from_settings()
         self._cancel_requested = False
         self._progress = SyncProgress()
+        # sync_all() and sync_metadata() each replace this with a fresh lock,
+        # but sync_model() can be called on its own - after a download, say -
+        # and _classify_checkpoints() takes it either way.
+        self._progress_lock = threading.Lock()
 
     def calculate_hashes(self, file_path: str) -> HashResult:
         """
