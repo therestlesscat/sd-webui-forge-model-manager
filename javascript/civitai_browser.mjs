@@ -7,6 +7,7 @@
 
 import {
     onReady,
+    showApiKeyBanner,
     apiCall,
     escapeHtml,
     formatNumber,
@@ -1921,6 +1922,10 @@ function initTagInput() {
 // Initialize (with guard against multiple initializations)
 let isInitialized = false;
 function init() {
+    // Same warning as the Model Manager tab; the shared helper waits for the
+    // answer and the markup in whichever order they turn up.
+    showApiKeyBanner('cb_api_key_warning');
+
     if (isInitialized) {
         console.log('[CivitaiBrowser] Already initialized, skipping');
         return;

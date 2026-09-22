@@ -11,6 +11,61 @@
 
 export const IMAGE_PAGE_SIZE = 100;
 
+/**
+ * Show a tab's "no Civitai API key" banner, once both halves exist.
+ *
+ * Without a key the rate limit is 0.5 requests a second rather than 6, the
+ * tRPC endpoint carrying image prompts refuses outright, and some models will
+ * not download - so most of what this extension does either crawls or quietly
+ * fails, and both tabs need to say so.
+ *
+ * Nothing orders the two things this needs. The answer comes from a fetch
+ * started at import, from a <script type="module"> in the head; the markup
+ * appears when Gradio renders the tab. Applying it at fixed moments failed,
+ * because whichever ran first found the other half missing. So it waits for
+ * both, briefly, rather than guessing when they will be ready.
+ *
+ * The answer is fetched once however many tabs ask for it.
+ */
+const API_KEY_BANNER_TRIES = 20;        // 5 seconds, at 250ms apart
+
+let apiKeyMissing = null;
+let apiKeyRequest = null;
+
+export function apiKeyStatus() {
+    if (apiKeyMissing !== null) return Promise.resolve(apiKeyMissing);
+    if (!apiKeyRequest) {
+        apiKeyRequest = fetch('/model-manager/ui-options')
+            .then((r) => r.json())
+            .then((data) => {
+                // Answered even when the rest of that call failed.
+                apiKeyMissing = data.has_api_key === false;
+                return apiKeyMissing;
+            })
+            .catch(() => {
+                // Unreachable is not the same as unconfigured; say nothing
+                // rather than blame the key for a WebUI that is not answering.
+                apiKeyMissing = false;
+                return false;
+            });
+    }
+    return apiKeyRequest;
+}
+
+export function showApiKeyBanner(bannerId, attempt = 0) {
+    apiKeyStatus();                     // starts the one fetch, if needed
+
+    const banner = document.getElementById(bannerId);
+    if (apiKeyMissing === null || !banner) {
+        if (attempt < API_KEY_BANNER_TRIES) {
+            setTimeout(() => showApiKeyBanner(bannerId, attempt + 1), 250);
+        }
+        return;
+    }
+
+    banner.style.display = apiKeyMissing ? 'flex' : 'none';
+}
+
 // Shared across both tabs - only one tab renders images at a time
 export let lazyMediaObserver = null;
 
