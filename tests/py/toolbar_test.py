@@ -232,7 +232,7 @@ check('and Sort By tagged wide', 'filter-group mm-filter-wide' in BASIC)
 check('CSS narrows the compact one',
       '.filter-group.mm-filter-compact {' in CSS)
 check('and the wide rule outspecifies the box it sits in',
-      '.model-manager-filters .filter-group-bordered .filter-group.mm-filter-wide {' in CSS)
+      '.filter-group-bordered .filter-group.mm-filter-wide {' in CSS)
 
 # A <details> with no `open`: collapsed, with nothing for JavaScript to keep
 # in step. Adding `open` here would quietly undo the point of the split.
@@ -244,12 +244,20 @@ check('it sits below the search box and above the buttons',
       UI.index('filter-buttons-row'))
 check('CSS styles the summary', '.mm-advanced-summary {' in CSS)
 
-# The Civitai Browser kept its own copy of the control box, at the same
-# specificity as the shared rule and later in the file, so it won - which is
-# how its search and tag boxes ended up a different size from each other and
-# from everything in the other tab.
-check('the browser does not restate the control box',
-      '.cb-filters .filter-group input,' in CSS, False)
+# The Civitai Browser used to carry a parallel copy of the whole filter bar -
+# the row, the group, the label, the bordered box, the control box - scoped to
+# .cb-filters, at the same specificity as the shared rules and later in the
+# file, so every one of them won. That is why unifying a piece at a time kept
+# leaving the two tabs looking different. There is now one implementation, and
+# .cb-filters styles nothing but the panel it all sits in.
+for restated in ('.cb-filters .filter-row', '.cb-filters .filter-group',
+                 '.cb-filters .filter-group-bordered',
+                 '.cb-filters .filter-group-half'):
+    check('the browser does not restate %s' % restated, restated in CSS, False)
+check('the panel is the only thing .cb-filters is for',
+      CSS.count('.cb-filters'), 1)
+check('and it shares even that with the other tab',
+      '.model-manager-filters,' + chr(10) + '.cb-filters {' in CSS)
 tag_input_css = CSS[CSS.index('.cb-tag-container input {'):]
 tag_input_css = tag_input_css[:tag_input_css.index('}')]
 check('nor does the tag box', 'padding' in tag_input_css, False)

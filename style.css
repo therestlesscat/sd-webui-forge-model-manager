@@ -60,12 +60,14 @@ body.mm-modal-open {
 
 
 /* Header */
-.model-manager-header h2 {
+.model-manager-header h2,
+.cb-header h2 {
     margin: 0 0 15px 0;
 }
 
-/* Filter bar */
-.model-manager-filters {
+/* The panel the filters sit in, in either tab. */
+.model-manager-filters,
+.cb-filters {
     background: var(--block-background-fill, #1f2937);
     border-radius: 8px;
     padding: 15px;
@@ -105,7 +107,8 @@ body.mm-modal-open {
 .filter-group input:not([type="checkbox"]),
 .filter-group select,
 .filter-group .mm-multiselect-display,
-.filter-group .mm-checkbox-label {
+.filter-group .mm-checkbox-label,
+.filter-group .cb-checkbox-label {
     box-sizing: border-box;
     height: 36px;
     min-height: 36px;
@@ -140,7 +143,7 @@ body.mm-modal-open {
 }
 
 /* Bordered group for Sort By + Order (Model Manager) */
-.model-manager-filters .filter-group-bordered {
+.filter-group-bordered {
     display: flex;
     gap: 10px;
     padding: 8px 12px;
@@ -149,7 +152,7 @@ body.mm-modal-open {
     background: var(--input-background-fill, #111827);
 }
 
-.model-manager-filters .filter-group-bordered .filter-group {
+.filter-group-bordered .filter-group {
     min-width: 100px;
     flex: 0;
 }
@@ -158,14 +161,14 @@ body.mm-modal-open {
    toggle is a single checkbox and needs only the width of its own label;
    Sort By carries the longest options in the row ("Download Count"), and
    truncating those is what the space is for. */
-.model-manager-filters .filter-group.mm-filter-compact {
+.filter-group.mm-filter-compact {
     flex: 0 0 auto;
     min-width: 0;
 }
 
 /* Specific enough to beat .filter-group-bordered .filter-group, which pins
    every control in that box to 100px. */
-.model-manager-filters .filter-group-bordered .filter-group.mm-filter-wide {
+.filter-group-bordered .filter-group.mm-filter-wide {
     min-width: 165px;
     flex: 1;
 }
@@ -479,8 +482,9 @@ body.mm-modal-open {
     align-items: center;
 }
 
-/* Checkbox label inline with buttons */
-.mm-checkbox-label {
+/* An inline checkbox, in either tab. */
+.mm-checkbox-label,
+.cb-checkbox-label {
     display: flex;
     align-items: center;
     gap: 4px;
@@ -490,7 +494,8 @@ body.mm-modal-open {
     padding: 0 8px;
 }
 
-.mm-checkbox-label input[type="checkbox"] {
+.mm-checkbox-label input[type="checkbox"],
+.cb-checkbox-label input[type="checkbox"] {
     cursor: pointer;
 }
 
@@ -1765,61 +1770,14 @@ body.mm-modal-open {
     --cb-card-height: 280px;
 }
 
-.cb-header h2 {
-    margin: 0 0 15px 0;
-}
 
-/* Filters */
-.cb-filters {
-    background: var(--block-background-fill, #1f2937);
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 15px;
-}
-
-.cb-filters .filter-row {
-    display: flex;
-    gap: 15px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-    align-items: flex-end;
-}
-
-.cb-filters .filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 120px;
-}
-
-.cb-filters .filter-group label {
-    font-size: 0.85em;
-    color: var(--body-text-color-subdued, #9ca3af);
-}
-
-/* Bordered group for Period + Sort */
-.cb-filters .filter-group-bordered {
-    display: flex;
-    gap: 10px;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: var(--input-background-fill, #111827);
-}
-
-.cb-filters .filter-group-bordered .filter-group {
-    min-width: 100px;
-}
-
-/* Half-width filter groups */
-.cb-filters .filter-group-half {
-    flex: 1;
+/* The filter bar itself is the shared one - .filter-row, .filter-group and
+   the controls inside them are defined once, near the top. Only the
+   half-width group is the browser's own, and only because nothing in the
+   other tab needs it yet. */
+.filter-group-half {
     min-width: 200px;
     max-width: 50%;
-}
-
-.cb-filters .filter-group-half input {
-    width: 100%;
 }
 
 /* Tag container (single tag) */
@@ -1875,14 +1833,6 @@ body.mm-modal-open {
 .cb-tag-dropdown-item.selected {
     background: var(--primary-600, #2563eb);
     color: white;
-}
-
-.cb-checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    font-size: 0.9em;
 }
 
 /* Buttons: the Civitai Browser uses the shared definitions above. */
