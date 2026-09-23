@@ -1859,6 +1859,48 @@ window.mmCloseMetaModal = function(event) {
 };
 
 /**
+ * Turn resource hashes into Civitai versions, a round at a time.
+ *
+ * The server asks Civitai about a bounded number per request and hands the
+ * rest back as `deferred`, so a big image is resolved over several requests
+ * instead of one that runs for minutes. onRound is called after each round
+ * that leaves work outstanding, so the panel can show what is known so far.
+ *
+ * Returns every answer the server gave: hash -> { version_id, ... }, where a
+ * null version_id means Civitai does not know that hash. A hash missing from
+ * the result was never answered - its lookup failed.
+ */
+async function resolveResourceHashes(hashes, onRound) {
+    const resolved = {};
+    let pending = hashes;
+
+    while (pending.length) {
+        let data;
+        try {
+            const response = await fetch('/model-manager/resolve-hashes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'hashes=' + encodeURIComponent(pending.join(',')),
+            });
+            data = await response.json();
+        } catch (e) {
+            console.warn('[ModelManager] Could not resolve resource hashes:', e);
+            break;
+        }
+        if (!data.success) break;
+
+        Object.assign(resolved, data.resolved || {});
+        const deferred = data.deferred || [];
+        // A round that gets nowhere would loop for ever; stop instead.
+        if (deferred.length >= pending.length) break;
+        pending = deferred;
+        if (pending.length && onRound) onRound(resolved, pending.length);
+    }
+
+    return resolved;
+}
+
+/**
  * Gather an image's resources into one list, without guessing.
  *
  * The generation data names them twice. Civitai's own list carries
@@ -1872,11 +1914,15 @@ window.mmCloseMetaModal = function(event) {
  * an example *of* that model, so listing it says nothing - and it is a quarter
  * of all the rows in this library.
  *
+ * `finished` says whether every hash has had its answer. Until then a hash
+ * with no answer yet is still being looked up, and is left out rather than
+ * listed as unknown.
+ *
  * Returns { known, unknown }: resources with a Civitai version behind them,
- * and the rest - a filename with no hash, or a hash Civitai does not know.
- * Those are shown as they are rather than guessed at.
+ * and the rest - a filename with no hash, a hash Civitai does not know, or one
+ * that could not be checked. Those are shown as they are rather than guessed at.
  */
-async function gatherImageResources(img) {
+function mergeImageResources(img, resolved, finished) {
     const meta = img.meta || {};
     const civitai = meta.civitaiResources || [];
     const legacy = meta.resources || [];
@@ -1894,28 +1940,12 @@ async function gatherImageResources(img) {
         });
     }
 
-    // Everything the legacy list can be asked about, in one request.
-    const hashes = [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
-    let resolved = {};
-    if (hashes.length) {
-        try {
-            const response = await fetch('/model-manager/resolve-hashes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'hashes=' + encodeURIComponent(hashes.join(',')),
-            });
-            const data = await response.json();
-            if (data.success) resolved = data.resolved || {};
-        } catch (e) {
-            console.warn('[ModelManager] Could not resolve resource hashes:', e);
-        }
-    }
-
     const unknown = [];
     const seenUnknown = new Set();
     for (const resource of legacy) {
         const hash = (resource.hash || '').toLowerCase();
-        const match = hash ? resolved[hash] : null;
+        const answered = hash && Object.prototype.hasOwnProperty.call(resolved, hash);
+        const match = answered ? resolved[hash] : null;
 
         if (match && match.version_id) {
             if (match.version_id === currentVersionId) continue;
@@ -1929,21 +1959,30 @@ async function gatherImageResources(img) {
             continue;
         }
 
-        // No hash, or Civitai has never heard of it. Nothing can resolve these,
-        // so they are shown rather than dropped - deduplicated only where they
-        // are exactly the same thing.
+        // Asked about, but its answer has not come back yet.
+        if (hash && !answered && !finished) continue;
+
+        // No hash, or Civitai has never heard of it, or the lookup failed.
+        // Nothing more can be done with these, so they are shown rather than
+        // dropped - deduplicated only where they are exactly the same thing.
         const key = hash || ((resource.type || '') + ':' + (resource.name || ''));
         if (seenUnknown.has(key)) continue;
         seenUnknown.add(key);
         unknown.push({
             type: resource.type || 'Unknown',
             name: resource.name || 'Unknown',
-            reason: hash ? 'not on Civitai' : 'no hash recorded',
+            reason: !hash ? 'no hash recorded'
+                : answered ? 'not on Civitai'
+                : 'could not be checked',
         });
     }
 
     return { known: [...byVersion.values()], unknown };
 }
+
+// Which resources panel is current. A slow one - many hashes, no API key -
+// must not paint over one opened after it, and it now repaints each round.
+let resourcesRequest = 0;
 
 // Show the resources behind an image, resolved and merged
 window.mmShowResources = async function(imageIndex) {
@@ -1954,20 +1993,25 @@ window.mmShowResources = async function(imageIndex) {
     const legacy = img.meta.resources || [];
     if (civitai.length === 0 && legacy.length === 0) return;
 
-    // Up straight away, because an uncached hash takes a moment and a dialog
-    // that opens late reads as a dead button.
-    renderResourcesModal(null);
-    const resources = await gatherImageResources(img);
+    const request = ++resourcesRequest;
+    const stillWanted = () => request === resourcesRequest
+        && !!document.querySelector('.mm-resources-modal');
 
-    // Another modal may have replaced this one while the lookups were in flight.
-    if (!document.querySelector('.mm-resources-modal')) return;
-    renderResourcesModal(resources);
+    // Up straight away, with whatever needs no lookup, because an uncached
+    // hash takes a moment and a dialog that opens late reads as a dead button.
+    const hashes = [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
+    renderResourcesModal(mergeImageResources(img, {}, !hashes.length), hashes.length);
+    if (!hashes.length) return;
+
+    const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
+        if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false), remaining);
+    });
+
+    if (stillWanted()) renderResourcesModal(mergeImageResources(img, resolved, true), 0);
 };
 
-function renderResourcesModal(resources) {
-    const rows = resources === null
-        ? '<tr><td colspan="3" class="mm-res-loading">Looking these up on Civitai...</td></tr>'
-        : resources.known.map(resource => `
+function renderResourcesModal(resources, pending = 0) {
+    const rows = resources.known.map(resource => `
             <tr>
                 <td class="mm-res-type">${escapeHtml(resource.type)}</td>
                 <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
@@ -1979,11 +2023,16 @@ function renderResourcesModal(resources) {
             </tr>
         `).join('');
 
-    const nothingKnown = resources && resources.known.length === 0
+    // Still asking: say how many are left rather than claim there is nothing.
+    const stillLooking = pending > 0
+        ? `<tr><td colspan="3" class="mm-res-loading">Looking up ${pending} more on Civitai...</td></tr>`
+        : '';
+
+    const nothingKnown = pending === 0 && resources.known.length === 0
         ? '<tr><td colspan="3" class="mm-res-loading">Nothing here has a Civitai model behind it.</td></tr>'
         : '';
 
-    const unknownRows = resources && resources.unknown.length
+    const unknownRows = resources.unknown.length
         ? '<tr><td colspan="3" class="mm-res-group">Named in the generation data, but not found on Civitai</td></tr>'
           + resources.unknown.map(resource => `
             <tr class="mm-res-unresolved">
@@ -2011,7 +2060,7 @@ function renderResourcesModal(resources) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${rows}${nothingKnown}${unknownRows}
+                            ${rows}${stillLooking}${nothingKnown}${unknownRows}
                         </tbody>
                     </table>
                 </div>

@@ -257,6 +257,27 @@ _Counter.asked = []
 status, body = post('/model-manager/resolve-hashes', hashes='cccccccccc')
 check('a failure is not remembered as an answer', _Counter.asked, ['cccccccccc'])
 
+# Civitai is asked about a bounded number per request; the rest come back
+# deferred, to be sent again. Answers already known are never deferred.
+from model_manager.api.models import MAX_HASH_LOOKUPS            # noqa: E402
+
+many = ['%010x' % (0xf00000 + n) for n in range(MAX_HASH_LOOKUPS + 7)]
+_Counter.answers = {}
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes',
+                    hashes=','.join(['aaaaaaaaaa'] + many))
+check('Civitai is asked about no more than the cap in one request',
+      len(_Counter.asked), MAX_HASH_LOOKUPS)
+check('the rest are handed back to be asked again',
+      len(body['deferred']), 7)
+check('a hash already known is answered, not deferred',
+      'aaaaaaaaaa' in body['resolved'] and 'aaaaaaaaaa' not in body['deferred'], True)
+
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes=','.join(body['deferred']))
+check('sending the deferred ones asks about exactly those', len(_Counter.asked), 7)
+check('and leaves nothing over', body['deferred'], [])
+
 models_api.CivitaiClient = real_client
 
 # ---------------------------------------------------------------- bookmarking

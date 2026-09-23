@@ -34,9 +34,17 @@ ENUMS_TTL_SECONDS = 6 * 60 * 60
 
 
 def register(app: FastAPI):
-    """Attach this module's endpoints to the app."""
+    """Attach this module's endpoints to the app.
+
+    The ones that wait on Civitai, or on a sync, are plain `def`, not `async
+    def`. This app is the WebUI's own, and it serves every request from one
+    event loop: an async handler runs on that loop, and one that blocks in
+    `requests` holds it, so every other request in the WebUI - Gradio's
+    included - waits until Civitai answers. FastAPI runs a plain `def` handler
+    on a worker thread instead. tests/py/loop_test.py holds this in place.
+    """
     @app.get("/model-manager/civitai/models")
-    async def civitai_search_models(
+    def civitai_search_models(
         query: str = "",
         types: str = "",          # Comma-separated: Checkpoint,LORA,etc
         base_models: str = "",    # Comma-separated: SD 1.5,SDXL,etc
@@ -275,7 +283,7 @@ def register(app: FastAPI):
         )
 
     @app.get("/model-manager/civitai/models/{model_id}")
-    async def civitai_get_model(model_id: int):
+    def civitai_get_model(model_id: int):
         """
         Get full model details from Civitai with local ownership status.
         """
@@ -330,7 +338,7 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/civitai/versions/{version_id}/images")
-    async def civitai_get_version_images(
+    def civitai_get_version_images(
         version_id: int,
         model_id: int = 0,
         use_cache: bool = True
@@ -411,7 +419,7 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/civitai/versions/{version_id}/images/load-more")
-    async def civitai_load_more_images(version_id: int, model_id: int = Form(...)):
+    def civitai_load_more_images(version_id: int, model_id: int = Form(...)):
         """
         Load more images for a Civitai version using cached cursor.
         """
@@ -495,7 +503,7 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/civitai/download")
-    async def civitai_download_model(
+    def civitai_download_model(
         version_id: int = Form(...),
         model_id: int = Form(...),
         file_index: Optional[int] = Form(default=None),
@@ -636,7 +644,7 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/civitai/tags")
-    async def civitai_search_tags(
+    def civitai_search_tags(
         query: str = "",
         limit: int = 20,
     ):
@@ -682,7 +690,7 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/civitai/enums")
-    async def civitai_enums():
+    def civitai_enums():
         """
         Model types and base models Civitai currently accepts as filters.
 

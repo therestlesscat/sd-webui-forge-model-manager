@@ -67,6 +67,11 @@ const RESOLVED = {
 };
 
 const resolveCalls = [];
+// How the fake server answers /resolve-hashes. By default it knows everything
+// in RESOLVED and answers it all at once. `cap` makes it answer only that many
+// per request and defer the rest, as the real one does for Civitai lookups.
+// `hold` makes it wait for a promise first, to stand for a slow Civitai.
+const resolver = { cap: null, hold: null, answers: RESOLVED };
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -78,7 +83,16 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/resolve-hashes')) {
         const asked = decodeURIComponent(String(init.body || '').replace('hashes=', ''));
         resolveCalls.push(asked);
-        return { ok: true, json: async () => ({ success: true, resolved: RESOLVED }) };
+        if (resolver.hold) await resolver.hold;
+        const wanted = asked.split(',').filter(Boolean);
+        const now = resolver.cap ? wanted.slice(0, resolver.cap) : wanted;
+        const resolved = {};
+        for (const hash of now) {
+            if (hash in resolver.answers) resolved[hash] = resolver.answers[hash];
+        }
+        return { ok: true, json: async () => ({
+            success: true, resolved,
+            deferred: resolver.cap ? wanted.slice(resolver.cap) : [] }) };
     }
     if (href.includes('/model-manager/models/details')) {
         return { ok: true, json: async () => ({ success: true, model: {
@@ -127,9 +141,11 @@ check('counting everything but the model itself',
 
 const showing = window.mmShowResources(0);
 check('the panel goes up before the lookups finish, not after',
-      !!panel() && panel().textContent.includes('Looking these up'), true);
+      !!panel() && panel().textContent.includes('Looking up 4 more'), true);
+check('already showing what needed no lookup',
+      names('tr:not(.mm-res-unresolved)').includes('Space Worlds'), true);
 await showing;
-await waitFor('the lookups', () => !!panel() && !panel().textContent.includes('Looking these up'));
+await waitFor('the lookups', () => !!panel() && !panel().textContent.includes('Looking up'));
 
 check('the hashes go in one request', resolveCalls.length, 1);
 check('each distinct hash asked about once',
@@ -162,5 +178,57 @@ check('under a heading that says why',
 
 check('nothing offers a lookup any more, it has already happened',
       panel().textContent.includes('Lookup'), false);
+
+// ------------------------------------------------------------- in rounds
+// The server asks Civitai about a bounded number per request and defers the
+// rest, so a big image resolves over several requests, showing what it has
+// after each.
+resolver.cap = 1;
+resolveCalls.length = 0;
+const rounds = window.mmShowResources(0);
+await waitFor('a first round', () => resolveCalls.length >= 1);
+await rounds;
+check('a capped server is asked again for what it deferred', resolveCalls.length, 4);
+check('each round asks only for what is still outstanding',
+      resolveCalls.map((c) => c.split(',').length), [4, 3, 2, 1]);
+check('and the finished panel is the same as in one go',
+      names('tr:not(.mm-res-unresolved)').sort(),
+      ['Sci-fi Environments', 'Space Worlds', 'VAE ft MSE']);
+resolver.cap = null;
+
+// ----------------------------------------------- what could not be checked
+// A hash whose lookup failed is not the same as one Civitai does not know.
+resolver.answers = { ...RESOLVED };
+delete resolver.answers.dddddddddd;
+await window.mmShowResources(0);
+await waitFor('the panel', () => !!panel() && !panel().textContent.includes('Looking up'));
+const reasons = Array.from(panel().querySelectorAll('.mm-res-unresolved'))
+    .map((row) => row.querySelector('.mm-res-actions').textContent.trim());
+check('a lookup that got no answer says it could not be checked',
+      reasons.includes('could not be checked'), true);
+check('rather than claiming Civitai does not have it',
+      reasons.includes('not on Civitai'), false);
+resolver.answers = RESOLVED;
+
+// ------------------------------------------------ a newer panel wins
+// The panel repaints after each round, so a slow one - many hashes, no API
+// key - could paint over one opened after it. It must not.
+let release;
+resolver.hold = new Promise((resolve) => { release = resolve; });
+const slow = window.mmShowResources(0);
+await waitFor('the slow lookup to be in flight', () => resolveCalls.length > 0);
+
+// Meanwhile the panel is closed and a different one opened in its place.
+document.querySelector('.mm-modal-overlay')?.remove();
+document.body.insertAdjacentHTML('beforeend',
+    '<div class="mm-modal-overlay"><div class="mm-modal mm-resources-modal" id="newer-panel"></div></div>');
+resolver.hold = null;
+await window.mmShowResources(0);
+const newer = panel();
+
+release();
+await slow;
+check('the older lookup does not paint over the panel opened after it',
+      panel() === newer, true);
 
 done();

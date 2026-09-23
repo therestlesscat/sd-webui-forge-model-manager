@@ -14,9 +14,17 @@ from ..civitai import CivitaiClient, enrich_images_with_generation_data
 
 
 def register(app: FastAPI):
-    """Attach this module's endpoints to the app."""
+    """Attach this module's endpoints to the app.
+
+    The ones that wait on Civitai, or on a sync, are plain `def`, not `async
+    def`. This app is the WebUI's own, and it serves every request from one
+    event loop: an async handler runs on that loop, and one that blocks in
+    `requests` holds it, so every other request in the WebUI - Gradio's
+    included - waits until Civitai answers. FastAPI runs a plain `def` handler
+    on a worker thread instead. tests/py/loop_test.py holds this in place.
+    """
     @app.post("/model-manager/images/resync")
-    async def resync_images(version_id: int = Form(default=0)):
+    def resync_images(version_id: int = Form(default=0)):
         """
         Clear and re-fetch images for a version using cursor pagination.
 
@@ -81,7 +89,7 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/images/load-more")
-    async def load_more_images(
+    def load_more_images(
         version_id: int = Form(default=0)
     ):
         """
