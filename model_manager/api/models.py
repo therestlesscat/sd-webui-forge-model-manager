@@ -230,7 +230,8 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/models/details")
-    async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None):
+    async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
+                                hide_promptless_images: Optional[bool] = None):
         """Get detailed info for a specific model by file path."""
         try:
             from ..storage import load_model_metadata
@@ -322,11 +323,18 @@ def register(app: FastAPI):
                 from modules import shared
                 if hide_nsfw_images is None:
                     hide_nsfw_images = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+                if hide_promptless_images is None:
+                    hide_promptless_images = getattr(
+                        shared.opts, 'model_manager_hide_promptless_images', True)
 
                 max_nsfw_level = SFW_MAX if hide_nsfw_images else None
 
-                images = db.get_all_images_for_version(version_id, max_nsfw_level=max_nsfw_level)
-                image_counts = db.get_image_counts(version_id, max_nsfw_level=max_nsfw_level)
+                images = db.get_all_images_for_version(
+                    version_id, max_nsfw_level=max_nsfw_level,
+                    require_prompt=hide_promptless_images)
+                image_counts = db.get_image_counts(
+                    version_id, max_nsfw_level=max_nsfw_level,
+                    require_prompt=hide_promptless_images)
 
                 if images:
                     result["images"] = images  # Raw image data from cache
@@ -339,7 +347,10 @@ def register(app: FastAPI):
                     "total_count": image_counts["total"],
                     "filtered_count": image_counts["filtered"],
                     "hidden_count": image_counts["hidden"],
+                    "hidden_nsfw": image_counts["hidden_nsfw"],
+                    "hidden_promptless": image_counts["hidden_promptless"],
                     "hide_nsfw_images": hide_nsfw_images,
+                    "hide_promptless_images": hide_promptless_images,
                 }
 
             return JSONResponse({"success": True, "model": result})

@@ -79,6 +79,18 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_hide_promptless_images",
+        shared.OptionInfo(
+            default=True,
+            label="Example images: hide the ones with no prompt",
+            component=gr.Checkbox,
+            section=section,
+        ).info("About a tenth of Civitai's images carry no prompt at all, and "
+               "they cannot be read or reused. Can be turned back on per model "
+               "from the panel above the images.")
+    )
+
+    shared.opts.add_option(
         "model_manager_image_browsing",
         shared.OptionInfo(
             default="continuous",

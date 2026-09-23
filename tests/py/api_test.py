@@ -213,5 +213,54 @@ code, body = post('/model-manager/models/delete', path=r'Z:\nope\missing.safeten
 check('deleting nothing answers 404 rather than crashing', code, 404)
 check('and says so', body.get('success'), False)
 
+# --- hiding images with no prompt -------------------------------------------
+# Filtered in SQL rather than in the browser, so the counts come from the same
+# place the images do. A prompt shorter than MIN_PROMPT_LENGTH is not one:
+# measured over a real library, what sits below four characters is "1", ".",
+# "???" - never something a person wrote.
+from model_manager.civitai.prompt_filter import MIN_PROMPT_LENGTH   # noqa: E402
+
+VERSION = facts['version_ids'][0]
+db.clear_version_images(VERSION)
+db.store_images(VERSION, page=1, images=[
+    {'id': 90001, 'url': 'u1', 'browsingLevel': 1,
+     'meta': {'prompt': 'a long enough prompt', 'steps': 20}},
+    {'id': 90002, 'url': 'u2', 'browsingLevel': 1, 'meta': {'prompt': '   '}},
+    {'id': 90003, 'url': 'u3', 'browsingLevel': 1, 'meta': None},
+    {'id': 90004, 'url': 'u4', 'browsingLevel': 1, 'meta': {'prompt': '1'}},
+    {'id': 90005, 'url': 'u5', 'browsingLevel': 1,
+     'meta': {'prompt': ' ' * 5 + 'cat'}},
+    {'id': 90006, 'url': 'u6', 'browsingLevel': 1, 'meta': {'prompt': 'tree'}},
+])
+
+kept = [i['id'] for i in db.get_all_images_for_version(VERSION, require_prompt=True)]
+check('a prompt worth reading is kept', 90001 in kept)
+check('one exactly at the floor is kept', 90006 in kept)
+check('whitespace is trimmed before measuring, so a padded short one is not',
+      90005 in kept, False)
+check('nor a blank prompt', 90002 in kept, False)
+check('nor no meta at all', 90003 in kept, False)
+check('nor a single character', 90004 in kept, False)
+check('the floor is what the browser uses', MIN_PROMPT_LENGTH, 4)
+
+check('without the filter they all come back',
+      len(db.get_all_images_for_version(VERSION)), 6)
+
+counts = db.get_image_counts(VERSION, require_prompt=True)
+check('the counts say how many each filter hides',
+      (counts['total'], counts['filtered'], counts['hidden_promptless'],
+       counts['hidden_nsfw']), (6, 2, 4, 0))
+
+status, body = get('/model-manager/models/details', path=facts['linked_paths'][0],
+                   hide_promptless_images='true')
+state = body['model']['images_state']
+check('the endpoint filters too', len(body['model']['images']), 2)
+check('and reports what it held back', state['hidden_promptless'], 4)
+check('saying which way the switch is set', state['hide_promptless_images'], True)
+
+status, body = get('/model-manager/models/details', path=facts['linked_paths'][0],
+                   hide_promptless_images='false')
+check('and it can be turned off', len(body['model']['images']), 6)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
