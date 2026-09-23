@@ -17,11 +17,16 @@ def register(app: FastAPI):
     async def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         has_api_key = False
+        # The gallery asks for this before it renders, so it has to survive
+        # the samplers being unreadable - hence its own try, like the key.
+        image_browsing = "continuous"
         try:
             from modules import shared
             has_api_key = bool(
                 (getattr(shared.opts, 'model_manager_civitai_api_key', '') or '').strip()
             )
+            image_browsing = getattr(
+                shared.opts, 'model_manager_image_browsing', 'continuous')
         except Exception:
             pass
 
@@ -38,7 +43,8 @@ def register(app: FastAPI):
                 "success": True,
                 "samplers": samplers,
                 "schedulers": schedulers,
-                "has_api_key": has_api_key
+                "has_api_key": has_api_key,
+                "image_browsing": image_browsing,
             })
 
         except Exception as e:
@@ -48,6 +54,7 @@ def register(app: FastAPI):
             # The key question is answerable even when the rest is not, and
             # the banner should not depend on samplers being readable.
             return JSONResponse(
-                {"success": False, "error": str(e), "has_api_key": has_api_key},
+                {"success": False, "error": str(e), "has_api_key": has_api_key,
+                 "image_browsing": image_browsing},
                 status_code=500
             )

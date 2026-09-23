@@ -79,6 +79,21 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_image_browsing",
+        shared.OptionInfo(
+            default="continuous",
+            label="Example images: how to move through them",
+            component=gr.Radio,
+            component_args={"choices": [
+                ("Continuous - one list, with a button to show more", "continuous"),
+                ("Pages - a page at a time, with page controls", "pages"),
+            ]},
+            section=section,
+        ).info("Continuous keeps your place as more images appear. Pages jumps "
+               "back to the top of the list each time a page is added.")
+    )
+
+    shared.opts.add_option(
         "model_manager_civitai_folder_template",
         shared.OptionInfo(
             default="_{baseModel}/{modelName}",

@@ -57,6 +57,14 @@ def have_linkedom():
     return os.path.isdir(os.path.join(HERE, 'node_modules', 'linkedom'))
 
 
+# A setting read once at import cannot be toggled mid-run, so these suites are
+# run once per value instead. The label says which run it was.
+VARIANTS = {
+    'gallery_test.mjs': [('continuous', {'MM_IMAGE_BROWSING': 'continuous'}),
+                         ('pages', {'MM_IMAGE_BROWSING': 'pages'})],
+}
+
+
 def main(argv):
     online = '--online' in argv
     wanted = [a for a in argv if not a.startswith('-')]
@@ -88,15 +96,18 @@ def main(argv):
             print('  SKIP  %-44s %s' % (label, reason))
             continue
 
-        result = subprocess.run(runner_for(path), cwd=ROOT,
-                                capture_output=True, text=True)
-        if result.returncode == 0:
-            passed += 1
-            print('  ok    %s' % label)
-        else:
-            failed += 1
-            failures.append((label, result))
-            print('  FAIL  %s' % label)
+        for suffix, extra in VARIANTS.get(name, [(None, {})]):
+            env = dict(os.environ, **extra) if extra else None
+            run_label = label if suffix is None else '%s (%s)' % (label, suffix)
+            result = subprocess.run(runner_for(path), cwd=ROOT,
+                                    capture_output=True, text=True, env=env)
+            if result.returncode == 0:
+                passed += 1
+                print('  ok    %s' % run_label)
+            else:
+                failed += 1
+                failures.append((run_label, result))
+                print('  FAIL  %s' % run_label)
 
     print()
     for label, result in failures:

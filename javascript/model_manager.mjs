@@ -240,6 +240,13 @@ let currentImages = [];
 let currentVersionId = null;
 let currentModelPath = null;
 let currentImagePage = 1;
+// "continuous" grows one list downwards; "pages" shows a page at a time. The
+// setting is read once at load, below, and defaults to continuous so a WebUI
+// that has never seen the option behaves like the one that has.
+let imageBrowsing = 'continuous';
+// How many of the loaded images the continuous list is showing. Paging mode
+// ignores it, so the two modes cannot disagree about where you are.
+let visibleImageCount = IMAGE_PAGE_SIZE;
 let nextImagesCursor = null;  // Cursor for loading more images
 let imagesSyncDate = null;    // Last sync date (null = never synced)
 let isLoadingMore = false;
@@ -847,6 +854,7 @@ window.mmSelectModel = async function(index) {
     currentVersionId = null;
     currentModelPath = model.file_path;
     currentImagePage = 1;
+    visibleImageCount = IMAGE_PAGE_SIZE;
     nextImagesCursor = null;
     imagesSyncDate = null;
 
@@ -933,6 +941,7 @@ async function loadVersionDetails(filePath) {
 window.mmToggleHideNsfwImages = async function(checked) {
     hideNsfwImages = checked;
     currentImagePage = 1;
+    visibleImageCount = IMAGE_PAGE_SIZE;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
     }
@@ -960,6 +969,7 @@ window.mmSelectVersion = async function(versionIndex) {
     currentImages = [];
     currentVersionId = null;
     currentImagePage = 1;
+    visibleImageCount = IMAGE_PAGE_SIZE;
     nextImagesCursor = null;
     imagesSyncDate = null;
 
@@ -1492,10 +1502,17 @@ function renderModelImages(images) {
         return;
     }
 
-    const pageStart = (currentImagePage - 1) * IMAGE_PAGE_SIZE;
-    const pageEnd = Math.min(pageStart + IMAGE_PAGE_SIZE, images.length);
+    // Continuous shows everything from the first image down to wherever the
+    // reader has got to; paging shows one page. Only the slice differs - the
+    // cards, the counts and the download button are the same either way.
+    const paging = imageBrowsing === 'pages';
+    const pageStart = paging ? (currentImagePage - 1) * IMAGE_PAGE_SIZE : 0;
+    const pageEnd = paging
+        ? Math.min(pageStart + IMAGE_PAGE_SIZE, images.length)
+        : Math.min(visibleImageCount, images.length);
     const pageImages = images.slice(pageStart, pageEnd);
     const imageCards = pageImages.map((img, index) => renderImageCard(img, pageStart + index)).filter(Boolean).join('');
+    const moreToShow = !paging && pageEnd < images.length;
 
     if (!imageCards) {
         container.style.display = 'none';
@@ -1510,25 +1527,40 @@ function renderModelImages(images) {
     const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
     const infoText = neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`;
 
-    const downloadMoreHtml = showDownloadBtn && currentImagePage === totalPages
+    // One button at the foot of the list. While there are images already
+    // downloaded but not yet on screen it shows those - no request, no wait.
+    // Once they are all up, it offers to fetch more from Civitai.
+    const atEnd = paging ? currentImagePage === totalPages : !moreToShow;
+    const downloadMoreHtml = moreToShow
         ? `<div class="mm-load-more">
-             <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()">
-               ${buttonText}
+             <button class="mm-btn secondary" id="mm_show_more_btn" onclick="window.mmShowMoreImages()">
+               Show More Images
              </button>
-             <span class="mm-load-more-info">${infoText}</span>
+             <span class="mm-load-more-info">${pageEnd} of ${images.length} shown</span>
            </div>`
-        : '';
+        : (showDownloadBtn && atEnd
+            ? `<div class="mm-load-more">
+                 <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()">
+                   ${buttonText}
+                 </button>
+                 <span class="mm-load-more-info">${infoText}</span>
+               </div>`
+            : '');
+
+    const countText = paging
+        ? `${pageStart + 1}-${pageEnd} of ${images.length} images (Page ${currentImagePage}/${totalPages})`
+        : `${pageEnd} of ${images.length} images`;
 
     container.innerHTML = `
         <div class="mm-images-header">
             <h4>Example Images</h4>
-            <span class="mm-images-count">${pageStart + 1}-${pageEnd} of ${images.length} images (Page ${currentImagePage}/${totalPages})</span>
+            <span class="mm-images-count">${countText}</span>
         </div>
         ${nsfwWarningHtml}
-        ${renderImagePagination(totalPages, 'top')}
+        ${paging ? renderImagePagination(totalPages, 'top') : ''}
         <div class="model-images-list">${imageCards}</div>
         ${downloadMoreHtml}
-        ${renderImagePagination(totalPages, 'bottom')}
+        ${paging ? renderImagePagination(totalPages, 'bottom') : ''}
     `;
     container.style.display = 'block';
     setupLazyMedia(container);
@@ -1941,11 +1973,17 @@ window.mmLoadMoreImages = async function() {
                 nextImagesCursor = data.next_cursor || null;
                 imagesSyncDate = new Date().toISOString();  // Mark as synced
 
-                const oldPages = getImagePageCount(oldCount);
-                const newPages = getImagePageCount(currentImages.length);
-                if (newPages > oldPages) {
-                    await scrollToModelImagesTop();
-                    currentImagePage = newPages;
+                if (imageBrowsing === 'pages') {
+                    const oldPages = getImagePageCount(oldCount);
+                    const newPages = getImagePageCount(currentImages.length);
+                    if (newPages > oldPages) {
+                        await scrollToModelImagesTop();
+                        currentImagePage = newPages;
+                    }
+                } else {
+                    // Show what just arrived, and stay where the reader is.
+                    visibleImageCount = Math.max(visibleImageCount,
+                                                 oldCount + newImages.length);
                 }
 
                 renderModelImages(currentImages);
@@ -1989,18 +2027,23 @@ window.mmLoadMoreImages = async function() {
 function updateAllImageCounts() {
     // Header count
     const headerCount = document.querySelector('.mm-images-count');
-    if (headerCount) {
+    if (headerCount && currentImages.length === 0) {
+        headerCount.textContent = '0 images';
+    } else if (headerCount && imageBrowsing === 'pages') {
         const totalPages = getImagePageCount(currentImages.length);
-        const pageStart = currentImages.length > 0 ? ((currentImagePage - 1) * IMAGE_PAGE_SIZE) + 1 : 0;
+        const pageStart = ((currentImagePage - 1) * IMAGE_PAGE_SIZE) + 1;
         const pageEnd = Math.min(currentImagePage * IMAGE_PAGE_SIZE, currentImages.length);
-        headerCount.textContent = currentImages.length > 0
-            ? `${pageStart}-${pageEnd} of ${currentImages.length} images (Page ${currentImagePage}/${totalPages})`
-            : '0 images';
+        headerCount.textContent =
+            `${pageStart}-${pageEnd} of ${currentImages.length} images (Page ${currentImagePage}/${totalPages})`;
+    } else if (headerCount) {
+        headerCount.textContent =
+            `${Math.min(visibleImageCount, currentImages.length)} of ${currentImages.length} images`;
     }
 
-    // Load more info
+    // Load more info. Left alone while the button is offering images that are
+    // already here - "downloaded" would be answering a different question.
     const loadMoreInfo = document.querySelector('.mm-load-more-info');
-    if (loadMoreInfo) {
+    if (loadMoreInfo && !document.getElementById('mm_show_more_btn')) {
         loadMoreInfo.textContent = `${currentImages.length} images downloaded`;
     }
 
@@ -2326,6 +2369,12 @@ async function loadUIOptionsFromAPI() {
                 cachedSamplers = data.samplers;
                 console.log('[ModelManager] Loaded samplers from API:', cachedSamplers);
             }
+        }
+        // Outside the success check: the endpoint answers this even when the
+        // samplers cannot be read, for the same reason the key banner does.
+        if (data.image_browsing === 'pages' || data.image_browsing === 'continuous') {
+            imageBrowsing = data.image_browsing;
+            console.log('[ModelManager] Example images:', imageBrowsing);
         }
     } catch (error) {
         console.error('[ModelManager] Failed to load UI options:', error);
@@ -2758,6 +2807,14 @@ window.mmShowInCivitaiBrowser = function(modelId) {
     // The grid sizes itself from the viewport, so let the tab become visible
     // before searching - measuring a hidden tab gives nonsense.
     setTimeout(() => window.cbShowModel('model:' + modelId), 100);
+};
+
+// Reveal more of what is already downloaded. No request, and deliberately no
+// scroll: the point of the continuous list is that the images you were
+// reading stay where they were.
+window.mmShowMoreImages = function() {
+    visibleImageCount += IMAGE_PAGE_SIZE;
+    renderModelImages(currentImages);
 };
 
 window.mmCloseDetails = function() {
