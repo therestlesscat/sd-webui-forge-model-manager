@@ -301,8 +301,27 @@ code, body = get('/model-manager/models/details', path=victim)
 check('and so is its row', body.get('success'), False)
 
 code, body = post('/model-manager/models/delete', path=r'Z:\nope\missing.safetensors')
-check('deleting nothing answers 404 rather than crashing', code, 404)
+check('a path the library has never seen is refused', code, 403)
 check('and says so', body.get('success'), False)
+
+# A real file, sitting beside the library, that the database knows nothing
+# about. The endpoint used to delete whatever it was sent, siblings included.
+bystander = os.path.join(facts['directory'], 'not_a_model.txt')
+bystander_sibling = os.path.join(facts['directory'], 'not_a_model.png')
+for path in (bystander, bystander_sibling):
+    with open(path, 'w') as f:
+        f.write('keep me')
+code, body = post('/model-manager/models/delete', path=bystander)
+check('a file outside the library is refused', (code, body.get('error')),
+      (403, 'Not a model in the library'))
+check('and is still there', os.path.exists(bystander), True)
+check('as is the picture beside it', os.path.exists(bystander_sibling), True)
+
+# A model the library knows, whose file has already gone.
+ghost = facts['local_only_paths'][1]
+os.remove(ghost)
+code, body = post('/model-manager/models/delete', path=ghost)
+check('a known model whose file is gone still answers 404', code, 404)
 
 # --- hiding images with no prompt -------------------------------------------
 # Filtered in SQL rather than in the browser, so the counts come from the same

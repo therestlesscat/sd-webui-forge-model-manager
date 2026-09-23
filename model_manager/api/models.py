@@ -524,6 +524,19 @@ def register(app: FastAPI):
         import glob
 
         try:
+            # Only ever a file the library itself recorded. This used to delete
+            # whatever path it was sent - plus its .png/.jpg/.civitai.info
+            # siblings - and the request is a plain form POST, so another page
+            # or a script in this one could name any file the WebUI can write.
+            # The UI only sends paths it read from the database, so it cannot
+            # tell the difference. Checked before touching the disk, so this is
+            # not a way to ask whether an arbitrary file exists either.
+            if not get_models_db().get_version(path):
+                return JSONResponse(
+                    {"success": False, "error": "Not a model in the library"},
+                    status_code=403
+                )
+
             if not os.path.exists(path):
                 return JSONResponse(
                     {"success": False, "error": "Model file not found"},
