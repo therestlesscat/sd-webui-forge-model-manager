@@ -329,6 +329,17 @@ check('it looks for the tab by the name the tab is registered under',
 check('and the browser registers exactly that',
       '"Civitai Browser"' in io.open(
           os.path.join(ROOT, 'scripts/model_manager_ui.py'), encoding='utf-8').read())
+# Both header actions are the shared small button, so they are the same size
+# as each other. Sync used to be a pill of its own - 0.75em text and a height
+# that came from its padding - beside a 28px button, which is what put them
+# out of line.
+for action in ('mmForceSyncModel', 'mmShowInCivitaiBrowser'):
+    call = JS[JS.index(action) - 200:JS.index(action)]
+    check('%s is on a shared button' % action, 'mm-btn' in call and 'mm-btn-small' in call)
+check('neither carries a tab-specific class', 'cb-header-action' in JS, False)
+check('and the header rule names the shared one',
+      '.detail-header .header-action {' in CSS)
+
 check('it sends the same syntax this tab takes',
       "window.cbShowModel('model:' + modelId)" in JS)
 
