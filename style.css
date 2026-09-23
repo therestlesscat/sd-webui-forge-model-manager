@@ -677,22 +677,6 @@ body.mm-modal-open {
     color: #fca5a5;
 }
 
-/* The image list's NSFW override, always present in the header */
-.mm-images-header .cb-show-all-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    padding-left: 12px;
-    font-size: 0.85em;
-    white-space: nowrap;
-    cursor: pointer;
-}
-
-.mm-images-header .cb-show-all-label input {
-    cursor: pointer;
-}
-
 /* Badges */
 .badge {
     display: inline-block;

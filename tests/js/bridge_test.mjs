@@ -208,6 +208,33 @@ check('the prompt filter can render a gallery', renderError, null);
 check('keeping only the image with a prompt to reuse',
       $('cb_images').querySelectorAll('.mm-image-card').length, 1);
 
+// --------------------------------------------- the NSFW switch, in the banner
+// It sits on the right of the banner, as in the Model Manager, rather than in
+// the list's header. The banner is up whenever something is hidden and stays
+// up while everything is shown, so the switch can always be turned back.
+galleryImages = [
+    { id: 21, url: 'https://example.invalid/21.jpeg', browsingLevel: 1,
+      meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
+    { id: 22, url: 'https://example.invalid/22.jpeg', browsingLevel: 8,
+      meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
+];
+await window.cbShowModel('model:12345');
+await settle();
+const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
+const bannerText = () => (document.querySelector('.cb-nsfw-warning span') || {}).textContent || '';
+
+window.cbToggleShowAllImages(false);
+check('the NSFW switch sits in the banner', switchIn('.cb-nsfw-warning'), 1);
+check('not in the list header', switchIn('.mm-images-header'), 0);
+check('and there is one of it, not one per banner',
+      document.querySelectorAll('#cb_show_all_images').length, 1);
+check('beside a count of what it is holding back', bannerText().includes('1 hidden'), true);
+
+window.cbToggleShowAllImages(true);
+check('with everything shown the switch is still there to turn back',
+      switchIn('.cb-nsfw-warning'), 1);
+check('and the banner says so', bannerText().includes('Showing all 2'), true);
+
 console.log(fails.length
     ? fails.map((f) => 'FAIL ' + f).join('\n')
     : 'All checks passed.');

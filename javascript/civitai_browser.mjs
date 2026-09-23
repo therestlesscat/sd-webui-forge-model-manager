@@ -1202,20 +1202,31 @@ function renderImages() {
            </div>`
         : '';
 
-    // Always offered, so NSFW images can be revealed whatever the search
-    // asked for - not only once something has already been hidden.
+    // The switch lives in the banner, on the right, as it does in the Model
+    // Manager: the banner says what is being held back and offers to show it.
+    // It is up whenever something is hidden, and stays up while everything
+    // is shown, so the switch can always be turned back.
     const nsfwNsfwCount = currentImages.filter(img => !isImageSafe(img)).length;
-    const nsfwToggleHtml = `
-        <label class="cb-show-all-label" title="Show images above the level the search asked for">
-            <input type="checkbox" id="cb_show_all_images" ${showAllNsfwImages ? 'checked' : ''}
-                   onchange="window.cbToggleShowAllImages(this.checked)">
-            Show NSFW${nsfwNsfwCount > 0 ? ` (${nsfwNsfwCount})` : ''}
-        </label>`;
+    const showNsfwBanner = currentImages.length > 0 && (hiddenCount > 0 || showAllNsfwImages);
+    const nsfwSummary = showAllNsfwImages
+        ? `Showing all ${currentImages.length} images`
+        : `Showing ${imagesToShow.length} of ${currentImages.length} images (${hiddenCount} hidden as NSFW)`;
 
-    const nsfwWarningHtml = hiddenCount > 0
+    const nsfwWarningHtml = showNsfwBanner
         ? `<div class="cb-nsfw-warning">
-            <span>Showing ${imagesToShow.length} of ${currentImages.length} images (${hiddenCount} hidden as NSFW)</span>
+            <span>${nsfwSummary}</span>
+            <label class="cb-show-all-label" title="Show images above the level the search asked for">
+                <input type="checkbox" id="cb_show_all_images" ${showAllNsfwImages ? 'checked' : ''}
+                       onchange="window.cbToggleShowAllImages(this.checked)">
+                Show NSFW${nsfwNsfwCount > 0 ? ` (${nsfwNsfwCount})` : ''}
+            </label>
            </div>`
+        : '';
+
+    // The same summary again under a long list, without a second switch -
+    // two would share an id, and one is enough.
+    const nsfwFooterHtml = hiddenCount > 0
+        ? `<div class="cb-nsfw-warning"><span>${nsfwSummary}</span></div>`
         : '';
 
     const imageCards = pageImages.map((img) => {
@@ -1240,13 +1251,12 @@ function renderImages() {
         <div class="mm-images-header">
             <h4>Example Images</h4>
             <span class="mm-images-count">${imagesToShow.length > 0 ? `${pageStart + 1}-${pageEnd} of ${imagesToShow.length}` : '0'}${(hiddenCount + promptHiddenCount) > 0 ? ` (${hiddenCount + promptHiddenCount} hidden)` : ''} images (Page ${currentImagePage}/${totalPages})</span>
-            ${nsfwToggleHtml}
         </div>
         ${nsfwWarningHtml}
         ${promptWarningHtml}
         ${renderImagePagination(totalPages, 'top')}
         <div class="model-images-list">${imageCards}</div>
-        ${hiddenCount > 0 ? nsfwWarningHtml : ''}
+        ${nsfwFooterHtml}
         ${loadMoreHtml}
         ${renderImagePagination(totalPages, 'bottom')}
     `;
