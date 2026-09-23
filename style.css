@@ -1547,6 +1547,7 @@ body.mm-modal-open {
 
 .mm-resources-table td {
     color: var(--body-text-color, #fff);
+    vertical-align: middle;
 }
 
 .mm-res-type {
@@ -1558,16 +1559,21 @@ body.mm-modal-open {
     word-break: break-word;
 }
 
-/* A flex cell stops honouring vertical-align, so on a row whose name wraps to
-   three lines the buttons drift to the top. It is a flex cell because the
-   buttons pin their own margin, which is where the spacing used to come from. */
+/* An ordinary table cell. It was briefly a flex container, to replace spacing
+   that the shared button rule's `margin: 0` had taken away - and a flex cell
+   stops honouring vertical-align, so the buttons drifted to the top of any row
+   whose name wrapped. The table already does this correctly; the only thing it
+   needed was the gap back. */
 .mm-res-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 5px;
-    white-space: nowrap;
     width: 150px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* More specific than the shared rule, which pins margin to 0 to clear
+   Gradio's preflight, so it has to say !important to be heard. */
+.mm-res-actions .mm-btn + .mm-btn {
+    margin-left: 5px !important;
 }
 
 .mm-resources-table tr:last-child td {
