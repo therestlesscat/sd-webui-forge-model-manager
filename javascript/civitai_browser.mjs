@@ -276,17 +276,6 @@ function getFilters() {
     };
 }
 
-// An image is only useful if it carries a prompt AND the settings needed
-// to reproduce it - mirrors image_has_usable_prompt() in civitai_api.py
-function hasUsablePrompt(img) {
-    const meta = img.meta || {};
-    if (!(meta.prompt || '').trim()) return false;
-    if (!meta.steps) return false;
-    if (!(meta.sampler || meta.Sampler)) return false;
-    if (!(meta.cfgScale || meta['CFG scale'])) return false;
-    return true;
-}
-
 // Is the prompt filter currently on?
 function requirePromptEnabled() {
     return document.getElementById('cb_require_prompt')?.checked || false;

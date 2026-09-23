@@ -244,6 +244,12 @@ let currentImagePage = 1;
 // setting is read once at load, below, and defaults to continuous so a WebUI
 // that has never seen the option behaves like the one that has.
 let imageBrowsing = 'continuous';
+// Whether the gallery is hiding images with no prompt worth reading. Filtered
+// in SQL, like the NSFW one, so the counts come from the same place the images
+// do rather than from whatever happens to be loaded.
+let hidePromptlessImages = true;
+let hidePromptlessInitialised = false;
+let promptlessHiddenCount = 0;
 // How many of the loaded images the continuous list is showing. Paging mode
 // ignores it, so the two modes cannot disagree about where you are.
 let visibleImageCount = IMAGE_PAGE_SIZE;
@@ -894,7 +900,11 @@ window.mmSelectModel = async function(index) {
 // Load details for a specific version
 async function loadVersionDetails(filePath) {
     try {
-        const params = { path: filePath, hide_nsfw_images: hideNsfwImages };
+        const params = {
+            path: filePath,
+            hide_nsfw_images: hideNsfwImages,
+            hide_promptless_images: hidePromptlessImages,
+        };
         const data = await apiCall({ endpoint: '/model-manager/models/details', params });
         if (data.success && data.model) {
             // Store version ID for load-more
@@ -917,7 +927,13 @@ async function loadVersionDetails(filePath) {
             nextImagesCursor = imagesState.next_cursor || null;
             imagesSyncDate = imagesState.sync_date || null;
             totalImageCount = imagesState.total_count || 0;
-            hiddenImageCount = imagesState.hidden_count || 0;
+            hiddenImageCount = imagesState.hidden_nsfw ?? imagesState.hidden_count ?? 0;
+            promptlessHiddenCount = imagesState.hidden_promptless || 0;
+
+            if (!hidePromptlessInitialised && imagesState.hide_promptless_images !== undefined) {
+                hidePromptlessImages = imagesState.hide_promptless_images;
+                hidePromptlessInitialised = true;
+            }
 
             // Initialize hideNsfwImages from setting on first load
             if (!hideNsfwImagesInitialized && imagesState.hide_nsfw_images !== undefined) {
@@ -936,6 +952,18 @@ async function loadVersionDetails(filePath) {
         updateImagesCountCell();  // Update even on error to show "None"
     }
 }
+
+// Toggle the no-prompt filter. Reloads, because the filtering is done in SQL:
+// the images that were hidden are not in the browser to be revealed.
+window.mmToggleHidePromptless = async function(checked) {
+    hidePromptlessImages = checked;
+    hidePromptlessInitialised = true;
+    currentImagePage = 1;
+    visibleImageCount = IMAGE_PAGE_SIZE;
+    if (currentModelPath) {
+        await loadVersionDetails(currentModelPath);
+    }
+};
 
 // Toggle NSFW image filter and reload images
 window.mmToggleHideNsfwImages = async function(checked) {
@@ -1485,9 +1513,26 @@ function renderModelImages(images) {
            </div>`
         : '';
 
+    // The same panel, one filter down: how many the prompt filter is holding
+    // back, and the switch for it. Shown whenever it is on or has hidden
+    // something, so turning it off is always possible from here.
+    const showPromptWarning = totalImageCount > 0
+        && (promptlessHiddenCount > 0 || !hidePromptlessImages);
+    const promptWarningHtml = showPromptWarning
+        ? `<div class="mm-nsfw-warning">
+            <span>${hidePromptlessImages
+                ? `${promptlessHiddenCount} hidden - no prompt to read`
+                : 'Showing images with no prompt'}</span>
+            <label class="mm-show-all-label">
+                <input type="checkbox" id="mm_hide_promptless_images" ${hidePromptlessImages ? 'checked' : ''} onchange="window.mmToggleHidePromptless(this.checked)">
+                Hide images without prompts
+            </label>
+           </div>`
+        : '';
+
     if (!images || images.length === 0) {
-        // Still show warning if there are hidden images
-        if (hiddenImageCount > 0) {
+        // Still show the panels if a filter is what emptied it
+        if (hiddenImageCount > 0 || promptlessHiddenCount > 0) {
             container.innerHTML = `
                 <div class="mm-images-header">
                     <h4>Example Images</h4>
@@ -1557,6 +1602,7 @@ function renderModelImages(images) {
             <span class="mm-images-count">${countText}</span>
         </div>
         ${nsfwWarningHtml}
+        ${promptWarningHtml}
         ${paging ? renderImagePagination(totalPages, 'top') : ''}
         <div class="model-images-list">${imageCards}</div>
         ${downloadMoreHtml}

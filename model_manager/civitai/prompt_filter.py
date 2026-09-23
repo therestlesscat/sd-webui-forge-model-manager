@@ -19,13 +19,20 @@ from .client import CivitaiClient
 
 FILTER_TOKEN_PREFIX = "mmfilter:"
 
+# The shortest prompt worth showing, in characters after trimming. Mirrors
+# MIN_PROMPT_LENGTH in javascript/shared/common.mjs - the grid and the server
+# have to agree about what counts as a prompt, or one hides what the other
+# shows. Below four is "1", ".", "???"; never something someone wrote.
+MIN_PROMPT_LENGTH = 4
+
 
 def image_has_usable_prompt(img: Dict[str, Any]) -> bool:
     """
     True if an image carries a prompt *and* the parameters needed to reproduce it.
 
     A bare prompt is not much use without steps/sampler/cfg - "Send to txt2img"
-    would produce something unrelated.
+    would produce something unrelated. The prompt must also be long enough to
+    be one: this used to accept "1" as long as the settings were present.
 
     Args:
         img: Image dict, already enriched with generation data.
@@ -35,7 +42,7 @@ def image_has_usable_prompt(img: Dict[str, Any]) -> bool:
     """
     meta = img.get("meta") or {}
 
-    if not (meta.get("prompt") or "").strip():
+    if len((meta.get("prompt") or "").strip()) < MIN_PROMPT_LENGTH:
         return False
     if not meta.get("steps"):
         return False

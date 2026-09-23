@@ -286,18 +286,21 @@ class ModelsDatabase:
     def get_all_images_for_version(
         self,
         version_id: int,
-        max_nsfw_level: Optional[int] = None
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
     ) -> List[Dict[str, Any]]:
-        """Get all cached images for a version, optionally filtered by NSFW level."""
-        return self._images.get_all_images_for_version(version_id, max_nsfw_level)
+        """Get all cached images for a version, optionally filtered."""
+        return self._images.get_all_images_for_version(
+            version_id, max_nsfw_level, require_prompt)
 
     def get_image_counts(
         self,
         version_id: int,
-        max_nsfw_level: Optional[int] = None
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
     ) -> Dict[str, int]:
         """Get total and filtered image counts for a version."""
-        return self._images.get_image_counts(version_id, max_nsfw_level)
+        return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt)
 
     def get_cached_page_count(self, version_id: int) -> int:
         """Get how many pages have been cached for a version."""

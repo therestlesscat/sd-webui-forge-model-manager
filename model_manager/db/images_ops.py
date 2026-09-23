@@ -5,6 +5,7 @@ This module handles images table operations.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
+from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..nsfw import UNKNOWN, image_level
 from typing import Optional, List, Dict, Any, Callable
 
@@ -62,11 +63,24 @@ class ImagesOps:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (img_id, version_id, page, url, width, height, effective_nsfw_level, created_at, json.dumps(img)))
 
+    # A prompt is stored inside the image's JSON, so it is read back out with
+    # json_extract rather than given a column. Measured over 101,369 images, a
+    # full scan of every one takes about a second; a gallery is a few hundred
+    # rows of that, so no index earns its keep here.
+    _PROMPT = "TRIM(COALESCE(json_extract(data, '$.meta.prompt'), ''))"
+
+    def _prompt_filter(self, require_prompt: bool) -> str:
+        """The SQL for "has a prompt worth reading", or nothing."""
+        if not require_prompt:
+            return ""
+        return " AND LENGTH(%s) >= %d" % (self._PROMPT, MIN_PROMPT_LENGTH)
+
     def get_images(
         self,
         version_id: int,
         page: Optional[int] = None,
-        max_nsfw_level: Optional[int] = None
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Get cached images for a version.
@@ -76,6 +90,7 @@ class ImagesOps:
             page: Specific page number, or None for all pages.
             max_nsfw_level: If set, only return images with effective_nsfw_level <= this value.
                            Use 5 for SFW only (PG + PG-13).
+            require_prompt: Drop images whose prompt is too short to be one.
 
         Returns:
             List of image dicts.
@@ -87,6 +102,8 @@ class ImagesOps:
             else:
                 nsfw_filter = ""
                 nsfw_param = ()
+
+            nsfw_filter += self._prompt_filter(require_prompt)
 
             if page is not None:
                 cursor.execute(
@@ -105,7 +122,8 @@ class ImagesOps:
     def get_all_images_for_version(
         self,
         version_id: int,
-        max_nsfw_level: Optional[int] = None
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Get all cached images for a version (all pages).
@@ -117,9 +135,11 @@ class ImagesOps:
         Returns:
             List of all cached image dicts.
         """
-        return self.get_images(version_id, page=None, max_nsfw_level=max_nsfw_level)
+        return self.get_images(version_id, page=None, max_nsfw_level=max_nsfw_level,
+                               require_prompt=require_prompt)
 
-    def get_image_counts(self, version_id: int, max_nsfw_level: Optional[int] = None) -> Dict[str, int]:
+    def get_image_counts(self, version_id: int, max_nsfw_level: Optional[int] = None,
+                         require_prompt: bool = False) -> Dict[str, int]:
         """
         Get total and filtered image counts for a version.
 
@@ -138,18 +158,29 @@ class ImagesOps:
             )
             total = cursor.fetchone()[0]
 
-            if max_nsfw_level is not None:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM images WHERE version_id = ? AND effective_nsfw_level <= ?",
-                    (version_id, max_nsfw_level)
-                )
-                filtered = cursor.fetchone()[0]
-            else:
-                filtered = total
+            # What each filter hides on its own, so the panel can say which
+            # one is responsible rather than reporting one number for both.
+            nsfw_clause = "" if max_nsfw_level is None else " AND effective_nsfw_level <= ?"
+            nsfw_param = () if max_nsfw_level is None else (max_nsfw_level,)
+            prompt_clause = self._prompt_filter(require_prompt)
+
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ?" + nsfw_clause + prompt_clause,
+                (version_id,) + nsfw_param
+            )
+            filtered = cursor.fetchone()[0]
+
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ?" + nsfw_clause,
+                (version_id,) + nsfw_param
+            )
+            nsfw_kept = cursor.fetchone()[0]
 
             return {
                 "total": total,
                 "filtered": filtered,
+                "hidden_nsfw": total - nsfw_kept,
+                "hidden_promptless": nsfw_kept - filtered,
                 "hidden": total - filtered
             }
 
