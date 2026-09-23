@@ -22,6 +22,8 @@ const {
     showApiKeyBanner,
     apiCall,
     escapeHtml,
+    safeId,
+    sanitizeHtml,
     formatNumber,
     renderThumbs,
     isVideoUrl,
@@ -743,8 +745,8 @@ function renderModelCard(model, index) {
     const isVideo = isVideoUrl({ url: previewSrc });
     const previewHtml = hasPreview
         ? (isVideo
-            ? `<video src="${previewSrc}" loop muted autoplay playsinline></video>`
-            : `<img src="${previewSrc}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
+            ? `<video src="${escapeHtml(previewSrc)}" loop muted autoplay playsinline></video>`
+            : `<img src="${escapeHtml(previewSrc)}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
         : `<img src="${placeholderSvg}" alt="${name}">`;
 
     return `
@@ -1049,7 +1051,7 @@ function updateVersionInfo(version) {
     const triggerSection = document.querySelector('.trigger-words');
     if (triggerSection && version.trained_words && version.trained_words.length > 0) {
         triggerSection.innerHTML = version.trained_words.map(w =>
-            `<span class="trigger-word" onclick="navigator.clipboard.writeText('${escapeHtml(w)}')">${escapeHtml(w)}</span>`
+            `<span class="trigger-word" data-copy="${escapeHtml(w)}" title="Click to copy">${escapeHtml(w)}</span>`
         ).join('');
     }
 
@@ -1141,7 +1143,7 @@ function renderModelDetails(model, fullDetails = null) {
         ? `<div class="detail-section">
              <h4>Trigger Words</h4>
              <div class="trigger-words">
-               ${model.trained_words.map(w => `<span class="trigger-word" onclick="navigator.clipboard.writeText('${escapeHtml(w)}')">${escapeHtml(w)}</span>`).join('')}
+               ${model.trained_words.map(w => `<span class="trigger-word" data-copy="${escapeHtml(w)}" title="Click to copy">${escapeHtml(w)}</span>`).join('')}
              </div>
            </div>`
         : '';
@@ -1158,7 +1160,7 @@ function renderModelDetails(model, fullDetails = null) {
     // Use model_id for Civitai link (the parent model ID)
     const modelId = model.model_id || model.civitai_model_id;
     const civitaiLink = modelId
-        ? `<a class="action-btn secondary" href="https://civitai.com/models/${modelId}" target="_blank">View on Civitai</a>`
+        ? `<a class="action-btn secondary" href="https://civitai.com/models/${safeId(modelId)}" target="_blank">View on Civitai</a>`
         : '';
 
     // Get description from full details if available
@@ -1166,7 +1168,7 @@ function renderModelDetails(model, fullDetails = null) {
     const descriptionHtml = description
         ? `<div class="detail-section">
              <h4>Description</h4>
-             <div class="mm-description">${description}</div>
+             <div class="mm-description">${sanitizeHtml(description)}</div>
            </div>`
         : '<div class="detail-section" id="mm_description_placeholder"></div>';
 
@@ -1176,7 +1178,7 @@ function renderModelDetails(model, fullDetails = null) {
     // Bookmark button (only for models with Civitai data)
     const isBookmarked = model.is_bookmarked || false;
     const bookmarkBtn = modelId
-        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${modelId})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
+        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
         : '';
 
     container.innerHTML = `
@@ -1185,7 +1187,7 @@ function renderModelDetails(model, fullDetails = null) {
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
                 ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
-                ${modelId ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.mmShowInCivitaiBrowser(${modelId})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
+                ${modelId ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.mmShowInCivitaiBrowser(${safeId(modelId)})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
                 <button class="close-details" onclick="window.mmCloseDetails()">×</button>
             </div>
 
@@ -1238,7 +1240,7 @@ function updateDescription(description) {
         placeholder.outerHTML = `
             <div class="detail-section">
                 <h4>Description</h4>
-                <div class="mm-description collapsed" id="mm_description_content">${description}</div>
+                <div class="mm-description collapsed" id="mm_description_content">${sanitizeHtml(description)}</div>
                 <button class="mm-description-toggle" id="mm_description_toggle" onclick="window.mmToggleDescription()">
                     Show more
                 </button>
@@ -1738,7 +1740,7 @@ function renderImageCard(img, index) {
                   title="Click to play"></video>`
         : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
                 onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
-                onclick="${src ? `window.open('${escapeHtml(src)}', '_blank')` : 'return false;'}"
+                ${src ? `data-open-url="${escapeHtml(src)}"` : ''}
                 title="Click to view full size">`;
 
     return `
@@ -1759,13 +1761,13 @@ function renderImageCard(img, index) {
                     <button class="mm-btn primary mm-send-btn" onclick="window.mmSendToTxt2img(${index})">
                         Send to txt2img
                     </button>
-                    <button class="mm-btn secondary" onclick="navigator.clipboard.writeText(\`${escapeHtml(prompt).replace(/`/g, '\\`')}\`)">
+                    <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
                         Copy Prompt
                     </button>
                     <button class="mm-btn secondary" onclick="window.mmShowImageMeta(${index})">
                         Show All
                     </button>
-                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${img.id}" target="_blank">View on Civitai</a>` : ''}
+                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
                     ${resourceCount > 0 ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${resourceCount})</button>` : ''}
                 </div>
             </div>
@@ -1971,8 +1973,8 @@ function renderResourcesModal(resources) {
                 <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
                     ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
                 <td class="mm-res-actions">
-                    <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${resource.versionId}" target="_blank">View</a>
-                    <a class="mm-btn primary mm-btn-small" href="https://civitai.com/api/download/models/${resource.versionId}" target="_blank">Download</a>
+                    <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${safeId(resource.versionId)}" target="_blank">View</a>
+                    <a class="mm-btn primary mm-btn-small" href="https://civitai.com/api/download/models/${safeId(resource.versionId)}" target="_blank">Download</a>
                 </td>
             </tr>
         `).join('');

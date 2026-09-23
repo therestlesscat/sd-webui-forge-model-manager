@@ -110,11 +110,163 @@ export async function apiCall({ endpoint, params = {} }) {
     return response.json();
 }
 
+/**
+ * Make text safe to place in HTML - as content, or inside a quoted attribute.
+ *
+ * This used to serialize a text node, which escapes & < > and, per the HTML
+ * spec, nothing else. Almost every caller puts the result inside a quoted
+ * attribute, and a Civitai prompt containing `"` then closed the attribute and
+ * added one of its own: `onmouseover`, say. Prompts, tags, trigger words and
+ * file names are all written by whoever uploaded them, so quotes are escaped
+ * too.
+ *
+ * Not enough for a script context. An attribute is decoded before its handler
+ * runs, so `&#39;` inside an onclick is a quote again by the time JavaScript
+ * sees it. Data never goes inside an inline handler: see data-copy and
+ * data-open-url below.
+ */
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
 export function escapeHtml(text) {
     if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}
+
+/**
+ * An id from Civitai, as a number, or null if it is not one.
+ *
+ * Ids go into URLs and handler calls unquoted, so a string arriving where a
+ * number was expected would be code. Civitai sends numbers today; this is so
+ * that stays true of what reaches the page, whatever it sends tomorrow.
+ */
+export function safeId(value) {
+    const n = Number(value);
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * The http(s) URL in `value`, or null.
+ *
+ * Relative URLs are read against Civitai, since that is where the text they
+ * come from was written.
+ */
+export function safeUrl(value, protocols = ['http:', 'https:']) {
+    if (!value) return null;
+    try {
+        const url = new URL(String(value), 'https://civitai.com');
+        return protocols.includes(url.protocol) ? url.href : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * A model description, reduced to formatting.
+ *
+ * Descriptions are HTML by design, so they cannot be escaped - but they were
+ * inserted raw, and the scan also reads them from .civitai.info files other
+ * tools write. Anything not on the list goes: tags are unwrapped to their text,
+ * and script-bearing ones are dropped with their contents. Only a link's href,
+ * an image's src and a title survive as attributes, and only as http(s).
+ *
+ * Parsed with DOMParser, which is inert. Setting innerHTML on a detached
+ * element is not: an <img onerror> fires there too.
+ */
+const DESCRIPTION_TAGS = new Set([
+    'A', 'ABBR', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'H1', 'H2',
+    'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'LI', 'OL', 'P', 'PRE', 'S', 'SMALL',
+    'SPAN', 'STRIKE', 'STRONG', 'SUB', 'SUP', 'TABLE', 'TBODY', 'TD', 'TH', 'THEAD',
+    'TR', 'U', 'UL',
+]);
+const DESCRIPTION_DROPPED = new Set([
+    'SCRIPT', 'STYLE', 'IFRAME', 'FRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE',
+    'FORM', 'INPUT', 'BUTTON', 'TEXTAREA', 'SELECT', 'SVG', 'MATH', 'NOSCRIPT',
+    'TEMPLATE', 'AUDIO', 'VIDEO', 'SOURCE',
+]);
+
+function cleanDescriptionNode(node) {
+    for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === 3) continue;               // text
+        if (child.nodeType !== 1) { child.remove(); continue; }   // comments and the rest
+
+        const tag = child.tagName.toUpperCase();
+        if (DESCRIPTION_DROPPED.has(tag)) { child.remove(); continue; }
+
+        cleanDescriptionNode(child);
+
+        if (!DESCRIPTION_TAGS.has(tag)) {
+            child.replaceWith(...Array.from(child.childNodes));
+            continue;
+        }
+
+        for (const attr of Array.from(child.attributes)) {
+            const name = attr.name.toLowerCase();
+            const kept = name === 'title'
+                || (tag === 'A' && name === 'href')
+                || (tag === 'IMG' && (name === 'src' || name === 'alt'));
+            if (!kept) child.removeAttribute(attr.name);
+        }
+
+        if (tag === 'A') {
+            const href = safeUrl(child.getAttribute('href'), ['http:', 'https:', 'mailto:']);
+            if (href) child.setAttribute('href', href);
+            else child.removeAttribute('href');
+            child.setAttribute('target', '_blank');
+            child.setAttribute('rel', 'noopener noreferrer');
+        } else if (tag === 'IMG') {
+            const src = safeUrl(child.getAttribute('src'));
+            if (src) child.setAttribute('src', src);
+            else child.remove();
+        }
+    }
+}
+
+export function sanitizeHtml(html) {
+    if (!html) return '';
+    // A whole document rather than the bare fragment: browsers put a fragment
+    // into <body> either way, but not every DOM implementation does.
+    const doc = new DOMParser().parseFromString(
+        '<!doctype html><html><body>' + String(html) + '</body></html>', 'text/html');
+    cleanDescriptionNode(doc.body);
+    return doc.body.innerHTML;
+}
+
+/**
+ * Copying and opening, without putting data inside an onclick.
+ *
+ * Buttons that used to carry the text in their handler -
+ * `writeText(\`${prompt}\`)` ran any ${...} in a prompt - now carry it in a
+ * data attribute, which is never executed, and this one listener acts on it.
+ * Installed once, on the document, so it covers markup rendered later.
+ */
+if (typeof document !== 'undefined'
+        && typeof document.addEventListener === 'function'
+        && !globalThis.__mmDelegatedClicks) {
+    globalThis.__mmDelegatedClicks = true;
+    document.addEventListener('click', (event) => {
+        const target = event.target && event.target.closest
+            ? event.target.closest('[data-copy], [data-open-url]')
+            : null;
+        if (!target) return;
+
+        if (target.hasAttribute('data-open-url')) {
+            const url = safeUrl(target.getAttribute('data-open-url'));
+            if (url) window.open(url, '_blank', 'noopener');
+            return;
+        }
+
+        const text = target.getAttribute('data-copy') || '';
+        if (navigator.clipboard) navigator.clipboard.writeText(text);
+
+        if (target.tagName === 'BUTTON') {
+            const label = target.textContent;
+            target.textContent = 'Copied!';
+            setTimeout(() => { target.textContent = label; }, 1500);
+        } else {
+            target.classList.add('mm-copied');
+            setTimeout(() => target.classList.remove('mm-copied'), 600);
+        }
+    });
 }
 
 export function formatNumber(num) {
@@ -288,10 +440,10 @@ export function renderResource(resource) {
         typeLabel = 'Embed';
     }
 
-    const weightStr = weight !== null ? ` (${weight})` : '';
+    const weightStr = weight !== null ? ` (${escapeHtml(String(weight))})` : '';
 
     return `<span class="mm-resource ${typeClass}" title="${escapeHtml(type)}: ${escapeHtml(name)}${weightStr}">
-              <span class="mm-resource-type">${typeLabel}</span>
+              <span class="mm-resource-type">${escapeHtml(typeLabel)}</span>
               <span class="mm-resource-name">${escapeHtml(name)}${weightStr}</span>
             </span>`;
 }

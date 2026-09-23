@@ -905,6 +905,13 @@ body.mm-modal-open {
     background: rgba(76, 175, 80, 0.4);
 }
 
+/* A flash to say it was copied. The delegated copy handler in common.mjs sets
+   this; the inline handler that used to set the colour directly went, because
+   it carried the word inside its own JavaScript. */
+.trigger-word.mm-copied {
+    background: #059669;
+}
+
 /* Tags */
 .tag-list {
     display: flex;

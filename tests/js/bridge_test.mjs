@@ -31,6 +31,7 @@ globalThis.URL = URL;
 globalThis.Event = window.Event;
 globalThis.MouseEvent = window.MouseEvent ?? window.Event;
 globalThis.CustomEvent = window.CustomEvent;
+globalThis.DOMParser = window.DOMParser;   // descriptions are sanitized with it
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
 globalThis.gradioApp = () => window.document;
 globalThis.onUiLoaded = (cb) => cb();
@@ -89,6 +90,10 @@ function remoteModel(id) {
     };
 }
 
+// The images a version's gallery answers with. Empty until the last check,
+// which needs something for the prompt filter to act on.
+let galleryImages = [];
+
 globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
@@ -106,7 +111,7 @@ globalThis.fetch = async (url) => {
         }) };
     }
     if (href.includes('/versions/') || href.includes('/images')) {
-        return { ok: true, json: async () => ({ success: true, images: [], next_cursor: null }) };
+        return { ok: true, json: async () => ({ success: true, images: galleryImages, next_cursor: null }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
 };
@@ -179,6 +184,29 @@ check('a model Civitai no longer has shows nothing',
       $('cb_grid').querySelectorAll('.model-card').length, 0);
 check('and says so rather than failing silently',
       $('cb_status').textContent.includes('404404'), true);
+
+// ------------------------------------------ the prompt filter, in a gallery
+// hasUsablePrompt() moved into the shared module and this tab's import of it
+// was never added, so with "Only with usable prompts" ticked every gallery
+// render threw ReferenceError. The module checker looks at calls, and this is
+// a function passed by name to filter(), which is why it got through.
+galleryImages = [
+    { id: 11, url: 'https://example.invalid/11.jpeg', browsingLevel: 1,
+      meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
+    { id: 12, url: 'https://example.invalid/12.jpeg', browsingLevel: 1, meta: null },
+];
+await window.cbShowModel('model:12345');
+await settle();
+$('cb_require_prompt').checked = true;
+let renderError = null;
+try {
+    window.cbToggleShowAllImages(true);
+} catch (e) {
+    renderError = e.message;
+}
+check('the prompt filter can render a gallery', renderError, null);
+check('keeping only the image with a prompt to reuse',
+      $('cb_images').querySelectorAll('.mm-image-card').length, 1);
 
 console.log(fails.length
     ? fails.map((f) => 'FAIL ' + f).join('\n')

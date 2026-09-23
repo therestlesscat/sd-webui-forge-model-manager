@@ -23,6 +23,9 @@ const {
     showApiKeyBanner,
     apiCall,
     escapeHtml,
+    safeId,
+    sanitizeHtml,
+    hasUsablePrompt,
     formatNumber,
     renderThumbs,
     nsfwImageLevel,
@@ -665,8 +668,8 @@ function renderCard(model, index) {
     // Build preview HTML (video or image)
     const previewHtml = hasPreview
         ? (previewIsVideo
-            ? `<video src="${previewUrl}" loop muted autoplay playsinline></video>`
-            : `<img src="${previewUrl}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
+            ? `<video src="${escapeHtml(previewUrl)}" loop muted autoplay playsinline></video>`
+            : `<img src="${escapeHtml(previewUrl)}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
         : `<img src="${placeholderSvg}" alt="${name}">`;
 
     return `
@@ -858,7 +861,7 @@ function renderModelDetails() {
         ? `<div class="detail-section">
              <h4>Trigger Words</h4>
              <div class="trigger-words">
-               ${version.trainedWords.map(w => `<span class="trigger-word" onclick="navigator.clipboard.writeText('${escapeHtml(w)}'); this.style.background='#059669'; setTimeout(() => this.style.background='', 500)">${escapeHtml(w)}</span>`).join('')}
+               ${version.trainedWords.map(w => `<span class="trigger-word" data-copy="${escapeHtml(w)}" title="Click to copy">${escapeHtml(w)}</span>`).join('')}
              </div>
            </div>`
         : '';
@@ -878,7 +881,7 @@ function renderModelDetails() {
     const descriptionHtml = description
         ? `<div class="detail-section">
              <h4>Description</h4>
-             <div class="mm-description collapsed" id="cb_description_content">${description}</div>
+             <div class="mm-description collapsed" id="cb_description_content">${sanitizeHtml(description)}</div>
              <button class="mm-description-toggle" id="cb_description_toggle" onclick="window.cbToggleDescription()">
                  Show more
              </button>
@@ -913,14 +916,14 @@ function renderModelDetails() {
             + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
         downloadBtn = `<button class="mm-btn primary" id="cb_download_btn" `
-            + `onclick="window.cbDownload(${model.id}, ${version?.id}, ${file?.id ?? 'null'})">Download</button>`;
+            + `onclick="window.cbDownload(${safeId(model.id)}, ${safeId(version?.id)}, ${safeId(file?.id)})">Download</button>`;
     }
 
     // Only offer the jump for models that are actually in the library.
     // Lives on the header row so it stays reachable while scrolling the
     // details panel, rather than only at the very bottom.
     const showInManagerBtn = model.owned_locally
-        ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+        ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.cbShowInModelManager(${safeId(model.id)})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
         : '';
 
     container.innerHTML = `
@@ -960,7 +963,7 @@ function renderModelDetails() {
             ${descriptionHtml}
 
             <div class="detail-section detail-actions">
-                <a class="mm-btn secondary" href="https://civitai.com/models/${model.id}?modelVersionId=${version?.id}" target="_blank">View on Civitai</a>
+                <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}" target="_blank">View on Civitai</a>
                 ${downloadBtn}
                 ${fileOptions}
             </div>
@@ -1425,7 +1428,7 @@ function renderImageCard(img, index) {
                   title="Click to play"></video>`
         : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
                 onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
-                onclick="${src ? `window.open('${escapeHtml(src)}', '_blank')` : 'return false;'}"
+                ${src ? `data-open-url="${escapeHtml(src)}"` : ''}
                 title="Click to view full size">`;
 
     return `
@@ -1443,13 +1446,13 @@ function renderImageCard(img, index) {
                 ${hiresHtml}
                 ${adetailerHtml}
                 <div class="mm-image-actions">
-                    <button class="mm-btn secondary" onclick="navigator.clipboard.writeText(\`${escapeHtml(prompt).replace(/`/g, '\\`')}\`); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy Prompt', 1500)">
+                    <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
                         Copy Prompt
                     </button>
                     <button class="mm-btn secondary" onclick="window.cbShowImageMeta(${index})">
                         Show All
                     </button>
-                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${img.id}" target="_blank">View on Civitai</a>` : ''}
+                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
                     ${(civitaiResources.length > 0 || resources.length > 0) ? `<button class="mm-btn secondary" onclick="window.cbShowResources(${index})">Resources (${civitaiResources.length + resources.length})</button>` : ''}
                 </div>
             </div>
@@ -1497,7 +1500,7 @@ window.cbShowImageMeta = function(index) {
                 <pre class="mm-meta-content">${escapeHtml(metaStr)}</pre>
             </div>
             <div class="mm-modal-footer">
-                <button class="mm-btn secondary" onclick="navigator.clipboard.writeText(\`${escapeHtml(metaStr).replace(/`/g, '\\`')}\`); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy JSON', 1500)">Copy JSON</button>
+                <button class="mm-btn secondary" data-copy="${escapeHtml(metaStr)}">Copy JSON</button>
             </div>
         </div>
     `;
@@ -1518,8 +1521,8 @@ window.cbShowResources = function(index) {
         <div class="mm-resource-item">
             <span class="mm-resource-type-label">${escapeHtml(r.type || 'Unknown')}</span>
             <span class="mm-resource-name-label">${escapeHtml(r.name || 'Unknown')}</span>
-            ${r.weight !== undefined ? `<span class="mm-resource-weight">Weight: ${r.weight}</span>` : ''}
-            ${r.modelVersionId ? `<a class="mm-btn secondary small" href="https://civitai.com/models/${r.modelId}?modelVersionId=${r.modelVersionId}" target="_blank">View</a>` : ''}
+            ${r.weight !== undefined ? `<span class="mm-resource-weight">Weight: ${escapeHtml(String(r.weight))}</span>` : ''}
+            ${r.modelVersionId ? `<a class="mm-btn secondary small" href="https://civitai.com/models/${safeId(r.modelId)}?modelVersionId=${safeId(r.modelVersionId)}" target="_blank">View</a>` : ''}
         </div>
     `).join('');
 
