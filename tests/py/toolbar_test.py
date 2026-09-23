@@ -317,6 +317,27 @@ check('the browser sort box gets the width its options need',
 check('and the modifier is not named after one tab',
       'mm-filter-wide' in CSS or 'mm-filter-compact' in CSS, False)
 
+# Each tab can hand a model to the other. The Civitai Browser end existed;
+# this is the return trip. tests/js/bridge_test.mjs drives the lookup itself -
+# these only check the two halves are wired to each other's names.
+check('the details header offers the jump',
+      'window.mmShowInCivitaiBrowser(' in JS)
+check('only for a model Civitai knows',
+      JS.index('window.mmShowInCivitaiBrowser(${modelId})') > 0)
+check('it looks for the tab by the name the tab is registered under',
+      "b.textContent.trim() === 'Civitai Browser'" in JS)
+check('and the browser registers exactly that',
+      '"Civitai Browser"' in io.open(
+          os.path.join(ROOT, 'scripts/model_manager_ui.py'), encoding='utf-8').read())
+check('it sends the same syntax this tab takes',
+      "window.cbShowModel('model:' + modelId)" in JS)
+
+CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'),
+                      encoding='utf-8').read()
+check('the browser answers to that name', 'window.cbShowModel = ' in CB_JS_EARLY)
+check('and still offers the trip the other way',
+      'window.cbShowInModelManager = ' in CB_JS_EARLY)
+
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
 CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()

@@ -1147,6 +1147,7 @@ function renderModelDetails(model, fullDetails = null) {
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
                 ${modelId ? `<button class="mm-sync-model-btn" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
+                ${modelId ? `<button class="mm-btn secondary mm-btn-small cb-header-action" onclick="window.mmShowInCivitaiBrowser(${modelId})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
                 <button class="close-details" onclick="window.mmCloseDetails()">×</button>
             </div>
 
@@ -2733,6 +2734,30 @@ window.mmShowModel = async function(query) {
     } else if (currentModels.length === 0) {
         setStatus(`Nothing found for "${query}". It may not be downloaded, or the database needs a refresh.`, true);
     }
+};
+
+// Open this model over in the Civitai Browser tab. The mirror of
+// cbShowInModelManager() there, down to the tab lookup.
+window.mmShowInCivitaiBrowser = function(modelId) {
+    if (typeof window.cbShowModel !== 'function') {
+        setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);
+        return;
+    }
+
+    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+    const tabs = root.querySelector('#tabs');
+    const tabButton = tabs && Array.from(tabs.querySelectorAll('button'))
+        .find(b => b.textContent.trim() === 'Civitai Browser');
+
+    if (tabButton) {
+        tabButton.click();
+    } else {
+        console.warn('[ModelManager] Could not find the Civitai Browser tab button');
+    }
+
+    // The grid sizes itself from the viewport, so let the tab become visible
+    // before searching - measuring a hidden tab gives nonsense.
+    setTimeout(() => window.cbShowModel('model:' + modelId), 100);
 };
 
 window.mmCloseDetails = function() {
