@@ -1184,8 +1184,8 @@ function renderModelDetails(model, fullDetails = null) {
             <div class="detail-header">
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
-                ${modelId ? `<button class="mm-sync-model-btn" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
-                ${modelId ? `<button class="mm-btn secondary mm-btn-small cb-header-action" onclick="window.mmShowInCivitaiBrowser(${modelId})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
+                ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
+                ${modelId ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.mmShowInCivitaiBrowser(${modelId})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
                 <button class="close-details" onclick="window.mmCloseDetails()">×</button>
             </div>
 

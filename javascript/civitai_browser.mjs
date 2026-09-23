@@ -920,7 +920,7 @@ function renderModelDetails() {
     // Lives on the header row so it stays reachable while scrolling the
     // details panel, rather than only at the very bottom.
     const showInManagerBtn = model.owned_locally
-        ? `<button class="mm-btn secondary mm-btn-small cb-header-action" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+        ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.cbShowInModelManager(${model.id})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
         : '';
 
     container.innerHTML = `
