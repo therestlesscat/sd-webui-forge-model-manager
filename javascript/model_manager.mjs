@@ -1685,6 +1685,13 @@ function renderImageCard(img, index) {
         : '';
 
     // Prompt (truncated)
+    // Everything except the model this gallery belongs to: an image is an
+    // example *of* that, so naming it says nothing. An upper bound - what the
+    // two lists duplicate is only known once the panel resolves them.
+    const resourceCount =
+        civitaiResources.filter(r => r.modelVersionId !== currentVersionId).length
+        + resources.length;
+
     const promptShort = prompt.length > 300 ? prompt.substring(0, 300) + '...' : prompt;
     const promptHtml = prompt
         ? `<div class="mm-image-prompt">
@@ -1759,7 +1766,7 @@ function renderImageCard(img, index) {
                         Show All
                     </button>
                     ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${img.id}" target="_blank">View on Civitai</a>` : ''}
-                    ${(civitaiResources.length > 0 || resources.length > 0) ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${civitaiResources.length + resources.length})</button>` : ''}
+                    ${resourceCount > 0 ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${resourceCount})</button>` : ''}
                 </div>
             </div>
         </div>
@@ -1849,61 +1856,142 @@ window.mmCloseMetaModal = function(event) {
     }
 };
 
-// Show resources popup with download options (both civitaiResources and resources)
-window.mmShowResources = function(imageIndex) {
+/**
+ * Gather an image's resources into one list, without guessing.
+ *
+ * The generation data names them twice. Civitai's own list carries
+ * modelVersionId; the legacy infotext list carries an AutoV2 hash and the
+ * filename whoever generated the image had on disk. The two share no key, so
+ * the hashes are resolved into version ids and the lists merged on that -
+ * never on name similarity, which does not survive contact with real data:
+ * "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix".
+ *
+ * Anything naming the version whose gallery this is gets dropped. An image is
+ * an example *of* that model, so listing it says nothing - and it is a quarter
+ * of all the rows in this library.
+ *
+ * Returns { known, unknown }: resources with a Civitai version behind them,
+ * and the rest - a filename with no hash, or a hash Civitai does not know.
+ * Those are shown as they are rather than guessed at.
+ */
+async function gatherImageResources(img) {
+    const meta = img.meta || {};
+    const civitai = meta.civitaiResources || [];
+    const legacy = meta.resources || [];
+
+    const byVersion = new Map();
+    for (const resource of civitai) {
+        const versionId = resource.modelVersionId;
+        if (!versionId || versionId === currentVersionId) continue;
+        if (byVersion.has(versionId)) continue;
+        byVersion.set(versionId, {
+            versionId,
+            type: resource.type || 'Unknown',
+            name: resource.name || 'Unknown',
+            versionName: resource.modelVersionName || '',
+        });
+    }
+
+    // Everything the legacy list can be asked about, in one request.
+    const hashes = [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
+    let resolved = {};
+    if (hashes.length) {
+        try {
+            const response = await fetch('/model-manager/resolve-hashes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'hashes=' + encodeURIComponent(hashes.join(',')),
+            });
+            const data = await response.json();
+            if (data.success) resolved = data.resolved || {};
+        } catch (e) {
+            console.warn('[ModelManager] Could not resolve resource hashes:', e);
+        }
+    }
+
+    const unknown = [];
+    const seenUnknown = new Set();
+    for (const resource of legacy) {
+        const hash = (resource.hash || '').toLowerCase();
+        const match = hash ? resolved[hash] : null;
+
+        if (match && match.version_id) {
+            if (match.version_id === currentVersionId) continue;
+            if (byVersion.has(match.version_id)) continue;   // Civitai named it already
+            byVersion.set(match.version_id, {
+                versionId: match.version_id,
+                type: match.model_type || resource.type || 'Unknown',
+                name: match.name || resource.name || 'Unknown',
+                versionName: match.version_name || '',
+            });
+            continue;
+        }
+
+        // No hash, or Civitai has never heard of it. Nothing can resolve these,
+        // so they are shown rather than dropped - deduplicated only where they
+        // are exactly the same thing.
+        const key = hash || ((resource.type || '') + ':' + (resource.name || ''));
+        if (seenUnknown.has(key)) continue;
+        seenUnknown.add(key);
+        unknown.push({
+            type: resource.type || 'Unknown',
+            name: resource.name || 'Unknown',
+            reason: hash ? 'not on Civitai' : 'no hash recorded',
+        });
+    }
+
+    return { known: [...byVersion.values()], unknown };
+}
+
+// Show the resources behind an image, resolved and merged
+window.mmShowResources = async function(imageIndex) {
     const img = currentImages[imageIndex];
     if (!img || !img.meta) return;
 
-    const civitaiResources = img.meta.civitaiResources || [];
-    const resources = img.meta.resources || [];
+    const civitai = img.meta.civitaiResources || [];
+    const legacy = img.meta.resources || [];
+    if (civitai.length === 0 && legacy.length === 0) return;
 
-    if (civitaiResources.length === 0 && resources.length === 0) return;
+    // Up straight away, because an uncached hash takes a moment and a dialog
+    // that opens late reads as a dead button.
+    renderResourcesModal(null);
+    const resources = await gatherImageResources(img);
 
-    // Build table rows for civitaiResources (have versionId)
-    let tableRows = '';
-    for (const resource of civitaiResources) {
-        const type = resource.type || 'Unknown';
-        const name = resource.name || 'Unknown';
-        const versionId = resource.modelVersionId;
+    // Another modal may have replaced this one while the lookups were in flight.
+    if (!document.querySelector('.mm-resources-modal')) return;
+    renderResourcesModal(resources);
+};
 
-        // Download URL for Civitai
-        const downloadUrl = versionId ? `https://civitai.com/api/download/models/${versionId}` : '';
-        // View URL (model-versions redirects to the correct model page)
-        const viewUrl = versionId ? `https://civitai.com/model-versions/${versionId}` : '';
-
-        tableRows += `
+function renderResourcesModal(resources) {
+    const rows = resources === null
+        ? '<tr><td colspan="3" class="mm-res-loading">Looking these up on Civitai...</td></tr>'
+        : resources.known.map(resource => `
             <tr>
-                <td class="mm-res-type">${escapeHtml(type)}</td>
-                <td class="mm-res-name">${escapeHtml(name)}</td>
+                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
+                <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
+                    ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
                 <td class="mm-res-actions">
-                    ${viewUrl ? `<a class="mm-btn secondary mm-btn-small" href="${viewUrl}" target="_blank">View</a>` : ''}
-                    ${downloadUrl ? `<a class="mm-btn primary mm-btn-small" href="${downloadUrl}" target="_blank">Download</a>` : ''}
+                    <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${resource.versionId}" target="_blank">View</a>
+                    <a class="mm-btn primary mm-btn-small" href="https://civitai.com/api/download/models/${resource.versionId}" target="_blank">Download</a>
                 </td>
             </tr>
-        `;
-    }
+        `).join('');
 
-    // Build table rows for resources (have hash only, need lookup)
-    for (const resource of resources) {
-        const type = resource.type || 'Unknown';
-        const name = resource.name || 'Unknown';
-        const hash = resource.hash || '';
+    const nothingKnown = resources && resources.known.length === 0
+        ? '<tr><td colspan="3" class="mm-res-loading">Nothing here has a Civitai model behind it.</td></tr>'
+        : '';
 
-        // Create a unique row ID for updating after lookup
-        const rowId = `mm-res-${hash || Math.random().toString(36).substr(2, 9)}`;
-
-        tableRows += `
-            <tr id="${rowId}" data-hash="${escapeHtml(hash)}">
-                <td class="mm-res-type">${escapeHtml(type)}</td>
-                <td class="mm-res-name">${escapeHtml(name)}</td>
-                <td class="mm-res-actions">
-                    ${hash ? `<button class="mm-btn secondary mm-btn-small" onclick="window.mmLookupHash('${escapeHtml(hash)}', '${rowId}')">Lookup</button>` : '<span class="mm-res-no-hash">No hash</span>'}
-                </td>
+    const unknownRows = resources && resources.unknown.length
+        ? '<tr><td colspan="3" class="mm-res-group">Named in the generation data, but not found on Civitai</td></tr>'
+          + resources.unknown.map(resource => `
+            <tr class="mm-res-unresolved">
+                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
+                <td class="mm-res-name">${escapeHtml(resource.name)}</td>
+                <td class="mm-res-actions"><span class="mm-res-no-hash">${escapeHtml(resource.reason)}</span></td>
             </tr>
-        `;
-    }
+        `).join('')
+        : '';
 
-    // Create modal
     const modalHtml = `
         <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
             <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
@@ -1921,7 +2009,7 @@ window.mmShowResources = function(imageIndex) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${tableRows}
+                            ${rows}${nothingKnown}${unknownRows}
                         </tbody>
                     </table>
                 </div>
@@ -1929,52 +2017,12 @@ window.mmShowResources = function(imageIndex) {
         </div>
     `;
 
-    // Remove existing modal if any
     const existingModal = document.querySelector('.mm-modal-overlay');
     if (existingModal) existingModal.remove();
 
-    // Add modal to document and lock scroll
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     document.body.classList.add('mm-modal-open');
-};
-
-// Lookup hash to get Civitai version info
-window.mmLookupHash = async function(hash, rowId) {
-    const row = document.getElementById(rowId);
-    if (!row) return;
-
-    const actionsCell = row.querySelector('.mm-res-actions');
-    if (!actionsCell) return;
-
-    // Show loading state
-    actionsCell.innerHTML = '<span class="mm-res-loading">Looking up...</span>';
-
-    try {
-        const response = await fetch(`/model-manager/resolve-hash?hash=${encodeURIComponent(hash)}`);
-        const data = await response.json();
-
-        if (data.success && data.version_id) {
-            // Update with View/Download buttons
-            actionsCell.innerHTML = `
-                <a class="mm-btn secondary mm-btn-small" href="${data.view_url}" target="_blank">View</a>
-                <a class="mm-btn primary mm-btn-small" href="${data.download_url}" target="_blank">Download</a>
-            `;
-            // Update name if we got a better one from Civitai
-            if (data.model_name) {
-                const nameCell = row.querySelector('.mm-res-name');
-                if (nameCell) {
-                    const versionSuffix = data.version_name ? ` (${data.version_name})` : '';
-                    nameCell.textContent = data.model_name + versionSuffix;
-                }
-            }
-        } else {
-            actionsCell.innerHTML = '<span class="mm-res-not-found">Not found</span>';
-        }
-    } catch (error) {
-        console.error('[ModelManager] Hash lookup error:', error);
-        actionsCell.innerHTML = '<span class="mm-res-error">Error</span>';
-    }
-};
+}
 
 // Close modal on Escape key
 document.addEventListener('keydown', function(e) {

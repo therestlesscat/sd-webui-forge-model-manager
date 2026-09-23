@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 
 class ModelsDatabase:
@@ -251,6 +251,18 @@ class ModelsDatabase:
     def count_unidentified(self) -> Dict[str, int]:
         """How many local files have no Civitai data. See db/models_ops.py."""
         return self._models.count_unidentified()
+
+    def resolved_hashes(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """What we already know about these resource hashes."""
+        return self._models.resolved_hashes(hashes)
+
+    def remember_hash(self, hash_value: str, version: Optional[Dict[str, Any]]):
+        """Record what a resource hash resolved to, or that it resolved to nothing."""
+        return self._models.remember_hash(hash_value, version)
+
+    def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Resolve what we can from our own rows, before asking Civitai."""
+        return self._models.hashes_from_local_models(hashes)
 
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""

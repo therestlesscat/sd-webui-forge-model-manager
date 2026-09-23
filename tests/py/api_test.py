@@ -168,6 +168,97 @@ check('and too short a hash is refused before asking', body.get('success'), Fals
 
 models_api.CivitaiClient = real_client
 
+# --- resolving a whole list of resource hashes ------------------------------
+# An image names its resources twice and the two lists share no key, so the
+# panel merges them by turning AutoV2 hashes into version ids. Answered from
+# this library's own rows first, then from what an earlier lookup recorded,
+# and only then from Civitai - which has no batch endpoint for hashes, so each
+# one costs a request and is worth writing down.
+
+class _Counter:
+    """Civitai, counting how many times it was actually asked."""
+    answers = {}
+    asked = []
+
+    @classmethod
+    def from_settings(cls):
+        return cls()
+
+    def get_model_by_hash(self, value):
+        _Counter.asked.append(value)
+        return _Counter.answers.get(value.lower())
+
+    def close(self):
+        pass
+
+
+models_api.CivitaiClient = _Counter
+
+# A hash this library already owns: the version row carries both the id and the
+# AutoV2, so nothing needs to be asked.
+owned_version = facts['version_ids'][0]
+owned_hash = ('%010x' % owned_version).upper()
+
+_Counter.answers = {}
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes=owned_hash)
+check('a hash we own resolves', body['success'], True)
+check('to the version it belongs to',
+      body['resolved'][owned_hash.lower()]['version_id'], owned_version)
+check('without asking Civitai at all', _Counter.asked, [])
+
+# One Civitai knows, and one it does not.
+_Counter.answers = {'aaaaaaaaaa': {'id': 700, 'modelId': 800, 'name': 'v1',
+                                   'model': {'name': 'Fetched', 'type': 'LORA'}}}
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes='AAAAAAAAAA,bbbbbbbbbb')
+resolved = body['resolved']
+check('an unknown hash is fetched', resolved['aaaaaaaaaa']['version_id'], 700)
+check('carrying the model name', resolved['aaaaaaaaaa']['name'], 'Fetched')
+check('and a link to download it',
+      resolved['aaaaaaaaaa']['download_url'].endswith('/700'), True)
+check('one Civitai does not know is present, with nothing behind it',
+      resolved['bbbbbbbbbb']['version_id'], None)
+check('both were asked about once', sorted(_Counter.asked), ['aaaaaaaaaa', 'bbbbbbbbbb'])
+
+# Asked again, neither costs anything - including the one that found nothing,
+# which is the whole point of recording a negative answer.
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes='aaaaaaaaaa,bbbbbbbbbb')
+check('the answers were remembered', body['resolved']['aaaaaaaaaa']['version_id'], 700)
+check('and the dead hash too', body['resolved']['bbbbbbbbbb']['version_id'], None)
+check('so Civitai is not asked twice', _Counter.asked, [])
+
+# Case and duplicates in one request.
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes='AAAAAAAAAA,aaaaaaaaaa, ')
+check('a hash is asked about once however it is written', len(body['resolved']), 1)
+check('and nothing was fetched again', _Counter.asked, [])
+
+# An empty field is dropped by the client altogether, so asking about nothing
+# has to be an answer rather than a 422.
+status, body = post('/model-manager/resolve-hashes', hashes='')
+check('no hashes, no work', (status, body.get('resolved')), (200, {}))
+
+
+class _Broken(_Counter):
+    def get_model_by_hash(self, value):
+        raise RuntimeError('Civitai is down')
+
+
+models_api.CivitaiClient = _Broken
+status, body = post('/model-manager/resolve-hashes', hashes='cccccccccc')
+check('a lookup that fails leaves the hash unresolved rather than wrong',
+      'cccccccccc' in body['resolved'], False)
+check('and still answers', body['success'], True)
+
+models_api.CivitaiClient = _Counter
+_Counter.asked = []
+status, body = post('/model-manager/resolve-hashes', hashes='cccccccccc')
+check('a failure is not remembered as an answer', _Counter.asked, ['cccccccccc'])
+
+models_api.CivitaiClient = real_client
+
 # ---------------------------------------------------------------- bookmarking
 model_id = facts['checkpoint_ids'][0]
 code, body = post('/model-manager/bookmark', model_id=model_id, bookmarked='true')
