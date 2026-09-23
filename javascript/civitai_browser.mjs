@@ -53,6 +53,10 @@ let nextImagesCursor = null;
 let isLoadingImages = false;
 let activeDownloads = {};
 let showAllNsfwImages = false;  // Toggle for showing all images regardless of NSFW filter
+// The same kind of override for the prompt filter: with "Only with usable
+// prompts" ticked, an opened model's images without one are hidden, and this
+// shows them again for that model without changing the search.
+let showPromptlessImages = false;
 
 // Card sizing (default values, updated from API)
 let cardWidth = 200;
@@ -775,8 +779,9 @@ function openModel(index) {
 
     selectedModel = model;
     selectedVersionIndex = 0;
-    // Start matching the search, then let the toggle take over.
+    // Start matching the search, then let the toggles take over.
     showAllNsfwImages = document.getElementById('cb_nsfw')?.checked || false;
+    showPromptlessImages = false;
 
     // Highlight selected card
     document.querySelectorAll('#cb_grid .model-card').forEach((card, i) => {
@@ -1182,10 +1187,13 @@ function renderImages() {
     // Hide images with nothing to send to txt2img while the filter is on.
     // Must happen before paging, so page numbers count only what is shown.
     let promptHiddenCount = 0;
-    if (requirePromptEnabled()) {
-        const withPrompts = imagesToShow.filter(hasUsablePrompt);
-        promptHiddenCount = imagesToShow.length - withPrompts.length;
-        imagesToShow = withPrompts;
+    const promptFilterOn = requirePromptEnabled();
+    const promptlessCount = promptFilterOn
+        ? imagesToShow.filter((img) => !hasUsablePrompt(img)).length
+        : 0;
+    if (promptFilterOn && !showPromptlessImages) {
+        imagesToShow = imagesToShow.filter(hasUsablePrompt);
+        promptHiddenCount = promptlessCount;
     }
 
     const totalPages = getImagePageCount(imagesToShow.length);
@@ -1194,11 +1202,19 @@ function renderImages() {
     const pageEnd = Math.min(pageStart + IMAGE_PAGE_SIZE, imagesToShow.length);
     const pageImages = imagesToShow.slice(pageStart, pageEnd);
 
-    // Build NSFW filter warning panel with checkbox
-    // Show warning when there are hidden images, OR when showAllNsfwImages is true and there would be hidden images
-    const promptWarningHtml = promptHiddenCount > 0
+    // The prompt filter's banner, with its switch on the right as the NSFW
+    // one has. Up whenever the filter has something to hold back - whether it
+    // is holding it back right now or not - so it can be switched either way.
+    const promptWarningHtml = promptlessCount > 0
         ? `<div class="cb-nsfw-warning">
-            <span>${promptHiddenCount} image(s) hidden - no usable prompt. Untick 'Only with usable prompts' to see them.</span>
+            <span>${showPromptlessImages
+                ? `Showing ${promptlessCount} without a usable prompt`
+                : `${promptlessCount} hidden - no usable prompt`}</span>
+            <label class="cb-show-all-label" title="Show this model's images that have no prompt to send to txt2img">
+                <input type="checkbox" id="cb_show_promptless_images" ${showPromptlessImages ? 'checked' : ''}
+                       onchange="window.cbToggleShowPromptless(this.checked)">
+                Show images without prompts (${promptlessCount})
+            </label>
            </div>`
         : '';
 
@@ -1271,6 +1287,14 @@ function renderImages() {
 // Toggle show all images checkbox
 window.cbToggleShowAllImages = function(checked) {
     showAllNsfwImages = checked;
+    currentImagePage = 1;
+    renderImages();
+};
+
+// Show or hide this model's images without a usable prompt. Local: they are
+// already fetched, and the search's own filter is left as it is.
+window.cbToggleShowPromptless = function(checked) {
+    showPromptlessImages = checked;
     currentImagePage = 1;
     renderImages();
 };
