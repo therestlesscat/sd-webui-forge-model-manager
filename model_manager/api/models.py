@@ -16,8 +16,22 @@ from ..sync_service import SyncService
 from ..civitai import CivitaiClient
 
 
+# The most resource hashes /resolve-hashes asks Civitai about in one request.
+# Each is its own request with no batch endpoint behind it, and without an API
+# key the rate limit makes each one about two seconds.
+MAX_HASH_LOOKUPS = 20
+
+
 def register(app: FastAPI):
-    """Attach this module's endpoints to the app."""
+    """Attach this module's endpoints to the app.
+
+    The ones that wait on Civitai, or on a sync, are plain `def`, not `async
+    def`. This app is the WebUI's own, and it serves every request from one
+    event loop: an async handler runs on that loop, and one that blocks in
+    `requests` holds it, so every other request in the WebUI - Gradio's
+    included - waits until Civitai answers. FastAPI runs a plain `def` handler
+    on a worker thread instead. tests/py/loop_test.py holds this in place.
+    """
     @app.get("/model-manager/models")
     async def get_models(
         search: str = "",
@@ -442,7 +456,7 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/models/force-sync")
-    async def force_sync_model(model_id: int = Form(...)):
+    def force_sync_model(model_id: int = Form(...)):
         """
         Force sync a model and all its local versions.
 
@@ -654,7 +668,7 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/resolve-hashes")
-    async def resolve_hashes(hashes: str = Form(default="")):
+    def resolve_hashes(hashes: str = Form(default="")):
         """
         Resolve several resource hashes at once, for the resources panel.
 
@@ -678,6 +692,8 @@ def register(app: FastAPI):
                 model_type, view_url, download_url}. A hash Civitai does not
                 know is present with a null version_id, so the caller can tell
                 "unknown" from "not asked".
+            deferred: hashes not asked about this time, past MAX_HASH_LOOKUPS.
+                Send them again for the rest.
         """
         try:
             wanted = []
@@ -687,14 +703,23 @@ def register(app: FastAPI):
                     wanted.append(value)
 
             if not wanted:
-                return JSONResponse({"success": True, "resolved": {}})
+                return JSONResponse({"success": True, "resolved": {}, "deferred": []})
 
             db = get_models_db()
             known = db.hashes_from_local_models(wanted)
             known.update({k: v for k, v in db.resolved_hashes(wanted).items()
                           if k not in known})
 
+            # Civitai is asked about at most MAX_HASH_LOOKUPS of them per
+            # request; anything past that comes back as `deferred`, to be asked
+            # again. Answers from the library or the cache are free and never
+            # deferred, so a big image whose hashes are mostly known still
+            # resolves in one go. Without an API key a lookup is two seconds,
+            # so an uncapped request for one image's 234 hashes took minutes
+            # with nothing to show for it until the end.
             missing = [h for h in wanted if h not in known]
+            deferred = missing[MAX_HASH_LOOKUPS:]
+            missing = missing[:MAX_HASH_LOOKUPS]
             if missing:
                 client = CivitaiClient.from_settings()
                 try:
@@ -732,7 +757,8 @@ def register(app: FastAPI):
                     "download_url": f"https://civitai.com/api/download/models/{version_id}" if version_id else None,
                 }
 
-            return JSONResponse({"success": True, "resolved": resolved})
+            return JSONResponse({"success": True, "resolved": resolved,
+                                 "deferred": deferred})
 
         except Exception as e:
             import traceback
@@ -741,7 +767,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/resolve-hash")
-    async def resolve_hash(hash: str):
+    def resolve_hash(hash: str):
         """
         Resolve a model hash to Civitai version info.
 
