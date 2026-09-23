@@ -640,6 +640,93 @@ def register(app: FastAPI):
                 status_code=500
             )
 
+    @app.post("/model-manager/resolve-hashes")
+    async def resolve_hashes(hashes: str = Form(default="")):
+        """
+        Resolve several resource hashes at once, for the resources panel.
+
+        An image names its resources twice - Civitai's list, which carries
+        modelVersionId, and the legacy infotext list, which carries an AutoV2
+        hash. The two share no key, so merging them exactly means turning the
+        hashes into version ids.
+
+        Answered from three places in order, cheapest first: this library's own
+        rows, where a version id and an AutoV2 hash already sit together; what
+        a previous lookup recorded; and finally Civitai, one request per hash,
+        because it has no batch endpoint for them. Everything Civitai says is
+        written down, including that it has never heard of a hash, so the same
+        dead hash is not asked about again.
+
+        Args:
+            hashes: Comma-separated AutoV2 hashes.
+
+        Returns:
+            resolved: hash -> {version_id, model_id, name, version_name,
+                model_type, view_url, download_url}. A hash Civitai does not
+                know is present with a null version_id, so the caller can tell
+                "unknown" from "not asked".
+        """
+        try:
+            wanted = []
+            for value in (hashes or "").split(","):
+                value = value.strip().lower()
+                if value and value not in wanted:
+                    wanted.append(value)
+
+            if not wanted:
+                return JSONResponse({"success": True, "resolved": {}})
+
+            db = get_models_db()
+            known = db.hashes_from_local_models(wanted)
+            known.update({k: v for k, v in db.resolved_hashes(wanted).items()
+                          if k not in known})
+
+            missing = [h for h in wanted if h not in known]
+            if missing:
+                client = CivitaiClient.from_settings()
+                try:
+                    for value in missing:
+                        try:
+                            version = client.get_model_by_hash(value)
+                        except Exception as e:
+                            # One hash failing must not lose the rest; leave it
+                            # unresolved rather than recording a wrong answer.
+                            print(f"[ModelManager] Resolve {value} failed: {e}")
+                            continue
+                        db.remember_hash(value, version)
+                        model = (version or {}).get("model") or {}
+                        known[value] = {
+                            "hash": value,
+                            "version_id": (version or {}).get("id"),
+                            "model_id": (version or {}).get("modelId"),
+                            "name": model.get("name"),
+                            "version_name": (version or {}).get("name"),
+                            "model_type": model.get("type"),
+                        }
+                finally:
+                    client.close()
+
+            resolved = {}
+            for value, row in known.items():
+                version_id = row.get("version_id")
+                resolved[value] = {
+                    "version_id": version_id,
+                    "model_id": row.get("model_id"),
+                    "name": row.get("name"),
+                    "version_name": row.get("version_name"),
+                    "model_type": row.get("model_type"),
+                    "view_url": f"https://civitai.com/model-versions/{version_id}" if version_id else None,
+                    "download_url": f"https://civitai.com/api/download/models/{version_id}" if version_id else None,
+                }
+
+            return JSONResponse({"success": True, "resolved": resolved})
+
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Resolve hashes error: {e}")
+            traceback.print_exc()
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.get("/model-manager/resolve-hash")
     async def resolve_hash(hash: str):
         """

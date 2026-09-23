@@ -848,6 +848,40 @@ def _migrate_to_v17(cursor):
     print("[ModelManager] Migration to v17 complete")
 
 
+def _migrate_to_v18(cursor):
+    """Remember what a resource hash resolved to, so it is asked once.
+
+    An image's generation data names the resources that went into it twice:
+    Civitai's own list, which carries modelVersionId, and the legacy list from
+    the infotext, which carries an AutoV2 hash and a filename. The two share no
+    key, so merging them means resolving the hashes - one request each, and
+    Civitai has no batch endpoint for them.
+
+    Across a library of 101,369 images there are only 14,644 distinct hashes,
+    and the common ones recur in hundreds of images, so the answers are worth
+    keeping. version_id NULL with a checked_at set means Civitai was asked and
+    did not know it - the same "do not ask again" the file sync records in
+    civitai_lookup_failed_at.
+    """
+    print("[ModelManager] Migrating to schema v18 (resolved resource hashes)...")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS resource_hashes (
+            hash TEXT PRIMARY KEY,
+            version_id INTEGER,
+            model_id INTEGER,
+            name TEXT,
+            version_name TEXT,
+            model_type TEXT,
+            checked_at TEXT NOT NULL
+        )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_resource_hashes_version"
+        " ON resource_hashes(version_id)"
+    )
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -901,6 +935,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 17:
         _migrate_to_v17(cursor)
+
+    if from_version < 18:
+        _migrate_to_v18(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

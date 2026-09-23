@@ -1602,6 +1602,25 @@ body.mm-modal-open {
     font-size: 0.85em;
 }
 
+/* The heading over the resources nothing could be found for. They are listed
+   rather than dropped, but they are not offers, so they read quieter. */
+.mm-res-group {
+    padding-top: 16px !important;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.85em;
+}
+
+.mm-res-unresolved .mm-res-type,
+.mm-res-unresolved .mm-res-name {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* The version, beside the model's name. */
+.mm-res-version {
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.85em;
+}
+
 /* ==================== Version Grouping ==================== */
 
 /* Versions badge on model cards */

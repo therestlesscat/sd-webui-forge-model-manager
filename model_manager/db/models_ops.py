@@ -462,6 +462,110 @@ class ModelsOps:
                 "never_asked": total - identified - asked,
             }
 
+    # ---------------------------------------------------------- resource hashes
+
+    def resolved_hashes(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        What we already know about these resource hashes.
+
+        Answers for hashes Civitai did not recognise are kept too, with a null
+        version_id, so the same dead hash is not asked about on every image
+        that names it.
+
+        Args:
+            hashes: AutoV2 hashes, any case.
+
+        Returns:
+            Dict keyed by lowercase hash. A value with version_id None means
+            "asked, not on Civitai".
+        """
+        wanted = [h.lower() for h in hashes if h]
+        if not wanted:
+            return {}
+
+        found = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                cursor.execute(
+                    "SELECT hash, version_id, model_id, name, version_name, model_type"
+                    " FROM resource_hashes WHERE hash IN (%s)" % placeholders,
+                    chunk
+                )
+                for row in cursor.fetchall():
+                    found[row["hash"]] = dict(row)
+        return found
+
+    def remember_hash(self, hash_value: str, version: Optional[Dict[str, Any]]):
+        """
+        Record what a resource hash resolved to, or that it resolved to nothing.
+
+        Args:
+            hash_value: AutoV2 hash.
+            version: Civitai version payload, or None if it does not know it.
+        """
+        version = version or {}
+        model = version.get("model") or {}
+        with self._cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO resource_hashes
+                    (hash, version_id, model_id, name, version_name, model_type, checked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(hash) DO UPDATE SET
+                    version_id = excluded.version_id,
+                    model_id = excluded.model_id,
+                    name = excluded.name,
+                    version_name = excluded.version_name,
+                    model_type = excluded.model_type,
+                    checked_at = excluded.checked_at
+            """, (
+                hash_value.lower(),
+                version.get("id"),
+                version.get("modelId"),
+                model.get("name"),
+                version.get("name"),
+                model.get("type"),
+                datetime.now().isoformat(),
+            ))
+
+    def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Resolve what we can from our own rows, before asking Civitai anything.
+
+        A version row's id is the Civitai modelVersionId, and the row already
+        carries the AutoV2 hash that an image's legacy resource list names - so
+        anything in this library resolves for free.
+        """
+        wanted = {h.lower() for h in hashes if h}
+        if not wanted:
+            return {}
+
+        found = {}
+        with self._cursor() as cursor:
+            cursor.execute("""
+                SELECT v.id, v.model_id, v.version_name, v.file_hashes, m.name, m.type
+                FROM model_versions v
+                LEFT JOIN civitai_models m ON m.id = v.model_id
+                WHERE v.file_hashes IS NOT NULL AND v.id IS NOT NULL
+            """)
+            for row in cursor.fetchall():
+                try:
+                    stored = json.loads(row["file_hashes"]) or {}
+                except (TypeError, ValueError):
+                    continue
+                autov2 = (stored.get("autov2") or stored.get("AutoV2") or "").lower()
+                if autov2 and autov2 in wanted:
+                    found[autov2] = {
+                        "hash": autov2,
+                        "version_id": row["id"],
+                        "model_id": row["model_id"],
+                        "name": row["name"],
+                        "version_name": row["version_name"],
+                        "model_type": row["type"],
+                    }
+        return found
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:
