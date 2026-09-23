@@ -42,6 +42,8 @@ export function mountTab(tabFile) {
     globalThis.Event = window.Event;
     globalThis.MouseEvent = window.MouseEvent ?? window.Event;
     globalThis.CustomEvent = window.CustomEvent;
+    // A browser global; descriptions are sanitized by parsing them with it.
+    globalThis.DOMParser = window.DOMParser;
     globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
     globalThis.gradioApp = () => window.document;
     globalThis.onUiLoaded = (cb) => cb();

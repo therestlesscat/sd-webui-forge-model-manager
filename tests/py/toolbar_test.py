@@ -323,7 +323,7 @@ check('and the modifier is not named after one tab',
 check('the details header offers the jump',
       'window.mmShowInCivitaiBrowser(' in JS)
 check('only for a model Civitai knows',
-      JS.index('window.mmShowInCivitaiBrowser(${modelId})') > 0)
+      JS.index('window.mmShowInCivitaiBrowser(${safeId(modelId)})') > 0)
 check('it looks for the tab by the name the tab is registered under',
       "b.textContent.trim() === 'Civitai Browser'" in JS)
 check('and the browser registers exactly that',
