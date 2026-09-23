@@ -208,6 +208,27 @@ check('the prompt filter can render a gallery', renderError, null);
 check('keeping only the image with a prompt to reuse',
       $('cb_images').querySelectorAll('.mm-image-card').length, 1);
 
+// The prompt banner has its own switch, on the right, as the NSFW one does:
+// a per-model override that leaves the search's own filter alone.
+const promptSwitch = () => document.querySelectorAll('.cb-nsfw-warning #cb_show_promptless_images');
+const promptBanner = () => Array.from(document.querySelectorAll('.cb-nsfw-warning span'))
+    .map((span) => span.textContent).join(' | ');
+check('the prompt banner carries its own switch', promptSwitch().length, 1);
+check('beside a count of what it hides', promptBanner().includes('1 hidden - no usable prompt'), true);
+check('and the switch itself says how many it would show',
+      (promptSwitch()[0]?.closest('label')?.textContent || '').includes('Show images without prompts (1)'), true);
+
+window.cbToggleShowPromptless?.(true);
+check('ticking it shows the images without a prompt',
+      $('cb_images').querySelectorAll('.mm-image-card').length, 2);
+check('and the switch is still there to turn back', promptSwitch().length, 1);
+check('saying what it is showing', promptBanner().includes('Showing 1 without a usable prompt'), true);
+check("without touching the search's own filter", $('cb_require_prompt').checked, true);
+
+window.cbToggleShowPromptless?.(false);
+check('unticking hides them again',
+      $('cb_images').querySelectorAll('.mm-image-card').length, 1);
+
 // --------------------------------------------- the NSFW switch, in the banner
 // It sits on the right of the banner, as in the Model Manager, rather than in
 // the list's header. The banner is up whenever something is hidden and stays
