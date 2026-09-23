@@ -1558,8 +1558,12 @@ body.mm-modal-open {
     word-break: break-word;
 }
 
+/* A flex cell stops honouring vertical-align, so on a row whose name wraps to
+   three lines the buttons drift to the top. It is a flex cell because the
+   buttons pin their own margin, which is where the spacing used to come from. */
 .mm-res-actions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 5px;
     white-space: nowrap;
