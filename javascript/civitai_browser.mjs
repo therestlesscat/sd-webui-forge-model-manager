@@ -409,6 +409,57 @@ async function searchModelsStreaming(page, cursor) {
 }
 
 // Search models using cursor-based pagination
+/**
+ * The model id in a targeted query, or null for an ordinary search.
+ *
+ * The Model Manager's search takes model:123 / version:456 / hash:ABC, and
+ * its "Show in Civitai Browser" button sends the same shape here, so the two
+ * tabs read the same syntax. Only model: means anything to Civitai, which
+ * has no endpoint for the rest.
+ */
+function targetedModelId(query) {
+    const match = /^\s*model:\s*(\d+)\s*$/i.exec(query || '');
+    return match ? Number(match[1]) : null;
+}
+
+/**
+ * Show one model, asked for by id rather than searched for.
+ *
+ * Civitai's search has no way to ask for a known model, so this goes to the
+ * model endpoint instead. The result is a page of exactly one, with no
+ * cursors - paging past it would be meaningless.
+ */
+async function showModelById(modelId) {
+    isLoading = true;
+    updateStatus(`Loading model ${modelId}...`);
+    try {
+        const data = await apiCall({ endpoint: `/model-manager/civitai/models/${modelId}` });
+        if (!data.success || !data.model) {
+            currentModels = [];
+            renderGrid();
+            closeDetails();
+            updateStatus(data.error === 'Model not found'
+                ? `Civitai has no model ${modelId}. It may have been taken down.`
+                : `Could not load model ${modelId}: ${data.error || 'unknown error'}`);
+            return;
+        }
+
+        currentModels = [data.model];
+        currentPage = 1;
+        cursors = [""];
+        hasMorePages = false;
+        renderGrid();
+        renderPaginationControls();
+        updateStatus(`Showing model ${modelId}`);
+        openModel(0);
+    } catch (e) {
+        console.error('[CivitaiBrowser] Targeted lookup failed:', e);
+        updateStatus(`Could not load model ${modelId}: ${e.message}`);
+    } finally {
+        isLoading = false;
+    }
+}
+
 async function searchModels(page = 1) {
     // Ensure page is a valid positive integer
     page = parseInt(page, 10);
@@ -424,6 +475,14 @@ async function searchModels(page = 1) {
     }
 
     if (isLoading) return;
+
+    // A targeted lookup is not a search: it names the model outright, so the
+    // filters, the cursors and the prompt filter all have nothing to say.
+    const targeted = targetedModelId(document.getElementById('cb_search')?.value);
+    if (targeted !== null) {
+        await showModelById(targeted);
+        return;
+    }
 
     // The prompt filter has to check models one by one, so stream results
     // in as they are found instead of blocking on the whole page
@@ -2103,6 +2162,22 @@ window.cbOpenModel = openModel;
 window.cbCloseDetails = closeDetails;
 window.cbSelectVersion = selectVersion;
 window.cbSelectFile = selectFile;
+// Show a model here, asked for from the Model Manager tab. The mirror of
+// cbShowInModelManager() below, and of mmShowModel() over there.
+window.cbShowModel = async function(query) {
+    const search = document.getElementById('cb_search');
+    if (search) search.value = query;
+
+    // A targeted lookup ignores them, but leaving them set would be confusing
+    // the moment the next search is run.
+    const nsfw = document.getElementById('cb_nsfw');
+    if (nsfw) nsfw.checked = true;
+    const requirePrompt = document.getElementById('cb_require_prompt');
+    if (requirePrompt) requirePrompt.checked = false;
+
+    await searchModels(1);
+};
+
 // Open this model over in the Model Manager tab
 window.cbShowInModelManager = function(modelId) {
     if (typeof window.mmShowModel !== 'function') {
