@@ -1191,6 +1191,10 @@ function renderImages() {
     const promptlessCount = promptFilterOn
         ? imagesToShow.filter((img) => !hasUsablePrompt(img)).length
         : 0;
+    // The switch's (n) is every image of this model without one, whichever way
+    // the NSFW switch is set - the same rule its NSFW count follows, and the
+    // Model Manager's. The banner text still counts what is hidden right now.
+    const promptlessTotal = currentImages.filter((img) => !hasUsablePrompt(img)).length;
     if (promptFilterOn && !showPromptlessImages) {
         imagesToShow = imagesToShow.filter(hasUsablePrompt);
         promptHiddenCount = promptlessCount;
@@ -1213,7 +1217,7 @@ function renderImages() {
             <label class="cb-show-all-label" title="Show this model's images that have no prompt to send to txt2img">
                 <input type="checkbox" id="cb_show_promptless_images" ${showPromptlessImages ? 'checked' : ''}
                        onchange="window.cbToggleShowPromptless(this.checked)">
-                Show images without prompts (${promptlessCount})
+                Show images without prompts (${promptlessTotal})
             </label>
            </div>`
         : '';

@@ -252,6 +252,12 @@ let imageBrowsing = 'continuous';
 let hidePromptlessImages = true;
 let hidePromptlessInitialised = false;
 let promptlessHiddenCount = 0;
+// How many of this version's images are NSFW, and how many have no prompt,
+// whichever way the switches are set - the (n) beside each switch. They come
+// from the server because the filtering does: once a switch shows everything,
+// nothing on the page could say how many it had been hiding.
+let nsfwImageTotal = 0;
+let promptlessImageTotal = 0;
 // How many of the loaded images the continuous list is showing. Paging mode
 // ignores it, so the two modes cannot disagree about where you are.
 let visibleImageCount = IMAGE_PAGE_SIZE;
@@ -931,6 +937,8 @@ async function loadVersionDetails(filePath) {
             totalImageCount = imagesState.total_count || 0;
             hiddenImageCount = imagesState.hidden_nsfw ?? imagesState.hidden_count ?? 0;
             promptlessHiddenCount = imagesState.hidden_promptless || 0;
+            nsfwImageTotal = imagesState.nsfw_total || 0;
+            promptlessImageTotal = imagesState.promptless_total || 0;
 
             if (!hidePromptlessInitialised && imagesState.hide_promptless_images !== undefined) {
                 hidePromptlessImages = imagesState.hide_promptless_images;
@@ -955,10 +963,13 @@ async function loadVersionDetails(filePath) {
     }
 }
 
-// Toggle the no-prompt filter. Reloads, because the filtering is done in SQL:
-// the images that were hidden are not in the browser to be revealed.
-window.mmToggleHidePromptless = async function(checked) {
-    hidePromptlessImages = checked;
+// The no-prompt switch. It reads "Show images without prompts", as the Civitai
+// Browser's does, while the server is still asked whether to *hide* them -
+// hide_promptless_images. This is the one place the two meet. It reloads,
+// because the filtering is done in SQL: the hidden images are not in the page
+// to be revealed.
+window.mmToggleShowPromptless = async function(showPromptless) {
+    hidePromptlessImages = !showPromptless;
     hidePromptlessInitialised = true;
     currentImagePage = 1;
     visibleImageCount = IMAGE_PAGE_SIZE;
@@ -967,9 +978,12 @@ window.mmToggleHidePromptless = async function(checked) {
     }
 };
 
-// Toggle NSFW image filter and reload images
-window.mmToggleHideNsfwImages = async function(checked) {
-    hideNsfwImages = checked;
+// The gallery's NSFW switch. It reads "Show NSFW", as every other NSFW switch
+// in both tabs does, while the server is still asked whether to *hide* them -
+// hide_nsfw_images, and hideNsfwImages here. This is the one place the two
+// meet, so the inversion is done here and nowhere else.
+window.mmToggleShowNsfwImages = async function(showNsfw) {
+    hideNsfwImages = !showNsfw;
     currentImagePage = 1;
     visibleImageCount = IMAGE_PAGE_SIZE;
     if (currentModelPath) {
@@ -1509,8 +1523,8 @@ function renderModelImages(images) {
                 ? `Showing ${images.length} of ${totalImageCount} images (${hiddenImageCount} hidden due to NSFW filter)`
                 : `Showing all ${totalImageCount} images`}</span>
             <label class="mm-show-all-label">
-                <input type="checkbox" id="mm_hide_nsfw_images" ${hideNsfwImages ? 'checked' : ''} onchange="window.mmToggleHideNsfwImages(this.checked)">
-                Hide NSFW
+                <input type="checkbox" id="mm_show_nsfw_images" ${hideNsfwImages ? '' : 'checked'} onchange="window.mmToggleShowNsfwImages(this.checked)">
+                Show NSFW (${nsfwImageTotal})
             </label>
            </div>`
         : '';
@@ -1524,10 +1538,10 @@ function renderModelImages(images) {
         ? `<div class="mm-nsfw-warning">
             <span>${hidePromptlessImages
                 ? `${promptlessHiddenCount} hidden - no prompt to read`
-                : 'Showing images with no prompt'}</span>
+                : `Showing ${promptlessImageTotal} with no prompt to read`}</span>
             <label class="mm-show-all-label">
-                <input type="checkbox" id="mm_hide_promptless_images" ${hidePromptlessImages ? 'checked' : ''} onchange="window.mmToggleHidePromptless(this.checked)">
-                Hide images without prompts
+                <input type="checkbox" id="mm_show_promptless_images" ${hidePromptlessImages ? '' : 'checked'} onchange="window.mmToggleShowPromptless(this.checked)">
+                Show images without prompts (${promptlessImageTotal})
             </label>
            </div>`
         : '';
@@ -1540,7 +1554,8 @@ function renderModelImages(images) {
                     <h4>Example Images</h4>
                 </div>
                 ${nsfwWarningHtml}
-                <div class="model-images-list"><p class="mm-no-images">No SFW images available. Uncheck "Hide NSFW" to see all images.</p></div>
+                ${promptWarningHtml}
+                <div class="model-images-list"><p class="mm-no-images">No images to show with the filters above.</p></div>
             `;
             container.style.display = 'block';
             return;

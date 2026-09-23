@@ -363,6 +363,8 @@ def register(app: FastAPI):
                     "hidden_count": image_counts["hidden"],
                     "hidden_nsfw": image_counts["hidden_nsfw"],
                     "hidden_promptless": image_counts["hidden_promptless"],
+                    "nsfw_total": image_counts["nsfw_total"],
+                    "promptless_total": image_counts["promptless_total"],
                     "hide_nsfw_images": hide_nsfw_images,
                     "hide_promptless_images": hide_promptless_images,
                 }

@@ -256,6 +256,31 @@ check('with everything shown the switch is still there to turn back',
       switchIn('.cb-nsfw-warning'), 1);
 check('and the banner says so', bannerText().includes('Showing all 2'), true);
 
+// ------------------------------------------- what the prompt switch counts
+// The (n) is every image of the model without a usable prompt, whichever way
+// the NSFW switch is set - the rule the NSFW count and the Model Manager's
+// follow. The banner text counts what is hidden right now, which with NSFW
+// hidden can be fewer.
+galleryImages = [
+    { id: 31, url: 'https://example.invalid/31.jpeg', browsingLevel: 1,
+      meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
+    { id: 32, url: 'https://example.invalid/32.jpeg', browsingLevel: 1, meta: null },
+    { id: 33, url: 'https://example.invalid/33.jpeg', browsingLevel: 8, meta: null },
+];
+await window.cbShowModel('model:12345');
+await settle();
+$('cb_require_prompt').checked = true;
+window.cbToggleShowAllImages(false);
+const promptLabel = () => (document.querySelector('.cb-nsfw-warning #cb_show_promptless_images')
+    ?.closest('label')?.textContent || '').trim();
+check('the switch counts every image of the model without a prompt',
+      promptLabel(), 'Show images without prompts (2)');
+check('while the banner counts the one hidden now - the other is hidden as NSFW',
+      Array.from(document.querySelectorAll('.cb-nsfw-warning span'))
+          .some((span) => span.textContent.includes('1 hidden - no usable prompt')), true);
+window.cbToggleShowAllImages(true);
+check('and showing NSFW leaves the count as it was', promptLabel(), 'Show images without prompts (2)');
+
 console.log(fails.length
     ? fails.map((f) => 'FAIL ' + f).join('\n')
     : 'All checks passed.');

@@ -6,7 +6,7 @@ Used by ModelsDatabase facade - do not import directly.
 """
 import json
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
-from ..nsfw import UNKNOWN, image_level
+from ..nsfw import SFW_MAX, UNKNOWN, image_level
 from typing import Optional, List, Dict, Any, Callable
 
 
@@ -176,12 +176,31 @@ class ImagesOps:
             )
             nsfw_kept = cursor.fetchone()[0]
 
+            # How many of the version's images are of each kind, whichever way
+            # the switches are set - what the gallery's "Show NSFW (n)" and
+            # "Show images without prompts (n)" count. The hidden_* figures
+            # above only say what is being held back right now, and are 0 as
+            # soon as a switch shows everything, which is when a count still
+            # matters most.
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ? AND effective_nsfw_level > ?",
+                (version_id, SFW_MAX)
+            )
+            nsfw_total = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ?" + self._prompt_filter(True),
+                (version_id,)
+            )
+            promptless_total = total - cursor.fetchone()[0]
+
             return {
                 "total": total,
                 "filtered": filtered,
                 "hidden_nsfw": total - nsfw_kept,
                 "hidden_promptless": nsfw_kept - filtered,
-                "hidden": total - filtered
+                "hidden": total - filtered,
+                "nsfw_total": nsfw_total,
+                "promptless_total": promptless_total,
             }
 
     def get_cached_page_count(self, version_id: int) -> int:
