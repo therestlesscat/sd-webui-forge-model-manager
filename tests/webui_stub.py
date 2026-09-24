@@ -15,7 +15,7 @@ import types
 DEFAULTS = {
     "model_manager_civitai_api_key": "",
     "model_manager_civitai_requests_per_second": 6,
-    "model_manager_page_size": 10,
+    "model_manager_page_size": 20,
     "model_manager_civitai_page_size": 20,
     "model_manager_card_size": "200x280",
     "model_manager_civitai_card_size": "200x280",

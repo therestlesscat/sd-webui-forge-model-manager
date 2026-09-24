@@ -189,14 +189,16 @@ def query_models_grouped(
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    # Validate sort field
+    # Validate sort field. Text sorts ignore case: SQLite's default collation
+    # compares bytes, which put every capitalised name before every
+    # lowercase one - "Zeta" ahead of "alpha".
     valid_sort_fields = {
-        "name": "COALESCE(cm_name, file_name)",
-        "display_name": "COALESCE(cm_name, file_name)",
-        "file_name": "file_name",
+        "name": "COALESCE(cm_name, file_name) COLLATE NOCASE",
+        "display_name": "COALESCE(cm_name, file_name) COLLATE NOCASE",
+        "file_name": "file_name COLLATE NOCASE",
         "file_size": "file_size",
         "file_modified": "file_modified",
-        "base_model": "base_model",
+        "base_model": "base_model COLLATE NOCASE",
         "nsfw_level": "nsfw_level",
         "rating": "COALESCE(cm_stats_rating, 0)",
         "download_count": "COALESCE(cm_stats_download_count, stats_download_count)",
