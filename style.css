@@ -570,6 +570,11 @@ body.mm-modal-open {
     justify-content: center;
 }
 
+/* civitai_browser.mjs caps its width so the rows come out even */
+#cb_grid .model-grid-inner {
+    margin: 0 auto;
+}
+
 /* Model card */
 .model-card {
     background: var(--block-background-fill, #1f2937);

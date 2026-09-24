@@ -572,6 +572,55 @@ function renderGrid() {
     const showPagination = !isStreaming && (maxPageVisited > 1 || hasMorePages);
     const paginationHtml = showPagination ? renderPaginationControls() : '';
     grid.innerHTML = `<div class="model-grid-inner">${cards}</div>${paginationHtml}`;
+    balanceGridRows();
+}
+
+/**
+ * How many columns to lay a page of cards out in, so its rows come out even.
+ *
+ * Use the fewest rows the width allows, then spread the cards across them:
+ * ten cards with room for nine is 5 + 5, not 9 + 1, and stays 5 + 5 down to
+ * room for five. Only when another row is unavoidable does it change - room
+ * for four is 4 + 4 + 2, which is as even as equal columns get.
+ */
+function balancedColumns(cardCount, fit) {
+    if (cardCount < 1 || fit < 1) return Math.max(fit, 1);
+    const rows = Math.ceil(cardCount / fit);
+    return Math.ceil(cardCount / rows);
+}
+
+// Caps the grid's width at the balanced column count; the flex-wrap layout
+// then wraps there. Measured from the cards themselves, so the card size
+// setting needs no wiring of its own.
+function balanceGridRows() {
+    const grid = document.getElementById('cb_grid');
+    const inner = grid?.querySelector('.model-grid-inner');
+    if (!inner) return;
+    watchGridWidth(grid);
+
+    const cards = inner.querySelectorAll('.model-card');
+    const cardWidth = cards[0]?.getBoundingClientRect().width || 0;
+    const available = grid.clientWidth;
+    if (!cards.length || !cardWidth || !available) return;   // hidden tab: wait for a resize
+
+    const gap = parseFloat(window.getComputedStyle(inner).columnGap) || 0;
+    const fit = Math.max(1, Math.floor((available + gap) / (cardWidth + gap)));
+    const cols = balancedColumns(cards.length, fit);
+    inner.style.maxWidth = `${Math.ceil(cols * cardWidth + (cols - 1) * gap)}px`;
+}
+
+// One observer for the grid's lifetime. Capping the inner list's width does
+// not change the grid's own, so this cannot feed itself.
+let gridObserver = null;
+function watchGridWidth(grid) {
+    if (gridObserver || typeof ResizeObserver !== 'function') return;
+    let lastWidth = -1;
+    gridObserver = new ResizeObserver(() => {
+        if (grid.clientWidth === lastWidth) return;
+        lastWidth = grid.clientWidth;
+        balanceGridRows();
+    });
+    gridObserver.observe(grid);
 }
 
 // Render pagination controls - builds dynamically as user navigates
