@@ -35,7 +35,7 @@ An earlier map read Soft as R and Mature as X - one level harsher than Civitai
 means - which pushed 27% of images up a grade and quietly dropped their models
 out of a filtered view.
 """
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # ---------------------------------------------------------------- vocabulary
 
@@ -136,6 +136,49 @@ def image_level(image: Dict[str, Any]) -> int:
         return PG
 
     return UNKNOWN
+
+
+def version_covers(images: Optional[List[Dict[str, Any]]],
+                   complete: bool) -> Tuple[Optional[str], Optional[str]]:
+    """
+    A version's two cover images, as the Civitai Browser would show them.
+
+    The cover is the first of the images the creator attached to a version
+    (its showcase), which is what a Civitai search card shows once NSFW is
+    allowed. Without it, Civitai leaves every image but PG out of the
+    showcase - PG-13 included - so the card shows the first PG image instead,
+    or none. Measured on the 34 most downloaded checkpoints with a PG image:
+    the card was the first PG image of the full showcase for all 34, and the
+    first PG or PG-13 image for only 27.
+
+    Only a complete showcase says what the cover is. /models/{id} returns
+    one; /models?ids= does with nsfw=true; /model-versions/by-hash never does,
+    whatever it is asked. A stripped one keeps the PG images in order, so
+    the first PG image is right from any of them.
+
+    Args:
+        images: The version's showcase, or None if the payload had none.
+        complete: Whether it is known to be unstripped.
+
+    Returns:
+        (cover, first PG image). None means unknown - keep what is stored -
+        and '' means known to be absent.
+    """
+    if images is None:
+        return None, None
+    urls = [img for img in images if img.get("url")]
+    pg = next((img["url"] for img in urls if image_level(img) == PG), "")
+    cover = (urls[0]["url"] if urls else "") if complete else None
+    return cover, pg
+
+
+def showcase_is_complete(images: List[Dict[str, Any]]) -> bool:
+    """
+    Whether a showcase read from somewhere unknown - a .civitai.info written
+    by whatever wrote it - provably still has its non-PG images. One that is
+    all PG may have been stripped, so the cover cannot be taken from it.
+    """
+    return any(image_level(img) != PG for img in images)
 
 
 def max_image_level(images: Iterable[Dict[str, Any]]) -> int:

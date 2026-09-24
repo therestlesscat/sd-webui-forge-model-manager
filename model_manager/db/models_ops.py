@@ -205,8 +205,8 @@ class ModelsOps:
                     nsfw_level, trained_words, description,
                     stats_download_count, stats_thumbs_up,
                     file_path, file_name, file_size, file_hashes, file_modified, file_extension,
-                    has_civitai_data, scanned_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    has_civitai_data, scanned_at, cover_url, pg_cover_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(file_path) DO UPDATE SET
                     -- Absent is not the same as empty. A .civitai.info that
                     -- says nothing about trained words is not a model that has
@@ -235,7 +235,11 @@ class ModelsOps:
                     file_modified = excluded.file_modified,
                     file_extension = excluded.file_extension,
                     has_civitai_data = excluded.has_civitai_data,
-                    scanned_at = excluded.scanned_at
+                    scanned_at = excluded.scanned_at,
+                    -- NULL is "this source cannot say" (a stripped showcase
+                    -- has no reliable cover); '' is "has none", and is kept.
+                    cover_url = COALESCE(excluded.cover_url, model_versions.cover_url),
+                    pg_cover_url = COALESCE(excluded.pg_cover_url, model_versions.pg_cover_url)
             """, (
                 version_data.get("id"),
                 version_data.get("model_id"),
@@ -255,7 +259,9 @@ class ModelsOps:
                 version_data.get("file_modified"),
                 version_data.get("file_extension"),
                 1 if version_data.get("has_civitai_data") else 0,
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
+                version_data.get("cover_url"),
+                version_data.get("pg_cover_url"),
             ))
 
     def delete_version(self, file_path: str):

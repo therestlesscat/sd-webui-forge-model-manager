@@ -248,7 +248,15 @@ def query_models_grouped(
         outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
     outer_where = " AND ".join(outer_conditions)
 
-    preview_url_column = "ips.preview_url_least_nsfw" if preview_least_nsfw else "ips.preview_url_recent"
+    # The card shows what the Civitai Browser's would for the same version:
+    # its cover with NSFW allowed, its first PG image without - which is
+    # none at all when it has no PG image (stored as ''). Only a version
+    # whose covers are not known yet (NULL) falls back to a pick from its
+    # stored gallery. See version_covers().
+    preview_url_column = (
+        "COALESCE(fv.pg_cover_url, ips.preview_url_least_nsfw)" if preview_least_nsfw
+        else "COALESCE(fv.cover_url, fv.pg_cover_url, ips.preview_url_recent)"
+    )
 
     # Query for latest version per model group
     query = f"""

@@ -492,6 +492,9 @@ class CivitaiClient:
             data = self._request("GET", "/models", {
                 "ids": ",".join(str(m) for m in batch),
                 "limit": len(batch),
+                # Without it Civitai strips every showcase image but PG, and
+                # the version's cover goes with them - see version_covers().
+                "nsfw": "true",
             })
             for item in (data or {}).get("items", []) or []:
                 if item.get("id"):

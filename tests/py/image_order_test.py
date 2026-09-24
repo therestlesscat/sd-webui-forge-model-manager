@@ -90,17 +90,21 @@ cur.execute("""CREATE TABLE images (id INTEGER PRIMARY KEY, version_id INTEGER N
                page INTEGER NOT NULL, url TEXT, width INTEGER, height INTEGER,
                effective_nsfw_level INTEGER DEFAULT 64, created_at TEXT, data TEXT NOT NULL)""")
 cur.execute("CREATE TABLE schema_info (key TEXT PRIMARY KEY, value TEXT)")
+# Later migrations run too - run_migrations applies every step past the
+# starting version - and they need the versions table a real v18 has.
+cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY)")
 cur.execute("INSERT INTO images (id, version_id, page, data) VALUES (1, 1, 1, '{}')")
-run_migrations(cur, 18, 19, path, WORK)
+run_migrations(cur, 18, dbmod.SCHEMA_VERSION, path, WORK)
 columns = [row[1] for row in cur.execute("PRAGMA table_info(images)")]
 check('a v18 database gains the position column', 'position' in columns)
 check('keeping the rows it had, with no position yet',
       cur.execute("SELECT id, position FROM images").fetchall(), [(1, None)])
-run_migrations(cur, 18, 19, path, WORK)
+run_migrations(cur, 18, dbmod.SCHEMA_VERSION, path, WORK)
 check('and the migration can run twice', [row[1] for row in cur.execute(
       "PRAGMA table_info(images)")].count('position'), 1)
 check('recording the new version', cur.execute(
-      "SELECT value FROM schema_info WHERE key = 'version'").fetchone(), ('19',))
+      "SELECT value FROM schema_info WHERE key = 'version'").fetchone(),
+      (str(dbmod.SCHEMA_VERSION),))
 conn.close()
 
 # ------------------------------- "Only with SFW images" judges Civitai's first 20
