@@ -23,7 +23,7 @@ from ..civitai import (
     size_range_check,
 )
 from .annotations import annotate_local_ownership, annotate_paid_access
-from .prompts import PROMPT_CHECK_WORKERS, count_usable_prompt_images
+from .prompts import PROMPT_CHECK_WORKERS, inspect_model
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -40,6 +40,61 @@ MAX_FILTER_SEARCHES = 5
 # Civitai's largest search page. The size filter asks for the most it can
 # per call, since each call is the whole cost of checking a batch.
 SIZE_FILTER_BATCH = 100
+
+
+def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
+                    limit, min_usable):
+    """
+    The filter loop's arguments for the filters asked for.
+
+    "Only with SFW images" means nothing once NSFW models are included, so it
+    is ignored then, whatever the request says - the browser greys it out,
+    and this is the same rule on the server's side.
+
+    A filter that checks models one at a time stops a page on a 429 rather
+    than sitting out Retry-After: most models fail the SFW check, so it makes
+    the most requests of anything here, and a page it cuts short can be
+    resumed.
+
+    Returns:
+        (whether the SFW check is on, the loop's keyword arguments)
+    """
+    sfw = bool(sfw_only and not nsfw)
+    costly = require_prompt or sfw
+    if costly:
+        client.wait_on_rate_limit = False
+
+    inspect = (
+        (lambda m: inspect_model(client, db, m, want_prompts=require_prompt,
+                                 want_sfw=sfw, min_usable=min_usable))
+        if costly else None
+    )
+    return sfw, dict(
+        inspect=inspect,
+        page_size=limit,
+        max_checks=max(limit * 4, 20),
+        batch_size=max(limit * 2, 20) if costly else SIZE_FILTER_BATCH,
+        workers=PROMPT_CHECK_WORKERS,
+        accept=size_check,
+        max_searches=MAX_FILTER_SEARCHES,
+    )
+
+
+def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
+    """What a filtered page passed over, for the browser's status line."""
+    return {
+        "checked": summary["checked"],
+        "dropped": summary["dropped"],
+        "unsafe": summary["unsafe"],
+        "failed": summary["failed"],
+        "rejected": summary["rejected"],
+        "promptFilter": require_prompt,
+        "sfwFilter": sfw,
+        "sizeFilter": size_check is not None,
+        "budgetReached": summary["budget_reached"],
+        "rateLimited": summary["rate_limited"],
+        "minUsable": min_usable,
+    }
 
 
 def register(app: FastAPI):
@@ -64,6 +119,7 @@ def register(app: FastAPI):
         checkpoint_type: str = "",  # Trained or Merge; checkpoints only
         cursor: str = "",         # Cursor for pagination (empty = first page)
         require_prompt: bool = False,  # Only models with usable-prompt images
+        sfw_only: bool = False,   # Only models whose first images are all SFW
         min_size_gb: float = 0,   # Latest version's primary file; 0 = no bound
         max_size_gb: float = 0,
         limit: int = 0,  # 0 = use setting
@@ -114,39 +170,27 @@ def register(app: FastAPI):
             filter_stats = None
             size_check = size_range_check(min_size_gb, max_size_gb)
             try:
-                if require_prompt or size_check:
-                    # Civitai can filter on neither prompt availability nor
-                    # file size, so models are checked locally and the page
-                    # is filled from what survives.
-                    min_usable = int(getattr(
-                        shared.opts, 'model_manager_civitai_min_prompt_images', 1))
-                    db_for_check = get_models_db()
+                min_usable = max(int(getattr(
+                    shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
+                sfw, options = _filter_options(
+                    client, get_models_db(), require_prompt=require_prompt,
+                    sfw_only=sfw_only, nsfw=nsfw, size_check=size_check,
+                    limit=limit, min_usable=min_usable)
 
+                if require_prompt or sfw or size_check:
+                    # Civitai can filter on none of these, so models are
+                    # checked locally and the page is filled from what
+                    # survives.
                     filtered = search_models_with_usable_prompts(
-                        client,
-                        search_params,
-                        (lambda m: count_usable_prompt_images(client, db_for_check, m))
-                        if require_prompt else None,
-                        page_size=limit,
-                        min_usable=max(min_usable, 1),
+                        client, search_params, None,
                         start_token=cursor if cursor else None,
-                        max_checks=max(limit * 4, 20),
-                        batch_size=max(limit * 2, 20) if require_prompt else SIZE_FILTER_BATCH,
-                        workers=PROMPT_CHECK_WORKERS,
-                        accept=size_check,
-                        max_searches=MAX_FILTER_SEARCHES,
+                        **options,
                     )
                     items = filtered["models"]
                     next_cursor = filtered["nextCursor"]
-                    filter_stats = {
-                        "checked": filtered["checked"],
-                        "dropped": filtered["dropped"],
-                        "rejected": filtered["rejected"],
-                        "promptFilter": require_prompt,
-                        "sizeFilter": size_check is not None,
-                        "budgetReached": filtered["budget_reached"],
-                        "minUsable": max(min_usable, 1),
-                    }
+                    filter_stats = _filter_stats(
+                        filtered, require_prompt=require_prompt, sfw=sfw,
+                        size_check=size_check, min_usable=min_usable)
                 else:
                     # Un-ticking the filter mid-listing can hand us a filter
                     # token; Civitai would reject it, so unwrap the real cursor
@@ -197,6 +241,7 @@ def register(app: FastAPI):
         checkpoint_type: str = "",
         cursor: str = "",
         require_prompt: bool = True,
+        sfw_only: bool = False,
         min_size_gb: float = 0,
         max_size_gb: float = 0,
         limit: int = 0,
@@ -261,19 +306,15 @@ def register(app: FastAPI):
                     "minUsable": min_usable,
                 }) + "\n"
 
+                sfw, options = _filter_options(
+                    client, db, require_prompt=require_prompt, sfw_only=sfw_only,
+                    nsfw=nsfw, size_check=size_check, limit=limit,
+                    min_usable=min_usable)
+
                 for kind, payload in iter_models_with_usable_prompts(
-                    client,
-                    search_params,
-                    (lambda m: count_usable_prompt_images(client, db, m))
-                    if require_prompt else None,
-                    page_size=limit,
-                    min_usable=min_usable,
+                    client, search_params, None,
                     start_token=cursor if cursor else None,
-                    max_checks=max(limit * 4, 20),
-                    batch_size=max(limit * 2, 20) if require_prompt else SIZE_FILTER_BATCH,
-                    workers=PROMPT_CHECK_WORKERS,
-                    accept=size_check,
-                    max_searches=MAX_FILTER_SEARCHES,
+                    **options,
                 ):
                     if kind == "model":
                         annotate_local_ownership(db, [payload])
@@ -285,15 +326,9 @@ def register(app: FastAPI):
                         yield json.dumps({
                             "type": "done",
                             "nextCursor": payload["nextCursor"],
-                            "filterStats": {
-                                "checked": payload["checked"],
-                                "dropped": payload["dropped"],
-                                "rejected": payload["rejected"],
-                                "promptFilter": require_prompt,
-                                "sizeFilter": size_check is not None,
-                                "budgetReached": payload["budget_reached"],
-                                "minUsable": min_usable,
-                            },
+                            "filterStats": _filter_stats(
+                                payload, require_prompt=require_prompt, sfw=sfw,
+                                size_check=size_check, min_usable=min_usable),
                         }) + "\n"
 
             except Exception as e:

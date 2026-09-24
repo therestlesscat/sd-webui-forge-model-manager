@@ -144,6 +144,11 @@ class CivitaiClient:
                 Ignored without an API key.
         """
         self.api_key = api_key
+        # Whether a 429 is waited out (Retry-After, up to MAX_RETRIES times)
+        # or raised at once. A filter checking a page of models turns it off:
+        # it would rather stop the page, which it can resume, than sit out
+        # minutes of Retry-After with the stream showing nothing.
+        self.wait_on_rate_limit = True
         self.session = requests.Session()
         self.session.headers["User-Agent"] = "SD-WebUI-Forge-Model-Manager/1.0"
 
@@ -243,7 +248,7 @@ class CivitaiClient:
                 if response.status_code == 429:
                     # Rate limited - get retry-after if available
                     retry_after = int(response.headers.get("Retry-After", 60))
-                    if attempt < self.MAX_RETRIES:
+                    if self.wait_on_rate_limit and attempt < self.MAX_RETRIES:
                         print(f"[ModelManager] Rate limited, waiting {retry_after}s...")
                         time.sleep(retry_after)
                         continue

@@ -316,6 +316,47 @@ check('saying so in its summary',
 check('asking Civitai for as much as it gives per call',
       [c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'], 100)
 
+# ------------------------------------------------- only with SFW images
+# Each candidate's first images are looked at; one above PG-13 rules it out.
+from model_manager.api import prompts as prompt_checks          # noqa: E402
+
+def gallery_for(version_id, cursor=None, limit=None):
+    levels = {90091: [1, 2], 90093: [1, 8]}.get(version_id, [1])
+    return {'images': [{'id': version_id * 10 + n, 'browsingLevel': level, 'meta': None}
+                       for n, level in enumerate(levels)], 'next_cursor': None}
+
+Stub.get_model_images = lambda self, version_id, cursor=None, limit=None: (
+    Stub.calls.append(('get_model_images', version_id)) or gallery_for(version_id))
+
+SAFE, RACY = remote(90090, 90091), remote(90092, 90093)
+
+prompt_checks.forget_sfw_verdicts()
+civitai(models={'items': [SAFE, RACY], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', sfw_only='true', limit=5)
+check('only with SFW images keeps the model whose examples are all safe',
+      [m['id'] for m in body['models']], [90090])
+check('reporting what it left out', (body['filterStats']['unsafe'],
+                                      body['filterStats']['sfwFilter']), (1, True))
+
+prompt_checks.forget_sfw_verdicts()
+civitai(models={'items': [SAFE, RACY], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', sfw_only='true', nsfw='true', limit=5)
+check('with NSFW models included it means nothing, and is ignored',
+      [m['id'] for m in body['models']], [90090, 90092])
+check('without a single image being fetched for it',
+      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
+
+prompt_checks.forget_sfw_verdicts()
+civitai(models={'items': [SAFE, RACY], 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 5, 'sfw_only': 'true', 'require_prompt': 'false'}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('the stream takes it too',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [90090])
+check('and says so', (lines[-1]['filterStats']['sfwFilter'],
+                      lines[-1]['filterStats']['unsafe'],
+                      lines[-1]['filterStats']['promptFilter']), (True, 1, False))
+
 Stub.get_model_images = _scripted_images
 
 # ---------------------------------------------------------------- one model
