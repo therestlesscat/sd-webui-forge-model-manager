@@ -2225,16 +2225,12 @@ function init() {
 window.cbSearch = function() {
     initTagInput();
     loadEnums();
-    const hash = getFiltersHash();
-
-    // Try loading from cache
-    const cached = loadFromCache(hash);
-    if (cached && cached.cursors && cached.cursors.length > 1) {
-        cursors = cached.cursors;
-        console.log('[CivitaiBrowser] Loaded', cached.cursors.length, 'cursors from cache');
-    } else {
-        cursors = [""];
-    }
+    // A search starts at page 1 with only the pages it has been to. The saved
+    // position for these filters is Resume's to offer: loading it here showed
+    // every page any earlier visit had reached - pages 1 to 6 after going to
+    // page 2 - and a filtered page's saved cursor holds what the filters
+    // found that day, which is not what they find now.
+    cursors = [""];
     hasMorePages = true;
     updateResumeButton();
     searchModels(1);
