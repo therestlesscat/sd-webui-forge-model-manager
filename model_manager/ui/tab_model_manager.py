@@ -61,17 +61,17 @@ def create_ui():
                             <label>NSFW Levels</label>
                             <div class="mm-multiselect" id="mm_nsfw_dropdown">
                                 <div class="mm-multiselect-display" onclick="window.mmToggleNsfwDropdown()">
-                                    <span id="mm_nsfw_display">PG, PG-13</span>
+                                    <span id="mm_nsfw_display">Max: Unknown</span>
                                     <span class="mm-multiselect-arrow">▼</span>
                                 </div>
                                 <div class="mm-multiselect-panel" id="mm_nsfw_panel">
                                     <label class="mm-multiselect-item"><input type="checkbox" value="PG" checked> PG</label>
                                     <label class="mm-multiselect-item"><input type="checkbox" value="PG-13" checked> PG-13</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="R"> R</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="X"> X</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="XXX"> XXX</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="Blocked"> Blocked</label>
-                                    <label class="mm-multiselect-item"><input type="checkbox" value="Unknown"> Unknown</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="R" checked> R</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="X" checked> X</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="XXX" checked> XXX</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Blocked" checked> Blocked</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Unknown" checked> Unknown</label>
                                     <div class="mm-multiselect-divider"></div>
                                     <label class="mm-multiselect-item"><input type="checkbox" id="mm_nsfw_use_max" checked> Use max level</label>
                                 </div>
