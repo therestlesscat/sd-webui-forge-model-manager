@@ -357,6 +357,67 @@ check('and says so', (lines[-1]['filterStats']['sfwFilter'],
                       lines[-1]['filterStats']['unsafe'],
                       lines[-1]['filterStats']['promptFilter']), (True, 1, False))
 
+# ------------------------------------------- filling every page, if asked
+# Most models fail the SFW check, so a page normally stops after its checks
+# (20 here, for a page of 2) and comes back short. The setting lifts that.
+# Twenty-five models with an NSFW image, then two without.
+MANY = [remote(91000 + 2 * n, 91001 + 2 * n) for n in range(25)] + \
+       [remote(91100, 91101), remote(91102, 91103)]
+Stub.get_model_images = lambda self, version_id, cursor=None, limit=None: (
+    Stub.calls.append(('get_model_images', version_id)) or
+    {'images': [{'id': version_id, 'browsingLevel': 1 if version_id > 91100 else 8,
+                 'meta': None}], 'next_cursor': None})
+
+prompt_checks.forget_sfw_verdicts()
+civitai(models={'items': MANY, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', sfw_only='true', limit=2)
+check('by default an SFW page stops after its checks and comes back short',
+      (body['models'], body['filterStats']['budgetReached'], body['filterStats']['checked']),
+      ([], True, 20))
+
+opts.model_manager_civitai_sfw_fill_page = True
+try:
+    prompt_checks.forget_sfw_verdicts()
+    civitai(models={'items': MANY, 'nextCursor': None})
+    status, body = get('/model-manager/civitai/models', sfw_only='true', limit=2)
+    check('with the setting on, it keeps going until the page is full',
+          ([m['id'] for m in body['models']], body['filterStats']['budgetReached']),
+          ([91100, 91102], False))
+
+    prompt_checks.forget_sfw_verdicts()
+    civitai(models={'items': MANY, 'nextCursor': None})
+    with client.stream('GET', '/model-manager/civitai/models/stream',
+                       params={'limit': 2, 'sfw_only': 'true', 'require_prompt': 'false'}) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+    check('the stream as well',
+          [line['model']['id'] for line in lines if line['type'] == 'model'], [91100, 91102])
+
+    # Only in SFW mode. Everything else keeps its limits.
+    from model_manager.api.civitai import (                 # noqa: E402
+        MAX_FILTER_SEARCHES, _filter_options, size_range_check)
+
+    class Quiet:
+        wait_on_rate_limit = True
+
+    def limits(**kw):
+        base = dict(require_prompt=False, sfw_only=False, nsfw=False, size_check=None,
+                    limit=20, min_usable=1, fill_page=True)
+        base.update(kw)
+        _, o = _filter_options(Quiet(), None, **base)
+        return o['max_checks'], o['max_searches']
+
+    check('the setting lifts both limits in SFW mode', limits(sfw_only=True), (None, None))
+    check('but not for the prompt filter alone', limits(require_prompt=True),
+          (80, MAX_FILTER_SEARCHES))
+    check('nor for a size range alone', limits(size_check=size_range_check(0, 1)),
+          (80, MAX_FILTER_SEARCHES))
+    check('nor when NSFW models are included, where SFW mode does not apply',
+          limits(sfw_only=True, nsfw=True), (80, MAX_FILTER_SEARCHES))
+    check('and with the setting off, SFW mode keeps them',
+          limits(sfw_only=True, fill_page=False), (80, MAX_FILTER_SEARCHES))
+finally:
+    opts.model_manager_civitai_sfw_fill_page = False
+
 Stub.get_model_images = _scripted_images
 
 # ---------------------------------------------------------------- one model

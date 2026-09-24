@@ -22,6 +22,7 @@ DEFAULTS = {
     "model_manager_preview_least_nsfw": True,
     "model_manager_civitai_folder_template": "",
     "model_manager_civitai_min_prompt_images": 1,
+    "model_manager_civitai_sfw_fill_page": False,
     "model_manager_hash_threads": 4,
     "model_manager_database_path": "",
 }
