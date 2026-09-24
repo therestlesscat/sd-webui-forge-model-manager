@@ -58,8 +58,9 @@ check('Include NSFW models explains that Civitai decides, and what it still lets
       [true, true]);
 check('Only with SFW images explains what it checks and what it costs',
       [sfwTip.includes('first 20'), sfwTip.includes('above PG-13'),
+       sfwTip.includes('models with no images'),
        sfwTip.includes('one request per model'), sfwTip.includes('comes back short')],
-      [true, true, true, true]);
+      [true, true, true, true, true]);
 
 // ------------------------------------------- the banner while it is on
 // Its pages come back short, which without a word reads as something broken.
