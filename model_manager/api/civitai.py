@@ -20,6 +20,7 @@ from ..civitai import (
     enrich_images_with_generation_data,
     iter_models_with_usable_prompts,
     search_models_with_usable_prompts,
+    size_range_check,
 )
 from .annotations import annotate_local_ownership, annotate_paid_access
 from .prompts import PROMPT_CHECK_WORKERS, count_usable_prompt_images
@@ -31,6 +32,14 @@ _enums_cache: Optional[Dict[str, List[str]]] = None
 _enums_cached_at: float = 0.0
 _enums_lock = threading.Lock()
 ENUMS_TTL_SECONDS = 6 * 60 * 60
+
+# A filtered page is filled from as many searches as it takes, up to this
+# many. Only the size filter can need them: its check is free, so a narrow
+# range over a broad search is bounded by the search calls, not the checks.
+MAX_FILTER_SEARCHES = 5
+# Civitai's largest search page. The size filter asks for the most it can
+# per call, since each call is the whole cost of checking a batch.
+SIZE_FILTER_BATCH = 100
 
 
 def register(app: FastAPI):
@@ -55,6 +64,8 @@ def register(app: FastAPI):
         checkpoint_type: str = "",  # Trained or Merge; checkpoints only
         cursor: str = "",         # Cursor for pagination (empty = first page)
         require_prompt: bool = False,  # Only models with usable-prompt images
+        min_size_gb: float = 0,   # Latest version's primary file; 0 = no bound
+        max_size_gb: float = 0,
         limit: int = 0,  # 0 = use setting
     ):
         """
@@ -101,10 +112,12 @@ def register(app: FastAPI):
             # Search Civitai
             client = CivitaiClient.from_settings()
             filter_stats = None
+            size_check = size_range_check(min_size_gb, max_size_gb)
             try:
-                if require_prompt:
-                    # Civitai cannot filter on prompt availability, so models are
-                    # checked locally and the page is filled from what survives.
+                if require_prompt or size_check:
+                    # Civitai can filter on neither prompt availability nor
+                    # file size, so models are checked locally and the page
+                    # is filled from what survives.
                     min_usable = int(getattr(
                         shared.opts, 'model_manager_civitai_min_prompt_images', 1))
                     db_for_check = get_models_db()
@@ -112,19 +125,25 @@ def register(app: FastAPI):
                     filtered = search_models_with_usable_prompts(
                         client,
                         search_params,
-                        lambda m: count_usable_prompt_images(client, db_for_check, m),
+                        (lambda m: count_usable_prompt_images(client, db_for_check, m))
+                        if require_prompt else None,
                         page_size=limit,
                         min_usable=max(min_usable, 1),
                         start_token=cursor if cursor else None,
                         max_checks=max(limit * 4, 20),
-                        batch_size=max(limit * 2, 20),
+                        batch_size=max(limit * 2, 20) if require_prompt else SIZE_FILTER_BATCH,
                         workers=PROMPT_CHECK_WORKERS,
+                        accept=size_check,
+                        max_searches=MAX_FILTER_SEARCHES,
                     )
                     items = filtered["models"]
                     next_cursor = filtered["nextCursor"]
                     filter_stats = {
                         "checked": filtered["checked"],
                         "dropped": filtered["dropped"],
+                        "rejected": filtered["rejected"],
+                        "promptFilter": require_prompt,
+                        "sizeFilter": size_check is not None,
                         "budgetReached": filtered["budget_reached"],
                         "minUsable": max(min_usable, 1),
                     }
@@ -177,12 +196,16 @@ def register(app: FastAPI):
         tag: str = "",
         checkpoint_type: str = "",
         cursor: str = "",
+        require_prompt: bool = True,
+        min_size_gb: float = 0,
+        max_size_gb: float = 0,
         limit: int = 0,
     ):
         """
-        Search Civitai with the usable-prompt filter, streaming results.
+        Search Civitai with the usable-prompt or size filter, streaming results.
 
-        Checking models costs API calls, so a page can take a while to fill.
+        A filtered page can take a while to fill: prompt checks cost API calls,
+        and a narrow size range can take several searches.
         This emits newline-delimited JSON as the work happens, letting the UI
         show each model the moment it qualifies instead of waiting for the
         whole page:
@@ -224,6 +247,7 @@ def register(app: FastAPI):
         )
         min_usable = max(int(getattr(
             shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
+        size_check = size_range_check(min_size_gb, max_size_gb)
 
         def generate():
             client = CivitaiClient.from_settings()
@@ -240,13 +264,16 @@ def register(app: FastAPI):
                 for kind, payload in iter_models_with_usable_prompts(
                     client,
                     search_params,
-                    lambda m: count_usable_prompt_images(client, db, m),
+                    (lambda m: count_usable_prompt_images(client, db, m))
+                    if require_prompt else None,
                     page_size=limit,
                     min_usable=min_usable,
                     start_token=cursor if cursor else None,
                     max_checks=max(limit * 4, 20),
-                    batch_size=max(limit * 2, 20),
+                    batch_size=max(limit * 2, 20) if require_prompt else SIZE_FILTER_BATCH,
                     workers=PROMPT_CHECK_WORKERS,
+                    accept=size_check,
+                    max_searches=MAX_FILTER_SEARCHES,
                 ):
                     if kind == "model":
                         annotate_local_ownership(db, [payload])
@@ -261,6 +288,9 @@ def register(app: FastAPI):
                             "filterStats": {
                                 "checked": payload["checked"],
                                 "dropped": payload["dropped"],
+                                "rejected": payload["rejected"],
+                                "promptFilter": require_prompt,
+                                "sizeFilter": size_check is not None,
                                 "budgetReached": payload["budget_reached"],
                                 "minUsable": min_usable,
                             },

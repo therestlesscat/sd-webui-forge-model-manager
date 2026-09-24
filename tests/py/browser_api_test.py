@@ -254,6 +254,68 @@ check('a stream that fails says so in the stream', lines[-1]['type'], 'error')
 check('rather than as a status code', response.status_code, 200)
 check('with the reason', lines[-1]['error'], 'stream broke')
 
+# ------------------------------------------------- searching by file size
+# Civitai cannot filter on size, so the endpoint checks each result's
+# latest version's primary file and fills the page from what fits.
+def sized(model_id, size_gb):
+    m = remote(model_id, model_id + 1)
+    m['modelVersions'][0]['files'][0]['sizeKB'] = size_gb * 1024 * 1024
+    return m
+
+civitai(models={'items': [sized(90050, 0.1), sized(90060, 6.5), sized(90070, 2.0)],
+                'nextCursor': None})
+status, body = get('/model-manager/civitai/models', min_size_gb='1', max_size_gb='7', limit=5)
+check('a size range keeps what is inside it', [m['id'] for m in body['models']], [90060, 90070])
+check('and reports what it passed over', body['filterStats']['rejected'], 1)
+check('saying the size filter was on and the prompt filter was not',
+      (body['filterStats']['sizeFilter'], body['filterStats']['promptFilter']), (True, False))
+check('without a single image lookup',
+      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
+asked = [c[1] for c in Stub.calls if c[0] == 'search_models'][-1]
+check('asking Civitai for as much as it gives per call', asked['limit'], 100)
+check('and never asking it about size, which it would not understand',
+      [k for k in asked if 'size' in k], [])
+
+civitai(models={'items': [sized(90050, 0.1)], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', min_size_gb='0', max_size_gb='0')
+check('zero on both sides is no filter', body['filterStats'], None)
+
+# The model with prompts, now with a size to judge it by; without one it is
+# in no range at all.
+import copy                                                   # noqa: E402
+SMALL_WITH_PROMPTS = copy.deepcopy(WITH_PROMPTS)
+SMALL_WITH_PROMPTS['modelVersions'][0]['files'][0]['sizeKB'] = 0.1 * 1024 * 1024
+
+civitai(models={'items': [SMALL_WITH_PROMPTS, WITHOUT, sized(90080, 6.5)], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', require_prompt='true',
+                   max_size_gb='1', limit=5)
+check('with both filters, both apply', [m['id'] for m in body['models']], [90010])
+check('the size filter goes first, so the big one is never prompt-checked',
+      [c[1] for c in Stub.calls if c[0] == 'get_model_images' and c[1] == 90081], [])
+
+civitai(models={'items': [SMALL_WITH_PROMPTS, sized(90080, 6.5)], 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 5, 'max_size_gb': 1}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('the stream takes the range too',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [90010])
+check('and reports it', lines[-1]['filterStats']['rejected'], 1)
+
+# Size alone streams too, since a narrow range can take several searches.
+civitai(models={'items': [sized(90050, 0.1), sized(90060, 6.5)], 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 5, 'max_size_gb': 1, 'require_prompt': 'false'}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('told not to check prompts, the stream filters on size alone',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [90050])
+check('without looking at a single image',
+      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
+check('saying so in its summary',
+      (lines[-1]['filterStats']['promptFilter'], lines[-1]['filterStats']['sizeFilter']),
+      (False, True))
+check('asking Civitai for as much as it gives per call',
+      [c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'], 100)
+
 Stub.get_model_images = _scripted_images
 
 # ---------------------------------------------------------------- one model
