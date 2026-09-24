@@ -19,6 +19,7 @@ from .civitai import (
     apply_generation_data,
     enrich_images_with_generation_data,
     generation_ids_needing_lookup,
+    keep_generation_data,
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
 from .storage import write_civitai_info
@@ -258,15 +259,16 @@ class SyncService:
                 print(f"[ModelManager] Fetching images for {model_name}...")
                 images_result = self.client.get_model_images(version_id, cursor=None, limit=100)
                 images = images_result.get("images", [])
+                db = get_models_db()
                 # /images returns meta: null - generation data comes from a
-                # separate endpoint. Without this, a forced re-sync would
-                # replace existing prompts with nulls.
+                # separate endpoint. Keep what is stored, then look up the
+                # rest; without both, a re-sync replaced prompts with nulls.
+                keep_generation_data(images, db.get_images(version_id))
                 enrich_images_with_generation_data(self.client, images)
                 next_cursor = images_result.get("next_cursor")
                 result.image_count = len(images)
 
                 # Store images in database
-                db = get_models_db()
                 # Clear any existing images for this version
                 db.clear_version_images(version_id)
                 # Store images
@@ -933,6 +935,11 @@ class SyncService:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 for future in as_completed([executor.submit(fetch, v) for v in chunk]):
                     future.result()
+
+            # Prompts already stored stay, whether or not this sync looks any
+            # up - and are then not looked up again.
+            for version_id, images in galleries:
+                keep_generation_data(images, db.get_images(version_id))
 
             # One pooled lookup for the whole chunk, then hand each gallery
             # back the rows that belong to it.

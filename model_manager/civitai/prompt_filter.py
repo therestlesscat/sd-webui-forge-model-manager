@@ -446,6 +446,48 @@ def generation_ids_needing_lookup(images: List[Dict[str, Any]]) -> List[int]:
     ]
 
 
+def keep_generation_data(images: List[Dict[str, Any]],
+                         previous: Optional[List[Dict[str, Any]]]) -> int:
+    """
+    Give freshly fetched images the generation data their stored copies had.
+
+    /images returns meta: null. The prompt, the settings and the resources
+    come from a separate lookup, which a sync may skip ("Image prompts"
+    unticked) and which fails without an API key. A gallery replaced with only
+    what /images says therefore lost every prompt it had. So before one is
+    replaced, each image whose fresh copy has no prompt takes the meta its
+    stored copy had; anything the fresh meta does carry wins. Everything else
+    about the image comes from the fresh copy.
+
+    Call it before the lookup: what is carried over is not looked up again.
+
+    Args:
+        images: The fresh images, changed in place.
+        previous: The same version's images as stored, or None.
+
+    Returns:
+        How many images kept their generation data.
+    """
+    if not images or not previous:
+        return 0
+
+    stored = {img.get("id"): img.get("meta") for img in previous
+              if img.get("id") and img.get("meta")}
+    kept = 0
+
+    for img in images:
+        old = stored.get(img.get("id"))
+        fresh = img.get("meta") or {}
+        if not old or fresh.get("prompt"):
+            continue
+        merged = dict(old)
+        merged.update({key: value for key, value in fresh.items() if value is not None})
+        img["meta"] = merged
+        kept += 1
+
+    return kept
+
+
 def apply_generation_data(images: List[Dict[str, Any]],
                           generation_data: Dict[int, Dict[str, Any]]) -> int:
     """

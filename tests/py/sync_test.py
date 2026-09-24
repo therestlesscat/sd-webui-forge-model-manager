@@ -506,15 +506,55 @@ check('the gallery replaced what was there', len(stored), 1)
 check('with the prompt that was looked up',
       stored[0]['meta']['prompt'], 'fetched')
 
-sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
-    images=lambda version_id: {
-        'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
-        'next_cursor': None})
-progress = sync.sync_metadata(model_paths=TWO_PATHS, include_images=True,
+# Declining the prompts used to replace each gallery with what /images says,
+# which is meta: null - every prompt fetched before was lost. These use two
+# single-version models no earlier check has synced, so each file keeps its
+# own version and its own gallery.
+KEEP_PATHS = facts['linked_paths'][4:6]
+keep_rows = [db.get_version(p) for p in KEEP_PATHS]
+KEEP_MODELS = {r['model_id']: model_payload(r['model_id'], [r['id']]) for r in keep_rows}
+first = keep_rows[0]['id']
+
+
+def gallery(url):
+    """Each version's gallery: its own id, and one more new to it."""
+    return lambda version_id: {
+        'images': [{'id': version_id, 'url': url + str(version_id), 'meta': None},
+                   {'id': version_id + 50000, 'url': 'new%d' % version_id, 'meta': None}],
+        'next_cursor': None}
+
+
+# A sync with prompts first, so there are prompts stored to lose.
+sync, client = service(models=KEEP_MODELS, images=gallery('u'),
+                       generation={r['id']: {'meta': {'prompt': 'fetched'}} for r in keep_rows})
+sync.sync_metadata(model_paths=KEEP_PATHS, include_images=True)
+check('a sync with prompts stores the prompt looked up',
+      {img['id']: (img['meta'] or {}).get('prompt') for img in db.get_images(first)},
+      {first: 'fetched', first + 50000: None})
+
+sync, client = service(models=KEEP_MODELS, images=gallery('fresh'))
+progress = sync.sync_metadata(model_paths=KEEP_PATHS, include_images=True,
                               include_prompts=False)
 check('declining the prompts asks for none',
       [a for a in client.asked if a[0] == 'generation'], [])
+stored = {img['id']: img for img in db.get_images(first)}
+check('but the prompt already stored stays with its image',
+      stored[first]['meta'], {'prompt': 'fetched'})
+check('while everything else about the image is replaced by the fresh copy',
+      stored[first]['url'], 'fresh%d' % first)
+check('and an image with no prompt stored still has none', stored[first + 50000]['meta'], None)
+
+# With the prompts wanted, only what is still missing is looked up.
+sync, client = service(models=KEEP_MODELS, images=gallery('again'),
+                       generation={r['id'] + 50000: {'meta': {'prompt': 'looked up'}}
+                                   for r in keep_rows})
+progress = sync.sync_metadata(model_paths=KEEP_PATHS, include_images=True)
+asked_for = sorted(i for a in client.asked if a[0] == 'generation' for i in a[1])
+check('the lookup asks only about images with no prompt yet',
+      asked_for, sorted(r['id'] + 50000 for r in keep_rows))
+stored = {img['id']: (img['meta'] or {}).get('prompt') for img in db.get_images(first)}
+check('and both end up with theirs',
+      (stored[first], stored[first + 50000]), ('fetched', 'looked up'))
 
 sync, client = service(
     models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},

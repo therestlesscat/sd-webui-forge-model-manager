@@ -10,7 +10,9 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
-from ..civitai import CivitaiClient, enrich_images_with_generation_data
+from ..civitai import (
+    CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
+)
 
 
 def register(app: FastAPI):
@@ -26,9 +28,11 @@ def register(app: FastAPI):
     @app.post("/model-manager/images/resync")
     def resync_images(version_id: int = Form(default=0)):
         """
-        Clear and re-fetch images for a version using cursor pagination.
+        Replace a version's images with a fresh first batch (100 images).
 
-        Deletes all existing images and fetches fresh first batch (100 images).
+        The stored gallery is replaced only once the fetch has worked, and
+        the generation data it held is carried over to the fresh copies, so
+        a lookup that fails does not lose prompts.
 
         Args:
             version_id: Civitai version ID.
@@ -47,15 +51,17 @@ def register(app: FastAPI):
 
             db = get_models_db()
 
-            # Clear existing images for this version
-            db.clear_version_images(version_id)
-
-            # Fetch fresh images from Civitai (first batch, no cursor)
+            # Fetch fresh images from Civitai (first batch, no cursor). The
+            # stored gallery is only replaced once this has worked: clearing
+            # it first left a model with no images whenever Civitai failed.
             client = CivitaiClient.from_settings()
             try:
                 result = client.get_model_images(version_id, cursor=None, limit=100)
                 images = result.get("images", [])
-                # /images returns meta: null - fetch generation data separately
+                # /images returns meta: null. Keep the generation data already
+                # stored, then look up the rest - a lookup that fails, or
+                # cannot run without an API key, no longer loses prompts.
+                keep_generation_data(images, db.get_images(version_id))
                 enrich_images_with_generation_data(client, images)
             finally:
                 client.close()
@@ -63,6 +69,7 @@ def register(app: FastAPI):
             next_cursor = result.get("next_cursor")
 
             # Store in database
+            db.clear_version_images(version_id)
             if images:
                 db.store_images(version_id, page=1, images=images)
 
