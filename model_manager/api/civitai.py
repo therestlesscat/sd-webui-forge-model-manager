@@ -43,7 +43,7 @@ SIZE_FILTER_BATCH = 100
 
 
 def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
-                    limit, min_usable):
+                    limit, min_usable, fill_page=False):
     """
     The filter loop's arguments for the filters asked for.
 
@@ -55,6 +55,11 @@ def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
     than sitting out Retry-After: most models fail the SFW check, so it makes
     the most requests of anything here, and a page it cuts short can be
     resumed.
+
+    `fill_page` is the "Fill every page" setting. It lifts the per-page limits
+    on checks and searches while the SFW check is on, so a page runs until it
+    is full or Civitai has no more to give. The 429 stop above still applies,
+    and is then the only thing that ends a page early.
 
     Returns:
         (whether the SFW check is on, the loop's keyword arguments)
@@ -69,15 +74,22 @@ def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
                                  want_sfw=sfw, min_usable=min_usable))
         if costly else None
     )
+    unbounded = sfw and fill_page
     return sfw, dict(
         inspect=inspect,
         page_size=limit,
-        max_checks=max(limit * 4, 20),
+        max_checks=None if unbounded else max(limit * 4, 20),
         batch_size=max(limit * 2, 20) if costly else SIZE_FILTER_BATCH,
         workers=PROMPT_CHECK_WORKERS,
         accept=size_check,
-        max_searches=MAX_FILTER_SEARCHES,
+        max_searches=None if unbounded else MAX_FILTER_SEARCHES,
     )
+
+
+def _fill_page_setting() -> bool:
+    """Whether "Fill every page with Only with SFW images" is on."""
+    from modules import shared
+    return bool(getattr(shared.opts, 'model_manager_civitai_sfw_fill_page', False))
 
 
 def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
@@ -175,7 +187,8 @@ def register(app: FastAPI):
                 sfw, options = _filter_options(
                     client, get_models_db(), require_prompt=require_prompt,
                     sfw_only=sfw_only, nsfw=nsfw, size_check=size_check,
-                    limit=limit, min_usable=min_usable)
+                    limit=limit, min_usable=min_usable,
+                    fill_page=_fill_page_setting())
 
                 if require_prompt or sfw or size_check:
                     # Civitai can filter on none of these, so models are
@@ -309,7 +322,7 @@ def register(app: FastAPI):
                 sfw, options = _filter_options(
                     client, db, require_prompt=require_prompt, sfw_only=sfw_only,
                     nsfw=nsfw, size_check=size_check, limit=limit,
-                    min_usable=min_usable)
+                    min_usable=min_usable, fill_page=_fill_page_setting())
 
                 for kind, payload in iter_models_with_usable_prompts(
                     client, search_params, None,

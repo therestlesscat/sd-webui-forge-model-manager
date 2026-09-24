@@ -73,6 +73,11 @@ check('above the status line, where the short page is reported',
       banner().nextElementSibling === $('cb_status'), true);
 check('saying what the tooltip says, word for word',
       $('cb_sfw_only_banner_text').textContent, sfwTip);
+const settingNote = $('cb_sfw_only_banner_setting')?.textContent.replace(/\s+/g, ' ') || '';
+check('and where to find the setting that fills every page, and that it is not recommended',
+      [settingNote.includes("Fill every page with 'Only with SFW images'"),
+       settingNote.includes('Settings → Model Manager'), settingNote.includes('not recommended')],
+      [true, true, true]);
 toggle('cb_sfw_only', false);
 check('unticking it takes the banner down', bannerShown(), false);
 

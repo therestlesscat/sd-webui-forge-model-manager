@@ -153,7 +153,11 @@ def create_civitai_browser_ui():
                 <div id="cb_sfw_only_banner" class="mm-banner" style="display: none;">
                     <span class="mm-banner-icon">i</span>
                     <span><strong>Only with SFW images is on.</strong>
-                        <span id="cb_sfw_only_banner_text"></span></span>
+                        <span id="cb_sfw_only_banner_text"></span>
+                        <span id="cb_sfw_only_banner_setting">To fill every page anyway, turn on
+                            <strong>Settings &rarr; Model Manager &rarr; Civitai Browser: Fill every
+                            page with 'Only with SFW images'</strong> - not recommended: one page can
+                            take hundreds of requests and several minutes.</span></span>
                 </div>
 
                 <!-- Status -->

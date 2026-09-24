@@ -167,6 +167,21 @@ def on_ui_settings():
         ).info("When 'Only with usable prompts' is enabled, a model must have at least this many images (out of the first 20) carrying a prompt plus steps/sampler/CFG.")
     )
 
+    shared.opts.add_option(
+        "model_manager_civitai_sfw_fill_page",
+        shared.OptionInfo(
+            default=False,
+            label="Civitai Browser: Fill every page with 'Only with SFW images' (not recommended)",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Not recommended. Normally a page with 'Only with SFW images' stops after "
+               "checking a few dozen models and can come back short. With this on, it "
+               "keeps searching until the page holds the full Models per page. Most "
+               "Civitai models have NSFW images, so one page can take hundreds of "
+               "requests and several minutes, and makes Civitai's rate limit likely. "
+               "A page still stops if Civitai starts refusing requests.")
+    )
+
     # Card size settings
     shared.opts.add_option(
         "model_manager_card_size",
