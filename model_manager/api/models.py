@@ -50,6 +50,8 @@ def register(app: FastAPI):
         allow_different_license: str = "",
         # "", "Trained", "Merge", or "unknown" - only checkpoints have one
         checkpoint_type: str = "",
+        # Only models with no image in the library above PG-13
+        sfw_only: bool = False,
         # Return only the file paths the filters select, with no paging. The
         # sync dialog uses it to turn "these results" into a scope; it reuses
         # this endpoint so the filters cannot be parsed one way here and
@@ -160,7 +162,8 @@ def register(app: FastAPI):
                 sort_order=sort_order,
                 limit=1000000 if paths_only else page_size,
                 offset=0 if paths_only else offset,
-                preview_least_nsfw=preview_least_nsfw
+                preview_least_nsfw=preview_least_nsfw,
+                sfw_only=sfw_only
             )
 
             if paths_only:

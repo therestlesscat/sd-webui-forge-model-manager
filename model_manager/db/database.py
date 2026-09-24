@@ -204,7 +204,8 @@ class ModelsDatabase:
         sort_order: str = "desc",
         limit: int = 50,
         offset: int = 0,
-        preview_least_nsfw: bool = True
+        preview_least_nsfw: bool = True,
+        sfw_only: bool = False
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Query models grouped by civitai_model_id."""
         return self._models.query_models_grouped(
@@ -224,7 +225,8 @@ class ModelsDatabase:
             sort_order=sort_order,
             limit=limit,
             offset=offset,
-            preview_least_nsfw=preview_least_nsfw
+            preview_least_nsfw=preview_least_nsfw,
+            sfw_only=sfw_only
         )
 
     def count_images_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:

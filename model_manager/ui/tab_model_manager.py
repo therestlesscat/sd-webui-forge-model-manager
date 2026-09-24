@@ -79,9 +79,14 @@ def create_ui():
                         </div>
                         <div class="filter-group filter-group-compact">
                             <label>Options</label>
-                            <label class="mm-checkbox-label">
-                                <input type="checkbox" id="mm_preview_show_nsfw"> Show NSFW Images In Model Preview
-                            </label>
+                            <div class="filter-checkboxes">
+                                <label class="mm-checkbox-label">
+                                    <input type="checkbox" id="mm_preview_show_nsfw"> Show NSFW Images In Model Preview
+                                </label>
+                                <label class="mm-checkbox-label" title="Leaves out models whose first 20 example images - of the version the card shows, in gallery order - include anything rated above PG-13, or not rated at all. The same check the Civitai Browser makes, on the images already synced. A model with none is left out too: nothing shows it is safe.">
+                                    <input type="checkbox" id="mm_sfw_only"> Only with SFW images
+                                </label>
+                            </div>
                         </div>
                         <div class="filter-group-bordered">
                             <div class="filter-group filter-group-wide">

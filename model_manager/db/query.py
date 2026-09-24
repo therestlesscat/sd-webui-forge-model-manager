@@ -19,7 +19,11 @@ import json
 import os
 import time
 
-from ..nsfw import UNKNOWN, max_mode_ceiling, model_level_sql
+from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
+
+# How many of a version's images "Only with SFW images" looks at - the same
+# sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
+SFW_SAMPLE_SIZE = 20
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
@@ -79,7 +83,8 @@ def query_models_grouped(
     commercial_use: Optional[str] = None,
     allow_derivatives: Optional[str] = None,
     allow_different_license: Optional[str] = None,
-    checkpoint_type: Optional[str] = None
+    checkpoint_type: Optional[str] = None,
+    sfw_only: bool = False
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Query models grouped by civitai_model_id.
@@ -219,6 +224,27 @@ def query_models_grouped(
     if min_versions is not None and min_versions > 1:
         outer_conditions.append("local_version_count >= ?")
         outer_params.append(min_versions)
+    if sfw_only:
+        # "Only with SFW images", as the Civitai Browser asks it: none of the
+        # first 20 images of the version the card shows - in the order its
+        # gallery shows them - is above PG-13, or unrated. And there has to
+        # be at least one: a model with no images has nothing to show it
+        # does not generate NSFW, so it is left out too.
+        #
+        # Asked here, of the one row per model the grid shows, rather than
+        # of every version: checking every image of every version took
+        # 13.7 s against a library of 101,759 images, the unfiltered grid 1.1.
+        outer_conditions.append("""EXISTS (
+            SELECT 1 FROM images WHERE version_id = ranked.id
+        ) AND NOT EXISTS (
+            SELECT 1 FROM (
+                SELECT effective_nsfw_level FROM images
+                WHERE version_id = ranked.id
+                ORDER BY page, id
+                LIMIT ?
+            ) WHERE effective_nsfw_level > ?
+        )""")
+        outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
     outer_where = " AND ".join(outer_conditions)
 
     preview_url_column = "ips.preview_url_least_nsfw" if preview_least_nsfw else "ips.preview_url_recent"
@@ -326,6 +352,7 @@ def query_models_grouped(
         ),
         ranked AS (
             SELECT
+                fv.id,          -- the outer filters may ask about the shown version
                 fv.file_path,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
