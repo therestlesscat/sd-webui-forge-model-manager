@@ -65,7 +65,7 @@ Found under **Settings -> Model Manager**.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Civitai API Key | empty | Optional. Higher rate limits for Civitai API requests |
-| Models per page | 10 | Model Manager page size |
+| Model Manager: Models per page | 20 | Model Manager page size |
 | Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
 | Preview: Use least NSFW image | on | Off shows the most recent image instead |
 | Civitai Browser: Models per page | 20 | Civitai Browser page size |

@@ -29,8 +29,8 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_page_size",
         shared.OptionInfo(
-            default=10,
-            label="Models per page",
+            default=20,
+            label="Model Manager: Models per page",
             component=gr.Slider,
             component_args={
                 "minimum": 5,
