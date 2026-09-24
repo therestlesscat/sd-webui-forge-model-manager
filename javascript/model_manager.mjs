@@ -277,11 +277,16 @@ function getFilters() {
     const diffLicense = document.getElementById('mm_allow_different_license')?.value || '';
     const diffLicenseFilter = diffLicense ? { allow_different_license: diffLicense } : {};
 
+    const sfwOnlyFilter = document.getElementById('mm_sfw_only')?.checked
+        ? { sfw_only: true }
+        : {};
+
     const filters = {
         search: document.getElementById('mm_search')?.value || '',
         type: document.getElementById('mm_type')?.value || '',
         base_model: document.getElementById('mm_base_model')?.value || '',
         ...nsfwFilter,
+        ...sfwOnlyFilter,
         has_civitai: document.getElementById('mm_civitai')?.value || '',
         ...bookmarkedFilter,
         min_versions: document.getElementById('mm_min_versions')?.value || '',
@@ -3531,6 +3536,7 @@ function saveSearchFilters() {
         allow_different_license: document.getElementById('mm_allow_different_license')?.value || '',
         nsfw_use_max: document.getElementById('mm_nsfw_use_max')?.checked || false,
         preview_least_nsfw: previewLeastNsfwFromCheckbox(),
+        sfw_only: document.getElementById('mm_sfw_only')?.checked || false,
         nsfw_levels: []
     };
 
@@ -3568,6 +3574,11 @@ function loadSearchFilters() {
         if (Object.prototype.hasOwnProperty.call(filters, 'sort_order')) document.getElementById('mm_sort_order').value = filters.sort_order;
         if (Object.prototype.hasOwnProperty.call(filters, 'allow_derivatives')) document.getElementById('mm_allow_derivatives').value = filters.allow_derivatives;
         if (Object.prototype.hasOwnProperty.call(filters, 'allow_different_license')) document.getElementById('mm_allow_different_license').value = filters.allow_different_license;
+
+        const sfwOnly = document.getElementById('mm_sfw_only');
+        if (sfwOnly && Object.prototype.hasOwnProperty.call(filters, 'sfw_only')) {
+            sfwOnly.checked = Boolean(filters.sfw_only);
+        }
 
         // Set NSFW checkboxes
         const useMaxCb = document.getElementById('mm_nsfw_use_max');
