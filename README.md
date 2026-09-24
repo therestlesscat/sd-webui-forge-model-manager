@@ -6,11 +6,7 @@ from without leaving the WebUI.
 
 Two tabs are added: **Model Manager** and **Civitai Browser**.
 
-<!-- To play the video inline instead: edit this file on github.com, drag the
-     video into the editor, and put the https://github.com/user-attachments/...
-     link it produces on a line of its own in place of the link below. GitHub
-     only plays README videos uploaded that way. -->
-**[▶ Watch a short walkthrough of both tabs](docs/images/modelmanager_1.mp4)**
+https://github.com/user-attachments/assets/d8bcf3ad-4959-4739-9e0f-b2693852161f
 
 ## A look around
 
