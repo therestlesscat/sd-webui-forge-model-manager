@@ -63,7 +63,8 @@ body.mm-modal-open {
 .filter-group select,
 .filter-group .mm-multiselect-display,
 .filter-group .mm-checkbox-label,
-.filter-group .cb-checkbox-label {
+.filter-group .cb-checkbox-label,
+.filter-group .cb-tag-selected {
     box-sizing: border-box;
     height: 36px;
     min-height: 36px;
@@ -1782,6 +1783,51 @@ body.mm-modal-open {
 .cb-tag-container input {
     display: block;
     width: 100%;
+}
+
+/* The chosen tag stands in the box's place: the same control box, holding a
+   chip that says the tag is in force and an x to take it out. Shown and
+   hidden by civitai_browser.mjs, which sets display to flex or none. */
+.cb-tag-selected {
+    align-items: center;
+    padding: 0 6px;
+}
+
+.cb-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 3px 4px 3px 10px;
+    border-radius: 999px;
+    background: var(--primary-600, #2563eb);
+    color: #fff;
+    font-size: 0.85em;
+    line-height: 1.2;
+}
+
+.cb-tag-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cb-tag-chip-remove {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
+}
+
+.cb-tag-chip-remove:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .cb-tag-dropdown {

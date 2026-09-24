@@ -194,7 +194,10 @@ function clearCursorCache(hash) {
 
 // Tag state (single tag)
 let selectedTag = '';
-let tagDebounceTimer = null;
+// Which tag lookup is the latest. Suggestions are asked for on every
+// keystroke, so an answer for "ani" can arrive after the one for "anime";
+// only the latest may fill the list.
+let tagRequest = 0;
 let tagSuggestions = [];
 let tagSelectedIndex = -1;
 let tagInputInitialized = false;
@@ -1919,6 +1922,7 @@ function formatDate(dateStr) {
 
 // Search tags from API
 async function searchTags(query) {
+    const request = ++tagRequest;
     if (query.length < 3) {
         tagSuggestions = [];
         renderTagDropdown();
@@ -1927,12 +1931,14 @@ async function searchTags(query) {
 
     try {
         const result = await apiCall({ endpoint: '/model-manager/civitai/tags', params: { query, limit: 20 } });
+        if (request !== tagRequest) return;     // a newer lookup has been asked for
         if (result.success) {
             tagSuggestions = result.tags || [];
             tagSelectedIndex = -1;
             renderTagDropdown();
         }
     } catch (e) {
+        if (request !== tagRequest) return;
         console.error('[CivitaiBrowser] Tag search error:', e);
         tagSuggestions = [];
         renderTagDropdown();
@@ -1957,13 +1963,39 @@ function renderTagDropdown() {
     dropdown.classList.add('show');
 }
 
-// Select a tag
+/**
+ * Choose a tag, or clear it with ''.
+ *
+ * A chosen tag is shown as a chip with an x, in place of the box, so it reads
+ * as a filter in force rather than as text half typed. Clearing it brings the
+ * empty box back, focused, for the next one. Civitai searches by one tag, so
+ * there is only ever one chip.
+ */
 function selectTag(tagName) {
-    selectedTag = tagName || '';
-    const input = document.getElementById('cb_tag_input');
-    if (input) input.value = selectedTag;
+    selectedTag = (tagName || '').trim();
     tagSuggestions = [];
     renderTagDropdown();
+
+    const input = document.getElementById('cb_tag_input');
+    const chipBox = document.getElementById('cb_tag_selected');
+    const chipName = document.getElementById('cb_tag_chip_name');
+    if (input) input.value = '';
+    if (chipName) chipName.textContent = selectedTag;
+    if (chipBox) chipBox.style.display = selectedTag ? 'flex' : 'none';
+    if (input) {
+        input.style.display = selectedTag ? 'none' : '';
+        if (!selectedTag) input.focus?.();
+    }
+    updateResumeButton();
+}
+
+// Text typed but never chosen still counts at Search, as it always has, and
+// becomes a chip then, so what the search is filtered by is always on show.
+function commitTypedTag() {
+    const input = document.getElementById('cb_tag_input');
+    if (input && input.style.display !== 'none' && input.value.trim()) {
+        selectTag(input.value);
+    }
 }
 
 // Civitai's own type/base-model lists, fetched once per page load. Until
@@ -2082,20 +2114,13 @@ function initTagInput() {
 
     console.log('[CivitaiBrowser] Tag input initialized');
 
-    // Debounced input handler
+    // Suggestions on every keystroke. There was a one-second wait before
+    // asking, which made the box feel dead; searchTags() drops any answer
+    // that a later keystroke has overtaken.
     input.addEventListener('input', (e) => {
         const query = e.target.value.trim();
         selectedTag = query; // Update selected tag as user types
-
-        // Clear previous timer
-        if (tagDebounceTimer) {
-            clearTimeout(tagDebounceTimer);
-        }
-
-        // Set new timer (1 second debounce)
-        tagDebounceTimer = setTimeout(() => {
-            searchTags(query);
-        }, 1000);
+        searchTags(query);
     });
 
     // Keyboard navigation
@@ -2116,9 +2141,10 @@ function initTagInput() {
             e.preventDefault();
             if (tagSelectedIndex >= 0 && tagSuggestions[tagSelectedIndex]) {
                 selectTag(tagSuggestions[tagSelectedIndex]);
+            } else if (input.value.trim()) {
+                // Nothing highlighted: what was typed is the tag.
+                selectTag(input.value);
             } else {
-                // Just use what's typed
-                selectedTag = input.value.trim();
                 tagSuggestions = [];
                 renderTagDropdown();
             }
@@ -2127,6 +2153,8 @@ function initTagInput() {
             renderTagDropdown();
         }
     });
+
+    document.getElementById('cb_tag_chip_remove')?.addEventListener('click', () => selectTag(''));
 
     // Click on dropdown item
     if (dropdown) {
@@ -2225,6 +2253,7 @@ function init() {
 window.cbSearch = function() {
     initTagInput();
     loadEnums();
+    commitTypedTag();
     // A search starts at page 1 with only the pages it has been to. The saved
     // position for these filters is Resume's to offer: loading it here showed
     // every page any earlier visit had reached - pages 1 to 6 after going to
