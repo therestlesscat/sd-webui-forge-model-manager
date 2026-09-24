@@ -117,8 +117,15 @@ def create_civitai_browser_ui():
                             </div>
                         </div>
                         <div class="filter-group filter-group-half">
-                            <label>Tag</label>
+                            <label>Tag (only a single tag is allowed by the Civitai API)</label>
                             <div class="cb-tag-container">
+                                <!-- The chosen tag, as a chip; the box comes back when it is removed. -->
+                                <div class="cb-tag-selected" id="cb_tag_selected" style="display: none;">
+                                    <span class="cb-tag-chip">
+                                        <span class="cb-tag-chip-name" id="cb_tag_chip_name"></span>
+                                        <button type="button" class="cb-tag-chip-remove" id="cb_tag_chip_remove" title="Remove tag" aria-label="Remove tag">&times;</button>
+                                    </span>
+                                </div>
                                 <input type="text" id="cb_tag_input" placeholder="Type to search tags..." autocomplete="off">
                                 <div class="cb-tag-dropdown" id="cb_tag_dropdown"></div>
                             </div>
