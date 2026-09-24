@@ -68,7 +68,7 @@ Found under **Settings -> Model Manager**.
 | Models per page | 10 | Model Manager page size |
 | Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
 | Preview: Use least NSFW image | on | Off shows the most recent image instead |
-| Civitai Browser: Models per page | 10 | Civitai Browser page size |
+| Civitai Browser: Models per page | 20 | Civitai Browser page size |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set. Requires restart |
 | Civitai Browser: Minimum images with usable prompt | 1 | Threshold for the usable-prompt filter |

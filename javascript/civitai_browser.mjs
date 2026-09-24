@@ -43,7 +43,7 @@ const {
 // State
 let currentModels = [];
 let currentPage = 1;
-let pageSize = 10;
+let pageSize = 20;
 let isLoading = false;
 let selectedModel = null;
 let selectedVersionIndex = 0;
@@ -515,7 +515,7 @@ async function searchModels(page = 1) {
 
             currentModels = result.models || [];
             currentPage = page;
-            pageSize = result.pageSize || 10;
+            pageSize = result.pageSize || 20;
 
             // Store nextCursor for the next page
             if (result.nextCursor) {
