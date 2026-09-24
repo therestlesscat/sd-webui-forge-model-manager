@@ -34,6 +34,7 @@ const {
     getImagePageCount,
     setupLazyMedia,
     renderResource,
+    renderFilterBanner,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -1187,14 +1188,12 @@ function renderImages() {
     // Hide images with nothing to send to txt2img while the filter is on.
     // Must happen before paging, so page numbers count only what is shown.
     let promptHiddenCount = 0;
+    // Images without a usable prompt among those the NSFW filter lets through:
+    // what the prompt filter hides now, or once its switch is ticked, shows.
     const promptFilterOn = requirePromptEnabled();
     const promptlessCount = promptFilterOn
         ? imagesToShow.filter((img) => !hasUsablePrompt(img)).length
         : 0;
-    // The switch's (n) is every image of this model without one, whichever way
-    // the NSFW switch is set - the same rule its NSFW count follows, and the
-    // Model Manager's. The banner text still counts what is hidden right now.
-    const promptlessTotal = currentImages.filter((img) => !hasUsablePrompt(img)).length;
     if (promptFilterOn && !showPromptlessImages) {
         imagesToShow = imagesToShow.filter(hasUsablePrompt);
         promptHiddenCount = promptlessCount;
@@ -1206,47 +1205,39 @@ function renderImages() {
     const pageEnd = Math.min(pageStart + IMAGE_PAGE_SIZE, imagesToShow.length);
     const pageImages = imagesToShow.slice(pageStart, pageEnd);
 
-    // The prompt filter's banner, with its switch on the right as the NSFW
-    // one has. Up whenever the filter has something to hold back - whether it
-    // is holding it back right now or not - so it can be switched either way.
-    const promptWarningHtml = promptlessCount > 0
-        ? `<div class="cb-nsfw-warning">
-            <span>${showPromptlessImages
-                ? `Showing ${promptlessCount} without a usable prompt`
-                : `${promptlessCount} hidden - no usable prompt`}</span>
-            <label class="cb-show-all-label" title="Show this model's images that have no prompt to send to txt2img">
-                <input type="checkbox" id="cb_show_promptless_images" ${showPromptlessImages ? 'checked' : ''}
-                       onchange="window.cbToggleShowPromptless(this.checked)">
-                Show images without prompts (${promptlessTotal})
-            </label>
-           </div>`
-        : '';
+    // One banner for both filters, built in shared/common.mjs as the Model
+    // Manager's is: what they are holding back - which adds up with what is
+    // shown, NSFW counted first as it filters first - and a switch for each on
+    // the right. A ticked NSFW switch shows how many NSFW images it lets
+    // through, among those the prompt filter lets through.
+    const promptPassing = promptFilterOn && !showPromptlessImages
+        ? currentImages.filter(hasUsablePrompt)
+        : currentImages;
+    const bannerOptions = {
+        shown: imagesToShow.length,
+        total: currentImages.length,
+        bannerClass: 'cb-nsfw-warning',
+        labelClass: 'cb-show-all-label',
+        switches: [
+            { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
+              showing: showAllNsfwImages, hidden: hiddenCount,
+              count: promptPassing.filter((img) => !isImageSafe(img)).length,
+              onchange: 'window.cbToggleShowAllImages(this.checked)' },
+            // Only while the search asks for usable prompts: otherwise this
+            // tab does not filter on them at all.
+            { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
+              reason: 'unusable prompt', applies: promptFilterOn,
+              showing: showPromptlessImages, hidden: promptHiddenCount,
+              count: promptlessCount,
+              onchange: 'window.cbToggleShowPromptless(this.checked)' },
+        ],
+    };
+    const filterBannerHtml = renderFilterBanner(bannerOptions);
 
-    // The switch lives in the banner, on the right, as it does in the Model
-    // Manager: the banner says what is being held back and offers to show it.
-    // It is up whenever something is hidden, and stays up while everything
-    // is shown, so the switch can always be turned back.
-    const nsfwNsfwCount = currentImages.filter(img => !isImageSafe(img)).length;
-    const showNsfwBanner = currentImages.length > 0 && (hiddenCount > 0 || showAllNsfwImages);
-    const nsfwSummary = showAllNsfwImages
-        ? `Showing all ${currentImages.length} images`
-        : `Showing ${imagesToShow.length} of ${currentImages.length} images (${hiddenCount} hidden as NSFW)`;
-
-    const nsfwWarningHtml = showNsfwBanner
-        ? `<div class="cb-nsfw-warning">
-            <span>${nsfwSummary}</span>
-            <label class="cb-show-all-label" title="Show images above the level the search asked for">
-                <input type="checkbox" id="cb_show_all_images" ${showAllNsfwImages ? 'checked' : ''}
-                       onchange="window.cbToggleShowAllImages(this.checked)">
-                Show NSFW${nsfwNsfwCount > 0 ? ` (${nsfwNsfwCount})` : ''}
-            </label>
-           </div>`
-        : '';
-
-    // The same summary again under a long list, without a second switch -
-    // two would share an id, and one is enough.
-    const nsfwFooterHtml = hiddenCount > 0
-        ? `<div class="cb-nsfw-warning"><span>${nsfwSummary}</span></div>`
+    // The same sentence again under a long list, without a second set of
+    // switches - they would share ids, and one set is enough.
+    const filterFooterHtml = (hiddenCount + promptHiddenCount) > 0
+        ? renderFilterBanner({ ...bannerOptions, withSwitches: false })
         : '';
 
     const imageCards = pageImages.map((img) => {
@@ -1272,11 +1263,10 @@ function renderImages() {
             <h4>Example Images</h4>
             <span class="mm-images-count">${imagesToShow.length > 0 ? `${pageStart + 1}-${pageEnd} of ${imagesToShow.length}` : '0'}${(hiddenCount + promptHiddenCount) > 0 ? ` (${hiddenCount + promptHiddenCount} hidden)` : ''} images (Page ${currentImagePage}/${totalPages})</span>
         </div>
-        ${nsfwWarningHtml}
-        ${promptWarningHtml}
+        ${filterBannerHtml}
         ${renderImagePagination(totalPages, 'top')}
         <div class="model-images-list">${imageCards}</div>
-        ${nsfwFooterHtml}
+        ${filterFooterHtml}
         ${loadMoreHtml}
         ${renderImagePagination(totalPages, 'bottom')}
     `;

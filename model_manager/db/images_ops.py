@@ -176,22 +176,24 @@ class ImagesOps:
             )
             nsfw_kept = cursor.fetchone()[0]
 
-            # How many of the version's images are of each kind, whichever way
-            # the switches are set - what the gallery's "Show NSFW (n)" and
-            # "Show images without prompts (n)" count. The hidden_* figures
-            # above only say what is being held back right now, and are 0 as
-            # soon as a switch shows everything, which is when a count still
-            # matters most.
+            # What each gallery switch is acting on right now: the number beside
+            # it, and the number its banner states - the two must always agree.
+            # Each counts its own kind among the images the *other* switch lets
+            # through, so it is the number a click would hide or bring back,
+            # and it moves when the other switch does. It is not 0 when the
+            # switch is showing everything: it is then how many it is showing.
             cursor.execute(
-                "SELECT COUNT(*) FROM images WHERE version_id = ? AND effective_nsfw_level > ?",
+                "SELECT COUNT(*) FROM images WHERE version_id = ? AND effective_nsfw_level > ?"
+                + prompt_clause,
                 (version_id, SFW_MAX)
             )
-            nsfw_total = cursor.fetchone()[0]
+            nsfw_count = cursor.fetchone()[0]
             cursor.execute(
-                "SELECT COUNT(*) FROM images WHERE version_id = ?" + self._prompt_filter(True),
-                (version_id,)
+                "SELECT COUNT(*) FROM images WHERE version_id = ?" + nsfw_clause
+                + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                (version_id,) + nsfw_param
             )
-            promptless_total = total - cursor.fetchone()[0]
+            promptless_count = cursor.fetchone()[0]
 
             return {
                 "total": total,
@@ -199,8 +201,8 @@ class ImagesOps:
                 "hidden_nsfw": total - nsfw_kept,
                 "hidden_promptless": nsfw_kept - filtered,
                 "hidden": total - filtered,
-                "nsfw_total": nsfw_total,
-                "promptless_total": promptless_total,
+                "nsfw_count": nsfw_count,
+                "promptless_count": promptless_count,
             }
 
     def get_cached_page_count(self, version_id: int) -> int:

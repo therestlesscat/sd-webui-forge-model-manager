@@ -421,6 +421,65 @@ export function setupLazyMedia(container) {
     lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
 }
 
+/**
+ * The one banner above a gallery: what its filters are holding back, and a
+ * switch for each, on the right.
+ *
+ *   Showing 91 of 100 images (6 hidden due to NSFW filter, 3 hidden due to unusable prompt)
+ *                                             [ ] Show NSFW (6)  [ ] Show unusable prompts (3)
+ *
+ * The hidden figures add up with what is shown to the total, so an image both
+ * filters would hide is counted once - by the first filter to hide it, which
+ * the caller decides by the order it applies them. Each switch states the same
+ * number as its clause while it hides; once ticked its clause drops out, since
+ * it hides nothing, and the switch says how many of its kind it now shows.
+ *
+ * Both tabs build their banner here, so the two cannot drift apart.
+ *
+ * @param {object} options
+ * @param {number} options.shown - images on screen after both filters.
+ * @param {number} options.total - images loaded for this version.
+ * @param {string} options.bannerClass - the tab's banner class.
+ * @param {string} options.labelClass - the tab's switch label class.
+ * @param {boolean} [options.withSwitches=true] - false for a repeat of the
+ *     sentence alone, under a long list; a second set of switches would
+ *     duplicate their ids.
+ * @param {Array<object>} options.switches - one per filter:
+ *     id, onchange (a fixed call, never data), label, reason (for "hidden due
+ *     to ..."), showing (ticked), hidden (what it hides now), count (what it
+ *     would show once ticked, i.e. its kind among what the other filter lets
+ *     through), and applies (false to leave it out altogether).
+ */
+export function renderFilterBanner({ shown, total, bannerClass, labelClass,
+                                     switches, withSwitches = true }) {
+    const active = switches.filter((s) => s.applies !== false);
+
+    const clauses = active
+        .filter((s) => !s.showing && s.hidden > 0)
+        .map((s) => `${s.hidden} hidden due to ${s.reason}`);
+
+    const offered = active
+        .map((s) => ({ ...s, number: s.showing ? s.count : s.hidden }))
+        .filter((s) => s.number > 0 || s.showing);
+
+    if (!clauses.length && !offered.length) return '';
+
+    const sentence = clauses.length
+        ? `Showing ${shown} of ${total} images (${clauses.join(', ')})`
+        : `Showing all ${total} images`;
+
+    const controls = withSwitches && offered.length
+        ? `<div class="filter-banner-switches">${offered.map((s) => `
+                <label class="${labelClass}">
+                    <input type="checkbox" id="${s.id}" ${s.showing ? 'checked' : ''} onchange="${s.onchange}">
+                    ${s.label} (${s.number})
+                </label>`).join('')}
+           </div>`
+        : '';
+
+    return `<div class="${bannerClass}"><span>${sentence}</span>${controls}</div>`;
+}
+
 export function renderResource(resource) {
     const type = resource.type || 'unknown';
     const name = resource.name || 'Unknown';

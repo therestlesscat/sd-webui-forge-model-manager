@@ -393,27 +393,35 @@ status, body = get('/model-manager/models/details', path=facts['linked_paths'][0
                    hide_promptless_images='false')
 check('and it can be turned off', len(body['model']['images']), 6)
 
-# The (n) beside each gallery switch: how many of the version's images are of
-# that kind, whichever way the switches are set. hidden_* goes to 0 the moment
-# a switch shows everything, which is exactly when the count is still wanted.
+# What each gallery switch acts on right now, which is both the number beside
+# it and the number its banner states: its own kind, among the images the
+# other switch lets through. So it moves when the other switch does, and it is
+# not 0 while the switch is showing everything - it is then how many it shows.
 from model_manager.nsfw import SFW_MAX                           # noqa: E402
 
 db.store_images(VERSION, page=2, images=[
     {'id': 90007, 'url': 'u7', 'browsingLevel': 8,
      'meta': {'prompt': 'an explicit one with a prompt', 'steps': 20}},
+    {'id': 90008, 'url': 'u8', 'browsingLevel': 8, 'meta': None},
 ])
-for label, kwargs in (('with both filters on', {'max_nsfw_level': SFW_MAX, 'require_prompt': True}),
-                      ('with both off', {})):
+# Six safe images, four of them without a prompt; two NSFW, one without.
+for label, kwargs, want in (
+    ('with both switches hiding', {'max_nsfw_level': SFW_MAX, 'require_prompt': True},
+     (1, 4)),
+    ('with NSFW shown', {'require_prompt': True}, (1, 5)),
+    ('with prompts shown', {'max_nsfw_level': SFW_MAX}, (2, 4)),
+    ('with both showing', {}, (2, 5)),
+):
     counts = db.get_image_counts(VERSION, **kwargs)
-    check('%s, the NSFW total is still the one NSFW image' % label, counts['nsfw_total'], 1)
-    check('%s, the no-prompt total is still four' % label, counts['promptless_total'], 4)
+    check('%s, NSFW and no-prompt count %s' % (label, want),
+          (counts['nsfw_count'], counts['promptless_count']), want)
 
 status, body = get('/model-manager/models/details', path=facts['linked_paths'][0],
                    hide_nsfw_images='false', hide_promptless_images='false')
 state = body['model']['images_state']
-check('the endpoint reports both totals with nothing hidden',
-      (state['nsfw_total'], state['promptless_total'], state['hidden_nsfw'],
-       state['hidden_promptless']), (1, 4, 0, 0))
+check('the endpoint reports what each switch is showing when nothing is hidden',
+      (state['nsfw_count'], state['promptless_count'], state['hidden_nsfw'],
+       state['hidden_promptless']), (2, 5, 0, 0))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
