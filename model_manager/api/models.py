@@ -70,7 +70,7 @@ def register(app: FastAPI):
 
             # Use setting for page size if not specified
             if page_size <= 0:
-                page_size = int(getattr(shared.opts, 'model_manager_page_size', 10))
+                page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
             def parse_card_size(size_str: str):
@@ -225,7 +225,7 @@ def register(app: FastAPI):
 
             card_size_str = getattr(shared.opts, 'model_manager_card_size', '200x280')
             card_width, card_height = parse_card_size(card_size_str)
-            page_size = int(getattr(shared.opts, 'model_manager_page_size', 10))
+            page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
 
             return JSONResponse({
                 "success": True,

@@ -31,6 +31,7 @@ const {
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
+    balanceGridRows,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -49,23 +50,16 @@ let selectedVersionIndex = 0;  // Currently selected version within the group
 let currentPage = 1;
 let totalPages = 1;
 let totalModels = 0;
-let pageSize = 0;
-let firstVisibleItemIndex = 0;  // Absolute index of first item on current page
+let pageSize = 0;  // the server's, from the Models per page setting
 
 // Card sizing (default values, updated from API)
 let cardWidth = 200;
 let cardHeight = 280;
-const CARD_GAP = 15;         // gap: 15px in CSS
-const ROWS_TO_SHOW = 2;      // Show 2 rows of cards
 
 // Track if preview_least_nsfw checkbox has been initialized from setting
 let previewLeastNsfwInitialized = false;
 let previewLeastNsfwUserTouched = false;
 let filterDefaultsPromise = null;
-let defaultPageSize = 10;
-let calibratedPageSize = 10;
-let layoutCalibrationPromise = null;
-let isLayoutCalibrated = false;
 
 // Apply card size from API response
 function applyCardSize(width, height) {
@@ -81,154 +75,6 @@ function applyCardSize(width, height) {
     }
 }
 
-// Calculate page size based on grid width
-function calculatePageSize() {
-    const grid = document.getElementById('mm_grid');
-    if (!grid) return defaultPageSize;  // Default fallback
-
-    const gridWidth = grid.clientWidth;
-    if (gridWidth <= 0) return defaultPageSize;
-
-    // Calculate how many cards fit per row using current card width
-    // Formula: (gridWidth + gap) / (cardWidth + gap)
-    const cardsPerRow = Math.floor((gridWidth + CARD_GAP) / (cardWidth + CARD_GAP));
-    const calculatedSize = Math.max(1, cardsPerRow) * ROWS_TO_SHOW;
-
-    // Minimum 4, maximum 50
-    const finalSize = Math.max(4, Math.min(50, calculatedSize));
-    console.log(`[ModelManager] Calculated page size: ${finalSize} (${cardsPerRow} cards/row × ${ROWS_TO_SHOW} rows, grid width: ${gridWidth}px, card width: ${cardWidth}px)`);
-    return finalSize;
-}
-
-function showLayoutCalibrationOverlay(message = 'Preparing layout...') {
-    const app = document.getElementById('model_manager_app');
-    if (!app) return;
-
-    app.classList.add('mm-layout-calibrating');
-    let overlay = document.getElementById('mm_layout_overlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'mm_layout_overlay';
-        overlay.className = 'mm-layout-overlay';
-        overlay.innerHTML = `
-            <div class="mm-layout-overlay-content">
-                <div class="mm-layout-spinner"></div>
-                <div class="mm-layout-message"></div>
-            </div>
-        `;
-        app.appendChild(overlay);
-    }
-
-    const messageEl = overlay.querySelector('.mm-layout-message');
-    if (messageEl) {
-        messageEl.textContent = message;
-    }
-}
-
-function hideLayoutCalibrationOverlay() {
-    const app = document.getElementById('model_manager_app');
-    if (app) {
-        app.classList.remove('mm-layout-calibrating');
-    }
-
-    const overlay = document.getElementById('mm_layout_overlay');
-    if (overlay) {
-        overlay.remove();
-    }
-}
-
-async function ensureLayoutCalibration() {
-    if (isLayoutCalibrated) return;
-
-    if (!layoutCalibrationPromise) {
-        layoutCalibrationPromise = (async () => {
-            showLayoutCalibrationOverlay('Optimizing initial model layout...');
-            setStatus('Preparing layout...');
-
-            try {
-                await ensureFilterDefaults();
-
-                let bestSize = Math.max(4, Math.min(50, defaultPageSize));
-                let lastCandidate = null;
-                let stableHits = 0;
-
-                const maxAttempts = 8;
-                for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-
-                    const grid = document.getElementById('mm_grid');
-                    const gridWidth = grid ? grid.clientWidth : 0;
-                    const minStableWidth = Math.max(120, cardWidth + CARD_GAP);
-                    if (gridWidth < minStableWidth) {
-                        continue;
-                    }
-
-                    const candidate = calculatePageSize();
-                    bestSize = candidate;
-
-                    if (candidate === lastCandidate) {
-                        stableHits += 1;
-                    } else {
-                        stableHits = 1;
-                        lastCandidate = candidate;
-                    }
-
-                    if (stableHits >= 2) {
-                        break;
-                    }
-                }
-
-                calibratedPageSize = bestSize;
-                isLayoutCalibrated = true;
-                console.log(`[ModelManager] Layout calibration complete: page_size=${calibratedPageSize}, default_page_size=${defaultPageSize}, card=${cardWidth}x${cardHeight}`);
-                setStatus('Layout ready. Select filters and click Load Models.');
-            } catch (e) {
-                calibratedPageSize = Math.max(4, Math.min(50, defaultPageSize));
-                isLayoutCalibrated = true;
-                console.warn('[ModelManager] Layout calibration failed, using fallback page size:', calibratedPageSize, e);
-                setStatus('Layout ready (fallback). Select filters and click Load Models.');
-            } finally {
-                hideLayoutCalibrationOverlay();
-            }
-        })();
-    }
-
-    await layoutCalibrationPromise;
-}
-
-// Recalculate pagination after page size change (without reloading data)
-function recalculatePagination(newPageSize) {
-    if (newPageSize === pageSize || totalModels === 0) return false;
-
-    const oldPageSize = pageSize;
-    pageSize = newPageSize;
-
-    // Calculate new page based on first visible item
-    const newPage = Math.floor(firstVisibleItemIndex / pageSize) + 1;
-    const newTotalPages = Math.ceil(totalModels / pageSize);
-
-    console.log(`[ModelManager] Pagination recalc: page ${currentPage} (size ${oldPageSize}) -> page ${newPage} (size ${pageSize})`);
-
-    currentPage = Math.max(1, Math.min(newPage, newTotalPages));
-    totalPages = newTotalPages;
-
-    return true;  // Pagination changed
-}
-
-// Update pagination controls without reloading data
-function updatePaginationControls() {
-    const container = document.getElementById('mm_grid');
-    if (!container) return;
-
-    // Find existing pagination and replace it
-    const existingPagination = container.querySelector('.mm-pagination');
-    if (existingPagination && totalPages > 1) {
-        existingPagination.outerHTML = renderPaginationControls();
-    }
-
-    // Update status
-    updatePaginationStatus();
-}
 
 // Sync state
 let isSyncing = false;
@@ -587,16 +433,13 @@ async function loadModels(page = 1) {
     if (loadBtn) loadBtn.disabled = true;
 
     try {
-        await ensureLayoutCalibration();
+        // The preview checkbox's default has to be in place before the
+        // first load reads it.
+        await ensureFilterDefaults();
 
-        // Calculate page size dynamically based on viewport
-        const calculatedPageSize = isLayoutCalibrated
-            ? calculatePageSize()
-            : Math.max(4, Math.min(50, calibratedPageSize || defaultPageSize));
-
+        // No page_size: the server uses the Models per page setting.
         const filters = getFilters();
         filters.page = page;
-        filters.page_size = calculatedPageSize;
         const data = await apiCall({ endpoint: '/model-manager/models', params: filters });
 
         if (data.success) {
@@ -616,12 +459,9 @@ async function loadModels(page = 1) {
 
             currentModels = data.models;
             currentPage = data.page || 1;
-            pageSize = data.page_size || calculatedPageSize;
+            pageSize = data.page_size || data.models.length || 1;
             totalModels = data.total || 0;
-            totalPages = pageSize > 0 ? Math.ceil(totalModels / pageSize) : 1;
-
-            // Track absolute position of first visible item
-            firstVisibleItemIndex = (currentPage - 1) * pageSize;
+            totalPages = Math.max(1, Math.ceil(totalModels / pageSize));
 
             renderModelGrid(data.models);
             updatePaginationStatus();
@@ -647,13 +487,6 @@ async function ensureFilterDefaults() {
         try {
             const data = await apiCall({ endpoint: '/model-manager/filter-defaults' });
             if (data.success) {
-                if (data.page_size) {
-                    const parsedSize = Number(data.page_size);
-                    if (Number.isFinite(parsedSize) && parsedSize > 0) {
-                        defaultPageSize = parsedSize;
-                    }
-                }
-
                 if (data.card_width && data.card_height) {
                     applyCardSize(Number(data.card_width), Number(data.card_height));
                 }
@@ -799,6 +632,7 @@ function renderModelGrid(models) {
     const paginationHtml = totalPages > 1 ? renderPaginationControls() : '';
 
     container.innerHTML = `<div class="model-grid-inner">${cards}</div>${paginationHtml}`;
+    balanceGridRows('mm_grid');
 }
 
 // Render pagination controls
@@ -3633,25 +3467,6 @@ function formatCommercialUse(value) {
     return labels[value] || value;
 }
 
-// Debounce helper
-function debounce(func, wait) {
-    let timeout;
-    return function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
-    };
-}
-
-// Handle window resize - recalculate pagination without reloading
-const handleResize = debounce(() => {
-    if (totalModels === 0) return;  // No data loaded yet
-
-    const newPageSize = calculatePageSize();
-    if (recalculatePagination(newPageSize)) {
-        updatePaginationControls();
-        console.log(`[ModelManager] Resize: updated to page ${currentPage}/${totalPages}`);
-    }
-}, 300);
 
 // Scroll position restore functionality
 function updateScrollRestoreButton() {
@@ -3798,8 +3613,6 @@ function init() {
     console.log('[ModelManager] Initializing...');
     bindElements();
 
-    // Setup resize listener
-    window.addEventListener('resize', handleResize);
 }
 
 function bindElements() {
@@ -3985,9 +3798,6 @@ function bindElements() {
 
     // Load saved filters if available
     loadSearchFilters();
-
-    // Calibrate layout once before first user-driven model load
-    ensureLayoutCalibration();
 
     // Check for saved scroll position and show restore button
     updateScrollRestoreButton();

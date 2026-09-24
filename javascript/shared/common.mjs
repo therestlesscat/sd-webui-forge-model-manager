@@ -565,6 +565,64 @@ export function renderImagePagination({ currentPage, totalPages, position, prefi
 }
 
 /**
+ * How many columns to lay a page of cards out in, so its rows come out even.
+ *
+ * Use the fewest rows the width allows, then spread the cards across them:
+ * ten cards with room for nine is 5 + 5, not 9 + 1, and stays 5 + 5 down to
+ * room for five. Only when another row is unavoidable does it change - room
+ * for four is 4 + 4 + 2, which is as even as equal columns get.
+ */
+export function balancedColumns(cardCount, fit) {
+    if (cardCount < 1 || fit < 1) return Math.max(fit, 1);
+    const rows = Math.ceil(cardCount / fit);
+    return Math.ceil(cardCount / rows);
+}
+
+/**
+ * Keep a card grid's rows even: cap its card list at the balanced column
+ * count, so the flex-wrap layout wraps there.
+ *
+ * Call it after each render. The first call also starts watching the grid's
+ * width, so a resize re-balances it. The card width is measured from the
+ * cards, so the card size setting needs no wiring of its own; a hidden tab
+ * has no width and is left as it was until it is shown.
+ *
+ * @param {string} gridId - the element holding the .model-grid-inner list.
+ */
+export function balanceGridRows(gridId) {
+    const grid = document.getElementById(gridId);
+    const inner = grid?.querySelector('.model-grid-inner');
+    if (!inner) return;
+    watchGridWidth(gridId, grid);
+
+    const cards = inner.querySelectorAll('.model-card');
+    const cardWidth = cards[0]?.getBoundingClientRect().width || 0;
+    const available = grid.clientWidth;
+    if (!cards.length || !cardWidth || !available) return;
+
+    const gap = parseFloat(window.getComputedStyle(inner).columnGap) || 0;
+    const fit = Math.max(1, Math.floor((available + gap) / (cardWidth + gap)));
+    const cols = balancedColumns(cards.length, fit);
+    inner.style.maxWidth = `${Math.ceil(cols * cardWidth + (cols - 1) * gap)}px`;
+}
+
+// One observer per grid element. Capping the inner list's width does not
+// change the grid's own, so an observer cannot feed itself.
+const gridObservers = new Map();   // gridId -> { grid, observer }
+function watchGridWidth(gridId, grid) {
+    if (gridObservers.get(gridId)?.grid === grid || typeof ResizeObserver !== 'function') return;
+    gridObservers.get(gridId)?.observer.disconnect();   // the tab's markup was replaced
+    let lastWidth = -1;
+    const observer = new ResizeObserver(() => {
+        if (grid.clientWidth === lastWidth) return;
+        lastWidth = grid.clientWidth;
+        balanceGridRows(gridId);
+    });
+    observer.observe(grid);
+    gridObservers.set(gridId, { grid, observer });
+}
+
+/**
  * Push a card size onto a tab's container as CSS custom properties.
  * Each tab owns its container id, variable prefix and log tag.
  */
