@@ -10,6 +10,12 @@ from ..nsfw import SFW_MAX, UNKNOWN, image_level
 from typing import Optional, List, Dict, Any, Callable
 
 
+
+# The order a gallery shows a version's images in: Civitai's, as stored in
+# `position`, page by page. id only breaks ties, and orders rows stored before
+# positions were kept (schema v19) - they have none until the next sync.
+GALLERY_ORDER = "page, position, id"
+
 class ImagesOps:
     """
     Operations for images table.
@@ -45,10 +51,12 @@ class ImagesOps:
         Args:
             version_id: Civitai model version ID.
             page: Page number (1 = first load-more, 2 = second, etc).
-            images: List of image dicts to store.
+            images: List of image dicts to store, in the order Civitai gave
+                them. That order is kept as `position`, because it is
+                Civitai's ranking and the id says nothing about it.
         """
         with self._cursor() as cursor:
-            for img in images:
+            for position, img in enumerate(images):
                 img_id = img.get("id")
                 if img_id:
                     url = img.get("url")
@@ -59,9 +67,11 @@ class ImagesOps:
 
                     cursor.execute("""
                         INSERT OR REPLACE INTO images
-                        (id, version_id, page, url, width, height, effective_nsfw_level, created_at, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (img_id, version_id, page, url, width, height, effective_nsfw_level, created_at, json.dumps(img)))
+                        (id, version_id, page, position, url, width, height,
+                         effective_nsfw_level, created_at, data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (img_id, version_id, page, position, url, width, height,
+                          effective_nsfw_level, created_at, json.dumps(img)))
 
     # A prompt is stored inside the image's JSON, so it is read back out with
     # json_extract rather than given a column. Measured over 101,369 images, a
@@ -107,12 +117,14 @@ class ImagesOps:
 
             if page is not None:
                 cursor.execute(
-                    f"SELECT data FROM images WHERE version_id = ? AND page = ?{nsfw_filter} ORDER BY id",
+                    f"SELECT data FROM images WHERE version_id = ? AND page = ?{nsfw_filter} "
+                    f"ORDER BY {GALLERY_ORDER}",
                     (version_id, page) + nsfw_param
                 )
             else:
                 cursor.execute(
-                    f"SELECT data FROM images WHERE version_id = ?{nsfw_filter} ORDER BY page, id",
+                    f"SELECT data FROM images WHERE version_id = ?{nsfw_filter} "
+                    f"ORDER BY {GALLERY_ORDER}",
                     (version_id,) + nsfw_param
                 )
 

@@ -20,6 +20,7 @@ import os
 import time
 
 from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
+from .images_ops import GALLERY_ORDER
 
 # How many of a version's images "Only with SFW images" looks at - the same
 # sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
@@ -234,13 +235,13 @@ def query_models_grouped(
         # Asked here, of the one row per model the grid shows, rather than
         # of every version: checking every image of every version took
         # 13.7 s against a library of 101,759 images, the unfiltered grid 1.1.
-        outer_conditions.append("""EXISTS (
+        outer_conditions.append(f"""EXISTS (
             SELECT 1 FROM images WHERE version_id = ranked.id
         ) AND NOT EXISTS (
             SELECT 1 FROM (
                 SELECT effective_nsfw_level FROM images
                 WHERE version_id = ranked.id
-                ORDER BY page, id
+                ORDER BY {GALLERY_ORDER}
                 LIMIT ?
             ) WHERE effective_nsfw_level > ?
         )""")

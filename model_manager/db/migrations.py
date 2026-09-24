@@ -882,6 +882,30 @@ def _migrate_to_v18(cursor):
     )
 
 
+def _migrate_to_v19(cursor):
+    """Remember the order Civitai gave a version's images in.
+
+    Civitai returns a version's images in its own ranking - not by date, not
+    by id. They were stored keyed on the image id and read back ORDER BY id,
+    so the Model Manager showed them oldest-first while the Civitai Browser,
+    which keeps the order it was given, showed Civitai's. The two galleries of
+    one model disagreed, and so did the "first 20" each judges a model by.
+
+    `position` is an image's place within its page as Civitai sent it. Rows
+    stored before this have none and keep sorting by id until their version
+    is synced again, which replaces them all at once.
+    """
+    print("[ModelManager] Migrating to schema v19 (image order from Civitai)...")
+
+    cursor.execute("PRAGMA table_info(images)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "position" not in columns:
+        cursor.execute("ALTER TABLE images ADD COLUMN position INTEGER")
+
+    print("[ModelManager] Migration to v19 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -938,6 +962,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 18:
         _migrate_to_v18(cursor)
+
+    if from_version < 19:
+        _migrate_to_v19(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
