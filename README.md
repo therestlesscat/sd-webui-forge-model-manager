@@ -156,4 +156,4 @@ The effective level for a model is the maximum of:
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE).

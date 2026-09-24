@@ -12,9 +12,10 @@ __pycache__/
 # Timestamped backups made before migrations and risky operations
 *.db.backup_*
 
-# IDE
+# IDE and assistant settings, local to each machine
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
