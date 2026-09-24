@@ -1328,6 +1328,14 @@ body.mm-modal-open {
     flex: 1;
 }
 
+/* The switches on the right of a gallery's filter banner, side by side. */
+.filter-banner-switches {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 .mm-show-all-label,
 .cb-show-all-label {
     display: flex;

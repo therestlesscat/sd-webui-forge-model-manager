@@ -30,6 +30,7 @@ const {
     getImagePageCount,
     setupLazyMedia,
     renderResource,
+    renderFilterBanner,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -251,13 +252,16 @@ let imageBrowsing = 'continuous';
 // do rather than from whatever happens to be loaded.
 let hidePromptlessImages = true;
 let hidePromptlessInitialised = false;
-let promptlessHiddenCount = 0;
-// How many of this version's images are NSFW, and how many have no prompt,
-// whichever way the switches are set - the (n) beside each switch. They come
-// from the server because the filtering does: once a switch shows everything,
-// nothing on the page could say how many it had been hiding.
-let nsfwImageTotal = 0;
-let promptlessImageTotal = 0;
+// What each gallery switch is acting on right now: how many images it hides,
+// or while it is ticked, how many it is showing - counted among the images the
+// other switch lets through. The banner and the switch both state this one
+// number, so they cannot disagree. It comes from the server, because the
+// filtering happens there and a hidden image never reaches the page.
+let nsfwImageCount = 0;
+let promptlessImageCount = 0;
+// The images the prompt filter is hiding right now, not counting any the NSFW
+// filter hides first - the other half of the banner's "hidden due to" split.
+let hiddenPromptlessCount = 0;
 // How many of the loaded images the continuous list is showing. Paging mode
 // ignores it, so the two modes cannot disagree about where you are.
 let visibleImageCount = IMAGE_PAGE_SIZE;
@@ -936,9 +940,9 @@ async function loadVersionDetails(filePath) {
             imagesSyncDate = imagesState.sync_date || null;
             totalImageCount = imagesState.total_count || 0;
             hiddenImageCount = imagesState.hidden_nsfw ?? imagesState.hidden_count ?? 0;
-            promptlessHiddenCount = imagesState.hidden_promptless || 0;
-            nsfwImageTotal = imagesState.nsfw_total || 0;
-            promptlessImageTotal = imagesState.promptless_total || 0;
+            hiddenPromptlessCount = imagesState.hidden_promptless || 0;
+            nsfwImageCount = imagesState.nsfw_count || 0;
+            promptlessImageCount = imagesState.promptless_count || 0;
 
             if (!hidePromptlessInitialised && imagesState.hide_promptless_images !== undefined) {
                 hidePromptlessImages = imagesState.hide_promptless_images;
@@ -1515,46 +1519,37 @@ function renderModelImages(images) {
     const totalPages = getImagePageCount(images.length);
     currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
 
-    // Build NSFW filter warning panel if there are hidden images or filter is active
-    const showNsfwWarning = totalImageCount > 0 && (hiddenImageCount > 0 || !hideNsfwImages);
-    const nsfwWarningHtml = showNsfwWarning
-        ? `<div class="mm-nsfw-warning">
-            <span>${hideNsfwImages
-                ? `Showing ${images.length} of ${totalImageCount} images (${hiddenImageCount} hidden due to NSFW filter)`
-                : `Showing all ${totalImageCount} images`}</span>
-            <label class="mm-show-all-label">
-                <input type="checkbox" id="mm_show_nsfw_images" ${hideNsfwImages ? '' : 'checked'} onchange="window.mmToggleShowNsfwImages(this.checked)">
-                Show NSFW (${nsfwImageTotal})
-            </label>
-           </div>`
-        : '';
-
-    // The same panel, one filter down: how many the prompt filter is holding
-    // back, and the switch for it. Shown whenever it is on or has hidden
-    // something, so turning it off is always possible from here.
-    const showPromptWarning = totalImageCount > 0
-        && (promptlessHiddenCount > 0 || !hidePromptlessImages);
-    const promptWarningHtml = showPromptWarning
-        ? `<div class="mm-nsfw-warning">
-            <span>${hidePromptlessImages
-                ? `${promptlessHiddenCount} hidden - no prompt to read`
-                : `Showing ${promptlessImageTotal} with no prompt to read`}</span>
-            <label class="mm-show-all-label">
-                <input type="checkbox" id="mm_show_promptless_images" ${hidePromptlessImages ? '' : 'checked'} onchange="window.mmToggleShowPromptless(this.checked)">
-                Show images without prompts (${promptlessImageTotal})
-            </label>
-           </div>`
-        : '';
+    // One banner for both filters: what they are holding back, which adds up
+    // with what is shown to the total, and a switch for each on the right. The
+    // server splits the hidden images between the filters so that none is
+    // counted twice - NSFW first, as it filters - and reports what each switch
+    // would show once ticked. Built in shared/common.mjs, as the Civitai
+    // Browser's is.
+    const filterBannerHtml = renderFilterBanner({
+        shown: images.length,
+        total: totalImageCount,
+        bannerClass: 'mm-nsfw-warning',
+        labelClass: 'mm-show-all-label',
+        switches: [
+            { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
+              showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
+              onchange: 'window.mmToggleShowNsfwImages(this.checked)' },
+            { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
+              reason: 'unusable prompt',
+              showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
+              count: promptlessImageCount,
+              onchange: 'window.mmToggleShowPromptless(this.checked)' },
+        ],
+    });
 
     if (!images || images.length === 0) {
-        // Still show the panels if a filter is what emptied it
-        if (hiddenImageCount > 0 || promptlessHiddenCount > 0) {
+        // Still show the banner if a filter is what emptied it
+        if (hiddenImageCount > 0 || hiddenPromptlessCount > 0) {
             container.innerHTML = `
                 <div class="mm-images-header">
                     <h4>Example Images</h4>
                 </div>
-                ${nsfwWarningHtml}
-                ${promptWarningHtml}
+                ${filterBannerHtml}
                 <div class="model-images-list"><p class="mm-no-images">No images to show with the filters above.</p></div>
             `;
             container.style.display = 'block';
@@ -1618,8 +1613,7 @@ function renderModelImages(images) {
             <h4>Example Images</h4>
             <span class="mm-images-count">${countText}</span>
         </div>
-        ${nsfwWarningHtml}
-        ${promptWarningHtml}
+        ${filterBannerHtml}
         ${paging ? renderImagePagination(totalPages, 'top') : ''}
         <div class="model-images-list">${imageCards}</div>
         ${downloadMoreHtml}
