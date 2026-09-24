@@ -100,6 +100,7 @@ check('isPaid true for both',
 
 // --- getFilters: checkpoint_type only for checkpoints ------------------------
 sandbox.sizeBound = lift('sizeBound');     // getFilters reads the size boxes through it
+sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 const getFilters = lift('getFilters');
 const group = makeGroup();
 els.cb_search = { value: 'anime' };

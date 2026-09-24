@@ -1892,6 +1892,7 @@ body.mm-modal-open {
 }
 
 .cb-filter-disabled select,
+.cb-filter-disabled input,
 .mm-filter-disabled select {
     cursor: not-allowed;
 }

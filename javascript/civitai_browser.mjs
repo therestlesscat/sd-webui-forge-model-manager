@@ -282,6 +282,7 @@ function getFilters() {
         nsfw: document.getElementById('cb_nsfw')?.checked || false,
         tag: selectedTag,
         require_prompt: document.getElementById('cb_require_prompt')?.checked || false,
+        sfw_only: sfwOnlyEnabled(),
         min_size_gb: sizeBound('cb_min_size'),
         max_size_gb: sizeBound('cb_max_size'),
     };
@@ -300,11 +301,17 @@ function sizeBound(id) {
  */
 function describeFilterStats(stats) {
     const skipped = [];
+    if (stats.sfwFilter) skipped.push(`${stats.unsafe || 0} with NSFW images`);
     if (stats.promptFilter !== false) skipped.push(`${stats.dropped || 0} without usable prompts`);
     if (stats.sizeFilter) skipped.push(`${stats.rejected || 0} outside the size range`);
-    const checked = stats.promptFilter !== false ? `checked ${stats.checked}, ` : '';
+    if (stats.failed) skipped.push(`${stats.failed} could not be checked`);
+    const costly = stats.promptFilter !== false || stats.sfwFilter;
+    const checked = costly ? `checked ${stats.checked}, ` : '';
     let text = ` - ${checked}skipped ${skipped.join(', ')}`;
-    if (stats.budgetReached) {
+    if (stats.rateLimited) {
+        text += '. Civitai is limiting requests, so this page stopped early; '
+            + 'wait a moment, then press Next.';
+    } else if (stats.budgetReached) {
         text += '. Stopped early to avoid a long wait; press Next to keep looking.';
     }
     return text;
@@ -312,9 +319,44 @@ function describeFilterStats(stats) {
 
 // What a filtered search is doing, before it has found anything.
 function filteringMessage() {
-    return requirePromptEnabled()
-        ? 'Checking models for usable prompts...'
-        : 'Looking for models in the size range...';
+    if (requirePromptEnabled()) return 'Checking models for usable prompts...';
+    if (sfwOnlyEnabled()) return 'Checking models for SFW images...';
+    return 'Looking for models in the size range...';
+}
+
+/**
+ * Is "Only with SFW images" ticked and in force?
+ *
+ * It means nothing while NSFW models are included, so it is greyed out then,
+ * keeps its tick for when it applies again, and is not sent.
+ */
+function sfwOnlyEnabled() {
+    const nsfw = document.getElementById('cb_nsfw')?.checked || false;
+    return !nsfw && (document.getElementById('cb_sfw_only')?.checked || false);
+}
+
+// Grey out "Only with SFW images" while NSFW models are included, saying why,
+// and while it is in force, say above the results what it is doing: its
+// pages come back short, and without this that reads as something broken.
+function syncSfwOnlyEnabled() {
+    const box = document.getElementById('cb_sfw_only');
+    const label = document.getElementById('cb_sfw_only_label');
+    if (!box || !label) return;
+
+    if (label.dataset.title === undefined) label.dataset.title = label.title;
+    const applies = !(document.getElementById('cb_nsfw')?.checked || false);
+    box.disabled = !applies;
+    label.classList.toggle('cb-filter-disabled', !applies);
+    label.title = applies
+        ? label.dataset.title
+        : 'Only applies while Include NSFW models is unticked. ' + label.dataset.title;
+
+    const banner = document.getElementById('cb_sfw_only_banner');
+    const text = document.getElementById('cb_sfw_only_banner_text');
+    if (banner && text) {
+        text.textContent = label.dataset.title;
+        banner.style.display = sfwOnlyEnabled() ? 'flex' : 'none';
+    }
 }
 
 // Is the prompt filter currently on?
@@ -400,9 +442,12 @@ async function searchModelsStreaming(page, cursor) {
                     updateStatus(`Found ${currentModels.length} of ${pageSize}...`);
                 } else if (evt.type === 'progress') {
                     // Every model looked at was taken or passed over by one filter.
-                    const seen = evt.found + (evt.dropped || 0) + (evt.rejected || 0);
-                    const passed = [evt.dropped ? `${evt.dropped} without usable prompts` : '',
-                                    evt.rejected ? `${evt.rejected} outside the size range` : '']
+                    const seen = evt.found + (evt.dropped || 0) + (evt.unsafe || 0)
+                        + (evt.failed || 0) + (evt.rejected || 0);
+                    const passed = [evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
+                                    evt.dropped ? `${evt.dropped} without usable prompts` : '',
+                                    evt.rejected ? `${evt.rejected} outside the size range` : '',
+                                    evt.failed ? `${evt.failed} could not be checked` : '']
                         .filter(Boolean).join(', ');
                     updateStatus(`Looked through ${seen} models, found ${evt.found} of ${pageSize}`
                         + (passed ? ` (${passed})` : ''));
@@ -523,7 +568,7 @@ async function searchModels(page = 1) {
 
     // A range nothing can be in would spend every search it is allowed on
     // finding that out.
-    const { min_size_gb: minSize, max_size_gb: maxSize } = getFilters();
+    const { min_size_gb: minSize, max_size_gb: maxSize, sfw_only: sfwOnly } = getFilters();
     if (minSize !== '' && maxSize !== '' && minSize > maxSize) {
         updateStatus('File size: Min is larger than Max.');
         return;
@@ -532,7 +577,7 @@ async function searchModels(page = 1) {
     // A filtered page is filled from as many models as it takes - checked one
     // by one for prompts, or searched through for a size - so stream results
     // in as they are found instead of blocking on the whole page.
-    if (requirePromptEnabled() || minSize !== '' || maxSize !== '') {
+    if (requirePromptEnabled() || sfwOnly || minSize !== '' || maxSize !== '') {
         isLoading = true;
         try {
             await searchModelsStreaming(page, cursors[cursorIndex] || "");
@@ -2129,6 +2174,10 @@ function init() {
     }
     syncCheckpointTypeEnabled();
 
+    document.getElementById('cb_nsfw')?.addEventListener('change', syncSfwOnlyEnabled);
+    document.getElementById('cb_sfw_only')?.addEventListener('change', syncSfwOnlyEnabled);
+    syncSfwOnlyEnabled();
+
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
@@ -2238,6 +2287,7 @@ window.cbShowModel = async function(query) {
     // the moment the next search is run.
     const nsfw = document.getElementById('cb_nsfw');
     if (nsfw) nsfw.checked = true;
+    syncSfwOnlyEnabled();
     const requirePrompt = document.getElementById('cb_require_prompt');
     if (requirePrompt) requirePrompt.checked = false;
 

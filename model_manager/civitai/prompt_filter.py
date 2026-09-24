@@ -15,9 +15,14 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-from .client import CivitaiClient
+from .client import CivitaiClient, CivitaiRateLimitError
 
 FILTER_TOKEN_PREFIX = "mmfilter:"
+
+# check()'s answers in the filter loop, besides a reason string.
+KEEP = object()
+SKIPPED = object()
+RATE_LIMITED = object()
 
 # The shortest prompt worth showing, in characters after trimming. Mirrors
 # MIN_PROMPT_LENGTH in javascript/shared/common.mjs - the grid and the server
@@ -109,6 +114,7 @@ def search_models_with_usable_prompts(
     workers: int = 4,
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
     max_searches: Optional[int] = None,
+    inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -122,6 +128,7 @@ def search_models_with_usable_prompts(
         client, search_params, count_usable_images, page_size,
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
         batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
+        inspect=inspect,
     ):
         if kind == "done":
             summary = payload
@@ -141,6 +148,7 @@ def iter_models_with_usable_prompts(
     workers: int = 4,
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
     max_searches: Optional[int] = None,
+    inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -161,6 +169,15 @@ def iter_models_with_usable_prompts(
     one can mean many batches for one page, so `max_searches` bounds the
     search calls the same way `max_checks` bounds the prompt checks.
 
+    `inspect` is the general form of the costly check, for more than one
+    question per model: it returns None to keep a model, or why it was left
+    out - "prompt" or "nsfw" - and each reason is counted on its own. It
+    replaces `count_usable_images`; give one or the other.
+
+    If Civitai rate-limits a search or a check (CivitaiRateLimitError), the
+    page stops there with `rate_limited` set, and the token points at the
+    model that was not checked, so Next retries it rather than skipping it.
+
     Args:
         client: Civitai client.
         search_params: Arguments for client.search_models (without limit/cursor).
@@ -173,28 +190,42 @@ def iter_models_with_usable_prompts(
         batch_size: Models to pull from Civitai per search call.
         accept: Free check run before the prompt check; False drops the model.
         max_searches: Maximum search calls before giving up on filling the page.
+        inspect: Costly check returning None to keep, or a reason to drop.
 
     Yields events as the work happens, so a caller can show results while the
     rest are still being checked:
-        ("progress", {"checked", "dropped", "rejected", "found"}) after each
-            search and before each chunk of prompt checks
+        ("progress", {"checked", "dropped", "unsafe", "failed", "rejected", "found"})
+            after each search and before each chunk of costly checks
         ("model", model) as each qualifying model is found
         ("done", summary) once, last, with nextCursor and final counts
 
     Yields:
         Tuples of (event kind, payload).
     """
+    if inspect is not None and count_usable_images is not None:
+        raise ValueError("give count_usable_images or inspect, not both")
+    if count_usable_images is not None:
+        def inspect(model):
+            return None if count_usable_images(model) >= min_usable else "prompt"
+
     cursor, index = decode_filter_token(start_token)
 
     models: List[Dict[str, Any]] = []
     batch: Optional[List[Dict[str, Any]]] = None
     batch_next_cursor: Optional[str] = None
-    checked = 0       # prompt checks made, which is what max_checks bounds
+    checked = 0       # costly checks made, which is what max_checks bounds
     dropped = 0       # failed the prompt check
-    rejected = 0      # failed accept(), never prompt-checked
+    unsafe = 0        # failed the SFW check
+    failed = 0        # the check itself failed, so nothing is known
+    rejected = 0      # failed accept(), never given a costly check
     searches = 0
     exhausted = False
     budget_reached = False
+    rate_limited = False
+
+    def counts():
+        return {"checked": checked, "dropped": dropped, "unsafe": unsafe,
+                "failed": failed, "rejected": rejected, "found": len(models)}
 
     while len(models) < page_size:
         if max_checks is not None and checked >= max_checks:
@@ -216,15 +247,18 @@ def iter_models_with_usable_prompts(
                 budget_reached = True
                 break
 
-            result = client.search_models(**search_params, limit=batch_size, cursor=cursor)
+            try:
+                result = client.search_models(**search_params, limit=batch_size, cursor=cursor)
+            except CivitaiRateLimitError:
+                rate_limited = budget_reached = True
+                break
             searches += 1
             batch = result.get("items", []) or []
             batch_next_cursor = result.get("nextCursor")
 
             # Each search is a wait of its own, and with only the size filter
             # there is no per-chunk progress below to say anything is moving.
-            yield "progress", {"checked": checked, "dropped": dropped,
-                               "rejected": rejected, "found": len(models)}
+            yield "progress", counts()
 
             if not batch:
                 exhausted = True
@@ -248,8 +282,8 @@ def iter_models_with_usable_prompts(
             if index >= len(batch):
                 continue
 
-        # No prompt check: whatever accept() let through qualifies as it is.
-        if count_usable_images is None:
+        # No costly check: whatever accept() let through qualifies as it is.
+        if inspect is None:
             model = batch[index]
             index += 1
             models.append(model)
@@ -260,48 +294,60 @@ def iter_models_with_usable_prompts(
         # round trips, so this is the difference between a page taking seconds
         # and taking tens of seconds. Results are consumed strictly in order so
         # the resume token stays exact.
-        yield "progress", {"checked": checked, "dropped": dropped,
-                           "rejected": rejected, "found": len(models)}
+        yield "progress", counts()
 
         remaining_budget = (max_checks - checked) if max_checks is not None else len(batch)
         take = max(1, min(workers, len(batch) - index, remaining_budget))
         chunk = batch[index:index + take]
 
+        # What check() says about a model: KEEP, a reason string, SKIPPED
+        # for one accept() rules out (costing no check), or RATE_LIMITED.
         def check(model):
-            # None marks a model accept() rejects: it costs no prompt check.
             if accept is not None and not accept(model):
-                return None
+                return SKIPPED
             try:
-                return count_usable_images(model)
+                return inspect(model) or KEEP
+            except CivitaiRateLimitError:
+                return RATE_LIMITED
             except Exception as e:
                 # Never let one bad model abort the whole page
-                print(f"[ModelManager] Prompt check failed for model {model.get('id')}: {e}")
-                return 0
+                print(f"[ModelManager] Check failed for model {model.get('id')}: {e}")
+                return "prompt" if count_usable_images is not None else "failed"
 
         if len(chunk) == 1:
-            counts = [check(chunk[0])]
+            verdicts = [check(chunk[0])]
         else:
             with ThreadPoolExecutor(max_workers=len(chunk)) as executor:
-                counts = list(executor.map(check, chunk))
+                verdicts = list(executor.map(check, chunk))
 
-        checked += sum(1 for usable in counts if usable is not None)
+        checked += sum(1 for v in verdicts if v not in (SKIPPED, RATE_LIMITED))
 
         # Anything checked past the end of the page is left for the next one.
-        # Its images are cached now, so re-checking it there costs nothing.
+        # Its answer is cached now, so checking it again there costs nothing.
         consumed = 0
-        for model, usable in zip(chunk, counts):
+        for model, verdict in zip(chunk, verdicts):
             if len(models) >= page_size:
                 break
+            if verdict is RATE_LIMITED:
+                # Not consumed: the token points here, so Next retries it.
+                rate_limited = budget_reached = True
+                break
             consumed += 1
-            if usable is None:
+            if verdict is SKIPPED:
                 rejected += 1
-            elif usable >= min_usable:
+            elif verdict is KEEP:
                 models.append(model)
                 yield "model", model
+            elif verdict == "nsfw":
+                unsafe += 1
+            elif verdict == "failed":
+                failed += 1
             else:
                 dropped += 1
 
         index += consumed
+        if rate_limited:
+            break
 
     if exhausted:
         next_token = None
@@ -316,8 +362,11 @@ def iter_models_with_usable_prompts(
         "nextCursor": next_token,
         "checked": checked,
         "dropped": dropped,
+        "unsafe": unsafe,
+        "failed": failed,
         "rejected": rejected,
         "budget_reached": budget_reached,
+        "rate_limited": rate_limited,
         "exhausted": exhausted,
     }
 

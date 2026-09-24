@@ -128,8 +128,11 @@ def create_civitai_browser_ui():
                                  the row lines up without being told to. -->
                             <label>Options</label>
                             <div class="filter-checkboxes">
-                                <label class="cb-checkbox-label">
-                                    <input type="checkbox" id="cb_nsfw"> Include NSFW
+                                <label class="cb-checkbox-label" title="Asks Civitai to include the models it rates NSFW. Unticked, Civitai leaves those out and shows only the safe images of the rest - but most of the models it still lists have NSFW images in their galleries. For those, see Only with SFW images.">
+                                    <input type="checkbox" id="cb_nsfw"> Include NSFW models
+                                </label>
+                                <label class="cb-checkbox-label" id="cb_sfw_only_label" title="Leaves out models whose first 20 example images include anything rated above PG-13, or not rated at all. Civitai cannot filter on this, so each model is checked here - one request per model, remembered for a few hours. Most Civitai models have NSFW images, so a page often comes back short: press Next to keep looking.">
+                                    <input type="checkbox" id="cb_sfw_only"> Only with SFW images
                                 </label>
                                 <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
                                     <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
@@ -142,6 +145,15 @@ def create_civitai_browser_ui():
                         <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()" oncontextmenu="window.cbClearSearchCache && window.cbClearSearchCache(); return false;" title="Right-click to clear pagination cache">Search</button>
                         <button type="button" id="cb_resume_btn" class="cb-btn" onclick="window.cbResumePage && window.cbResumePage()" style="display: none;">Resume</button>
                     </div>
+                </div>
+
+                <!-- While "Only with SFW images" is on: what it does, and why a
+                     page comes back short. The text is the checkbox's tooltip,
+                     filled in by civitai_browser.mjs so the two cannot differ. -->
+                <div id="cb_sfw_only_banner" class="mm-banner" style="display: none;">
+                    <span class="mm-banner-icon">i</span>
+                    <span><strong>Only with SFW images is on.</strong>
+                        <span id="cb_sfw_only_banner_text"></span></span>
                 </div>
 
                 <!-- Status -->
