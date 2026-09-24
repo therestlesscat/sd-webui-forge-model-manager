@@ -6,6 +6,62 @@ from without leaving the WebUI.
 
 Two tabs are added: **Model Manager** and **Civitai Browser**.
 
+<!-- To play the video inline instead: edit this file on github.com, drag the
+     video into the editor, and put the https://github.com/user-attachments/...
+     link it produces on a line of its own in place of the link below. GitHub
+     only plays README videos uploaded that way. -->
+**[▶ Watch a short walkthrough of both tabs](docs/images/modelmanager_1.mp4)**
+
+## A look around
+
+### Your library, at a glance
+
+Every model on disk in one grid, with its Civitai preview. Filter by type, base model,
+NSFW level, licence terms and more, then sort by name, size, rating, downloads or date.
+
+![Model Manager grid with filters](docs/images/mm-grid.png)
+
+### Everything about a model, in one panel
+
+Click a card for its trigger words, tags, description, creator, licence terms and the
+NSFW breakdown of its gallery. Versions of the same model are grouped, and a selector
+switches between them.
+
+![Model details panel](docs/images/mm-details.png)
+
+### Example images you can reuse
+
+The model's Civitai gallery, with each image's prompt and settings. One click sends them
+to txt2img, with the sampler, scheduler, VAE and LoRAs matched against what you have
+installed. A banner says how many images are hidden as NSFW or for having no usable
+prompt, with a switch for each.
+
+![Image gallery with generation parameters](docs/images/mm-gallery.png)
+
+### Keeping it in sync
+
+**Scan** finds new files on disk. **Sync** identifies them by hash and fetches their
+Civitai metadata, and says what it is about to do before it does it.
+
+![Sync dialog](docs/images/mm-sync.png)
+
+### Finding new models
+
+Search Civitai without leaving the WebUI, by name, type, base model, tag and file size.
+Models you already have are marked **Owned**, with a jump to them in the Model Manager.
+Two checks Civitai cannot make are done here: **Only with SFW images** leaves out models
+whose first example images include anything NSFW, and **Only with usable prompts** keeps
+only models whose images have a prompt worth reusing. Results stream in as they are found.
+
+![Civitai Browser search results](docs/images/cb-search.png)
+
+### Downloading into the right folder
+
+Downloads run in parallel with progress, land in the folder for their model type, and
+are synced into your library as soon as they finish.
+
+![Civitai Browser downloads](docs/images/cb-downloads.png)
+
 ## Model Manager
 
 Browse and organize the models already on disk.
@@ -20,7 +76,7 @@ Browse and organize the models already on disk.
   in the details panel
 - **Details panel**: trigger words, tags, description, creator, rating, per-level NSFW
   breakdown, licence terms, and the full Civitai image gallery with generation parameters
-- **Send to txt2img / img2img** from any gallery image, including sampler, scheduler, VAE,
+- **Send to txt2img** from any gallery image, including sampler, scheduler, VAE,
   and resource matching against your installed models
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
@@ -62,16 +118,22 @@ fallback.
 
 Found under **Settings -> Model Manager**.
 
+![Model Manager settings](docs/images/settings.png)
+
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Civitai API Key | empty | Optional. Higher rate limits for Civitai API requests |
-| Model Manager: Models per page | 20 | Model Manager page size |
+| Civitai API Key | empty | Optional. Higher rate limits for Civitai API requests; without one, image prompts cannot be fetched and some models refuse to download |
+| Model Manager: Models per page | 20 | Model Manager page size (5-50) |
 | Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
 | Preview: Use least NSFW image | on | Off shows the most recent image instead |
-| Civitai Browser: Models per page | 20 | Civitai Browser page size |
+| Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
+| Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
+| Example images: how to move through them | Continuous | Continuous grows one list with a button to show more; Pages shows a page at a time |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
-| Civitai: Requests per second | 6 | API call rate when an API key is set. Requires restart |
-| Civitai Browser: Minimum images with usable prompt | 1 | Threshold for the usable-prompt filter |
+| Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Requires restart |
+| Sync: Hashing threads | 4 | Files hashed at once when identifying them (1-16). Raise for fast NVMe, lower for a spinning disk |
+| Civitai Browser: Minimum images with usable prompt | 1 | How many of a model's first 20 images need a usable prompt for "Only with usable prompts" |
+| Civitai Browser: Fill every page with 'Only with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 
