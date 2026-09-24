@@ -51,6 +51,20 @@ async function search() {
 // ----------------------------------------------------------------- the boxes
 check('Include NSFW says it is about models', labelText('cb_nsfw'), 'Include NSFW models');
 check('the new box is beside it', labelText('cb_sfw_only'), 'Only with SFW images');
+// Split by who acts on them: Civitai, in the search, or this extension,
+// checking what the search returned.
+const caption = (id) => $(id).closest('.filter-group').querySelector(':scope > label').textContent;
+check('Include NSFW models is an API option',
+      caption('cb_nsfw'), 'API Options');
+check('the two checked here are post-processing options',
+      [caption('cb_sfw_only'), caption('cb_require_prompt')],
+      ['Post-processing Options', 'Post-processing Options']);
+check('in two groups, not one',
+      $('cb_nsfw').closest('.filter-group') !== $('cb_sfw_only').closest('.filter-group'), true);
+check('each taking a smaller share of the row than a full group: half, and three quarters',
+      [$('cb_nsfw').closest('.filter-group').classList.contains('filter-grow-half'),
+       $('cb_sfw_only').closest('.filter-group').classList.contains('filter-grow-three-quarters')],
+      [true, true]);
 const nsfwTip = $('cb_nsfw').closest('label').title;
 const sfwTip = $('cb_sfw_only_label').title;
 check('Include NSFW models explains that Civitai decides, and what it still lets through',
