@@ -906,6 +906,29 @@ def _migrate_to_v19(cursor):
     print("[ModelManager] Migration to v19 complete")
 
 
+def _migrate_to_v20(cursor):
+    """Remember each version's cover images, for the card preview.
+
+    The Civitai Browser's card shows a version's cover - the first image its
+    creator attached - or, with NSFW not allowed, the first PG one. The Model
+    Manager picked from the community gallery instead, by rating and date,
+    so the same model showed a different preview in each tab.
+
+    cover_url and pg_cover_url hold those two. NULL means not known yet, and
+    '' means known to have none - a version with no PG image shows none with
+    NSFW not allowed, as the Civitai Browser does.
+    """
+    print("[ModelManager] Migrating to schema v20 (version cover images)...")
+
+    cursor.execute("PRAGMA table_info(model_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    for column in ("cover_url", "pg_cover_url"):
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE model_versions ADD COLUMN {column} TEXT")
+
+    print("[ModelManager] Migration to v20 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -965,6 +988,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 19:
         _migrate_to_v19(cursor)
+
+    if from_version < 20:
+        _migrate_to_v20(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

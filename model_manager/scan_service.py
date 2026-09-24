@@ -13,7 +13,10 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import get_models_db
-from .nsfw import UNKNOWN, level_name, max_image_level, model_level
+from .nsfw import (
+    UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
+    version_covers,
+)
 from .storage import read_civitai_info
 
 
@@ -258,6 +261,12 @@ class ScanService:
             version_data["description"] = matched_version.get("description")
             version_data["stats_download_count"] = version_stats.get("downloadCount", 0)
             version_data["stats_thumbs_up"] = version_stats.get("thumbsUpCount", 0)
+
+            # The cover only if this sidecar provably kept its non-PG images;
+            # older syncs, and some other tools, wrote stripped ones.
+            showcase = matched_version.get("images")
+            version_data["cover_url"], version_data["pg_cover_url"] = version_covers(
+                showcase, complete=bool(showcase) and showcase_is_complete(showcase))
 
             # Get file hashes if available (from Civitai data)
             files = matched_version.get("files", [])

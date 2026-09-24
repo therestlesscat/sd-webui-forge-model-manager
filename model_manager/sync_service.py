@@ -23,7 +23,7 @@ from .civitai import (
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
 from .storage import write_civitai_info
-from .nsfw import UNKNOWN
+from .nsfw import UNKNOWN, version_covers
 from .db import get_models_db
 
 
@@ -476,6 +476,10 @@ class SyncService:
                         "file_extension": file_ext,
                         "has_civitai_data": True,
                     }
+                    # A full model payload (/models/{id}, or /models?ids= with
+                    # nsfw=true) carries the whole showcase.
+                    version_data["cover_url"], version_data["pg_cover_url"] = \
+                        version_covers(matched_version.get("images"), complete=True)
 
                     db.upsert_version(version_data)
 
@@ -505,6 +509,10 @@ class SyncService:
                     "file_extension": file_ext,
                     "has_civitai_data": True,
                 }
+                # by-hash strips all but PG and stops at ten, whatever it is
+                # asked: good for the PG cover, silent on the real one.
+                version_data["cover_url"], version_data["pg_cover_url"] = \
+                    version_covers(civitai_data.get("images"), complete=False)
 
                 db.upsert_version(version_data)
 
