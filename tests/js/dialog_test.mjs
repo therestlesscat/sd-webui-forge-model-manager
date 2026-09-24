@@ -115,7 +115,9 @@ const ESTIMATE = {
     success: true,
     estimate: {
         versions: 747, all_versions: 747, models: 633, images: 67230,
-        requests: { metadata: 7, images: 745, prompts: 2245, total: 2997 },
+        // As the server sends it: the checkpoint trained/merged check is its
+        // own figure, counted in the total.
+        requests: { metadata: 7, checkpoints: 10, images: 745, prompts: 2245, total: 3007 },
     },
     windows: [
         { label: '1 day', days: 1, versions: 0 },
@@ -269,14 +271,22 @@ check('force sync is a scope, not a depth option',
 
 // Requests, not minutes - the count is the same on every machine, the
 // duration is not.
-check('the estimate counts requests', $('mm_sync_estimate').textContent,
-    '747 models - 2,997 requests to Civitai');
+check('the estimate counts requests, approximately while it includes prompts',
+    $('mm_sync_estimate').textContent, '747 models - ~3,007 requests to Civitai');
 check('and says nothing about time',
     /\bmin\b|\bhours?\b|\bs\b|req\/s/.test($('mm_sync_estimate').textContent), false);
-check('each line carries its own count',
+check('each line carries its own count, metadata with the checkpoint check in it, '
+      + 'and the prompt estimate marked as one',
     [$('mm_cost_metadata').textContent, $('mm_cost_images').textContent,
      $('mm_cost_prompts').textContent],
-    ['7 req', '745 req', '2,245 req']);
+    ['17 req', '745 req', '~2,245 req']);
+// What was wrong: the total counted the checkpoint check and no line did, so
+// the lines on screen came to 10 less than the total beneath them.
+const shown = (text) => Number((text.match(/[\d,]+/) || ['0'])[0].replace(/,/g, ''));
+check('so the lines on screen add up to the total on screen',
+    ['mm_cost_metadata', 'mm_cost_images', 'mm_cost_prompts']
+        .reduce((sum, id) => sum + shown($(id).textContent), 0),
+    shown($('mm_sync_estimate').textContent.split(' - ')[1]));
 check('windows carry their counts',
     Array.from($('mm_sync_stale_days').options).map((o) => o.textContent),
     ['1 day (0)', '2 days (0)', '7 days (412)', '1 month (633)', '3 months (633)', '6 months (633)']);

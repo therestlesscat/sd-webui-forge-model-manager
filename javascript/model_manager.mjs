@@ -3061,13 +3061,26 @@ function refreshSyncEstimate() {
             // Requests, not minutes: how long they take depends on the rate
             // limit, the round trip and any retries - none of which this knows,
             // and two of which differ from one machine to the next.
-            const cost = (id, count) => {
+            //
+            // The prompt count is an estimate - a gallery's size is only known
+            // once it is fetched, so the server works from the ones already
+            // cached - and says so with a ~, as does a total that includes it.
+            // The rest are exact counts of the requests the sync will make.
+            const cost = (id, count, approximate = false) => {
                 const el = document.getElementById(id);
-                if (el) el.textContent = count ? `${count.toLocaleString()} req` : '-';
+                if (el) {
+                    el.textContent = count
+                        ? `${approximate ? '~' : ''}${count.toLocaleString()} req`
+                        : '-';
+                }
             };
-            cost('mm_cost_metadata', requests.metadata);
+            // The checkpoint trained/merged check is part of fetching metadata
+            // (two requests per hundred checkpoints). The total always counted
+            // it; no line did, so the lines came to less than the total.
+            cost('mm_cost_metadata', requests.metadata + (requests.checkpoints || 0));
             cost('mm_cost_images', requests.images);
-            cost('mm_cost_prompts', requests.prompts);
+            cost('mm_cost_prompts', requests.prompts, true);
+            const totalApproximate = requests.prompts > 0;
 
             syncUnidentified = data.unidentified || null;
             updateForceModeLabels();
@@ -3087,7 +3100,8 @@ function refreshSyncEstimate() {
             if (estimateEl) {
                 estimateEl.textContent = estimate.versions
                     ? `${estimate.versions.toLocaleString()} models`
-                      + ` - ${requests.total.toLocaleString()} requests to Civitai`
+                      + ` - ${totalApproximate ? '~' : ''}${requests.total.toLocaleString()}`
+                      + ' requests to Civitai'
                     : 'Nothing selected - this would do nothing.';
             }
             if (startBtn) startBtn.disabled = !estimate.versions;
