@@ -4,7 +4,8 @@
 Civitai's own NSFW switch leaves out the models it rates NSFW and strips the
 mature images from the rest - but most of what it still lists has NSFW images
 in its gallery. This check looks at each model's first 20 images itself and
-leaves the model out if any is above PG-13, or not rated at all.
+leaves the model out if any is above PG-13, or not rated at all - or if it
+has no images, since then nothing shows it is safe.
 
 Most Civitai models fail it, so it makes more requests than anything else in
 the browser. What is held in place here is how few: one /images request per
@@ -54,7 +55,9 @@ check('an image nobody rated is not known to be safe', has_nsfw_image([{'id': 1}
 check('the old names read the same way: Soft is safe, Mature is not',
       (has_nsfw_image([{'nsfwLevel': 'Soft'}]), has_nsfw_image([{'nsfwLevel': 'Mature'}])),
       (False, True))
-check('no images, nothing to show it is not safe', has_nsfw_image([]), False)
+# It answers "is any of these NSFW" and nothing more; what having no images
+# means is decided by inspect_model(), below.
+check('no images, none of them NSFW', has_nsfw_image([]), False)
 
 
 # ------------------------------------------------------------ one model
@@ -111,10 +114,11 @@ civitai = Civitai({10: [img(1), img(2)], 20: [img(1), img(4)], 30: []})
 db = Cache()
 check('a model whose first images are all safe is kept', sfw(civitai, db, 10), None)
 check('one with an R image among them is left out', sfw(civitai, db, 20), 'nsfw')
-check('one with no images at all is kept', sfw(civitai, db, 30), None)
+check('one with no images at all is left out: nothing shows it is safe',
+      sfw(civitai, db, 30), 'nsfw')
 check('as is one with no version to look at',
       inspect_model(civitai, db, {'id': 1, 'modelVersions': []},
-                    want_prompts=False, want_sfw=True), None)
+                    want_prompts=False, want_sfw=True), 'nsfw')
 check('each costing one /images request', civitai.images_asked, [10, 20, 30])
 check('and no generation data - the SFW check needs none', civitai.generation_asked, [])
 check('what it fetched is not put in the browse cache, which the prompt check '

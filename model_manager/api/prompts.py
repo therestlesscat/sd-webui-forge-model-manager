@@ -124,8 +124,8 @@ def inspect_model(client, db, model, *, want_prompts: bool, want_sfw: bool,
     images it fetched are handed to the prompt check rather than asked for
     again.
 
-    A model with no images passes the SFW check - there is nothing to show it
-    is not safe - and fails the prompt check, which needs prompts to reuse.
+    A model with no images fails both: the SFW check, since nothing shows it
+    does not generate NSFW, and the prompt check, which needs prompts to reuse.
 
     Returns:
         None to keep the model, or why it was left out: "nsfw" or "prompt".
@@ -135,7 +135,9 @@ def inspect_model(client, db, model, *, want_prompts: bool, want_sfw: bool,
     version_id = versions[0].get("id") if versions else None
 
     fetched = None
-    if want_sfw and version_id:
+    if want_sfw and not version_id:
+        return "nsfw"       # no version, no images: nothing shows it is safe
+    if want_sfw:
         has_nsfw = _remembered_sfw(version_id)
         if has_nsfw is None:
             cached = db.get_cached_browse_images(version_id)
@@ -144,7 +146,8 @@ def inspect_model(client, db, model, *, want_prompts: bool, want_sfw: bool,
             else:
                 fetched = client.get_model_images(version_id, cursor=None, limit=sample_size)
                 images = (fetched.get("images") or [])[:sample_size]
-            has_nsfw = has_nsfw_image(images)
+            # No images is not a pass: nothing shows the model is safe.
+            has_nsfw = not images or has_nsfw_image(images)
             _remember_sfw(version_id, has_nsfw)
         if has_nsfw:
             return "nsfw"
