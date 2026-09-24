@@ -68,7 +68,7 @@ def register(app: FastAPI):
 
             # Use setting for page size if not specified
             if limit <= 0:
-                limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 10))
+                limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
             def parse_card_size(size_str: str):
@@ -198,7 +198,7 @@ def register(app: FastAPI):
         from modules import shared
 
         if limit <= 0:
-            limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 10))
+            limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
 
         def parse_card_size(size_str: str):
             try:

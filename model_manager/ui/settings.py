@@ -66,7 +66,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_page_size",
         shared.OptionInfo(
-            default=10,
+            default=20,
             label="Civitai Browser: Models per page",
             component=gr.Slider,
             component_args={
