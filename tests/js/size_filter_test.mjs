@@ -67,6 +67,8 @@ const groups = Array.from(row.querySelectorAll(':scope > .filter-group'));
 const at = (id) => groups.findIndex((g) => g.querySelector(`#${id}`));
 check('the size boxes sit between Search and Tag',
       [at('cb_search') < at('cb_min_size'), at('cb_min_size') < at('cb_tag_input')], [true, true]);
+check('a group that keeps to its content rather than sharing the row',
+      groups[at('cb_min_size')]?.classList.contains('filter-group-compact'), true);
 check('both in one group, under one caption',
       [at('cb_min_size') === at('cb_max_size'),
        groups[at('cb_min_size')]?.querySelector('label')?.textContent], [true, 'File Size (GB)']);
