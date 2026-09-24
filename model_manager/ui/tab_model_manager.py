@@ -256,7 +256,7 @@ def create_ui():
 
                         <div class="mm-dialog-section">
                             <div class="mm-dialog-heading">Include</div>
-                            <label class="mm-dialog-option" title="Descriptions, tags, stats, licences. Always included.">
+                            <label class="mm-dialog-option" title="Descriptions, tags, stats, licences, and whether each checkpoint is trained or merged. Always included.">
                                 <input type="checkbox" checked disabled>
                                 <span>Metadata</span>
                                 <span class="mm-dialog-cost" id="mm_cost_metadata"></span>
