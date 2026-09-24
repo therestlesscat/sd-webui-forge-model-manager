@@ -432,6 +432,17 @@ body.mm-modal-open {
     align-items: center;
 }
 
+/* A min and a max side by side, in one group under one caption. */
+.filter-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.filter-range input {
+    width: 80px;
+}
+
 /* An inline checkbox, in either tab. */
 .mm-checkbox-label,
 .cb-checkbox-label {

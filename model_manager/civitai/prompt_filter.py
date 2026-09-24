@@ -100,13 +100,15 @@ def decode_filter_token(token: Optional[str]) -> Tuple[Optional[str], int]:
 def search_models_with_usable_prompts(
     client: CivitaiClient,
     search_params: Dict[str, Any],
-    count_usable_images: Callable[[Dict[str, Any]], int],
+    count_usable_images: Optional[Callable[[Dict[str, Any]], int]],
     page_size: int,
     min_usable: int = 1,
     start_token: Optional[str] = None,
     max_checks: Optional[int] = None,
     batch_size: int = 20,
     workers: int = 4,
+    accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    max_searches: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -119,7 +121,7 @@ def search_models_with_usable_prompts(
     for kind, payload in iter_models_with_usable_prompts(
         client, search_params, count_usable_images, page_size,
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
-        batch_size=batch_size, workers=workers,
+        batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
     ):
         if kind == "done":
             summary = payload
@@ -130,13 +132,15 @@ def search_models_with_usable_prompts(
 def iter_models_with_usable_prompts(
     client: CivitaiClient,
     search_params: Dict[str, Any],
-    count_usable_images: Callable[[Dict[str, Any]], int],
+    count_usable_images: Optional[Callable[[Dict[str, Any]], int]],
     page_size: int,
     min_usable: int = 1,
     start_token: Optional[str] = None,
     max_checks: Optional[int] = None,
     batch_size: int = 20,
     workers: int = 4,
+    accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    max_searches: Optional[int] = None,
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -150,19 +154,30 @@ def iter_models_with_usable_prompts(
     that bound returns a short page rather than stalling - the token still
     points at the next unchecked model.
 
+    `accept` is a second filter, for anything decidable from the search
+    result alone (the file size filter). It runs first, costs nothing, and a
+    model it rejects is never prompt-checked. With no prompt check at all
+    (`count_usable_images` None) it is the only filter. Either way a narrow
+    one can mean many batches for one page, so `max_searches` bounds the
+    search calls the same way `max_checks` bounds the prompt checks.
+
     Args:
         client: Civitai client.
         search_params: Arguments for client.search_models (without limit/cursor).
-        count_usable_images: Returns how many usable-prompt images a model has.
+        count_usable_images: Returns how many usable-prompt images a model
+            has, or None for no prompt check.
         page_size: How many models to return.
         min_usable: Minimum usable-prompt images for a model to qualify.
         start_token: Token from a previous call, or a plain cursor, or None.
         max_checks: Maximum models to check before giving up on filling the page.
         batch_size: Models to pull from Civitai per search call.
+        accept: Free check run before the prompt check; False drops the model.
+        max_searches: Maximum search calls before giving up on filling the page.
 
     Yields events as the work happens, so a caller can show results while the
     rest are still being checked:
-        ("progress", {"checked", "dropped", "found"}) before each chunk
+        ("progress", {"checked", "dropped", "rejected", "found"}) after each
+            search and before each chunk of prompt checks
         ("model", model) as each qualifying model is found
         ("done", summary) once, last, with nextCursor and final counts
 
@@ -174,8 +189,10 @@ def iter_models_with_usable_prompts(
     models: List[Dict[str, Any]] = []
     batch: Optional[List[Dict[str, Any]]] = None
     batch_next_cursor: Optional[str] = None
-    checked = 0
-    dropped = 0
+    checked = 0       # prompt checks made, which is what max_checks bounds
+    dropped = 0       # failed the prompt check
+    rejected = 0      # failed accept(), never prompt-checked
+    searches = 0
     exhausted = False
     budget_reached = False
 
@@ -193,9 +210,21 @@ def iter_models_with_usable_prompts(
                 cursor = batch_next_cursor
                 index = 0
 
+            # The token already points at the start of this batch, so a page
+            # cut short here resumes exactly where it stopped.
+            if max_searches is not None and searches >= max_searches:
+                budget_reached = True
+                break
+
             result = client.search_models(**search_params, limit=batch_size, cursor=cursor)
+            searches += 1
             batch = result.get("items", []) or []
             batch_next_cursor = result.get("nextCursor")
+
+            # Each search is a wait of its own, and with only the size filter
+            # there is no per-chunk progress below to say anything is moving.
+            yield "progress", {"checked": checked, "dropped": dropped,
+                               "rejected": rejected, "found": len(models)}
 
             if not batch:
                 exhausted = True
@@ -210,17 +239,38 @@ def iter_models_with_usable_prompts(
                 index = 0
                 continue
 
+        # Pass over what the free check rejects before any prompt check is
+        # spent on it. Consumed in order, so the resume token stays exact.
+        if accept is not None:
+            while index < len(batch) and not accept(batch[index]):
+                index += 1
+                rejected += 1
+            if index >= len(batch):
+                continue
+
+        # No prompt check: whatever accept() let through qualifies as it is.
+        if count_usable_images is None:
+            model = batch[index]
+            index += 1
+            models.append(model)
+            yield "model", model
+            continue
+
         # Check several models at once - each check is a couple of network
         # round trips, so this is the difference between a page taking seconds
         # and taking tens of seconds. Results are consumed strictly in order so
         # the resume token stays exact.
-        yield "progress", {"checked": checked, "dropped": dropped, "found": len(models)}
+        yield "progress", {"checked": checked, "dropped": dropped,
+                           "rejected": rejected, "found": len(models)}
 
         remaining_budget = (max_checks - checked) if max_checks is not None else len(batch)
         take = max(1, min(workers, len(batch) - index, remaining_budget))
         chunk = batch[index:index + take]
 
         def check(model):
+            # None marks a model accept() rejects: it costs no prompt check.
+            if accept is not None and not accept(model):
+                return None
             try:
                 return count_usable_images(model)
             except Exception as e:
@@ -234,7 +284,7 @@ def iter_models_with_usable_prompts(
             with ThreadPoolExecutor(max_workers=len(chunk)) as executor:
                 counts = list(executor.map(check, chunk))
 
-        checked += len(chunk)
+        checked += sum(1 for usable in counts if usable is not None)
 
         # Anything checked past the end of the page is left for the next one.
         # Its images are cached now, so re-checking it there costs nothing.
@@ -243,7 +293,9 @@ def iter_models_with_usable_prompts(
             if len(models) >= page_size:
                 break
             consumed += 1
-            if usable >= min_usable:
+            if usable is None:
+                rejected += 1
+            elif usable >= min_usable:
                 models.append(model)
                 yield "model", model
             else:
@@ -264,6 +316,7 @@ def iter_models_with_usable_prompts(
         "nextCursor": next_token,
         "checked": checked,
         "dropped": dropped,
+        "rejected": rejected,
         "budget_reached": budget_reached,
         "exhausted": exhausted,
     }

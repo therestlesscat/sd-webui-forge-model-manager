@@ -108,6 +108,14 @@ def create_civitai_browser_ui():
                             <label>Search</label>
                             <input type="text" id="cb_search" placeholder="Search models...">
                         </div>
+                        <div class="filter-group" title="Size of the latest version's primary file. Civitai cannot filter on this, so results are checked here - a narrow range can take a few searches to fill a page.">
+                            <label>File Size (GB)</label>
+                            <div class="filter-range">
+                                <input type="number" id="cb_min_size" min="0" step="0.1" placeholder="Min">
+                                <span>-</span>
+                                <input type="number" id="cb_max_size" min="0" step="0.1" placeholder="Max">
+                            </div>
+                        </div>
                         <div class="filter-group filter-group-half">
                             <label>Tag</label>
                             <div class="cb-tag-container">

@@ -282,7 +282,39 @@ function getFilters() {
         nsfw: document.getElementById('cb_nsfw')?.checked || false,
         tag: selectedTag,
         require_prompt: document.getElementById('cb_require_prompt')?.checked || false,
+        min_size_gb: sizeBound('cb_min_size'),
+        max_size_gb: sizeBound('cb_max_size'),
     };
+}
+
+// A size box's value in GB, or '' when it is empty or not a positive number -
+// which apiCall and the stream both leave out of the request.
+function sizeBound(id) {
+    const value = parseFloat(document.getElementById(id)?.value);
+    return Number.isFinite(value) && value > 0 ? value : '';
+}
+
+/**
+ * What a filtered page passed over, for the status line: "checked 40,
+ * skipped 12 without usable prompts, 30 outside the size range".
+ */
+function describeFilterStats(stats) {
+    const skipped = [];
+    if (stats.promptFilter !== false) skipped.push(`${stats.dropped || 0} without usable prompts`);
+    if (stats.sizeFilter) skipped.push(`${stats.rejected || 0} outside the size range`);
+    const checked = stats.promptFilter !== false ? `checked ${stats.checked}, ` : '';
+    let text = ` - ${checked}skipped ${skipped.join(', ')}`;
+    if (stats.budgetReached) {
+        text += '. Stopped early to avoid a long wait; press Next to keep looking.';
+    }
+    return text;
+}
+
+// What a filtered search is doing, before it has found anything.
+function filteringMessage() {
+    return requirePromptEnabled()
+        ? 'Checking models for usable prompts...'
+        : 'Looking for models in the size range...';
 }
 
 // Is the prompt filter currently on?
@@ -296,9 +328,10 @@ function updateStatus(message) {
     if (status) status.textContent = message;
 }
 
-// Search with the prompt filter, rendering models as they are found.
-// Checking models costs API calls, so a page can take a while to fill -
-// showing each one as it qualifies beats staring at a spinner.
+// Search with the prompt or size filter, rendering models as they are found.
+// Checking models costs API calls, and a narrow size range can take several
+// searches, so a page can take a while to fill - showing each one as it
+// qualifies beats staring at a spinner.
 async function searchModelsStreaming(page, cursor) {
     if (activeStream) activeStream.abort();
     const controller = new AbortController();
@@ -308,7 +341,11 @@ async function searchModelsStreaming(page, cursor) {
     const params = new URLSearchParams();
     Object.entries({ ...filters, cursor: cursor })
         .forEach(([k, v]) => {
-            if (k === 'require_prompt') return;      // implied by this endpoint
+            // Sent either way: the endpoint assumes the prompt filter unless told.
+            if (k === 'require_prompt') {
+                params.append(k, v ? 'true' : 'false');
+                return;
+            }
             if (v !== undefined && v !== null && v !== '' && v !== false) {
                 params.append(k, v);
             }
@@ -319,7 +356,7 @@ async function searchModelsStreaming(page, cursor) {
     isStreaming = true;
     renderGrid();
     closeDetails();
-    updateStatus('Checking models for usable prompts...');
+    updateStatus(filteringMessage());
 
     let finished = false;
 
@@ -362,8 +399,13 @@ async function searchModelsStreaming(page, cursor) {
                     renderGrid();
                     updateStatus(`Found ${currentModels.length} of ${pageSize}...`);
                 } else if (evt.type === 'progress') {
-                    updateStatus(`Checked ${evt.checked} models, found ${evt.found} of ${pageSize}`
-                        + (evt.dropped ? ` (${evt.dropped} without usable prompts)` : ''));
+                    // Every model looked at was taken or passed over by one filter.
+                    const seen = evt.found + (evt.dropped || 0) + (evt.rejected || 0);
+                    const passed = [evt.dropped ? `${evt.dropped} without usable prompts` : '',
+                                    evt.rejected ? `${evt.rejected} outside the size range` : '']
+                        .filter(Boolean).join(', ');
+                    updateStatus(`Looked through ${seen} models, found ${evt.found} of ${pageSize}`
+                        + (passed ? ` (${passed})` : ''));
                 } else if (evt.type === 'done') {
                     finished = true;
                     if (evt.nextCursor) {
@@ -379,11 +421,8 @@ async function searchModelsStreaming(page, cursor) {
                     updateResumeButton();
 
                     const stats = evt.filterStats || {};
-                    let status = `Showing ${currentModels.length} models (page ${page})`;
-                    status += ` - checked ${stats.checked}, skipped ${stats.dropped} without usable prompts`;
-                    if (stats.budgetReached) {
-                        status += '. Stopped early to avoid a long wait; press Next to keep looking.';
-                    }
+                    const status = `Showing ${currentModels.length} models (page ${page})`
+                        + describeFilterStats(stats);
                     isStreaming = false;
                     renderGrid();
                     updateStatus(status);
@@ -482,9 +521,18 @@ async function searchModels(page = 1) {
         return;
     }
 
-    // The prompt filter has to check models one by one, so stream results
-    // in as they are found instead of blocking on the whole page
-    if (requirePromptEnabled()) {
+    // A range nothing can be in would spend every search it is allowed on
+    // finding that out.
+    const { min_size_gb: minSize, max_size_gb: maxSize } = getFilters();
+    if (minSize !== '' && maxSize !== '' && minSize > maxSize) {
+        updateStatus('File size: Min is larger than Max.');
+        return;
+    }
+
+    // A filtered page is filled from as many models as it takes - checked one
+    // by one for prompts, or searched through for a size - so stream results
+    // in as they are found instead of blocking on the whole page.
+    if (requirePromptEnabled() || minSize !== '' || maxSize !== '') {
         isLoading = true;
         try {
             await searchModelsStreaming(page, cursors[cursorIndex] || "");
@@ -537,12 +585,7 @@ async function searchModels(page = 1) {
 
             let status = `Showing ${currentModels.length} models (page ${currentPage})`;
             const stats = result.filterStats;
-            if (stats) {
-                status += ` - checked ${stats.checked}, skipped ${stats.dropped} without usable prompts`;
-                if (stats.budgetReached) {
-                    status += '. Stopped early to avoid a long wait; press Next to keep looking.';
-                }
-            }
+            if (stats) status += describeFilterStats(stats);
             updateStatus(status);
         } else {
             updateStatus(`Error: ${result.error}`);
@@ -562,7 +605,7 @@ function renderGrid() {
 
     if (currentModels.length === 0) {
         grid.innerHTML = isStreaming
-            ? '<div class="model-grid-empty">Checking models for usable prompts...</div>'
+            ? `<div class="model-grid-empty">${filteringMessage()}</div>`
             : '<div class="model-grid-empty">No models found.</div>';
         return;
     }
