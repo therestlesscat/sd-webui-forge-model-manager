@@ -311,6 +311,13 @@ check('the actions sit below the whole row',
       CB_UI_EARLY.index('cb_search"') < CB_UI_EARLY.index('filter-buttons-row') <
       CB_UI_EARLY.index('cb_search_btn'))
 check('on the row both tabs use', 'class="filter-buttons-row"' in CB_UI_EARLY)
+# Both tabs caption the trained/merged filter the same way; the browser's
+# used to say just "Checkpoint", which reads like the Type filter beside it.
+for label, source in (('Civitai Browser', CB_UI_EARLY), ('Model Manager', BASIC)):
+    caption = source[:source.index('_checkpoint_type"')]
+    caption = caption[caption.rindex('<label>') + len('<label>'):]
+    check('the %s captions its checkpoint filter "Checkpoint Type"' % label,
+          caption[:caption.index('</label>')], 'Checkpoint Type')
 check('and CSS lays the checkboxes out', '.filter-checkboxes {' in CSS)
 check('the browser sort box gets the width its options need',
       'class="filter-group filter-group-wide"' in CB_UI_EARLY)
