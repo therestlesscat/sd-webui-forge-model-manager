@@ -185,6 +185,57 @@ check('a file the database refuses is reported, and the rest are still stored',
       (progress.is_complete, [e for e in progress.errors if 'refused' in e] != [],
        db.get_version(hashed) is not None), (True, True, True))
 
+# -------------------------------------------- only files gone from disk go
+# The scan used to forget every file it had not stored this pass. A
+# cancelled scan dropped all the files it had not reached, and a file whose
+# metadata failed to read lost its row while it sat on disk.
+count = len(db.get_all_version_paths())
+def cancel_at_once(progress):
+    scan._cancel_requested = True
+scan.scan_models(directories=[models_dir], max_workers=1, callback=cancel_at_once)
+check('a cancelled scan forgets nothing', len(db.get_all_version_paths()), count)
+
+real_extract = scan.extract_metadata
+def fail_one(path):
+    if path == rich:
+        raise ValueError('unreadable sidecar')
+    return real_extract(path)
+scan.extract_metadata = fail_one
+try:
+    progress = scan.scan_models(directories=[models_dir])
+finally:
+    scan.extract_metadata = real_extract
+check('a file whose metadata cannot be read keeps its row, and its error is reported',
+      (rich in db.get_all_version_paths(), any('unreadable' in e for e in progress.errors)),
+      (True, True))
+
+# ------------------------------------------ and what only they kept goes too
+# A model row and its gallery outlive their last file otherwise: nothing
+# shows them, and they pile up. A bookmark is the person's, and is kept.
+def one_file_model(model_id, name, bookmarked=False):
+    path = os.path.join(models_dir, 'Lora', name)
+    io.open(path, 'wb').write(b'\0' * 64)
+    io.open(os.path.splitext(path)[0] + '.civitai.info', 'w', encoding='utf-8').write(_json.dumps({
+        "id": model_id, "name": name, "type": "LORA",
+        "modelVersions": [{"id": model_id + 1, "name": "v1", "files": [{"name": name}]}]}))
+    return path
+
+gone = one_file_model(71000, 'last_file.safetensors')
+kept = one_file_model(72000, 'bookmarked_last_file.safetensors')
+scan.scan_models(directories=[models_dir])
+db.store_images(71001, 1, [{'id': 1, 'url': 'https://example.invalid/1.jpeg'}])
+db.store_images(72001, 1, [{'id': 2, 'url': 'https://example.invalid/2.jpeg'}])
+db.set_bookmark(72000, True)
+os.remove(gone)
+os.remove(kept)
+scan.scan_models(directories=[models_dir])
+check('a model whose last file is gone is forgotten, with its images',
+      (db.get_civitai_model(71000), db.get_all_images_for_version(71001)), (None, []))
+check('a bookmarked one keeps its model row, not the images of a file that is gone',
+      (db.get_civitai_model(72000) is not None, db.get_all_images_for_version(72001)), (True, []))
+check('and every other model still has its row',
+      all(db.get_civitai_model(i) for i in facts['lora_ids'] + facts['checkpoint_ids']), True)
+
 # ------------------------------------------------------------------ cancelling
 scan.cancel()
 check('cancelling is remembered', scan._cancel_requested, True)

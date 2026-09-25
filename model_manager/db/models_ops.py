@@ -266,6 +266,30 @@ class ModelsOps:
                 version_data.get("safe_cover_url"),
             ))
 
+    def prune_orphans(self) -> Tuple[int, int]:
+        """
+        Forget what only files that are gone kept: gallery images of
+        versions no longer on disk, and models none of whose files are.
+
+        A bookmarked model is kept: the bookmark is the person's, not
+        Civitai's, and comes back with the model if it is downloaded again.
+
+        Returns:
+            (models forgotten, images forgotten)
+        """
+        with self._cursor() as cursor:
+            cursor.execute("""
+                DELETE FROM images WHERE version_id NOT IN
+                    (SELECT id FROM model_versions WHERE id IS NOT NULL)
+            """)
+            images = cursor.rowcount
+            cursor.execute("""
+                DELETE FROM civitai_models
+                WHERE COALESCE(is_bookmarked, 0) = 0
+                  AND id NOT IN (SELECT model_id FROM model_versions WHERE model_id IS NOT NULL)
+            """)
+            return cursor.rowcount, images
+
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         with self._cursor() as cursor:

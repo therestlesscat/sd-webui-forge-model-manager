@@ -427,14 +427,26 @@ class ScanService:
                 if callback:
                     callback(self._progress)
 
-        # Remove models that no longer exist
-        existing_paths = set(db.get_all_version_paths())
-        removed_paths = existing_paths - seen_paths
-        for path in removed_paths:
-            db.delete_version(path)
+        # Forget files that are gone from disk - and only those. It used to
+        # forget every file this pass had not stored, so a cancelled scan
+        # dropped all the files it had not reached yet, and a file whose
+        # sidecar failed to read lost its row though it was still there.
+        # A cancelled scan forgets nothing: it has not looked everywhere.
+        if not self._cancel_requested:
+            existing_paths = set(db.get_all_version_paths())
+            removed_paths = existing_paths - set(model_files)
+            for path in removed_paths:
+                db.delete_version(path)
 
-        if removed_paths:
-            print(f"[ModelManager] Removed {len(removed_paths)} deleted models from database")
+            if removed_paths:
+                print(f"[ModelManager] Removed {len(removed_paths)} deleted models from database")
+
+            # What only those files kept: their models, where no other file
+            # of the model is left, and their gallery images.
+            models_gone, images_gone = db.prune_orphans()
+            if models_gone or images_gone:
+                print(f"[ModelManager] Forgot {models_gone} models with no files left "
+                      f"and {images_gone} of their images")
 
         # Update scan timestamp
         db.set_metadata("last_scan", datetime.now().isoformat())

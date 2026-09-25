@@ -127,6 +127,10 @@ class ModelsDatabase:
         """Delete a version record by file path."""
         self._models.delete_version(file_path)
 
+    def prune_orphans(self) -> Tuple[int, int]:
+        """Forget models with no files left, and images of versions gone."""
+        return self._models.prune_orphans()
+
     def set_lookup_failed(self, file_path: str, failed: bool = True):
         """
         Note whether Civitai knows this file, so a sync can stop retrying.
