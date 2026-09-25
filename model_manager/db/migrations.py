@@ -1006,6 +1006,28 @@ def _migrate_to_v23(cursor):
     print("[ModelManager] Migration to v23 complete")
 
 
+def _migrate_to_v24(cursor):
+    """An index on images in the order a gallery shows them.
+
+    The grid finds each card's first image, and "Only Show Models with SFW
+    images" a version's first 20, in gallery order (GALLERY_ORDER: page,
+    position, id). No index had that order, so each lookup sorted the
+    version's images, and the grid used to rank the whole table to avoid
+    doing it per row - 740 ms of a 1.3 s load on 100,651 images. The level
+    is included so the SFW sample reads the index alone.
+    """
+    print("[ModelManager] Migrating to schema v24 (gallery-order image index)...")
+    cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'images'")
+    if cursor.fetchone() is None:
+        print("[ModelManager] No images table; nothing to index")
+        return
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_images_gallery"
+        " ON images(version_id, page, position, id, effective_nsfw_level)"
+    )
+    print("[ModelManager] Migration to v24 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1077,6 +1099,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 23:
         _migrate_to_v23(cursor)
+
+    if from_version < 24:
+        _migrate_to_v24(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
