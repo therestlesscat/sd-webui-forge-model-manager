@@ -70,7 +70,7 @@ check('a safetensors header is read for names and shapes',
 check('its metadata entry is not a tensor', '__metadata__' in shapes, False)
 check('a file that is not safetensors reads as nothing',
       arch.read_shapes(facts['linked_paths'][0]), None)
-check('nor does a format it does not know', arch.read_shapes(WORK + '/a.ckpt'), None)
+check('nor a .ckpt that is not there', arch.read_shapes(WORK + '/a.ckpt'), None)
 
 # --------------------------------------------------------- Forge's answer
 class Flux:                     # named as Forge names its model classes
@@ -146,15 +146,16 @@ check('and to none when Forge Neo has no preset for it',
 # ------------------------------------------------------ when files are read
 path = facts['linked_paths'][0]
 reads = []
-real_detect = arch.detect
-arch.detect = lambda p, guess=None: reads.append(p) or arch.Architecture('xl', 'SDXL', True, True)
+import model_manager.file_identity as identity_module       # noqa: E402
+real_detect = identity_module.identify
+identity_module.identify = lambda p, guess=None: reads.append(p) or arch.Architecture('xl', 'SDXL', True, True)
 try:
     check('a file never read is read', arch.record_architecture(db, path).preset, 'xl')
     row = db.get_version(path)
-    check('and what it said is stored, with Forge\'s class and when',
+    check('and what it said is stored, with Forge\'s class, the file\'s type, and when',
           (row['architecture'], row['architecture_class'], row['bundled_text_encoder'],
-           row['bundled_vae'], row['architecture_checked'] == arch.file_modified(path)),
-          ('xl', 'SDXL', True, True, True))
+           row['bundled_vae'], row['file_type'], row['architecture_checked'] == arch.file_modified(path)),
+          ('xl', 'SDXL', True, True, 'Checkpoint', True))
     check('an unchanged file is not read again',
           (arch.record_architecture(db, path), len(reads)), (None, 1))
     check('unless forced - a forced sync or a download',
@@ -164,15 +165,16 @@ try:
     arch.record_architecture(db, path)
     check('a file that has changed is read again', len(reads), 3)
 
-    arch.detect = lambda p, guess=None: reads.append(p) or None
+    identity_module.identify = lambda p, guess=None: reads.append(p) or \
+        arch.Architecture(None, None, False, False, 'LORA', 'no layer names this knows')
     other = facts['linked_paths'][1]
     arch.record_architecture(db, other)
     row = db.get_version(other)
-    check('a file Forge does not recognise is stored as none, so it is not read again',
-          (row['architecture'], row['architecture_checked'] is not None,
-           arch.record_architecture(db, other)), (None, True, None))
+    check('a file whose model cannot be told is stored as none, so it is not read again',
+          (row['architecture'], row['file_type'], row['architecture_checked'] is not None,
+           arch.record_architecture(db, other)), (None, 'LORA', True, None))
 finally:
-    arch.detect = real_detect
+    identity_module.identify = real_detect
 
 # ---------------------------------------------------------------- Scan Disk
 # GGUF checkpoints (quantized Flux, Wan, Z-Image) were never indexed at all.
@@ -182,8 +184,8 @@ indexed = {os.path.basename(p) for p in scan_module.ScanService().find_model_fil
 check('Scan Disk indexes .gguf and .sft files', {'quantized_flux.gguf', 'ae_short_name.sft'} <= indexed)
 
 scanned = []
-real_scan_detect = scan_module.detect
-scan_module.detect = lambda p: scanned.append(p) or arch.Architecture('sd', 'SD15', True, True)
+real_scan_detect = scan_module.identify
+scan_module.identify = lambda p: scanned.append(p) or arch.Architecture('sd', 'SD15', True, True)
 try:
     scan = scan_module.ScanService()
     scan.scan_models(directories=[facts['models_dir']])
@@ -194,7 +196,7 @@ try:
     scan.scan_models(directories=[facts['models_dir']])
     check('a second scan reads none of the files unchanged since', scanned, [])
 finally:
-    scan_module.detect = real_scan_detect
+    scan_module.identify = real_scan_detect
 
 # ------------------------------------------------ forced sync, and downloads
 recorded = []

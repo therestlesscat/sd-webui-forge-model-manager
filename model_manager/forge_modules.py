@@ -94,12 +94,15 @@ _T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
 _LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
 
 
-def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]]) -> Optional[str]:
+def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
+             loadable_only: bool = True) -> Optional[str]:
     """
     What kind of module a file is, from its tensor shapes - or None.
 
     A whole checkpoint is None: Forge lists files in its VAE folder as
     modules whatever they are, and a checkpoint loaded as one is not a VAE.
+    `loadable_only=False` names a T5 or UMT5 even in a layout Forge cannot
+    load - it is still a text encoder, just not one to pick.
     """
     names = list(shapes)
     if any(n.startswith(("model.diffusion_model.", "first_stage_model.", "conditioner."))
@@ -113,7 +116,8 @@ def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]]) -> Optional[str]:
             if len(shape) == 2:
                 kind = _EMBEDDINGS.get((shape[0], shape[1], vision)) \
                     or _EMBEDDINGS.get((shape[0], shape[1], False))
-                if kind in ("t5xxl", "umt5xxl") and not any(k in shapes for k in _T5_LOADABLE):
+                if kind in ("t5xxl", "umt5xxl") and loadable_only \
+                        and not any(k in shapes for k in _T5_LOADABLE):
                     return None         # right encoder, in a layout Forge cannot load
                 if kind:
                     return kind

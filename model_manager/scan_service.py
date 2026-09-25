@@ -13,7 +13,8 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import get_models_db
-from .architecture import detect, needs_check, store_architecture
+from .architecture import needs_check, store_architecture
+from .file_identity import identify
 from .nsfw import (
     UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -154,27 +155,9 @@ class ScanService:
             version_data["has_civitai_data"] = True
             civitai_model = self._extract_civitai_metadata(civitai_data, version_data, model_path)
         else:
-            # Infer model type from path when no civitai data
             version_data["base_model"] = None
 
         return civitai_model, version_data
-
-    def _infer_model_type(self, path: str) -> str:
-        """Infer model type from directory path."""
-        path_lower = path.lower()
-        if "lora" in path_lower:
-            return "LORA"
-        elif "embedding" in path_lower or "textual" in path_lower:
-            return "TextualInversion"
-        elif "vae" in path_lower:
-            return "VAE"
-        elif "controlnet" in path_lower:
-            return "Controlnet"
-        elif "upscal" in path_lower:
-            return "Upscaler"
-        elif "checkpoint" in path_lower or "stable-diffusion" in path_lower:
-            return "Checkpoint"
-        return "Unknown"
 
     def _extract_civitai_metadata(
         self,
@@ -210,7 +193,9 @@ class ScanService:
                 "id": model_id,
                 "name": data.get("name", ""),
                 "description": data.get("description"),
-                "type": data.get("type", self._infer_model_type(model_path)),
+                # Civitai's type, as Civitai gave it. What the file really
+                # is comes from the file itself (file_identity.py).
+                "type": data.get("type"),
                 "nsfw": data.get("nsfw", False),
                 "nsfw_level": data.get("nsfwLevel", UNKNOWN),
                 "tags": data.get("tags", []),
@@ -365,14 +350,14 @@ class ScanService:
                 with self._progress_lock:
                     self._progress.errors.append(f"{os.path.basename(path)}: {e}")
                 return None
-            # What the file's own header says it is - read here, on the
+            # What the file's own contents say it is - read here, on the
             # worker, and only for files new or changed since last time.
             # Never a reason to fail the scan.
             architecture = None
             try:
                 modified = needs_check(db, path)
                 if modified is not None:
-                    architecture = (detect(path), modified)
+                    architecture = (identify(path), modified)
             except Exception as e:
                 print(f"[ModelManager] Architecture check failed for {os.path.basename(path)}: {e}")
             return civitai_model, version_data, architecture

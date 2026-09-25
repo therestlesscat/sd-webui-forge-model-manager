@@ -697,4 +697,6 @@ class ModelsOps:
             "bundled_text_encoder": bool(row["bundled_text_encoder"]) if "bundled_text_encoder" in row.keys() else False,
             "bundled_vae": bool(row["bundled_vae"]) if "bundled_vae" in row.keys() else False,
             "architecture_checked": row["architecture_checked"] if "architecture_checked" in row.keys() else None,
+            "file_type": row["file_type"] if "file_type" in row.keys() else None,
+            "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
         }
