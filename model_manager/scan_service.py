@@ -88,6 +88,32 @@ class ScanProgress:
         }
 
 
+def as_model_payload(data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    A sidecar in the model format the scan reads, whichever it was written in.
+
+    This extension writes Civitai's model payload: the model at the root,
+    its versions under modelVersions. Other tools write the version payload
+    from the by-hash endpoint: the version at the root - so its id is the
+    version's - with modelId beside it and the model under "model". Read as
+    the model format, that made the version id a model id, the version's
+    name the model's, and left no type. It is turned into the model format:
+    the embedded model at the root, under its own id, with the version as
+    its one entry in modelVersions.
+    """
+    if not data or "modelVersions" in data:
+        return data
+    model = data.get("model")
+    if not isinstance(model, dict) or not data.get("modelId"):
+        return data
+    version = {k: v for k, v in data.items() if k != "model"}
+    payload = dict(model)
+    payload["id"] = data["modelId"]
+    payload.setdefault("creator", data.get("creator"))
+    payload["modelVersions"] = [version]
+    return payload
+
+
 class ScanService:
     """
     Service for scanning models and populating the database.
@@ -148,7 +174,7 @@ class ScanService:
             version_data["file_modified"] = None
 
         # Read .civitai.info
-        civitai_data = read_civitai_info(model_path)
+        civitai_data = as_model_payload(read_civitai_info(model_path))
         civitai_model = None
 
         if civitai_data:
@@ -381,15 +407,22 @@ class ScanService:
                     civitai_model, version_data, architecture = result
                     seen_paths.add(path)
 
-                    # Insert/update civitai model if we have one
-                    if civitai_model:
-                        db.upsert_civitai_model(civitai_model)
+                    # One file's bad metadata is that file's error, not the
+                    # end of the scan for every file after it.
+                    try:
+                        # Insert/update civitai model if we have one
+                        if civitai_model:
+                            db.upsert_civitai_model(civitai_model)
 
-                    # Insert/update version
-                    db.upsert_version(version_data)
+                        # Insert/update version
+                        db.upsert_version(version_data)
 
-                    if architecture is not None:
-                        store_architecture(db, path, *architecture)
+                        if architecture is not None:
+                            store_architecture(db, path, *architecture)
+                    except Exception as e:
+                        print(f"[ModelManager] Could not store {os.path.basename(path)}: {e}")
+                        with self._progress_lock:
+                            self._progress.errors.append(f"{os.path.basename(path)}: {e}")
 
                 if callback:
                     callback(self._progress)
