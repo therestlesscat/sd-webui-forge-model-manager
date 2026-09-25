@@ -122,5 +122,50 @@ check('5. nothing else: the gallery\'s own baseModel, as before',
 check('   a failed request is not remembered as an answer', ('v', '9002') in sp._remembered, False)
 check('   and with nothing at all, nothing', plan(file_path=vae, base_model='Other'), (None, None))
 
+
+# Wan text-to-video and image-to-video. Forge's detector calls every Wan 2.2
+# file WAN21_T2V - it tells I2V by img_emb, which only Wan 2.1 has - so an
+# I2V file sent to txt2img failed in the sampler. The file's patch embedding
+# says which: 16 input channels of noise, or 36 with the start frame's.
+def video(**kw):
+    sp._remembered.clear()
+    return sp.plan_model(db, lookup=civitai, **kw).video
+
+
+def patch_embedding(width):
+    return {'model.diffusion_model.patch_embedding.weight': ((5120, width, 1, 2, 2), 'F16')}
+
+
+widths = {}
+sp.read_shapes = lambda p: patch_embedding(widths[p]) if p in widths else None
+is_(gallery_ckpt, 'Checkpoint', 'wan', 'WAN21_T2V')
+is_(image_ckpt, 'Checkpoint', 'wan', 'WAN21_T2V')
+
+widths[gallery_ckpt] = 36
+check('6. a Wan checkpoint with 36 input channels is image-to-video, whatever its class says',
+      video(file_path=gallery_ckpt), 'i2v')
+widths[gallery_ckpt] = 16
+check('   16 is text-to-video', video(file_path=gallery_ckpt), 't2v')
+widths[gallery_ckpt] = 48
+check('   any other width is neither: Wan 2.2 5B, which Neo does not run',
+      video(file_path=gallery_ckpt, base_model='Wan Video 2.2 T2V-A14B'), None)
+widths[image_ckpt] = 36
+check('   the image\'s installed checkpoint is read the same way',
+      video(file_path=vae, version_ids=[version_id(image_ckpt)]), 'i2v')
+
+del widths[gallery_ckpt]
+check('   a file that cannot be read: its baseModel on Civitai',
+      video(file_path=gallery_ckpt, base_model='Wan Video 2.2 I2V-A14B'), 'i2v')
+check('   Wan 2.1\'s naming too', video(file_path=gallery_ckpt, base_model='Wan Video 14B t2v'), 't2v')
+check('   TI2V is neither, not both', video(file_path=gallery_ckpt, base_model='Wan Video 2.2 TI2V-5B'), None)
+
+is_(lora, 'LORA', 'wan')
+check('7. a Wan LoRA\'s gallery: the LoRA\'s own baseModel',
+      video(file_path=lora, base_model='Wan Video 2.2 T2V-A14B'), 't2v')
+CIVITAI[('v', '9004')] = {'baseModel': 'Wan Video 2.2 I2V-A14B', 'files': [{'name': 'w.safetensors'}]}
+check('   a checkpoint only Civitai knows: the baseModel Civitai gave it',
+      video(file_path=vae, version_ids=[9004], base_model='Wan Video 2.2 T2V-A14B'), 'i2v')
+check('8. anything not Wan is not video', video(file_path=other_ckpt), None)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

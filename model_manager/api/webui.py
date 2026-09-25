@@ -55,7 +55,8 @@ def register(app: FastAPI):
         bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
 
         answer = {"success": True, "preset": preset, "model_class": model_class,
-                  "source": source, "manage_modules": preset not in (None, "sd", "xl"),
+                  "source": source, "video": found.video,
+                  "manage_modules": preset not in (None, "sd", "xl"),
                   "select": [], "missing": [], "needed": [], "not_found": []}
         if not answer["manage_modules"]:
             return JSONResponse(answer)
