@@ -141,6 +141,7 @@ Found under **Settings -> Model Manager**.
 | Civitai Browser: Fill every page with 'Only Show Models with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
+| NSFW: extra prompt words | empty | Words added to the bundled list. An image rated PG or PG-13 whose prompt uses one is treated as X. Stored images are judged again in the background when this changes |
 | Send to txt2img: *model* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
 
 ### Text encoders and VAEs for newer models
@@ -189,6 +190,14 @@ The effective level for a model is the maximum of:
 - Model-level NSFW rating
 - Version-level NSFW rating
 - Highest image NSFW rating
+
+Civitai's raters miss some images. An image rated PG or PG-13 whose prompt uses one of
+a short list of explicit words is treated as X everywhere: grid previews, both
+galleries, and the SFW filters. Its badge reads "X · prompt". The list ships in
+`model_manager/data/nsfw_prompt_words.txt`; add your own words in the settings. Only the
+positive prompt is read, and only whole words. Stored images are judged again in the
+background whenever the words change, from the prompts already stored, so no sync is
+needed. An image whose prompt was never fetched keeps Civitai's rating.
 
 ## License
 

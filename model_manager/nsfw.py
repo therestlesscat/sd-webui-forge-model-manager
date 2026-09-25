@@ -35,7 +35,11 @@ An earlier map read Soft as R and Mature as X - one level harsher than Civitai
 means - which pushed 27% of images up a grade and quietly dropped their models
 out of a filtered view.
 """
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+import hashlib
+import os
+import re
+import threading
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 # ---------------------------------------------------------------- vocabulary
 
@@ -104,9 +108,105 @@ def parse_level(name: Optional[str]) -> int:
 
 # ------------------------------------------------------------------- images
 
+# ------------------------------------------------------------- the prompt
+#
+# Civitai's raters miss some: an image rated PG whose prompt asks for
+# something explicit is not PG. A short list of words that almost never
+# appear in a PG prompt catches those. Measured on 100,555 stored images:
+# 95% of the images whose prompts use them are rated X or XXX (5% R), and
+# they turn up in 256 of 31,745 PG and PG-13 prompts - which are raised.
+#
+# A flagged image is X: the level Civitai itself gives most such images, one
+# step short of XXX, which two of the words fall short of nearly as often.
+# Only the positive prompt is read - the same words in a negative prompt
+# mean the opposite - and only images rated PG or PG-13 are raised; the rest
+# are already hidden wherever PG-13 is the line.
+
+#: The level a PG or PG-13 image is raised to when its prompt is explicit.
+PROMPT_LEVEL = X
+
+#: The words shipped with the extension, one per line.
+PROMPT_WORDS_FILE = os.path.join(os.path.dirname(__file__), "data", "nsfw_prompt_words.txt")
+
+#: The setting holding a person's own additions.
+PROMPT_WORDS_SETTING = "model_manager_nsfw_prompt_words"
+
+_WORD = re.compile(r"[a-z]+")
+_words_lock = threading.Lock()
+_bundled: Optional[FrozenSet[str]] = None
+_extra: Tuple[str, FrozenSet[str]] = ("", frozenset())
+
+
+def parse_words(text: str) -> FrozenSet[str]:
+    """Words from a list: one per line or comma-separated, # starts a comment."""
+    words = set()
+    for line in (text or "").splitlines():
+        line = line.split("#", 1)[0]
+        for part in line.split(","):
+            words.update(_WORD.findall(part.lower()))
+    return frozenset(words)
+
+
+def prompt_words() -> FrozenSet[str]:
+    """The filter words: the bundled list, plus any added in the settings."""
+    global _bundled, _extra
+    with _words_lock:
+        if _bundled is None:
+            try:
+                with open(PROMPT_WORDS_FILE, encoding="utf-8") as f:
+                    _bundled = parse_words(f.read())
+            except OSError:
+                _bundled = frozenset()
+        raw = ""
+        try:
+            from modules import shared
+            raw = str(getattr(shared.opts, PROMPT_WORDS_SETTING, "") or "")
+        except Exception:
+            pass
+        if raw != _extra[0]:
+            _extra = (raw, parse_words(raw))
+        return _bundled | _extra[1]
+
+
+def prompt_words_fingerprint() -> str:
+    """Changes whenever the words do - so stored levels know to be redone."""
+    return hashlib.sha1("\n".join(sorted(prompt_words())).encode()).hexdigest()
+
+
+def prompt_is_explicit(image: Dict[str, Any]) -> bool:
+    """
+    Whether an image's own prompt uses a filter word. Whole words, any case;
+    anything not a letter separates them, so tag_words, (weighted:1.2) and
+    <lora:names> are read as the words they hold.
+    """
+    meta = image.get("meta")
+    prompt = meta.get("prompt") if isinstance(meta, dict) else None
+    if not isinstance(prompt, str) or not prompt:
+        return False
+    words = prompt_words()
+    return bool(words) and not words.isdisjoint(_WORD.findall(prompt.lower()))
+
+
 def image_level(image: Dict[str, Any]) -> int:
     """
-    How explicit one image is.
+    How explicit one image is: Civitai's rating, raised to X when an image
+    rated PG or PG-13 has an explicit prompt. Every view judges by this.
+
+    Args:
+        image: An image payload from Civitai.
+
+    Returns:
+        A level from the scale above.
+    """
+    level = rated_level(image)
+    if level <= SFW_MAX and prompt_is_explicit(image):
+        return PROMPT_LEVEL
+    return level
+
+
+def rated_level(image: Dict[str, Any]) -> int:
+    """
+    How explicit Civitai says one image is, and nothing else.
 
     Prefers browsingLevel, falls back to the legacy string, then to the bare
     boolean, and finally admits it does not know.
@@ -184,7 +284,9 @@ def showcase_is_complete(images: List[Dict[str, Any]]) -> bool:
     by whatever wrote it - provably still has its non-PG images. One that is
     all PG may have been stripped, so the cover cannot be taken from it.
     """
-    return any(image_level(img) != PG for img in images)
+    # Civitai's rating, not ours: the question is whether Civitai stripped
+    # the showcase, and it strips by its own rating.
+    return any(rated_level(img) != PG for img in images)
 
 
 def max_image_level(images: Iterable[Dict[str, Any]]) -> int:

@@ -65,6 +65,15 @@ def register(app: FastAPI):
                            modules, saved_modules(preset), preferred_modules(preset)))
         return JSONResponse(answer)
 
+    @app.get("/model-manager/nsfw-prompt-words")
+    async def get_nsfw_prompt_words():
+        """
+        The NSFW prompt words, for the browser's own image checks - the
+        Civitai Browser judges the images it is sent itself. See nsfw.py.
+        """
+        from ..nsfw import prompt_words
+        return JSONResponse({"success": True, "words": sorted(prompt_words())})
+
     @app.get("/model-manager/ui-options")
     async def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""

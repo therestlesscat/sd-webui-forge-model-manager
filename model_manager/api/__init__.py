@@ -35,6 +35,9 @@ def setup_api(app: FastAPI):
 def on_app_started(demo, app):
     print(f"[ModelManager] on_app_started called with app: {app}")
     setup_api(app)
+    # Stored image levels, redone if the NSFW prompt words changed.
+    from ..prompt_levels import start_in_background
+    start_in_background()
 
 
 print("[ModelManager] Registering on_app_started callback...")

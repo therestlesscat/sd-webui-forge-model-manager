@@ -205,6 +205,22 @@ def on_ui_settings():
         ).info("Size of model cards in Civitai Browser. Format: WIDTHxHEIGHT in pixels.")
     )
 
+    shared.opts.add_option(
+        "model_manager_nsfw_prompt_words",
+        shared.OptionInfo(
+            default="",
+            label="NSFW: extra prompt words",
+            component=gr.Textbox,
+            component_args={"placeholder": "comma-separated words", "lines": 2},
+            onchange=_prompt_words_changed,
+            section=section,
+        ).info("An image Civitai rates PG or PG-13 whose prompt uses one of these words is "
+               "treated as X everywhere - hidden from the grid previews, the galleries and "
+               "the SFW filters. Whole words, any case. These add to the list that comes "
+               "with the extension, in model_manager/data/nsfw_prompt_words.txt. Stored "
+               "images are judged again in the background when this changes.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "
@@ -234,6 +250,12 @@ def on_ui_settings():
             ).info(needs + ". Download: " + ", ".join(
                 f"<a href='{HF}{path}' target='_blank'>{name}</a>" for name, path in links))
         )
+
+
+def _prompt_words_changed():
+    """Judge stored images again with the new words, in the background."""
+    from ..prompt_levels import start_in_background
+    start_in_background()
 
 
 # Where each preset's files can be had. Forge Neo's own list, and the source

@@ -1,0 +1,19 @@
+{
+  "_about": "Prompt cases for the NSFW prompt words, read by tests/py/nsfw_prompt_test.py and tests/js/nsfw_prompt_test.mjs so the server and the browser are held to the same answers. The words are made up: 'zorp' and 'blick'.",
+  "words": ["zorp", "blick"],
+  "cases": [
+    {"why": "a PG image whose prompt uses a word is X", "image": {"browsingLevel": 1, "meta": {"prompt": "a zorp in a field"}}, "level": 8},
+    {"why": "and so is a PG-13 one", "image": {"browsingLevel": 2, "meta": {"prompt": "blick"}}, "level": 8},
+    {"why": "any case", "image": {"browsingLevel": 1, "meta": {"prompt": "A ZORP"}}, "level": 8},
+    {"why": "a tag with underscores", "image": {"browsingLevel": 1, "meta": {"prompt": "big_zorp, 1girl"}}, "level": 8},
+    {"why": "a weighted word", "image": {"browsingLevel": 1, "meta": {"prompt": "(zorp:1.3), cat"}}, "level": 8},
+    {"why": "a LoRA's name", "image": {"browsingLevel": 1, "meta": {"prompt": "cat <lora:blick_style:0.8>"}}, "level": 8},
+    {"why": "the legacy rating is Civitai's rating too", "image": {"nsfwLevel": "None", "meta": {"prompt": "zorp"}}, "level": 8},
+    {"why": "only whole words", "image": {"browsingLevel": 1, "meta": {"prompt": "zorplike blicks"}}, "level": 1},
+    {"why": "a word in the negative prompt means the opposite", "image": {"browsingLevel": 1, "meta": {"prompt": "a cat", "negativePrompt": "zorp"}}, "level": 1},
+    {"why": "an image with no prompt keeps its rating", "image": {"browsingLevel": 2}, "level": 2},
+    {"why": "an R image is left as Civitai rated it", "image": {"browsingLevel": 4, "meta": {"prompt": "zorp"}}, "level": 4},
+    {"why": "and so is an XXX one", "image": {"browsingLevel": 16, "meta": {"prompt": "zorp"}}, "level": 16},
+    {"why": "an unrated one is already unsafe, and stays Unknown", "image": {"meta": {"prompt": "zorp"}}, "level": 64}
+  ]
+}

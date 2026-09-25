@@ -318,6 +318,10 @@ class ModelsDatabase:
         """Store a page of images in the cache."""
         self._images.store_images(version_id, page, images)
 
+    def restamp_image_levels(self) -> Tuple[int, int, int]:
+        """Judge every stored image again. See ImagesOps.restamp_levels()."""
+        return self._images.restamp_levels()
+
     def get_images(
         self,
         version_id: int,
