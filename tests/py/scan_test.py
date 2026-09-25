@@ -134,6 +134,57 @@ check('a deleted file is dropped', plain in db.get_all_version_paths(), False)
 check('and nothing else goes with it',
       len(db.get_all_version_paths()), fixtures.VERSIONS + 1)
 
+# ------------------------------------------- a sidecar in Civitai's version format
+# Other tools write the by-hash payload: the version at the root, the model
+# under "model". Read as the model format it gave the model the version's id
+# and name and no type - and with no type, the insert failed and took the
+# whole scan down with it.
+import json as _json                                     # noqa: E402
+hashed = os.path.join(models_dir, 'Stable-diffusion', 'from_another_tool.gguf')
+io.open(hashed, 'wb').write(b'\0' * 64)
+io.open(os.path.splitext(hashed)[0] + '.civitai.info', 'w', encoding='utf-8').write(_json.dumps({
+    "id": 2434385, "modelId": 2053259, "name": "Lightning Q6", "baseModel": "Wan Video 2.2 I2V-A14B",
+    "trainedWords": [], "files": [{"name": "from_another_tool.gguf", "primary": True}],
+    "creator": {"username": "maker"},
+    "model": {"name": "WAN 2.2 Enhanced", "type": "Checkpoint", "nsfw": False}}))
+civitai_model, version = scan.extract_metadata(hashed)
+check('a version-format sidecar is read as the model it belongs to',
+      (civitai_model['id'], civitai_model['name'], civitai_model['type'], civitai_model['creator_username']),
+      (2053259, 'WAN 2.2 Enhanced', 'Checkpoint', 'maker'))
+check('and the version as the version', (version['id'], version['model_id'], version['base_model']),
+      (2434385, 2053259, 'Wan Video 2.2 I2V-A14B'))
+
+untyped_file = os.path.join(models_dir, 'Lora', 'no_type_anywhere.safetensors')
+io.open(untyped_file, 'wb').write(b'\0' * 64)
+io.open(os.path.splitext(untyped_file)[0] + '.civitai.info', 'w', encoding='utf-8').write(_json.dumps({
+    "id": 31337, "name": "Typeless", "modelVersions": [{"id": 31338, "name": "v1",
+                                                        "files": [{"name": "no_type_anywhere.safetensors"}]}]}))
+progress = scan.scan_models(directories=[models_dir])
+check('a sidecar with no type anywhere no longer stops the scan', (progress.is_complete, progress.errors),
+      (True, []))
+check('its model is stored, its Civitai type Unknown', db.get_civitai_model(31337)['type'], 'Unknown')
+check('and the version-format one under its real model id',
+      db.get_version(hashed)['model_id'], 2053259)
+db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': 'LORA'})
+db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': None})
+check('a typeless sidecar never overwrites a type already known', db.get_civitai_model(31337)['type'], 'LORA')
+
+# One file the database refuses is that file's error, and the scan goes on.
+real_upsert = db.upsert_version
+def refuse(data):
+    if data['file_path'] == untyped_file:
+        raise ValueError('refused')
+    return real_upsert(data)
+db.upsert_version = refuse
+db.delete_version(hashed)
+try:
+    progress = scan.scan_models(directories=[models_dir])
+finally:
+    db.upsert_version = real_upsert
+check('a file the database refuses is reported, and the rest are still stored',
+      (progress.is_complete, [e for e in progress.errors if 'refused' in e] != [],
+       db.get_version(hashed) is not None), (True, True, True))
+
 # ------------------------------------------------------------------ cancelling
 scan.cancel()
 check('cancelling is remembered', scan._cancel_requested, True)

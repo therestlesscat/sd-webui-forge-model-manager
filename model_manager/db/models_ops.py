@@ -88,7 +88,7 @@ class ModelsOps:
                     allow_no_credit, allow_commercial_use, allow_derivatives,
                     allow_different_license, supports_generation, updated_at,
                     civitai_synced_at, checkpoint_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, COALESCE(?, 'Unknown'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     -- The same rule as upsert_version(): a source that says
                     -- nothing about a field must not erase what is recorded.
@@ -97,7 +97,9 @@ class ModelsOps:
                     -- permissive default and a zero over both.
                     name = excluded.name,
                     description = COALESCE(excluded.description, civitai_models.description),
-                    type = COALESCE(excluded.type, civitai_models.type),
+                    -- A sidecar with no type is stored as 'Unknown', which
+                    -- must not replace a type already known.
+                    type = COALESCE(NULLIF(excluded.type, 'Unknown'), civitai_models.type),
                     nsfw = COALESCE(excluded.nsfw, civitai_models.nsfw),
                     nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, 64), civitai_models.nsfw_level),
                     tags = COALESCE(NULLIF(excluded.tags, '[]'), civitai_models.tags),
