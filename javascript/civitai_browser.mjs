@@ -329,7 +329,7 @@ function filteringMessage() {
 }
 
 /**
- * Is "Only with SFW images" ticked and in force?
+ * Is "Only Show Models with SFW images" ticked and in force?
  *
  * It means nothing while NSFW models are included, so it is greyed out then,
  * keeps its tick for when it applies again, and is not sent.
@@ -339,7 +339,7 @@ function sfwOnlyEnabled() {
     return !nsfw && (document.getElementById('cb_sfw_only')?.checked || false);
 }
 
-// Grey out "Only with SFW images" while NSFW models are included, saying why,
+// Grey out "Only Show Models with SFW images" while NSFW models are included, saying why,
 // and while it is in force, say above the results what it is doing: its
 // pages come back short, and without this that reads as something broken.
 function syncSfwOnlyEnabled() {

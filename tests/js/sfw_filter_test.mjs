@@ -1,6 +1,6 @@
-// "Only with SFW images", from the browser's side, and the box it sits beside.
+// "Only Show Models with SFW images", from the browser's side, and the box it sits beside.
 //
-// "Include NSFW models" asks Civitai; "Only with SFW images" checks each
+// "Include NSFW models" asks Civitai; "Only Show Models with SFW images" checks each
 // model's first images here. The second means nothing while NSFW models are
 // included, so it is greyed out then, keeps its tick for later, and is not
 // sent as on. When it is on, the search streams - it checks models one at a time -
@@ -50,7 +50,7 @@ async function search() {
 
 // ----------------------------------------------------------------- the boxes
 check('Include NSFW says it is about models', labelText('cb_nsfw'), 'Include NSFW models');
-check('the new box is beside it', labelText('cb_sfw_only'), 'Only with SFW images');
+check('the new box is beside it', labelText('cb_sfw_only'), 'Only Show Models with SFW images');
 // Split by who acts on them: Civitai, in the search, or this extension,
 // checking what the search returned.
 const caption = (id) => $(id).closest('.filter-group').querySelector(':scope > label').textContent;
@@ -70,7 +70,7 @@ const sfwTip = $('cb_sfw_only_label').title;
 check('Include NSFW models explains that Civitai decides, and what it still lets through',
       [nsfwTip.includes('Civitai'), nsfwTip.includes('most of the models it still lists')],
       [true, true]);
-check('Only with SFW images explains what it checks and what it costs',
+check('Only Show Models with SFW images explains what it checks and what it costs',
       [sfwTip.includes('first 20'), sfwTip.includes('above PG-13'),
        sfwTip.includes('models with no images'),
        sfwTip.includes('one request per model'), sfwTip.includes('comes back short')],
@@ -89,7 +89,7 @@ check('saying what the tooltip says, word for word',
       $('cb_sfw_only_banner_text').textContent, sfwTip);
 const settingNote = $('cb_sfw_only_banner_setting')?.textContent.replace(/\s+/g, ' ') || '';
 check('and where to find the setting that fills every page, and that it is not recommended',
-      [settingNote.includes("Fill every page with 'Only with SFW images'"),
+      [settingNote.includes("Fill every page with 'Only Show Models with SFW images'"),
        settingNote.includes('Settings → Model Manager'), settingNote.includes('not recommended')],
       [true, true, true]);
 toggle('cb_sfw_only', false);

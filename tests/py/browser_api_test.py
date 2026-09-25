@@ -316,7 +316,7 @@ check('saying so in its summary',
 check('asking Civitai for as much as it gives per call',
       [c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'], 100)
 
-# ------------------------------------------------- only with SFW images
+# ------------------------------------------------- Only Show Models with SFW images
 # Each candidate's first images are looked at; one above PG-13 rules it out.
 from model_manager.api import prompts as prompt_checks          # noqa: E402
 
@@ -333,7 +333,7 @@ SAFE, RACY = remote(90090, 90091), remote(90092, 90093)
 prompt_checks.forget_sfw_verdicts()
 civitai(models={'items': [SAFE, RACY], 'nextCursor': None})
 status, body = get('/model-manager/civitai/models', sfw_only='true', limit=5)
-check('only with SFW images keeps the model whose examples are all safe',
+check('Only Show Models with SFW images keeps the model whose examples are all safe',
       [m['id'] for m in body['models']], [90090])
 check('reporting what it left out', (body['filterStats']['unsafe'],
                                       body['filterStats']['sfwFilter']), (1, True))

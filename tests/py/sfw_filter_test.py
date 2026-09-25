@@ -1,5 +1,5 @@
 """
-"Only with SFW images": leaving out models whose examples show otherwise.
+"Only Show Models with SFW images": leaving out models whose examples show otherwise.
 
 Civitai's own NSFW switch leaves out the models it rates NSFW and strips the
 mature images from the rest - but most of what it still lists has NSFW images

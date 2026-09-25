@@ -22,7 +22,7 @@ import time
 from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
 from .images_ops import GALLERY_ORDER
 
-# How many of a version's images "Only with SFW images" looks at - the same
+# How many of a version's images "Only Show Models with SFW images" looks at - the same
 # sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
 SFW_SAMPLE_SIZE = 20
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -226,7 +226,7 @@ def query_models_grouped(
         outer_conditions.append("local_version_count >= ?")
         outer_params.append(min_versions)
     if sfw_only:
-        # "Only with SFW images", as the Civitai Browser asks it: none of the
+        # "Only Show Models with SFW images", as the Civitai Browser asks it: none of the
         # first 20 images of the version the card shows - in the order its
         # gallery shows them - is above PG-13, or unrated. And there has to
         # be at least one: a model with no images has nothing to show it
