@@ -1,0 +1,10 @@
+# Words that make an image NSFW whatever Civitai rated it - see nsfw.py.
+# One word per line, letters only, any case. More can be added in
+# Settings -> Model Manager without editing this file.
+penis
+pussy
+cum
+sex
+nude
+nipples
+naked

@@ -7,7 +7,7 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..nsfw import SFW_MAX, UNKNOWN, image_level
-from typing import Optional, List, Dict, Any, Callable
+from typing import Tuple, Optional, List, Dict, Any, Callable
 
 
 
@@ -72,6 +72,43 @@ class ImagesOps:
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (img_id, version_id, page, position, url, width, height,
                           effective_nsfw_level, created_at, json.dumps(img)))
+
+    def restamp_levels(self) -> Tuple[int, int, int]:
+        """
+        Judge every stored image again, as image_level() now would.
+
+        A level is stamped when an image is stored, so a change to how images
+        are judged - the prompt words, above all - leaves the rows on the old
+        verdict. The payload is stored beside it, so nothing is refetched.
+        A version's safe cover that is now an unsafe image is cleared, and
+        the grid falls back to the version's first image that is still safe
+        until a scan or sync picks the cover again.
+
+        Returns:
+            (images changed, images read, safe covers cleared)
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT id, version_id, effective_nsfw_level, data FROM images")
+            rows = cursor.fetchall()
+        changed = []
+        for image_id, version_id, stored, data in rows:
+            if not data:
+                continue
+            try:
+                level = image_level(json.loads(data))
+            except (ValueError, TypeError):
+                continue
+            if level != stored:
+                changed.append((level, image_id, version_id))
+        with self._cursor() as cursor:
+            cursor.executemany(
+                "UPDATE images SET effective_nsfw_level = ? WHERE id = ? AND version_id = ?",
+                changed)
+            cursor.execute(
+                "UPDATE model_versions SET safe_cover_url = '' WHERE safe_cover_url IN"
+                " (SELECT url FROM images WHERE effective_nsfw_level > ?)", (SFW_MAX,))
+            covers = cursor.rowcount
+        return len(changed), len(rows), covers
 
     # A prompt is stored inside the image's JSON, so it is read back out with
     # json_extract rather than given a column. Measured over 101,369 images, a

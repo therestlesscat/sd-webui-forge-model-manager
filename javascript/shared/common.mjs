@@ -313,7 +313,49 @@ export const NSFW_LEGACY_LEVELS = { None: 1, Soft: 2, Mature: 4, X: 16 };
 export const NSFW_UNKNOWN = 64;
 export const NSFW_SFW_MAX = 3;  // PG | PG-13
 
+/**
+ * The level a PG or PG-13 image is raised to when its prompt uses one of the
+ * NSFW prompt words - and those words, as the server has them. Mirrors
+ * PROMPT_LEVEL, prompt_words() and prompt_is_explicit() in nsfw.py. Empty
+ * until loadNsfwPromptWords() has answered, when only the rating counts.
+ */
+export const NSFW_PROMPT_LEVEL = 8;  // X
+let nsfwPromptWords = new Set();
+let nsfwPromptWordsRequest = null;
+
+export function setNsfwPromptWords(words) {
+    nsfwPromptWords = new Set((words || []).map((w) => String(w).toLowerCase()));
+}
+
+/** Fetch the words once; every caller shares the one request. */
+export function loadNsfwPromptWords() {
+    if (!nsfwPromptWordsRequest) {
+        nsfwPromptWordsRequest = fetch('/model-manager/nsfw-prompt-words')
+            .then((response) => response.json())
+            .then((data) => { if (data && data.success) setNsfwPromptWords(data.words); })
+            .catch((e) => console.warn('[ModelManager] Could not load the NSFW prompt words:', e));
+    }
+    return nsfwPromptWordsRequest;
+}
+
+/** Whether an image's own prompt uses an NSFW prompt word. Whole words, any case. */
+export function promptIsExplicit(image) {
+    const prompt = image?.meta?.prompt;
+    if (typeof prompt !== 'string' || !prompt || !nsfwPromptWords.size) return false;
+    return (prompt.toLowerCase().match(/[a-z]+/g) || []).some((w) => nsfwPromptWords.has(w));
+}
+
+/**
+ * How explicit an image is: Civitai's rating, raised to X when a PG or PG-13
+ * image's prompt is explicit. Mirrors image_level() in nsfw.py.
+ */
 export function nsfwImageLevel(image) {
+    const level = nsfwRatedLevel(image);
+    return level <= NSFW_SFW_MAX && promptIsExplicit(image) ? NSFW_PROMPT_LEVEL : level;
+}
+
+/** Civitai's own rating of an image, and nothing else. Mirrors rated_level(). */
+export function nsfwRatedLevel(image) {
     const browsing = image?.browsingLevel;
     if (typeof browsing === 'number' && browsing > 0) return browsing;
 
@@ -327,6 +369,16 @@ export function nsfwImageLevel(image) {
     if (image?.nsfw === false) return 1;
 
     return NSFW_UNKNOWN;
+}
+
+/**
+ * The NSFW badge's text for an image: "X · prompt" when its prompt is what
+ * made it NSFW, so an image hidden or badged against its rating says why;
+ * otherwise the rating label the gallery would show.
+ */
+export function nsfwBadgeLabel(image, ratingLabel) {
+    if (nsfwRatedLevel(image) <= NSFW_SFW_MAX && promptIsExplicit(image)) return 'X · prompt';
+    return ratingLabel;
 }
 
 /** Is this image safe for a work-safe view? */

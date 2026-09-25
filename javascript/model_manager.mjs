@@ -33,6 +33,8 @@ const {
     renderResource,
     renderFilterBanner,
     balanceGridRows,
+    loadNsfwPromptWords,
+    nsfwBadgeLabel,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -1600,7 +1602,7 @@ function renderImageCard(img, index) {
         : '';
 
     // NSFW indicator
-    const nsfwLevel = img.nsfw || 'Unknown';
+    const nsfwLevel = nsfwBadgeLabel(img, img.nsfw || 'Unknown');
     const nsfwClass = nsfwLevel !== 'PG' && nsfwLevel !== 'Unknown' && nsfwLevel !== 'None'
         ? 'mm-nsfw-indicator'
         : '';
@@ -1620,7 +1622,7 @@ function renderImageCard(img, index) {
         <div class="mm-image-card" data-index="${index}">
             <div class="mm-image-left">
                 ${mediaHtml}
-                ${nsfwClass ? `<span class="mm-nsfw-badge">${nsfwLevel}</span>` : ''}
+                ${nsfwClass ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
             </div>
             <div class="mm-image-right">
                 ${imageIdHtml}
@@ -2693,6 +2695,8 @@ function matchSamplerName(samplerName) {
 
 // Load UI options on init
 loadUIOptionsFromAPI();
+// The words behind the "X · prompt" badge; the server has already filtered.
+loadNsfwPromptWords();
 
 // Split combined "Sampler Scheduler" format into separate parts
 // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
