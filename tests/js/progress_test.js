@@ -63,6 +63,7 @@ const sandbox = {
     setStatus: (msg) => { sandbox._status = msg; },
     updateSyncUI: (on) => { sandbox._uiSyncing = on; },
     loadModels: () => { sandbox._reloaded = true; },
+    loadBaseModelOptions: () => { sandbox._baseModelsReloaded = true; },
     setTimeout: (fn) => { fn(); return 0; },
     syncPollInterval: null,
     isSyncing: true,

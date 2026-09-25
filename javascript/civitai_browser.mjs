@@ -33,6 +33,7 @@ const {
     loadNsfwPromptWords,
     nsfwBadgeLabel,
     isVideoUrl,
+    sortBaseModels,
     cardMediaUrl,
     getImagePageCount,
     setupLazyMedia,
@@ -2061,14 +2062,6 @@ const TYPE_LABELS = {
     LORA: 'LoRA',
     Controlnet: 'ControlNet',
 };
-
-function sortBaseModels(values) {
-    // 'Other' is a catch-all, so it belongs at the bottom rather than in
-    // the middle of the alphabet.
-    const named = values.filter(v => v !== 'Other');
-    named.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-    return values.includes('Other') ? named.concat('Other') : named;
-}
 
 // Asked for once per page load and reused. The retry below is for the
 // dropdowns not existing yet, not for a failed request, so it must not

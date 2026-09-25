@@ -28,6 +28,7 @@ const {
     renderThumbs,
     isVideoUrl,
     cardMediaUrl,
+    sortBaseModels,
     getImagePageCount,
     setupLazyMedia,
     renderResource,
@@ -3163,6 +3164,7 @@ async function pollSyncProgress() {
                 // Show final status
                 const errorInfo = p.errors > 0 ? ` (${p.error_messages.slice(-3).join('; ')})` : '';
                 setStatus(`Sync complete: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped, ${p.errors} errors${errorInfo}`);
+                loadBaseModelOptions();
 
                 // Reload models to show updated data
                 if (p.synced > 0) {
@@ -3661,6 +3663,7 @@ async function pollScanProgress() {
                 // Show final status
                 const errorInfo = p.error_count > 0 ? ` (${p.error_count} errors)` : '';
                 setStatus(`Scan complete: ${p.processed} models indexed${errorInfo}`);
+                loadBaseModelOptions();
 
                 // Reload models to show updated data
                 setTimeout(loadModels, 500);
@@ -3838,6 +3841,51 @@ function saveSearchFilters() {
     }
 }
 
+// The Base Model filter lists what this library holds, asked of the server.
+// It used to be written into the markup, and named only the base models
+// installed when it was written: a Wan 2.1 or Anima model could not be
+// filtered to at all.
+async function loadBaseModelOptions() {
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/filters' });
+        if (data && data.success) fillBaseModels(data.base_models || []);
+    } catch (error) {
+        console.warn('[ModelManager] Could not load the base models:', error);
+    }
+}
+
+function fillBaseModels(values) {
+    const select = document.getElementById('mm_base_model');
+    if (!select) return;
+    const chosen = select.value;
+    const option = (value, label) => {
+        const element = document.createElement('option');
+        element.value = value;
+        element.textContent = label;
+        return element;
+    };
+    select.replaceChildren(option('', 'All'),
+                           ...sortBaseModels(values.filter(Boolean)).map((v) => option(v, v)));
+    selectBaseModel(chosen);
+}
+
+/**
+ * Select a base model, listing it if the filter does not. A saved search is
+ * restored without waiting for the list, and may name a base model no longer
+ * in the library; either way a missing option would quietly make it "All".
+ */
+function selectBaseModel(value) {
+    const select = document.getElementById('mm_base_model');
+    if (!select) return;
+    if (value && ![...select.options].some((o) => o.value === value)) {
+        const element = document.createElement('option');
+        element.value = value;
+        element.textContent = value;
+        select.appendChild(element);
+    }
+    select.value = value || '';
+}
+
 function loadSearchFilters() {
     const saved = localStorage.getItem('mm_saved_filters');
     if (!saved) return false;
@@ -3847,7 +3895,7 @@ function loadSearchFilters() {
 
         if (Object.prototype.hasOwnProperty.call(filters, 'search')) document.getElementById('mm_search').value = filters.search;
         if (Object.prototype.hasOwnProperty.call(filters, 'type')) document.getElementById('mm_type').value = filters.type;
-        if (Object.prototype.hasOwnProperty.call(filters, 'base_model')) document.getElementById('mm_base_model').value = filters.base_model;
+        if (Object.prototype.hasOwnProperty.call(filters, 'base_model')) selectBaseModel(filters.base_model);
         if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
         if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
         if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
@@ -4090,6 +4138,7 @@ function bindElements() {
 
     // Load saved filters if available
     loadSearchFilters();
+    loadBaseModelOptions();
 
     // Check for saved scroll position and show restore button
     updateScrollRestoreButton();

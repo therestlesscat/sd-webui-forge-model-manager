@@ -141,26 +141,6 @@ def create_ui():
                                 <label>Base Model</label>
                                 <select id="mm_base_model">
                                     <option value="">All</option>
-                                    <option value="Flux">Flux</option>
-                                    <option value="Flux.1 D">Flux.1 D</option>
-                                    <option value="Flux.1 S">Flux.1 S</option>
-                                    <option value="HiDream">HiDream</option>
-                                    <option value="Illustrious">Illustrious</option>
-                                    <option value="NoobAI">NoobAI</option>
-                                    <option value="Pony">Pony</option>
-                                    <option value="Qwen">Qwen</option>
-                                    <option value="SD 1.4">SD 1.4</option>
-                                    <option value="SD 1.5">SD 1.5</option>
-                                    <option value="SD 1.5 Hyper">SD 1.5 Hyper</option>
-                                    <option value="SD 2.1">SD 2.1</option>
-                                    <option value="SDXL">SDXL</option>
-                                    <option value="SDXL 1.0">SDXL 1.0</option>
-                                    <option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option>
-                                    <option value="SDXL Lightning">SDXL Lightning</option>
-                                    <option value="Wan Video 2.2 I2V-A14B">Wan Video 2.2 I2V-A14B</option>
-                                    <option value="Wan Video 2.2 T2V-A14B">Wan Video 2.2 T2V-A14B</option>
-                                    <option value="ZImageTurbo">ZImageTurbo</option>
-                                    <option value="Other">Other</option>
                                 </select>
                             </div>
                             <div class="filter-group">
