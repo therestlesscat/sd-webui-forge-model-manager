@@ -981,6 +981,31 @@ def _migrate_to_v22(cursor):
     print("[ModelManager] Migration to v22 complete")
 
 
+def _migrate_to_v23(cursor):
+    """Remember what each file is, by its own contents. See file_identity.py.
+
+    file_type is what the file is - Checkpoint, LORA, LoCon, VAE, Text
+    Encoder, ... - where Civitai's type is only what the uploader filed it
+    under; identified_by says what decided it. NULL until a file is read,
+    and the Type filter falls back to Civitai's type meanwhile.
+
+    architecture now covers every file, not only checkpoints: a LoRA's is
+    the model it was trained for. So the files read before - checkpoints
+    only, and never a .ckpt or .pt - are marked unread, and the next Scan
+    Disk reads them all once.
+    """
+    print("[ModelManager] Migrating to schema v23 (what each file is)...")
+
+    cursor.execute("PRAGMA table_info(model_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    for column in ("file_type", "identified_by"):
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE model_versions ADD COLUMN {column} TEXT")
+    cursor.execute("UPDATE model_versions SET architecture_checked = NULL WHERE file_type IS NULL")
+
+    print("[ModelManager] Migration to v23 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1049,6 +1074,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 22:
         _migrate_to_v22(cursor)
+
+    if from_version < 23:
+        _migrate_to_v23(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

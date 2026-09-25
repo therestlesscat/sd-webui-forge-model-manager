@@ -22,9 +22,12 @@ Anything that goes wrong here is "not recognised", never an error: the
 caller then falls back to Civitai's baseModel, and failing that to what
 Send to txt2img did before.
 """
+import collections
 import json
 import os
+import pickle
 import struct
+import zipfile
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -90,10 +93,12 @@ _MAX_HEADER = 200 * 1024 * 1024
 @dataclass
 class Architecture:
     """What a model file is, and what it brings with it."""
-    preset: str                   # Forge Neo UI preset: "flux", "qwen", ...
-    model_class: str              # Forge's model class: "Flux", "QwenImage", ...
+    preset: Optional[str]         # Forge Neo UI preset: "flux", "qwen", ... - None if unknown
+    model_class: Optional[str]    # Forge's model class: "Flux", "QwenImage", ...
     bundled_text_encoder: bool    # its text encoder(s) are inside the file
     bundled_vae: bool             # its VAE is inside the file
+    file_type: str = "Checkpoint"  # what the file is: see file_identity.py
+    note: str = ""                # what decided it, for the details panel
 
 
 def preset_for_base_model(base_model: Optional[str]) -> Optional[str]:
@@ -153,6 +158,115 @@ def read_gguf_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str
     return shapes
 
 
+class _Shape(tuple):
+    """A tensor, as the pickle reader sees it: its shape and nothing else."""
+
+
+class _Inert:
+    """Whatever else a pickle names - a class, a function - built as nothing."""
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        return _Inert()
+
+    def __setstate__(self, state):
+        pass
+
+    def __setitem__(self, key, value):
+        pass
+
+
+def _shape_of(storage, offset, size, *rest, **kwargs):
+    return _Shape(size)
+
+
+def _parameter(data, *rest, **kwargs):
+    return data
+
+
+class _ShapeUnpickler(pickle.Unpickler):
+    """
+    Unpickles a torch file into its tensor shapes, running nothing in it.
+
+    A pickle names the functions that rebuild it, and an ordinary unpickler
+    imports and calls them: a .ckpt can name os.system. This one imports
+    nothing. The functions that rebuild a tensor become one that returns its
+    shape, an OrderedDict stays one, and every other name becomes _Inert.
+    The weights, kept apart from the pickle, are never read.
+    """
+    _TENSOR = {"_rebuild_tensor", "_rebuild_tensor_v2", "_rebuild_tensor_v3",
+               "_rebuild_qtensor"}
+    _PARAMETER = {"_rebuild_parameter", "_rebuild_parameter_with_state"}
+
+    def find_class(self, module, name):
+        if name in self._TENSOR:
+            return _shape_of
+        if name in self._PARAMETER:
+            return _parameter
+        if (module, name) == ("collections", "OrderedDict"):
+            return collections.OrderedDict
+        return _Inert
+
+    def persistent_load(self, pid):
+        return None             # a tensor's storage: the weights, never read
+
+
+# The number a legacy (pre-zip) torch file opens with.
+_LEGACY_MAGIC = 0x1950a86a20f9469cfc6c
+
+
+def read_pickle_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str]]]:
+    """
+    A torch pickle file's tensors (.ckpt, .pt, .pth, .bin), name -> (shape,
+    dtype), without running anything in it - see _ShapeUnpickler.
+
+    A zip file keeps its pickle in data.pkl; the older format opens with
+    three small pickles before it. Nested dictionaries give dotted names; a
+    checkpoint's "state_dict" and a Real-ESRGAN file's "params_ema" are the
+    weights themselves, and lose that prefix. The dtype is not in the pickle
+    and is given as F16.
+    """
+    try:
+        if zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as archive:
+                name = next((n for n in archive.namelist() if n.endswith("data.pkl")), None)
+                if name is None:
+                    return None
+                with archive.open(name) as f:
+                    obj = _ShapeUnpickler(f).load()
+        else:
+            with open(path, "rb") as f:
+                if _ShapeUnpickler(f).load() != _LEGACY_MAGIC:
+                    return None
+                _ShapeUnpickler(f).load()           # protocol version
+                _ShapeUnpickler(f).load()           # system info
+                obj = _ShapeUnpickler(f).load()
+    except Exception:
+        return None
+
+    shapes: Dict[str, Tuple[Tuple[int, ...], str]] = {}
+
+    def walk(value, prefix, depth):
+        if depth > 8:
+            return
+        if isinstance(value, _Shape):
+            shapes[prefix] = (tuple(int(d) for d in value), "F16")
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                walk(item, f"{prefix}.{key}" if prefix else str(key), depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                walk(item, f"{prefix}.{index}" if prefix else str(index), depth + 1)
+
+    walk(obj, "", 0)
+    for wrapper in ("state_dict.", "params_ema.", "params."):
+        inner = {k[len(wrapper):]: v for k, v in shapes.items() if k.startswith(wrapper)}
+        if inner:
+            return inner
+    return shapes
+
+
 def read_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str]]]:
     """A model file's tensors, name -> (shape, dtype), or None if unreadable."""
     lower = path.lower()
@@ -160,6 +274,8 @@ def read_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str]]]:
         return read_safetensors_shapes(path)
     if lower.endswith(".gguf"):
         return read_gguf_shapes(path)
+    if lower.endswith((".ckpt", ".pt", ".pth", ".bin")):
+        return read_pickle_shapes(path)
     return None
 
 
@@ -213,7 +329,12 @@ def detect(path: str,
     """
     if not path or not os.path.isfile(path):
         return None
-    shapes = read_shapes(path)
+    return detect_shapes(read_shapes(path), guess)
+
+
+def detect_shapes(shapes: Optional[Dict[str, Tuple[Tuple[int, ...], str]]],
+                  guess: Callable = None) -> Optional[Architecture]:
+    """detect(), for tensors already read."""
     if not shapes:
         return None
     try:
@@ -232,6 +353,7 @@ def detect(path: str,
         model_class=model_class,
         bundled_text_encoder=_bundles_text_encoder(config, judged),
         bundled_vae=bool(vae_prefixes) and any(k.startswith(vae_prefixes) for k in judged),
+        note="Forge's own model detector",
     )
 
 
@@ -285,7 +407,7 @@ def needs_check(db, path: str) -> Optional[str]:
 
 def store_architecture(db, path: str, found: Optional[Architecture],
                        modified: Optional[str]) -> None:
-    """Store what detect() found for a file - None for not recognised."""
+    """Store what identify() found for a file - None for not readable."""
     db.set_architecture(
         path,
         found.preset if found else None,
@@ -293,22 +415,25 @@ def store_architecture(db, path: str, found: Optional[Architecture],
         found.bundled_text_encoder if found else False,
         found.bundled_vae if found else False,
         modified,
+        file_type=found.file_type if found else "Unknown",
+        note=found.note if found else "",
     )
 
 
 def record_architecture(db, path: str, force: bool = False) -> Optional[Architecture]:
     """
-    Read a model file's architecture and store it, unless already done.
+    Read what a model file is and store it, unless already done.
 
     `force` reads it even when unchanged since last time: a forced sync and a
     download use it, being when a file is new or its contents may no longer
     be what was read.
 
-    Returns what was found, or None for unrecognised, unchanged or absent.
+    Returns what was found, or None for unchanged or absent.
     """
+    from .file_identity import identify
     modified = file_modified(path) if force else needs_check(db, path)
     if modified is None or not db.get_version(path):
         return None
-    found = detect(path)
+    found = identify(path)
     store_architecture(db, path, found, modified)
     return found

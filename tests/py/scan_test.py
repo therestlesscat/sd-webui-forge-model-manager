@@ -53,17 +53,17 @@ check('a directory that does not exist yields nothing',
       scan.find_model_files([os.path.join(WORK, 'nowhere')]), [])
 check('and no directories at all yields nothing', scan.find_model_files([]), [])
 
-# ------------------------------------------------------- what the folder says
-cases = [
-    (os.path.join('models', 'Lora', 'x.safetensors'), 'LORA'),
-    (os.path.join('models', 'VAE', 'x.safetensors'), 'VAE'),
-    (os.path.join('models', 'embeddings', 'x.pt'), 'TextualInversion'),
-    (os.path.join('models', 'ControlNet', 'x.safetensors'), 'Controlnet'),
-    (os.path.join('models', 'Stable-diffusion', 'x.safetensors'), 'Checkpoint'),
-]
-for path, expected in cases:
-    check('a file under %s is %s' % (os.path.dirname(path), expected),
-          scan._infer_model_type(path), expected)
+# ------------------------------------------------ Civitai's type is Civitai's
+# What a file is comes from the file itself (file_identity_test.py). The
+# type column holds only what Civitai said: a sidecar without one leaves it
+# empty, where a guess from the folder used to call anything under Lora a
+# LORA - VAEs and text encoders kept there included.
+untyped = os.path.join('models', 'Lora', 'x.safetensors')
+civitai_model = scan._extract_civitai_metadata({'id': 1, 'modelVersions': [{'id': 2}]},
+                                               {'file_path': untyped, 'file_name': 'x.safetensors',
+                                                'file_extension': '.safetensors'}, untyped)
+check('a sidecar with no type gives no type, not a guess from the folder',
+      civitai_model['type'], None)
 
 # ------------------------------------------------- a file with nothing beside it
 plain = os.path.join(models_dir, 'Lora', 'no_sidecar.safetensors')
