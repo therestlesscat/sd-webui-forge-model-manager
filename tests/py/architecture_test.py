@@ -175,6 +175,11 @@ finally:
     arch.detect = real_detect
 
 # ---------------------------------------------------------------- Scan Disk
+# GGUF checkpoints (quantized Flux, Wan, Z-Image) were never indexed at all.
+for name in ('quantized_flux.gguf', 'ae_short_name.sft'):
+    open(os.path.join(facts['models_dir'], 'Stable-diffusion', name), 'wb').write(b'\0' * 64)
+indexed = {os.path.basename(p) for p in scan_module.ScanService().find_model_files([facts['models_dir']])}
+check('Scan Disk indexes .gguf and .sft files', {'quantized_flux.gguf', 'ae_short_name.sft'} <= indexed)
 
 scanned = []
 real_scan_detect = scan_module.detect
