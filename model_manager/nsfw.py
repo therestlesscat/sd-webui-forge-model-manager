@@ -141,35 +141,41 @@ def image_level(image: Dict[str, Any]) -> int:
 def version_covers(images: Optional[List[Dict[str, Any]]],
                    complete: bool) -> Tuple[Optional[str], Optional[str]]:
     """
-    A version's two cover images, as the Civitai Browser would show them.
+    A version's two cover images: one for NSFW allowed, one for NSFW hidden.
 
     The cover is the first of the images the creator attached to a version
-    (its showcase), which is what a Civitai search card shows once NSFW is
-    allowed. Without it, Civitai leaves every image but PG out of the
-    showcase - PG-13 included - so the card shows the first PG image instead,
-    or none. Measured on the 34 most downloaded checkpoints with a PG image:
-    the card was the first PG image of the full showcase for all 34, and the
-    first PG or PG-13 image for only 27.
+    (its showcase) - what Civitai shows as the version's image. With NSFW
+    hidden the card needs a safe image instead, safe meaning what it means
+    everywhere else here: PG or PG-13. If the cover is one, it is the safe
+    cover too; if not, the first safe image after it. A showcase with no safe
+    image has no safe cover, and the card then looks in the gallery - see
+    query_models_grouped().
 
-    Only a complete showcase says what the cover is. /models/{id} returns
-    one; /models?ids= does with nsfw=true; /model-versions/by-hash never does,
-    whatever it is asked. A stripped one keeps the PG images in order, so
-    the first PG image is right from any of them.
+    Only a complete showcase says which image is the cover, and which safe
+    one comes first. /models/{id} returns one, and /models?ids= does with
+    nsfw=true; /model-versions/by-hash never does, whatever it is asked - it
+    keeps PG only - and nor may a .civitai.info that one of those wrote. A
+    stripped showcase's first image is still safe, so it stands in as the
+    safe cover until a complete one replaces it; it cannot stand in for the
+    cover.
 
     Args:
         images: The version's showcase, or None if the payload had none.
         complete: Whether it is known to be unstripped.
 
     Returns:
-        (cover, first PG image). None means unknown - keep what is stored -
-        and '' means known to be absent.
+        (cover, safe cover). None means unknown - keep what is stored - and
+        '' means known to be absent.
     """
     if images is None:
         return None, None
     urls = [img for img in images if img.get("url")]
-    pg = next((img["url"] for img in urls if image_level(img) == PG), "")
+    safe = next((img["url"] for img in urls if image_level(img) <= SFW_MAX), "")
     cover = (urls[0]["url"] if urls else "") if complete else None
-    return cover, pg
+    if not complete and not safe:
+        # A stripped showcase with nothing left says nothing either way.
+        safe = None
+    return cover, safe
 
 
 def showcase_is_complete(images: List[Dict[str, Any]]) -> bool:

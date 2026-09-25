@@ -929,6 +929,31 @@ def _migrate_to_v20(cursor):
     print("[ModelManager] Migration to v20 complete")
 
 
+def _migrate_to_v21(cursor):
+    """The NSFW-hidden cover is the first PG or PG-13 image, not the first PG.
+
+    v20 stored the first PG image as pg_cover_url, copying what Civitai's API
+    shows with NSFW off. Everywhere else here, safe means PG or PG-13, and
+    the card now follows that: safe_cover_url is the first showcase image
+    rated PG-13 or below.
+
+    Values already stored are PG, so they are safe and are kept until a sync
+    or scan replaces them. '' - "no PG image" - is not "no safe image", so it
+    is cleared to unknown, and those versions look in the gallery until then.
+    """
+    print("[ModelManager] Migrating to schema v21 (safe cover is PG-13 or below)...")
+
+    cursor.execute("PRAGMA table_info(model_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "pg_cover_url" in columns and "safe_cover_url" not in columns:
+        cursor.execute("ALTER TABLE model_versions RENAME COLUMN pg_cover_url TO safe_cover_url")
+    elif "safe_cover_url" not in columns:
+        cursor.execute("ALTER TABLE model_versions ADD COLUMN safe_cover_url TEXT")
+    cursor.execute("UPDATE model_versions SET safe_cover_url = NULL WHERE safe_cover_url = ''")
+
+    print("[ModelManager] Migration to v21 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -991,6 +1016,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 20:
         _migrate_to_v20(cursor)
+
+    if from_version < 21:
+        _migrate_to_v21(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

@@ -248,14 +248,16 @@ def query_models_grouped(
         outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
     outer_where = " AND ".join(outer_conditions)
 
-    # The card shows what the Civitai Browser's would for the same version:
-    # its cover with NSFW allowed, its first PG image without - which is
-    # none at all when it has no PG image (stored as ''). Only a version
-    # whose covers are not known yet (NULL) falls back to a pick from its
-    # stored gallery. See version_covers().
+    # The card's image. NSFW allowed: the version's cover, else the first
+    # image of its gallery. NSFW hidden: its safe cover - the cover itself
+    # if that is PG or PG-13, or the first such image after it - else the
+    # first PG or PG-13 image of its gallery, else none. Galleries are read
+    # in Civitai's order. '' in a cover column means "has none" and NULL
+    # "not known"; either way the gallery is looked at next. See
+    # version_covers().
     preview_url_column = (
-        "COALESCE(fv.pg_cover_url, ips.preview_url_least_nsfw)" if preview_least_nsfw
-        else "COALESCE(fv.cover_url, fv.pg_cover_url, ips.preview_url_recent)"
+        "COALESCE(NULLIF(fv.safe_cover_url, ''), ips.first_safe_url)" if preview_least_nsfw
+        else "COALESCE(NULLIF(fv.cover_url, ''), NULLIF(fv.safe_cover_url, ''), ips.first_url)"
     )
 
     # Query for latest version per model group
@@ -300,22 +302,23 @@ def query_models_grouped(
             SELECT
                 i.version_id,
                 i.url,
+                i.effective_nsfw_level <= {SFW_MAX} as is_safe,
                 ROW_NUMBER() OVER (
                     PARTITION BY i.version_id
-                    ORDER BY i.effective_nsfw_level ASC, i.created_at DESC, i.id DESC
-                ) as rn_least_nsfw,
+                    ORDER BY i.page, i.position, i.id
+                ) as rn_first,
                 ROW_NUMBER() OVER (
-                    PARTITION BY i.version_id
-                    ORDER BY i.created_at DESC, i.id DESC
-                ) as rn_recent
+                    PARTITION BY i.version_id, i.effective_nsfw_level <= {SFW_MAX}
+                    ORDER BY i.page, i.position, i.id
+                ) as rn_by_safety
             FROM images i
             INNER JOIN filtered_versions fv ON fv.id = i.version_id
         ),
         image_preview_selected AS (
             SELECT
                 version_id,
-                MAX(CASE WHEN rn_least_nsfw = 1 THEN url END) as preview_url_least_nsfw,
-                MAX(CASE WHEN rn_recent = 1 THEN url END) as preview_url_recent
+                MAX(CASE WHEN rn_first = 1 THEN url END) as first_url,
+                MAX(CASE WHEN is_safe AND rn_by_safety = 1 THEN url END) as first_safe_url
             FROM image_preview_ranked
             GROUP BY version_id
         ),

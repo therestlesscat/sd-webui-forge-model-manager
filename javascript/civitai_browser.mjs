@@ -646,6 +646,21 @@ async function searchModels(page = 1) {
     }
 }
 
+/**
+ * The image a card shows for a version: the first of its showcase.
+ *
+ * With NSFW models not included, Civitai leaves only PG images in the
+ * showcase, so that is safe as it comes. Nothing here depends on it staying
+ * so: an image above PG-13 is passed over for the first one that is PG or
+ * PG-13 - the line drawn everywhere else - and a version with none shows no
+ * image rather than an unsafe one.
+ */
+function cardImage(version) {
+    const images = version?.images || [];
+    if (document.getElementById('cb_nsfw')?.checked) return images[0];
+    return images.find((img) => isImageSafe(img));
+}
+
 // Render model grid
 function renderGrid() {
     const grid = document.getElementById('cb_grid');
@@ -733,7 +748,7 @@ function renderCard(model, index) {
 
     // Get preview image from first version
     const firstVersion = model.modelVersions?.[0];
-    const firstImage = firstVersion?.images?.[0];
+    const firstImage = cardImage(firstVersion);
     const previewImage = firstImage?.url || '';
     const previewUrl = previewImage ? getThumbnailUrl(previewImage, 250) : '';
     const hasPreview = previewUrl !== '';
