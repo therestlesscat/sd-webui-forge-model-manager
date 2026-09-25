@@ -1461,6 +1461,7 @@ function renderModelImages(images) {
     `;
     container.style.display = 'block';
     setupLazyMedia(container);
+    refreshResourceButtons();
 }
 
 // Render a single image card in list format
@@ -1536,12 +1537,7 @@ function renderImageCard(img, index) {
         : '';
 
     // Prompt (truncated)
-    // Everything except the model this gallery belongs to: an image is an
-    // example *of* that, so naming it says nothing. An upper bound - what the
-    // two lists duplicate is only known once the panel resolves them.
-    const resourceCount =
-        civitaiResources.filter(r => r.modelVersionId !== currentVersionId).length
-        + resources.length;
+    const resourcesLabel = resourceButtonLabel(img);
 
     const promptShort = prompt.length > 300 ? prompt.substring(0, 300) + '...' : prompt;
     const promptHtml = prompt
@@ -1617,7 +1613,7 @@ function renderImageCard(img, index) {
                         Show All
                     </button>
                     ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
-                    ${resourceCount > 0 ? `<button class="mm-btn secondary" onclick="window.mmShowResources(${index})">Resources (${resourceCount})</button>` : ''}
+                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" onclick="window.mmShowResources(${index})">${resourcesLabel}</button>` : ''}
                 </div>
             </div>
         </div>
@@ -1833,6 +1829,78 @@ function mergeImageResources(img, resolved, finished) {
 // must not paint over one opened after it, and it now repaints each round.
 let resourcesRequest = 0;
 
+// Every hash answer this page has seen: hash -> { version_id, ... }, as
+// resolveResourceHashes() returns them. The answers are the server's too -
+// it keeps them - so this only saves asking again within a page load.
+const knownHashes = {};
+
+/** An image's legacy resource hashes, lower-cased and each once. */
+function imageResourceHashes(img) {
+    const legacy = (img.meta || {}).resources || [];
+    return [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
+}
+
+/**
+ * What an image's Resources button says, or '' for no button.
+ *
+ * The count is the panel's own - mergeImageResources() over the hashes
+ * answered so far - so the button and the list it opens agree: duplicates
+ * counted once, the model this gallery belongs to not at all. It used to add
+ * the two lists up raw, and said 5 over a panel of 2, or appeared over an
+ * empty one.
+ *
+ * A hash nobody has looked up yet may turn out to be another resource, a
+ * duplicate, or this model, so while any is outstanding the count is a
+ * floor: "Resources (2+)", or just "Resources" with none known yet. Opening
+ * the panel looks them up, and the button becomes exact.
+ */
+function resourceButtonLabel(img) {
+    const meta = img.meta || {};
+    if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
+
+    const pending = imageResourceHashes(img)
+        .some(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
+    const { known, unknown } = mergeImageResources(img, knownHashes, false);
+    const count = known.length + unknown.length;
+
+    if (pending) return count ? `Resources (${count}+)` : 'Resources';
+    return count ? `Resources (${count})` : '';
+}
+
+/** Relabel the gallery's Resources buttons from what is known now. */
+function updateResourceButtons() {
+    document.querySelectorAll('#mm_images [data-resources-index]').forEach((button) => {
+        const img = currentImages[Number(button.dataset.resourcesIndex)];
+        const label = img ? resourceButtonLabel(img) : '';
+        if (label) button.textContent = label;
+        else button.remove();
+    });
+}
+
+/**
+ * Learn what the server already knows about the gallery's hashes, in one
+ * request, and relabel the buttons with it. Nothing is asked of Civitai:
+ * that happens only when a panel is opened.
+ */
+async function refreshResourceButtons() {
+    const unknown = [...new Set(currentImages.flatMap(imageResourceHashes))]
+        .filter(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
+    if (!unknown.length) return;
+    try {
+        const response = await fetch('/model-manager/resolve-hashes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'hashes=' + encodeURIComponent(unknown.join(',')) + '&local_only=true',
+        });
+        const data = await response.json();
+        if (!data.success) return;
+        Object.assign(knownHashes, data.resolved || {});
+        updateResourceButtons();
+    } catch (e) {
+        console.warn('[ModelManager] Could not read known resource hashes:', e);
+    }
+}
+
 // Show the resources behind an image, resolved and merged
 window.mmShowResources = async function(imageIndex) {
     const img = currentImages[imageIndex];
@@ -1848,13 +1916,17 @@ window.mmShowResources = async function(imageIndex) {
 
     // Up straight away, with whatever needs no lookup, because an uncached
     // hash takes a moment and a dialog that opens late reads as a dead button.
-    const hashes = [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
-    renderResourcesModal(mergeImageResources(img, {}, !hashes.length), hashes.length);
+    const hashes = imageResourceHashes(img);
+    renderResourcesModal(mergeImageResources(img, knownHashes, !hashes.length), hashes.length);
     if (!hashes.length) return;
 
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
+        Object.assign(knownHashes, partial);
+        updateResourceButtons();
         if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false), remaining);
     });
+    Object.assign(knownHashes, resolved);
+    updateResourceButtons();
 
     if (stillWanted()) renderResourcesModal(mergeImageResources(img, resolved, true), 0);
 };
