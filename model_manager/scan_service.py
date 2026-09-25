@@ -265,7 +265,7 @@ class ScanService:
             # The cover only if this sidecar provably kept its non-PG images;
             # older syncs, and some other tools, wrote stripped ones.
             showcase = matched_version.get("images")
-            version_data["cover_url"], version_data["pg_cover_url"] = version_covers(
+            version_data["cover_url"], version_data["safe_cover_url"] = version_covers(
                 showcase, complete=bool(showcase) and showcase_is_complete(showcase))
 
             # Get file hashes if available (from Civitai data)

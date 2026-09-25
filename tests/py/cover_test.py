@@ -1,20 +1,17 @@
 """
-The card preview: the same image in both tabs, for the same NSFW choice.
+The Model Manager card's image, for each NSFW choice.
 
-A Civitai search card shows a version's cover - the first image its creator
-attached (the showcase). With NSFW not allowed, Civitai leaves every image
-but PG out of the showcase, so the card shows the first PG image instead, or
-none. Checked against the live API on the 34 most downloaded checkpoints
-with a PG image: the first PG image, all 34 times.
+NSFW allowed: the version's cover - the first image its creator attached
+(the showcase), which is what Civitai shows for it.
 
-The Model Manager picked from the community gallery instead, by rating and
-date, so one model had two previews. It now keeps both covers per version
-and shows the one for the NSFW choice made; only a version whose covers are
-not known yet falls back to the gallery.
+NSFW hidden: a safe image, safe meaning PG or PG-13 as everywhere else here.
+The cover if it is one; else the first safe image after it in the showcase;
+else the first safe image of the version's gallery, in Civitai's order;
+else none.
 
 A showcase is only complete from /models/{id}, or /models?ids= with
-nsfw=true. by-hash is always stripped, so it can give the PG cover but not
-the real one - and nor can a .civitai.info that might have been stripped.
+nsfw=true. by-hash keeps PG only, and so may a .civitai.info: its first
+image is still safe, but it cannot say which image is the cover.
 """
 import json
 import os
@@ -59,21 +56,24 @@ def shot(name, level):
     return {'url': 'https://example.invalid/%s.jpeg' % name, 'nsfwLevel': level}
 
 
-# A showcase as Civitai sends it in full: R cover, then PG-13, then PG.
+# A showcase as Civitai sends it in full: an R cover, then PG-13, then PG.
 FULL = [shot('r-cover', 4), shot('pg13', 2), shot('pg-first', 1), shot('pg-second', 1)]
 STRIPPED = [shot('pg-first', 1), shot('pg-second', 1)]     # the same, without nsfw=true
+U = 'https://example.invalid/%s.jpeg'
 
 # ------------------------------------------------------------------ the rule
-check('from a full showcase: the cover, and the first PG image',
-      version_covers(FULL, complete=True),
-      ('https://example.invalid/r-cover.jpeg', 'https://example.invalid/pg-first.jpeg'))
-check('PG-13 is not PG: Civitai drops it too, and so does the PG cover',
-      version_covers([shot('pg13', 2), shot('pg', 1)], complete=True)[1],
-      'https://example.invalid/pg.jpeg')
-check('with no PG image, the PG cover is known to be none',
-      version_covers([shot('r', 4)], complete=True), ('https://example.invalid/r.jpeg', ''))
-check('a stripped showcase still gives the PG cover, but cannot say what the cover is',
-      version_covers(STRIPPED, complete=False), (None, 'https://example.invalid/pg-first.jpeg'))
+check('from a full showcase: the cover, and the first PG or PG-13 image',
+      version_covers(FULL, complete=True), (U % 'r-cover', U % 'pg13'))
+check('a cover that is PG-13 is safe, so it is both',
+      version_covers([shot('c', 2), shot('p', 1)], complete=True), (U % 'c', U % 'c'))
+check('with nothing PG or PG-13, the safe cover is known to be none',
+      version_covers([shot('r', 4), shot('x', 8)], complete=True), (U % 'r', ''))
+check('an unrated image is not known to be safe',
+      version_covers([{'url': U % 'unrated'}, shot('p', 1)], complete=True)[1], U % 'p')
+check('a stripped showcase: its first image is safe, but the cover is unknown',
+      version_covers(STRIPPED, complete=False), (None, U % 'pg-first'))
+check('a stripped showcase with nothing left says nothing at all',
+      version_covers([], complete=False), (None, None))
 check('no showcase at all says nothing', version_covers(None, complete=True), (None, None))
 check('an empty full showcase has neither', version_covers([], complete=True), ('', ''))
 check('a showcase with a non-PG image is provably unstripped', showcase_is_complete(FULL))
@@ -91,39 +91,61 @@ def card(model_id, nsfw_allowed):
     return next(m for m in body['models'] if m.get('model_id') == model_id)
 
 
-def set_covers(model_id, cover, pg_cover):
-    shown = card(model_id, False)['id']
+def shown_version(model_id):
+    return card(model_id, False)['id']
+
+
+def set_covers(model_id, cover, safe_cover):
     with db._cursor() as cursor:
-        cursor.execute("UPDATE model_versions SET cover_url = ?, pg_cover_url = ? WHERE id = ?",
-                       (cover, pg_cover, shown))
+        cursor.execute("UPDATE model_versions SET cover_url = ?, safe_cover_url = ? WHERE id = ?",
+                       (cover, safe_cover, shown_version(model_id)))
+
+
+def set_gallery(model_id, *levels):
+    """The shown version's gallery, in Civitai's order, as g0, g1, ... ."""
+    version = shown_version(model_id)
+    db.clear_version_images(version)
+    db.store_images(version, page=1, images=[
+        {'id': version * 1000 + n, 'url': U % ('g%d' % n), 'browsingLevel': level}
+        for n, level in enumerate(levels)])
 
 
 m = facts['checkpoint_ids'][2]
-set_covers(m, 'https://example.invalid/r-cover.jpeg', 'https://example.invalid/pg-first.jpeg')
-check('NSFW not allowed: the card is the first PG image, as in the Civitai Browser',
-      card(m, False)['preview_url'], 'https://example.invalid/pg-first.jpeg')
-check('NSFW allowed: the card is the cover itself',
-      card(m, True)['preview_url'], 'https://example.invalid/r-cover.jpeg')
+set_gallery(m, 8, 2, 1)
+set_covers(m, U % 'r-cover', U % 'pg13')
+check('NSFW hidden: the first safe showcase image', card(m, False)['preview_url'], U % 'pg13')
+check('NSFW allowed: the cover itself', card(m, True)['preview_url'], U % 'r-cover')
 
-set_covers(m, 'https://example.invalid/r-cover.jpeg', '')
-check('with no PG image and NSFW not allowed, no image - as the Civitai Browser shows none',
-      card(m, False)['preview_url'], '')
-check('while NSFW allowed still shows the cover', card(m, True)['preview_url'],
-      'https://example.invalid/r-cover.jpeg')
+set_covers(m, U % 'safe-cover', U % 'safe-cover')
+check('a safe cover is what both show', (card(m, False)['preview_url'], card(m, True)['preview_url']),
+      (U % 'safe-cover', U % 'safe-cover'))
 
-set_covers(m, None, 'https://example.invalid/pg-first.jpeg')
-check('with only the PG cover known, NSFW allowed shows that rather than guess',
-      card(m, True)['preview_url'], 'https://example.invalid/pg-first.jpeg')
+# The models this came from: a showcase all R and above, and a gallery that
+# has safe images. The card used to go blank.
+set_covers(m, U % 'r-cover', '')
+check('with no safe showcase image, NSFW hidden takes the first safe gallery image, '
+      'in Civitai\'s order', card(m, False)['preview_url'], U % 'g1')
+check('while NSFW allowed still shows the cover', card(m, True)['preview_url'], U % 'r-cover')
 
+set_gallery(m, 8, 16)
+check('and with nothing safe in the gallery either, no image',
+      card(m, False)['preview_url'] in (None, ''))
+
+set_gallery(m, 8, 2, 1)
 set_covers(m, None, None)
-check('with neither known, the card falls back to a pick from the gallery',
-      card(m, False)['preview_url'].startswith('https://example.invalid/i/'))
+check('covers not known yet: the gallery - its first safe image with NSFW hidden',
+      card(m, False)['preview_url'], U % 'g1')
+check('and its first image with NSFW allowed', card(m, True)['preview_url'], U % 'g0')
+
+set_covers(m, None, U % 'from-sidecar')
+check('with only a safe cover known, NSFW allowed shows that rather than guess',
+      card(m, True)['preview_url'], U % 'from-sidecar')
 
 # ------------------------------------------------------------------- the sync
 def covers_of(path):
     """What is stored, read from the row itself."""
     with db._cursor() as cursor:
-        cursor.execute("SELECT cover_url, pg_cover_url FROM model_versions WHERE file_path = ?",
+        cursor.execute("SELECT cover_url, safe_cover_url FROM model_versions WHERE file_path = ?",
                        (path,))
         return tuple(cursor.fetchone())
 
@@ -136,28 +158,49 @@ sync = SyncService(client=None)
 sync._update_database(path, full_model, HashResult.from_stored({}))
 row = db.get_version(path)
 check('a sync from a full model payload stores both covers',
-      covers_of(path),
-      ('https://example.invalid/r-cover.jpeg', 'https://example.invalid/pg-first.jpeg'))
+      covers_of(path), (U % 'r-cover', U % 'pg13'))
 
 by_hash = {'id': row['id'], 'modelId': row['model_id'], 'name': 'v',
            'images': [shot('pg-new', 1)]}
 sync._update_database(path, by_hash, HashResult.from_stored({}))
-check('a by-hash answer updates the PG cover but leaves the real one alone',
-      covers_of(path),
-      ('https://example.invalid/r-cover.jpeg', 'https://example.invalid/pg-new.jpeg'))
+check('a by-hash answer updates the safe cover but leaves the real one alone',
+      covers_of(path), (U % 'r-cover', U % 'pg-new'))
 
 # -------------------------------------------------------------------- the scan
 scan = ScanService()
 for showcase, want, label in (
-        (FULL, ('https://example.invalid/r-cover.jpeg', 'https://example.invalid/pg-first.jpeg'),
-         'a sidecar with non-PG images gives both covers'),
-        (STRIPPED, (None, 'https://example.invalid/pg-first.jpeg'),
-         'an all-PG sidecar may be stripped: the PG cover only')):
+        (FULL, (U % 'r-cover', U % 'pg13'), 'a sidecar with non-PG images gives both covers'),
+        (STRIPPED, (None, U % 'pg-first'), 'an all-PG sidecar may be stripped: the safe cover only')):
     version_data = {'file_path': path, 'file_name': os.path.basename(path),
                     'file_extension': '.safetensors'}
     scan._extract_civitai_metadata(
         {'id': 1, 'modelVersions': [{'id': 9, 'images': showcase}]}, version_data, path)
-    check(label, (version_data.get('cover_url'), version_data.get('pg_cover_url')), want)
+    check(label, (version_data.get('cover_url'), version_data.get('safe_cover_url')), want)
+
+# ------------------------------------------------------------- migration v21
+import sqlite3                                            # noqa: E402
+from model_manager.db.migrations import run_migrations    # noqa: E402
+path20 = os.path.join(WORK, 'v20.db')
+if os.path.exists(path20):
+    os.remove(path20)
+conn = sqlite3.connect(path20)
+cur = conn.cursor()
+cur.execute("CREATE TABLE schema_info (key TEXT PRIMARY KEY, value TEXT)")
+cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY, "
+            "cover_url TEXT, pg_cover_url TEXT)")
+cur.executemany("INSERT INTO model_versions VALUES (?, ?, ?, ?)",
+                [(1, 'a', 'c1', 'pg1'), (2, 'b', 'c2', ''), (3, 'c', None, None)])
+run_migrations(cur, 20, dbmod.SCHEMA_VERSION, path20, WORK)
+check('v21 renames the column to what it now holds',
+      [row[1] for row in cur.execute("PRAGMA table_info(model_versions)")][-1], 'safe_cover_url')
+check('keeping stored first-PG images, which are safe, and clearing "no PG image", '
+      'which is not "no safe image"',
+      cur.execute("SELECT id, safe_cover_url FROM model_versions ORDER BY id").fetchall(),
+      [(1, 'pg1'), (2, None), (3, None)])
+run_migrations(cur, 20, dbmod.SCHEMA_VERSION, path20, WORK)
+check('and can run twice', [row[1] for row in cur.execute(
+      "PRAGMA table_info(model_versions)")].count('safe_cover_url'), 1)
+conn.close()
 
 # --------------------------------------------------- the bulk fetch asks for all
 asked = []
