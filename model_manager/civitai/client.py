@@ -311,6 +311,19 @@ class CivitaiClient:
         except CivitaiNotFoundError:
             return None
 
+    def get_model_version(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get one model version by its id: its baseModel, files, and the model
+        it belongs to.
+
+        Returns:
+            Version info dict with embedded model reference, or None if not found.
+        """
+        try:
+            return self._request("GET", f"/model-versions/{int(version_id)}")
+        except CivitaiNotFoundError:
+            return None
+
     def get_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """
         Get full model info by ID.

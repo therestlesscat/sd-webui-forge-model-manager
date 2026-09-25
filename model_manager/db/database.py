@@ -284,6 +284,10 @@ class ModelsDatabase:
         """Record what a resource hash resolved to, or that it resolved to nothing."""
         return self._models.remember_hash(hash_value, version)
 
+    def versions_named_by(self, version_ids: List[int], hashes: List[str]) -> List[Dict[str, Any]]:
+        """Local versions an image's resources name, by hash or version id."""
+        return self._models.versions_named_by(version_ids, hashes)
+
     def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
         """Resolve what we can from our own rows, before asking Civitai."""
         return self._models.hashes_from_local_models(hashes)

@@ -572,6 +572,31 @@ class ModelsOps:
                     }
         return found
 
+    def versions_named_by(self, version_ids: List[int], hashes: List[str]) -> List[Dict[str, Any]]:
+        """
+        Local versions an image's resources name: by any hash stored for the
+        file - images carry AutoV2, AutoV3, SHA256 and others - or by Civitai
+        version id. Hash matches first: a hash names one file, where an
+        image's version ids name everything it used.
+        """
+        wanted = {h.lower() for h in hashes if h}
+        ids = [int(i) for i in version_ids if str(i).isdigit()]
+        by_hash, by_id = [], {}
+        with self._cursor() as cursor:
+            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
+            for row in cursor.fetchall():
+                if wanted and row["file_hashes"]:
+                    try:
+                        stored = json.loads(row["file_hashes"]) or {}
+                    except (TypeError, ValueError):
+                        stored = {}
+                    if any(str(v).lower() in wanted for v in stored.values() if v):
+                        by_hash.append(self._version_row_to_dict(row))
+                        continue
+                if row["id"] in ids:
+                    by_id.setdefault(row["id"], []).append(self._version_row_to_dict(row))
+        return by_hash + [v for i in ids for v in by_id.get(i, [])]
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:

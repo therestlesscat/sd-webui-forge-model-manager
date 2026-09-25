@@ -14,50 +14,45 @@ from fastapi.responses import JSONResponse
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/forge-modules")
-    def forge_modules_for(file_path: str = "", base_model: str = ""):
+    def forge_modules_for(file_path: str = "", base_model: str = "",
+                          version_ids: str = "", hashes: str = "", model_name: str = ""):
         """
         What Send to txt2img should set up in Forge before sending an image.
 
-        The UI preset for the model's architecture, and the text encoders and
-        VAE it needs that its file does not bring, picked from what Forge
-        offers. A plain `def`: it reads file headers.
+        The UI preset for the model the image will generate with, and the
+        text encoders and VAE it needs that its file does not bring, picked
+        from what Forge offers. Which model that is: see send_plan.py. A plain
+        `def`: it reads file headers, and may ask Civitai once.
 
         Args:
-            file_path: The checkpoint the image is sent with - a checkpoint's
-                own gallery. Its header is read if it has not been.
-            base_model: Civitai's baseModel, for a gallery that is not a
-                checkpoint's, or a file Forge does not recognise.
+            file_path: The gallery's file - the version shown.
+            base_model: The gallery version's baseModel on Civitai.
+            version_ids: Comma-separated Civitai version ids the image names
+                as checkpoints.
+            hashes: Comma-separated hashes the image names its checkpoint by.
+            model_name: The checkpoint's name in the image's generation data.
 
         Returns:
-            preset: Forge's UI preset, or null if unknown. manage_modules:
-            whether modules are this call's business at all - SD and SDXL
-            checkpoints bring their own, and keep the image's VAE as before.
-            select: labels to select; missing: kinds nothing installed is;
-            not_found: file names the settings give that are not installed.
+            preset: Forge's UI preset, or null if unknown. source: how it was
+            decided (send_plan.py). manage_modules: whether modules are this
+            call's business at all - SD and SDXL checkpoints bring their own,
+            and keep the image's VAE as before. select: labels to select;
+            missing: kinds nothing installed is; not_found: file names the
+            settings give that are not installed.
         """
-        from ..architecture import preset_for_base_model, record_architecture
         from ..db import get_models_db
         from ..forge_modules import (classify_file, installed_modules, pick,
                                      preferred_modules, saved_modules)
+        from ..send_plan import SendModel, plan_model
 
-        preset = model_class = None
-        bundled_te = bundled_vae = False
-        source = None
         try:
-            if file_path:
-                db = get_models_db()
-                record_architecture(db, file_path)
-                row = db.get_version(file_path) or {}
-                if row.get("architecture"):
-                    preset, model_class = row["architecture"], row.get("architecture_class")
-                    bundled_te, bundled_vae = row["bundled_text_encoder"], row["bundled_vae"]
-                    source = "file"
-                base_model = base_model or row.get("base_model") or ""
-            if not preset:
-                preset = preset_for_base_model(base_model)
-                source = "civitai" if preset else None
+            found = plan_model(get_models_db(), file_path, base_model,
+                               version_ids.split(","), hashes.split(","), model_name)
         except Exception as e:
             print(f"[ModelManager] Could not work out the architecture: {e}")
+            found = SendModel()
+        preset, model_class, source = found.preset, found.model_class, found.source
+        bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
 
         answer = {"success": True, "preset": preset, "model_class": model_class,
                   "source": source, "manage_modules": preset not in (None, "sd", "xl"),

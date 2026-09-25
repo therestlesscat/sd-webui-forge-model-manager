@@ -172,10 +172,27 @@ check('with no plan, the send goes on as it did before',
       [events.includes('paste'), events.some((e) => e.startsWith('preset'))], [true, false]);
 
 // ---------------------------------------------------------- a LoRA's gallery
+// Which model the image is for is the server's to work out (send_plan.py):
+// the image's own checkpoint first, if installed, then the LoRA's file. So
+// the send passes the gallery's file whatever it is, and the checkpoint the
+// image names - by Civitai version id, by hash, and by name.
 plan = { success: true, preset: 'flux', manage_modules: true, select: [], missing: [] };
 MODEL.model_type = 'LORA';
+IMAGE.meta.Model = 'anima-preview2';
+IMAGE.meta['Model hash'] = 'aaaa111122';
+IMAGE.meta.resources = [{ type: 'model', name: 'anima-preview2', hash: '635cf338c923' },
+                        { type: 'lora', name: 'a', hash: 'ffff' }];
+IMAGE.meta.civitaiResources = [{ type: 'checkpoint', modelVersionId: 2764263 },
+                               { type: 'Checkpoint', modelVersionId: 2089517 },
+                               { type: 'LORA', modelVersionId: 5 }];
 await send();
-check('a gallery that is not a checkpoint\'s is judged by its baseModel alone',
-      [planAsked[0]?.has('file_path'), planAsked[0]?.get('base_model')], [false, 'Flux.1 D']);
+check('a gallery that is not a checkpoint\'s still sends its file, and its baseModel',
+      [planAsked[0]?.get('file_path'), planAsked[0]?.get('base_model')],
+      ['C:/models/flux.safetensors', 'Flux.1 D']);
+check('with the checkpoint the image names: its version ids, of either spelling',
+      planAsked[0]?.get('version_ids'), '2764263,2089517');
+check('its hashes - the model resource\'s and the infotext\'s - and its name',
+      [planAsked[0]?.get('hashes'), planAsked[0]?.get('model_name')],
+      ['635cf338c923,aaaa111122', 'anima-preview2']);
 
 done();

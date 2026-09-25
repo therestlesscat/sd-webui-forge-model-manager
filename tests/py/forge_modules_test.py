@@ -184,7 +184,7 @@ settings = {}
 fm.preferred_modules = lambda preset: fm.parse_file_names(settings.get(preset, ''))
 
 flux_path = facts['linked_paths'][4]
-db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999')
+db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
 import model_manager.architecture as arch                 # noqa: E402
 arch.needs_check = lambda db_, p: None                    # already read, as stored
 body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
