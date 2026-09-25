@@ -80,7 +80,9 @@ Browse and organize the models already on disk.
 - **Send to txt2img** from any gallery image, including sampler, scheduler, VAE,
   and resource matching against your installed models. For Flux, Qwen-Image, Wan and
   Forge Neo's other newer models it also switches the UI preset and selects the text
-  encoders and VAE the model needs, read from the model file itself
+  encoders and VAE the model needs, read from the model file itself. In a LoRA's or a
+  VAE's gallery that model is the image's own checkpoint when you have it, else the
+  LoRA's, else the image's checkpoint as Civitai describes it (asked once, remembered)
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
 - **Scan** finds new model files on disk; **Sync** fetches Civitai metadata by file hash

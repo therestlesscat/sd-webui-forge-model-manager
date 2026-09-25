@@ -2449,15 +2449,53 @@ const MODULE_KIND_NAMES = {
 };
 
 /**
- * What to set up in Forge for the model an image is sent with: its UI
- * preset, and the modules to select. A checkpoint's gallery is judged by its
- * file; any other by Civitai's baseModel. null if the server cannot say.
+ * The version whose gallery is showing: the one picked in the details panel,
+ * or the grid's own row where the model has one version.
  */
-async function fetchForgePlan(model) {
+function shownVersion(model) {
+    return (currentVersions.length && currentVersions[selectedVersionIndex]) || model;
+}
+
+/** What a version's file is: read from it, else Civitai's type meanwhile. */
+function fileTypeOf(entry, model) {
+    return entry.file_type || entry.model_type || (model && model.civitai_type) || null;
+}
+
+/**
+ * The checkpoint an image names: the Civitai version ids of its resources
+ * filed as checkpoints, the hashes its generation data gives the model, and
+ * the model's name. The server matches them against the library, and asks
+ * Civitai about one it does not have.
+ */
+function imageCheckpoint(img) {
+    const meta = (img && img.meta) || {};
+    const versionIds = (meta.civitaiResources || [])
+        .filter((r) => String(r.type || '').toLowerCase() === 'checkpoint' && r.modelVersionId)
+        .map((r) => r.modelVersionId);
+    const hashes = (meta.resources || [])
+        .filter((r) => r.type === 'model' && r.hash)
+        .map((r) => r.hash);
+    if (meta['Model hash']) hashes.push(meta['Model hash']);
+    return { versionIds, hashes: [...new Set(hashes)], name: meta.Model || '' };
+}
+
+/**
+ * What to set up in Forge for an image: its UI preset, and the modules to
+ * select. Which model that is for - the gallery's checkpoint, the image's
+ * own, a LoRA's, Civitai's say - the server works out (send_plan.py).
+ * null if the server cannot say.
+ */
+async function fetchForgePlan(model, img) {
     if (!model) return null;
+    const version = shownVersion(model);
+    const checkpoint = imageCheckpoint(img);
     const params = new URLSearchParams();
-    if (model.model_type === 'Checkpoint' && model.file_path) params.set('file_path', model.file_path);
-    if (model.base_model) params.set('base_model', model.base_model);
+    if (version.file_path) params.set('file_path', version.file_path);
+    const baseModel = version.base_model || model.base_model;
+    if (baseModel) params.set('base_model', baseModel);
+    if (checkpoint.versionIds.length) params.set('version_ids', checkpoint.versionIds.join(','));
+    if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
+    if (checkpoint.name) params.set('model_name', checkpoint.name);
     try {
         const response = await fetch('/model-manager/forge-modules?' + params.toString());
         const plan = await response.json();
@@ -2839,13 +2877,15 @@ window.mmSendToTxt2img = async function(imageIndex) {
     try {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
-        const plan = await fetchForgePlan(model);
+        const plan = await fetchForgePlan(model, img);
         if (plan && plan.preset) await switchForgePreset(plan.preset);
 
-        // If current model is a Checkpoint, get its path
+        // The gallery's own file is loaded when it is a checkpoint - by what
+        // the file is, so a VAE Civitai files as a "Checkpoint" is not.
         let checkpointPath = null;
-        if (model && model.model_type === 'Checkpoint') {
-            checkpointPath = getDropdownPath(model.file_path, 'Checkpoint');
+        const version = model ? shownVersion(model) : null;
+        if (version && fileTypeOf(version, model) === 'Checkpoint') {
+            checkpointPath = getDropdownPath(version.file_path, 'Checkpoint');
         }
 
         const vaePath = vaeFromMeta(meta);
