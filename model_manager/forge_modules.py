@@ -80,6 +80,13 @@ _EMBEDDINGS = {
 _EMBEDDING_NAMES = ("embed_tokens.weight", "token_embedding.weight", "shared.weight",
                     "token_embd.weight")
 
+# The keys Forge's loader looks for before taking a file as T5 or UMT5
+# (backend/loader.py replace_state_dict): Hugging Face's layout, plain or
+# quantized. The same encoder saved in Wan's own layout (blocks.N.attn.q,
+# a top-level token_embedding) has the right shape and is not loaded.
+_T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
+                "encoder.block.0.layer.0.SelfAttention.k.qweight")
+
 # A VAE's latent channels, from its decoder's first convolution -> its kind.
 _LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
 
@@ -103,6 +110,8 @@ def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]]) -> Optional[str]:
             if len(shape) == 2:
                 kind = _EMBEDDINGS.get((shape[0], shape[1], vision)) \
                     or _EMBEDDINGS.get((shape[0], shape[1], False))
+                if kind in ("t5xxl", "umt5xxl") and not any(k in shapes for k in _T5_LOADABLE):
+                    return None         # right encoder, in a layout Forge cannot load
                 if kind:
                     return kind
 

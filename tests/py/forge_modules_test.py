@@ -60,16 +60,31 @@ def vae(channels=None, wan=False):
 
 
 # ------------------------------------------------------------- telling apart
+HF_T5 = {'encoder.block.0.layer.0.SelfAttention.k.weight': ((4096, 4096), 'F16')}
 check('text encoders are told apart by their embedding',
       [fm.classify(s) for s in (
           te(49408, 768, name='text_model.embeddings.token_embedding.weight'),
           te(49408, 1280, name='text_model.embeddings.token_embedding.weight'),
-          te(32128, 4096, name='shared.weight'),
-          te(256384, 4096, name='shared.weight'),
+          {**te(32128, 4096, name='shared.weight'), **HF_T5},
+          {**te(256384, 4096, name='shared.weight'), **HF_T5},
           te(151936, 1024), te(151936, 2560), te(151936, 4096),
           te(152064, 3584, vision=True), te(256000, 2304), te(131072, 3072))],
       ['clip_l', 'clip_g', 't5xxl', 'umt5xxl', 'qwen3_06b', 'qwen3_4b', 'qwen3_8b',
        'qwen25_7b', 'gemma2_2b', 'ministral3_3b'])
+# T5 and UMT5 only in the layout Forge's loader takes: Hugging Face's, which
+# it finds by encoder.block...SelfAttention. The same UMT5-XXL saved in Wan's
+# own layout has the right embedding and would never load, so it must count
+# as missing rather than be picked.
+HF_T5 = {'encoder.block.0.layer.0.SelfAttention.k.weight': ((4096, 4096), 'F16')}
+check('UMT5-XXL in Hugging Face\'s layout is UMT5-XXL',
+      fm.classify({**te(256384, 4096, name='shared.weight'), **HF_T5}), 'umt5xxl')
+check('as is a quantized one',
+      fm.classify({**te(32128, 4096, name='shared.weight'),
+                   'encoder.block.0.layer.0.SelfAttention.k.qweight': ((4096, 512), 'I32')}), 't5xxl')
+check('but the same encoder in Wan\'s own layout is not a module Forge can load',
+      fm.classify({'token_embedding.weight': ((256384, 4096), 'BF16'),
+                   'blocks.0.attn.k.weight': ((4096, 4096), 'BF16'),
+                   'blocks.0.ffn.gate.0.weight': ((10240, 4096), 'BF16')}), None)
 check('and by a vision tower: Qwen3-VL is not Qwen3',
       fm.classify(te(151936, 2560, vision=True)), 'qwen3vl_4b')
 check('VAEs by their latent channels, or the Wan-style layout',
@@ -118,7 +133,9 @@ check('with only a preset known, its class is assumed',
 # ------------------------------------------------------ reading module files
 path = os.path.join(TESTS, 'work', 'forge_modules_t5.sft')
 os.makedirs(os.path.dirname(path), exist_ok=True)
-raw = json.dumps({'shared.weight': {'dtype': 'BF16', 'shape': [32128, 4096], 'data_offsets': [0, 0]}}).encode()
+raw = json.dumps({'shared.weight': {'dtype': 'BF16', 'shape': [32128, 4096], 'data_offsets': [0, 0]},
+                  'encoder.block.0.layer.0.SelfAttention.k.weight':
+                      {'dtype': 'BF16', 'shape': [4096, 4096], 'data_offsets': [0, 0]}}).encode()
 open(path, 'wb').write(struct.pack('<Q', len(raw)) + raw)
 check('a module file is read and classified, .sft included', fm.classify_file(path), ('t5xxl', 2))
 
