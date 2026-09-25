@@ -2403,6 +2403,113 @@ function vaeFromMeta(meta) {
  * `vaeName` of null means the image named none, which must clear the
  * selection rather than leave the last one in place.
  */
+// ------------------------------------------------ Forge Neo UI preset + modules
+// An image's generation data never names a Flux model's CLIP-L and T5-XXL, or
+// a Qwen-Image model's Qwen2.5-VL - whoever made it had them loaded. So
+// before sending, the server works out the model's architecture from its file
+// (or Civitai's baseModel), and which of the modules it needs are installed
+// (architecture.py, forge_modules.py); the send then switches Forge's UI
+// preset to match, and selects them.
+
+// What the server calls each kind of module, as a person would.
+const MODULE_KIND_NAMES = {
+    clip_l: 'CLIP-L', clip_g: 'CLIP-G', t5xxl: 'T5-XXL', umt5xxl: 'UMT5-XXL',
+    qwen25_7b: 'Qwen2.5-VL 7B', qwen3_06b: 'Qwen3 0.6B', qwen3_4b: 'Qwen3 4B',
+    qwen3_8b: 'Qwen3 8B', qwen3vl_4b: 'Qwen3-VL 4B', gemma2_2b: 'Gemma 2 2B',
+    ministral3_3b: 'Ministral 3 3B', vae_ae: 'Flux VAE (ae)', vae_flux2: 'Flux.2 VAE',
+    vae_wan21: 'Qwen-Image / Wan VAE', vae_sd: 'SD VAE',
+};
+
+/**
+ * What to set up in Forge for the model an image is sent with: its UI
+ * preset, and the modules to select. A checkpoint's gallery is judged by its
+ * file; any other by Civitai's baseModel. null if the server cannot say.
+ */
+async function fetchForgePlan(model) {
+    if (!model) return null;
+    const params = new URLSearchParams();
+    if (model.model_type === 'Checkpoint' && model.file_path) params.set('file_path', model.file_path);
+    if (model.base_model) params.set('base_model', model.base_model);
+    try {
+        const response = await fetch('/model-manager/forge-modules?' + params.toString());
+        const plan = await response.json();
+        return plan && plan.success ? plan : null;
+    } catch (e) {
+        console.warn('[ModelManager] Could not work out the model\'s architecture:', e);
+        return null;
+    }
+}
+
+/** Forge Neo's UI preset as it stands, or null where there is none. */
+function currentForgePreset() {
+    return gradioApp().querySelector('#forge_ui_preset input')?.value || null;
+}
+
+/**
+ * Switch Forge Neo's UI preset, and wait for it to take.
+ *
+ * Done before anything of the image is sent: a preset change resets the
+ * sampler, scheduler and steps to its defaults and restores its saved
+ * modules, which would overwrite what the image asked for. Forge's own
+ * scripts read the preset from this control's input, so that is what is
+ * waited on, then a moment for the rest of the change to land.
+ *
+ * Returns whether Forge is now on `preset`. False where this is not Forge
+ * Neo, or the preset is not offered - and then the send goes on as before.
+ */
+async function switchForgePreset(preset) {
+    const container = gradioApp().querySelector('#forge_ui_preset');
+    const input = container?.querySelector('input');
+    if (!input || !preset) return false;
+    if (input.value === preset) return true;
+
+    input.focus();
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await nextFrame();
+    const option = readModuleOptions(container).find((o) => o.label === preset);
+    if (!option) {
+        input.blur();
+        console.warn(`[ModelManager] Forge offers no "${preset}" preset; left as it was`);
+        return false;
+    }
+    pressOption(option.element);
+    input.blur();
+
+    for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(100);
+    await nextFrame(FORGE_PRESET_SETTLE_MS);
+    console.log('[ModelManager] Forge UI preset now:', currentForgePreset());
+    return currentForgePreset() === preset;
+}
+
+// How long a preset change is given, after its value shows, to reset the
+// sampler, steps and modules before the image's own are applied.
+let FORGE_PRESET_SETTLE_MS = 600;
+
+/**
+ * Select the modules the plan picked, and say what it could not find.
+ * Called after the paste, as applyVaeSelection() is: the paste re-renders
+ * much of the page but never touches the modules.
+ */
+async function applyPlannedModules(plan) {
+    await applyForgeModules(plan.select || []);
+    if (plan.missing && plan.missing.length) {
+        const names = plan.missing.map((kind) => MODULE_KIND_NAMES[kind] || kind).join(', ');
+        showNotice(`This ${plan.preset} model also needs ${names}, which is not installed. `
+                   + 'Add it to Forge\'s VAE or text_encoder folder, or select it in "VAE / Text Encoder".');
+    }
+}
+
+/** A short message in the corner of the page, gone after a while. */
+function showNotice(text) {
+    const notice = document.createElement('div');
+    notice.className = 'mm-notice';
+    notice.textContent = text;
+    document.body.appendChild(notice);
+    setTimeout(() => notice.remove(), 12000);
+    console.warn('[ModelManager]', text);
+}
+
 async function applyVaeSelection(vaeName) {
     if (await applyForgeModules(vaeName ? [vaeName] : [])) return;
 
@@ -2695,6 +2802,11 @@ window.mmSendToTxt2img = async function(imageIndex) {
     }
 
     try {
+        // Forge's UI preset first: changing it resets what the image is about
+        // to set. Anything failing here leaves the send as it was before.
+        const plan = await fetchForgePlan(model);
+        if (plan && plan.preset) await switchForgePreset(plan.preset);
+
         // If current model is a Checkpoint, get its path
         let checkpointPath = null;
         if (model && model.model_type === 'Checkpoint') {
@@ -2760,8 +2872,11 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
             // After the paste: it re-renders much of the page, and it never
             // touches the modules itself - Neo reads "Module 1"/"Module 2"
-            // from an infotext, not the "VAE:" line we write.
-            applyVaeSelection(vaePath);
+            // from an infotext, not the "VAE:" line we write. A model whose
+            // text encoders and VAE are separate gets the ones it needs; an
+            // SD or SDXL one, the image's own VAE as before.
+            if (plan && plan.manage_modules) applyPlannedModules(plan);
+            else applyVaeSelection(vaePath);
 
             // Reset hires fix if image doesn't have hires data
             // InputAccordion uses a hidden checkbox - need to set value and dispatch events

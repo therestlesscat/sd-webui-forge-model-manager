@@ -2356,3 +2356,22 @@ body.mm-modal-open {
     text-align: center;
     line-height: 18px;
 }
+
+/* A short message from Send to txt2img, over whatever tab is showing - say,
+   that a model needs a text encoder that is not installed. */
+.mm-notice {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10000;
+    max-width: 420px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    background: var(--block-background-fill, #1f2937);
+    color: var(--body-text-color, #fff);
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
