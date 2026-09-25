@@ -608,7 +608,7 @@ function renderModelCard(model, index) {
             <div class="model-card-info">
                 <div class="model-card-name" title="${name}">${nameShort}</div>
                 <div class="model-card-meta">
-                    <span class="badge type-badge">${model.model_type || 'Unknown'}</span>
+                    <span class="badge type-badge">${escapeHtml(model.model_type || 'Unknown')}</span>
                     ${baseModelBadge}
                     ${versionsBadge}
                 </div>
@@ -882,6 +882,25 @@ function updateVersionSelectorUI() {
     });
 }
 
+/**
+ * The Type row: what the file is, read from it. Where Civitai lists it as
+ * something else - a VAE shared as a "Checkpoint" - that is said too, so a
+ * model that moved under the Type filter explains itself. A file not read
+ * yet shows Civitai's type alone, as the filter uses it.
+ */
+function typeText(entry, civitaiType) {
+    const own = entry.file_type;
+    if (!own) return escapeHtml(civitaiType || entry.model_type || 'Unknown');
+    const listed = civitaiType && civitaiType !== own
+        ? ` <span class="mm-type-civitai">(listed on Civitai as ${escapeHtml(civitaiType)})</span>` : '';
+    return escapeHtml(own) + listed;
+}
+
+/** What decided the file's type, as the Type row's tooltip. */
+function typeTitle(entry) {
+    return entry.identified_by ? ` title="${escapeHtml('Read from the file: ' + entry.identified_by)}"` : '';
+}
+
 // Update version-specific info in details panel
 function updateVersionInfo(version) {
     // Update file path
@@ -904,6 +923,15 @@ function updateVersionInfo(version) {
             value.textContent = formatDate(version.published_at);
         }
     });
+
+    // One Civitai model can hold a VAE version and a text encoder version.
+    const typeCell = document.querySelector('.mm-type-cell');
+    if (typeCell) {
+        const model = currentModels[selectedModelIndex] || {};
+        typeCell.innerHTML = typeText(version, model.civitai_type);
+        if (version.identified_by) typeCell.title = 'Read from the file: ' + version.identified_by;
+        else typeCell.removeAttribute('title');
+    }
 
     // Update trigger words if different
     const triggerSection = document.querySelector('.trigger-words');
@@ -1056,7 +1084,7 @@ function renderModelDetails(model, fullDetails = null) {
                 <table class="detail-table">
                     ${modelId ? `<tr><td>Model ID</td><td>${modelId}</td></tr>` : ''}
                     ${model.id ? `<tr><td>Version ID</td><td>${model.id}</td></tr>` : ''}
-                    <tr><td>Type</td><td>${model.model_type || 'Unknown'}</td></tr>
+                    <tr><td>Type</td><td class="mm-type-cell"${typeTitle(model)}>${typeText(model, model.civitai_type)}</td></tr>
                     <tr><td>Base Model</td><td>${model.base_model || 'Unknown'}</td></tr>
                     <tr><td rowspan="3" class="nsfw-label-cell">NSFW Level</td><td>Model: ${expandNsfwLevel(model.civitai_model?.nsfw_level)}</td></tr>
                     <tr><td>Version: ${expandNsfwLevel(model.nsfw_level)}</td></tr>

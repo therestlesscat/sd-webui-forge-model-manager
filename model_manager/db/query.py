@@ -116,7 +116,10 @@ def query_models_grouped(
             params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
 
     if model_type:
-        conditions.append("COALESCE(m.type, 'Unknown') = ?")
+        # What the file is, read from it (file_identity.py); Civitai's type
+        # only for a file not read yet - it is what the uploader filed it
+        # under, and a VAE shared as a "Checkpoint" is still a VAE.
+        conditions.append("COALESCE(v.file_type, m.type, 'Unknown') = ?")
         params.append(model_type)
 
     if base_model:
@@ -436,6 +439,10 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
         # and the honest "when did I get this" for a grouped model
         "group_acquired_at": row["group_acquired_at"] if "group_acquired_at" in row.keys() else None,
         "max_image_nsfw": row["max_image_nsfw"],
+        # What the file is, from the file; None until a scan has read it.
+        "file_type": row["file_type"] if "file_type" in row.keys() else None,
+        "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
+        "architecture": row["architecture"] if "architecture" in row.keys() else None,
         "is_bookmarked": bool(row["cm_is_bookmarked"]) if row["cm_is_bookmarked"] else False,
         "updated_at": row["cm_updated_at"] if "cm_updated_at" in row.keys() else None,
     }
@@ -464,7 +471,8 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
             "supports_generation": bool(row["cm_supports_generation"]) if row["cm_supports_generation"] is not None else False,
         }
         result["display_name"] = row["cm_name"]
-        result["model_type"] = row["cm_type"]
+        result["model_type"] = result["file_type"] or row["cm_type"] or "Unknown"
+        result["civitai_type"] = row["cm_type"]
         result["tags"] = json.loads(row["cm_tags"] or "[]")
         result["creator"] = row["cm_creator_username"]
         result["download_count"] = row["cm_stats_download_count"] or row["stats_download_count"]
@@ -474,7 +482,8 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
     else:
         result["civitai_model"] = None
         result["display_name"] = os.path.splitext(row["file_name"])[0]
-        result["model_type"] = "Unknown"
+        result["model_type"] = result["file_type"] or "Unknown"
+        result["civitai_type"] = None
         result["tags"] = []
         result["creator"] = None
         result["download_count"] = row["stats_download_count"] or 0
