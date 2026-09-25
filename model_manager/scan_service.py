@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import get_models_db
+from .architecture import detect, needs_check, store_architecture
 from .nsfw import (
     UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -353,15 +354,26 @@ class ScanService:
         # Track which files we've seen (to remove deleted ones)
         seen_paths = set()
 
-        def process_model(path: str) -> Optional[Tuple[Optional[Dict], Dict]]:
+        def process_model(path: str):
             if self._cancel_requested:
                 return None
             try:
-                return self.extract_metadata(path)
+                civitai_model, version_data = self.extract_metadata(path)
             except Exception as e:
                 with self._progress_lock:
                     self._progress.errors.append(f"{os.path.basename(path)}: {e}")
                 return None
+            # What the file's own header says it is - read here, on the
+            # worker, and only for files new or changed since last time.
+            # Never a reason to fail the scan.
+            architecture = None
+            try:
+                modified = needs_check(db, path)
+                if modified is not None:
+                    architecture = (detect(path), modified)
+            except Exception as e:
+                print(f"[ModelManager] Architecture check failed for {os.path.basename(path)}: {e}")
+            return civitai_model, version_data, architecture
 
         # Process models in parallel
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -379,7 +391,7 @@ class ScanService:
                     self._progress.current_file = os.path.basename(path)
 
                 if result:
-                    civitai_model, version_data = result
+                    civitai_model, version_data, architecture = result
                     seen_paths.add(path)
 
                     # Insert/update civitai model if we have one
@@ -388,6 +400,9 @@ class ScanService:
 
                     # Insert/update version
                     db.upsert_version(version_data)
+
+                    if architecture is not None:
+                        store_architecture(db, path, *architecture)
 
                 if callback:
                     callback(self._progress)

@@ -191,8 +191,9 @@ cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY
 cur.executemany("INSERT INTO model_versions VALUES (?, ?, ?, ?)",
                 [(1, 'a', 'c1', 'pg1'), (2, 'b', 'c2', ''), (3, 'c', None, None)])
 run_migrations(cur, 20, dbmod.SCHEMA_VERSION, path20, WORK)
+columns = [row[1] for row in cur.execute("PRAGMA table_info(model_versions)")]
 check('v21 renames the column to what it now holds',
-      [row[1] for row in cur.execute("PRAGMA table_info(model_versions)")][-1], 'safe_cover_url')
+      ('safe_cover_url' in columns, 'pg_cover_url' in columns), (True, False))
 check('keeping stored first-PG images, which are safe, and clearing "no PG image", '
       'which is not "no safe image"',
       cur.execute("SELECT id, safe_cover_url FROM model_versions ORDER BY id").fetchall(),

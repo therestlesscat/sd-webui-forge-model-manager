@@ -23,6 +23,7 @@ from .civitai import (
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
 from .storage import write_civitai_info
+from .architecture import record_architecture
 from .nsfw import UNKNOWN, version_covers
 from .db import get_models_db
 
@@ -163,6 +164,26 @@ class SyncService:
 
     def sync_model(self, model_path: str, force: bool = False,
                    classify_checkpoint: bool = True) -> SyncResult:
+        """
+        Sync a single model with Civitai - see _sync_model().
+
+        A forced sync, which is also what a finished download runs, reads the
+        file's architecture again as well (architecture.py): it is when a
+        file is new, or may no longer be what was read. Whatever Civitai
+        said, and never a reason for the sync to fail.
+        """
+        result = self._sync_model(model_path, force=force,
+                                  classify_checkpoint=classify_checkpoint)
+        if force:
+            try:
+                record_architecture(get_models_db(), model_path, force=True)
+            except Exception as e:
+                print(f"[ModelManager] Architecture check failed for "
+                      f"{os.path.basename(model_path)}: {e}")
+        return result
+
+    def _sync_model(self, model_path: str, force: bool = False,
+                    classify_checkpoint: bool = True) -> SyncResult:
         """
         Sync a single model with Civitai.
 
