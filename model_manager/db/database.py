@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 
 class ModelsDatabase:
@@ -139,6 +139,26 @@ class ModelsDatabase:
             cursor.execute(
                 "UPDATE model_versions SET civitai_lookup_failed_at = ? WHERE file_path = ?",
                 (stamp, file_path)
+            )
+
+    def set_architecture(self, file_path: str, preset: Optional[str],
+                         model_class: Optional[str],
+                         bundled_text_encoder: bool, bundled_vae: bool,
+                         checked: Optional[str]):
+        """
+        Record what a model file's own header says it is. See architecture.py.
+
+        `checked` is the file's modified time when it was read, so a scan can
+        skip files unchanged since - including ones Forge did not recognise,
+        which are recorded with preset None rather than asked about again.
+        """
+        with self._cursor() as cursor:
+            cursor.execute(
+                "UPDATE model_versions SET architecture = ?, architecture_class = ?,"
+                " bundled_text_encoder = ?, bundled_vae = ?, architecture_checked = ?"
+                " WHERE file_path = ?",
+                (preset, model_class, int(bool(bundled_text_encoder)), int(bool(bundled_vae)),
+                 checked, file_path)
             )
 
     def count_lookup_failed(self) -> int:

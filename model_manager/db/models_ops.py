@@ -692,4 +692,9 @@ class ModelsOps:
             "next_images_cursor": row["next_images_cursor"] if "next_images_cursor" in row.keys() else None,
             "images_sync_last_date": row["images_sync_last_date"] if "images_sync_last_date" in row.keys() else None,
             "civitai_lookup_failed_at": row["civitai_lookup_failed_at"] if "civitai_lookup_failed_at" in row.keys() else None,
+            "architecture": row["architecture"] if "architecture" in row.keys() else None,
+            "architecture_class": row["architecture_class"] if "architecture_class" in row.keys() else None,
+            "bundled_text_encoder": bool(row["bundled_text_encoder"]) if "bundled_text_encoder" in row.keys() else False,
+            "bundled_vae": bool(row["bundled_vae"]) if "bundled_vae" in row.keys() else False,
+            "architecture_checked": row["architecture_checked"] if "architecture_checked" in row.keys() else None,
         }

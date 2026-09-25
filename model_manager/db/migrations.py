@@ -954,6 +954,33 @@ def _migrate_to_v21(cursor):
     print("[ModelManager] Migration to v21 complete")
 
 
+def _migrate_to_v22(cursor):
+    """Remember what each model file's own header says it is.
+
+    Send to txt2img has to switch Forge Neo's UI preset to a model's
+    architecture, and load the text encoders and VAE it lacks - which the
+    header shows, and Civitai's baseModel does not. See architecture.py.
+
+    architecture is the Forge UI preset ("flux", "qwen", ...), or NULL when
+    Forge did not recognise the file; architecture_class is Forge's model
+    class, which one preset can hold several of that need different text
+    encoders (Flux and Chroma, Flux.2 klein 4B and 9B); architecture_checked is the file's
+    modified time when it was read, NULL for never, so a scan only reads
+    files that are new or have changed.
+    """
+    print("[ModelManager] Migrating to schema v22 (model architecture)...")
+
+    cursor.execute("PRAGMA table_info(model_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    for column, kind in (("architecture", "TEXT"), ("architecture_class", "TEXT"),
+                         ("bundled_text_encoder", "INTEGER"),
+                         ("bundled_vae", "INTEGER"), ("architecture_checked", "TEXT")):
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE model_versions ADD COLUMN {column} {kind}")
+
+    print("[ModelManager] Migration to v22 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1019,6 +1046,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 21:
         _migrate_to_v21(cursor)
+
+    if from_version < 22:
+        _migrate_to_v22(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
