@@ -53,29 +53,27 @@ def create_civitai_browser_ui():
                                 <option value="Merge">Merge</option>
                             </select>
                         </div>
-                        <div class="filter-group">
-                            <label>Base Model</label>
-                            <select id="cb_base_model">
-                                <option value="">All</option>
-                                <option value="Flux.1 D">Flux.1 D</option>
-                                <option value="Flux.1 S">Flux.1 S</option>
-                                <option value="HiDream">HiDream</option>
-                                <option value="Illustrious">Illustrious</option>
-                                <option value="NoobAI">NoobAI</option>
-                                <option value="Pony">Pony</option>
-                                <option value="Qwen">Qwen</option>
-                                <option value="SD 1.4">SD 1.4</option>
-                                <option value="SD 1.5">SD 1.5</option>
-                                <option value="SD 1.5 Hyper">SD 1.5 Hyper</option>
-                                <option value="SD 2.1">SD 2.1</option>
-                                <option value="SDXL 1.0">SDXL 1.0</option>
-                                <option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option>
-                                <option value="SDXL Lightning">SDXL Lightning</option>
-                                <option value="Wan Video 2.2 I2V-A14B">Wan Video 2.2 I2V-A14B</option>
-                                <option value="Wan Video 2.2 T2V-A14B">Wan Video 2.2 T2V-A14B</option>
-                                <option value="ZImageTurbo">ZImageTurbo</option>
-                                <option value="Other">Other</option>
-                            </select>
+                        <!-- The options are split by who acts on them: Civitai, in the
+                             search itself, or this extension, checking what the search
+                             returned. Each takes only the width its checkboxes need. -->
+                        <div class="filter-group filter-group-compact">
+                            <label>API Options</label>
+                            <div class="filter-checkboxes">
+                                <label class="cb-checkbox-label" title="Asks Civitai to include the models it rates NSFW. Unticked, Civitai leaves those out and shows only the safe images of the rest - but most of the models it still lists have NSFW images in their galleries. For those, see Only Show Models with SFW images.">
+                                    <input type="checkbox" id="cb_nsfw"> Include NSFW models
+                                </label>
+                            </div>
+                        </div>
+                        <div class="filter-group filter-group-compact">
+                            <label>Post-processing Options</label>
+                            <div class="filter-checkboxes">
+                                <label class="cb-checkbox-label" id="cb_sfw_only_label" title="Leaves out models whose first 20 example images include anything rated above PG-13, or not rated at all, and models with no images, since nothing shows those are safe. Civitai cannot filter on this, so each model is checked here - one request per model, remembered for a few hours. Most Civitai models have NSFW images, so a page often comes back short: press Next to keep looking.">
+                                    <input type="checkbox" id="cb_sfw_only"> Only Show Models with SFW images
+                                </label>
+                                <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
+                                    <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
+                                </label>
+                            </div>
                         </div>
                         <div class="filter-group-bordered">
                             <div class="filter-group">
@@ -104,56 +102,62 @@ def create_civitai_browser_ui():
                         </div>
                     </div>
                     <div class="filter-row">
-                        <div class="filter-group filter-group-half">
+                        <div class="filter-group">
                             <label>Search</label>
                             <input type="text" id="cb_search" placeholder="Search models...">
                         </div>
-                        <div class="filter-group filter-group-compact" title="Size of the latest version's primary file. Civitai cannot filter on this, so results are checked here - a narrow range can take a few searches to fill a page.">
-                            <label>File Size (GB)</label>
-                            <div class="filter-range">
-                                <input type="number" id="cb_min_size" min="0" step="0.1" placeholder="Min">
-                                <span>-</span>
-                                <input type="number" id="cb_max_size" min="0" step="0.1" placeholder="Max">
-                            </div>
-                        </div>
-                        <div class="filter-group filter-group-half">
-                            <label>Tag (only a single tag is allowed by the Civitai API)</label>
-                            <div class="cb-tag-container">
-                                <!-- The chosen tag, as a chip; the box comes back when it is removed. -->
-                                <div class="cb-tag-selected" id="cb_tag_selected" style="display: none;">
-                                    <span class="cb-tag-chip">
-                                        <span class="cb-tag-chip-name" id="cb_tag_chip_name"></span>
-                                        <button type="button" class="cb-tag-chip-remove" id="cb_tag_chip_remove" title="Remove tag" aria-label="Remove tag">&times;</button>
-                                    </span>
-                                </div>
-                                <input type="text" id="cb_tag_input" placeholder="Type to search tags..." autocomplete="off">
-                                <div class="cb-tag-dropdown" id="cb_tag_dropdown"></div>
-                            </div>
-                        </div>
-                        <!-- Every group is a caption over its controls, so the row
-                             lines up without being told to. The options are split
-                             by who acts on them: Civitai, in the search itself, or
-                             this extension, checking what the search returned. -->
-                        <div class="filter-group filter-grow-half">
-                            <label>API Options</label>
-                            <div class="filter-checkboxes">
-                                <label class="cb-checkbox-label" title="Asks Civitai to include the models it rates NSFW. Unticked, Civitai leaves those out and shows only the safe images of the rest - but most of the models it still lists have NSFW images in their galleries. For those, see Only Show Models with SFW images.">
-                                    <input type="checkbox" id="cb_nsfw"> Include NSFW models
-                                </label>
-                            </div>
-                        </div>
-                        <div class="filter-group filter-grow-three-quarters">
-                            <label>Post-processing Options</label>
-                            <div class="filter-checkboxes">
-                                <label class="cb-checkbox-label" id="cb_sfw_only_label" title="Leaves out models whose first 20 example images include anything rated above PG-13, or not rated at all, and models with no images, since nothing shows those are safe. Civitai cannot filter on this, so each model is checked here - one request per model, remembered for a few hours. Most Civitai models have NSFW images, so a page often comes back short: press Next to keep looking.">
-                                    <input type="checkbox" id="cb_sfw_only"> Only Show Models with SFW images
-                                </label>
-                                <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
-                                    <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
-                                </label>
-                            </div>
-                        </div>
                     </div>
+                    <details class="mm-advanced" id="cb_advanced">
+                        <summary class="mm-advanced-summary">Advanced filters</summary>
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label>Base Model</label>
+                                <select id="cb_base_model">
+                                    <option value="">All</option>
+                                    <option value="Flux.1 D">Flux.1 D</option>
+                                    <option value="Flux.1 S">Flux.1 S</option>
+                                    <option value="HiDream">HiDream</option>
+                                    <option value="Illustrious">Illustrious</option>
+                                    <option value="NoobAI">NoobAI</option>
+                                    <option value="Pony">Pony</option>
+                                    <option value="Qwen">Qwen</option>
+                                    <option value="SD 1.4">SD 1.4</option>
+                                    <option value="SD 1.5">SD 1.5</option>
+                                    <option value="SD 1.5 Hyper">SD 1.5 Hyper</option>
+                                    <option value="SD 2.1">SD 2.1</option>
+                                    <option value="SDXL 1.0">SDXL 1.0</option>
+                                    <option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option>
+                                    <option value="SDXL Lightning">SDXL Lightning</option>
+                                    <option value="Wan Video 2.2 I2V-A14B">Wan Video 2.2 I2V-A14B</option>
+                                    <option value="Wan Video 2.2 T2V-A14B">Wan Video 2.2 T2V-A14B</option>
+                                    <option value="ZImageTurbo">ZImageTurbo</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="filter-group filter-group-compact" title="Size of the latest version's primary file. Civitai cannot filter on this, so results are checked here - a narrow range can take a few searches to fill a page.">
+                                <label>File Size (GB)</label>
+                                <div class="filter-range">
+                                    <input type="number" id="cb_min_size" min="0" step="0.1" placeholder="Min">
+                                    <span>-</span>
+                                    <input type="number" id="cb_max_size" min="0" step="0.1" placeholder="Max">
+                                </div>
+                            </div>
+                            <div class="filter-group filter-group-half">
+                                <label>Tag (only a single tag is allowed by the Civitai API)</label>
+                                <div class="cb-tag-container">
+                                    <!-- The chosen tag, as a chip; the box comes back when it is removed. -->
+                                    <div class="cb-tag-selected" id="cb_tag_selected" style="display: none;">
+                                        <span class="cb-tag-chip">
+                                            <span class="cb-tag-chip-name" id="cb_tag_chip_name"></span>
+                                            <button type="button" class="cb-tag-chip-remove" id="cb_tag_chip_remove" title="Remove tag" aria-label="Remove tag">&times;</button>
+                                        </span>
+                                    </div>
+                                    <input type="text" id="cb_tag_input" placeholder="Type to search tags..." autocomplete="off">
+                                    <div class="cb-tag-dropdown" id="cb_tag_dropdown"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
                     <!-- The same row the Model Manager puts its actions on. -->
                     <div class="filter-buttons-row">
                         <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()" oncontextmenu="window.cbClearSearchCache && window.cbClearSearchCache(); return false;" title="Right-click to clear pagination cache">Search</button>

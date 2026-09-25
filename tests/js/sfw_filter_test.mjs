@@ -61,10 +61,15 @@ check('the two checked here are post-processing options',
       ['Post-processing Options', 'Post-processing Options']);
 check('in two groups, not one',
       $('cb_nsfw').closest('.filter-group') !== $('cb_sfw_only').closest('.filter-group'), true);
-check('each taking a smaller share of the row than a full group: half, and three quarters',
-      [$('cb_nsfw').closest('.filter-group').classList.contains('filter-grow-half'),
-       $('cb_sfw_only').closest('.filter-group').classList.contains('filter-grow-three-quarters')],
+check('each keeping to the width its checkboxes need, rather than sharing out the row',
+      [$('cb_nsfw').closest('.filter-group').classList.contains('filter-group-compact'),
+       $('cb_sfw_only').closest('.filter-group').classList.contains('filter-group-compact')],
       [true, true]);
+// The first row: what to search for, how, and in what order.
+const firstRow = Array.from($('cb_type').closest('.filter-row').querySelectorAll(':scope > *'))
+    .map((g) => (g.querySelector('label')?.textContent || '').trim());
+check('on the first row, between Checkpoint Type and Sort',
+      firstRow, ['Type', 'Checkpoint Type', 'API Options', 'Post-processing Options', 'Period']);
 const nsfwTip = $('cb_nsfw').closest('label').title;
 const sfwTip = $('cb_sfw_only_label').title;
 check('Include NSFW models explains that Civitai decides, and what it still lets through',
