@@ -368,6 +368,34 @@ export function hasUsablePrompt(image) {
     return true;
 }
 
+/** How wide a card's video is asked for: twice a card, for high-DPI screens. */
+export const CARD_VIDEO_WIDTH = 450;
+
+/**
+ * The URL a card should load a Civitai image or video from.
+ *
+ * The path segment before a Civitai image URL's file name tells its image
+ * server what to send: original=true is the file exactly as uploaded,
+ * width=N a copy the server makes on first request and keeps.
+ *
+ * A video needs the copy. An animated upload is kept as the GIF it was, even
+ * under a .mp4 name: original=true sent a 17 MB GIF, which a card read as
+ * video by its name and could not play, so it stayed blank. width=450 is a
+ * real MP4 of about 1 MB.
+ *
+ * An image does not, so it is asked for as uploaded. Resizing is Civitai
+ * generating a file on request; a card for every image would ask it for a
+ * great many, and there is no knowing how it is throttled.
+ *
+ * Anything that is not a Civitai image URL with such a segment is returned
+ * as it is.
+ */
+export function cardMediaUrl(url, type) {
+    if (!url || !url.includes('image.civitai.com')) return url || '';
+    const options = isVideoUrl({ url, type }) ? `width=${CARD_VIDEO_WIDTH}` : 'original=true';
+    return url.replace(/\/[a-z]+=[^/]*\/([^/]+)$/i, `/${options}/$1`);
+}
+
 export function isVideoUrl({ url, type }) {
     if (!url) return false;
     if (type === 'video') return true;

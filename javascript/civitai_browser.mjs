@@ -31,6 +31,7 @@ const {
     nsfwImageLevel,
     isImageSafe,
     isVideoUrl,
+    cardMediaUrl,
     getImagePageCount,
     setupLazyMedia,
     renderResource,
@@ -750,7 +751,7 @@ function renderCard(model, index) {
     const firstVersion = model.modelVersions?.[0];
     const firstImage = cardImage(firstVersion);
     const previewImage = firstImage?.url || '';
-    const previewUrl = previewImage ? getThumbnailUrl(previewImage, 250) : '';
+    const previewUrl = previewImage ? cardMediaUrl(previewImage, firstImage?.type) : '';
     const hasPreview = previewUrl !== '';
     const previewIsVideo = isVideoUrl({ url: previewUrl, type: firstImage?.type });
 
@@ -871,15 +872,6 @@ function describeFile(file) {
 
     const size = file?.sizeKB ? formatFileSize(file.sizeKB * 1024) : '';
     return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
-}
-
-// Get thumbnail URL
-function getThumbnailUrl(url, width = 250) {
-    if (!url) return '';
-    if (url.includes('civitai.com')) {
-        return url.replace(/\/width=\d+/, `/width=${width}`);
-    }
-    return url;
 }
 
 // Open model detail
