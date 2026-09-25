@@ -11,9 +11,12 @@ rest among the modules Forge offers in its "VAE / Text Encoder" control.
 Those are told apart by what they are, not by name. A text encoder by its
 token embedding - vocabulary by width - and whether it has a vision tower;
 a VAE by its latent channels, or the Wan-style layout Qwen-Image's uses.
-Forge's saved choice for a preset is kept when it is the right kind: on the
-library this was written against, the "sd" preset held the Flux modules and
-the "qwen" preset held Z-Image's text encoder.
+The files named for a preset in the extension's settings come first, then
+Forge's saved choice for the preset - each only when it is the right kind:
+on the library this was written against, the "sd" preset held the Flux
+modules and the "qwen" preset held Z-Image's text encoder. Otherwise the
+finest weights win, which is not always what a machine can load: a person
+with less memory names the fp8 file in the settings.
 
 Nothing here asks for Forge's modules by import at load time, so the rest of
 the extension, and its tests, work without them.
@@ -180,10 +183,49 @@ def saved_modules(preset: str) -> List[str]:
         return []
 
 
+# The setting naming a preset's files: model_manager_modules_<preset>.
+SETTING_PREFIX = "model_manager_modules_"
+
+
+def parse_file_names(value) -> List[str]:
+    """
+    File names from a setting: comma- or line-separated, any folder dropped -
+    Forge lists a module by its file name, wherever it sits.
+    """
+    names = []
+    for part in str(value or "").replace("\n", ",").split(","):
+        name = os.path.basename(part.strip().replace("\\", "/"))
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def preferred_modules(preset: Optional[str]) -> List[str]:
+    """The files the settings name for a UI preset, as written there."""
+    if not preset:
+        return []
+    try:
+        from modules import shared
+        return parse_file_names(getattr(shared.opts, SETTING_PREFIX + preset, ""))
+    except Exception:
+        return []
+
+
+def _match(name: str, labels) -> Optional[str]:
+    """The installed module a file name from the settings means, if any.
+    Case does not matter, nor a missing extension."""
+    wanted = name.lower()
+    for label in labels:
+        lower = label.lower()
+        if lower == wanted or os.path.splitext(lower)[0] == wanted:
+            return label
+    return None
+
+
 def pick(model_class: Optional[str], preset: Optional[str],
          bundled_text_encoder: bool, bundled_vae: bool,
          modules: Dict[str, Tuple[Optional[str], int]],
-         saved: List[str]) -> Dict[str, object]:
+         saved: List[str], preferred: List[str] = ()) -> Dict[str, object]:
     """
     The modules to select for a model, and what could not be found.
 
@@ -194,16 +236,32 @@ def pick(model_class: Optional[str], preset: Optional[str],
         bundled_text_encoder, bundled_vae: what the file brings itself.
         modules: label -> (kind, precision), for everything installed.
         saved: the labels Forge remembers for this preset.
+        preferred: the file names the settings give for this preset. One of
+            a needed kind beats anything else of that kind; one of a kind
+            not needed here is left out - a Flux setting's CLIP-L, for
+            Chroma. One this cannot identify is selected anyway, the person
+            knowing better, and then nothing is reported missing, since it
+            may well be what is.
 
     Returns:
         needed: the kinds looked for; select: the labels to select, one per
-        kind found; missing: the kinds nothing installed is.
+        kind found; missing: the kinds nothing installed is; not_found: the
+        preferred names no installed module has.
     """
     model_class = model_class or CLASS_FOR_PRESET.get(preset or "")
     encoders, vae = NEEDS.get(model_class or "", ((), None))
     needed = ([] if bundled_text_encoder else list(encoders)) \
         + ([vae] if vae and not bundled_vae else [])
     hints = NAME_HINTS.get(preset or "", ())
+
+    chosen, not_found = [], []
+    for name in preferred:
+        label = _match(name, modules)
+        if label is None:
+            not_found.append(name)
+        elif label not in chosen:
+            chosen.append(label)
+    unknown = [label for label in chosen if modules[label][0] is None]
 
     select, missing = [], []
     for kind in needed:
@@ -212,10 +270,14 @@ def pick(model_class: Optional[str], preset: Optional[str],
             missing.append(kind)
             continue
         candidates.sort(key=lambda label: (
+            label not in chosen,                                  # the settings' choice
             label not in saved,                                   # Forge's saved choice
             not any(h in label.lower() for h in hints),           # named for it
             -modules[label][1],                                   # finer weights
             label.lower(),
         ))
         select.append(candidates[0])
-    return {"needed": needed, "select": select, "missing": missing}
+    if needed and unknown:
+        select += unknown
+        missing = []
+    return {"needed": needed, "select": select, "missing": missing, "not_found": not_found}

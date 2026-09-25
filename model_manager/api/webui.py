@@ -32,12 +32,13 @@ def register(app: FastAPI):
             preset: Forge's UI preset, or null if unknown. manage_modules:
             whether modules are this call's business at all - SD and SDXL
             checkpoints bring their own, and keep the image's VAE as before.
-            select: labels to select; missing: kinds nothing installed is.
+            select: labels to select; missing: kinds nothing installed is;
+            not_found: file names the settings give that are not installed.
         """
         from ..architecture import preset_for_base_model, record_architecture
         from ..db import get_models_db
         from ..forge_modules import (classify_file, installed_modules, pick,
-                                     saved_modules)
+                                     preferred_modules, saved_modules)
 
         preset = model_class = None
         bundled_te = bundled_vae = False
@@ -60,13 +61,13 @@ def register(app: FastAPI):
 
         answer = {"success": True, "preset": preset, "model_class": model_class,
                   "source": source, "manage_modules": preset not in (None, "sd", "xl"),
-                  "select": [], "missing": [], "needed": []}
+                  "select": [], "missing": [], "needed": [], "not_found": []}
         if not answer["manage_modules"]:
             return JSONResponse(answer)
 
         modules = {label: classify_file(path) for label, path in installed_modules().items()}
         answer.update(pick(model_class, preset, bundled_te, bundled_vae,
-                           modules, saved_modules(preset)))
+                           modules, saved_modules(preset), preferred_modules(preset)))
         return JSONResponse(answer)
 
     @app.get("/model-manager/ui-options")

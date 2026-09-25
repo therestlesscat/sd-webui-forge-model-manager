@@ -2493,11 +2493,18 @@ let FORGE_PRESET_SETTLE_MS = 600;
  */
 async function applyPlannedModules(plan) {
     await applyForgeModules(plan.select || []);
+    const problems = [];
     if (plan.missing && plan.missing.length) {
         const names = plan.missing.map((kind) => MODULE_KIND_NAMES[kind] || kind).join(', ');
-        showNotice(`This ${plan.preset} model also needs ${names}, which is not installed. `
-                   + 'Add it to Forge\'s VAE or text_encoder folder, or select it in "VAE / Text Encoder".');
+        problems.push(`This ${plan.preset} model also needs ${names}, which is not installed. `
+                      + 'Add it to Forge\'s VAE or text_encoder folder, or select it in "VAE / Text Encoder".');
     }
+    if (plan.not_found && plan.not_found.length) {
+        problems.push(`Settings -> Model Manager names ${plan.not_found.join(', ')} for ${plan.preset} `
+                      + 'models, but Forge does not list it: check the name, or put the file in Forge\'s '
+                      + 'VAE or text_encoder folder.');
+    }
+    if (problems.length) showNotice(problems.join(' '));
 }
 
 /** A short message in the corner of the page, gone after a while. */
