@@ -204,3 +204,103 @@ def on_ui_settings():
             section=section,
         ).info("Size of model cards in Civitai Browser. Format: WIDTHxHEIGHT in pixels.")
     )
+
+    # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
+    explanation = shared.OptionHTML(
+        "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "
+        "Flux, Qwen-Image, Wan or other newer model switches Forge Neo to that "
+        "model's preset and selects the text encoders and VAE it needs. Left empty, "
+        "each is picked from Forge's <i>VAE / Text Encoder</i> list automatically, "
+        "preferring the highest-precision file. To use a particular file instead - "
+        "an fp8 or GGUF version on a card with less memory - name it below: file "
+        "names as Forge lists them, separated by commas, extension optional. A name "
+        "is only used where it is the right kind of file, so one list can hold the "
+        "files for every model of a preset. Text encoders go in "
+        "<code>models/text_encoder</code>, VAEs in <code>models/VAE</code>. Forge "
+        "Neo's <a href='" + DOWNLOAD_MODELS + "' target='_blank'>Download Models</a> "
+        "page lists every file."
+    )
+    explanation.section = section
+    shared.opts.add_option("model_manager_modules_explanation", explanation)
+    for preset, label, needs, placeholder, links in MODULE_SETTINGS:
+        shared.opts.add_option(
+            f"model_manager_modules_{preset}",
+            shared.OptionInfo(
+                default="",
+                label=f"Send to txt2img: {label} text encoders and VAE",
+                component=gr.Textbox,
+                component_args={"placeholder": placeholder},
+                section=section,
+            ).info(needs + ". Download: " + ", ".join(
+                f"<a href='{HF}{path}' target='_blank'>{name}</a>" for name, path in links))
+        )
+
+
+# Where each preset's files can be had. Forge Neo's own list, and the source
+# of every link below.
+DOWNLOAD_MODELS = "https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models"
+HF = "https://huggingface.co/"
+
+_CLIP_L = ("clip_l", "comfyanonymous/flux_text_encoders/blob/main/clip_l.safetensors")
+_T5 = [("t5xxl fp16", "comfyanonymous/flux_text_encoders/blob/main/t5xxl_fp16.safetensors"),
+       ("t5xxl fp8", "comfyanonymous/flux_text_encoders/blob/main/t5xxl_fp8_e4m3fn_scaled.safetensors")]
+_AE = ("ae", "Comfy-Org/Lumina_Image_2.0_Repackaged/blob/main/split_files/vae/ae.safetensors")
+_QWEN3_4B = [("qwen_3_4b", "Comfy-Org/z_image_turbo/blob/main/split_files/text_encoders/qwen_3_4b.safetensors"),
+             ("qwen3_4b fp8", "jiangchengchengNLP/qwen3-4b-fp8-scaled/blob/main/qwen3_4b_fp8_scaled.safetensors")]
+_FLUX2_VAE = ("flux2-vae", "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/vae/flux2-vae.safetensors")
+_QWEN_VAE = ("qwen_image_vae", "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors")
+_KLEIN = "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/text_encoders/"
+_WAN = "Comfy-Org/Wan_2.1_ComfyUI_repackaged/blob/main/split_files/"
+_QWEN = "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/text_encoders/"
+
+# (preset, what it runs, what it needs, an example, download links)
+MODULE_SETTINGS = [
+    ("flux", "Flux.1 / Chroma",
+     "Flux.1 needs CLIP-L, T5-XXL and the Flux VAE (ae); Chroma only T5-XXL and ae",
+     "clip_l.safetensors, t5xxl_fp8_e4m3fn_scaled.safetensors, ae.safetensors",
+     [_CLIP_L, *_T5, _AE]),
+    ("klein", "Flux.2 Klein",
+     "Klein 4B needs Qwen3 4B, Klein 9B needs Qwen3 8B; both need the Flux.2 VAE",
+     "qwen_3_4b.safetensors, qwen_3_8b_fp8mixed.safetensors, flux2-vae.safetensors",
+     [*_QWEN3_4B, ("qwen_3_8b", _KLEIN + "qwen_3_8b.safetensors"),
+      ("qwen_3_8b fp8", _KLEIN + "qwen_3_8b_fp8mixed.safetensors"), _FLUX2_VAE]),
+    ("lumina", "Lumina Image 2.0",
+     "Needs Gemma 2 2B and the Flux VAE (ae)",
+     "gemma_2_2b_fp16.safetensors, ae.safetensors",
+     [("gemma_2_2b", "duongve/NetaYume-Lumina-Image-2.0/blob/main/Text_Encoder/gemma_2_2b_fp16.safetensors"), _AE]),
+    ("zit", "Z-Image",
+     "Needs Qwen3 4B and the Flux VAE (ae)",
+     "qwen3_4b_fp8_scaled.safetensors, ae.safetensors",
+     [*_QWEN3_4B, _AE]),
+    ("anima", "Anima",
+     "Needs Qwen3 0.6B and the Qwen-Image VAE",
+     "qwen_3_06b_base.safetensors, qwen_image_vae.safetensors",
+     [("qwen_3_06b_base", "circlestone-labs/Anima/blob/main/split_files/text_encoders/qwen_3_06b_base.safetensors"),
+      _QWEN_VAE]),
+    ("wan", "Wan",
+     "Needs UMT5-XXL, in the Hugging Face layout these links have, and the Wan 2.1 VAE",
+     "umt5_xxl_fp8_e4m3fn_scaled.safetensors, wan_2.1_vae.safetensors",
+     [("umt5_xxl fp16", _WAN + "text_encoders/umt5_xxl_fp16.safetensors"),
+      ("umt5_xxl fp8", _WAN + "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"),
+      ("wan_2.1_vae", _WAN + "vae/wan_2.1_vae.safetensors")]),
+    ("qwen", "Qwen-Image",
+     "Needs Qwen2.5-VL 7B and the Qwen-Image VAE",
+     "qwen_2.5_vl_7b_fp8_scaled.safetensors, qwen_image_vae.safetensors",
+     [("qwen_2.5_vl_7b fp16", _QWEN + "qwen_2.5_vl_7b.safetensors"),
+      ("qwen_2.5_vl_7b fp8", _QWEN + "qwen_2.5_vl_7b_fp8_scaled.safetensors"), _QWEN_VAE]),
+    ("krea", "Krea 2",
+     "Needs Qwen3-VL 4B and the Qwen-Image VAE",
+     "qwen3vl_4b_fp8_scaled.safetensors, qwen_image_vae.safetensors",
+     [("qwen3vl_4b bf16", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_bf16.safetensors"),
+      ("qwen3vl_4b fp8", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"),
+      _QWEN_VAE]),
+    ("ernie", "ERNIE-Image",
+     "Needs Ministral 3 3B and the Flux.2 VAE",
+     "ministral-3-3b.safetensors, flux2-vae.safetensors",
+     [("ministral-3-3b", "Comfy-Org/ERNIE-Image/blob/main/text_encoders/ministral-3-3b.safetensors"), _FLUX2_VAE]),
+    ("pid", "PiD",
+     "Needs Gemma 2 2B IT; its VAE depends on the model and is left to you",
+     "gemma_2_2b_it_elm_fp8_scaled.safetensors",
+     [("gemma_2_2b_it bf16", "Comfy-Org/PixelDiT/blob/main/text_encoders/gemma_2_2b_it_elm_bf16.safetensors"),
+      ("gemma_2_2b_it fp8", "Comfy-Org/PixelDiT/blob/main/text_encoders/gemma_2_2b_it_elm_fp8_scaled.safetensors")]),
+]

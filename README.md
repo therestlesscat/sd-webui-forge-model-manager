@@ -73,7 +73,9 @@ Browse and organize the models already on disk.
 - **Details panel**: trigger words, tags, description, creator, rating, per-level NSFW
   breakdown, licence terms, and the full Civitai image gallery with generation parameters
 - **Send to txt2img** from any gallery image, including sampler, scheduler, VAE,
-  and resource matching against your installed models
+  and resource matching against your installed models. For Flux, Qwen-Image, Wan and
+  Forge Neo's other newer models it also switches the UI preset and selects the text
+  encoders and VAE the model needs, read from the model file itself
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
 - **Scan** finds new model files on disk; **Sync** fetches Civitai metadata by file hash
@@ -132,6 +134,33 @@ Found under **Settings -> Model Manager**.
 | Civitai Browser: Fill every page with 'Only Show Models with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
+| Send to txt2img: *model* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
+
+### Text encoders and VAEs for newer models
+
+Flux, Qwen-Image, Wan and the other newer models Forge Neo runs need text encoders and a
+VAE that an image's generation data never names. Put text encoders in
+`models/text_encoder` and VAEs in `models/VAE`. Forge Neo's
+[Download Models](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models)
+page lists them all.
+
+| Preset | Needs |
+|--------|-------|
+| Flux.1 / Chroma | CLIP-L, T5-XXL, Flux VAE (`ae`). Chroma: T5-XXL and `ae` only |
+| Flux.2 Klein | Qwen3 4B (4B) or Qwen3 8B (9B), Flux.2 VAE |
+| Lumina Image 2.0 | Gemma 2 2B, Flux VAE (`ae`) |
+| Z-Image | Qwen3 4B, Flux VAE (`ae`) |
+| Anima | Qwen3 0.6B, Qwen-Image VAE |
+| Wan | UMT5-XXL (Hugging Face layout), Wan 2.1 VAE |
+| Qwen-Image | Qwen2.5-VL 7B, Qwen-Image VAE |
+| Krea 2 | Qwen3-VL 4B, Qwen-Image VAE |
+| ERNIE-Image | Ministral 3 3B, Flux.2 VAE |
+| PiD | Gemma 2 2B IT; the VAE depends on the model |
+
+When nothing is set, Send to txt2img uses Forge's saved choice for the preset if it is
+the right kind of file, and otherwise the file with the highest precision. A file named in
+the settings comes before both. A missing module, or a named file Forge does not list, is
+reported in a notice.
 
 ## Data storage
 

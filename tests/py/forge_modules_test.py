@@ -130,6 +130,40 @@ check('what nothing installed is, is reported, not guessed at',
 check('with only a preset known, its class is assumed',
       fm.pick(None, 'flux', False, False, MODULES, [])['needed'], ['clip_l', 't5xxl', 'vae_ae'])
 
+# ---------------------------------------------------- the settings' choice
+# A person names the files a preset should use - an fp8 text encoder where
+# the full one does not fit their card. Named files beat everything else of
+# their kind; only the right kind is taken, so one list can serve every
+# model of a preset.
+check('a setting is read as file names: commas or lines, folders dropped, no repeats',
+      fm.parse_file_names(' t5xxl_fp8.safetensors,\nsub\\dir/ae.safetensors, ,ae.safetensors'),
+      ['t5xxl_fp8.safetensors', 'ae.safetensors'])
+got = fm.pick('Flux', 'flux', False, False, MODULES, ['t5xxl_fp16.safetensors'],
+              ['T5XXL_FP8'])
+check('a file named in the settings beats Forge\'s saved choice and finer weights; '
+      'case and extension do not matter',
+      got['select'], ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'])
+got = fm.pick('Flux', 'flux', False, False, MODULES, [],
+              ['sdxl_vae.safetensors', 'ae.safetensors'])
+check('one of a kind the model does not need is left out',
+      got['select'], ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'])
+check('as a Flux setting\'s CLIP-L is for Chroma, which does not use it',
+      fm.pick('Chroma', 'flux', False, False, MODULES, [], ['clip_l'])['select'],
+      ['t5xxl_fp16.safetensors', 'ae.safetensors'])
+got = fm.pick('Flux', 'flux', False, False, MODULES, [], ['t5xxl_q8.gguf'])
+check('a name nothing installed has is reported, and the pick goes on without it',
+      (got['select'], got['not_found']),
+      (['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], ['t5xxl_q8.gguf']))
+odd = {**MODULES, 'my_qwen_encoder.safetensors': (None, 0)}
+got = fm.pick('QwenImage', 'qwen', False, False, odd, [], ['my_qwen_encoder'])
+check('a named file this cannot identify is selected anyway, and nothing called missing',
+      (got['select'], got['missing']),
+      (['qwen_image_vae.safetensors', 'my_qwen_encoder.safetensors'], []))
+check('but an unidentified file nobody named is never selected',
+      fm.pick('QwenImage', 'qwen', False, False, odd, [])['missing'], ['qwen25_7b'])
+check('nor is a named one for a model that needs nothing',
+      fm.pick('Flux', 'flux', True, True, odd, [], ['my_qwen_encoder'])['select'], [])
+
 # ------------------------------------------------------ reading module files
 path = os.path.join(TESTS, 'work', 'forge_modules_t5.sft')
 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -146,6 +180,8 @@ client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
 fm.installed_modules = lambda: {label: label for label in MODULES}
 fm.classify_file = lambda path: MODULES[path]
 fm.saved_modules = lambda preset: []
+settings = {}
+fm.preferred_modules = lambda preset: fm.parse_file_names(settings.get(preset, ''))
 
 flux_path = facts['linked_paths'][4]
 db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999')
@@ -155,6 +191,13 @@ body = client.get('/model-manager/forge-modules', params={'file_path': flux_path
 check('for a checkpoint read as Flux: its preset, and what to select, from the file',
       (body['preset'], body['source'], body['manage_modules'], body['select']),
       ('flux', 'file', True, ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+
+settings['flux'] = 't5xxl_fp8.safetensors, t5xxl_gone.safetensors'
+body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+check('the endpoint takes the preset\'s setting, and says which names are not installed',
+      (body['select'], body['not_found']),
+      (['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'], ['t5xxl_gone.safetensors']))
+settings.clear()
 
 body = client.get('/model-manager/forge-modules', params={'base_model': 'Flux.1 D'}).json()
 check('a gallery that is not a checkpoint\'s goes by Civitai\'s baseModel',

@@ -148,6 +148,17 @@ check('what nothing installed is, is said, by name',
       document.querySelector('.mm-notice')?.textContent.includes('Qwen2.5-VL 7B'), true);
 check('while what is installed is still selected', selected(), ['ae.safetensors']);
 
+// -------------------------------- a file the settings name, not installed
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+plan = { ...plan, not_found: ['qwen_2.5_vl_7b_q4.gguf'] };
+await send();
+const notices = Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent);
+check('a file the settings name that Forge does not list is said, by name, in the same notice',
+      [notices.length, notices[0]?.includes('Qwen2.5-VL 7B'),
+       notices[0]?.includes('qwen_2.5_vl_7b_q4.gguf'), notices[0]?.includes('Settings')],
+      [1, true, true, true]);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
 // ---------------------------------------------------------- an SDXL model
 plan = { success: true, preset: 'xl', manage_modules: false, select: [], missing: [] };
 await send();
