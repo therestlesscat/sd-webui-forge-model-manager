@@ -448,6 +448,15 @@ export function cardMediaUrl(url, type) {
     return url.replace(/\/[a-z]+=[^/]*\/([^/]+)$/i, `/${options}/$1`);
 }
 
+/**
+ * The URL of a Civitai image or video exactly as uploaded - full size, where
+ * cardMediaUrl() asks for a card's copy. Anything else is returned as it is.
+ */
+export function originalMediaUrl(url) {
+    if (!url || !url.includes('image.civitai.com')) return url || '';
+    return url.replace(/\/[a-z]+=[^/]*\/([^/]+)$/i, '/original=true/$1');
+}
+
 // Wan generates at 16 frames a second, and Forge Neo's Frames slider stops at
 // fifteen seconds of them (modules_forge/presets.py).
 export const WAN_FPS = 16;
