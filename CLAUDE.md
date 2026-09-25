@@ -1,8 +1,11 @@
 # CLAUDE.md
 
 **Read [AGENTS.md](AGENTS.md) first.** It describes the codebase, the
-assumptions its parts make about each other, and the WebUI behaviours that are
-not obvious. This file is only the working agreement on top of it.
+assumptions its parts make about each other, the WebUI behaviours that are not
+obvious, and what earlier sessions learned the hard way ("Learned the hard
+way"). This file is only the working agreement on top of it.
+
+@AGENTS.md
 
 The architecture used to be described here as well, and drifted: it named three
 modules that no longer exist. One description, in one place.

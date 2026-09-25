@@ -22,14 +22,21 @@ tests/                        see tests/README.md
 | | |
 |---|---|
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `browse_cache_ops`, `query`, `migrations` |
-| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `licensing` |
+| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `download_service.py` | fetching a model and filing it |
-| `hashing.py` | working out what a file is |
-| `nsfw.py` | how explicit something is — **the only place that decides** |
+| `hashing.py` | the hashes that tell Civitai which file this is |
+| `nsfw.py` | how explicit something is — **the only place that decides**, the prompt-word rule included |
+| `prompt_levels.py` | restamping stored image levels when the prompt words change |
+| `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors |
+| `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
+| `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
+| `send_plan.py` | which model Send to txt2img sets Forge up for |
 | `storage.py` | reading and writing `.civitai.info` |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)` |
+| `models.py` | the data classes `storage.py` reads `.civitai.info` into |
+| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `jobs`, `civitai`, `webui`. Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab |
 
 ## What the pieces assume about each other
@@ -56,9 +63,12 @@ with an explicit path list, and never when the walk came back empty (that is an
 unmounted drive, not an emptied library).
 
 **Civitai's model type is not the file's role.** A checkpoint model can ship a
-VAE as one of its versions, and that file inherits "Checkpoint". The folder is
-the better signal, and `_infer_model_type` knows it — but only for files with
-no Civitai data.
+VAE as one of its versions, and that file inherits "Checkpoint"; text encoders
+arrive as "LORA", and a file Civitai does not know has no type at all. So the
+file is asked: `file_identity.py` reads its tensor names and shapes, and the
+Type filter uses that, falling back to Civitai's type only for a file no scan
+has read yet. The folder was once used as a guess; removing it exposed two
+bugs it had been hiding.
 
 **`checkpointType` is inferred, not read.** Civitai accepts it as a filter and
 returns it on neither the model nor the version. `get_checkpoint_types()` asks
@@ -135,11 +145,86 @@ thing, so the next component that would have been copied has to be shared.
 - Usage history, manual collections, and a "newer version available" check are
   all unimplemented.
 
+## Learned the hard way
+
+What earlier sessions got wrong, or took too long to find. Each of these cost
+real time once.
+
+### Working with the person who owns this
+
+- **Commit only when asked; push only when asked.** The repository is public,
+  so a push publishes.
+- **Commit only as the project's own identity**, set repo-locally. A global git
+  identity on the same machine belongs to someone else; local `pre-commit` and
+  `pre-push` hooks refuse any other author or committer. Never bypass them.
+- **The live database is read in place, read-only** (`sqlite3` with
+  `mode=ro`), never opened through `ModelsDatabase` - its migrations and
+  writes would run - and never copied to a file. An in-memory copy of the
+  columns a measurement needs is fine when agreed.
+- **Explicit words are masked** in anything shown in the conversation - word
+  lists, prompts, sample data. Put the raw data in a git-ignored file under
+  `tests/work/` for the person to open.
+- **After two wrong guesses, ask** for a console line, a screenshot, a number.
+
+### Proving a change
+
+- **A new check has to fail on the old code.** Swap the file for
+  `git show HEAD:<file>`, run the check, restore it. One check - "the page
+  query never scans the images table" - passed on the old code too: the old
+  query read every image through an index, so the plan looked innocent. What
+  told them apart was work: SQLite's virtual machine steps before and after
+  adding images the page does not show.
+- **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
+  source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
+  is the same size, a swap reproduced the timestamp, and the stale bytecode
+  kept version 23: the v24 migration silently never ran, through two restarts.
+  If a change "does not take effect", compare the cached `.pyc` with a fresh
+  compile before suspecting anything else.
+- **Measure; do not estimate.** A restamp guessed at 10-20 s took 3-6. The grid
+  was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
+  by timing each part of the query, not by reading it.
+- **Check what a timed call returned**, not only how long it took.
+
+### The data
+
+- **Civitai's labels are the uploader's.** VAEs and text encoders filed as
+  "Checkpoint" or "LORA"; SDXL files labelled Anima; an image's `baseModel` is
+  every resource's base model run together ("OtherAnima"); versions get
+  deleted and 404; other tools write the version payload into `.civitai.info`
+  instead of the model payload (`scan_service.as_model_payload`).
+- **The file is the reliable witness.** Tensor names and shapes identified
+  1,254 of a 1,262-file library; the rest were families Forge Neo cannot run.
+- **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
+  library had explicit prompts; Civitai rates 95% of the images using those
+  words X or XXX.
+
+### The code
+
+- **A fallback can hide a bug.** The folder-path type guess masked a sidecar
+  format read wrongly and a scan that died on one bad file.
+- **Delete what is gone, not what was not seen.** Scan Disk once forgot every
+  file it had not reached - a cancelled scan dropped the rest of the library -
+  and left orphaned models and images behind.
+- **Stamp what SQL filters on.** A per-image check is cheap in the browser, on
+  a page of images; across the grid's queries it was 2.7 s against 4 ms.
+- **Choose the page, then look up its details.** Filter, group, sort and limit
+  first; per-row lookups after. With an index in the order the lookups read.
+- **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
+  a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
+  block names and differ in MLP width, which a LoRA's shapes show.
+
+### The environment
+
+- The WebUI may not be on the default port. From WSL it cannot be reached
+  directly; Windows' own `curl.exe` can.
+- Run the tests with the WebUI's own Python - it has FastAPI and torch - and
+  Windows `node.exe` for the browser suites.
+
 ## Before you push
 
 ```
 python tests/run.py
 ```
 
-Seventeen suites and three static checks, about fifteen seconds. See
-`tests/README.md` for what they cover and how to add one.
+Thirty-three Python suites, twenty-six browser suites and the static checks,
+about a minute. See `tests/README.md` for what they cover and how to add one.
