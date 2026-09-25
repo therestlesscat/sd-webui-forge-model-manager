@@ -45,7 +45,7 @@ Civitai metadata, and says what it is about to do before it does it.
 
 Search Civitai without leaving the WebUI, by name, type, base model, tag and file size.
 Models you already have are marked **Owned**, with a jump to them in the Model Manager.
-Two checks Civitai cannot make are done here: **Only with SFW images** leaves out models
+Two checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
 whose first example images include anything NSFW, and **Only with usable prompts** keeps
 only models whose images have a prompt worth reusing. Results stream in as they are found.
 
@@ -129,7 +129,7 @@ Found under **Settings -> Model Manager**.
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Requires restart |
 | Sync: Hashing threads | 4 | Files hashed at once when identifying them (1-16). Raise for fast NVMe, lower for a spinning disk |
 | Civitai Browser: Minimum images with usable prompt | 1 | How many of a model's first 20 images need a usable prompt for "Only with usable prompts" |
-| Civitai Browser: Fill every page with 'Only with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
+| Civitai Browser: Fill every page with 'Only Show Models with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 

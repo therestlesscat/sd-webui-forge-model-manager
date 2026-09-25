@@ -1,5 +1,5 @@
 """
-"Only with SFW images" in the Model Manager.
+"Only Show Models with SFW images" in the Model Manager.
 
 The same question the Civitai Browser asks: are any of the first 20 images of
 the version the card shows - in the order its gallery shows them - above

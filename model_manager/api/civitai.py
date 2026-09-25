@@ -47,7 +47,7 @@ def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
     """
     The filter loop's arguments for the filters asked for.
 
-    "Only with SFW images" means nothing once NSFW models are included, so it
+    "Only Show Models with SFW images" means nothing once NSFW models are included, so it
     is ignored then, whatever the request says - the browser greys it out,
     and this is the same rule on the server's side.
 
@@ -87,7 +87,7 @@ def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
 
 
 def _fill_page_setting() -> bool:
-    """Whether "Fill every page with Only with SFW images" is on."""
+    """Whether "Fill every page with Only Show Models with SFW images" is on."""
     from modules import shared
     return bool(getattr(shared.opts, 'model_manager_civitai_sfw_fill_page', False))
 

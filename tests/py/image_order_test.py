@@ -107,7 +107,7 @@ check('recording the new version', cur.execute(
       (str(dbmod.SCHEMA_VERSION),))
 conn.close()
 
-# ------------------------------- "Only with SFW images" judges Civitai's first 20
+# ------------------------------- "Only Show Models with SFW images" judges Civitai's first 20
 # An X-rated image with the lowest id, but 25th in Civitai's order: by id it
 # would be first, and would rule the model out.
 shown = next(m for m in client.get('/model-manager/models', params={'page_size': 100}).json()['models']

@@ -171,10 +171,10 @@ def on_ui_settings():
         "model_manager_civitai_sfw_fill_page",
         shared.OptionInfo(
             default=False,
-            label="Civitai Browser: Fill every page with 'Only with SFW images' (not recommended)",
+            label="Civitai Browser: Fill every page with 'Only Show Models with SFW images' (not recommended)",
             component=gr.Checkbox,
             section=section,
-        ).info("Not recommended. Normally a page with 'Only with SFW images' stops after "
+        ).info("Not recommended. Normally a page with 'Only Show Models with SFW images' stops after "
                "checking a few dozen models and can come back short. With this on, it "
                "keeps searching until the page holds the full Models per page. Most "
                "Civitai models have NSFW images, so one page can take hundreds of "

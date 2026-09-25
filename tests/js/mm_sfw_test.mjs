@@ -1,4 +1,4 @@
-// "Only with SFW images" in the Model Manager, from the browser's side.
+// "Only Show Models with SFW images" in the Model Manager, from the browser's side.
 //
 // The server does the judging (tests/py/mm_sfw_filter_test.py); what the tab
 // owes it is the question. The box sits with the other options, is sent as
@@ -35,7 +35,7 @@ check('the box is with the other options',
 check('beside the preview box',
       $('mm_sfw_only')?.closest('.filter-group')?.contains($('mm_preview_show_nsfw')), true);
 check('named as in the Civitai Browser',
-      $('mm_sfw_only')?.closest('label')?.textContent.trim(), 'Only with SFW images');
+      $('mm_sfw_only')?.closest('label')?.textContent.trim(), 'Only Show Models with SFW images');
 check('with a tooltip saying what it looks at',
       [$('mm_sfw_only')?.closest('label')?.title.includes('first 20'),
        $('mm_sfw_only')?.closest('label')?.title.includes('the version the card shows'),

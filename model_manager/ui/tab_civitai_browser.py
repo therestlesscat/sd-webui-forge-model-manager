@@ -137,7 +137,7 @@ def create_civitai_browser_ui():
                         <div class="filter-group filter-grow-half">
                             <label>API Options</label>
                             <div class="filter-checkboxes">
-                                <label class="cb-checkbox-label" title="Asks Civitai to include the models it rates NSFW. Unticked, Civitai leaves those out and shows only the safe images of the rest - but most of the models it still lists have NSFW images in their galleries. For those, see Only with SFW images.">
+                                <label class="cb-checkbox-label" title="Asks Civitai to include the models it rates NSFW. Unticked, Civitai leaves those out and shows only the safe images of the rest - but most of the models it still lists have NSFW images in their galleries. For those, see Only Show Models with SFW images.">
                                     <input type="checkbox" id="cb_nsfw"> Include NSFW models
                                 </label>
                             </div>
@@ -146,7 +146,7 @@ def create_civitai_browser_ui():
                             <label>Post-processing Options</label>
                             <div class="filter-checkboxes">
                                 <label class="cb-checkbox-label" id="cb_sfw_only_label" title="Leaves out models whose first 20 example images include anything rated above PG-13, or not rated at all, and models with no images, since nothing shows those are safe. Civitai cannot filter on this, so each model is checked here - one request per model, remembered for a few hours. Most Civitai models have NSFW images, so a page often comes back short: press Next to keep looking.">
-                                    <input type="checkbox" id="cb_sfw_only"> Only with SFW images
+                                    <input type="checkbox" id="cb_sfw_only"> Only Show Models with SFW images
                                 </label>
                                 <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
                                     <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
@@ -161,16 +161,16 @@ def create_civitai_browser_ui():
                     </div>
                 </div>
 
-                <!-- While "Only with SFW images" is on: what it does, and why a
+                <!-- While "Only Show Models with SFW images" is on: what it does, and why a
                      page comes back short. The text is the checkbox's tooltip,
                      filled in by civitai_browser.mjs so the two cannot differ. -->
                 <div id="cb_sfw_only_banner" class="mm-banner" style="display: none;">
                     <span class="mm-banner-icon">i</span>
-                    <span><strong>Only with SFW images is on.</strong>
+                    <span><strong>Only Show Models with SFW images is on.</strong>
                         <span id="cb_sfw_only_banner_text"></span>
                         <span id="cb_sfw_only_banner_setting">To fill every page anyway, turn on
                             <strong>Settings &rarr; Model Manager &rarr; Civitai Browser: Fill every
-                            page with 'Only with SFW images'</strong> - not recommended: one page can
+                            page with 'Only Show Models with SFW images'</strong> - not recommended: one page can
                             take hundreds of requests and several minutes.</span></span>
                 </div>
 
