@@ -124,17 +124,6 @@ body.mm-modal-open {
     min-width: 0;
 }
 
-/* Still flexible, but with a smaller share of the row's spare width than the
-   full share every other group takes: for a group of a checkbox or two, which
-   a full share leaves mostly empty. */
-.filter-group.filter-grow-half {
-    flex-grow: 0.5;
-}
-
-.filter-group.filter-grow-three-quarters {
-    flex-grow: 0.75;
-}
-
 /* Specific enough to beat .filter-group-bordered .filter-group, which pins
    every control in that box to 100px. */
 .filter-group-bordered .filter-group.filter-group-wide {

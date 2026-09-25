@@ -62,11 +62,14 @@ async function search() {
 }
 
 // ---------------------------------------------------------------- the markup
-const row = $('cb_search').closest('.filter-row');
+const row = $('cb_min_size').closest('.filter-row');
 const groups = Array.from(row.querySelectorAll(':scope > .filter-group'));
 const at = (id) => groups.findIndex((g) => g.querySelector(`#${id}`));
-check('the size boxes sit between Search and Tag',
-      [at('cb_search') < at('cb_min_size'), at('cb_min_size') < at('cb_tag_input')], [true, true]);
+check('the size boxes sit under Advanced filters, between Base Model and Tag',
+      [row.closest('details')?.id, at('cb_base_model') < at('cb_min_size'),
+       at('cb_min_size') < at('cb_tag_input')], ['cb_advanced', true, true]);
+check('and Search has a row of its own',
+      $('cb_search').closest('.filter-row').querySelectorAll(':scope > .filter-group').length, 1);
 check('a group that keeps to its content rather than sharing the row',
       groups[at('cb_min_size')]?.classList.contains('filter-group-compact'), true);
 check('both in one group, under one caption',
