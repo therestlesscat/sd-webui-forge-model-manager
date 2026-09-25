@@ -66,6 +66,11 @@ Browse and organize the models already on disk.
 - **Filters**: search, type, base model, NSFW level (max or contains mode), Civitai data
   present, bookmarked, minimum version count, and licence terms (commercial use,
   derivatives, different licence)
+- **Type from the file itself**: Scan Disk reads each file's tensor names and shapes, so a
+  VAE shared on Civitai as a "Checkpoint" is filed as a VAE, LoRA formats are told apart
+  (LORA, LoCon, LoHa, LoKr, DoRA, LyCORIS Full), and files Civitai does not know get a
+  type too. `.ckpt` and `.pt` files are read without running anything in them. Until a
+  file has been scanned, its Civitai type is used
 - **Sort** by name, file size, file modified, published, scanned, downloaded, updated,
   rating, or download count
 - **Version grouping**: versions of the same model are grouped, with a version selector

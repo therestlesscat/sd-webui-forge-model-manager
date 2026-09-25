@@ -38,14 +38,22 @@ def create_ui():
                     <div class="filter-row">
                         <div class="filter-group">
                             <label>Type</label>
-                            <select id="mm_type">
+                            <select id="mm_type" title="What the file is, read from the file itself">
                                 <option value="">All</option>
+                                <!-- file_identity.FILE_TYPES, in its order -->
                                 <option value="Checkpoint" selected>Checkpoint</option>
                                 <option value="LORA">LORA</option>
+                                <option value="LoCon">LoCon</option>
+                                <option value="LoHa">LoHa</option>
+                                <option value="LoKr">LoKr</option>
+                                <option value="DoRA">DoRA</option>
+                                <option value="LyCORIS Full">LyCORIS Full</option>
                                 <option value="TextualInversion">Embedding</option>
+                                <option value="Hypernetwork">Hypernetwork</option>
                                 <option value="VAE">VAE</option>
-                                <option value="Controlnet">ControlNet</option>
+                                <option value="Text Encoder">Text Encoder</option>
                                 <option value="Upscaler">Upscaler</option>
+                                <option value="Unknown">Unknown</option>
                             </select>
                         </div>
                         <div class="filter-group" id="mm_checkpoint_type_group">

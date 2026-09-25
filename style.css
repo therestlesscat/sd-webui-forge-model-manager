@@ -2375,3 +2375,9 @@ body.mm-modal-open {
     line-height: 1.5;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+
+/* The Type row's note that Civitai lists the file as something else. */
+.mm-type-civitai {
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.9em;
+}
