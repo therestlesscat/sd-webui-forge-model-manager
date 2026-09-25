@@ -29,6 +29,8 @@ const {
     isVideoUrl,
     cardMediaUrl,
     sortBaseModels,
+    videoFrames,
+    videoSize,
     getImagePageCount,
     setupLazyMedia,
     renderResource,
@@ -2586,6 +2588,45 @@ function showNotice(text) {
     console.warn('[ModelManager]', text);
 }
 
+/**
+ * An image's generation data with a video's frames and size added: Civitai
+ * keeps neither its length nor its frame rate, so they are read from the
+ * video itself. Its card copy is read rather than the upload - the upload can
+ * be a GIF under an .mp4 name (cardMediaUrl), whose length a video element
+ * cannot read. What cannot be read is left to the preset, and said.
+ */
+async function withVideoParams(meta, img) {
+    const params = { ...meta };
+    const [w, h] = String(meta.Size || '').split('x').map(Number);
+    if ((w || img.width) && (h || img.height)) {
+        const size = videoSize(w || img.width, h || img.height);
+        params.Size = `${size.width}x${size.height}`;
+    }
+    const frames = videoFrames(await videoDuration(cardMediaUrl(img.url, img.type)));
+    if (frames) params['Batch size'] = frames;
+    else showNotice('Could not read this video\'s length: Frames are left as the Wan preset has them.');
+    return params;
+}
+
+/** A video's length in seconds, from its metadata alone; null if unreadable. */
+function videoDuration(url, timeoutMs = 10000) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        const finish = (seconds) => {
+            clearTimeout(timer);
+            video.removeAttribute('src');
+            video.load();
+            resolve(seconds);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        video.preload = 'metadata';
+        video.muted = true;
+        video.onloadedmetadata = () => finish(Number.isFinite(video.duration) ? video.duration : null);
+        video.onerror = () => finish(null);
+        video.src = url;
+    });
+}
+
 async function applyVaeSelection(vaeName) {
     if (await applyForgeModules(vaeName ? [vaeName] : [])) return;
 
@@ -2883,6 +2924,11 @@ window.mmSendToTxt2img = async function(imageIndex) {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
         const plan = await fetchForgePlan(model, img);
+        if (plan && plan.video === 'i2v') {
+            showNotice('This is an image-to-video model: it starts from an image, which txt2img '
+                       + 'cannot give it, and would fail. Sending to img2img is not supported yet.');
+            return;
+        }
         if (plan && plan.preset) await switchForgePreset(plan.preset);
 
         // The gallery's own file is loaded when it is a checkpoint - by what
@@ -2915,8 +2961,14 @@ window.mmSendToTxt2img = async function(imageIndex) {
         const hasHiresFix = meta['Denoising strength'] &&
             (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
 
+        // A text-to-video model makes a still unless it is told how many
+        // frames: Neo reads Batch size as Frames on the Wan preset.
+        const isVideo = isVideoUrl({ url: img.url, type: img.type });
+        const sendMeta = isVideo && plan && plan.video === 't2v'
+            ? await withVideoParams(meta, img) : meta;
+
         // Build infotext from metadata
-        const infotext = buildInfotext(meta);
+        const infotext = buildInfotext(sendMeta);
         if (!infotext) {
             console.error('[ModelManager] No infotext to send');
             return;
