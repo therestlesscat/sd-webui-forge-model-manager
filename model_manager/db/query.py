@@ -258,12 +258,27 @@ def query_models_grouped(
     # in Civitai's order. '' in a cover column means "has none" and NULL
     # "not known"; either way the gallery is looked at next. See
     # version_covers().
+    first_image = (f"(SELECT url FROM images WHERE version_id = page.id "
+                   f"ORDER BY {GALLERY_ORDER} LIMIT 1)")
+    first_safe_image = (f"(SELECT url FROM images WHERE version_id = page.id "
+                        f"AND effective_nsfw_level <= {SFW_MAX} ORDER BY {GALLERY_ORDER} LIMIT 1)")
     preview_url_column = (
-        "COALESCE(NULLIF(fv.safe_cover_url, ''), ips.first_safe_url)" if preview_least_nsfw
-        else "COALESCE(NULLIF(fv.cover_url, ''), NULLIF(fv.safe_cover_url, ''), ips.first_url)"
+        f"COALESCE(NULLIF(page.safe_cover_url, ''), {first_safe_image})" if preview_least_nsfw
+        else f"COALESCE(NULLIF(page.cover_url, ''), NULLIF(page.safe_cover_url, ''), {first_image})"
     )
 
-    # Query for latest version per model group
+    # The rows are chosen first - filtered, grouped, sorted and cut to the
+    # page - and only then are their images looked at. Nothing that decides
+    # which models a page holds, or their order, reads the images table
+    # except the filters that ask about images themselves. Ranking every
+    # image of every matching version to pick 20 previews took 740 ms of a
+    # 1.3 s load on a library of 100,651 images; three lookups per row,
+    # through idx_images_gallery, take milliseconds.
+    #
+    # file_path breaks ties in the sort: rows the sort field cannot tell
+    # apart came back in no fixed order, so paging through them could show
+    # a model twice and another never.
+    order_by = f"{sort_field} {sort_dir}, file_path"
     query = f"""
         WITH filtered_versions AS (
             SELECT
@@ -293,43 +308,9 @@ def query_models_grouped(
             LEFT JOIN civitai_models m ON v.model_id = m.id
             WHERE {where_clause}
         ),
-        image_aggregates AS (
-            SELECT
-                i.version_id,
-                MAX(i.effective_nsfw_level) as max_image_nsfw
-            FROM images i
-            INNER JOIN filtered_versions fv ON fv.id = i.version_id
-            GROUP BY i.version_id
-        ),
-        image_preview_ranked AS (
-            SELECT
-                i.version_id,
-                i.url,
-                i.effective_nsfw_level <= {SFW_MAX} as is_safe,
-                ROW_NUMBER() OVER (
-                    PARTITION BY i.version_id
-                    ORDER BY i.page, i.position, i.id
-                ) as rn_first,
-                ROW_NUMBER() OVER (
-                    PARTITION BY i.version_id, i.effective_nsfw_level <= {SFW_MAX}
-                    ORDER BY i.page, i.position, i.id
-                ) as rn_by_safety
-            FROM images i
-            INNER JOIN filtered_versions fv ON fv.id = i.version_id
-        ),
-        image_preview_selected AS (
-            SELECT
-                version_id,
-                MAX(CASE WHEN rn_first = 1 THEN url END) as first_url,
-                MAX(CASE WHEN is_safe AND rn_by_safety = 1 THEN url END) as first_safe_url
-            FROM image_preview_ranked
-            GROUP BY version_id
-        ),
         ranked AS (
             SELECT
                 fv.*,
-                COALESCE(ia.max_image_nsfw, {UNKNOWN}) as max_image_nsfw,
-                {preview_url_column} as preview_url,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                     ORDER BY fv.published_at DESC NULLS LAST
@@ -346,11 +327,19 @@ def query_models_grouped(
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                 ) as group_acquired_at
             FROM filtered_versions fv
-            LEFT JOIN image_aggregates ia ON ia.version_id = fv.id
-            LEFT JOIN image_preview_selected ips ON ips.version_id = fv.id
+        ),
+        page AS (
+            SELECT * FROM ranked WHERE {outer_where}
+            ORDER BY {order_by}
+            LIMIT ? OFFSET ?
         )
-        SELECT * FROM ranked WHERE {outer_where}
-        ORDER BY {sort_field} {sort_dir}
+        SELECT
+            page.*,
+            COALESCE((SELECT MAX(effective_nsfw_level) FROM images
+                      WHERE version_id = page.id), {UNKNOWN}) as max_image_nsfw,
+            {preview_url_column} as preview_url
+        FROM page
+        ORDER BY {order_by}
     """
 
     # Get total count
@@ -392,8 +381,7 @@ def query_models_grouped(
 
     data_start = time.perf_counter()
     with cursor_factory() as cursor:
-        paginated_query = f"{query} LIMIT ? OFFSET ?"
-        cursor.execute(paginated_query, all_params + [limit, offset])
+        cursor.execute(query, all_params + [limit, offset])
         rows = cursor.fetchall()
     data_ms = (time.perf_counter() - data_start) * 1000
 
