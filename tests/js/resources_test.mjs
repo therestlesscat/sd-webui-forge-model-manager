@@ -72,6 +72,11 @@ const resolveCalls = [];
 // per request and defer the rest, as the real one does for Civitai lookups.
 // `hold` makes it wait for a promise first, to stand for a slow Civitai.
 const resolver = { cap: null, hold: null, answers: RESOLVED };
+// What the server already knows without asking Civitai - its library and
+// earlier lookups - which is all a local_only request is answered from. The
+// gallery asks it once, to label the Resources buttons.
+const localAnswers = {};
+const localCalls = [];
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -81,7 +86,17 @@ globalThis.fetch = async (url, init = {}) => {
             has_api_key: true, image_browsing: 'continuous' }) };
     }
     if (href.includes('/model-manager/resolve-hashes')) {
-        const asked = decodeURIComponent(String(init.body || '').replace('hashes=', ''));
+        const form = new URLSearchParams(String(init.body || ''));
+        const asked = form.get('hashes') || '';
+        if (form.get('local_only') === 'true') {
+            localCalls.push(asked);
+            const resolved = {};
+            for (const hash of asked.split(',')) {
+                if (hash in localAnswers) resolved[hash] = localAnswers[hash];
+            }
+            return { ok: true, json: async () => ({ success: true, resolved,
+                deferred: asked.split(',').filter((h) => !(h in localAnswers)) }) };
+        }
         resolveCalls.push(asked);
         if (resolver.hold) await resolver.hold;
         const wanted = asked.split(',').filter(Boolean);
@@ -136,8 +151,17 @@ await waitFor('the gallery', () => document.querySelectorAll('#mm_images .mm-ima
 
 const button = document.querySelector('.mm-image-actions button[onclick*="mmShowResources"]');
 check('the image offers its resources', !!button, true);
-check('counting everything but the model itself',
-      button.textContent.trim(), 'Resources (8)');
+
+// The button counts what the panel would list - duplicates once, the model
+// itself not at all - from what is known. It used to add the two lists up
+// raw: "Resources (8)" over a panel of five.
+await waitFor('the known answers', () => localCalls.length === 1);
+check('the gallery asks the server what it already knows, once, and asks Civitai nothing',
+      [(localCalls[0] || '').split(',').sort(), resolveCalls.length],
+      [['aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc', 'dddddddddd'], 0]);
+check('with four hashes not looked up yet, the count is a floor: the two Civitai names '
+      + 'and the one hash-less file, with more to come',
+      button.textContent.trim(), 'Resources (3+)');
 
 const showing = window.mmShowResources(0);
 check('the panel goes up before the lookups finish, not after',
@@ -178,6 +202,11 @@ check('under a heading that says why',
 
 check('nothing offers a lookup any more, it has already happened',
       panel().textContent.includes('Lookup'), false);
+
+const listed = offered.length + unresolved.length;       // 3 offered, 2 not found
+check('once looked up, the button says exactly what the panel lists',
+      [document.querySelector('[data-resources-index="0"]')?.textContent.trim(), listed],
+      ['Resources (5)', 5]);
 
 // ------------------------------------------------------------- in rounds
 // The server asks Civitai about a bounded number per request and defers the

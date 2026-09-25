@@ -673,7 +673,8 @@ def register(app: FastAPI):
             )
 
     @app.post("/model-manager/resolve-hashes")
-    def resolve_hashes(hashes: str = Form(default="")):
+    def resolve_hashes(hashes: str = Form(default=""),
+                       local_only: bool = Form(default=False)):
         """
         Resolve several resource hashes at once, for the resources panel.
 
@@ -691,6 +692,10 @@ def register(app: FastAPI):
 
         Args:
             hashes: Comma-separated AutoV2 hashes.
+            local_only: Answer from the library and past lookups only, never
+                Civitai - for labelling a whole gallery's buttons at once,
+                where asking Civitai about every hash would be one request
+                per hash for a label.
 
         Returns:
             resolved: hash -> {version_id, model_id, name, version_name,
@@ -723,8 +728,9 @@ def register(app: FastAPI):
             # so an uncapped request for one image's 234 hashes took minutes
             # with nothing to show for it until the end.
             missing = [h for h in wanted if h not in known]
-            deferred = missing[MAX_HASH_LOOKUPS:]
-            missing = missing[:MAX_HASH_LOOKUPS]
+            limit = 0 if local_only else MAX_HASH_LOOKUPS
+            deferred = missing[limit:]
+            missing = missing[:limit]
             if missing:
                 client = CivitaiClient.from_settings()
                 try:

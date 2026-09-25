@@ -423,5 +423,32 @@ check('the endpoint reports what each switch is showing when nothing is hidden',
       (state['nsfw_count'], state['promptless_count'], state['hidden_nsfw'],
        state['hidden_promptless']), (2, 5, 0, 0))
 
+# ------------------------------------------------- resolving hashes, locally
+# The gallery labels its Resources buttons from what the server already knows
+# - the library, and past lookups - in one request that must never reach
+# Civitai: that would be one request per hash, for a label.
+import model_manager.api.models as models_api                # noqa: E402
+
+
+class NoCivitai:
+    @classmethod
+    def from_settings(cls):
+        raise AssertionError('local_only reached Civitai')
+
+
+real_client = models_api.CivitaiClient
+models_api.CivitaiClient = NoCivitai
+try:
+    with db._cursor() as cursor:
+        cursor.execute("SELECT file_hashes FROM model_versions WHERE file_hashes IS NOT NULL LIMIT 1")
+        local_hash = json.loads(cursor.fetchone()[0])['autov2'].lower()
+    code, body = post('/model-manager/resolve-hashes',
+                      hashes=local_hash + ',ffffffffff', local_only='true')
+    check('local_only answers what the library knows', local_hash in body.get('resolved', {}), True)
+    check('and defers what it does not, without asking Civitai',
+          (code, body.get('deferred')), (200, ['ffffffffff']))
+finally:
+    models_api.CivitaiClient = real_client
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
