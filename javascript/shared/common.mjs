@@ -502,6 +502,16 @@ export function setupLazyMedia(container) {
 }
 
 /**
+ * Base model names in the order a filter lists them: alphabetical, with
+ * 'Other' - a catch-all - at the bottom rather than in the middle.
+ */
+export function sortBaseModels(values) {
+    const named = values.filter(v => v !== 'Other');
+    named.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return values.includes('Other') ? named.concat('Other') : named;
+}
+
+/**
  * The one banner above a gallery: what its filters are holding back, and a
  * switch for each, on the right.
  *
