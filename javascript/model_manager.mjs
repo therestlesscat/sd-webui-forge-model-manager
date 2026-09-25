@@ -973,7 +973,7 @@ function renderVersionSelector() {
     const pills = currentVersions.map((version, index) => {
         const activeClass = index === selectedVersionIndex ? 'active' : '';
         const versionName = version.version_name || `v${index + 1}`;
-        const fileName = version.file_name ? version.file_name.replace(/\.(safetensors|ckpt|pt|pth|bin)$/i, '') : '';
+        const fileName = version.file_name ? version.file_name.replace(/\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i, '') : '';
         const displayName = version.version_name ? versionName : fileName;
         const tooltip = `${versionName}\n${version.file_name}\n${formatFileSize(version.file_size)}`;
 
@@ -2257,7 +2257,7 @@ function matchVAEName(vaeName, labels) {
     for (const label of labels) {
         const lower = label.toLowerCase();
         if (lower.startsWith(wanted) ||
-            lower.replace(/\.(safetensors|pt|ckpt|bin)$/i, '') === wanted) {
+            lower.replace(/\.(safetensors|sft|gguf|pt|ckpt|bin)$/i, '') === wanted) {
             console.log('[ModelManager] Matched VAE:', vaeName, '->', label);
             return label;
         }

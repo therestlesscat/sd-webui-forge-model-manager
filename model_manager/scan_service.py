@@ -93,7 +93,9 @@ class ScanService:
     """
 
     # Model file extensions
-    MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin"}
+    # .gguf: quantized models Forge loads directly (Flux, Wan, Z-Image...),
+    # which were never indexed. .sft: safetensors under a short name.
+    MODEL_EXTENSIONS = {".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin"}
 
     def __init__(self):
         self._cancel_requested = False
