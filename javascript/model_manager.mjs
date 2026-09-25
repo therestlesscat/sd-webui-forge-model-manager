@@ -28,6 +28,7 @@ const {
     renderThumbs,
     isVideoUrl,
     cardMediaUrl,
+    originalMediaUrl,
     sortBaseModels,
     videoFrames,
     videoSize,
@@ -2595,17 +2596,108 @@ function showNotice(text) {
  * be a GIF under an .mp4 name (cardMediaUrl), whose length a video element
  * cannot read. What cannot be read is left to the preset, and said.
  */
-async function withVideoParams(meta, img) {
+async function withVideoParams(meta, img, isVideo = true) {
     const params = { ...meta };
     const [w, h] = String(meta.Size || '').split('x').map(Number);
     if ((w || img.width) && (h || img.height)) {
         const size = videoSize(w || img.width, h || img.height);
         params.Size = `${size.width}x${size.height}`;
     }
+    if (!isVideo) return params;
     const frames = videoFrames(await videoDuration(cardMediaUrl(img.url, img.type)));
     if (frames) params['Batch size'] = frames;
     else showNotice('Could not read this video\'s length: Frames are left as the Wan preset has them.');
     return params;
+}
+
+/**
+ * The image an image-to-video model starts from, as a file for img2img, or
+ * null. Civitai does not keep the one the uploader used, so for a video it is
+ * the first frame - after the video's encoding, and any upscaling since, but
+ * the nearest there is. The original first; if the browser cannot decode it
+ * (an animated upload is kept as a GIF under an .mp4 name) the card's copy,
+ * which is small. For a still, the still.
+ */
+async function startFrame(img, isVideo) {
+    const name = `civitai-${img.id || 'image'}`;
+    if (!isVideo) {
+        try {
+            const response = await fetch(originalMediaUrl(img.url));
+            const blob = response.ok ? await response.blob() : null;
+            return blob ? { file: new File([blob], name, { type: blob.type }), small: false } : null;
+        } catch (error) {
+            console.warn('[ModelManager] Could not fetch the image:', error);
+            return null;
+        }
+    }
+    let blob = await firstFrame(originalMediaUrl(img.url));
+    const small = !blob;
+    if (!blob) blob = await firstFrame(cardMediaUrl(img.url, img.type));
+    return blob ? { file: new File([blob], `${name}.png`, { type: 'image/png' }), small } : null;
+}
+
+/**
+ * A video's first frame as a PNG, or null. Drawn from a video element onto a
+ * canvas: Civitai's image server allows it (CORS), and if it ever stops, the
+ * canvas refuses to export - an error, never a blank frame. Only enough of
+ * the file is fetched to decode one frame.
+ */
+function firstFrame(url, timeoutMs = 20000) {
+    return new Promise((resolve) => {
+        const video = document.createElement('video');
+        let settled = false;
+        const finish = (blob) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            video.removeAttribute('src');
+            video.load();
+            resolve(blob || null);
+        };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
+        video.preload = 'auto';
+        video.onloadeddata = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                canvas.toBlob(finish, 'image/png');
+            } catch (error) {
+                console.warn('[ModelManager] Could not read the video\'s first frame:', error);
+                finish(null);
+            }
+        };
+        video.onerror = () => finish(null);
+        video.src = url;
+    });
+}
+
+/** Load a file into img2img's image, as its Upload button would. */
+function giveImg2imgImage(file) {
+    const input = gradioApp().querySelector('#img2img_image input[type="file"]');
+    if (!input || typeof DataTransfer === 'undefined') return false;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+}
+
+/** Show txt2img, or img2img on its plain img2img mode. */
+function showGenerationTab(tab) {
+    if (tab === 'img2img') {
+        if (typeof switch_to_img2img === 'function') {
+            switch_to_img2img();
+            return;
+        }
+        gradioApp().querySelectorAll('#tabs button')[1]?.click();
+        gradioApp().querySelectorAll('#mode_img2img button')[0]?.click();
+        return;
+    }
+    gradioApp().querySelector('#tabs button:first-child')?.click();
 }
 
 /** A video's length in seconds, from its metadata alone; null if unreadable. */
@@ -2770,7 +2862,7 @@ function splitSamplerScheduler(samplerString) {
 }
 
 // Build infotext string from image metadata (A1111 format)
-function buildInfotext(meta) {
+function buildInfotext(meta, { denoisingStrength = null } = {}) {
     if (!meta) return '';
 
     let infotext = '';
@@ -2815,10 +2907,15 @@ function buildInfotext(meta) {
     if (meta.VAE) params.push(`VAE: ${meta.VAE}`);
     if (meta['Clip skip']) params.push(`Clip skip: ${meta['Clip skip']}`);
 
+    // img2img always takes one - an image-to-video model needs 1 - and
+    // txt2img only as part of a hires fix, where it would otherwise turn
+    // hires on for an image that had none.
+    const denoise = denoisingStrength ?? (hasHiresFix ? meta['Denoising strength'] : null);
+    if (denoise !== null && denoise !== undefined) params.push(`Denoising strength: ${denoise}`);
+
     // Only include hires-related fields if there's a complete hires fix setup
     // This prevents paste from enabling hires when image doesn't have hires data
     if (hasHiresFix) {
-        if (meta['Denoising strength']) params.push(`Denoising strength: ${meta['Denoising strength']}`);
         if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
         if (meta['Hires upscaler']) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
         if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
@@ -2924,11 +3021,14 @@ window.mmSendToTxt2img = async function(imageIndex) {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
         const plan = await fetchForgePlan(model, img);
-        if (plan && plan.video === 'i2v') {
-            showNotice('This is an image-to-video model: it starts from an image, which txt2img '
-                       + 'cannot give it, and would fail. Sending to img2img is not supported yet.');
-            return;
-        }
+
+        // An image-to-video model starts from an image, which txt2img has
+        // no way to give it - it failed in the sampler - so it goes to
+        // img2img, with the image. Fetched meanwhile: the preset takes time.
+        const isVideo = isVideoUrl({ url: img.url, type: img.type });
+        const tab = plan && plan.video === 'i2v' ? 'img2img' : 'txt2img';
+        const framing = tab === 'img2img' ? startFrame(img, isVideo) : null;
+
         if (plan && plan.preset) await switchForgePreset(plan.preset);
 
         // The gallery's own file is loaded when it is a checkpoint - by what
@@ -2961,29 +3061,30 @@ window.mmSendToTxt2img = async function(imageIndex) {
         const hasHiresFix = meta['Denoising strength'] &&
             (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
 
-        // A text-to-video model makes a still unless it is told how many
-        // frames: Neo reads Batch size as Frames on the Wan preset.
-        const isVideo = isVideoUrl({ url: img.url, type: img.type });
-        const sendMeta = isVideo && plan && plan.video === 't2v'
-            ? await withVideoParams(meta, img) : meta;
+        // A video model makes a still unless it is told how many frames:
+        // Neo reads Batch size as Frames on the Wan preset.
+        const sendMeta = plan && plan.video
+            ? await withVideoParams(meta, img, isVideo) : meta;
 
         // Build infotext from metadata
-        const infotext = buildInfotext(sendMeta);
+        const infotext = buildInfotext(sendMeta,
+                                       { denoisingStrength: tab === 'img2img' ? 1 : null });
         if (!infotext) {
             console.error('[ModelManager] No infotext to send');
             return;
         }
 
-        // Find prompt textarea and paste button
-        const promptTextarea = gradioApp().querySelector('#txt2img_prompt textarea');
-        let pasteButton = gradioApp().querySelector('#paste');
-        if (!pasteButton) {
-            // Fallback for SD.Next or other variants
-            pasteButton = gradioApp().querySelector('#txt2img_paste');
+        // Find prompt textarea and paste button. Both tabs' paste buttons
+        // are id="paste"; each sits in its own tab's tools row.
+        const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
+        let pasteButton = gradioApp().querySelector(`#${tab}_tools #paste`);
+        if (!pasteButton && tab === 'txt2img') {
+            pasteButton = gradioApp().querySelector('#paste')
+                || gradioApp().querySelector('#txt2img_paste');   // SD.Next and others
         }
 
         if (!promptTextarea) {
-            console.error('[ModelManager] Could not find txt2img prompt textarea');
+            console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
             return;
         }
 
@@ -3000,7 +3101,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
         // Paste button doesn't set scheduler in Forge - set it directly after a small delay
         // Also reset hires fix if not present in metadata
         setTimeout(() => {
-            setGradioDropdown('txt2img_scheduler', scheduler);
+            setGradioDropdown(`${tab}_scheduler`, scheduler);
 
             // After the paste: it re-renders much of the page, and it never
             // touches the modules itself - Neo reads "Module 1"/"Module 2"
@@ -3012,7 +3113,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
             // Reset hires fix if image doesn't have hires data
             // InputAccordion uses a hidden checkbox - need to set value and dispatch events
-            if (!hasHiresFix) {
+            if (!hasHiresFix && tab === 'txt2img') {
                 const hiresContainer = gradioApp().querySelector('#txt2img_hr-checkbox');
                 const hiresCheckbox = hiresContainer?.querySelector('input[type="checkbox"]');
                 console.log('[ModelManager] Hires fix reset:', {
@@ -3034,13 +3135,22 @@ window.mmSendToTxt2img = async function(imageIndex) {
             }
         }, 100);
 
-        // Switch to txt2img tab
-        const txt2imgTab = document.querySelector('#tabs button:first-child');
-        if (txt2imgTab) {
-            txt2imgTab.click();
+        showGenerationTab(tab);
+
+        // The start frame goes in once img2img is showing: its canvas sizes
+        // the image to itself, and a hidden one has no size.
+        if (framing) {
+            const frame = await framing;
+            if (!frame || !giveImg2imgImage(frame.file)) {
+                showNotice('This image-to-video model needs a start image, and this one\'s could '
+                           + 'not be loaded: drop an image into img2img before generating.');
+            } else if (frame.small) {
+                showNotice('The video could not be decoded at full size, so its start frame comes '
+                           + 'from Civitai\'s small preview copy: consider a larger image.');
+            }
         }
 
-        console.log('[ModelManager] Sent to txt2img via paste:', {
+        console.log(`[ModelManager] Sent to ${tab} via paste:`, {
             infotextLength: infotext.length,
             prompt: meta.prompt?.substring(0, 50) + '...',
             checkpoint: checkpointPath,

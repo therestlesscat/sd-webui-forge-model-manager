@@ -195,4 +195,135 @@ check('its hashes - the model resource\'s and the infotext\'s - and its name',
       [planAsked[0]?.get('hashes'), planAsked[0]?.get('model_name')],
       ['635cf338c923,aaaa111122', 'anima-preview2']);
 
+// ------------------------------------------- an image-to-video model
+// Sent to txt2img it failed in the sampler: an I2V model starts from an
+// image, and txt2img has none to give. It goes to img2img instead, with the
+// image - for a video its first frame, drawn onto a canvas - and a
+// denoising strength of 1, which Neo asks of video models.
+const tabs = document.createElement('div');
+tabs.id = 'tabs';
+for (const name of ['txt2img', 'img2img']) {
+    const button = document.createElement('button');
+    button.addEventListener('click', () => events.push(`tab:${name}`));
+    tabs.appendChild(button);
+}
+const mode = document.createElement('div');
+mode.id = 'mode_img2img';
+mode.innerHTML = '<button></button>';
+mode.querySelector('button').addEventListener('click', () => events.push('mode:img2img'));
+const i2iPrompt = document.createElement('div');
+i2iPrompt.id = 'img2img_prompt';
+i2iPrompt.innerHTML = '<textarea></textarea>';
+const i2iTools = document.createElement('div');
+i2iTools.id = 'img2img_tools';
+i2iTools.innerHTML = '<button id="paste"></button>';
+i2iTools.querySelector('button').addEventListener('click', () => events.push('paste:img2img'));
+const canvasBox = document.createElement('div');
+canvasBox.id = 'img2img_image';
+canvasBox.innerHTML = '<input type="file">';
+const given = [];
+canvasBox.querySelector('input').addEventListener('change', (e) => given.push(e.target.files[0]));
+document.body.append(tabs, mode, i2iPrompt, i2iTools, canvasBox);
+globalThis.DataTransfer = window.DataTransfer = class {
+    constructor() { this.files = []; this.items = { add: (f) => this.files.push(f) }; }
+};
+
+// A browser's video and canvas, as far as the send uses them. `decodes`
+// says which URLs play; the rest error, as a GIF under an .mp4 name does.
+let decodes = () => true;
+const loaded = [];
+const createElement = document.createElement.bind(document);
+document.createElement = (tag, ...rest) => {
+    if (tag === 'video') {
+        const video = { videoWidth: 1080, videoHeight: 1920, duration: 81 / 16,
+                        removeAttribute() {}, load() {} };
+        Object.defineProperty(video, 'src', { set(url) {
+            loaded.push(url);
+            setTimeout(() => {
+                if (!decodes(url)) return video.onerror?.();
+                video.onloadedmetadata?.();
+                video.onloadeddata?.();
+            }, 0);
+        } });
+        return video;
+    }
+    if (tag === 'canvas') {
+        return { getContext: () => ({ drawImage() {} }),
+                 toBlob: (done_) => done_(new Blob(['png'], { type: 'image/png' })) };
+    }
+    return createElement(tag, ...rest);
+};
+const fetchServer = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => {
+    if (String(url).startsWith('https://example.invalid/')) {
+        return { ok: true, blob: async () => new Blob(['jpeg'], { type: 'image/jpeg' }) };
+    }
+    return fetchServer(url, ...rest);
+};
+const infotext = () => i2iPrompt.querySelector('textarea').value;
+const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+const C = 'https://image.civitai.com/acct/8c0dc66f';
+plan = { success: true, preset: 'wan', manage_modules: true, select: [], missing: [], video: 'i2v' };
+IMAGE.url = `${C}/original=true/8c0dc66f.mp4`;
+IMAGE.type = 'video';
+IMAGE.meta = { prompt: 'waves roll in', steps: 4, sampler: 'Euler', cfgScale: 1, seed: 7 };
+IMAGE.width = 1080;
+IMAGE.height = 1920;
+given.length = 0;
+loaded.length = 0;
+clearNotices();
+await send();
+check('an I2V model\'s video is pasted into img2img, not txt2img',
+      [events.includes('paste:img2img'), events.includes('paste')], [true, false]);
+check('and img2img is shown, on its img2img mode',
+      [events.includes('tab:img2img'), events.includes('mode:img2img')], [true, true]);
+check('with a denoising strength of 1', infotext().includes('Denoising strength: 1'), true);
+check('its frames from the video\'s length, its size in Wan\'s steps',
+      [infotext().includes('Batch size: 81'), infotext().includes('Size: 1088x1920')], [true, true]);
+check('its first frame is loaded into img2img\'s image, as a PNG',
+      [given.length, given[0]?.type, given[0]?.name], [1, 'image/png', 'civitai-1.png']);
+check('drawn from the original, at full size', loaded.includes(`${C}/original=true/8c0dc66f.mp4`), true);
+check('and nothing needs saying', document.querySelector('.mm-notice'), null);
+
+IMAGE.url = `${C}/width=1080/8c0dc66f.mp4`;
+loaded.length = 0;
+await send();
+check('whatever size the URL it came with asked for',
+      loaded.includes(`${C}/original=true/8c0dc66f.mp4`), true);
+
+decodes = (url) => !url.includes('original=true');
+given.length = 0;
+await send();
+check('an original the browser cannot decode: the card\'s copy is used',
+      [given.length, loaded.some((u) => u.includes('width=450'))], [1, true]);
+check('and that it is small is said', document.querySelector('.mm-notice')?.textContent
+      .includes('small preview copy'), true);
+clearNotices();
+
+decodes = () => false;
+given.length = 0;
+await send();
+check('with no frame at all, the rest is still sent to img2img',
+      [events.includes('paste:img2img'), given.length], [true, 0]);
+check('and it says to drop an image in', Array.from(document.querySelectorAll('.mm-notice'))
+      .some((n) => n.textContent.includes('drop an image into img2img')), true);
+clearNotices();
+
+decodes = () => true;
+IMAGE.url = 'https://example.invalid/still.jpeg';
+IMAGE.type = 'image';
+given.length = 0;
+await send();
+check('a still in an I2V model\'s gallery starts from the still itself',
+      [events.includes('paste:img2img'), given.length, given[0]?.type], [true, 1, 'image/jpeg']);
+
+plan = { ...plan, video: 't2v' };
+await send();
+check('a text-to-video model still goes to txt2img',
+      [events.includes('paste'), events.includes('paste:img2img'), events.includes('tab:txt2img')],
+      [true, false, true]);
+check('with no denoising strength of its own',
+      promptBox.querySelector('textarea').value.includes('Denoising strength'), false);
+
 done();
