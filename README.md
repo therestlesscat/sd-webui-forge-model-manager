@@ -1,12 +1,12 @@
 # SD WebUI Forge Model Manager
 
-A model management extension for Stable Diffusion WebUI Forge. It indexes your local
-models, enriches them with Civitai metadata, and adds a Civitai browser you can download
-from without leaving the WebUI.
+A model management extension for Stable Diffusion WebUI Forge - both Forge Neo and the
+original Forge. It indexes your local models, enriches them with Civitai metadata, and
+adds a Civitai browser you can download from without leaving the WebUI.
 
 Two tabs are added: **Model Manager** and **Civitai Browser**.
 
-https://github.com/user-attachments/assets/d8bcf3ad-4959-4739-9e0f-b2693852161f
+https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## A look around
 
@@ -28,9 +28,11 @@ switches between them.
 ### Example images you can reuse
 
 The model's Civitai gallery, with each image's prompt and settings. One click sends them
-to txt2img, with the sampler, scheduler, VAE and LoRAs matched against what you have
-installed. A banner says how many images are hidden as NSFW or for having no usable
-prompt, with a switch for each.
+to txt2img, with the sampler, scheduler and VAE matched against what you have installed,
+and the image's LoRAs and embeddings laid out as chips under the prompts: click one to
+put it in the prompt or take it out, or to download it if you do not have it. A banner
+says how many images are hidden as NSFW or for having no usable prompt, with a switch
+for each.
 
 ![Image gallery with generation parameters](docs/images/mm-gallery.png)
 
@@ -54,7 +56,8 @@ only models whose images have a prompt worth reusing. Results stream in as they 
 ### Downloading into the right folder
 
 Downloads run in parallel with progress, land in the folder for their model type, and
-are synced into your library as soon as they finish.
+are checked against Civitai's SHA-256. A download is complete once the model is in your
+library, so it can be opened in the Model Manager straight away.
 
 ![Civitai Browser downloads](docs/images/cb-downloads.png)
 
@@ -83,6 +86,17 @@ Browse and organize the models already on disk.
   encoders and VAE the model needs, read from the model file itself. In a LoRA's or a
   VAE's gallery that model is the image's own checkpoint when you have it, else the
   LoRA's, else the image's checkpoint as Civitai describes it (asked once, remembered)
+- **Videos**: a Wan text-to-video example is sent with its frame count and size, read
+  from the video. An image-to-video model goes to img2img instead, starting from the
+  video's first frame (or the still, in its gallery), with denoising at 1
+- **LoRA and embedding chips**: after a send, the image's LoRAs, LoCons and embeddings
+  appear under the negative prompt, named as your files are. A click puts one in at the
+  image's weight (0.5 when it gives none) or takes it out at any weight; an embedding
+  goes to the prompt the image used it in. A LoRA the prompt names differently from
+  your file is renamed to it. **Clear** removes the chips and leaves the prompts alone
+- **Missing resources** can be downloaded from their chip or from the image's
+  **Resources** dialog: the version the image used, or the model's newest if Civitai no
+  longer has it. Resources Civitai does not know are shown as such, with nothing to click
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
 - **Scan** finds new model files on disk; **Sync** fetches Civitai metadata by file hash
@@ -99,7 +113,8 @@ Search Civitai and download directly into the right model folder.
   steps/sampler/CFG
 - Image gallery with pagination and cached results
 - **Downloads**: parallel queue with progress, configurable destination folder template,
-  automatic metadata sync when the download finishes, and a WebUI model-list refresh
+  a SHA-256 check against Civitai's, the model added to your library before the download
+  counts as complete, and a WebUI model-list refresh
 
 ## Installation
 
@@ -173,7 +188,10 @@ reported in a notice.
 ## Data storage
 
 Metadata lives in a SQLite database (`models.db` in the extension folder by default).
-Sidecar files written next to each model stay compatible with other Civitai extensions:
+Before an update that rebuilds one of its tables, a copy is written beside it
+(`models.db.backup_<date>_<time>`). Forge Neo and the original Forge can share one
+database; keep the extension at the same version in both. Sidecar files written next to
+each model stay compatible with other Civitai extensions:
 
 ```
 model.safetensors
