@@ -15,6 +15,7 @@ model_manager/                the extension proper
 javascript/                   the two tabs, and what they share
 style.css                     picked up by filename; see "The WebUI's rules"
 tests/                        see tests/README.md
+tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
 ```
 
 ### `model_manager/`
@@ -27,7 +28,7 @@ tests/                        see tests/README.md
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `download_service.py` | fetching a model and filing it |
 | `hashing.py` | the hashes that tell Civitai which file this is |
-| `nsfw.py` | how explicit something is — **the only place that decides**, the prompt-word rule included |
+| `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors |
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
@@ -35,7 +36,7 @@ tests/                        see tests/README.md
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
 | `storage.py` | reading and writing `.civitai.info` |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
-| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words |
+| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model `tools/train_nsfw_model.py` writes |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `jobs`, `civitai`, `webui`. Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab |
 
@@ -237,6 +238,12 @@ real time once.
   instead of the model payload (`scan_service.as_model_payload`).
 - **The file is the reliable witness.** Tensor names and shapes identified
   1,254 of a 1,262-file library; the rest were families Forge Neo cannot run.
+- **A model trained on a library forgives that library's mistakes.** Trained on every
+  image, the NSFW prompt model raised 25 of the library's 33,730 PG/PG-13 images at the
+  "2%" setting, not 670: it had learned the under-rated explicit ones as PG. Out-of-fold
+  scores (each image by a model that never saw its post) showed the real behaviour, and
+  leaving the ones they flag out of the final training fixed it - 669 raised. Measure a
+  model on its own training data before believing a number it gives there.
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.
@@ -269,5 +276,5 @@ real time once.
 python tests/run.py
 ```
 
-Thirty-five Python suites, twenty-nine browser suites and the static checks,
+Thirty-six Python suites, thirty browser suites and the static checks,
 about a minute. See `tests/README.md` for what they cover and how to add one.
