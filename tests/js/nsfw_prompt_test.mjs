@@ -1,32 +1,31 @@
-// An image rated PG whose prompt asks for something explicit is not PG - in
-// the browser as on the server.
+// An image rated PG whose prompt asks for something explicit is not PG - and
+// the page takes the server's word for it.
 //
-// The Civitai Browser judges the images Civitai sends it itself, with
-// nsfwImageLevel() in shared/common.mjs, so it must reach the verdict the
-// server's image_level() does: the same prompt cases as the server's test
-// (tests/nsfw_prompt_cases.json) are checked here. Then the places it is
-// used: a card passes over a flagged image as over any unsafe one, and the
-// gallery hides it with NSFW hidden and badges it "X · prompt" when shown.
-// The words are made up.
-import { readFileSync } from 'node:fs';
+// The Civitai Browser used to judge the images it was sent itself, with a
+// copy of nsfw.py's rule in common.mjs and the words fetched to feed it. Every
+// image it shows passes through the server, which now stamps its level on it
+// (nsfw.stamp_levels(); the rule itself is tested in nsfw_prompt_test.py). What
+// is checked here is that the page reads the stamp, in the places it matters:
+// a card passes over a flagged image as over any unsafe one, and the gallery
+// hides it with NSFW hidden and badges it "X · prompt" when shown. The words
+// are made up.
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
-const CASES = JSON.parse(readFileSync(`${ROOT}/tests/nsfw_prompt_cases.json`, 'utf8'));
 
-const flagged = { id: 1, url: 'https://example.invalid/flagged.jpeg', nsfwLevel: 1,
+// Rated PG by Civitai; the server says X, because of the prompt.
+const flagged = { id: 1, url: 'https://example.invalid/flagged.jpeg', nsfwLevel: 1, browsingLevel: 1,
+                  mm_level: 8, mm_level_from_prompt: true,
                   meta: { prompt: 'a zorp by the sea', steps: 20, sampler: 'Euler', cfgScale: 7 } };
-const clean = { id: 2, url: 'https://example.invalid/clean.jpeg', nsfwLevel: 1,
+const clean = { id: 2, url: 'https://example.invalid/clean.jpeg', nsfwLevel: 1, browsingLevel: 1,
+                mm_level: 1, mm_level_from_prompt: false,
                 meta: { prompt: 'a lighthouse by the sea', steps: 20, sampler: 'Euler', cfgScale: 7 } };
-let wordsAsked = 0;
+const asked = [];
 
 globalThis.fetch = async (url) => {
     const href = String(url);
-    if (href.includes('/model-manager/nsfw-prompt-words')) {
-        wordsAsked += 1;
-        return { ok: true, json: async () => ({ success: true, words: CASES.words }) };
-    }
+    asked.push(href);
     if (href.includes('/images')) {
         return { ok: true, json: async () => ({ success: true, images: [flagged, clean],
             nextCursor: null }) };
@@ -43,10 +42,11 @@ const shared = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
-// ------------------------------------------------ the rule, as the server's
-await shared.loadNsfwPromptWords();
-for (const c of CASES.cases) check(c.why, shared.nsfwImageLevel(c.image), c.level);
-check('the words are asked for once, however many callers', (await shared.loadNsfwPromptWords(), wordsAsked), 1);
+// ---------------------------------------------------- the server's verdict
+check('an image\'s level is the one the server stamped', shared.nsfwImageLevel(flagged), 8);
+check('whatever Civitai rated it', flagged.browsingLevel, 1);
+check('an image with no stamp is Unknown - hidden - not judged here on less',
+      [shared.nsfwImageLevel({ browsingLevel: 1 }), shared.isImageSafe({ browsingLevel: 1 })], [64, false]);
 
 // ------------------------------------------------------------------ a card
 const $ = (id) => document.getElementById(id);
@@ -67,5 +67,8 @@ check('with NSFW hidden, the gallery leaves it out', shown(), ['clean.jpeg']);
 window.cbToggleShowAllImages(true);
 check('shown, it is badged for why', document.querySelector('#cb_images .mm-nsfw-badge')?.textContent,
       'X · prompt');
+
+check('and the page never asks for the words: it does not judge',
+      asked.some((u) => u.includes('nsfw-prompt-words')), false);
 
 done();

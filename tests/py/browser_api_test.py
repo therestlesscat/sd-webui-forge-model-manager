@@ -462,6 +462,19 @@ civitai(raises=RuntimeError('lookup failed'))
 status, body = get('/model-manager/civitai/models/90070')
 check('and a lookup that fails is a 500', status, 500)
 
+# A search result's showcase images - a card picks its cover from them - come
+# judged too.
+civitai(models={'items': [remote(90201, 90202, images=[
+    {'id': 5, 'url': 'u5', 'browsingLevel': 1, 'meta': USABLE},
+    {'id': 6, 'url': 'u6', 'browsingLevel': 16, 'meta': USABLE}])], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', query='judged')
+check('a search result\'s showcase images carry the server\'s verdict',
+      [i.get('mm_level') for i in body['models'][0]['modelVersions'][0]['images']], [1, 16])
+civitai(model=remote(90203, 90204, images=[{'id': 8, 'url': 'u8', 'browsingLevel': 4}]))
+status, body = get('/model-manager/civitai/models/90203')
+check('so does a model looked up by id',
+      body['model']['modelVersions'][0]['images'][0].get('mm_level'), 4)
+
 # ----------------------------------------------------------------- the gallery
 FRESH_VERSION = 90080
 civitai(images={'images': [{'id': 1, 'url': 'u1', 'meta': USABLE},
@@ -472,12 +485,15 @@ status, body = get('/model-manager/civitai/versions/%d/images' % FRESH_VERSION,
 check('images are fetched when nothing is cached', body['from_cache'], False)
 check('and counted', body['fetched_count'], 2)
 check('with a cursor for the next page', body['next_cursor'], 'more')
+check('each judged here, for the browser to read - it does not judge',
+      [('mm_level' in i, 'mm_level_from_prompt' in i) for i in body['images']], [(True, True)] * 2)
 
 forget()
 status, body = get('/model-manager/civitai/versions/%d/images' % FRESH_VERSION,
                    model_id=90081)
 check('the second ask is served from the cache', body['from_cache'], True)
 check('with the same images', body['cached_count'], 2)
+check('judged again on the way out of the cache', all('mm_level' in i for i in body['images']), True)
 check('and the stored cursor', body['next_cursor'], 'more')
 check('without asking Civitai again',
       [c for c in Stub.calls if c[0] == 'get_model_images'], [])

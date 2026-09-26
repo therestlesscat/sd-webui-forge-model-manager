@@ -43,9 +43,13 @@ tests/                        see tests/README.md
 
 **`nsfw.py` is the single source of truth.** There were once three
 implementations giving two different answers. If you need a level, ask it; if
-the rule is wrong, it is wrong in one place. `javascript/shared/common.mjs`
-mirrors the per-image rule for the browser, and the two are checked against the
-same cases.
+the rule is wrong, it is wrong in one place. The browser does not judge: every
+image it is sent passes through the server, which stamps `mm_level` (and
+`mm_level_from_prompt`, for the "X · prompt" badge) on it with
+`nsfw.stamp_levels()`, and the page reads that. It used to keep a copy of the
+rule in `common.mjs`, fed by the words fetched from the server - two
+implementations to keep in step. A new endpoint that hands images to the page
+stamps them too; an image without a stamp reads as Unknown, and is hidden.
 
 **Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
 what they hold when handed `NULL`, `'[]'`, `0` or Unknown. A scan reading a

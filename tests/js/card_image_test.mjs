@@ -10,7 +10,9 @@ import { ROOT, checker, mountTab } from './harness.mjs';
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
 
-const img = (name, level) => ({ url: `https://example.invalid/${name}.jpeg`, nsfwLevel: level });
+// Stamped as the server stamps every image it sends (nsfw.stamp_levels()).
+const img = (name, level) => ({ url: `https://example.invalid/${name}.jpeg`, nsfwLevel: level,
+                                mm_level: level, mm_level_from_prompt: false });
 const MODELS = [
     { id: 1, name: 'Safe first', showcase: [img('pg', 1), img('r', 4)] },
     { id: 2, name: 'Unsafe first', showcase: [img('x', 8), img('r', 4), img('pg13', 2), img('pg', 1)] },

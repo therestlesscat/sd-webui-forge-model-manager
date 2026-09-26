@@ -126,6 +126,8 @@ check('details answer', code, 200)
 check('and succeed', body.get('success'), True)
 check('with the file it was asked about',
       body.get('model', {}).get('file_path'), first_path)
+check('its images judged here, for the browser to read',
+      bool(body['model'].get('images')) and all('mm_level' in i for i in body['model']['images']), True)
 
 code, body = get('/model-manager/models/details', path=r'Z:\nope\missing.safetensors')
 check('details for an unknown file do not pretend', body.get('success'), False)

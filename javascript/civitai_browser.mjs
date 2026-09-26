@@ -30,7 +30,6 @@ const {
     renderThumbs,
     nsfwImageLevel,
     isImageSafe,
-    loadNsfwPromptWords,
     nsfwBadgeLabel,
     isVideoUrl,
     sortBaseModels,
@@ -383,7 +382,6 @@ function updateStatus(message) {
 // qualifies beats staring at a spinner.
 async function searchModelsStreaming(page, cursor) {
     // Which images are safe depends on the NSFW prompt words too.
-    await loadNsfwPromptWords();
     if (activeStream) activeStream.abort();
     const controller = new AbortController();
     activeStream = controller;
@@ -522,7 +520,6 @@ function targetedModelId(query) {
  */
 async function showModelById(modelId) {
     // Which images are safe depends on the NSFW prompt words too.
-    await loadNsfwPromptWords();
     isLoading = true;
     updateStatus(`Loading model ${modelId}...`);
     try {
@@ -555,7 +552,6 @@ async function showModelById(modelId) {
 
 async function searchModels(page = 1) {
     // Which images are safe depends on the NSFW prompt words too.
-    await loadNsfwPromptWords();
     // Ensure page is a valid positive integer
     page = parseInt(page, 10);
     if (isNaN(page) || page < 1) {
@@ -1165,7 +1161,6 @@ function selectVersion(versionIndex) {
 // Load images from API (with full metadata)
 async function loadImagesFromVersion() {
     // Which images are safe depends on the NSFW prompt words too.
-    await loadNsfwPromptWords();
     const version = getSelectedVersion();
     if (!version?.id) {
         currentImages = [];
@@ -2201,7 +2196,6 @@ function init() {
         return;
     }
     isInitialized = true;
-    loadNsfwPromptWords();
     console.log('[CivitaiBrowser] Initializing...');
 
     const searchInput = document.getElementById('cb_search');

@@ -41,7 +41,6 @@ const {
     renderResource,
     renderFilterBanner,
     balanceGridRows,
-    loadNsfwPromptWords,
     nsfwBadgeLabel,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
@@ -3266,7 +3265,6 @@ function matchSamplerName(samplerName) {
 // Load UI options on init
 loadUIOptionsFromAPI();
 // The words behind the "X · prompt" badge; the server has already filtered.
-loadNsfwPromptWords();
 
 // Split combined "Sampler Scheduler" format into separate parts
 // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
