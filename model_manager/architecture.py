@@ -292,7 +292,12 @@ def _forge_guess(shapes: Dict[str, Tuple[Tuple[int, ...], str]]):
     """
     import torch
     import huggingface_guess
-    from modules_forge.packages.comfy.utils import convert_diffusers_mmdit
+    try:
+        from modules_forge.packages.comfy.utils import convert_diffusers_mmdit
+    except ImportError:
+        # The original Forge keeps it with the detector. Without this every
+        # checkpoint scanned there was recorded as unrecognised.
+        from huggingface_guess.detection import convert_diffusers_mmdit
 
     def dtype(name):
         return getattr(torch, _DTYPES.get(name, "float16"), torch.float16)

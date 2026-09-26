@@ -216,5 +216,43 @@ finally:
     sync_module.record_architecture = real_record
     sync_module.SyncService._sync_model = real_inner
 
+# ------------------------------------------------------ the original Forge
+# The extension runs in the original Forge as well as Neo. Neo keeps
+# convert_diffusers_mmdit in modules_forge.packages.comfy.utils; the original
+# Forge with its detector, in huggingface_guess.detection. Asking only Neo's
+# place failed there, the failure was caught as "not recognised", and every
+# checkpoint scanned in the original Forge was stored as unknown. Here the
+# original Forge is stood in for: Neo's module missing, its detector present.
+import types                                             # noqa: E402
+
+class _Config:
+    pass
+
+asked = []
+fake_guess = types.ModuleType('huggingface_guess')
+fake_guess.guess = lambda sd: asked.append(sorted(sd)) or _Config()
+fake_detection = types.ModuleType('huggingface_guess.detection')
+fake_detection.convert_diffusers_mmdit = lambda sd, prefix: sd
+fake_guess.detection = fake_detection
+saved = {name: sys.modules.get(name) for name in
+         ('huggingface_guess', 'huggingface_guess.detection', 'modules_forge.packages.comfy.utils')}
+sys.modules['huggingface_guess'] = fake_guess
+sys.modules['huggingface_guess.detection'] = fake_detection
+sys.modules['modules_forge.packages.comfy.utils'] = None      # not there: ImportError
+try:
+    try:
+        config, judged = arch._forge_guess({'blocks.0.weight': ((4, 4), 'F16')})
+        outcome = (type(config).__name__, asked[-1] if asked else None)
+    except Exception as e:
+        outcome = ('error', '%s: %s' % (type(e).__name__, e))
+    check("in the original Forge, Forge's detector is still asked - found where it keeps it",
+          outcome, ('_Config', ['model.diffusion_model.blocks.0.weight']))
+finally:
+    for name, module in saved.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

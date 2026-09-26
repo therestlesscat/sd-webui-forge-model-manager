@@ -468,4 +468,40 @@ MODEL.model_type = 'Checkpoint';
 await send();
 check('an image with nothing to chip shows no row', row(), null);
 
+// ------------------------------------------------ the original Forge
+// The extension runs in the original Forge too, whose UI preset is a row of
+// radio buttons (sd, xl, flux, all) rather than Neo's dropdown. The send
+// typed into it as if it were a dropdown, clearing the first radio's value.
+preset.remove();
+const radios = document.createElement('div');
+radios.id = 'forge_ui_preset';
+for (const value of ['sd', 'xl', 'flux', 'all']) {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="radio" name="forge-ui" value="${value}"${value === 'sd' ? ' checked' : ''}>`;
+    const radio = label.querySelector('input');
+    // A browser checks the one clicked and unchecks the rest; the harness does not.
+    radio.click = () => {
+        radios.querySelectorAll('input').forEach((r) => { r.checked = r === radio; });
+        events.push(`preset:${value}`);
+    };
+    radios.appendChild(label);
+}
+document.body.appendChild(radios);
+const radioValues = () => Array.from(radios.querySelectorAll('input')).map((r) => r.value);
+const checkedPreset = () => radios.querySelector('input:checked')?.value;
+
+plan = { success: true, preset: 'xl', manage_modules: false, select: [], missing: [] };
+await send();
+check('a radio preset control is switched by pressing the preset\'s own button',
+      [checkedPreset(), events[0]], ['xl', 'preset:xl']);
+check('without touching any button\'s value', radioValues(), ['sd', 'xl', 'flux', 'all']);
+check('and the image is still sent after it', events.includes('paste'), true);
+
+plan = { ...plan, preset: 'qwen' };
+await send();
+check('a preset the original Forge does not have is left alone',
+      [checkedPreset(), radioValues(), events.some((e) => e.startsWith('preset'))],
+      ['xl', ['sd', 'xl', 'flux', 'all'], false]);
+check('and the send goes on without it', events.includes('paste'), true);
+
 done();

@@ -92,6 +92,45 @@ because that would mean the assumption no longer holds.
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
 
+## Two WebUIs: everything has to work in both
+
+The extension runs in **Forge Neo** and in **the original Forge**
+(lllyasviel's, installed at `F:\webui_forge_cu121_torch231`: Python 3.10.6,
+Gradio 4.40.0, torch 2.3.1). Everything should work in both. A feature one of
+them lacks - Neo's newer presets, Wan video - is skipped there, never an
+error, and never a wrong answer written to the database.
+
+Where they differ, and what the extension does about it:
+
+- **Python 3.10 in the original Forge.** Nothing newer than 3.10 syntax or
+  library. Check with that install's `system\python\python.exe`, compiling
+  every file.
+- **The detector's helpers moved.** Neo keeps `convert_diffusers_mmdit` in
+  `modules_forge.packages.comfy.utils`, the original Forge in
+  `huggingface_guess.detection`. Asking only Neo's place failed there, the
+  failure was caught as "not recognised", and every checkpoint scanned in the
+  original Forge was stored as unknown - for Neo too, since they share a
+  database. `architecture._forge_guess` tries both.
+- **The UI preset control.** Neo's is a dropdown; the original Forge's a row
+  of radio buttons (`sd`, `xl`, `flux`, `all`). `switchForgePreset` presses
+  the matching radio; typing into it as a dropdown cleared the first radio's
+  value.
+- **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
+  the original Forge's has none, and is found by its label.
+
+**They can share one database** (Settings -> Model Manager -> database
+path), and do here: Neo's setting points at the file in the original Forge's
+copy of the extension. The two copies of the extension must then be at the
+same version. An older copy does not migrate a newer database - it runs its
+old queries and writes against the newer schema, without the fixes since.
+Update both before starting either.
+
+To see the original Forge's behaviour without starting it, run the code under
+its Python with its packages on `sys.path` (`webui`,
+`webui\repositories\huggingface_guess`, `webui\packages_3rdparty`): that is
+how the detector break was reproduced, and the fix shown to work on real SDXL,
+Flux and SD 1.5 files.
+
 ## One stylesheet, one definition
 
 Both tabs share `style.css`, and both draw the same things: a filter bar, a
@@ -226,5 +265,5 @@ real time once.
 python tests/run.py
 ```
 
-Thirty-three Python suites, twenty-six browser suites and the static checks,
+Thirty-five Python suites, twenty-nine browser suites and the static checks,
 about a minute. See `tests/README.md` for what they cover and how to add one.
