@@ -10,6 +10,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
+from ..nsfw import stamp_levels
 from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
 )
@@ -81,7 +82,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": images,
+                "images": stamp_levels(images),
                 "next_cursor": next_cursor,
                 "fetched_count": len(images)
             })
@@ -169,7 +170,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": new_images,
+                "images": stamp_levels(new_images),
                 "next_cursor": next_cursor,
                 "downloaded_count": len(new_images)
             })
@@ -202,7 +203,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": images,
+                "images": stamp_levels(images),
                 "images_state": {
                     "version_id": version_id,
                     "next_cursor": version_record.get("next_images_cursor") if version_record else None,

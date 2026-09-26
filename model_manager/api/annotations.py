@@ -8,6 +8,7 @@ answer both without a second request.
 from typing import Any, Dict, List
 
 from ..civitai import paid_access_info
+from ..nsfw import stamp_levels
 
 
 def annotate_paid_access(models: List[Dict[str, Any]]):
@@ -22,6 +23,13 @@ def annotate_paid_access(models: List[Dict[str, Any]]):
     for model in models:
         for version in model.get("modelVersions", []) or []:
             version["paid_access"] = paid_access_info(version)
+
+
+def annotate_image_levels(models: List[Dict[str, Any]]):
+    """Stamp every showcase image of these models with its level - see nsfw.stamp_levels()."""
+    for model in models:
+        for version in model.get("modelVersions", []) or []:
+            stamp_levels(version.get("images"))
 
 
 def annotate_local_ownership(db, models: List[Dict[str, Any]]):

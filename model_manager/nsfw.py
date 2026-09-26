@@ -204,6 +204,25 @@ def image_level(image: Dict[str, Any]) -> int:
     return level
 
 
+def stamp_levels(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    """
+    Write each image's level on it, for the browser, in place.
+
+    mm_level is image_level(); mm_level_from_prompt says the prompt rule is
+    what set it, for the "X · prompt" badge. The browser used to judge the
+    images it was sent itself, with a copy of this rule in common.mjs and the
+    words fetched to feed it - two implementations that had to agree. Every
+    image it shows passes through this server, so it is judged here, once,
+    and the browser reads the answer.
+    """
+    for image in images or []:
+        if isinstance(image, dict):
+            level = image_level(image)
+            image["mm_level"] = level
+            image["mm_level_from_prompt"] = level != rated_level(image)
+    return images
+
+
 def rated_level(image: Dict[str, Any]) -> int:
     """
     How explicit Civitai says one image is, and nothing else.

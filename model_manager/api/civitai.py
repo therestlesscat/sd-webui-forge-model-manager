@@ -22,7 +22,8 @@ from ..civitai import (
     search_models_with_usable_prompts,
     size_range_check,
 )
-from .annotations import annotate_local_ownership, annotate_paid_access
+from .annotations import annotate_image_levels, annotate_local_ownership, annotate_paid_access
+from ..nsfw import stamp_levels
 from .prompts import PROMPT_CHECK_WORKERS, inspect_model
 
 # Cached Civitai enums (model types, base models). They change only when
@@ -222,6 +223,7 @@ def register(app: FastAPI):
             db = get_models_db()
             annotate_local_ownership(db, items)
             annotate_paid_access(items)
+            annotate_image_levels(items)
 
             return JSONResponse({
                 "success": True,
@@ -332,6 +334,7 @@ def register(app: FastAPI):
                     if kind == "model":
                         annotate_local_ownership(db, [payload])
                         annotate_paid_access([payload])
+                        annotate_image_levels([payload])
                         yield json.dumps({"type": "model", "model": payload}) + "\n"
                     elif kind == "progress":
                         yield json.dumps({"type": "progress", **payload}) + "\n"
@@ -400,6 +403,7 @@ def register(app: FastAPI):
                 version["owned_locally"] = version.get("id") in owned_versions
 
             annotate_paid_access([model])
+            annotate_image_levels([model])
 
             return JSONResponse({
                 "success": True,
@@ -455,7 +459,7 @@ def register(app: FastAPI):
 
                     return JSONResponse({
                         "success": True,
-                        "images": cached_images,
+                        "images": stamp_levels(cached_images),
                         "next_cursor": cached_cursor,
                         "from_cache": True,
                         "cached_count": len(cached_images)
@@ -481,7 +485,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": images,
+                "images": stamp_levels(images),
                 "next_cursor": next_cursor,
                 "from_cache": False,
                 "fetched_count": len(images)
@@ -539,7 +543,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": images,
+                "images": stamp_levels(images),
                 "next_cursor": next_cursor,
                 "fetched_count": len(images)
             })
@@ -566,7 +570,7 @@ def register(app: FastAPI):
 
             return JSONResponse({
                 "success": True,
-                "images": images,
+                "images": stamp_levels(images),
                 "next_cursor": cursor if cursor else None,
                 "cached_count": len(images)
             })

@@ -301,74 +301,20 @@ export function renderThumbs(up, down) {
 /**
  * How explicit an image is, on Civitai's scale:
  *   PG 1 · PG-13 2 · R 4 · X 8 · XXX 16 · Blocked 32 · Unknown 64
- *
- * browsingLevel is the integer Civitai maintains, so it wins whenever it
- * is there. The legacy string and the bare boolean stay as fallbacks
- * because none of these fields has been dependable.
- *
- * Mirrors image_level() in model_manager/nsfw.py - the two must agree, or
- * the grid and the server disagree about what to hide.
+ * The judging is the server's (nsfw.py); the page reads what it sends.
  */
-export const NSFW_LEGACY_LEVELS = { None: 1, Soft: 2, Mature: 4, X: 16 };
 export const NSFW_UNKNOWN = 64;
 export const NSFW_SFW_MAX = 3;  // PG | PG-13
 
 /**
- * The level a PG or PG-13 image is raised to when its prompt uses one of the
- * NSFW prompt words - and those words, as the server has them. Mirrors
- * PROMPT_LEVEL, prompt_words() and prompt_is_explicit() in nsfw.py. Empty
- * until loadNsfwPromptWords() has answered, when only the rating counts.
- */
-export const NSFW_PROMPT_LEVEL = 8;  // X
-let nsfwPromptWords = new Set();
-let nsfwPromptWordsRequest = null;
-
-export function setNsfwPromptWords(words) {
-    nsfwPromptWords = new Set((words || []).map((w) => String(w).toLowerCase()));
-}
-
-/** Fetch the words once; every caller shares the one request. */
-export function loadNsfwPromptWords() {
-    if (!nsfwPromptWordsRequest) {
-        nsfwPromptWordsRequest = fetch('/model-manager/nsfw-prompt-words')
-            .then((response) => response.json())
-            .then((data) => { if (data && data.success) setNsfwPromptWords(data.words); })
-            .catch((e) => console.warn('[ModelManager] Could not load the NSFW prompt words:', e));
-    }
-    return nsfwPromptWordsRequest;
-}
-
-/** Whether an image's own prompt uses an NSFW prompt word. Whole words, any case. */
-export function promptIsExplicit(image) {
-    const prompt = image?.meta?.prompt;
-    if (typeof prompt !== 'string' || !prompt || !nsfwPromptWords.size) return false;
-    return (prompt.toLowerCase().match(/[a-z]+/g) || []).some((w) => nsfwPromptWords.has(w));
-}
-
-/**
- * How explicit an image is: Civitai's rating, raised to X when a PG or PG-13
- * image's prompt is explicit. Mirrors image_level() in nsfw.py.
+ * How explicit an image is - as the server judged it. Every image the page
+ * shows comes through the server, which stamps mm_level on it (stamp_levels()
+ * in nsfw.py). The page used to judge for itself, with a copy of the rule and
+ * the words fetched to feed it. An image without a stamp is Unknown - so
+ * hidden where anything unsafe is - rather than judged here on less.
  */
 export function nsfwImageLevel(image) {
-    const level = nsfwRatedLevel(image);
-    return level <= NSFW_SFW_MAX && promptIsExplicit(image) ? NSFW_PROMPT_LEVEL : level;
-}
-
-/** Civitai's own rating of an image, and nothing else. Mirrors rated_level(). */
-export function nsfwRatedLevel(image) {
-    const browsing = image?.browsingLevel;
-    if (typeof browsing === 'number' && browsing > 0) return browsing;
-
-    const legacy = image?.nsfwLevel;
-    if (typeof legacy === 'number' && legacy > 0) return legacy;
-    if (typeof legacy === 'string' && NSFW_LEGACY_LEVELS[legacy]) {
-        return NSFW_LEGACY_LEVELS[legacy];
-    }
-
-    if (image?.nsfw === true) return 4;   // cautious: nothing else to go on
-    if (image?.nsfw === false) return 1;
-
-    return NSFW_UNKNOWN;
+    return typeof image?.mm_level === 'number' ? image.mm_level : NSFW_UNKNOWN;
 }
 
 /**
@@ -377,8 +323,7 @@ export function nsfwRatedLevel(image) {
  * otherwise the rating label the gallery would show.
  */
 export function nsfwBadgeLabel(image, ratingLabel) {
-    if (nsfwRatedLevel(image) <= NSFW_SFW_MAX && promptIsExplicit(image)) return 'X · prompt';
-    return ratingLabel;
+    return image?.mm_level_from_prompt ? 'X · prompt' : ratingLabel;
 }
 
 /** Is this image safe for a work-safe view? */

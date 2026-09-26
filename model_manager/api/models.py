@@ -12,7 +12,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
-from ..nsfw import NAME_TO_LEVEL, SFW_MAX
+from ..nsfw import NAME_TO_LEVEL, SFW_MAX, stamp_levels
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient
 
@@ -355,7 +355,7 @@ def register(app: FastAPI):
                     require_prompt=hide_promptless_images)
 
                 if images:
-                    result["images"] = images  # Raw image data from cache
+                    result["images"] = stamp_levels(images)  # judged here, for the browser
 
                 # Return cursor state for button visibility
                 result["images_state"] = {

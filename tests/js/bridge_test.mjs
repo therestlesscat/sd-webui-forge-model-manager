@@ -111,7 +111,10 @@ globalThis.fetch = async (url) => {
         }) };
     }
     if (href.includes('/versions/') || href.includes('/images')) {
-        return { ok: true, json: async () => ({ success: true, images: galleryImages, next_cursor: null }) };
+        // Stamped as the server stamps every image it sends (nsfw.stamp_levels());
+        // none of these prompts uses a filter word, so the stamp is the rating.
+        const images = galleryImages.map((i) => ({ ...i, mm_level: i.browsingLevel, mm_level_from_prompt: false }));
+        return { ok: true, json: async () => ({ success: true, images, next_cursor: null }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
 };

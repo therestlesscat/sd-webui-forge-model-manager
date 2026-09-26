@@ -89,27 +89,22 @@ bctx.window = bctx;
 vm.createContext(bctx);
 const isImageSafe = sandbox.isImageSafe;
 
-// Paired the way Civitai actually pairs them, measured over 67,458 images:
-//   None->1   Soft->2   Mature->4   X->16 or 8
+// The server judges every image and stamps mm_level on it (nsfw.stamp_levels();
+// how a rating is read is tested in Python). The page reads the stamp.
 const IMAGES = [
-    { id: 1, browsingLevel: 1, nsfwLevel: 'None', nsfw: false },
-    { id: 2, browsingLevel: 2, nsfwLevel: 'Soft', nsfw: true },
-    { id: 3, browsingLevel: 4, nsfwLevel: 'Mature', nsfw: true },
-    { id: 4, browsingLevel: 16, nsfwLevel: 'X', nsfw: true },
-    { id: 5, browsingLevel: 1 },              // integer alone is enough
-    { id: 6, nsfwLevel: 'Soft' },             // string alone, no integer
-    { id: 7 },                                // nothing to go on
+    { id: 1, browsingLevel: 1, mm_level: 1 },
+    { id: 2, browsingLevel: 2, mm_level: 2 },
+    { id: 3, browsingLevel: 4, mm_level: 4 },
+    { id: 4, browsingLevel: 16, mm_level: 16 },
+    { id: 5, browsingLevel: 1, mm_level: 8 },   // PG, raised to X for its prompt
+    { id: 7, browsingLevel: 1 },                // never judged by the server
 ];
 const safe = IMAGES.filter(isImageSafe);
-check('SFW view keeps PG and PG-13', safe.map(i => i.id).join() === '1,2,5,6',
+check('SFW view keeps what the server calls PG and PG-13', safe.map(i => i.id).join() === '1,2',
       JSON.stringify(safe.map(i => i.id)));
 check('hides R and XXX', !safe.some(i => i.id === 3 || i.id === 4));
-check('an image with nothing to go on is not assumed safe', !safe.some(i => i.id === 7));
-check('browsingLevel alone is enough to classify', safe.some(i => i.id === 5));
-check('a Soft image is PG-13, not R', sandbox.nsfwImageLevel({ nsfwLevel: 'Soft' }) === 2);
-check('a Mature image is R, not X', sandbox.nsfwImageLevel({ nsfwLevel: 'Mature' }) === 4);
-check('the integer outranks the string',
-      sandbox.nsfwImageLevel({ browsingLevel: 16, nsfwLevel: 'None' }) === 16);
+check('and a PG image the server raised for its prompt', !safe.some(i => i.id === 5));
+check('an image the server did not judge is not assumed safe', !safe.some(i => i.id === 7));
 
 // The filter must now key off the toggle alone, not the search checkbox.
 const renderSrc = browser.slice(browser.indexOf('function renderImages'),

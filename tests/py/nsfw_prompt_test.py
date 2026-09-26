@@ -8,8 +8,9 @@ they were stored, so a change of words restamps them, once, from the stored
 payloads; a safe cover that is no longer safe is cleared, and the grid falls
 back to the version's first image that still is.
 
-The words here are made up. The prompt cases are shared with the browser's
-test (tests/nsfw_prompt_cases.json), so the two must agree.
+The words here are made up. The prompt cases (tests/nsfw_prompt_cases.json)
+are also what the level stamped for the browser is checked against: the
+browser reads the server's verdict rather than judging with a copy.
 """
 import json
 import os
@@ -156,10 +157,25 @@ check('three asks while one runs: that pass and one more, never two at once',
       (len(passes), overlapping), (2, []))
 
 # ------------------------------------------------------ for the browser
+# The browser no longer judges: every image it is sent carries the verdict,
+# stamped here - so the shared cases are the stamp's cases now.
+import copy                                              # noqa: E402
+stamped = nsfw.stamp_levels([copy.deepcopy(c['image']) for c in CASES['cases']])
+for case, image in zip(CASES['cases'], stamped):
+    check('stamped: ' + case['why'], image['mm_level'], case['level'])
+    check('and says whether the prompt is why: ' + case['why'], image['mm_level_from_prompt'],
+          case['level'] != nsfw.rated_level(case['image']))
+check('anything that is not an image is left alone', nsfw.stamp_levels([None, 'x']), [None, 'x'])
+# Checked in the browser too until it stopped judging: how a rating is read.
+check('Civitai\'s integer outranks the old string',
+      nsfw.rated_level({'browsingLevel': 16, 'nsfwLevel': 'None'}), 16)
+check('the old strings: Soft is PG-13, Mature is R',
+      [nsfw.rated_level({'nsfwLevel': 'Soft'}), nsfw.rated_level({'nsfwLevel': 'Mature'})], [2, 4])
+check('and nothing to go on is Unknown', nsfw.rated_level({}), 64)
+check('and no images, none', nsfw.stamp_levels(None), None)
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
-opts.model_manager_nsfw_prompt_words = 'snib'
-check('the browser is sent every word, bundled and added',
-      client.get('/model-manager/nsfw-prompt-words').json()['words'], ['blick', 'snib', 'zorp'])
+check('the words are not sent to the browser any more',
+      client.get('/model-manager/nsfw-prompt-words').status_code, 404)
 
 # ----------------------------------------------------- the list that ships
 nsfw.PROMPT_WORDS_FILE = os.path.join(ROOT, 'model_manager', 'data', 'nsfw_prompt_words.txt')
