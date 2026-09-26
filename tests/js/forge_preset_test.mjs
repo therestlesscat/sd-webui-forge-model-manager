@@ -326,4 +326,146 @@ check('a text-to-video model still goes to txt2img',
 check('with no denoising strength of its own',
       promptBox.querySelector('textarea').value.includes('Denoising strength'), false);
 
+// ---------------------------------------------------------- resource chips
+// A send puts the image's LoRAs and embeddings under the negative prompt as
+// chips. A click puts the tag in or takes it out; the chip is lit while a
+// prompt holds it. Neo's paste splits the infotext into the two prompts.
+const negRow = document.createElement('div');
+negRow.id = 'txt2img_neg_prompt_row';
+negRow.innerHTML = '<div id="txt2img_neg_prompt"><textarea></textarea></div>';
+promptBox.after(negRow);
+const positiveBox = promptBox.querySelector('textarea');
+const negativeBox = negRow.querySelector('textarea');
+paste.addEventListener('click', () => {
+    const [prompt, rest = ''] = positiveBox.value.split('\nNegative prompt: ');
+    positiveBox.value = prompt;
+    negativeBox.value = rest.split('\n')[0];
+});
+const fetchBefore = globalThis.fetch;
+const resourcesAsked = [];
+const library = {
+    versions: { 11: { version_id: 11, file_stem: 'add_detail', file_type: 'LORA' } },
+    hashes: { aaaa: { version_id: 11, file_stem: 'add_detail', file_type: 'LORA' },
+              bbbb: { version_id: 14, file_stem: 'easynegative', file_type: 'TextualInversion' } },
+};
+globalThis.fetch = async (url, ...rest) => {
+    if (String(url).includes('/model-manager/image-resources')) {
+        resourcesAsked.push(new URL(String(url), 'http://webui').searchParams);
+        return { ok: true, json: async () => ({ success: true, ...structuredClone(library) }) };
+    }
+    const href = String(url);
+    if (href.includes('/model-manager/civitai/download/progress')) {
+        const id = Number(new URL(href, 'http://webui').searchParams.get('version_id'));
+        return { ok: true, json: async () => ({ success: true, progress: chipProgress[id] || null }) };
+    }
+    if (href.includes('/model-manager/civitai/download')) {
+        const form = new URLSearchParams(String(rest[0]?.body || ''));
+        chipDownloads.push(Object.fromEntries(form));
+        const id = Number(form.get('version_id'));
+        return { ok: true, json: async () => ({ success: true, version_id: id, version_name: 'v1',
+            substituted: false, progress: { version_id: id, percent: 0, status: 'pending' } }) };
+    }
+    if (href.includes('/model-manager/resolve-hashes')) {
+        return { ok: true, json: async () => ({ success: true, deferred: [],
+            resolved: { cccc: { version_id: 98, model_id: 97 },
+                        dddd: { version_id: null, model_id: null } } }) };
+    }
+    return fetchBefore(url, ...rest);
+};
+const chipDownloads = [];
+const chipProgress = {};
+
+plan = { success: true, preset: 'flux', manage_modules: false, select: [], missing: [] };
+IMAGE.meta = {
+    prompt: 'a cat, <lora:UploaderName_v2:0.8>', negativePrompt: 'easynegative, blurry',
+    steps: 20, sampler: 'Euler', cfgScale: 3.5, seed: 1,
+    civitaiResources: [{ type: 'lora', modelVersionId: 11, name: 'Detail Tweaker', weight: 0.8 },
+                       { type: 'lora', modelVersionId: 99, name: 'Not Here' }],
+    resources: [{ type: 'lora', name: 'UploaderName_v2', hash: 'AAAA', weight: 0.8 },
+                { type: 'embed', name: 'easynegative', hash: 'bbbb' },
+                { type: 'lora', name: 'hash_only', hash: 'cccc' },
+                { type: 'lora', name: 'private_merge', hash: 'dddd' },
+                { type: 'lora', name: 'no_hash' }],
+};
+await send();
+const row = () => document.getElementById('mm_resource_chips_txt2img');
+const chip = (name) => Array.from(row()?.querySelectorAll('[data-chip]') || [])
+    .find((b) => b.querySelector('.mm-resource-chip-name')?.textContent.trim() === name);
+const click = (element) => element.dispatchEvent(new window.Event('click', { bubbles: true }));
+
+check('the image\'s resources are looked up by version id and hash',
+      [resourcesAsked[0]?.get('version_ids'), resourcesAsked[0]?.get('hashes')], ['11,99', 'aaaa,bbbb,cccc,dddd']);
+check('its chips sit under the negative prompt', negRow.nextElementSibling?.id, 'mm_resource_chips_txt2img');
+check('one per LoRA and embedding, the gallery\'s own LoRA first',
+      Array.from(row().querySelectorAll('.mm-resource-chip-name')).map((b) => b.textContent.trim()),
+      ['flux', 'add_detail', 'Not Here', 'easynegative', 'hash_only', 'private_merge', 'no_hash']);
+check('a LoRA the prompt named otherwise is pasted under the local file\'s name, weight kept',
+      [positiveBox.value, positiveBox.value.includes('UploaderName')], ['a cat, <lora:add_detail:0.8>', false]);
+check('what a prompt already holds is lit, the rest not',
+      ['flux', 'add_detail', 'easynegative'].map((n) => chip(n).classList.contains('active')),
+      [false, true, true]);
+const note = (name) => chip(name)?.querySelector('.mm-resource-chip-note')?.textContent;
+check('one with no file here says it is missing, and that a click downloads it',
+      note('Not Here'), 'missing LoRA, click to download');
+await waitFor('the hashes to be checked', () => note('private_merge') === 'not on Civitai');
+check('one known by a hash Civitai has: downloadable too', note('hash_only'), 'missing LoRA, click to download');
+check('one whose hash Civitai has never heard of says so, and offers nothing',
+      [note('private_merge'), chip('private_merge').disabled], ['not on Civitai', true]);
+check('nor one the image names with no hash or version at all',
+      [note('no_hash'), chip('no_hash').disabled], ['no hash recorded', true]);
+
+click(chip('flux'));
+check('a click puts a LoRA in at the image\'s weight, else 0.5',
+      [positiveBox.value, chip('flux').classList.contains('active')],
+      ['a cat, <lora:add_detail:0.8>, <lora:flux:0.5>', true]);
+click(chip('flux'));
+check('a second takes it out', [positiveBox.value, chip('flux').classList.contains('active')],
+      ['a cat, <lora:add_detail:0.8>', false]);
+click(chip('easynegative'));
+check('an embedding the negative prompt holds comes out of the negative prompt',
+      [negativeBox.value, positiveBox.value], ['blurry', 'a cat, <lora:add_detail:0.8>']);
+click(chip('easynegative'));
+check('and goes back into it', negativeBox.value, 'blurry, easynegative');
+
+positiveBox.value = 'a cat, <lora:flux:1.1>';
+positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+check('the chips follow the prompt as it is typed',
+      [chip('flux').classList.contains('active'), chip('add_detail').classList.contains('active')],
+      [true, false]);
+
+// A missing chip downloads its resource when clicked - the version the image
+// names, as the Resources dialog does - and adds nothing to the prompt.
+const before = positiveBox.value;
+chipProgress[99] = { version_id: 99, percent: 40.6, status: 'downloading', synced: false };
+click(chip('Not Here'));
+await waitFor('the download', () => chipDownloads.length === 1);
+check('a click on a missing chip downloads the version the image names',
+      [chipDownloads[0].version_id, chipDownloads[0].newer_if_gone], ['99', 'true']);
+await waitFor('progress', () => chip('Not Here')?.textContent.includes('40%'), 4000);
+check('the chip shows how it is going, and takes no clicks meanwhile',
+      [chip('Not Here').querySelector('.mm-resource-chip-note')?.textContent, chip('Not Here').disabled],
+      ['40%', true]);
+library.versions[99] = { version_id: 99, file_stem: 'not_here', file_type: 'LORA' };
+chipProgress[99] = { version_id: 99, percent: 100, status: 'complete', synced: true };
+await waitFor('the chips to be looked up again', () => !!chip('not_here'), 5000);
+check('once in the library it is a chip like any other, under the file\'s name',
+      [chip('not_here')?.disabled, chip('not_here')?.classList.contains('missing'), !!chip('Not Here')],
+      [false, false, false]);
+check('and nothing was added to the prompt', positiveBox.value, before);
+
+click(chip('hash_only'));
+await waitFor('the hash to be looked up and downloaded', () => chipDownloads.length === 2);
+check('a chip that knows only a hash is looked up first, then downloaded by version and model',
+      [chipDownloads[1].version_id, chipDownloads[1].model_id], ['98', '97']);
+
+click(row().querySelector('[data-chips-clear]'));
+check('Clear takes the chips away', row(), null);
+check('and leaves the prompts as they were', [positiveBox.value, negativeBox.value],
+      ['a cat, <lora:flux:1.1>', 'blurry, easynegative']);
+
+IMAGE.meta = { prompt: 'a lighthouse', steps: 20 };
+MODEL.model_type = 'Checkpoint';
+await send();
+check('an image with nothing to chip shows no row', row(), null);
+
 done();

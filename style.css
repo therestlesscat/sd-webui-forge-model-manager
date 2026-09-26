@@ -1793,7 +1793,8 @@ body.mm-modal-open {
     padding: 0 6px;
 }
 
-.cb-tag-chip {
+.cb-tag-chip,
+.mm-resource-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1806,7 +1807,8 @@ body.mm-modal-open {
     line-height: 1.2;
 }
 
-.cb-tag-chip-name {
+.cb-tag-chip-name,
+.mm-resource-chip-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1828,6 +1830,76 @@ body.mm-modal-open {
 
 .cb-tag-chip-remove:hover {
     background: rgba(255, 255, 255, 0.25);
+}
+
+/* An image's LoRAs and embeddings, under the negative prompt a send filled:
+   a click puts the tag in or takes it out. Lit while a prompt holds it,
+   outlined while not, dimmed when the file is not in the library. The pill
+   is the tag chip's; a chip here has no x, so its padding is even, and a
+   border in both states so lighting one does not move the rest. */
+.mm-resource-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.mm-resource-chips .mm-resource-chip {
+    max-width: 320px;
+    margin: 0;
+    padding: 3px 10px;
+    border: 1px solid var(--primary-600, #2563eb);
+    background: transparent;
+    color: var(--body-text-color, inherit);
+    cursor: pointer;
+}
+
+.mm-resource-chips .mm-resource-chip.active {
+    background: var(--primary-600, #2563eb);
+    color: #fff;
+}
+
+.mm-resource-chips .mm-resource-chip.missing {
+    max-width: 480px;
+    border-style: dashed;
+    opacity: 0.75;
+}
+
+.mm-resource-chips .mm-resource-chip:disabled {
+    cursor: progress;
+}
+
+/* Nothing to download: Civitai does not have it, or the image does not say
+   what it is. */
+.mm-resource-chips .mm-resource-chip.unavailable {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* On a missing chip, what a click does - or how its download is going. */
+.mm-resource-chip-note {
+    flex: none;
+    margin-left: 6px;
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+/* A Resources row's download, once asked for: its progress, then Installed,
+   or Failed with the reason on hover beside a Download to try again. */
+.mm-res-state {
+    font-size: 0.85em;
+    white-space: nowrap;
+    opacity: 0.85;
+}
+
+.mm-res-state.installed {
+    color: var(--color-accent, #22c55e);
+}
+
+.mm-res-state.error {
+    color: #dc2626;
+    cursor: help;
 }
 
 .cb-tag-dropdown {

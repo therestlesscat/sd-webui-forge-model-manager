@@ -603,6 +603,143 @@ export function renderFilterBanner({ shown, total, bannerClass, labelClass,
     return `<div class="${bannerClass}"><span>${sentence}</span>${controls}</div>`;
 }
 
+// ------------------------------------------------------------ resource chips
+// A send puts an image's LoRAs and embeddings under the prompts as chips: a
+// click puts the resource's tag in, or takes it out. Most images list their
+// LoRAs as resources without a tag in the prompt, which meant finding each
+// one by hand. The rules are here, apart from the page, so they can be tested.
+
+// What Forge loads through <lora:...>, by the file's own type or Civitai's.
+const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
+const EMBEDDING_TYPES = new Set(['textualinversion', 'embedding', 'embed']);
+
+// A LoRA an image gives no weight gets this one.
+export const DEFAULT_LORA_WEIGHT = 0.5;
+
+function resourceKind(type) {
+    const value = String(type || '').toLowerCase();
+    if (LORA_TYPES.has(value)) return 'lora';
+    if (EMBEDDING_TYPES.has(value)) return 'embedding';
+    return null;
+}
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The text a chip puts in a prompt. */
+export function chipTag(chip) {
+    return chip.kind === 'lora' ? `<lora:${chip.name}:${chip.weight}>` : chip.name;
+}
+
+// A LoRA's tag at any weight - one edited by hand is still that LoRA's - and
+// an embedding as a word of its own, not part of a longer one.
+function chipPattern(chip) {
+    const name = escapeRegExp(chip.name);
+    return chip.kind === 'lora' ? `<lora:${name}(?::[^>]*)?>` : `(?<![\\w-])${name}(?![\\w-])`;
+}
+
+/** Whether a prompt holds a chip's resource. */
+export function promptHasChip(prompt, chip) {
+    return new RegExp(chipPattern(chip), 'i').test(prompt || '');
+}
+
+/**
+ * A prompt with a chip's resource taken out if it is there - every copy, and
+ * the comma that separated it - or put at the end if it is not.
+ */
+export function toggleChip(prompt, chip) {
+    const text = prompt || '';
+    if (!promptHasChip(text, chip)) {
+        const kept = text.replace(/[\s,]+$/, '');
+        return kept ? `${kept}, ${chipTag(chip)}` : chipTag(chip);
+    }
+    const tag = chipPattern(chip);
+    return text
+        .replace(new RegExp(`\\s*,\\s*${tag}`, 'gi'), '')
+        .replace(new RegExp(`${tag}\\s*,?\\s*`, 'gi'), '');
+}
+
+/** A prompt with <lora:from...> tags naming the same file as <lora:to...>. */
+export function renameLoraTags(prompt, from, to) {
+    if (!prompt || !from || !to || from === to) return prompt;
+    return prompt.replace(new RegExp(`<lora:${escapeRegExp(from)}(?=[:>])`, 'gi'), `<lora:${to}`);
+}
+
+/**
+ * The chips for an image, and the LoRA tags its prompts use under a name
+ * that is not the local file's.
+ *
+ * Its resources come twice: Civitai's list, by version id, and the
+ * infotext's, by hash and under the name the prompt used. `files` is the
+ * server's answer for both (/model-manager/image-resources); a resource with
+ * no file there is shown, but cannot be put in. `gallery` is the file whose
+ * gallery the image is in: an image often does not list the LoRA it was
+ * posted to show. One chip per file, whichever list named it, with the
+ * image's weight where either gives one.
+ *
+ * Returns { chips, renames }: a chip is { key, kind, name, weight,
+ * installed, where, title, versionId, modelId, hash }, `name` being what goes
+ * in the prompt - the file's stem, which Forge always knows it by. `where` is
+ * the prompt the image had it in, else the positive one. versionId, modelId
+ * and hash are what the image names it by, for downloading one that is not
+ * installed; any may be null. renames: [{ from, to }].
+ */
+export function collectResourceChips(meta, files, gallery = null) {
+    const byVersion = (files && files.versions) || {};
+    const byHash = (files && files.hashes) || {};
+    const chips = new Map();
+    const renames = [];
+
+    const add = ({ file, type, label, weight, versionId, modelId, hash, alias }) => {
+        const kind = resourceKind((file && file.file_type) || type);
+        if (!kind) return;
+        const name = file ? file.file_stem : label;
+        if (!name) return;
+        const key = file ? `file:${name.toLowerCase()}`
+            : versionId ? `version:${versionId}` : `name:${name.toLowerCase()}`;
+        const known = chips.get(key);
+        if (known) {
+            if (known.weight === null && weight !== undefined && weight !== null) known.weight = weight;
+            known.versionId = known.versionId || versionId || (file && file.version_id) || null;
+            known.modelId = known.modelId || modelId || null;
+            known.hash = known.hash || hash || null;
+        } else {
+            chips.set(key, { key, kind, name, weight: weight ?? null, installed: !!file,
+                             aliases: new Set(), title: label || name,
+                             versionId: versionId || (file && file.version_id) || null,
+                             modelId: modelId || null, hash: hash || null });
+        }
+        if (file && alias && alias !== name) {
+            chips.get(key).aliases.add(alias);
+            if (kind === 'lora') renames.push({ from: alias, to: name });
+        }
+    };
+
+    if (gallery && gallery.file_stem) {
+        add({ file: gallery, type: gallery.file_type, label: gallery.file_stem });
+    }
+    for (const r of (meta && meta.civitaiResources) || []) {
+        const id = r.modelVersionId;
+        add({ file: id ? byVersion[String(id)] : null, type: r.type, versionId: id, modelId: r.modelId,
+              label: [r.name || r.modelName, r.modelVersionName].filter(Boolean).join(' - '),
+              weight: r.weight });
+    }
+    for (const r of (meta && meta.resources) || []) {
+        const hash = String(r.hash || '').toLowerCase();
+        add({ file: hash ? byHash[hash] : null, type: r.type, label: r.name,
+              weight: r.weight, alias: r.name, hash: hash || null });
+    }
+
+    let negative = (meta && meta.negativePrompt) || '';
+    for (const { from, to } of renames) negative = renameLoraTags(negative, from, to);
+    const result = [...chips.values()].map(({ aliases, ...chip }) => {
+        chip.weight = chip.weight ?? (chip.kind === 'lora' ? DEFAULT_LORA_WEIGHT : null);
+        const named = [chip.name, ...aliases].some((n) => promptHasChip(negative, { ...chip, name: n }));
+        chip.where = named ? 'negative' : 'positive';
+        return chip;
+    });
+    return { chips: result, renames };
+}
+
 export function renderResource(resource) {
     const type = resource.type || 'unknown';
     const name = resource.name || 'Unknown';

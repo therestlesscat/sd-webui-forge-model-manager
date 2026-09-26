@@ -68,6 +68,7 @@ class Stub:
 
     models = {'items': [], 'nextCursor': None}
     model = None
+    version = None
     images = {'images': [], 'next_cursor': None}
     tags = {'items': []}
     enums = {}
@@ -96,6 +97,11 @@ class Stub:
         self._maybe_fail()
         return Stub.model
 
+    def get_model_version(self, version_id):
+        Stub.calls.append(('get_model_version', version_id))
+        self._maybe_fail()
+        return Stub.version
+
     def get_model_images(self, version_id, cursor=None, limit=None):
         Stub.calls.append(('get_model_images', version_id, cursor, limit))
         self._maybe_fail()
@@ -119,7 +125,7 @@ class Stub:
 def civitai(**answers):
     """Set what the stub answers, and forget what it was asked before."""
     Stub.raises = answers.pop('raises', None)
-    for name in ('models', 'model', 'images', 'tags', 'enums', 'generation'):
+    for name in ('models', 'model', 'version', 'images', 'tags', 'enums', 'generation'):
         if name in answers:
             setattr(Stub, name, answers[name])
     Stub.calls = []
@@ -628,6 +634,46 @@ check('progress with no service is a 500',
 check('and so is a cancel',
       post('/model-manager/civitai/download/cancel', version_id=1)[0], 500)
 ds.get_download_service = lambda: downloads
+
+# ------------------------------------------------- downloads from an image
+# The Resources dialog downloads the version an image names. Its resources
+# do not always carry the model id, and uploaders delete versions: the image's
+# version is then gone for good, and the model's newest is downloaded instead.
+def two_versions(model_id, newest, older):
+    model = remote(model_id, newest)
+    model['modelVersions'].append(dict(remote(model_id, older)['modelVersions'][0], name='v0'))
+    model['modelVersions'][0]['name'] = 'v2'
+    return model
+
+civitai(model=two_versions(90170, 90172, 90171), version={'id': 90171, 'modelId': 90170})
+status, body = post('/model-manager/civitai/download', version_id=90171)
+check('with no model id, Civitai is asked whose version it is',
+      [c for c in Stub.calls if c[0] in ('get_model_version', 'get_model')],
+      [('get_model_version', 90171), ('get_model', 90170)])
+check('and that very version is downloaded', (downloads.queued[-1][:2], body['version_id'],
+      body['substituted']), ((90171, 90171), 90171, False))
+
+civitai(version=None)
+status, body = post('/model-manager/civitai/download', version_id=90179)
+check('a version Civitai does not know, with no model id, is a 404',
+      (status, body['error']), (404, 'Version not found on Civitai'))
+
+civitai(model=two_versions(90170, 90172, 90171))
+status, body = post('/model-manager/civitai/download', version_id=90175, model_id=90170,
+                    newer_if_gone='true')
+check('a version gone from its model: the model\'s newest is downloaded instead',
+      (downloads.queued[-1][:2], body['version_id'], body['version_name'], body['substituted']),
+      ((90172, 90172), 90172, 'v2', True))
+check('and progress is for that one', body['progress']['version_id'], 90172)
+status, body = post('/model-manager/civitai/download', version_id=90175, model_id=90170)
+check('only when asked: the Civitai Browser still gets a 404', status, 404)
+
+before = len(downloads.queued)
+civitai(model=remote(OWNED_MODEL, OWNED_VERSION))
+status, body = post('/model-manager/civitai/download', version_id=OWNED_VERSION,
+                    model_id=OWNED_MODEL, newer_if_gone='true')
+check('a version this library has is not downloaded again',
+      (body['success'], body.get('already_installed'), len(downloads.queued)), (True, True, before))
 
 # ---------------------------------------------------------------------- tags
 civitai(tags={'items': [{'name': 'anime'}, {'name': 'realistic'}, {'no': 'name'}]})

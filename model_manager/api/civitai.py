@@ -583,19 +583,32 @@ def register(app: FastAPI):
     @app.post("/model-manager/civitai/download")
     def civitai_download_model(
         version_id: int = Form(...),
-        model_id: int = Form(...),
+        model_id: Optional[int] = Form(default=None),
         file_index: Optional[int] = Form(default=None),
-        file_id: Optional[int] = Form(default=None)
+        file_id: Optional[int] = Form(default=None),
+        newer_if_gone: bool = Form(default=False),
     ):
         """
         Start downloading a model version from Civitai.
 
-        Requires model_id and version_id. Fetches full model/version data
-        then queues the download.
+        Fetches full model/version data then queues the download. Without
+        model_id, Civitai is asked which model the version belongs to - an
+        image's resources do not always say.
 
         file_id names one of the version's files outright and is what the file
         picker sends; file_index picks one by position. Leave both out and the
         file Civitai marks primary is used, which is not always the first one.
+
+        newer_if_gone is for a version an image names: uploaders delete
+        versions, and the image's is then gone for good. The model's newest
+        version is downloaded instead, and the answer says so. With it, a
+        version this library already has is not downloaded again.
+
+        Returns:
+            progress, and version_id / version_name - the version being
+            downloaded, which with newer_if_gone may not be the one asked
+            for; substituted says it is not. already_installed instead of
+            progress when the library has it.
         """
         try:
             from ..download_service import get_download_service
@@ -603,6 +616,14 @@ def register(app: FastAPI):
             # Fetch model and version data from Civitai
             client = CivitaiClient.from_settings()
             try:
+                if not model_id:
+                    version = client.get_model_version(version_id)
+                    model_id = (version or {}).get("modelId")
+                    if not model_id:
+                        return JSONResponse(
+                            {"success": False, "error": "Version not found on Civitai"},
+                            status_code=404
+                        )
                 model_data = client.get_model(model_id)
             finally:
                 client.close()
@@ -620,16 +641,29 @@ def register(app: FastAPI):
                     version_data = v
                     break
 
+            substituted = False
+            if not version_data and newer_if_gone and model_data.get("modelVersions"):
+                # Civitai lists a model's versions newest first.
+                version_data = model_data["modelVersions"][0]
+                substituted = True
+
             if not version_data:
                 return JSONResponse(
                     {"success": False, "error": "Version not found"},
                     status_code=404
                 )
 
+            chosen = {"version_id": version_data.get("id"),
+                      "version_name": version_data.get("name"),
+                      "substituted": substituted}
+            local = get_models_db().get_version_by_id(version_data.get("id")) if newer_if_gone else None
+            if local and local.get("file_path"):
+                return JSONResponse({"success": True, "already_installed": True, **chosen})
+
             # Queue download
             service = get_download_service()
             progress = service.queue_download(
-                version_id=version_id,
+                version_id=version_data.get("id"),
                 model_data=model_data,
                 version_data=version_data,
                 file_index=file_index,
@@ -639,7 +673,8 @@ def register(app: FastAPI):
             return JSONResponse({
                 "success": True,
                 "message": "Download queued",
-                "progress": progress.to_dict()
+                "progress": progress.to_dict(),
+                **chosen,
             })
 
         except Exception as e:

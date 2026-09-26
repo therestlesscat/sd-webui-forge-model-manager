@@ -623,6 +623,33 @@ class ModelsOps:
                     by_id.setdefault(row["id"], []).append(self._version_row_to_dict(row))
         return by_hash + [v for i in ids for v in by_id.get(i, [])]
 
+    def local_versions_by_key(self, version_ids: List[int], hashes: List[str]
+                              ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        """
+        The local file each of an image's resources names, keyed by what named
+        it: {version id: row} and {hash: row}, in one pass. versions_named_by()
+        answers "which files", this "which file for which resource" - what a
+        per-resource answer needs.
+        """
+        wanted = {h.lower() for h in hashes if h}
+        ids = {int(i) for i in version_ids if str(i).isdigit()}
+        by_id, by_hash = {}, {}
+        with self._cursor() as cursor:
+            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
+            for row in cursor.fetchall():
+                if row["id"] in ids and row["id"] not in by_id:
+                    by_id[row["id"]] = self._version_row_to_dict(row)
+                if wanted and row["file_hashes"]:
+                    try:
+                        stored = json.loads(row["file_hashes"]) or {}
+                    except (TypeError, ValueError):
+                        stored = {}
+                    for value in stored.values():
+                        value = str(value or "").lower()
+                        if value in wanted and value not in by_hash:
+                            by_hash[value] = self._version_row_to_dict(row)
+        return by_id, by_hash
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:

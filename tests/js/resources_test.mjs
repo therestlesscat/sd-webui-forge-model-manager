@@ -187,8 +187,10 @@ check("where both lists name it, the Civitai name is the one kept",
       offered.includes('Sci Fi Environments (resolved)'), false);
 check('one the legacy list alone knew about is still offered',
       offered.includes('VAE ft MSE'), true);
-check('and every offer can be opened or downloaded',
-      panel().querySelectorAll('.mm-res-actions a').length, 6);
+check('and every offer can be opened on Civitai, or downloaded here',
+      [panel().querySelectorAll('.mm-res-actions a').length,
+       Array.from(panel().querySelectorAll('.mm-res-actions button'))
+           .filter((b) => b.textContent.trim() === 'Download').length], [3, 3]);
 
 const unresolved = names('.mm-res-unresolved').sort();
 check('what nothing could be found for is shown rather than dropped',
@@ -259,5 +261,96 @@ release();
 await slow;
 check('the older lookup does not paint over the panel opened after it',
       panel() === newer, true);
+
+// ------------------------------------------------ downloading from here
+// Download was a link to Civitai's download URL: the right version, saved
+// wherever the browser saves things and unknown to the library. It now
+// downloads as the Civitai Browser does - into the library - the version the
+// image names, or the model's newest if that version is gone.
+const downloadsAsked = [];
+const progressAsked = [];
+const server = { download: {}, progress: {} };
+const fetchBefore = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    const reply = (body) => ({ ok: !body.status, status: body.status || 200, json: async () => body });
+    if (href.includes('/model-manager/image-resources')) {
+        return reply({ success: true, versions: { 6002: { version_id: 6002, file_stem: 'space' } },
+                       hashes: {} });
+    }
+    if (href.includes('/model-manager/civitai/download/progress')) {
+        const id = Number(new URL(href, 'http://webui').searchParams.get('version_id'));
+        progressAsked.push(id);
+        return reply({ success: true, progress: server.progress[id] || null });
+    }
+    if (href.includes('/model-manager/civitai/download')) {
+        const form = new URLSearchParams(String(init.body || ''));
+        downloadsAsked.push(Object.fromEntries(form));
+        return reply(server.download[form.get('version_id')]);
+    }
+    return fetchBefore(url, init);
+};
+const cell = (id) => panel()?.querySelector(`[data-res-download="${id}"]`);
+// The button's own onclick, run as the browser would: the harness's DOM does
+// not run inline handlers, and what it calls with is part of what is checked.
+const press = (id) => new Function(cell(id).querySelector('button').getAttribute('onclick'))();
+
+document.querySelector('.mm-modal-overlay')?.remove();
+await window.mmShowResources(0);
+await waitFor('the installed check', () => cell(6002)?.textContent.includes('Installed'));
+check('a version the library has says so, and offers no download',
+      [cell(6002).textContent.trim(), !!cell(6002).querySelector('button')], ['Installed', false]);
+check('one it does not have offers Download', cell(6001).textContent.trim(), 'Download');
+
+server.download[6001] = { success: true, version_id: 6001, version_name: 'v1', substituted: false,
+                          progress: { version_id: 6001, percent: 0, status: 'pending' } };
+server.progress[6001] = { version_id: 6001, percent: 40.2, status: 'downloading', synced: false };
+press(6001);
+await waitFor('the download to be asked for', () => downloadsAsked.length === 1);
+check('it asks the server for that very version, a newer one only if it is gone',
+      [downloadsAsked[0].version_id, downloadsAsked[0].newer_if_gone], ['6001', 'true']);
+await waitFor('progress', () => cell(6001)?.textContent.includes('40%'));
+check('and shows how far it has got', cell(6001).textContent.trim(), '40%');
+server.progress[6001] = { version_id: 6001, percent: 100, status: 'complete', synced: true };
+await waitFor('the finish', () => cell(6001)?.textContent.includes('Installed'), 5000);
+check('in the library, it says Installed', cell(6001).textContent.trim(), 'Installed');
+
+server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true,
+                          progress: { version_id: 7009, percent: 0, status: 'pending' } };
+server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
+press(7001);
+await waitFor('the newer version', () => cell(7001)?.textContent.includes('Installed'), 5000);
+check('a version gone from Civitai: its progress is the newer one\'s',
+      progressAsked.includes(7009), true);
+check('and the row says which it got, and why',
+      cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Installed v3 (the image's is gone)");
+
+check('with no model id to send, none is sent - the server looks it up',
+      'model_id' in downloadsAsked[0], false);
+
+// A model id the image does carry is passed along, saving that lookup; and a
+// download that fails says so, and can be tried again.
+IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Third', modelVersionId: 6003, modelId: 4103 });
+document.querySelector('.mm-modal-overlay')?.remove();
+await window.mmShowResources(0);
+await waitFor('the panel again', () => !!cell(6003)?.querySelector('button'));
+server.download[6003] = { success: false, error: 'Early access: needs an API key' };
+press(6003);
+await waitFor('the failure', () => cell(6003)?.textContent.includes('Failed'));
+check('a model id the image carries is sent along', downloadsAsked.at(-1).model_id, '4103');
+check('a failed download says so, with the reason on hover, and can be tried again',
+      [cell(6003).querySelector('.error')?.title, !!cell(6003).querySelector('button')],
+      ['Early access: needs an API key', true]);
+
+// Not found is for good: the version and its whole model are gone.
+IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Gone', modelVersionId: 6004, modelId: 4104 });
+document.querySelector('.mm-modal-overlay')?.remove();
+await window.mmShowResources(0);
+await waitFor('the panel again', () => !!cell(6004)?.querySelector('button'));
+server.download[6004] = { status: 404, success: false, error: 'Model not found on Civitai' };
+press(6004);
+await waitFor('the answer', () => !!cell(6004)?.textContent.includes('Not on Civitai'));
+check('one Civitai no longer has says so, and offers no retry',
+      [cell(6004).textContent.trim(), !!cell(6004).querySelector('button')], ['Not on Civitai', false]);
 
 done();
