@@ -57,7 +57,7 @@ p.total_bytes, p.downloaded_bytes = 1000, 333
 check('percent is the ratio', round(p.percent, 1), 33.3)
 check('and it is rounded on the way out', p.to_dict()['percent'], 33.3)
 
-for status, complete in (('pending', False), ('downloading', False),
+for status, complete in (('pending', False), ('downloading', False), ('finishing', False),
                          ('complete', True), ('error', True), ('cancelled', True)):
     p.status = status
     check('%s means complete=%s' % (status, complete), p.is_complete, complete)
@@ -316,7 +316,15 @@ CHECKPOINT = {'id': 42, 'name': 'Subject', 'type': 'Checkpoint',
               'stats': {'downloadCount': 3}}
 
 synced = []
-service._sync_downloaded_file = lambda path, progress=None: synced.append(path)
+handed = []
+
+
+def fake_sync(path, progress=None, known=None):
+    synced.append(path)
+    handed.append((known, progress.status if progress else None, progress.synced if progress else None))
+
+
+service._sync_downloaded_file = fake_sync
 
 civitai_says(FakeResponse([b'weights']))
 progress = service.download_version(500, CHECKPOINT, version())
@@ -326,6 +334,12 @@ check('landing in the checkpoint directory',
 check('under the name Civitai gave it',
       os.path.basename(progress.file_path), 'model.safetensors')
 check('and it was handed to the database', synced, [progress.file_path])
+check('while it was, the download said finishing, not complete',
+      handed[-1][1:], ('finishing', False))
+check('and complete and synced arrive together, after it', (progress.status, progress.synced),
+      ('complete', True))
+check('with no Civitai hash to trust, the sync is told nothing: it hashes the file itself',
+      handed[-1][0], None)
 
 info = os.path.splitext(progress.file_path)[0] + '.civitai.info'
 written = json.loads(io.open(info, encoding='utf-8').read())
@@ -338,6 +352,44 @@ check('and the one version that was fetched',
 
 # the same file again
 civitai_says(FakeResponse([b'weights']))
+
+# ------------------------------------------------ hashed while downloading
+# After a download, the library sync read the whole file again to hash it -
+# 10 s for a 7 GB checkpoint - while the Civitai Browser showed the download
+# as finished but without its "Show in MM". Civitai lists the file's hashes;
+# the download hashes the bytes as they arrive and, when its SHA-256 is
+# Civitai's, hands Civitai's list to the sync with the version and model.
+import hashlib                                           # noqa: E402
+BODY = b'hashed weights'
+SHA = hashlib.sha256(BODY).hexdigest().upper()
+
+
+def hashed(version_id, sha256):
+    return version(id=version_id, files=[{
+        'id': 9, 'name': 'hashed_%d.safetensors' % version_id, 'primary': True,
+        'downloadUrl': 'https://example.invalid/h',
+        'hashes': {'SHA256': sha256, 'AutoV2': sha256[:10], 'BLAKE3': 'B' * 64, 'CRC32': 'C' * 8}}])
+
+
+civitai_says(FakeResponse([BODY[:6], BODY[6:]]))
+del synced[:]
+good = service.download_version(510, CHECKPOINT, hashed(510, SHA))
+known = handed[-1][0] or {}
+check('the file is hashed as it is written, in pieces', good.sha256, SHA)
+check('and matching Civitai, its list is what the sync is given',
+      [getattr(known.get('hashes'), 'sha256', None), getattr(known.get('hashes'), 'blake3', None),
+       getattr(known.get('hashes'), 'crc32', None)], [SHA, 'B' * 64, 'C' * 8])
+check('with the version and the model the download had',
+      [(known.get('version') or {}).get('id'), (known.get('model') or {}).get('id')], [510, 42])
+check('and it completes', (good.status, good.synced), ('complete', True))
+
+civitai_says(FakeResponse([BODY]))
+del synced[:]
+bad = service.download_version(511, CHECKPOINT, hashed(511, 'F' * 64))
+check('a file whose SHA-256 is not Civitai\'s is corrupt: an error, not a model',
+      (bad.status, 'SHA-256' in (bad.error or '')), ('error', True))
+check('removed', os.path.exists(os.path.join(CKPT_DIR, 'hashed_511.safetensors')), False)
+check('and never added to the library', synced, [])
 again = service.download_version(500, CHECKPOINT, version())
 check('downloading it twice is refused', again.status, 'error')
 check('saying why', 'already exists' in (again.error or ''), True)
@@ -449,8 +501,9 @@ class Result:
 class FakeSync:
     result = Result(True)
 
-    def sync_model(self, file_path, force=False):
+    def sync_model(self, file_path, force=False, known=None):
         FakeSync.asked = (file_path, force)
+        FakeSync.known = known
         if isinstance(FakeSync.result, Exception):
             raise FakeSync.result
         return FakeSync.result
@@ -467,35 +520,29 @@ db_module.get_models_db = lambda: types.SimpleNamespace(
 real = DownloadService()
 
 
-def sync_and_wait(path):
+def sync_now(path, known=None):
+    # It runs in the download's own thread now, and is done when it returns.
     progress = DownloadProgress(version_id=1)
-    real._sync_downloaded_file(path, progress)
-    for _ in range(200):
-        if progress.synced:
-            break
-        time.sleep(0.01)
+    real._sync_downloaded_file(path, progress, known)
     return progress
 
 
-done = sync_and_wait('/models/x.safetensors')
+done = sync_now('/models/x.safetensors', known={'hashes': 'h', 'version': {}})
 check('a downloaded file is synced', FakeSync.asked, ('/models/x.safetensors', True))
-check('the UI is told it is queryable', done.synced, True)
+check('with what the download knew', FakeSync.known, {'hashes': 'h', 'version': {}})
 check('with no complaint', done.sync_error, None)
 check('and the download is dated', stamped, ['/models/x.safetensors'])
 
 FakeSync.result = Result(False, 'not on Civitai')
-done = sync_and_wait('/models/y.safetensors')
-check('a sync that fails still unblocks the UI', done.synced, True)
-check('carrying the reason', done.sync_error, 'not on Civitai')
+done = sync_now('/models/y.safetensors')
+check('a sync that fails says why', done.sync_error, 'not on Civitai')
 
 FakeSync.result = RuntimeError('database is locked')
-done = sync_and_wait('/models/z.safetensors')
-check('and so does one that raises', done.synced, True)
-check('with the exception as the reason', done.sync_error, 'database is locked')
+done = sync_now('/models/z.safetensors')
+check('and one that raises does not escape', done.sync_error, 'database is locked')
 
 FakeSync.result = Result(True)
 real._sync_downloaded_file('/models/w.safetensors')
-time.sleep(0.2)
 check('syncing without a progress record works too',
       FakeSync.asked[0], '/models/w.safetensors')
 

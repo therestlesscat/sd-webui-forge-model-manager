@@ -1735,7 +1735,7 @@ function renderDownloads() {
     downloads.sort((a, b) => (statusOrder[a.status] || 5) - (statusOrder[b.status] || 5));
 
     // Count by status
-    const downloadingCount = downloads.filter(d => d.status === 'downloading').length;
+    const downloadingCount = downloads.filter(d => d.status === 'downloading' || d.status === 'finishing').length;
     const pendingCount = downloads.filter(d => d.status === 'pending').length;
     const completedCount = downloads.filter(d => d.status === 'complete' || d.status === 'error' || d.status === 'cancelled').length;
 
@@ -1753,7 +1753,9 @@ function renderDownloads() {
         const percent = dl.percent?.toFixed(1) || 0;
         const downloaded = formatFileSize(dl.downloaded_bytes || 0);
         const total = formatFileSize(dl.total_bytes || 0);
-        const showProgress = status === 'downloading' || status === 'pending';
+        // finishing: on disk, being added to the library. Not complete until
+        // it is, so that Complete and "Show in MM" arrive together.
+        const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing';
         const showCancel = status === 'downloading' || status === 'pending';
         const showDismiss = status === 'complete' || status === 'error' || status === 'cancelled';
 
@@ -1761,6 +1763,7 @@ function renderDownloads() {
         let statusText = status;
         if (status === 'downloading') statusText = 'Downloading';
         else if (status === 'pending') statusText = 'Queued';
+        else if (status === 'finishing') statusText = 'Adding to library';
         else if (status === 'complete') statusText = 'Complete';
         else if (status === 'error') statusText = 'Error';
         else if (status === 'cancelled') statusText = 'Cancelled';
@@ -1773,13 +1776,14 @@ function renderDownloads() {
                 </div>
                 ${showProgress ? `
                     <div class="cb-download-progress">
-                        <div class="cb-download-bar" style="width: ${status === 'pending' ? 100 : percent}%"></div>
+                        <div class="cb-download-bar" style="width: ${status === 'pending' || status === 'finishing' ? 100 : percent}%"></div>
                     </div>
                 ` : ''}
                 <div class="cb-download-info">
                     <span class="cb-download-percent">
                         ${status === 'downloading' ? `${percent}% - ${downloaded} / ${total}` : ''}
                         ${status === 'pending' ? 'Waiting...' : ''}
+                        ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                         ${status === 'complete' ? `${total}` : ''}
                         ${status === 'error' ? (dl.error || 'Download failed') : ''}
                         ${status === 'cancelled' ? 'Download cancelled' : ''}
@@ -1882,7 +1886,7 @@ function pollDownloadProgress() {
                 // synced, so the grid is not refreshed too early
                 const hasActive = Object.values(activeDownloads).some(dl =>
                     dl.status === 'downloading' || dl.status === 'pending' ||
-                    (dl.status === 'complete' && !dl.synced));
+                    dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced));
 
                 if (!hasActive) {
                     clearInterval(downloadPollInterval);

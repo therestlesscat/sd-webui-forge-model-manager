@@ -299,6 +299,49 @@ check('and the switches follow',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (1)']);
 window.cbToggleShowPromptless(false);
 
+// ------------------------------------------ a download, finishing in place
+// A finished download used to say Complete while the library sync that
+// follows it was still hashing the file - 10 s for a 7 GB checkpoint - so
+// "Show in Model Manager" arrived long after. The download now says
+// finishing until the model is in the library, and Complete with it.
+// A fresh copy each answer, as JSON from a server is: the tab compares each
+// poll with the last, and a shared object would change under it.
+const downloads = [];
+const fetchBefore = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+    const href = String(url);
+    if (href.includes('/civitai/download/progress')) {
+        return { ok: true, json: async () => ({ success: true, downloads: structuredClone(downloads) }) };
+    }
+    if (href.includes('/civitai/download')) {
+        return { ok: true, json: async () => ({ success: true, progress: structuredClone(downloads[0]) }) };
+    }
+    return fetchBefore(url, init);
+};
+const badge = () => document.querySelector('#cb_downloads .cb-download-status-badge')?.textContent.trim();
+const showInManager = () => !!document.querySelector('#cb_details [onclick*="cbShowInModelManager"]');
+const poll = () => new Promise((r) => setTimeout(r, 1300));
+
+await window.cbShowModel('model:31');
+await settle();
+window.cbOpenModel(0);
+await settle();
+downloads.push({ version_id: 62, file_name: 'm.safetensors', status: 'downloading', percent: 40,
+                 downloaded_bytes: 400, total_bytes: 1000, synced: false });
+await window.cbDownload(31, 62, 1);
+await poll();
+check('while downloading, no button', [badge(), showInManager()], ['Downloading', false]);
+
+Object.assign(downloads[0], { status: 'finishing', percent: 100, downloaded_bytes: 1000 });
+await poll();
+check('on disk and being added to the library, it says so - and still no button',
+      [badge(), showInManager()], ['Adding to library', false]);
+
+Object.assign(downloads[0], { status: 'complete', synced: true });
+await poll();
+check('Complete and the button arrive in the same update', [badge(), showInManager()],
+      ['Complete', true]);
+
 console.log(fails.length
     ? fails.map((f) => 'FAIL ' + f).join('\n')
     : 'All checks passed.');
