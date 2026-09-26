@@ -2652,9 +2652,17 @@ async function fetchForgePlan(model, img) {
     }
 }
 
-/** Forge Neo's UI preset as it stands, or null where there is none. */
+/**
+ * Forge's UI preset as it stands, or null where there is none. Neo shows it
+ * as a dropdown; the original Forge as radio buttons (sd, xl, flux, all).
+ */
 function currentForgePreset() {
-    return gradioApp().querySelector('#forge_ui_preset input')?.value || null;
+    const container = gradioApp().querySelector('#forge_ui_preset');
+    if (!container) return null;
+    if (container.querySelector('input[type="radio"]')) {
+        return container.querySelector('input[type="radio"]:checked')?.value || null;
+    }
+    return container.querySelector('input')?.value || null;
 }
 
 /**
@@ -2673,7 +2681,21 @@ async function switchForgePreset(preset) {
     const container = gradioApp().querySelector('#forge_ui_preset');
     const input = container?.querySelector('input');
     if (!input || !preset) return false;
-    if (input.value === preset) return true;
+    if (currentForgePreset() === preset) return true;
+
+    // The original Forge's radio buttons: press the one for the preset. The
+    // dropdown path below would type into a radio's value - which it did,
+    // clearing the first choice's.
+    const radios = Array.from(container.querySelectorAll('input[type="radio"]'));
+    if (radios.length) {
+        const radio = radios.find((r) => r.value === preset);
+        if (!radio) {
+            console.warn(`[ModelManager] Forge offers no "${preset}" preset; left as it was`);
+            return false;
+        }
+        radio.click();
+        return await presetTaken(preset);
+    }
 
     input.focus();
     input.value = '';
@@ -2687,7 +2709,11 @@ async function switchForgePreset(preset) {
     }
     pressOption(option.element);
     input.blur();
+    return await presetTaken(preset);
+}
 
+/** Wait for a preset change to show, then for the rest of it to land. */
+async function presetTaken(preset) {
     for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(100);
     await nextFrame(FORGE_PRESET_SETTLE_MS);
     console.log('[ModelManager] Forge UI preset now:', currentForgePreset());
