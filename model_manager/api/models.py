@@ -5,6 +5,7 @@ Listing and filtering them, opening one, its versions, the values its filters
 offer, bookmarking, deleting, and resolving a hash to a model. Anything that
 answers "which models do I have, and what is this one".
 """
+import os
 import time
 from typing import Optional
 from fastapi import FastAPI, Form
@@ -775,6 +776,47 @@ def register(app: FastAPI):
             import traceback
             print(f"[ModelManager] Resolve hashes error: {e}")
             traceback.print_exc()
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/model-manager/image-resources")
+    def image_resources(version_ids: str = "", hashes: str = ""):
+        """
+        Which local file each of an image's resources is, for the resource
+        chips a send puts under the prompts.
+
+        From this library alone - never Civitai: a send should not wait on
+        it, and a resource with no file here is one the chips can only show
+        as missing anyway.
+
+        Args:
+            version_ids: Comma-separated Civitai version ids (civitaiResources).
+            hashes: Comma-separated hashes (the infotext's resources).
+
+        Returns:
+            versions: version id -> file; hashes: hash (lower case) -> file.
+            A file is {version_id, file_stem, file_type}: file_stem is the
+            name Forge knows it by in a prompt, file_type what the file itself
+            is (file_identity.py), or null before a scan has read it.
+        """
+        def split(values):
+            return [v.strip() for v in (values or "").split(",") if v.strip()]
+
+        def as_file(row):
+            name = os.path.basename(row.get("file_path") or "")
+            return {"version_id": row.get("id"),
+                    "file_stem": os.path.splitext(name)[0],
+                    "file_type": row.get("file_type")}
+
+        try:
+            by_id, by_hash = get_models_db().local_versions_by_key(
+                [int(v) for v in split(version_ids) if v.isdigit()], split(hashes))
+            return JSONResponse({
+                "success": True,
+                "versions": {str(k): as_file(v) for k, v in by_id.items()},
+                "hashes": {k: as_file(v) for k, v in by_hash.items()},
+            })
+        except Exception as e:
+            print(f"[ModelManager] Image resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/resolve-hash")

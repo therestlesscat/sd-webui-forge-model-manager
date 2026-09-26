@@ -292,6 +292,11 @@ class ModelsDatabase:
         """Local versions an image's resources name, by hash or version id."""
         return self._models.versions_named_by(version_ids, hashes)
 
+    def local_versions_by_key(self, version_ids: List[int], hashes: List[str]
+                              ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        """The local file each resource names: ({version id: row}, {hash: row})."""
+        return self._models.local_versions_by_key(version_ids, hashes)
+
     def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
         """Resolve what we can from our own rows, before asking Civitai."""
         return self._models.hashes_from_local_models(hashes)

@@ -29,6 +29,10 @@ const {
     isVideoUrl,
     cardMediaUrl,
     originalMediaUrl,
+    collectResourceChips,
+    promptHasChip,
+    toggleChip,
+    renameLoraTags,
     sortBaseModels,
     videoFrames,
     videoSize,
@@ -1813,6 +1817,7 @@ function mergeImageResources(img, resolved, finished) {
         if (byVersion.has(versionId)) continue;
         byVersion.set(versionId, {
             versionId,
+            modelId: resource.modelId || null,
             type: resource.type || 'Unknown',
             name: resource.name || 'Unknown',
             versionName: resource.modelVersionName || '',
@@ -1831,6 +1836,7 @@ function mergeImageResources(img, resolved, finished) {
             if (byVersion.has(match.version_id)) continue;   // Civitai named it already
             byVersion.set(match.version_id, {
                 versionId: match.version_id,
+                modelId: match.model_id || null,
                 type: match.model_type || resource.type || 'Unknown',
                 name: match.name || resource.name || 'Unknown',
                 versionName: match.version_name || '',
@@ -1951,7 +1957,9 @@ window.mmShowResources = async function(imageIndex) {
     // Up straight away, with whatever needs no lookup, because an uncached
     // hash takes a moment and a dialog that opens late reads as a dead button.
     const hashes = imageResourceHashes(img);
-    renderResourcesModal(mergeImageResources(img, knownHashes, !hashes.length), hashes.length);
+    const first = mergeImageResources(img, knownHashes, !hashes.length);
+    renderResourcesModal(first, hashes.length);
+    checkInstalledResources(first.known);
     if (!hashes.length) return;
 
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
@@ -1962,7 +1970,11 @@ window.mmShowResources = async function(imageIndex) {
     Object.assign(knownHashes, resolved);
     updateResourceButtons();
 
-    if (stillWanted()) renderResourcesModal(mergeImageResources(img, resolved, true), 0);
+    if (stillWanted()) {
+        const merged = mergeImageResources(img, resolved, true);
+        renderResourcesModal(merged, 0);
+        checkInstalledResources(merged.known);
+    }
 };
 
 function renderResourcesModal(resources, pending = 0) {
@@ -1973,7 +1985,7 @@ function renderResourcesModal(resources, pending = 0) {
                     ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
                 <td class="mm-res-actions">
                     <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${safeId(resource.versionId)}" target="_blank">View</a>
-                    <a class="mm-btn primary mm-btn-small" href="https://civitai.com/api/download/models/${safeId(resource.versionId)}" target="_blank">Download</a>
+                    <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
                 </td>
             </tr>
         `).join('');
@@ -2028,6 +2040,134 @@ function renderResourcesModal(resources, pending = 0) {
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     document.body.classList.add('mm-modal-open');
+}
+
+// ------------------------------------------- downloading from the dialog
+// The dialog's Download used to be a link to Civitai's download URL: the
+// right version, but saved wherever the browser saves things, and unknown to
+// the library. It now downloads as the Civitai Browser does - into the folder
+// for its type, and into the library - the version the image names, or the
+// model's newest if that version is gone from Civitai.
+
+// Version ids of the dialog's resources that are in the library.
+const installedResourceVersions = new Set();
+// Version id (as the image names it) -> { state, percent, target, versionName,
+// substituted, error }: state is downloading, installed or error.
+const resourceDownloads = {};
+let resourceDownloadPoll = null;
+
+function resourceDownloadCell(resource) {
+    const id = resource.versionId;
+    const job = resourceDownloads[id];
+    if (installedResourceVersions.has(id) && !job) {
+        return '<span class="mm-res-state installed">Installed</span>';
+    }
+    if (job && job.state === 'installed') {
+        const which = job.substituted ? ` ${escapeHtml(job.versionName || '')} (the image's is gone)` : '';
+        return `<span class="mm-res-state installed">Installed${which}</span>`;
+    }
+    if (job && job.state === 'downloading') {
+        return `<span class="mm-res-state">${job.percent ? `${job.percent}%` : 'Queued'}</span>`;
+    }
+    if (job && job.state === 'unavailable') {
+        return `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Not on Civitai</span>`;
+    }
+    const retry = job && job.state === 'error'
+        ? `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Failed</span> ` : '';
+    const modelId = resource.modelId || (job && job.modelId);
+    return `${retry}<button type="button" class="mm-btn primary mm-btn-small"
+        onclick="window.mmDownloadResource(${safeId(id)}, ${modelId ? safeId(modelId) : 'null'})">Download</button>`;
+}
+
+/** Redraw one row's download cell, if the dialog is showing it. */
+function redrawResourceDownload(versionId, resource) {
+    const cell = document.querySelector(`.mm-resources-modal [data-res-download="${versionId}"]`);
+    if (cell) cell.innerHTML = resourceDownloadCell(resource || { versionId, modelId: null });
+}
+
+/** Mark which of the dialog's versions the library holds, and redraw them. */
+async function checkInstalledResources(resources) {
+    const ids = resources.map((r) => r.versionId).filter(Boolean);
+    if (!ids.length) return;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/image-resources',
+                                     params: { version_ids: ids.join(',') } });
+        for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
+    } catch (error) {
+        console.warn('[ModelManager] Could not check which resources are installed:', error);
+    }
+    for (const resource of resources) redrawResourceDownload(resource.versionId, resource);
+}
+
+window.mmDownloadResource = async function(versionId, modelId) {
+    resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId };
+    redrawResourceDownload(versionId, { versionId, modelId });
+    redrawResourceChips();
+    const form = new URLSearchParams({ version_id: versionId, newer_if_gone: 'true' });
+    if (modelId) form.set('model_id', modelId);
+    let data;
+    let status = 0;
+    try {
+        const response = await fetch('/model-manager/civitai/download', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
+        status = response.status;
+        data = await response.json();
+    } catch (error) {
+        data = { success: false, error: String(error) };
+    }
+    const job = resourceDownloads[versionId];
+    if (!data || !data.success) {
+        // Not found is for good - the version and its model are gone - and
+        // is said as such, with nothing to retry; anything else can be.
+        Object.assign(job, { state: status === 404 ? 'unavailable' : 'error',
+                             error: (data && data.error) || 'Download failed' });
+    } else {
+        Object.assign(job, { target: data.version_id, versionName: data.version_name,
+                             substituted: !!data.substituted });
+        if (data.already_installed) finishResourceDownload(versionId);
+        else pollResourceDownloads();
+    }
+    redrawResourceDownload(versionId, { versionId, modelId });
+    redrawResourceChips();
+};
+
+function finishResourceDownload(versionId) {
+    resourceDownloads[versionId].state = 'installed';
+    installedResourceVersions.add(versionId);
+    refreshResourceChips();
+}
+
+/** Follow the dialog's downloads until each is in the library, or failed. */
+function pollResourceDownloads() {
+    if (resourceDownloadPoll) return;
+    resourceDownloadPoll = setInterval(async () => {
+        const active = Object.entries(resourceDownloads).filter(([, job]) => job.state === 'downloading');
+        if (!active.length) {
+            clearInterval(resourceDownloadPoll);
+            resourceDownloadPoll = null;
+            return;
+        }
+        for (const [id, job] of active) {
+            let progress = null;
+            try {
+                const data = await apiCall({ endpoint: '/model-manager/civitai/download/progress',
+                                             params: { version_id: job.target } });
+                progress = data && data.progress;
+            } catch (error) {
+                continue;
+            }
+            if (!progress) continue;
+            job.percent = Math.floor(progress.percent || 0);
+            // Complete is on disk; synced is in the library, which is what a
+            // chip or a send looks at.
+            if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
+            else if (progress.status === 'error' || progress.status === 'cancelled') {
+                Object.assign(job, { state: 'error', error: progress.error || progress.status });
+            }
+            redrawResourceDownload(Number(id));
+        }
+        redrawResourceChips();
+    }, 1000);
 }
 
 // Close modal on Escape key
@@ -2686,6 +2826,247 @@ function giveImg2imgImage(file) {
     return true;
 }
 
+// ------------------------------------------------------------ resource chips
+// A send puts the image's LoRAs and embeddings under the target tab's
+// negative prompt as chips; a click puts a resource's tag in, or takes it
+// out. The rules are collectResourceChips() and toggleChip() in common.mjs.
+
+// Per tab, the chips the last send left there, the row that shows them, and
+// the image and model they came from - a download from the Resources dialog
+// looks them up again.
+const resourceChips = {};
+const resourceChipRows = {};
+const resourceChipSources = {};
+
+/**
+ * What a chip for a resource not in the library says: that it is missing and
+ * a click downloads it, or how the download is going. A download is shared
+ * with the Resources dialog, by the version id the image names.
+ */
+function missingChipState(chip) {
+    const what = chip.kind === 'lora' ? 'LoRA' : 'embedding';
+    if (!chip.versionId && !chip.hash) {
+        return { busy: true, unavailable: true, note: 'no hash recorded',
+                 title: `${chip.title}: the image names it without a hash or a version, so it cannot be found` };
+    }
+    const job = chip.versionId ? resourceDownloads[chip.versionId] : chip.lookup;
+    if (job && job.state === 'checking') {
+        return { busy: true, note: 'checking Civitai...', title: `Asking Civitai what ${chip.title} is` };
+    }
+    if (job && job.state === 'unavailable') {
+        return { busy: true, unavailable: true, note: 'not on Civitai',
+                 title: `${chip.title}: ${job.error || 'Civitai does not have it'}` };
+    }
+    if (job && job.state === 'downloading') {
+        return { busy: true, note: job.percent ? `${job.percent}%` : 'queued',
+                 title: `Downloading the missing ${what} ${chip.title}` };
+    }
+    if (job && job.state === 'installed' && job.substituted) {
+        return { busy: true, note: `got ${job.versionName || 'a newer version'} instead`,
+                 title: `The image's version of ${chip.title} is gone from Civitai; the newest was downloaded` };
+    }
+    if (job && job.state === 'error') {
+        return { busy: false, note: 'download failed, click to retry',
+                 title: `${chip.title}: ${job.error || 'the download failed'}` };
+    }
+    return { busy: false, note: `missing ${what}, click to download`,
+             title: `${chip.title} is not in the library: click to download it` };
+}
+
+/** Redraw every tab's chips, to show a download's progress. */
+function redrawResourceChips() {
+    for (const tab of Object.keys(resourceChips)) {
+        if (resourceChips[tab]) showResourceChips(tab, resourceChips[tab]);
+    }
+}
+
+/**
+ * Download a chip's missing resource, as the Resources dialog would. A chip
+ * from the infotext's list knows only a hash: that is looked up first.
+ */
+async function downloadChip(chip) {
+    if (!chip.versionId && chip.hash) {
+        chip.lookup = { state: 'downloading', percent: 0 };
+        redrawResourceChips();
+        const answer = (await resolveResourceHashes([chip.hash]))[chip.hash];
+        chip.versionId = (answer && answer.version_id) || null;
+        chip.modelId = chip.modelId || (answer && answer.model_id) || null;
+        chip.lookup = chip.versionId ? null
+            : answer ? { state: 'unavailable', error: 'Civitai does not know this file' }
+            : { state: 'error', error: 'Civitai could not be asked' };
+    }
+    if (!chip.versionId) {
+        chip.lookup = chip.lookup || { state: 'error', error: 'the image does not say which version it is' };
+        redrawResourceChips();
+        return;
+    }
+    await window.mmDownloadResource(chip.versionId, chip.modelId);
+}
+
+/**
+ * Find out which of a tab's missing chips can be downloaded at all. One the
+ * image names by version id can; one it names only by hash is asked about,
+ * as the Resources dialog asks - and a hash Civitai has never heard of is a
+ * file that cannot be downloaded, which the chip should say before a click
+ * rather than after it.
+ */
+async function checkMissingChips(tab) {
+    const waiting = (resourceChips[tab] || []).filter((c) => !c.installed && !c.versionId && c.hash);
+    if (!waiting.length) return;
+    const settle = (answers) => {
+        for (const chip of waiting) {
+            if (!Object.prototype.hasOwnProperty.call(answers, chip.hash)) continue;
+            const answer = answers[chip.hash];
+            chip.versionId = (answer && answer.version_id) || null;
+            chip.modelId = chip.modelId || (answer && answer.model_id) || null;
+            chip.lookup = chip.versionId ? null
+                : { state: 'unavailable', error: 'Civitai does not know this file' };
+        }
+        redrawResourceChips();
+    };
+    for (const chip of waiting) chip.lookup = { state: 'checking' };
+    settle(knownHashes);
+    const unasked = waiting.filter((c) => c.lookup && c.lookup.state === 'checking').map((c) => c.hash);
+    if (!unasked.length) return;
+    redrawResourceChips();
+    const resolved = await resolveResourceHashes([...new Set(unasked)], (partial) => settle(partial));
+    Object.assign(knownHashes, resolved);
+    settle(resolved);
+    for (const chip of waiting) {
+        if (chip.lookup && chip.lookup.state === 'checking') {
+            chip.lookup = { state: 'error', error: 'Civitai could not be asked' };
+        }
+    }
+    redrawResourceChips();
+}
+
+/** Look each tab's chips up again, after a download. */
+async function refreshResourceChips() {
+    for (const [tab, source] of Object.entries(resourceChipSources)) {
+        if (!resourceChips[tab]) continue;
+        const { chips } = collectResourceChips(source.img.meta, await fetchImageFiles(source.img),
+                                               source.gallery);
+        showResourceChips(tab, chips);
+        checkMissingChips(tab);
+    }
+}
+
+/** The local file of each of an image's resources, from the library alone. */
+async function fetchImageFiles(img) {
+    const none = { versions: {}, hashes: {} };
+    const ids = ((img.meta || {}).civitaiResources || []).map((r) => r.modelVersionId).filter(Boolean);
+    const hashes = imageResourceHashes(img);
+    if (!ids.length && !hashes.length) return none;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/image-resources',
+                                     params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
+        return data && data.success ? data : none;
+    } catch (error) {
+        console.warn('[ModelManager] Could not look up the image\'s resources:', error);
+        return none;
+    }
+}
+
+/** The gallery's own file, described as the server describes one. */
+function galleryFile(model) {
+    const version = model ? shownVersion(model) : null;
+    if (!version || !version.file_path) return null;
+    const name = version.file_path.split(/[\\/]/).pop();
+    return { file_stem: name.replace(/\.[^.]+$/, ''), file_type: fileTypeOf(version, model) };
+}
+
+function promptBoxes(tab) {
+    return { positive: gradioApp().querySelector(`#${tab}_prompt textarea`),
+             negative: gradioApp().querySelector(`#${tab}_neg_prompt textarea`) };
+}
+
+function showResourceChips(tab, chips) {
+    resourceChips[tab] = chips && chips.length ? chips : null;
+    const row = resourceChipRows[tab];
+    if (!resourceChips[tab]) {
+        row?.remove();
+        return;
+    }
+    const element = row || document.createElement('div');
+    resourceChipRows[tab] = element;
+    element.id = `mm_resource_chips_${tab}`;
+    element.className = 'mm-resource-chips';
+    element.innerHTML = resourceChips[tab].map((chip, index) => {
+        const notes = [chip.kind === 'lora' ? `weight ${chip.weight}` : 'embedding',
+                       chip.where === 'negative' ? 'negative prompt' : ''].filter(Boolean);
+        const missing = chip.installed ? null : missingChipState(chip);
+        const title = missing ? missing.title : `${chip.title} (${notes.join(', ')})`;
+        const state = missing ? (missing.unavailable ? ' missing unavailable' : ' missing') : '';
+        return `<button type="button" class="mm-resource-chip${state}"
+                        data-chip="${index}" ${missing && missing.busy ? 'disabled' : ''}
+                        title="${escapeHtml(title)}">`
+             + `<span class="mm-resource-chip-name">${escapeHtml(chip.name)}</span>`
+             + (missing ? `<span class="mm-resource-chip-note">${escapeHtml(missing.note)}</span>` : '')
+             + '</button>';
+    }).join('') + '<button type="button" class="mm-btn secondary mm-btn-small" data-chips-clear>Clear</button>';
+    if (!row) element.addEventListener('click', (event) => onResourceChipClick(tab, event));
+    keepResourceChips();
+}
+
+function onResourceChipClick(tab, event) {
+    if (event.target.closest('[data-chips-clear]')) {
+        showResourceChips(tab, null);
+        return;
+    }
+    const button = event.target.closest('[data-chip]');
+    const chip = button && !button.disabled && resourceChips[tab]?.[Number(button.dataset.chip)];
+    if (!chip) return;
+    if (!chip.installed) {
+        downloadChip(chip);
+        return;
+    }
+    // Out of whichever prompt has it - it may have been moved by hand -
+    // else into the one the image had it in.
+    const { positive, negative } = promptBoxes(tab);
+    const box = promptHasChip(positive?.value, chip) ? positive
+        : promptHasChip(negative?.value, chip) ? negative
+        : chip.where === 'negative' ? negative : positive;
+    if (!box) return;
+    box.value = toggleChip(box.value, chip);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    updateResourceChipStates(tab);
+}
+
+/** Light each chip whose resource either prompt holds. */
+function updateResourceChipStates(tab) {
+    const row = resourceChipRows[tab];
+    const chips = resourceChips[tab];
+    if (!row || !chips) return;
+    const { positive, negative } = promptBoxes(tab);
+    row.querySelectorAll('[data-chip]').forEach((button) => {
+        const chip = chips[Number(button.dataset.chip)];
+        const held = promptHasChip(positive?.value, chip) || promptHasChip(negative?.value, chip);
+        button.classList.toggle('active', !!held);
+    });
+}
+
+/**
+ * Keep each tab's chips under its negative prompt, and lit to match. Run
+ * after every UI update: Gradio can re-render the prompt column, and a paste
+ * changes the prompts without an input event.
+ */
+function keepResourceChips() {
+    for (const tab of Object.keys(resourceChips)) {
+        if (!resourceChips[tab]) continue;
+        const anchor = gradioApp().querySelector(`#${tab}_neg_prompt_row`);
+        const row = resourceChipRows[tab];
+        if (anchor && row && anchor.nextElementSibling !== row) anchor.after(row);
+        for (const box of Object.values(promptBoxes(tab))) {
+            if (box && !box.dataset.mmChipsWatched) {
+                box.dataset.mmChipsWatched = '1';
+                box.addEventListener('input', () => updateResourceChipStates(tab));
+            }
+        }
+        updateResourceChipStates(tab);
+    }
+}
+if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
+
 /** Show txt2img, or img2img on its plain img2img mode. */
 function showGenerationTab(tab) {
     if (tab === 'img2img') {
@@ -3020,6 +3401,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
     try {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
+        const filesAsked = fetchImageFiles(img);
         const plan = await fetchForgePlan(model, img);
 
         // An image-to-video model starts from an image, which txt2img has
@@ -3063,8 +3445,18 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
         // A video model makes a still unless it is told how many frames:
         // Neo reads Batch size as Frames on the Wan preset.
-        const sendMeta = plan && plan.video
+        let sendMeta = plan && plan.video
             ? await withVideoParams(meta, img, isVideo) : meta;
+
+        // The image's LoRAs and embeddings, for the chips; a LoRA its prompt
+        // names under another name than the file here is renamed to it.
+        const resources = collectResourceChips(meta, await filesAsked, galleryFile(model));
+        if (resources.renames.length) {
+            const rename = (text) => resources.renames
+                .reduce((out, { from, to }) => renameLoraTags(out, from, to), text);
+            sendMeta = { ...sendMeta, prompt: rename(sendMeta.prompt),
+                         negativePrompt: rename(sendMeta.negativePrompt) };
+        }
 
         // Build infotext from metadata
         const infotext = buildInfotext(sendMeta,
@@ -3102,6 +3494,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
         // Also reset hires fix if not present in metadata
         setTimeout(() => {
             setGradioDropdown(`${tab}_scheduler`, scheduler);
+            updateResourceChipStates(tab);
 
             // After the paste: it re-renders much of the page, and it never
             // touches the modules itself - Neo reads "Module 1"/"Module 2"
@@ -3136,6 +3529,9 @@ window.mmSendToTxt2img = async function(imageIndex) {
         }, 100);
 
         showGenerationTab(tab);
+        resourceChipSources[tab] = { img, gallery: galleryFile(model) };
+        showResourceChips(tab, resources.chips);
+        checkMissingChips(tab);
 
         // The start frame goes in once img2img is showing: its canvas sizes
         // the image to itself, and a hidden one has no size.
