@@ -8,6 +8,8 @@ Two tabs are added: **Model Manager** and **Civitai Browser**.
 
 https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
+[Watch it in better quality on YouTube](https://youtu.be/HCHe44Yp-QU)
+
 ## A look around
 
 ### Your library, at a glance
