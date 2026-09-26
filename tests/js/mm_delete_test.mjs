@@ -1,0 +1,98 @@
+// Deleting a model, from the details panel's header.
+//
+// Delete sat at the foot of the panel and deleted the grid card's version,
+// which after picking another version in the panel was not the file on
+// screen. It is now in the header, beside "Show in Civitai Browser": "Delete
+// Model" for a model with one version here, and for one with several,
+// "Delete Current Model Version" - the version shown - and "Delete All Model
+// Versions".
+import { ROOT, checker, mountTab } from './harness.mjs';
+
+const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+const { check, waitFor, done } = checker();
+
+const version = (id, name) => ({
+    id, model_id: 4001, name: 'A Model', display_name: 'A Model', version_name: name,
+    base_model: 'SDXL 1.0', model_type: 'LORA', file_path: `C:/models/${name}.safetensors`,
+    file_name: `${name}.safetensors`, file_size: 1, nsfw_level: 1, has_civitai_data: true,
+    local_version_count: 2, trained_words: [], tags: [],
+});
+let versions = [version(501, 'v1'), version(502, 'v2')];
+const deleted = [];
+let refuse = null;
+
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    const reply = (body) => ({ ok: true, json: async () => body });
+    if (href.includes('/model-manager/models/delete')) {
+        const path = new URLSearchParams(String(init.body || '')).get('path');
+        if (path === refuse) return reply({ success: false, error: 'Not a model in the library' });
+        deleted.push(path);
+        return reply({ success: true, deleted: [path] });
+    }
+    if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions });
+    if (href.includes('/model-manager/models/details')) return reply({ success: true, model: { images: [] } });
+    if (href.includes('/model-manager/models')) {
+        return reply({ success: true, total: 1, page: 1, page_size: 20, models: [versions[0]] });
+    }
+    return reply({ success: true });
+};
+let confirmText = '';
+window.confirm = globalThis.confirm = (text) => { confirmText = text; return true; };
+
+await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+document.dispatchEvent(new window.Event('DOMContentLoaded'));
+const open = async () => {
+    document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
+    await window.mmSelectModel(0);
+};
+const header = () => document.querySelector('#mm_details .detail-header');
+const buttons = () => Array.from(header()?.querySelectorAll('button.danger') || []).map((b) => b.textContent.trim());
+// The button's own onclick, run as the browser would - and its promise
+// returned, so a check waits for every delete it starts.
+const press = (label) => new Function('return ' + Array.from(header().querySelectorAll('button'))
+    .find((b) => b.textContent.trim() === label).getAttribute('onclick'))();
+
+// ------------------------------------------------------ several versions
+await open();
+check('with several versions, the header offers the version shown, and all of them',
+      buttons(), ['Delete Current Model Version', 'Delete All Model Versions']);
+const order = Array.from(header().querySelectorAll('button')).map((b) => b.textContent.trim());
+check('beside "Show in Civitai Browser", before the close button',
+      order.slice(order.indexOf('Show in Civitai Browser'), order.indexOf('Show in Civitai Browser') + 3),
+      ['Show in Civitai Browser', 'Delete Current Model Version', 'Delete All Model Versions']);
+check('and nothing is left at the foot of the panel',
+      !!document.querySelector('#mm_details .detail-actions [onclick*="mmDeleteModel"]'), false);
+
+await window.mmSelectVersion(1);
+await press('Delete Current Model Version');
+check('"current" deletes the version on screen - not the grid card\'s', deleted, ['C:/models/v2.safetensors']);
+check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
+
+deleted.length = 0;
+await open();
+await press('Delete All Model Versions');
+check('"all" deletes every version here', deleted, ['C:/models/v1.safetensors', 'C:/models/v2.safetensors']);
+check('having listed them in the confirmation',
+      [confirmText.includes('all 2 versions'), confirmText.includes('v1.safetensors'),
+       confirmText.includes('v2.safetensors')], [true, true, true]);
+
+deleted.length = 0;
+refuse = 'C:/models/v1.safetensors';
+await open();
+await press('Delete All Model Versions');
+check('one that fails does not stop the rest', deleted, ['C:/models/v2.safetensors']);
+check('and is said', document.getElementById('mm_status')?.textContent.includes('v1: Not a model in the library'),
+      true);
+refuse = null;
+
+// ------------------------------------------------------- one version
+versions = [version(501, 'v1')];
+deleted.length = 0;
+await open();
+check('with one version, one button: Delete Model', buttons(), ['Delete Model']);
+await press('Delete Model');
+check('deleting that version', deleted, ['C:/models/v1.safetensors']);
+
+done();

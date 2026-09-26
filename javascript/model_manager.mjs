@@ -1077,6 +1077,15 @@ function renderModelDetails(model, fullDetails = null) {
         ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
         : '';
 
+    // Deleting sits with the other actions on the model, in the header. With
+    // several versions, the one shown and all of them are separate choices.
+    const deleteButton = (scope, label, title) =>
+        `<button class="mm-btn danger mm-btn-small header-action" onclick="window.mmDeleteModel('${scope}')" title="${title}">${label}</button>`;
+    const deleteButtons = currentVersions.length > 1
+        ? deleteButton('version', 'Delete Current Model Version', 'Delete the version shown here, and its files')
+          + deleteButton('all', 'Delete All Model Versions', `Delete all ${currentVersions.length} versions of this model, and their files`)
+        : deleteButton('version', 'Delete Model', 'Delete this model, and its files');
+
     container.innerHTML = `
         <div class="model-details-content">
             <div class="detail-header">
@@ -1084,6 +1093,7 @@ function renderModelDetails(model, fullDetails = null) {
                 ${bookmarkBtn}
                 ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
                 ${modelId ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.mmShowInCivitaiBrowser(${safeId(modelId)})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
+                ${deleteButtons}
                 <button class="close-details" onclick="window.mmCloseDetails()">×</button>
             </div>
 
@@ -1121,7 +1131,6 @@ function renderModelDetails(model, fullDetails = null) {
             <div class="detail-section detail-actions">
                 ${civitaiLink}
                 <button class="action-btn secondary" onclick="window.mmResyncImages()">Resync Images</button>
-                <button class="action-btn danger" onclick="window.mmDeleteModel()">Delete Model</button>
             </div>
         </div>
     `;
@@ -1347,45 +1356,63 @@ window.mmToggleBookmark = async function(modelId) {
     }
 };
 
-// Delete model and all related files
-window.mmDeleteModel = async function() {
+// Delete a model's files, and it from the library: the version shown, or
+// ('all') every version of it here. The version shown, not the grid card's -
+// deleting used to take the card's row, which after picking another version
+// in the details panel was a different file from the one on screen.
+window.mmDeleteModel = async function(scope = 'version') {
     const model = currentModels[selectedModelIndex];
     if (!model) return;
 
+    const all = scope === 'all' && currentVersions.length > 1;
+    const targets = all ? currentVersions.slice() : [shownVersion(model)];
+    const name = (v) => v.version_name || v.file_name || 'this version';
+    const what = all
+        ? `all ${targets.length} versions of "${model.display_name}":\n`
+          + targets.map((v) => `• ${name(v)} (${v.file_name})`).join('\n')
+        : currentVersions.length > 1
+            ? `version "${name(targets[0])}" of "${model.display_name}" (${targets[0].file_name})`
+            : `"${model.display_name}"`;
+
     const confirmed = confirm(
-        `Are you sure you want to delete "${model.display_name}"?\n\n` +
-        `This will delete:\n` +
+        `Are you sure you want to delete ${what}?\n\n` +
+        `This will delete, for ${all ? 'each' : 'it'}:\n` +
         `• The model file\n` +
         `• All metadata files (.civitai.info, .preview.png, etc.)\n` +
         `• The containing folder if it's named after the model and becomes empty\n\n` +
         `This action cannot be undone.`
     );
-
     if (!confirmed) return;
 
-    try {
-        setStatus('Deleting model...');
-
-        const response = await fetch('/model-manager/models/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `path=${encodeURIComponent(model.file_path)}`
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            setStatus(`Deleted: ${model.display_name}`);
-            // Close details panel
-            window.mmCloseDetails();
-            // Reload current page
-            loadModels(currentPage);
-        } else {
-            setStatus('Delete failed: ' + (data.error || 'Unknown error'), true);
+    setStatus(all ? `Deleting ${targets.length} versions...` : 'Deleting model...');
+    const failed = [];
+    for (const version of targets) {
+        try {
+            const response = await fetch('/model-manager/models/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `path=${encodeURIComponent(version.file_path)}`
+            });
+            const data = await response.json();
+            if (!data.success) failed.push(`${name(version)}: ${data.error || 'Unknown error'}`);
+        } catch (error) {
+            console.error('[ModelManager] Delete error:', error);
+            failed.push(`${name(version)}: ${error.message}`);
         }
-    } catch (error) {
-        console.error('[ModelManager] Delete error:', error);
-        setStatus('Delete error: ' + error.message, true);
+    }
+
+    const deletedName = currentVersions.length > 1 && !all ? ` (${name(targets[0])})` : '';
+    // The grid reloads first: its own status line would otherwise replace
+    // this one, and a failure would go unsaid.
+    if (failed.length < targets.length) {
+        window.mmCloseDetails();
+        await loadModels(currentPage);
+    }
+    if (failed.length) {
+        setStatus(`Delete failed for ${failed.join('; ')}`, true);
+    } else {
+        setStatus(all ? `Deleted all ${targets.length} versions of ${model.display_name}`
+                      : `Deleted: ${model.display_name}${deletedName}`);
     }
 };
 
