@@ -1028,6 +1028,80 @@ def _migrate_to_v24(cursor):
     print("[ModelManager] Migration to v24 complete")
 
 
+def _migrate_to_v25(cursor, db_path: str):
+    """Key images by (version_id, id): one row per gallery an image is in.
+
+    A Civitai image is in the gallery of every resource it used, and the key
+    was the image id alone, so storing one gallery took each shared image
+    from any other: whichever was fetched last kept it. In one library 41,532
+    of 101,242 images named two or more of its galleries, and they vanished
+    from all but one. SQLite cannot change a primary key, so the table is
+    rebuilt - every column and index it has, carried over as they are. The
+    images already taken stay where they are until their galleries are
+    fetched again. Measured on a 585 MB library: 6.5 s.
+
+    The whole table is rewritten, so the database is backed up first, beside
+    it, as v4 did. Through SQLite's backup API rather than a file copy: the
+    database is in WAL mode, and a copy of the main file alone can miss what
+    was written last.
+    """
+    print("[ModelManager] Migrating to schema v25 (images keyed by gallery and image)...")
+    cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'images'")
+    if cursor.fetchone() is None:
+        print("[ModelManager] No images table; nothing to rekey")
+        return
+    cursor.execute("PRAGMA table_info(images)")
+    columns = cursor.fetchall()
+    if any(col[1] == "version_id" and col[5] for col in columns):
+        print("[ModelManager] Images already keyed by gallery")
+        return
+
+    # Only where there is something to lose: a new database runs every
+    # migration on its first start, and would leave an empty copy behind.
+    cursor.execute("SELECT EXISTS (SELECT 1 FROM images)")
+    if cursor.fetchone()[0]:
+        # Migrations before this one in the same run write inside a
+        # transaction still open on this connection, and a backup waits on it
+        # for ever. Each migration tolerates being run again, so committing
+        # them is safe - and the backup then holds them.
+        if cursor.connection.in_transaction:
+            cursor.connection.commit()
+        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup = sqlite3.connect(backup_path)
+        try:
+            cursor.connection.backup(backup)
+        finally:
+            backup.close()
+        print(f"[ModelManager] Backed up the database to {backup_path}")
+
+    cursor.execute("SELECT sql FROM sqlite_master WHERE type = 'index'"
+                   " AND tbl_name = 'images' AND sql IS NOT NULL")
+    indexes = [row[0] for row in cursor.fetchall()]
+    names = [col[1] for col in columns]
+    definitions = []
+    for _, name, kind, notnull, default, _ in columns:
+        definition = f"{name} {kind}".strip()
+        if notnull or name in ("id", "version_id"):
+            definition += " NOT NULL"
+        if default is not None:
+            definition += f" DEFAULT {default}"
+        definitions.append(definition)
+    column_list = ", ".join(names)
+
+    # A crash after the CREATE, which runs before the copy's transaction
+    # opens, would leave this behind; the copy, drop and rename roll back
+    # together.
+    cursor.execute("DROP TABLE IF EXISTS images_v25")
+    cursor.execute(f"CREATE TABLE images_v25 ({', '.join(definitions)},"
+                   " PRIMARY KEY (version_id, id))")
+    cursor.execute(f"INSERT INTO images_v25 ({column_list}) SELECT {column_list} FROM images")
+    cursor.execute("DROP TABLE images")
+    cursor.execute("ALTER TABLE images_v25 RENAME TO images")
+    for sql in indexes:
+        cursor.execute(sql)
+    print("[ModelManager] Migration to v25 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1102,6 +1176,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 24:
         _migrate_to_v24(cursor)
+
+    if from_version < 25:
+        _migrate_to_v25(cursor, db_path)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
