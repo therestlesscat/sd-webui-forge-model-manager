@@ -35,10 +35,13 @@ An earlier map read Soft as R and Mature as X - one level harsher than Civitai
 means - which pushed 27% of images up a grade and quietly dropped their models
 out of a filtered view.
 """
+import gzip
 import hashlib
+import json
 import os
 import re
 import threading
+import zlib
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 # ---------------------------------------------------------------- vocabulary
@@ -168,23 +171,142 @@ def prompt_words() -> FrozenSet[str]:
         return _bundled | _extra[1]
 
 
+# ------------------------------------------------------ the prompt model
+#
+# The words alone caught 81% of the X and XXX images that have a prompt, and
+# picking more of them one at a time stopped paying: a list learned from the
+# data caught less, at the same cost in PG images flagged. A model that
+# weighs every word, every pair of adjacent words and the negative prompt
+# together caught 92% of them at the setting's default - the point, reviewed
+# image by image, where the PG and PG-13 images it raises stop being mostly
+# explicit ones Civitai under-rated. Trained by tools/train_nsfw_model.py
+# from a library's stored images; the words above still apply as well.
+#
+# The negative prompt is read as its own words: there they tend to mean the
+# opposite, and the model learns that rather than being told.
+
+#: The trained model, shipped with the extension.
+PROMPT_MODEL_FILE = os.path.join(os.path.dirname(__file__), "data", "nsfw_prompt_model.json.gz")
+
+#: The setting: what share of PG and PG-13 prompts the model may raise, in
+#: percent, on the library it was trained on. 0 turns it off.
+PROMPT_MODEL_SETTING = "model_manager_nsfw_prompt_model_percent"
+PROMPT_MODEL_DEFAULT = 2.0
+
+_model_lock = threading.Lock()
+_model: Optional[Dict[str, Any]] = None
+_model_loaded = False
+
+
+def prompt_features(prompt: str, negative: str = "") -> FrozenSet[str]:
+    """
+    What the model reads in a prompt: its words, each pair of adjacent words,
+    and the negative prompt's words, marked as such. Split as the word list
+    is. The trainer uses this same function, so the two cannot drift apart.
+    """
+    words = _WORD.findall((prompt or "").lower())
+    features = set(words)
+    features.update(a + "_" + b for a, b in zip(words, words[1:]))
+    features.update("neg:" + w for w in _WORD.findall((negative or "").lower()))
+    return frozenset(features)
+
+
+def feature_hash(feature: str, bits: int) -> int:
+    """Where a feature's weight is kept: CRC-32 of it, in `bits` bits."""
+    return zlib.crc32(feature.encode()) & ((1 << bits) - 1)
+
+
+def prompt_model() -> Optional[Dict[str, Any]]:
+    """The trained model, loaded once; None if it is missing or unreadable."""
+    global _model, _model_loaded
+    with _model_lock:
+        if not _model_loaded:
+            _model_loaded = True
+            try:
+                with gzip.open(PROMPT_MODEL_FILE, "rt", encoding="utf-8") as f:
+                    raw = json.load(f)
+                raw["weights"] = dict(zip(raw.pop("keys"), raw.pop("values")))
+                with open(PROMPT_MODEL_FILE, "rb") as f:
+                    raw["digest"] = hashlib.sha1(f.read()).hexdigest()
+                _model = raw
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                print(f"[ModelManager] NSFW prompt model not loaded: {e}")
+                _model = None
+        return _model
+
+
+def prompt_model_percent() -> float:
+    """The setting, as a number; the default where it cannot be read."""
+    try:
+        from modules import shared
+        return max(0.0, float(getattr(shared.opts, PROMPT_MODEL_SETTING, PROMPT_MODEL_DEFAULT)))
+    except Exception:
+        return PROMPT_MODEL_DEFAULT
+
+
+def prompt_model_threshold() -> Optional[float]:
+    """
+    The score above which the model calls a prompt explicit, for the setting's
+    percentage - read off the calibration the trainer measured, between its
+    points in straight lines. None when the model is off or missing.
+    """
+    model = prompt_model()
+    percent = prompt_model_percent()
+    if model is None or percent <= 0:
+        return None
+    points = sorted((float(p), float(t)) for p, t in model.get("calibration", []))
+    if not points:
+        return None
+    if percent <= points[0][0]:
+        return points[0][1]
+    for (p0, t0), (p1, t1) in zip(points, points[1:]):
+        if percent <= p1:
+            return t0 + (t1 - t0) * (percent - p0) / (p1 - p0)
+    return points[-1][1]
+
+
+def prompt_score(prompt: str, negative: str = "") -> Optional[float]:
+    """How explicit the model reads a prompt as; None without a model."""
+    model = prompt_model()
+    if model is None:
+        return None
+    bits, weights = model["bits"], model["weights"]
+    return model["bias"] + sum(weights.get(feature_hash(f, bits), 0.0)
+                               for f in prompt_features(prompt, negative))
+
+
 def prompt_words_fingerprint() -> str:
-    """Changes whenever the words do - so stored levels know to be redone."""
-    return hashlib.sha1("\n".join(sorted(prompt_words())).encode()).hexdigest()
+    """
+    Changes whenever the verdict can - the words, the model or its setting -
+    so stored levels know to be redone.
+    """
+    model = prompt_model()
+    parts = sorted(prompt_words()) + [
+        "model:" + (model["digest"] if model else "none"),
+        "threshold:" + repr(prompt_model_threshold()),
+    ]
+    return hashlib.sha1("\n".join(parts).encode()).hexdigest()
 
 
 def prompt_is_explicit(image: Dict[str, Any]) -> bool:
     """
-    Whether an image's own prompt uses a filter word. Whole words, any case;
-    anything not a letter separates them, so tag_words, (weighted:1.2) and
-    <lora:names> are read as the words they hold.
+    Whether an image's own prompt is explicit: it uses a filter word - whole
+    words, any case; anything not a letter separates them, so tag_words,
+    (weighted:1.2) and <lora:names> are read as the words they hold - or the
+    prompt model scores it above the setting's threshold.
     """
     meta = image.get("meta")
     prompt = meta.get("prompt") if isinstance(meta, dict) else None
     if not isinstance(prompt, str) or not prompt:
         return False
     words = prompt_words()
-    return bool(words) and not words.isdisjoint(_WORD.findall(prompt.lower()))
+    if words and not words.isdisjoint(_WORD.findall(prompt.lower())):
+        return True
+    threshold = prompt_model_threshold()
+    if threshold is None:
+        return False
+    negative = meta.get("negativePrompt")
+    return prompt_score(prompt, negative if isinstance(negative, str) else "") > threshold
 
 
 def image_level(image: Dict[str, Any]) -> int:

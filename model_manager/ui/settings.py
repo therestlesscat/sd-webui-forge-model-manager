@@ -221,6 +221,25 @@ def on_ui_settings():
                "images are judged again in the background when this changes.")
     )
 
+    shared.opts.add_option(
+        "model_manager_nsfw_prompt_model_percent",
+        shared.OptionInfo(
+            default=2.0,
+            label="NSFW: prompt model - % of PG/PG-13 prompts to treat as X",
+            component=gr.Number,
+            component_args={"minimum": 0, "maximum": 20, "step": 0.25},
+            onchange=_prompt_words_changed,
+            section=section,
+        ).info("Civitai rates some explicit images PG or PG-13. A model trained on image "
+               "prompts - their words, word pairs and negative prompt - finds them, and this "
+               "is how far it goes: the share of PG and PG-13 prompts it may treat as X, on the "
+               "library it was trained on. 2 (default) catches about 92% of X/XXX prompts; "
+               "reviewed image by image, the PG images it raised there were nearly all explicit, "
+               "and past 2 about half were not. 1 is stricter, 3 or more catches more at more "
+               "cost. 0 turns the model off, leaving only the words. Stored images are judged "
+               "again in the background when this changes.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "

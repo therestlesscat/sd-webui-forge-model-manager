@@ -159,6 +159,7 @@ Found under **Settings -> Model Manager**.
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | NSFW: extra prompt words | empty | Words added to the bundled list. An image rated PG or PG-13 whose prompt uses one is treated as X. Stored images are judged again in the background when this changes |
+| NSFW: prompt model - % of PG/PG-13 prompts to treat as X | 2 | How far the prompt model goes (0-20). 2 caught about 92% of X/XXX prompts; 1 is stricter, higher catches more at more cost, 0 turns it off. Stored images are judged again in the background when this changes |
 | Send to txt2img: *model* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
 
 ### Text encoders and VAEs for newer models
@@ -211,13 +212,23 @@ The effective level for a model is the maximum of:
 - Version-level NSFW rating
 - Highest image NSFW rating
 
-Civitai's raters miss some images. An image rated PG or PG-13 whose prompt uses one of
-a short list of explicit words is treated as X everywhere: grid previews, both
-galleries, and the SFW filters. Its badge reads "X · prompt". The list ships in
-`model_manager/data/nsfw_prompt_words.txt`; add your own words in the settings. Only the
-positive prompt is read, and only whole words. Stored images are judged again in the
-background whenever the words change, from the prompts already stored, so no sync is
-needed. An image whose prompt was never fetched keeps Civitai's rating.
+Civitai's raters miss some images. An image rated PG or PG-13 whose prompt reads as
+explicit is treated as X everywhere: grid previews, both galleries, and the SFW filters.
+Its badge reads "X · prompt". Two things decide it:
+
+- **A prompt model**, trained on image prompts - their words, pairs of words and negative
+  prompt - to tell the prompts of images Civitai rates X or XXX from PG or PG-13 ones. The
+  setting says how far it goes, as the share of PG/PG-13 prompts it may raise: at the
+  default 2 it caught about 92% of X/XXX prompts on the library it was trained on, where a
+  word list caught 81%, and the PG images it raised were nearly all explicit when reviewed.
+  It ships as `model_manager/data/nsfw_prompt_model.json.gz`, which holds no words, only
+  their hashes; `tools/train_nsfw_model.py` trains it again from a library.
+- **A short list of explicit words**, in `model_manager/data/nsfw_prompt_words.txt`, plus
+  any you add in the settings. Only the positive prompt is read, and only whole words.
+
+Stored images are judged again in the background whenever the words, the model or its
+setting change, from the prompts already stored, so no sync is needed. An image whose
+prompt was never fetched keeps Civitai's rating.
 
 ## License
 
