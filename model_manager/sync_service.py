@@ -163,7 +163,8 @@ class SyncService:
         return None, None, None
 
     def sync_model(self, model_path: str, force: bool = False,
-                   classify_checkpoint: bool = True) -> SyncResult:
+                   classify_checkpoint: bool = True,
+                   known: Optional[Dict[str, Any]] = None) -> SyncResult:
         """
         Sync a single model with Civitai - see _sync_model().
 
@@ -173,7 +174,7 @@ class SyncService:
         said, and never a reason for the sync to fail.
         """
         result = self._sync_model(model_path, force=force,
-                                  classify_checkpoint=classify_checkpoint)
+                                  classify_checkpoint=classify_checkpoint, known=known)
         if force:
             try:
                 record_architecture(get_models_db(), model_path, force=True)
@@ -183,7 +184,8 @@ class SyncService:
         return result
 
     def _sync_model(self, model_path: str, force: bool = False,
-                    classify_checkpoint: bool = True) -> SyncResult:
+                    classify_checkpoint: bool = True,
+                    known: Optional[Dict[str, Any]] = None) -> SyncResult:
         """
         Sync a single model with Civitai.
 
@@ -203,6 +205,11 @@ class SyncService:
                 False when syncing many, and classify them together afterwards:
                 per file it would be two requests each rather than two per
                 hundred. See _classify_checkpoints().
+            known: What a download already knows about the file - "hashes"
+                (a HashResult, from Civitai's list for the file, trusted
+                because the downloaded bytes matched its SHA-256), "version"
+                and "model" (Civitai's payloads). Hashing the file and looking
+                it up are skipped: they are what give the rest.
 
         Returns:
             SyncResult with status and details.
@@ -231,17 +238,24 @@ class SyncService:
 
         print(f"[ModelManager] Processing {model_name}...")
 
-        # Calculate all hash types
-        hashes = self.calculate_hashes(model_path)
+        known = known if known and known.get("hashes") and known.get("version") else None
+        if known:
+            hashes = known["hashes"]
+        else:
+            hashes = self.calculate_hashes(model_path)
         if not hashes.sha256:
             result.error = "Failed to calculate hashes"
             return result
 
         try:
-            # Try to find model using fallback hash lookup
-            version_data, matched_hash_type, matched_hash = self._lookup_by_hash_with_fallback(
-                model_path, hashes
-            )
+            if known:
+                version_data = dict(known["version"])
+                version_data.setdefault("modelId", (known.get("model") or {}).get("id"))
+            else:
+                # Try to find model using fallback hash lookup
+                version_data, matched_hash_type, matched_hash = self._lookup_by_hash_with_fallback(
+                    model_path, hashes
+                )
 
             if not version_data:
                 print(f"[ModelManager] {model_name} not found on Civitai (tried all hash types)")
@@ -256,8 +270,8 @@ class SyncService:
             result.model_id = model_id
 
             # Fetch full model data (includes description, tags, stats)
-            full_model_data = None
-            if model_id:
+            full_model_data = (known or {}).get("model")
+            if model_id and not full_model_data:
                 print(f"[ModelManager] Fetching full model data for {model_name}...")
                 full_model_data = self.client.get_model(model_id)
 

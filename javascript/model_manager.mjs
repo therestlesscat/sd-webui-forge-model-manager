@@ -2067,7 +2067,8 @@ function resourceDownloadCell(resource) {
         return `<span class="mm-res-state installed">Installed${which}</span>`;
     }
     if (job && job.state === 'downloading') {
-        return `<span class="mm-res-state">${job.percent ? `${job.percent}%` : 'Queued'}</span>`;
+        const shown = job.finishing ? 'Adding to library...' : job.percent ? `${job.percent}%` : 'Queued';
+        return `<span class="mm-res-state">${shown}</span>`;
     }
     if (job && job.state === 'unavailable') {
         return `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Not on Civitai</span>`;
@@ -2158,6 +2159,7 @@ function pollResourceDownloads() {
             }
             if (!progress) continue;
             job.percent = Math.floor(progress.percent || 0);
+            job.finishing = progress.status === 'finishing';
             // Complete is on disk; synced is in the library, which is what a
             // chip or a send looks at.
             if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
@@ -2884,7 +2886,7 @@ function missingChipState(chip) {
                  title: `${chip.title}: ${job.error || 'Civitai does not have it'}` };
     }
     if (job && job.state === 'downloading') {
-        return { busy: true, note: job.percent ? `${job.percent}%` : 'queued',
+        return { busy: true, note: job.finishing ? 'adding to library...' : job.percent ? `${job.percent}%` : 'queued',
                  title: `Downloading the missing ${what} ${chip.title}` };
     }
     if (job && job.state === 'installed' && job.substituted) {

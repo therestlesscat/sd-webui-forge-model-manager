@@ -2,6 +2,7 @@
 Download service for Civitai Browser.
 Handles downloading models from Civitai with progress tracking and parallel downloads.
 """
+import hashlib
 import os
 import re
 import json
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
 from .civitai import paid_access_info
+from .hashing import HashResult
 
 
 @dataclass
@@ -22,14 +24,18 @@ class DownloadProgress:
     file_name: str = ""
     total_bytes: int = 0
     downloaded_bytes: int = 0
-    status: str = "pending"  # pending, downloading, complete, error, cancelled
+    # pending, downloading, finishing, complete, error, cancelled. finishing:
+    # the file is on disk and is being added to the library - the download is
+    # not complete until it is, so that complete means ready to use.
+    status: str = "pending"
     error: Optional[str] = None
     file_path: Optional[str] = None
-    # The database row is written by a background sync that outlives the
-    # download itself (hashing a multi-GB file takes seconds), so the UI needs
-    # to know when the model is actually queryable - not merely downloaded.
+    # Set with complete, once the library has the model; kept because callers
+    # read it. sync_error says what went wrong if adding it failed.
     synced: bool = False
     sync_error: Optional[str] = None
+    # The file's SHA-256, computed as it was written.
+    sha256: Optional[str] = None
 
     @property
     def percent(self) -> float:
@@ -242,6 +248,10 @@ class DownloadService:
                     chunk_size = 1024 * 1024
 
                     downloaded = 0
+                    # Hashed as it arrives, where the network is the limit:
+                    # afterwards, reading a 7 GB file again to hash it took
+                    # 10 s, all of it spent waiting for the download to finish.
+                    hasher = hashlib.sha256()
 
                     # Create tqdm progress bar for terminal (stacked)
                     if tqdm and total_size > 0:
@@ -273,6 +283,7 @@ class DownloadService:
 
                                 if chunk:
                                     f.write(chunk)
+                                    hasher.update(chunk)
                                     downloaded += len(chunk)
                                     progress.downloaded_bytes = downloaded
                                     if pbar:
@@ -285,6 +296,7 @@ class DownloadService:
                         if total_size > 0 and downloaded != total_size:
                             raise Exception(f"Incomplete download: {downloaded}/{total_size} bytes")
 
+                        progress.sha256 = hasher.hexdigest().upper()
                         return True
 
                     except Exception as e:
@@ -463,6 +475,22 @@ class DownloadService:
             if not success:
                 return progress
 
+            # Civitai lists every hash the library keeps for a file. When the
+            # bytes are the ones it hashed, its list is used rather than
+            # reading the file again; when they are not, the file is corrupt.
+            civitai_hashes = {k.lower(): v for k, v in (file_info.get("hashes") or {}).items() if v}
+            expected = str(civitai_hashes.get("sha256") or "").upper()
+            if expected and progress.sha256 != expected:
+                os.remove(target_path)
+                progress.status = "error"
+                progress.error = ("The downloaded file does not match Civitai's SHA-256, "
+                                  "so it was removed. Try downloading it again.")
+                return progress
+            known = None
+            if expected:
+                known = {"hashes": HashResult.from_stored(civitai_hashes),
+                         "version": version_data, "model": model_data}
+
             # Create .civitai.info file
             info_path = os.path.splitext(target_path)[0] + ".civitai.info"
             civitai_info = {
@@ -482,12 +510,14 @@ class DownloadService:
             with open(info_path, 'w', encoding='utf-8') as f:
                 json.dump(civitai_info, f, indent=2)
 
-            print(f"[ModelManager] Download complete: {target_path}")
+            print(f"[ModelManager] Downloaded: {target_path}")
 
             progress.file_path = target_path
+            progress.status = "finishing"
+            self._sync_downloaded_file(target_path, progress, known)
+            progress.synced = True
             progress.status = "complete"
-
-            self._sync_downloaded_file(target_path, progress)
+            print(f"[ModelManager] Download complete: {target_path}")
 
             return progress
 
@@ -535,48 +565,37 @@ class DownloadService:
 
         return progress
 
-    def _sync_downloaded_file(self, file_path: str, progress: Optional[DownloadProgress] = None):
+    def _sync_downloaded_file(self, file_path: str, progress: Optional[DownloadProgress] = None,
+                              known: Optional[Dict[str, Any]] = None):
         """
-        Sync a downloaded file into the database.
+        Add a downloaded file to the library, before the download is complete.
 
-        Runs in a background thread so it does not block the download queue.
-        When given the progress record, marks it synced once finished - success
-        or failure - so callers can tell when the model is actually queryable
-        rather than just present on disk.
+        It ran in a background thread after the download said complete, and
+        hashed the whole file again: the Civitai Browser showed a finished
+        download without its "Show in MM" for as long as that took - 10 s for
+        a 7 GB checkpoint. With what the download already knows (`known`: the
+        file's hashes, its version and model), it is a second or so, and the
+        download waits for it. A failure is recorded on the progress, never
+        raised: the file is on disk either way.
         """
-        def do_sync():
-            try:
-                from .sync_service import SyncService
-                from .db import get_models_db
-                sync = SyncService()
-                result = sync.sync_model(file_path, force=True)
-                if result.success:
-                    print(f"[ModelManager] Synced to database: {file_path}")
-                    # Set downloaded_at timestamp for this file
-                    try:
-                        db = get_models_db()
-                        db.set_downloaded_at(file_path)
-                        print(f"[ModelManager] Set downloaded_at for: {file_path}")
-                    except Exception as e:
-                        print(f"[ModelManager] Failed to set downloaded_at: {e}")
-                elif progress is not None:
+        try:
+            from .sync_service import SyncService
+            from .db import get_models_db
+            result = SyncService().sync_model(file_path, force=True, known=known)
+            if result.success:
+                print(f"[ModelManager] Synced to database: {file_path}")
+                try:
+                    get_models_db().set_downloaded_at(file_path)
+                except Exception as e:
+                    print(f"[ModelManager] Failed to set downloaded_at: {e}")
+            else:
+                if progress is not None:
                     progress.sync_error = result.error
-                    print(f"[ModelManager] Sync warning: {result.error}")
-                else:
-                    print(f"[ModelManager] Sync warning: {result.error}")
-            except Exception as e:
-                if progress is not None:
-                    progress.sync_error = str(e)
-                print(f"[ModelManager] Failed to sync downloaded file: {e}")
-            finally:
-                # Flag it either way - the UI should stop waiting even if the
-                # sync failed, rather than spin forever
-                if progress is not None:
-                    progress.synced = True
-
-        # Run sync in background thread to not block download queue
-        sync_thread = threading.Thread(target=do_sync, daemon=True)
-        sync_thread.start()
+                print(f"[ModelManager] Sync warning: {result.error}")
+        except Exception as e:
+            if progress is not None:
+                progress.sync_error = str(e)
+            print(f"[ModelManager] Failed to sync downloaded file: {e}")
 
     def shutdown(self):
         """Shutdown the executor and cancel pending downloads."""

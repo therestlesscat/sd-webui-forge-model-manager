@@ -255,6 +255,31 @@ check('and the images are stored', len(db.get_images(70011)), 2)
 check('and it was asked whether it was trained or merged',
       [a for a in client.asked if a[0] == 'types'], [('types', [70010])])
 
+# A download already knows what a sync would find out: the file's hashes -
+# Civitai's list, trusted because the downloaded bytes matched its SHA-256 -
+# its version and its model. Given them, the sync neither reads the file to
+# hash it (10 s for a 7 GB checkpoint) nor asks Civitai who it is.
+KNOWN = os.path.join(facts['models_dir'], 'Stable-diffusion', 'known.safetensors')
+io.open(KNOWN, 'wb').write(b'known weights')
+known_sync, client = service(images={'images': [{'id': 3, 'url': 'u3', 'meta': {'prompt': 'p'}}],
+                                     'next_cursor': None}, types={70030: 'Trained'})
+known_sync.calculate_hashes = lambda path: (_ for _ in ()).throw(AssertionError('hashed the file'))
+civitai_hashes = HashResult.from_stored({'sha256': 'A' * 64, 'autov2': 'A' * 10,
+                                         'blake3': 'B' * 64, 'sha256_12': 'A' * 12})
+version = {k: v for k, v in version_payload(70031, 70030).items() if k != 'modelId'}
+result = known_sync.sync_model(KNOWN, force=True, known={
+    'hashes': civitai_hashes, 'version': version, 'model': model_payload(70030, [70031])})
+check('given what a download knows, the file syncs', (result.success, result.error), (True, None))
+check('without being hashed, or looked up on Civitai',
+      [a[0] for a in client.asked if a[0] in ('by_hash', 'model')], [])
+check('naming the version and its model - the model\'s id where the version has none',
+      (result.version_id, result.model_id), (70031, 70030))
+row = db.get_version(KNOWN)
+check('the library stores Civitai\'s hashes for it, every kind',
+      [row['file_hashes'].get(k) for k in ('sha256', 'blake3', 'sha256_12')],
+      ['A' * 64, 'B' * 64, 'A' * 12])
+check('and its gallery is fetched as before', len(db.get_images(70031)), 1)
+
 # Civitai answers the hash but not the model: the version alone is enough.
 LONE = os.path.join(facts['models_dir'], 'Lora', 'lone.safetensors')
 io.open(LONE, 'wb').write(b'lonely weights')
