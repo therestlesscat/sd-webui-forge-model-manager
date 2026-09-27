@@ -6,9 +6,11 @@ Train the NSFW prompt model nsfw.py uses, from a library's stored images.
 Run it with the WebUI's Python (it needs numpy and scipy). The database is
 opened read-only and nothing in it is changed.
 
-What it learns: which prompts belong to images Civitai rates X or XXX, as
-against PG or PG-13 - from each prompt's words, pairs of adjacent words and
-negative prompt, as nsfw.prompt_features() reads them. R images are left out
+What it learns: which images Civitai rates X or XXX, as against PG or PG-13,
+from their generation data as nsfw.image_features() reads it - feature set
+FEATURES: every positive prompt's words and word pairs (the image's own,
+ADetailer's, hires'), every negative prompt's words, and the resources the
+image names. R images are left out
 of training: they are neither. Every image counts once, whichever galleries
 hold it.
 
@@ -48,12 +50,13 @@ BITS = 20
 REGULARISATION = 2.0
 PRUNE_BELOW = 0.05       # measured: 46k weights of 497k, and no loss in recall
 CLEAN_PERCENT = 2        # suspected mis-ratings left out of the final training
+FEATURES = 2             # nsfw.image_features(); written into the model file
 CALIBRATION = (0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 15, 20)
 DEFAULT_OUT = os.path.join(ROOT, "model_manager", "data", "nsfw_prompt_model.json.gz")
 
 
 def read_library(path):
-    """One row per image with a prompt: (level, prompt, negative, post)."""
+    """One row per image with a prompt: (level, generation data, post)."""
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     rows, seen = [], set()
     for image_id, data in db.execute("SELECT id, data FROM images"):
@@ -65,18 +68,15 @@ def read_library(path):
         prompt = meta.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             continue
-        negative = meta.get("negativePrompt")
-        rows.append((nsfw.rated_level(image), prompt,
-                     negative if isinstance(negative, str) else "",
-                     image.get("postId") or f"image {image_id}"))
+        rows.append((nsfw.rated_level(image), meta, image.get("postId") or f"image {image_id}"))
     db.close()
     return rows
 
 
 def matrix(rows):
     indices, pointers = [], [0]
-    for _, prompt, negative, _ in rows:
-        indices.extend(sorted({nsfw.feature_hash(f, BITS) for f in nsfw.prompt_features(prompt, negative)}))
+    for _, meta, _ in rows:
+        indices.extend(sorted({nsfw.feature_hash(f, BITS) for f in nsfw.image_features(meta, FEATURES)}))
         pointers.append(len(indices))
     return sparse.csr_matrix((np.ones(len(indices), np.float32), indices, pointers),
                              shape=(len(rows), 1 << BITS))
@@ -94,13 +94,14 @@ def train(x, y):
     return w[:-1], w[-1]
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("db")
-    parser.add_argument("--out", default=DEFAULT_OUT)
-    args = parser.parse_args()
-
-    rows = read_library(args.db)
+def build_model(rows, clean=CLEAN_PERCENT):
+    """
+    Train on rows from read_library(): the calibration out-of-fold, the model
+    that ships on everything but the suspected mis-ratings - the `clean`
+    percent of PG/PG-13 the out-of-fold models find most explicit; 0 keeps
+    them all. Returns the model as it is written, with what was measured in
+    model["about"].
+    """
     levels = np.array([r[0] for r in rows])
     explicit, safe = np.isin(levels, (nsfw.X, nsfw.XXX)), np.isin(levels, (nsfw.PG, nsfw.PG13))
     learn = explicit | safe
@@ -109,7 +110,7 @@ def main():
     x = matrix(rows)
 
     # Out-of-fold scores, by post, for the calibration.
-    fold = np.array([zlib.crc32(str(r[3]).encode()) % 2 for r in rows])
+    fold = np.array([zlib.crc32(str(r[2]).encode()) % 2 for r in rows])
     scores = np.zeros(len(rows))
     for k in (0, 1):
         fit = learn & (fold != k)
@@ -126,11 +127,12 @@ def main():
 
     # The model that ships: trained on everything but the suspected
     # mis-ratings, pruned.
-    suspect = safe & (scores > np.quantile(safe_scores, 1 - CLEAN_PERCENT / 100))
+    suspect = (safe & (scores > np.quantile(safe_scores, 1 - clean / 100)) if clean > 0
+               else np.zeros(len(rows), bool))
     w, b = train(x[learn & ~suspect], explicit[learn & ~suspect].astype(float))
     keep = np.flatnonzero(np.abs(w) >= PRUNE_BELOW)
-    model = {
-        "format": 1, "bits": BITS, "bias": round(float(b), 4),
+    return {
+        "format": 1, "features": FEATURES, "bits": BITS, "bias": round(float(b), 4),
         "keys": [int(i) for i in keep], "values": [round(float(w[i]), 4) for i in keep],
         "calibration": calibration,
         "about": {
@@ -138,15 +140,29 @@ def main():
             "prompts": {"x_xxx": int(explicit.sum()), "pg_pg13": int(safe.sum()),
                         "r": int((levels == nsfw.R).sum())},
             "weights_kept": len(keep),
+            "clean_percent": clean,
             "left_out_as_suspected_mis_ratings": int(suspect.sum()),
             "measured_out_of_fold": measured,
         },
     }
-    with gzip.open(args.out, "wt", encoding="utf-8") as f:
+
+
+def write_model(model, out):
+    with gzip.open(out, "wt", encoding="utf-8") as f:
         json.dump(model, f, separators=(",", ":"))
-    print(f"wrote {args.out}: {len(keep):,} weights, {os.path.getsize(args.out) / 1024:.0f} KB")
-    for m in measured:
+    print(f"wrote {out}: {model['about']['weights_kept']:,} weights, {os.path.getsize(out) / 1024:.0f} KB")
+    for m in model["about"]["measured_out_of_fold"]:
         print(f"  {m['percent']:>5}% of PG/PG-13 raised: X/XXX {m['x_xxx_caught']:.1%}, R {m['r_caught']:.1%}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("db")
+    parser.add_argument("--out", default=DEFAULT_OUT)
+    parser.add_argument("--clean", type=float, default=CLEAN_PERCENT,
+                        help="percent of PG/PG-13 left out as suspected mis-ratings; 0 for none")
+    args = parser.parse_args()
+    write_model(build_model(read_library(args.db), args.clean), args.out)
 
 
 if __name__ == "__main__":

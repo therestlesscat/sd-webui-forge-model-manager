@@ -44,10 +44,10 @@ nsfw.PROMPT_WORDS_FILE = os.path.join(WORK, 'no_words.txt')   # the model alone
 nsfw._bundled = None
 
 
-def model_file(name, weights, bias=-1.0, calibration=((1, 2.5), (2, 1.5), (4, 0.5))):
+def model_file(name, weights, bias=-1.0, calibration=((1, 2.5), (2, 1.5), (4, 0.5)), features=1):
     path = os.path.join(WORK, name)
     with gzip.open(path, 'wt', encoding='utf-8') as f:
-        json.dump({'format': 1, 'bits': 20, 'bias': bias,
+        json.dump({'format': 1, 'features': features, 'bits': 20, 'bias': bias,
                    'keys': [nsfw.feature_hash(k, 20) for k in weights],
                    'values': list(weights.values()), 'calibration': [list(c) for c in calibration]}, f)
     return path
@@ -72,9 +72,48 @@ check('1. the model reads words, pairs of adjacent words, and the negative promp
 
 use(model_file('made_up.json.gz', {'zorp': 3.0, 'neg:zorp': -5.0, 'blue_sky': 2.0}))
 check('2. a prompt\'s score is the bias and the weights of what it holds',
-      nsfw.prompt_score('a zorp'), 2.0)
+      nsfw.prompt_score({'prompt': 'a zorp'}), 2.0)
 check('   a word in the negative prompt counts as its own feature',
-      nsfw.prompt_score('a zorp', 'zorp'), -3.0)
+      nsfw.prompt_score({'prompt': 'a zorp', 'negativePrompt': 'zorp'}), -3.0)
+check('   a model of the first feature set reads nothing else',
+      nsfw.prompt_score({'prompt': 'a lighthouse', 'ADetailer prompt': 'zorp',
+                         'civitaiResources': [{'modelVersionId': 7}]}), -1.0)
+
+# ---------------------------------------------- the second feature set
+# Every positive prompt - the image's own, ADetailer's, hires' - every
+# negative one, and the resources the image names.
+META = {'prompt': 'blue sky', 'negativePrompt': 'blurry', 'ADetailer prompt': 'a zorp',
+        'ADetailer negative prompt': 'snib', 'Hires prompt': 'at dusk',
+        'civitaiResources': [{'modelVersionId': 123}, {'type': 'lora'}],
+        'resources': [{'hash': 'ABCDEF1234', 'name': 'x'}]}
+check('7a. the second set reads ADetailer and hires prompts as more of the prompt',
+      sorted(nsfw.image_features(META, 2)),
+      ['a', 'a_zorp', 'at', 'at_dusk', 'blue', 'blue_sky', 'dusk', 'neg:blurry', 'neg:snib',
+       'res:habcdef1234', 'res:v123', 'sky', 'zorp'])
+check('    with word pairs within each prompt, never across two',
+      'sky_a' in nsfw.image_features(META, 2), False)
+check('    and the first set is still the prompt and negative alone',
+      sorted(nsfw.image_features(META, 1)), ['blue', 'blue_sky', 'neg:blurry', 'sky'])
+
+use(model_file('second.json.gz', {'res:v123': 4.0, 'zorp': 0.5}, features=2))
+opts.model_manager_nsfw_prompt_model_percent = 2
+check('    a resource can raise an image whose prompt says nothing',
+      nsfw.image_level({'browsingLevel': 1, 'meta': {'prompt': 'a lighthouse',
+                                                     'civitaiResources': [{'modelVersionId': 123}]}}),
+      nsfw.X)
+check('    but an image with no prompt of its own is left to its rating',
+      nsfw.image_level({'browsingLevel': 1, 'meta': {'civitaiResources': [{'modelVersionId': 123}]}}),
+      nsfw.PG)
+use(model_file('made_up.json.gz', {'zorp': 3.0, 'neg:zorp': -5.0, 'blue_sky': 2.0}))
+
+words = os.path.join(WORK, 'words.txt')
+open(words, 'w').write('snib\n')
+nsfw.PROMPT_WORDS_FILE, nsfw._bundled = words, None
+opts.model_manager_nsfw_prompt_model_percent = 0
+check('    and the words are looked for in ADetailer\'s prompt too',
+      nsfw.image_level({'browsingLevel': 1, 'meta': {'prompt': 'a lighthouse', 'ADetailer prompt': 'snib'}}),
+      nsfw.X)
+nsfw.PROMPT_WORDS_FILE, nsfw._bundled = os.path.join(WORK, 'no_words.txt'), None
 
 # ------------------------------------------------------------- the setting
 for percent, want in ((2, 1.5), (3, 1.0), (0.5, 2.5), (10, 0.5), (0, None)):
@@ -150,10 +189,22 @@ trained = nsfw.prompt_model()
 check('   and writes a model nsfw.py reads', trained is not None)
 if trained:
     check('   which tells the two apart',
-          nsfw.prompt_score('a zorp, painting 3') > nsfw.prompt_score('a lighthouse, painting 3'))
+          nsfw.prompt_score({'prompt': 'a zorp, painting 3'}) > nsfw.prompt_score({'prompt': 'a lighthouse, painting 3'}))
+    check('   trained on the second feature set, and saying so', trained['features'], 2)
+    check('   recording how many suspected mis-ratings it left out, 2% by default',
+          (float(trained['about']['clean_percent']),
+           isinstance(trained['about']['left_out_as_suspected_mis_ratings'], int)), (2.0, True))
     check('   with its calibration', len(trained['calibration']) > 5)
     check('   and nothing in it a word could be read from',
           all(isinstance(k, int) for k in trained['weights']))
+
+kept_all = os.path.join(WORK, 'trained_clean0.json.gz')
+run = subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'train_nsfw_model.py'), db_path,
+                      '--out', kept_all, '--clean', '0'], capture_output=True, text=True)
+with gzip.open(kept_all, 'rt', encoding='utf-8') as f:
+    about = json.load(f)['about']
+check('   --clean 0 keeps every image', (run.returncode, about['clean_percent'],
+      about['left_out_as_suspected_mis_ratings']), (0, 0.0, 0))
 
 nsfw.PROMPT_MODEL_FILE = SHIPPED
 nsfw._model_loaded = False

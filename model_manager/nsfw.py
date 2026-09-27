@@ -211,6 +211,51 @@ def prompt_features(prompt: str, negative: str = "") -> FrozenSet[str]:
     return frozenset(features)
 
 
+#: More of an image's prompt, in other fields: ADetailer's, often the detail
+#: that says what an image is, and the hires pass's.
+EXTRA_PROMPTS = ("ADetailer prompt", "ADetailer prompt 2nd", "ADetailer prompt 3rd", "Hires prompt")
+EXTRA_NEGATIVES = ("ADetailer negative prompt", "ADetailer negative prompt 2nd",
+                   "ADetailer negative prompt 3rd")
+
+
+def _text(meta: Dict[str, Any], key: str) -> str:
+    value = meta.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def positive_prompts(meta: Dict[str, Any]) -> List[str]:
+    """Every positive prompt an image has: its own, then ADetailer's and hires'."""
+    return [t for t in [_text(meta, "prompt")] + [_text(meta, k) for k in EXTRA_PROMPTS] if t]
+
+
+def image_features(meta: Dict[str, Any], version: int = 1) -> FrozenSet[str]:
+    """
+    What a model of feature set `version` reads in an image's generation data.
+
+    1 - the prompt and negative prompt: prompt_features().
+    2 - every positive prompt (positive_prompts(); word pairs within each,
+        never across two), every negative one, and the resources the image
+        names: civitaiResources by version id, resources by hash. A model
+        file says which it was trained on.
+    """
+    if not isinstance(meta, dict):
+        return frozenset()
+    if version == 1:
+        return prompt_features(_text(meta, "prompt"), _text(meta, "negativePrompt"))
+    features = set()
+    for prompt in positive_prompts(meta):
+        features |= prompt_features(prompt)
+    for key in ("negativePrompt",) + EXTRA_NEGATIVES:
+        features |= prompt_features("", _text(meta, key))
+    for resource in meta.get("civitaiResources") or []:
+        if isinstance(resource, dict) and resource.get("modelVersionId"):
+            features.add("res:v%s" % resource["modelVersionId"])
+    for resource in meta.get("resources") or []:
+        if isinstance(resource, dict) and resource.get("hash"):
+            features.add("res:h%s" % str(resource["hash"]).lower())
+    return frozenset(features)
+
+
 def feature_hash(feature: str, bits: int) -> int:
     """Where a feature's weight is kept: CRC-32 of it, in `bits` bits."""
     return zlib.crc32(feature.encode()) & ((1 << bits) - 1)
@@ -226,6 +271,7 @@ def prompt_model() -> Optional[Dict[str, Any]]:
                 with gzip.open(PROMPT_MODEL_FILE, "rt", encoding="utf-8") as f:
                     raw = json.load(f)
                 raw["weights"] = dict(zip(raw.pop("keys"), raw.pop("values")))
+                raw.setdefault("features", 1)
                 with open(PROMPT_MODEL_FILE, "rb") as f:
                     raw["digest"] = hashlib.sha1(f.read()).hexdigest()
                 _model = raw
@@ -265,14 +311,14 @@ def prompt_model_threshold() -> Optional[float]:
     return points[-1][1]
 
 
-def prompt_score(prompt: str, negative: str = "") -> Optional[float]:
-    """How explicit the model reads a prompt as; None without a model."""
+def prompt_score(meta: Dict[str, Any]) -> Optional[float]:
+    """How explicit the model reads an image's generation data as; None without a model."""
     model = prompt_model()
     if model is None:
         return None
     bits, weights = model["bits"], model["weights"]
     return model["bias"] + sum(weights.get(feature_hash(f, bits), 0.0)
-                               for f in prompt_features(prompt, negative))
+                               for f in image_features(meta, model["features"]))
 
 
 def prompt_words_fingerprint() -> str:
@@ -281,7 +327,8 @@ def prompt_words_fingerprint() -> str:
     so stored levels know to be redone.
     """
     model = prompt_model()
-    parts = sorted(prompt_words()) + [
+    # "rule": what is read changed - the words now read every positive prompt.
+    parts = sorted(prompt_words()) + ["rule:2",
         "model:" + (model["digest"] if model else "none"),
         "threshold:" + repr(prompt_model_threshold()),
     ]
@@ -290,23 +337,21 @@ def prompt_words_fingerprint() -> str:
 
 def prompt_is_explicit(image: Dict[str, Any]) -> bool:
     """
-    Whether an image's own prompt is explicit: it uses a filter word - whole
-    words, any case; anything not a letter separates them, so tag_words,
-    (weighted:1.2) and <lora:names> are read as the words they hold - or the
-    prompt model scores it above the setting's threshold.
+    Whether an image's own prompt is explicit: any of its positive prompts -
+    its own, ADetailer's, hires' - uses a filter word - whole words, any case;
+    anything not a letter separates them, so tag_words, (weighted:1.2) and
+    <lora:names> are read as the words they hold - or the prompt model scores
+    it above the setting's threshold. An image with no prompt of its own is
+    left to its rating: the model's calibration is measured on those that do.
     """
     meta = image.get("meta")
-    prompt = meta.get("prompt") if isinstance(meta, dict) else None
-    if not isinstance(prompt, str) or not prompt:
+    if not isinstance(meta, dict) or not _text(meta, "prompt"):
         return False
     words = prompt_words()
-    if words and not words.isdisjoint(_WORD.findall(prompt.lower())):
+    if words and any(not words.isdisjoint(_WORD.findall(p.lower())) for p in positive_prompts(meta)):
         return True
     threshold = prompt_model_threshold()
-    if threshold is None:
-        return False
-    negative = meta.get("negativePrompt")
-    return prompt_score(prompt, negative if isinstance(negative, str) else "") > threshold
+    return threshold is not None and prompt_score(meta) > threshold
 
 
 def image_level(image: Dict[str, Any]) -> int:
