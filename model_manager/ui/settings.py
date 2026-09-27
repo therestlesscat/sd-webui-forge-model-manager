@@ -231,13 +231,12 @@ def on_ui_settings():
             onchange=_prompt_words_changed,
             section=section,
         ).info("Civitai rates some explicit images PG or PG-13. A model trained on image "
-               "prompts - their words, word pairs and negative prompt - finds them, and this "
-               "is how far it goes: the share of PG and PG-13 prompts it may treat as X, on the "
-               "library it was trained on. 2 (default) catches about 92% of X/XXX prompts; "
-               "reviewed image by image, the PG images it raised there were nearly all explicit, "
-               "and past 2 about half were not. 1 is stricter, 3 or more catches more at more "
-               "cost. 0 turns the model off, leaving only the words. Stored images are judged "
-               "again in the background when this changes.")
+               "prompts - their words, word pairs, negative, ADetailer and hires prompts, and "
+               "the resources used - finds them, and this is how far it goes: the share of PG "
+               "and PG-13 prompts it may treat as X. 2 (default) caught about 94% of X/XXX "
+               "prompts on a library it had never seen. 1 is stricter, 3 or more catches more "
+               "at more cost. 0 turns the model off, leaving only the words. Stored images are "
+               "judged again in the background when this changes.")
     )
 
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset

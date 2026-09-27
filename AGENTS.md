@@ -38,7 +38,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
 | `storage.py` | reading and writing `.civitai.info` |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
-| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model `tools/train_nsfw_model.py` writes |
+| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py` |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `jobs`, `civitai`, `webui`. Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab |
 

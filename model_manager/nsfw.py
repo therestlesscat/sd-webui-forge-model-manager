@@ -176,11 +176,13 @@ def prompt_words() -> FrozenSet[str]:
 # The words alone caught 81% of the X and XXX images that have a prompt, and
 # picking more of them one at a time stopped paying: a list learned from the
 # data caught less, at the same cost in PG images flagged. A model that
-# weighs every word, every pair of adjacent words and the negative prompt
-# together caught 92% of them at the setting's default - the point, reviewed
-# image by image, where the PG and PG-13 images it raises stop being mostly
-# explicit ones Civitai under-rated. Trained by tools/train_nsfw_model.py
-# from a library's stored images; the words above still apply as well.
+# weighs every word, every pair of adjacent words, the negative prompt, the
+# ADetailer and hires prompts and the resources used does better. The one
+# that ships is trained by tools/train_nsfw_from_civitai.py on 762k prompts
+# from the thousand Civitai models with the most images. On a library it
+# never saw, it caught 94% of X/XXX at the setting's default, raising 2.2% of
+# PG/PG-13; the model it replaced, trained on that library, caught 84% of
+# Civitai's own at the same share. The words above still apply as well.
 #
 # The negative prompt is read as its own words: there they tend to mean the
 # opposite, and the model learns that rather than being told.
