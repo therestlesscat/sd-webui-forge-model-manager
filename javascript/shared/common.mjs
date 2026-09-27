@@ -71,6 +71,20 @@ export function apiKeyStatus() {
 
 const apiKeyBanners = new Set();
 
+/**
+ * Forget what the page was told by ui-options, after the settings window
+ * saved: the API key banner and the NSFW note are asked again. Each tab has
+ * its own copy of this module, and each calls this for its own.
+ */
+export function refreshUiOptions() {
+    uiOptionsRequest = null;
+    apiKeyMissing = null;
+    apiKeyRequest = null;
+    nsfwDetectionAsked = null;
+    apiKeyBanners.forEach((bannerId) => showApiKeyBanner(bannerId));
+    return loadNsfwDetection();
+}
+
 export function showApiKeyBanner(bannerId, attempt = 0) {
     apiKeyStatus();                     // starts the one fetch, if needed
     apiKeyBanners.add(bannerId);

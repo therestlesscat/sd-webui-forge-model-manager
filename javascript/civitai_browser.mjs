@@ -53,7 +53,14 @@ const {
     nsfwModelNote,
     galleryDefaults,
     hasReadablePrompt,
+    refreshUiOptions,
 } = await import(sharedModule.href);
+
+// The settings window behind the gear in the header, asked for with this
+// script's version as the shared module is.
+const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
+settingsModule.search = sharedModule.search;
+await import(settingsModule.href);
 
 // State
 let currentModels = [];
@@ -89,6 +96,38 @@ function applyCardSize(width, height) {
         });
     }
 }
+
+// After the settings window saved: redo what this tab drew from the settings.
+// The page size applies from the next search, and the gallery reads its
+// settings each time a model opens.
+window.addEventListener('mm-settings-saved', (e) => {
+    refreshUiOptions().then(syncSfwOnlyEnabled);
+    if ((e.detail?.changed || []).includes('model_manager_civitai_card_size')) {
+        // Saved as the server normalises it: "200x280".
+        const [width, height] = String(e.detail.settings.model_manager_civitai_card_size.value || '')
+            .split('x').map(Number);
+        if (width > 0 && height > 0) applyCardSize(width, height);
+    }
+});
+
+// The settings window's card preview: this tab's own cards, at a size not yet
+// saved. From the results already shown when there are enough, else exactly
+// as many models as the preview asks Civitai for.
+let cardPreviewModels = [];
+async function cardPreview(count) {
+    let models = currentModels;
+    if (models.length < count) {
+        if (cardPreviewModels.length < count) {
+            const data = await apiCall({ endpoint: '/model-manager/civitai/models',
+                                         params: { limit: count } });
+            if (!data.success) throw new Error(data.error || 'Civitai did not answer');
+            cardPreviewModels = data.models || [];
+        }
+        models = cardPreviewModels;
+    }
+    return models.slice(0, count).map((model, index) => renderCard(model, index)).join('');
+}
+(window.mmCardPreviews ||= {}).model_manager_civitai_card_size = cardPreview;
 
 // Cursor-based pagination state
 // cursors[N-1] = cursor to fetch page N
