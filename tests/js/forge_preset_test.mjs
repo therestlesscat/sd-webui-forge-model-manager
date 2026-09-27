@@ -39,6 +39,7 @@ function dropdown(id, options, multi) {
                 } else {
                     input.value = label;
                     events.push(`preset:${label}`);
+                    forgeAnswersPreset?.(label);
                 }
                 list.innerHTML = '';
             });
@@ -48,6 +49,10 @@ function dropdown(id, options, multi) {
     document.body.appendChild(root);
     return root;
 }
+// Forge's server side of a preset change, when a section wants one: see
+// "a slow preset change" below.
+let forgeAnswersPreset = null;
+let forgeDelay = 0;
 const MODULE_FILES = ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors', 'sdxl_vae.safetensors'];
 const preset = dropdown('forge_ui_preset', ['sd', 'xl', 'flux', 'qwen'], false);
 preset.querySelector('input').value = 'sd';
@@ -84,6 +89,10 @@ let plan = null;
 const planAsked = [];
 globalThis.fetch = async (url) => {
     const href = String(url);
+    if (href.includes('/run/')) {
+        await new Promise((r) => setTimeout(r, forgeDelay));
+        return { ok: true, json: async () => ({ data: [] }) };
+    }
     if (href.includes('/model-manager/forge-modules')) {
         planAsked.push(new URL(href, 'http://webui').searchParams);
         if (plan === 'fail') throw new Error('server down');
@@ -469,6 +478,27 @@ await send();
 check('an image with nothing to chip shows no row', row(), null);
 
 // ------------------------------------------------ the original Forge
+// ------------------------------------------------- a slow preset change
+// Forge answers a preset change from the server - its sampler, steps, size and
+// CFG, then, chained on that, its checkpoint and modules - and each lands when
+// the server is done. The send gave it a fixed 600 ms; a Krea model's took
+// longer, and the preset's defaults landed on top of the image's settings.
+forgeDelay = 1500;
+forgeAnswersPreset = () => {
+    globalThis.fetch('/run/predict').then(() => {
+        events.push('forge:defaults');
+        return globalThis.fetch('/run/predict');
+    }).then(() => events.push('forge:modules'));
+};
+preset.querySelector('input').value = 'sd';
+plan = { success: true, preset: 'flux', manage_modules: false, select: [], missing: [] };
+await send();
+await new Promise((r) => setTimeout(r, 2000));
+check('a slow preset change is waited out: its defaults and modules land before the image\'s settings',
+      events.filter((e) => /^(preset|forge|paste)/.test(e)), ['preset:flux', 'forge:defaults', 'forge:modules', 'paste']);
+forgeAnswersPreset = null;
+forgeDelay = 0;
+
 // The extension runs in the original Forge too, whose UI preset is a row of
 // radio buttons (sd, xl, flux, all) rather than Neo's dropdown. The send
 // typed into it as if it were a dropdown, clearing the first radio's value.

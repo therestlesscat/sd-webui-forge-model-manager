@@ -3021,6 +3021,8 @@ async function switchForgePreset(preset) {
     if (currentForgePreset() === preset) return true;
 
     // The original Forge's radio buttons: press the one for the preset. The
+    watchForgeCalls();
+    const callsBefore = forgeCalls.started;
     // dropdown path below would type into a radio's value - which it did,
     // clearing the first choice's.
     const radios = Array.from(container.querySelectorAll('input[type="radio"]'));
@@ -3031,7 +3033,7 @@ async function switchForgePreset(preset) {
             return false;
         }
         radio.click();
-        return await presetTaken(preset);
+        return await presetTaken(preset, callsBefore);
     }
 
     input.focus();
@@ -3046,20 +3048,72 @@ async function switchForgePreset(preset) {
     }
     pressOption(option.element);
     input.blur();
-    return await presetTaken(preset);
+    return await presetTaken(preset, callsBefore);
 }
 
-/** Wait for a preset change to show, then for the rest of it to land. */
-async function presetTaken(preset) {
+/**
+ * The calls Gradio makes to the server for a control's events. They go to
+ * <root>/run/<event> through the page's fetch - in Forge Neo's Gradio 4.39
+ * and the original Forge's 4.40 alike - so wrapping fetch sees each one start
+ * and finish.
+ */
+const forgeCalls = { started: 0, inFlight: 0, last: 0 };
+
+function watchForgeCalls() {
+    if (globalThis.fetch?.mmWatched) return;
+    const original = globalThis.fetch;
+    const watched = function(resource, ...rest) {
+        let path = '';
+        try {
+            path = new URL(typeof resource === 'string' ? resource : resource?.url || String(resource),
+                           window.location.origin).pathname;
+        } catch { /* not a URL we can read: not one of Gradio's */ }
+        if (!path.includes('/run/')) return original.call(this, resource, ...rest);
+        forgeCalls.started++;
+        forgeCalls.inFlight++;
+        forgeCalls.last = Date.now();
+        const settle = () => { forgeCalls.inFlight--; forgeCalls.last = Date.now(); };
+        const call = original.call(this, resource, ...rest);
+        call.then(settle, settle);
+        return call;
+    };
+    watched.mmWatched = true;
+    globalThis.fetch = watched;
+}
+
+/**
+ * Wait for a preset change to show, then for Forge to finish answering it.
+ *
+ * Forge answers from the server, with no progress shown: the preset's
+ * sampler, scheduler, steps, size and CFG, then - chained on that - its
+ * checkpoint and modules. Each lands when the server is done. A fixed 600 ms
+ * lost to a slow answer (a Krea model's, sent from the Model Manager): the
+ * image's settings went in first and the preset's defaults then overwrote
+ * them. So wait until every call started since the switch has come back and
+ * none has started for a moment - the chained one starts as the first ends.
+ * A switch that makes no call at all is given the old 600 ms.
+ */
+async function presetTaken(preset, callsBefore = forgeCalls.started) {
+    const start = Date.now();
     for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(100);
-    await nextFrame(FORGE_PRESET_SETTLE_MS);
-    console.log('[ModelManager] Forge UI preset now:', currentForgePreset());
+    while (Date.now() - start < FORGE_PRESET_MAX_MS) {
+        const called = forgeCalls.started > callsBefore;
+        if (called && forgeCalls.inFlight === 0 && Date.now() - forgeCalls.last >= FORGE_PRESET_QUIET_MS) break;
+        if (!called && Date.now() - start >= FORGE_PRESET_SETTLE_MS) break;
+        await nextFrame(50);
+    }
+    await nextFrame(100);   // Gradio writes the last answer into the page after it arrives
+    console.log('[ModelManager] Forge UI preset now:', currentForgePreset(),
+                `(${forgeCalls.started - callsBefore} server calls, ${Date.now() - start} ms)`);
     return currentForgePreset() === preset;
 }
 
-// How long a preset change is given, after its value shows, to reset the
-// sampler, steps and modules before the image's own are applied.
-let FORGE_PRESET_SETTLE_MS = 600;
+// No call after a switch for this long: the change was made in the page alone.
+const FORGE_PRESET_SETTLE_MS = 600;
+// Quiet for this long after the last call: Forge has nothing more to send.
+const FORGE_PRESET_QUIET_MS = 400;
+// A server this slow is not waited on further; the send goes on.
+const FORGE_PRESET_MAX_MS = 15000;
 
 /**
  * Select the modules the plan picked, and say what it could not find.
