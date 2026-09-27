@@ -10,6 +10,35 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 [Watch it in better quality on YouTube](https://youtu.be/HCHe44Yp-QU)
 
+## What's new
+
+**0.20 - A settings window.** A gear in the header of both tabs opens one window for
+all the extension's settings, grouped by what they are for, with search, and showing only
+the options that apply to what else is chosen. Card sizes are set with a preview: a row of
+real cards from that tab, at the size being set. The download folder shows where an
+example model would be saved as you type. The text encoders and VAE for Flux, Qwen-Image,
+Wan and Forge Neo's other newer models are chosen from the files actually installed, and
+a file chosen for one model is offered to the others that use it. The API key can be
+tested before it is saved. Everything is saved to the WebUI's own settings, so
+**Settings -> Model Manager** stays in step.
+
+**0.18 - A trained model judges prompts.** Civitai's raters miss some explicit images and
+rate them PG or PG-13, and every SFW view used to show them. A model trained on a pull
+of Civitai now reads each image's prompts, negative prompt, ADetailer and hires prompts,
+and the resources it used, and raises the explicit ones to X - in the grid previews, both
+galleries and the SFW filters. How far it goes is a setting; at the default it caught
+about 94% of explicit prompts on a library it had never seen. The word list still applies
+alongside it, and can be chosen instead.
+
+**0.16 - LoRA and embedding chips.** Most images list their LoRAs as resources without
+naming them in the prompt, which left finding each one by hand. Send to txt2img now lays
+an image's LoRAs, LoCons and embeddings out as chips under the prompts, named as your
+files are: a click puts one in at the image's weight, or takes it out. One you do not
+have downloads from its chip straight into your library, into the folder for its type,
+ready to use.
+
+Every change, version by version, is in [CHANGELOG.md](CHANGELOG.md).
+
 ## A look around
 
 ### Your library, at a glance
