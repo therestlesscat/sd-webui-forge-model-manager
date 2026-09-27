@@ -5,8 +5,13 @@ Anything a person sets once and expects to persist: the API key, page sizes,
 where the database lives, how fast to call Civitai, card dimensions. Filters
 belong to the tabs, not here - these are preferences, not a query.
 """
+import os
+
 import gradio as gr
 from modules import shared
+
+from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
+                             SETTING_PREFIX, preset_classes, preset_files)
 
 EXTENSION_NAME = "Model Manager"
 
@@ -299,17 +304,16 @@ def on_ui_settings():
     )
     explanation.section = section
     shared.opts.add_option("model_manager_modules_explanation", explanation)
-    for preset, label, needs, placeholder, links in MODULE_SETTINGS:
+    for preset, label, note in MODULE_PRESETS:
         shared.opts.add_option(
-            f"model_manager_modules_{preset}",
+            SETTING_PREFIX + preset,
             shared.OptionInfo(
                 default="",
                 label=f"Send to txt2img: {label} text encoders and VAE",
                 component=gr.Textbox,
-                component_args={"placeholder": placeholder},
+                component_args={"placeholder": _module_example(preset)},
                 section=section,
-            ).info(needs + ". Download: " + ", ".join(
-                f"<a href='{HF}{path}' target='_blank'>{name}</a>" for name, path in links))
+            ).info(_module_help(preset, note))
         )
 
 
@@ -335,71 +339,38 @@ def _prompt_words_changed():
     start_in_background()
 
 
-# Where each preset's files can be had. Forge Neo's own list, and the source
-# of every link below.
+# Forge Neo's list of every module file, and the source of the links in
+# forge_modules.FILES.
 DOWNLOAD_MODELS = "https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models"
-HF = "https://huggingface.co/"
 
-_CLIP_L = ("clip_l", "comfyanonymous/flux_text_encoders/blob/main/clip_l.safetensors")
-_T5 = [("t5xxl fp16", "comfyanonymous/flux_text_encoders/blob/main/t5xxl_fp16.safetensors"),
-       ("t5xxl fp8", "comfyanonymous/flux_text_encoders/blob/main/t5xxl_fp8_e4m3fn_scaled.safetensors")]
-_AE = ("ae", "Comfy-Org/Lumina_Image_2.0_Repackaged/blob/main/split_files/vae/ae.safetensors")
-_QWEN3_4B = [("qwen_3_4b", "Comfy-Org/z_image_turbo/blob/main/split_files/text_encoders/qwen_3_4b.safetensors"),
-             ("qwen3_4b fp8", "jiangchengchengNLP/qwen3-4b-fp8-scaled/blob/main/qwen3_4b_fp8_scaled.safetensors")]
-_FLUX2_VAE = ("flux2-vae", "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/vae/flux2-vae.safetensors")
-_QWEN_VAE = ("qwen_image_vae", "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/vae/qwen_image_vae.safetensors")
-_KLEIN = "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/text_encoders/"
-_WAN = "Comfy-Org/Wan_2.1_ComfyUI_repackaged/blob/main/split_files/"
-_QWEN = "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/text_encoders/"
 
-# (preset, what it runs, what it needs, an example, download links)
-MODULE_SETTINGS = [
-    ("flux", "Flux.1 / Chroma",
-     "Flux.1 needs CLIP-L, T5-XXL and the Flux VAE (ae); Chroma only T5-XXL and ae",
-     "clip_l.safetensors, t5xxl_fp8_e4m3fn_scaled.safetensors, ae.safetensors",
-     [_CLIP_L, *_T5, _AE]),
-    ("klein", "Flux.2 Klein",
-     "Klein 4B needs Qwen3 4B, Klein 9B needs Qwen3 8B; both need the Flux.2 VAE",
-     "qwen_3_4b.safetensors, qwen_3_8b_fp8mixed.safetensors, flux2-vae.safetensors",
-     [*_QWEN3_4B, ("qwen_3_8b", _KLEIN + "qwen_3_8b.safetensors"),
-      ("qwen_3_8b fp8", _KLEIN + "qwen_3_8b_fp8mixed.safetensors"), _FLUX2_VAE]),
-    ("lumina", "Lumina Image 2.0",
-     "Needs Gemma 2 2B and the Flux VAE (ae)",
-     "gemma_2_2b_fp16.safetensors, ae.safetensors",
-     [("gemma_2_2b", "duongve/NetaYume-Lumina-Image-2.0/blob/main/Text_Encoder/gemma_2_2b_fp16.safetensors"), _AE]),
-    ("zit", "Z-Image",
-     "Needs Qwen3 4B and the Flux VAE (ae)",
-     "qwen3_4b_fp8_scaled.safetensors, ae.safetensors",
-     [*_QWEN3_4B, _AE]),
-    ("anima", "Anima",
-     "Needs Qwen3 0.6B and the Qwen-Image VAE",
-     "qwen_3_06b_base.safetensors, qwen_image_vae.safetensors",
-     [("qwen_3_06b_base", "circlestone-labs/Anima/blob/main/split_files/text_encoders/qwen_3_06b_base.safetensors"),
-      _QWEN_VAE]),
-    ("wan", "Wan",
-     "Needs UMT5-XXL, in the Hugging Face layout these links have, and the Wan 2.1 VAE",
-     "umt5_xxl_fp8_e4m3fn_scaled.safetensors, wan_2.1_vae.safetensors",
-     [("umt5_xxl fp16", _WAN + "text_encoders/umt5_xxl_fp16.safetensors"),
-      ("umt5_xxl fp8", _WAN + "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"),
-      ("wan_2.1_vae", _WAN + "vae/wan_2.1_vae.safetensors")]),
-    ("qwen", "Qwen-Image",
-     "Needs Qwen2.5-VL 7B and the Qwen-Image VAE",
-     "qwen_2.5_vl_7b_fp8_scaled.safetensors, qwen_image_vae.safetensors",
-     [("qwen_2.5_vl_7b fp16", _QWEN + "qwen_2.5_vl_7b.safetensors"),
-      ("qwen_2.5_vl_7b fp8", _QWEN + "qwen_2.5_vl_7b_fp8_scaled.safetensors"), _QWEN_VAE]),
-    ("krea", "Krea 2",
-     "Needs Qwen3-VL 4B and the Qwen-Image VAE",
-     "qwen3vl_4b_fp8_scaled.safetensors, qwen_image_vae.safetensors",
-     [("qwen3vl_4b bf16", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_bf16.safetensors"),
-      ("qwen3vl_4b fp8", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"),
-      _QWEN_VAE]),
-    ("ernie", "ERNIE-Image",
-     "Needs Ministral 3 3B and the Flux.2 VAE",
-     "ministral-3-3b.safetensors, flux2-vae.safetensors",
-     [("ministral-3-3b", "Comfy-Org/ERNIE-Image/blob/main/text_encoders/ministral-3-3b.safetensors"), _FLUX2_VAE]),
-    ("pid", "PiD",
-     "Needs Gemma 2 2B IT; its VAE depends on the model and is left to you",
-     "gemma_2_2b_it_elm_fp8_scaled.safetensors",
-     [("gemma_2_2b_it bf16", "Comfy-Org/PixelDiT/blob/main/text_encoders/gemma_2_2b_it_elm_bf16.safetensors"),
-      ("gemma_2_2b_it fp8", "Comfy-Org/PixelDiT/blob/main/text_encoders/gemma_2_2b_it_elm_fp8_scaled.safetensors")]),
-]
+def _and(items):
+    items = list(items)
+    return items[0] if len(items) < 2 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _module_help(preset: str, note: str) -> str:
+    """What a preset's models need, and where to get it - from forge_modules,
+    which the settings window's table reads too."""
+    groups = {}
+    for cls in preset_classes(preset):
+        groups.setdefault(CLASS_FILES[cls], []).append(CLASS_LABELS[cls])
+    needs = [_and(FILES[f].label for f in files) for files in groups]
+    if len(groups) == 1:
+        text = "Needs " + needs[0]
+    else:
+        text = "; ".join("%s %s %s" % (_and(classes), "need" if len(classes) > 1 else "needs", n)
+                         for classes, n in zip(groups.values(), needs))
+    links = []
+    for f, _ in preset_files(preset):
+        for name, path in FILES[f].links:
+            link = f"<a href='{HF}{path}' target='_blank'>{name}</a>"
+            if link not in links:
+                links.append(link)
+    return text + ". " + (note + " " if note else "") + "Download: " + ", ".join(links)
+
+
+def _module_example(preset: str) -> str:
+    """File names such a setting might hold: the last-listed, and smallest,
+    download of each file the preset needs."""
+    return ", ".join(os.path.basename(FILES[f].links[-1][1]) for f, _ in preset_files(preset))

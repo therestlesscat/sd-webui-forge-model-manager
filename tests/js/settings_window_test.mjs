@@ -24,12 +24,70 @@ const SETTINGS = {
     model_manager_nsfw_prompt_model_percent: setting('number', 2, { minimum: 0, maximum: 20, step: 0.25 }),
     model_manager_nsfw_prompt_words: setting('text', '', { lines: 2 }),
     model_manager_civitai_folder_template: setting('text', '_{baseModel}/{modelName}'),
-    model_manager_modules_flux: setting('text', ''),
+    model_manager_modules_flux: setting('text', 'old_t5.safetensors'),
+    model_manager_modules_klein: setting('text', ''),
+    model_manager_modules_lumina: setting('text', 'ae_fp8.safetensors'),
+    model_manager_modules_zit: setting('text', ''),
+    model_manager_modules_wan: setting('text', ''),
+    model_manager_modules_qwen: setting('text', ''),
     model_manager_civitai_sfw_fill_page: setting('bool', false),
     model_manager_something_new: setting('bool', false, { label: 'A setting added later' }),
 };
 const ORDER = Object.keys(SETTINGS);
 const posted = [];
+
+// The text encoder and VAE table, as the server describes it: this WebUI has
+// no Klein preset. Two copies of the Flux VAE are installed, and Lumina's
+// setting names the fp8 one; Wan's VAE and Qwen-Image's are the same shape.
+const cand = (label, precision = 'full') => ({ label, precision });
+const AE = [cand('ae.safetensors'), cand('ae_fp8.safetensors', 'fp8')];
+const WAN_SHAPE = [cand('qwen_image_vae.safetensors'), cand('qwen_image_vae_fp8.safetensors', 'fp8'),
+                   cand('wan_2.1_vae.safetensors')];
+// Kinds as classify() names them: shapes, which two files can share.
+const KINDS = { ae: 'vae_ae', wan21_vae: 'vae_wan21', qwen_image_vae: 'vae_wan21' };
+const fileRow = (file, label, candidates, automatic, selected = null, used_by = []) => ({
+    file, label, kind: KINDS[file] || file, used_by, candidates, automatic, selected,
+    links: [[`${file} download`, `https://example.invalid/${file}`]] });
+const preset = (name, label, rows, kept = [], classes = [label]) => ({
+    preset: name, label, note: '', setting: `model_manager_modules_${name}`, classes, rows, kept });
+// The server's reading of a setting's text, as forge_modules.describe_presets
+// does it: each name to the first row it is a candidate for, else kept.
+function readInto(rows, text) {
+    const kept = [];
+    String(text || '').split(',').map((n) => n.trim()).filter(Boolean).forEach((name) => {
+        const plain = (label) => label.replace(/\.safetensors$/, '');
+        const row = rows.find((r) => !r.selected && r.candidates.some((c) => c.label === name || plain(c.label) === name));
+        if (row) row.selected = row.candidates.find((c) => c.label === name || plain(c.label) === name).label;
+        else kept.push({ name, why: 'not installed' });
+    });
+    return kept;
+}
+function describe(drafts = {}) {
+    const text = (name) => drafts[name] ?? SETTINGS[`model_manager_modules_${name}`].value;
+    const build = (name, label, rows, classes) => {
+        const kept = readInto(rows, text(name));
+        return preset(name, label, rows, kept, classes);
+    };
+    return [
+        build('flux', 'Flux.1 / Chroma', [
+            fileRow('clip_l', 'CLIP-L', [cand('clip_l.safetensors')], 'clip_l.safetensors', null, ['Flux.1']),
+            fileRow('t5xxl', 'T5-XXL', [cand('t5xxl_fp16.safetensors'), cand('t5xxl_fp8.safetensors', 'fp8')],
+                't5xxl_fp16.safetensors', null, ['Flux.1', 'Chroma']),
+            fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors', null, ['Flux.1', 'Chroma']),
+        ], ['Flux.1', 'Chroma']),
+        build('lumina', 'Lumina Image 2.0', [
+            fileRow('gemma2_2b', 'Gemma 2 2B', [], null),
+            fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors'),
+        ]),
+        build('zit', 'Z-Image', [
+            fileRow('qwen3_4b', 'Qwen3 4B', [cand('qwen_3_4b.safetensors')], 'qwen_3_4b.safetensors'),
+            fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors'),
+        ]),
+        build('wan', 'Wan', [fileRow('wan21_vae', 'Wan 2.1 VAE', WAN_SHAPE, 'wan_2.1_vae.safetensors')]),
+        build('qwen', 'Qwen-Image', [fileRow('qwen_image_vae', 'Qwen-Image VAE', WAN_SHAPE, 'qwen_image_vae.safetensors')]),
+    ];
+}
+const tableAsked = [];
 const modelsAsked = [];
 const libraryModel = (id) => ({ id, name: `M${id}`, display_name: `Model ${id}`, model_type: 'LORA',
                                 file_path: `C:/m/${id}.safetensors`, has_civitai_data: true });
@@ -37,6 +95,11 @@ let settingsAsked = 0;
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/model-manager/settings/modules')) {
+        const drafts = new URL(href, 'http://webui').searchParams.get('drafts');
+        tableAsked.push(drafts);
+        return { ok: true, json: async () => ({ success: true, presets: describe(drafts ? JSON.parse(drafts) : {}) }) };
+    }
     if (href.includes('/model-manager/settings/folder-example')) {
         return { ok: true, json: async () => ({ success: true, subfolder: '_SDXL_1.0/Example_Model',
                                                 unknown: [] }) };
@@ -113,6 +176,7 @@ check('on the page body, outside anything Gradio redraws', $('#mm_settings')?.pa
 check('asking the server, each time it opens', settingsAsked, 1);
 
 const titles = Array.from(document.querySelectorAll('.mm-settings-section > summary')).map((s) => s.textContent);
+check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
 check('grouped into sections, in order, with a setting no section names under Other', titles, [
     'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'NSFW detection',
     'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
@@ -233,5 +297,80 @@ check('which is drawn once', document.querySelectorAll('#mm_settings').length, 1
 check('and opens with what the server has now', field('model_manager_page_size')
     .querySelector('input[type="number"]').value, '30');
 check('with nothing changed', status(), '');
+
+// -------------------------------------------- text encoders and VAE table
+const block = (name) => field(`model_manager_modules_${name}`);
+const choice = (name, file) => block(name)?.querySelector(`select[data-file="${file}"]`);
+function choose(name, file, value) {
+    const select = choice(name, file);
+    select.value = value;
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+const said = (name) => block(name).querySelector('.mm-settings-extra').textContent.trim();
+// What the window holds for a preset, read as a person would: Edit as text.
+async function asText(name) {
+    block(name).querySelector('[data-modules-text]').click();
+    const value = block(name).querySelector(`input[data-key="model_manager_modules_${name}"]`).value;
+    block(name).querySelector('[data-modules-text]').click();
+    await waitFor('the table again', () => Boolean(block(name).querySelector('select')));
+    return value;
+}
+const drafted = () => Object.fromEntries(['flux', 'lumina', 'zit', 'wan', 'qwen'].map((n) => [n,
+    block(n).classList.contains('mm-settings-changed')]));
+
+check('one block per preset this WebUI has, and none for one it lacks',
+      ['flux', 'klein', 'lumina', 'zit', 'wan', 'qwen'].map((n) => Boolean(block(n))),
+      [true, false, true, true, true, true]);
+check('a row per file, choosing among the installed files of its kind, or Automatic',
+      Array.from(choice('flux', 'ae').options).map((o) => o.textContent.trim()),
+      ['Automatic: ae.safetensors', 'ae.safetensors (full)', 'ae_fp8.safetensors (fp8)']);
+check('a preset of several models says which use each file',
+      block('flux').querySelector('[data-file="t5xxl"] .mm-settings-module-for').textContent, 'Flux.1, Chroma');
+check('a file nothing installed is gives its download links instead',
+      block('lumina').querySelector('[data-file="gemma2_2b"] a')?.getAttribute('href'), 'https://example.invalid/gemma2_2b');
+check('what the setting names is chosen', choice('lumina', 'ae').value, 'ae_fp8.safetensors');
+check('and a name nothing installed matches is kept, and says why',
+      block('flux').querySelector('.mm-settings-kept').textContent.replace(/\s+/g, ' ').trim(),
+      'old_t5.safetensors not installed ×');
+
+choose('flux', 'ae', 'ae.safetensors');
+check('a row on Automatic that picks that file already stays on Automatic', choice('zit', 'ae').value, '');
+check('a row set by hand keeps its own choice', choice('lumina', 'ae').value, 'ae_fp8.safetensors');
+check('and the window says so', said('flux'), 'Lumina Image 2.0 (ae_fp8.safetensors) kept its own choice.');
+check('the preset holds the chosen file, then the names it kept',
+      await asText('flux'), 'ae.safetensors, old_t5.safetensors');
+
+choose('flux', 'ae', 'ae_fp8.safetensors');
+check('a row with nothing chosen that would pick another file is given this one',
+      choice('zit', 'ae').value, 'ae_fp8.safetensors');
+check('and the window says where', said('flux'), 'Also set for Z-Image.');
+check('which is a change to that preset too', drafted(), { flux: true, lumina: false, zit: true, wan: false, qwen: false });
+
+choose('wan', 'wan21_vae', 'qwen_image_vae_fp8.safetensors');
+check('a file of the same shape but another file is not filled in: Qwen-Image\'s VAE is not Wan\'s',
+      [choice('qwen', 'qwen_image_vae').value, said('wan')], ['', '']);
+choose('wan', 'wan21_vae', '');
+check('back to Automatic is no change', drafted().wan, false);
+
+block('flux').querySelector('[data-kept-remove]').click();
+check('a kept name can be removed', await asText('flux'), 'ae_fp8.safetensors');
+
+block('zit').querySelector('.mm-settings-reset').click();
+check('reset puts a preset back on Automatic', [choice('zit', 'ae').value, drafted().zit], ['', false]);
+
+block('flux').querySelector('[data-modules-text]').click();
+const text = block('flux').querySelector('input[data-key="model_manager_modules_flux"]');
+check('a preset can be edited as text, the table\'s choices written out', text?.value, 'ae_fp8.safetensors');
+type(text, 'ae_fp8.safetensors, t5xxl_fp8');
+block('flux').querySelector('[data-modules-text]').click();
+await waitFor('the table again', () => Boolean(choice('flux', 't5xxl')));
+check('and back in the table, the server reads the text into it',
+      [tableAsked[tableAsked.length - 1], choice('flux', 't5xxl').value],
+      [JSON.stringify({ flux: 'ae_fp8.safetensors, t5xxl_fp8' }), 't5xxl_fp8.safetensors']);
+
+$('#mm_settings_save').click();
+await waitFor('the second save', () => saved.length === 2);
+check('a save sends each preset\'s setting as text, as the Settings page holds it',
+      posted[1], { model_manager_modules_flux: 'ae_fp8.safetensors, t5xxl_fp8' });
 
 done();

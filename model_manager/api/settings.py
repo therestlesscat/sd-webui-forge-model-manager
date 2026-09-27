@@ -11,6 +11,7 @@ The API key is never sent to the page. It says only whether one is set, and a
 key typed into the window replaces it.
 """
 import html
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -206,6 +207,25 @@ def folder_example(template: str) -> Dict[str, Any]:
             "unknown": sorted(set(_PLACEHOLDER.findall(subfolder)))}
 
 
+def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """
+    The settings window's text encoder and VAE table: forge_modules'
+    description of each preset this WebUI has, from what is installed and
+    the settings - or, for a preset in `drafts`, the text the window holds.
+    """
+    from modules import shared
+    from ..forge_modules import (SETTING_PREFIX, available_presets, classify_file,
+                                 describe_presets, installed_modules)
+    modules = {label: classify_file(path) for label, path in installed_modules().items()}
+    texts = {}
+    for key, _ in _ours():
+        if key.startswith(SETTING_PREFIX):
+            preset = key[len(SETTING_PREFIX):]
+            texts[preset] = str(getattr(shared.opts, key, "") or "")
+    texts.update(drafts or {})
+    return {"success": True, "presets": describe_presets(available_presets(), modules, texts)}
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/settings")
@@ -221,6 +241,19 @@ def register(app: FastAPI):
         """Where the sample model would be filed under a folder template."""
         try:
             return JSONResponse(folder_example(template))
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/model-manager/settings/modules")
+    def get_modules_table(drafts: str = ""):
+        """
+        Each preset's text encoders and VAE: what is installed, what would be
+        picked, what the settings name. A plain `def`: it reads file headers.
+        `drafts` is a JSON object of preset -> setting text, to describe
+        instead of what is saved.
+        """
+        try:
+            return JSONResponse(modules_table(json.loads(drafts) if drafts else None))
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
