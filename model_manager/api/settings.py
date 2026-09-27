@@ -226,6 +226,41 @@ def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     return {"success": True, "presets": describe_presets(available_presets(), modules, texts)}
 
 
+def test_key(typed: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Whether Civitai takes an API key: the one typed into the window if there
+    is one, so it can be tried before it is saved, else the saved one. The
+    key is never part of the answer.
+
+    Returns:
+        result: "works" (with the username, where Civitai gives one),
+        "refused", "unreachable" (with why), or "none" - no key to test.
+        which: "typed" or "saved".
+    """
+    from modules import shared
+    from ..civitai import CivitaiAPIError, CivitaiAuthError, CivitaiClient
+
+    which = "typed" if typed is not None else "saved"
+    key = (typed if typed is not None else str(getattr(shared.opts, SECRET, "") or "")).strip()
+    if not key:
+        return {"success": True, "result": "none", "which": which}
+
+    client = CivitaiClient(key)
+    # One try, and not for long: someone is waiting on the answer, and a
+    # refused key is refused however often it is asked.
+    client.MAX_RETRIES = 0
+    client.REQUEST_TIMEOUT = 15
+    client.wait_on_rate_limit = False
+    try:
+        account = client.whoami()
+    except CivitaiAuthError:
+        return {"success": True, "result": "refused", "which": which}
+    except CivitaiAPIError as e:
+        return {"success": True, "result": "unreachable", "error": str(e), "which": which}
+    username = account.get("username") if isinstance(account, dict) else None
+    return {"success": True, "result": "works", "username": username, "which": which}
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/settings")
@@ -254,6 +289,17 @@ def register(app: FastAPI):
         """
         try:
             return JSONResponse(modules_table(json.loads(drafts) if drafts else None))
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.post("/model-manager/settings/test-key")
+    def post_test_key(key: Optional[str] = Body(None, embed=True)):
+        """
+        Ask Civitai whether a key works. A plain `def`: it waits on Civitai.
+        With no `key`, the saved one is tested.
+        """
+        try:
+            return JSONResponse(test_key(key))
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 

@@ -11,6 +11,7 @@ for, not about what callers should know.
 """
 from .client import (
     CivitaiAPIError,
+    CivitaiAuthError,
     CivitaiClient,
     CivitaiNotFoundError,
     CivitaiRateLimitError,
@@ -31,7 +32,7 @@ from .prompt_filter import (
 from .size_filter import primary_file_size_kb, size_range_check
 
 __all__ = [
-    "CivitaiAPIError", "CivitaiClient", "CivitaiNotFoundError",
+    "CivitaiAPIError", "CivitaiAuthError", "CivitaiClient", "CivitaiNotFoundError",
     "CivitaiRateLimitError", "TokenBucketRateLimiter",
     "paid_access_info",
     "apply_generation_data", "decode_filter_token", "encode_filter_token",

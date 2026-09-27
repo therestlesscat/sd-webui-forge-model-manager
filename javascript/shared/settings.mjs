@@ -141,6 +141,7 @@ function createSettings() {
     const previewTimers = {};
     const previewAsked = {};
     const previewDrawn = {};         // what each preview last drew, to skip redrawing it
+    let keyTests = 0;                // a key test's answer is shown only if nothing changed since
 
     const state = {
         value: (key) => draft[key],
@@ -294,8 +295,11 @@ function createSettings() {
                        autocomplete="off" spellcheck="false"
                        placeholder="${c.has_value ? 'A key is saved - type a new one to replace it' : 'Paste your Civitai API key'}">
                 <button type="button" class="mm-btn mm-btn-small" data-act="reveal">Show</button>
+                <button type="button" class="mm-btn mm-btn-small" data-act="test-key"
+                        title="Ask Civitai whether it takes this key">Test</button>
                 ${c.has_value ? '<button type="button" class="mm-btn mm-btn-small" data-act="forget">Remove</button>' : ''}
-            </div>`;
+            </div>
+            <div class="mm-settings-key-test" id="mm_settings_key_test" role="status"></div>`;
         case 'cardsize': {
             const [w, h] = parseCardSize(v);
             return `<div class="mm-settings-cardsize" id="${id}">
@@ -472,6 +476,56 @@ function createSettings() {
         redrawField(key);
     }
 
+    // ------------------------------------------------------------ API key
+    function showKeyTest(text, tone) {
+        keyTests += 1;               // any answer still on its way is for another key
+        const out = root.querySelector('#mm_settings_key_test');
+        if (!out) return;
+        out.textContent = text;
+        out.dataset.tone = tone;
+    }
+
+    /**
+     * Ask Civitai whether it takes the key: the one typed here, if one is -
+     * so it can be tried before it is saved - else the saved one.
+     */
+    async function testKey(button) {
+        showKeyTest('Testing...', '');
+        const asked = keyTests;
+        button.disabled = true;
+        let text;
+        let tone;
+        try {
+            const response = await fetch('/model-manager/settings/test-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(secretTyped !== null ? { key: secretTyped } : {}),
+            });
+            const answer = await response.json();
+            if (!answer.success) throw new Error(answer.error || 'the server did not say why');
+            const which = answer.which === 'typed' ? 'The key typed here' : 'The saved key';
+            if (answer.result === 'works') {
+                text = `${which} works${answer.username ? `: signed in as ${answer.username}` : ''}.`;
+                tone = 'good';
+            } else if (answer.result === 'refused') {
+                text = `Civitai refused ${which.toLowerCase()}.`;
+                tone = 'bad';
+            } else if (answer.result === 'none') {
+                text = 'No key to test: type one, or save one first.';
+                tone = '';
+            } else {
+                text = `Could not reach Civitai: ${answer.error || 'no answer'}.`;
+                tone = 'warn';
+            }
+        } catch (e) {
+            text = `Could not test the key: ${e.message}`;
+            tone = 'warn';
+        } finally {
+            button.disabled = false;
+        }
+        if (asked === keyTests) showKeyTest(text, tone);
+    }
+
     // ------------------------------------------------------ card preview
     function schedulePreview(key) {
         clearTimeout(previewTimers[key]);
@@ -635,6 +689,7 @@ function createSettings() {
         const s = { ...meta.settings[key], ...(CONTROLS[key] || {}) };
         if (s.kind === 'secret') {
             secretTyped = t.value;
+            showKeyTest('', '');
         } else if (s.kind === 'bool') {
             draft[key] = t.checked;
         } else if (s.kind === 'choice') {
@@ -667,8 +722,11 @@ function createSettings() {
             const input = t.parentElement.querySelector('input');
             input.type = input.type === 'password' ? 'text' : 'password';
             t.textContent = input.type === 'password' ? 'Show' : 'Hide';
+        } else if (act === 'test-key') {
+            testKey(t);
         } else if (act === 'forget') {
             secretTyped = '';
+            showKeyTest('', '');
             const input = t.parentElement.querySelector('input');
             input.value = '';
             input.placeholder = 'The key will be removed when you save';
