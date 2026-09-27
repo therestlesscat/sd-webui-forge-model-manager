@@ -31,13 +31,25 @@ const API_KEY_BANNER_TRIES = 20;        // 5 seconds, at 250ms apart
 
 let apiKeyMissing = null;
 let apiKeyRequest = null;
+let uiOptionsRequest = null;
+
+/**
+ * The server's ui-options, asked once for the page: whether there is an API
+ * key, and which judges NSFW. A failed call answers null.
+ */
+function uiOptions() {
+    uiOptionsRequest ||= fetch('/model-manager/ui-options')
+        .then((r) => r.json())
+        .catch(() => null);
+    return uiOptionsRequest;
+}
 
 export function apiKeyStatus() {
     if (apiKeyMissing !== null) return Promise.resolve(apiKeyMissing);
     if (!apiKeyRequest) {
-        apiKeyRequest = fetch('/model-manager/ui-options')
-            .then((r) => r.json())
+        apiKeyRequest = uiOptions()
             .then((data) => {
+                if (!data) throw new Error('ui-options did not answer');
                 // Answered even when the rest of that call failed.
                 apiKeyMissing = data.has_api_key === false;
                 return apiKeyMissing;
@@ -518,6 +530,30 @@ export function sortBaseModels(values) {
  *     would show once ticked, i.e. its kind among what the other filter lets
  *     through), and applies (false to leave it out altogether).
  */
+// ---------------------------------------------------- which judges prompts
+// Settings -> Model Manager -> NSFW detection: a trained model, or the word
+// list alone. The model is sometimes wrong in ways nobody can point at, so
+// wherever it decides what is hidden, the page says so and where to switch.
+// The word list says nothing: it does exactly what it says.
+
+export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. '
+    + 'Settings \u2192 Model Manager \u2192 NSFW detection switches to a simple word list.';
+
+let nsfwDetection = null;
+let nsfwDetectionAsked = null;
+
+/** Ask the server which judges prompts; once per page. */
+export function loadNsfwDetection() {
+    nsfwDetectionAsked ||= uiOptions()
+        .then((data) => { nsfwDetection = data?.nsfw_detection === 'model' ? 'model' : 'words'; });
+    return nsfwDetectionAsked;
+}
+
+/** The note, while the trained model is in force; '' otherwise, or before the answer. */
+export function nsfwModelNote() {
+    return nsfwDetection === 'model' ? NSFW_MODEL_NOTE : '';
+}
+
 export function renderFilterBanner({ shown, total, bannerClass, labelClass,
                                      switches, withSwitches = true }) {
     const active = switches.filter((s) => s.applies !== false);
@@ -532,9 +568,13 @@ export function renderFilterBanner({ shown, total, bannerClass, labelClass,
 
     if (!clauses.length && !offered.length) return '';
 
-    const sentence = clauses.length
+    const counted = clauses.length
         ? `Showing ${shown} of ${total} images (${clauses.join(', ')})`
         : `Showing all ${total} images`;
+    // A switch can carry a note on what decides it: the NSFW one, while a
+    // trained model does.
+    const notes = offered.map((s) => s.note).filter(Boolean);
+    const sentence = counted + notes.map((n) => `<small class="filter-banner-note">${escapeHtml(n)}</small>`).join('');
 
     const controls = withSwitches && offered.length
         ? `<div class="filter-banner-switches">${offered.map((s) => `

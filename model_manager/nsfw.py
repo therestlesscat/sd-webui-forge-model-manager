@@ -191,9 +191,16 @@ def prompt_words() -> FrozenSet[str]:
 PROMPT_MODEL_FILE = os.path.join(os.path.dirname(__file__), "data", "nsfw_prompt_model.json.gz")
 
 #: The setting: what share of PG and PG-13 prompts the model may raise, in
-#: percent, on the library it was trained on. 0 turns it off.
+#: percent, as measured on what it was trained on. 0 turns it off.
 PROMPT_MODEL_SETTING = "model_manager_nsfw_prompt_model_percent"
 PROMPT_MODEL_DEFAULT = 2.0
+
+#: Which judges a prompt: "model" - the trained model and the words - or
+#: "words" alone. A trained model is right more often, and is still wrong
+#: sometimes, in ways nobody can point at; the words say exactly what they
+#: do. The choice is the user's.
+DETECTION_SETTING = "model_manager_nsfw_detection"
+DETECTION_DEFAULT = "model"
 
 _model_lock = threading.Lock()
 _model: Optional[Dict[str, Any]] = None
@@ -283,6 +290,16 @@ def prompt_model() -> Optional[Dict[str, Any]]:
         return _model
 
 
+def detection() -> str:
+    """The setting: "model" or "words"."""
+    try:
+        from modules import shared
+        value = getattr(shared.opts, DETECTION_SETTING, DETECTION_DEFAULT)
+    except Exception:
+        value = DETECTION_DEFAULT
+    return "words" if value == "words" else "model"
+
+
 def prompt_model_percent() -> float:
     """The setting, as a number; the default where it cannot be read."""
     try:
@@ -296,8 +313,11 @@ def prompt_model_threshold() -> Optional[float]:
     """
     The score above which the model calls a prompt explicit, for the setting's
     percentage - read off the calibration the trainer measured, between its
-    points in straight lines. None when the model is off or missing.
+    points in straight lines. None when the model is off or missing - or
+    not chosen: the words alone judge then.
     """
+    if detection() == "words":
+        return None
     model = prompt_model()
     percent = prompt_model_percent()
     if model is None or percent <= 0:

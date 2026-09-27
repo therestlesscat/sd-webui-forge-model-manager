@@ -50,6 +50,8 @@ const {
     downloads,
     formatBytes: formatFileSize,
     formatDay: formatDate,
+    loadNsfwDetection,
+    nsfwModelNote,
 } = await import(sharedModule.href);
 
 // State
@@ -370,6 +372,8 @@ function syncSfwOnlyEnabled() {
         text.textContent = label.dataset.title;
         banner.style.display = sfwOnlyEnabled() ? 'flex' : 'none';
     }
+    const note = document.getElementById('cb_sfw_only_banner_model');
+    if (note) note.textContent = nsfwModelNote();
 }
 
 // Is the prompt filter currently on?
@@ -1258,7 +1262,7 @@ function renderImages() {
             { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: showAllNsfwImages, hidden: hiddenCount,
               count: promptPassing.filter((img) => !isImageSafe(img)).length,
-              onchange: 'window.cbToggleShowAllImages(this.checked)' },
+              onchange: 'window.cbToggleShowAllImages(this.checked)', note: nsfwModelNote() },
             // Only while the search asks for usable prompts: otherwise this
             // tab does not filter on them at all.
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
@@ -1935,6 +1939,7 @@ function init() {
     document.getElementById('cb_nsfw')?.addEventListener('change', syncSfwOnlyEnabled);
     document.getElementById('cb_sfw_only')?.addEventListener('change', syncSfwOnlyEnabled);
     syncSfwOnlyEnabled();
+    loadNsfwDetection().then(syncSfwOnlyEnabled);
 
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();

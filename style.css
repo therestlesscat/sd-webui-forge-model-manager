@@ -1306,6 +1306,15 @@ body.mm-modal-open {
     flex: 1;
 }
 
+/* Under a filter banner's sentence: what decides the filter, when that is
+   worth knowing. */
+.filter-banner-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
 /* The switches on the right of a gallery's filter banner, side by side. */
 .filter-banner-switches {
     display: flex;
@@ -2457,6 +2466,17 @@ body.mm-modal-open {
     font-size: 12px;
     text-align: center;
     line-height: 18px;
+}
+
+/* A banner's second line: what decides the filter it describes. Empty, it
+   takes no room. */
+.mm-banner-note {
+    display: block;
+    margin-top: 4px;
+}
+
+.mm-banner-note:empty {
+    display: none;
 }
 
 /* A short message from Send to txt2img, over whatever tab is showing - say,

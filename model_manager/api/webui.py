@@ -73,6 +73,13 @@ def register(app: FastAPI):
         # The gallery asks for this before it renders, so it has to survive
         # the samplers being unreadable - hence its own try, like the key.
         image_browsing = "continuous"
+        # Which judges prompts, as in force: "model" only when the trained
+        # model is chosen and on. The pages say so when it is.
+        try:
+            from ..nsfw import prompt_model_threshold
+            nsfw_detection = "model" if prompt_model_threshold() is not None else "words"
+        except Exception:
+            nsfw_detection = "words"
         try:
             from modules import shared
             has_api_key = bool(
@@ -98,6 +105,7 @@ def register(app: FastAPI):
                 "schedulers": schedulers,
                 "has_api_key": has_api_key,
                 "image_browsing": image_browsing,
+                "nsfw_detection": nsfw_detection,
             })
 
         except Exception as e:
@@ -108,6 +116,6 @@ def register(app: FastAPI):
             # the banner should not depend on samplers being readable.
             return JSONResponse(
                 {"success": False, "error": str(e), "has_api_key": has_api_key,
-                 "image_browsing": image_browsing},
+                 "image_browsing": image_browsing, "nsfw_detection": nsfw_detection},
                 status_code=500
             )
