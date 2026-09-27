@@ -14,7 +14,9 @@ from fastapi.responses import JSONResponse
 from ..db import get_models_db
 from ..nsfw import NAME_TO_LEVEL, SFW_MAX, stamp_levels
 from ..sync_service import SyncService
-from ..civitai import CivitaiClient
+from ..civitai import CivitaiClient, paid_access_info
+from ..scan_service import as_model_payload
+from ..storage import read_civitai_info
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -385,25 +387,49 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/models/versions")
-    async def get_model_versions(model_id: int):
+    def get_model_versions(model_id: int):
         """
-        Get all local versions for a Civitai model.
+        The versions of a Civitai model: the local ones, and every one Civitai
+        lists, as last recorded. Civitai is not asked.
+
+        A plain def: it may read the model's sidecars from disk, once, when
+        nothing has recorded the list yet - a library synced before the list
+        was kept.
 
         Args:
             model_id: Civitai model ID.
 
         Returns:
-            List of all local versions for this model.
+            versions: the local versions, newest first.
+            civitai_versions: Civitai's, in Civitai's order, each with `local`
+                and `paid_access`; empty when none are known.
+            versions_synced_at: when Civitai itself last listed them; null
+                when the list was read from sidecars.
         """
         try:
             db = get_models_db()
             versions = db.get_versions_for_model(model_id)
+            listed, synced_at = db.get_civitai_versions(model_id)
+            if listed is None and versions:
+                for version in versions:
+                    payload = as_model_payload(read_civitai_info(version["file_path"])) or {}
+                    if payload.get("id") == model_id:
+                        db.store_civitai_versions(model_id, payload.get("modelVersions") or [])
+                listed, synced_at = db.get_civitai_versions(model_id)
+
+            local_ids = {v["id"] for v in versions if v.get("id")}
+            civitai_versions = [
+                {**v, "local": v["id"] in local_ids, "paid_access": paid_access_info(v)}
+                for v in listed or []
+            ]
 
             return JSONResponse({
                 "success": True,
                 "model_id": model_id,
                 "versions": versions,
-                "count": len(versions)
+                "count": len(versions),
+                "civitai_versions": civitai_versions,
+                "versions_synced_at": synced_at,
             })
 
         except Exception as e:

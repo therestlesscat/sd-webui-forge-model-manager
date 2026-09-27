@@ -29,7 +29,7 @@ from .browse_cache_ops import BrowserCacheOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 
 
 class ModelsDatabase:
@@ -110,6 +110,15 @@ class ModelsDatabase:
                              from_civitai: bool = False):
         """Insert or update a Civitai model record. See db/models_ops.py."""
         self._models.upsert_civitai_model(model_data, from_civitai)
+
+    def store_civitai_versions(self, model_id: int, versions: List[Dict[str, Any]],
+                               from_civitai: bool = False) -> bool:
+        """Record the versions Civitai lists for a model. See db/models_ops.py."""
+        return self._models.store_civitai_versions(model_id, versions, from_civitai)
+
+    def get_civitai_versions(self, model_id: int) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """A model's stored versions, and when Civitai last listed them."""
+        return self._models.get_civitai_versions(model_id)
 
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """Get a Civitai model by ID."""

@@ -327,10 +327,8 @@ check('and the modifier is not named after one tab',
 # Each tab can hand a model to the other. The Civitai Browser end existed;
 # this is the return trip. tests/js/bridge_test.mjs drives the lookup itself -
 # these only check the two halves are wired to each other's names.
-check('the details header offers the jump',
-      'window.mmShowInCivitaiBrowser(' in JS)
-check('only for a model Civitai knows',
-      JS.index('window.mmShowInCivitaiBrowser(${safeId(modelId)})') > 0)
+check('the details table offers the jump, as its first row',
+      'window.mmShowInCivitaiBrowser(' in JS and '${modelId ? showInCivitaiRow() : \'\'}' in JS)
 check('it looks for the tab by the name the tab is registered under',
       "b.textContent.trim() === 'Civitai Browser'" in JS)
 check('and the browser registers exactly that',
@@ -347,8 +345,8 @@ check('neither carries a tab-specific class', 'cb-header-action' in JS, False)
 check('and the header rule names the shared one',
       '.detail-header .header-action {' in CSS)
 
-check('it sends the same syntax this tab takes',
-      "window.cbShowModel('model:' + modelId)" in JS)
+check('it sends the same syntax this tab takes, naming the version shown',
+      '`model:${modelId} version:${versionId}`' in JS)
 
 CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'),
                       encoding='utf-8').read()

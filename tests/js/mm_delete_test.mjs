@@ -59,9 +59,9 @@ await open();
 check('with several versions, the header offers the version shown, and all of them',
       buttons(), ['Delete Current Model Version', 'Delete All Model Versions']);
 const order = Array.from(header().querySelectorAll('button')).map((b) => b.textContent.trim());
-check('beside "Show in Civitai Browser", before the close button',
-      order.slice(order.indexOf('Show in Civitai Browser'), order.indexOf('Show in Civitai Browser') + 3),
-      ['Show in Civitai Browser', 'Delete Current Model Version', 'Delete All Model Versions']);
+check('beside "Sync", before the close button',
+      order.slice(order.indexOf('Sync'), order.indexOf('Sync') + 4),
+      ['Sync', 'Delete Current Model Version', 'Delete All Model Versions', '×']);
 check('and nothing is left at the foot of the panel',
       !!document.querySelector('#mm_details .detail-actions [onclick*="mmDeleteModel"]'), false);
 

@@ -836,6 +836,11 @@ body.mm-modal-open {
     width: 90px;
 }
 
+/* A row that is one control, not a label and a value. */
+.detail-table td[colspan] {
+    width: auto;
+}
+
 .detail-table td[rowspan] {
     vertical-align: middle !important;
 }
@@ -1613,6 +1618,13 @@ body.mm-modal-open {
     gap: 8px;
 }
 
+/* Under the pills: the versions not downloaded are as the last sync saw them. */
+.mm-versions-note {
+    margin-top: 8px;
+    font-size: 0.8em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
 .mm-version-pill {
     padding: 6px 14px !important;
     border: 1px solid var(--border-color-primary, #374151);
@@ -1981,6 +1993,7 @@ body.mm-modal-open {
     z-index: 1;
 }
 
+#model_manager_app .mm-paid-cell,
 #civitai_browser_app .cb-paid-cell {
     color: #fbbf24;
 }
@@ -1992,6 +2005,7 @@ body.mm-modal-open {
 
 /* Picks which of a version's files to download. Only rendered when a
    version actually ships more than one. */
+#model_manager_app .mm-file-select,
 #civitai_browser_app .cb-file-select {
     max-width: 260px;
     padding: 6px 8px;
@@ -2016,7 +2030,9 @@ body.mm-modal-open {
 }
 
 /* Pagination */
-/* Downloads Panel - Inline (fixed location between grid and details) */
+/* Downloads panel - both tabs draw the one list (downloads() in shared/common.mjs),
+   between the grid and the details. */
+.mm-downloads-inline,
 .cb-downloads-inline {
     background: var(--block-background-fill, #1f2937);
     border-radius: 8px;
@@ -2025,6 +2041,7 @@ body.mm-modal-open {
     border: 1px solid var(--border-color-primary, #374151);
 }
 
+.mm-downloads-header,
 .cb-downloads-header {
     display: flex;
     justify-content: space-between;
@@ -2034,23 +2051,27 @@ body.mm-modal-open {
     border-bottom: 1px solid var(--border-color-primary, #374151);
 }
 
+.mm-downloads-header h4,
 .cb-downloads-header h4 {
     margin: 0;
     font-size: 1em;
     color: var(--body-text-color, #fff);
 }
 
+.mm-downloads-summary,
 .cb-downloads-summary {
     font-size: 0.85em;
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+.mm-downloads-list,
 .cb-downloads-list {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
+.mm-download-item,
 .cb-download-item {
     background: var(--input-background-fill, #111827);
     border-radius: 6px;
@@ -2058,26 +2079,32 @@ body.mm-modal-open {
     border-left: 3px solid var(--border-color-primary, #374151);
 }
 
+.mm-download-item.downloading,
 .cb-download-item.downloading {
     border-left-color: var(--primary-500, #3b82f6);
 }
 
+.mm-download-item.pending,
 .cb-download-item.pending {
     border-left-color: #f59e0b;
 }
 
+.mm-download-item.complete,
 .cb-download-item.complete {
     border-left-color: #22c55e;
 }
 
+.mm-download-item.error,
 .cb-download-item.error {
     border-left-color: #ef4444;
 }
 
+.mm-download-item.cancelled,
 .cb-download-item.cancelled {
     border-left-color: #6b7280;
 }
 
+.mm-download-item-header,
 .cb-download-item-header {
     display: flex;
     justify-content: space-between;
@@ -2085,6 +2112,7 @@ body.mm-modal-open {
     margin-bottom: 8px;
 }
 
+.mm-download-name,
 .cb-download-name {
     font-size: 0.9em;
     font-weight: 500;
@@ -2095,6 +2123,7 @@ body.mm-modal-open {
     margin-right: 10px;
 }
 
+.mm-download-status-badge,
 .cb-download-status-badge {
     font-size: 0.75em;
     font-weight: 600;
@@ -2104,31 +2133,37 @@ body.mm-modal-open {
     white-space: nowrap;
 }
 
+.mm-download-status-badge.downloading,
 .cb-download-status-badge.downloading {
     background: rgba(59, 130, 246, 0.2);
     color: #60a5fa;
 }
 
+.mm-download-status-badge.pending,
 .cb-download-status-badge.pending {
     background: rgba(245, 158, 11, 0.2);
     color: #fbbf24;
 }
 
+.mm-download-status-badge.complete,
 .cb-download-status-badge.complete {
     background: rgba(34, 197, 94, 0.2);
     color: #4ade80;
 }
 
+.mm-download-status-badge.error,
 .cb-download-status-badge.error {
     background: rgba(239, 68, 68, 0.2);
     color: #f87171;
 }
 
+.mm-download-status-badge.cancelled,
 .cb-download-status-badge.cancelled {
     background: rgba(107, 114, 128, 0.2);
     color: #9ca3af;
 }
 
+.mm-download-progress,
 .cb-download-progress {
     height: 8px;
     background: var(--border-color-primary, #374151);
@@ -2137,6 +2172,7 @@ body.mm-modal-open {
     margin-bottom: 8px;
 }
 
+.mm-download-bar,
 .cb-download-bar {
     height: 100%;
     background: linear-gradient(90deg, var(--primary-500, #3b82f6), var(--primary-400, #60a5fa));
@@ -2144,6 +2180,7 @@ body.mm-modal-open {
     transition: width 0.3s ease;
 }
 
+.mm-download-item.pending .mm-download-bar,
 .cb-download-item.pending .cb-download-bar {
     background: linear-gradient(90deg, #f59e0b, #fbbf24);
     width: 100%;
@@ -2155,6 +2192,7 @@ body.mm-modal-open {
     50% { opacity: 0.6; }
 }
 
+.mm-download-info,
 .cb-download-info {
     display: flex;
     justify-content: space-between;
@@ -2163,14 +2201,17 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+.mm-download-percent,
 .cb-download-percent {
     font-weight: 500;
 }
 
+.mm-download-size,
 .cb-download-size {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+.mm-download-actions,
 .cb-download-actions {
     display: flex;
     gap: 8px;

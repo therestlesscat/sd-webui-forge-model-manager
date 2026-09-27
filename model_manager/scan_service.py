@@ -236,6 +236,7 @@ class ScanService:
                 "allow_derivatives": data.get("allowDerivatives"),
                 "allow_different_license": data.get("allowDifferentLicense"),
                 "supports_generation": data.get("supportsGeneration"),
+                "versions": data.get("modelVersions"),
             }
 
             version_data["model_id"] = model_id

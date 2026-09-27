@@ -74,4 +74,7 @@ it needs with `fixtures.build()`. The runner will find it.
 One habit worth keeping: after writing a check, run it against the code as it
 was **before** your fix and watch it fail. A check that has never failed has
 not been shown to check anything — `MM_ROOT` on the JavaScript suites exists
-for exactly this, so they can be pointed at a worktree.
+for exactly this, so they can be pointed at a worktree. From WSL, running
+Windows' `node.exe`, set `WSLENV=MM_ROOT` as well: WSL passes a Windows program
+only the variables named there, and without it the suite quietly runs against
+the current code and passes.

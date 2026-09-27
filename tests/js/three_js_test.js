@@ -49,12 +49,8 @@ vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
     .replace(/^export /gm, ''), sandbox);
 sandbox.escapeHtml = sandbox.escapeHtml;
-// The browser's own formatDate (kept local on purpose - en-US short form).
-sandbox.formatDate = (d) => {
-    if (!d) return 'Unknown';
-    try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
-    catch { return d; }
-};
+// The browser reads dates as the shared formatDay does.
+sandbox.formatDate = sandbox.formatDay;
 sandbox.selectedTag = '';
 
 function lift(name) {
@@ -76,10 +72,8 @@ function check(label, cond, extra) {
     if (!cond) { failures++; console.log('FAIL ' + label + (extra ? '\n  ' + extra : '')); }
 }
 
-const paidAccessLabel = lift('paidAccessLabel');
-const isPaid = lift('isPaid');
-sandbox.paidAccessLabel = paidAccessLabel;
-sandbox.isPaid = isPaid;
+// Shared with the Model Manager, so they live in common.mjs.
+const { paidAccessLabel, isPaid } = sandbox;
 
 // --- paidAccessLabel / isPaid -----------------------------------------------
 check('free -> no label', paidAccessLabel({}) === '');

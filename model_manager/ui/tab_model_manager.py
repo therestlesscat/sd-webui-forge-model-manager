@@ -314,6 +314,15 @@ def create_ui():
                     <div class="model-grid-empty">Click 'Load Models' to browse your models.</div>
                 </div>
 
+                <!-- Downloads, shared with the Civitai Browser: either tab's show in both -->
+                <div id="mm_downloads" class="mm-downloads-inline" style="display: none;">
+                    <div class="mm-downloads-header">
+                        <h4>Downloads</h4>
+                        <span class="mm-downloads-summary" id="mm_downloads_summary"></span>
+                    </div>
+                    <div id="mm_download_list" class="mm-downloads-list"></div>
+                </div>
+
                 <!-- Model Details (shown when model selected) -->
                 <div id="mm_details" class="model-details" style="display: none;">
                     <!-- Details populated by JS -->

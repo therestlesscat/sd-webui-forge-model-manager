@@ -483,6 +483,7 @@ class SyncService:
                     "allow_derivatives": civitai_data.get("allowDerivatives"),
                     "allow_different_license": civitai_data.get("allowDifferentLicense"),
                     "supports_generation": civitai_data.get("supportsGeneration"),
+                    "versions": versions,
                 }
                 db.upsert_civitai_model(civitai_model, from_civitai=True)
 

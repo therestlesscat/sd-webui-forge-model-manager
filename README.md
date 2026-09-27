@@ -23,7 +23,8 @@ NSFW level, licence terms and more, then sort by name, size, rating, downloads o
 
 Click a card for its trigger words, tags, description, creator, licence terms and the
 NSFW breakdown of its gallery. Versions of the same model are grouped, and a selector
-switches between them.
+switches between them - including the versions you have not downloaded, as Civitai listed
+them at the last sync, each with a Download.
 
 ![Model details panel](docs/images/mm-details.png)
 
@@ -79,7 +80,9 @@ Browse and organize the models already on disk.
 - **Sort** by name, file size, file modified, published, scanned, downloaded, updated,
   rating, or download count
 - **Version grouping**: versions of the same model are grouped, with a version selector
-  in the details panel
+  in the details panel. It lists every version Civitai has, as of the last sync, with the
+  ones you have marked; one you do not have shows its details and a Download, followed in
+  the same downloads panel as the Civitai Browser's
 - **Details panel**: trigger words, tags, description, creator, rating, per-level NSFW
   breakdown, licence terms, and the full Civitai image gallery with generation parameters
 - **Send to txt2img** from any gallery image, including sampler, scheduler, VAE,

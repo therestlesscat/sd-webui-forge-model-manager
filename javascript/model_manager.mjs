@@ -42,6 +42,14 @@ const {
     renderFilterBanner,
     balanceGridRows,
     nsfwBadgeLabel,
+    paidAccessLabel,
+    isPaid,
+    primaryFileIndex,
+    renderDownloadControls,
+    showChosenFile,
+    downloads,
+    formatBytes,
+    formatDay,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -55,6 +63,15 @@ let isLoading = false;
 // Version grouping state
 let currentVersions = [];  // All versions for currently selected model
 let selectedVersionIndex = 0;  // Currently selected version within the group
+// Every version Civitai lists for the model, local or not, as last recorded -
+// each with `local`. currentVersions stays the local ones: everything that
+// sends, deletes or shows a gallery works on a file.
+let civitaiVersions = [];
+let versionsSyncedAt = null;   // when Civitai listed them; null when read from sidecars
+let pillEntries = [];          // the version pills, in order: see versionPills()
+let remoteVersionId = null;    // the version shown, when it is not in the library
+let remoteFileIndex = null;    // its file picked for download; null = the primary
+let modelDescription = '';     // the open model's, for a version with no gallery to load
 
 // Pagination state
 let currentPage = 1;
@@ -728,23 +745,33 @@ window.mmSelectModel = async function(index) {
     // Reset version state
     currentVersions = [];
     selectedVersionIndex = 0;
+    civitaiVersions = [];
+    versionsSyncedAt = null;
+    remoteVersionId = null;
+    remoteFileIndex = null;
+    modelDescription = '';
 
     // Highlight selected card
     document.querySelectorAll('.model-card').forEach(card => card.classList.remove('selected'));
     const selectedCard = document.querySelector(`.model-card[data-index="${index}"]`);
     if (selectedCard) selectedCard.classList.add('selected');
 
-    // If model has multiple versions, fetch them
-    const hasMultipleVersions = model.model_id && (model.local_version_count || 1) > 1;
-    if (hasMultipleVersions) {
+    // The model's versions: the local ones when there are several, and every
+    // one Civitai lists. Neither asks Civitai.
+    if (model.model_id) {
         try {
             const versionsData = await apiCall({ endpoint: '/model-manager/models/versions', params: { model_id: model.model_id } });
+            if (selectedModelIndex !== index) return;  // another model was opened meanwhile
             if (versionsData.success && versionsData.versions) {
-                currentVersions = versionsData.versions;
-                // Find current version in list (it should be there since it's the latest)
-                selectedVersionIndex = currentVersions.findIndex(v => v.file_path === model.file_path);
-                if (selectedVersionIndex < 0) selectedVersionIndex = 0;
-                console.log(`[ModelManager] Loaded ${currentVersions.length} versions for model ${model.model_id}`);
+                if (versionsData.versions.length > 1) {
+                    currentVersions = versionsData.versions;
+                    // Find current version in list (it should be there since it's the latest)
+                    selectedVersionIndex = currentVersions.findIndex(v => v.file_path === model.file_path);
+                    if (selectedVersionIndex < 0) selectedVersionIndex = 0;
+                }
+                civitaiVersions = versionsData.civitai_versions || [];
+                versionsSyncedAt = versionsData.versions_synced_at || null;
+                console.log(`[ModelManager] Loaded ${versionsData.versions.length} local and ${civitaiVersions.length} listed versions for model ${model.model_id}`);
             }
         } catch (error) {
             console.error('[ModelManager] Failed to load versions:', error);
@@ -775,6 +802,7 @@ async function loadVersionDetails(filePath) {
 
             // Update description if available
             if (data.model.civitai_model?.description) {
+                modelDescription = data.model.civitai_model.description;
                 updateDescription(data.model.civitai_model.description);
             }
 
@@ -882,12 +910,9 @@ window.mmSelectVersion = async function(versionIndex) {
 
 // Update version selector pills UI
 function updateVersionSelectorUI() {
-    document.querySelectorAll('.mm-version-pill').forEach((pill, idx) => {
-        if (idx === selectedVersionIndex) {
-            pill.classList.add('active');
-        } else {
-            pill.classList.remove('active');
-        }
+    document.querySelectorAll('#mm_details .mm-version-pill').forEach((pill) => {
+        const entry = pillEntries[Number(pill.dataset.pill)];
+        pill.classList.toggle('active', !!entry && isShownPill(entry));
     });
 }
 
@@ -932,6 +957,10 @@ function updateVersionInfo(version) {
             value.textContent = formatDate(version.published_at);
         }
     });
+
+    // The Show in Civitai Browser row beside it sends this id.
+    const idCell = document.querySelector('.mm-version-id-cell');
+    if (idCell && version.id) idCell.textContent = version.id;
 
     // One Civitai model can hold a VAE version and a text encoder version.
     const typeCell = document.querySelector('.mm-type-cell');
@@ -1003,31 +1032,330 @@ function shortenFilePath(path) {
     return match ? match[0] : path;
 }
 
+/**
+ * The version pills: every version Civitai lists, in Civitai's order, with
+ * the local ones marked; then any local version it does not list. With no
+ * list recorded, the local versions alone, as before there was one.
+ *
+ * `local` is the version's index in currentVersions - or 0 for a model with
+ * one local version, which is the grid's entry itself - and null for one not
+ * in the library.
+ */
+function versionPills() {
+    const model = currentModels[selectedModelIndex] || {};
+    const locals = currentVersions.length ? currentVersions : [model];
+    const entries = civitaiVersions.map((version) => {
+        const local = locals.findIndex((l) => l.id != null && l.id === version.id);
+        return { id: version.id, local: local >= 0 ? local : null, version };
+    });
+    locals.forEach((l, i) => {
+        if (!entries.some((e) => e.local === i)) entries.push({ id: l.id, local: i, version: null });
+    });
+    return entries;
+}
+
+function isShownPill(entry) {
+    if (remoteVersionId !== null) return entry.local === null && entry.id === remoteVersionId;
+    return entry.local === (currentVersions.length ? selectedVersionIndex : 0);
+}
+
+/** "As Civitai listed them on ...": the list is only as fresh as the last sync. */
+function renderVersionsNote() {
+    if (!civitaiVersions.length) return '';
+    const as = versionsSyncedAt
+        ? `Versions as Civitai listed them on ${formatDay(versionsSyncedAt)}`
+        : 'Versions as the model\'s files list them';
+    return `<div class="mm-versions-note">${as}; this may not be up to date. `
+        + 'Sync metadata with Civitai to get the latest.</div>';
+}
+
 // Render version selector pills
 function renderVersionSelector() {
-    if (currentVersions.length <= 1) return '';
+    pillEntries = versionPills();
+    if (pillEntries.length <= 1) return '';
 
-    const pills = currentVersions.map((version, index) => {
-        const activeClass = index === selectedVersionIndex ? 'active' : '';
+    const model = currentModels[selectedModelIndex] || {};
+    const locals = currentVersions.length ? currentVersions : [model];
+    const anyRemote = pillEntries.some((e) => e.local === null);
+
+    const pills = pillEntries.map((entry, index) => {
+        const activeClass = isShownPill(entry) ? 'active' : '';
+        if (entry.local === null) {
+            const version = entry.version;
+            const versionName = version.name || `v${index + 1}`;
+            const paidNote = paidAccessLabel(version);
+            const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}\nNot downloaded`
+                + `${paidNote ? '\n' + paidNote : ''}`;
+            return `<button class="mm-version-pill ${activeClass} ${isPaid(version) ? 'paid' : ''}" data-pill="${index}"
+                           onclick="window.mmSelectPill(${index})"
+                           title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${isPaid(version) ? ' ⬥' : ''}</button>`;
+        }
+        const version = locals[entry.local];
         const versionName = version.version_name || `v${index + 1}`;
         const fileName = version.file_name ? version.file_name.replace(/\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i, '') : '';
         const displayName = version.version_name ? versionName : fileName;
         const tooltip = `${versionName}\n${version.file_name}\n${formatFileSize(version.file_size)}`;
+        // Only worth marking when some are not downloaded.
+        const owned = anyRemote ? ' owned' : '';
 
-        return `<button class="mm-version-pill ${activeClass}"
-                       onclick="window.mmSelectVersion(${index})"
-                       title="${escapeHtml(tooltip)}">${escapeHtml(displayName)}</button>`;
+        return `<button class="mm-version-pill ${activeClass}${owned}" data-pill="${index}"
+                       onclick="window.mmSelectPill(${index})"
+                       title="${escapeHtml(tooltip)}">${escapeHtml(displayName)}${anyRemote ? ' ✓' : ''}</button>`;
     }).join('');
+
+    const heading = anyRemote
+        ? `Versions (${pillEntries.length}, ${locals.length} downloaded)`
+        : `Local Versions (${pillEntries.length})`;
 
     return `
         <div class="detail-section mm-version-selector">
-            <h4>Local Versions (${currentVersions.length})</h4>
+            <h4>${heading}</h4>
             <div class="mm-version-pills">
                 ${pills}
             </div>
+            ${renderVersionsNote()}
         </div>
     `;
 }
+
+/**
+ * A pill was clicked. A local version is shown as it always was; one not in
+ * the library is shown as the Civitai Browser shows it, with a Download.
+ */
+window.mmSelectPill = async function(index) {
+    const entry = pillEntries[index];
+    if (!entry) return;
+    if (entry.local === null) {
+        if (remoteVersionId === entry.id) return;
+        remoteVersionId = entry.id;
+        remoteFileIndex = null;
+        renderRemoteVersion();
+        return;
+    }
+    if (remoteVersionId !== null) {
+        // The remote view replaced the panel and hid the gallery: draw the
+        // local one again, then select the version in it.
+        remoteVersionId = null;
+        const model = currentModels[selectedModelIndex];
+        if (!currentVersions.length) {
+            currentModelPath = model.file_path;
+            resetImageState();
+            renderModelDetails(model);
+            await loadVersionDetails(model.file_path);
+            return;
+        }
+        const wanted = entry.local;
+        selectedVersionIndex = currentVersions.findIndex((v) => v.file_path === model.file_path);
+        renderModelDetails(model);
+        if (wanted === selectedVersionIndex) {
+            currentModelPath = model.file_path;
+            resetImageState();
+            await loadVersionDetails(model.file_path);
+            return;
+        }
+        await window.mmSelectVersion(wanted);
+        return;
+    }
+    await window.mmSelectVersion(entry.local);
+};
+
+function resetImageState() {
+    currentImages = [];
+    currentVersionId = null;
+    currentImagePage = 1;
+    visibleImageCount = IMAGE_PAGE_SIZE;
+    nextImagesCursor = null;
+    imagesSyncDate = null;
+}
+
+/** The header's buttons: the same for any version, but deleting needs a file. */
+function renderDetailHeader(model, { deletable = true } = {}) {
+    const modelId = model.model_id || model.civitai_model_id;
+    const isBookmarked = model.is_bookmarked || false;
+    const bookmarkBtn = modelId
+        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
+        : '';
+
+    // Deleting sits with the other actions on the model, in the header. With
+    // several versions, the one shown and all of them are separate choices.
+    const deleteButton = (scope, label, title) =>
+        `<button class="mm-btn danger mm-btn-small header-action" onclick="window.mmDeleteModel('${scope}')" title="${title}">${label}</button>`;
+    const deleteButtons = !deletable ? ''
+        : currentVersions.length > 1
+        ? deleteButton('version', 'Delete Current Model Version', 'Delete the version shown here, and its files')
+          + deleteButton('all', 'Delete All Model Versions', `Delete all ${currentVersions.length} versions of this model, and their files`)
+        : deleteButton('version', 'Delete Model', 'Delete this model, and its files');
+
+    return `
+            <div class="detail-header">
+                <h3>${escapeHtml(model.display_name)}</h3>
+                ${bookmarkBtn}
+                ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
+                ${deleteButtons}
+                <button class="close-details" onclick="window.mmCloseDetails()">×</button>
+            </div>`;
+}
+
+/**
+ * A version not in the library, as the Civitai Browser shows one: what it is
+ * and a Download, from what was recorded at the last sync. It has no gallery
+ * here - that is fetched for a file - so the one below is hidden.
+ */
+function renderRemoteVersion() {
+    const container = document.getElementById('mm_details');
+    const model = currentModels[selectedModelIndex];
+    const version = civitaiVersions.find((v) => v.id === remoteVersionId);
+    if (!container || !model || !version) return;
+
+    const modelId = model.model_id;
+    const files = version.files || [];
+    const fileIndex = remoteFileIndex !== null && remoteFileIndex < files.length
+        ? remoteFileIndex : primaryFileIndex(version);
+    const file = files[fileIndex];
+    const paidLabel = paidAccessLabel(version);
+    const votes = (model.thumbs_up || 0) + (model.thumbs_down || 0);
+
+    const trainedWords = version.trainedWords && version.trainedWords.length > 0
+        ? `<div class="detail-section">
+             <h4>Trigger Words</h4>
+             <div class="trigger-words">
+               ${version.trainedWords.map(w => `<span class="trigger-word" data-copy="${escapeHtml(w)}" title="Click to copy">${escapeHtml(w)}</span>`).join('')}
+             </div>
+           </div>`
+        : '';
+    const tags = model.tags && model.tags.length > 0
+        ? `<div class="detail-section">
+             <h4>Tags</h4>
+             <div class="tag-list">
+               ${model.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}
+             </div>
+           </div>`
+        : '';
+    const descriptionHtml = modelDescription
+        ? `<div class="detail-section">
+             <h4>Description</h4>
+             <div class="mm-description">${sanitizeHtml(modelDescription)}</div>
+           </div>`
+        : '';
+
+    container.innerHTML = `
+        <div class="model-details-content">
+            ${renderDetailHeader(model, { deletable: false })}
+
+            ${renderVersionSelector()}
+
+            <div class="detail-section">
+                <h4>Information</h4>
+                <table class="detail-table">
+                    ${showInCivitaiRow()}
+                    <tr><td>Model ID</td><td>${safeId(modelId)}</td></tr>
+                    <tr><td>Version ID</td><td>${safeId(version.id)}</td></tr>
+                    <tr><td>Version Name</td><td>${escapeHtml(version.name || 'Unknown')}</td></tr>
+                    <tr><td>Type</td><td>${escapeHtml(model.civitai_type || 'Unknown')}</td></tr>
+                    <tr><td>Base Model</td><td>${escapeHtml(version.baseModel || 'Unknown')}</td></tr>
+                    <tr><td>Creator</td><td>${escapeHtml(model.creator || 'Unknown')}</td></tr>
+                    ${paidLabel ? `<tr><td>Access</td><td class="mm-paid-cell">${escapeHtml(paidLabel)}</td></tr>` : ''}
+                    <tr><td>Published</td><td>${formatDay(version.publishedAt)}</td></tr>
+                    <tr><td>Updated</td><td>${formatDay(version.updatedAt)}</td></tr>
+                    <tr><td>Rating</td><td>★ ${(model.rating || 0).toFixed(1)} (${formatNumber(votes)} ratings)</td></tr>
+                    <tr><td>Downloads</td><td>${formatNumber(model.download_count || 0)}</td></tr>
+                    <tr><td>File</td><td id="mm_file_name">${escapeHtml(file?.name || 'Unknown')}</td></tr>
+                    <tr><td>File Size</td><td id="mm_file_size">${file?.sizeKB ? formatBytes(file.sizeKB * 1024) : 'Unknown'}</td></tr>
+                </table>
+            </div>
+
+            ${trainedWords}
+            ${tags}
+            ${descriptionHtml}
+
+            <div class="detail-section detail-actions">
+                <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(modelId)}?modelVersionId=${safeId(version.id)}" target="_blank">View on Civitai</a>
+                ${renderDownloadControls({ prefix: 'mm', modelId, version, fileIndex, owned: false })}
+            </div>
+            <div class="mm-versions-note">Not downloaded, so there are no example images here yet.
+                Show in Civitai Browser has them.</div>
+        </div>
+    `;
+    container.style.display = 'block';
+
+    const images = document.getElementById('mm_images');
+    if (images) images.style.display = 'none';
+}
+
+window.mmSelectFile = function(fileIndex) {
+    const index = parseInt(fileIndex, 10);
+    const version = civitaiVersions.find((v) => v.id === remoteVersionId);
+    const file = (version?.files || [])[index];
+    if (!file) return;
+    remoteFileIndex = index;
+    showChosenFile('mm', currentModels[selectedModelIndex]?.model_id, version, file);
+};
+
+// The list and its panel are shared with the Civitai Browser: see
+// downloads() in shared/common.mjs.
+window.mmDownload = async function(modelId, versionId, fileId) {
+    try {
+        setStatus('Starting download...');
+        const result = await downloads().start(modelId, versionId, fileId);
+        if (result.success) setStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
+        else setStatus(`Download error: ${result.error}`, true);
+    } catch (e) {
+        console.error('[ModelManager] Download error:', e);
+        setStatus(`Download error: ${e.message}`, true);
+    }
+};
+
+/**
+ * A version of the open model has reached the library: it is local now. If
+ * it is the one shown, show it as a local version, gallery and all;
+ * otherwise mark its pill.
+ */
+async function versionDownloaded(dl) {
+    const model = currentModels[selectedModelIndex];
+    if (!model || !model.model_id || !civitaiVersions.some((v) => v.id === dl.version_id)) return;
+    const index = selectedModelIndex;
+    let data;
+    try {
+        data = await apiCall({ endpoint: '/model-manager/models/versions', params: { model_id: model.model_id } });
+    } catch (error) {
+        console.error('[ModelManager] Failed to reload versions:', error);
+        return;
+    }
+    if (selectedModelIndex !== index || !data.success) return;
+
+    const shown = remoteVersionId;
+    const previous = shownVersion(model);
+    currentVersions = (data.versions || []).length > 1 ? data.versions : [];
+    civitaiVersions = data.civitai_versions || [];
+    versionsSyncedAt = data.versions_synced_at || null;
+    model.local_version_count = (data.versions || []).length;
+
+    if (shown === dl.version_id) {
+        const arrived = currentVersions.findIndex((v) => v.id === dl.version_id);
+        remoteVersionId = null;
+        selectedVersionIndex = -1;   // so that mmSelectVersion does not think it is shown
+        renderModelDetails(model);
+        if (arrived >= 0) {
+            await window.mmSelectVersion(arrived);
+        } else {
+            currentModelPath = model.file_path;
+            resetImageState();
+            await loadVersionDetails(model.file_path);
+        }
+        return;
+    }
+    // Keep showing what was shown, with the pills brought up to date - and
+    // the header, whose delete buttons count the local versions.
+    selectedVersionIndex = Math.max(0, currentVersions.findIndex((v) => v.file_path === previous.file_path));
+    const header = document.querySelector('#mm_details .detail-header');
+    if (header) header.outerHTML = renderDetailHeader(model, { deletable: remoteVersionId === null });
+    const selector = document.querySelector('#mm_details .mm-version-selector');
+    const fresh = renderVersionSelector();
+    if (selector) selector.outerHTML = fresh;
+}
+
+downloads().addPanel('mm');
+downloads().onComplete(versionDownloaded);
 
 // Render model details panel
 function renderModelDetails(model, fullDetails = null) {
@@ -1070,39 +1398,18 @@ function renderModelDetails(model, fullDetails = null) {
     // Version selector (only if multiple versions)
     const versionSelectorHtml = renderVersionSelector();
 
-    // Bookmark button (only for models with Civitai data)
-    const isBookmarked = model.is_bookmarked || false;
-    const bookmarkBtn = modelId
-        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
-        : '';
-
-    // Deleting sits with the other actions on the model, in the header. With
-    // several versions, the one shown and all of them are separate choices.
-    const deleteButton = (scope, label, title) =>
-        `<button class="mm-btn danger mm-btn-small header-action" onclick="window.mmDeleteModel('${scope}')" title="${title}">${label}</button>`;
-    const deleteButtons = currentVersions.length > 1
-        ? deleteButton('version', 'Delete Current Model Version', 'Delete the version shown here, and its files')
-          + deleteButton('all', 'Delete All Model Versions', `Delete all ${currentVersions.length} versions of this model, and their files`)
-        : deleteButton('version', 'Delete Model', 'Delete this model, and its files');
-
     container.innerHTML = `
         <div class="model-details-content">
-            <div class="detail-header">
-                <h3>${escapeHtml(model.display_name)}</h3>
-                ${bookmarkBtn}
-                ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
-                ${modelId ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.mmShowInCivitaiBrowser(${safeId(modelId)})" title="Open this model in the Civitai Browser tab">Show in Civitai Browser</button>` : ''}
-                ${deleteButtons}
-                <button class="close-details" onclick="window.mmCloseDetails()">×</button>
-            </div>
+            ${renderDetailHeader(model)}
 
             ${versionSelectorHtml}
 
             <div class="detail-section">
                 <h4>Information</h4>
                 <table class="detail-table">
+                    ${modelId ? showInCivitaiRow() : ''}
                     ${modelId ? `<tr><td>Model ID</td><td>${modelId}</td></tr>` : ''}
-                    ${model.id ? `<tr><td>Version ID</td><td>${model.id}</td></tr>` : ''}
+                    ${model.id ? `<tr><td>Version ID</td><td class="mm-version-id-cell">${model.id}</td></tr>` : ''}
                     <tr><td>Type</td><td class="mm-type-cell"${typeTitle(model)}>${typeText(model, model.civitai_type)}</td></tr>
                     <tr><td>Base Model</td><td>${model.base_model || 'Unknown'}</td></tr>
                     <tr><td rowspan="3" class="nsfw-label-cell">NSFW Level</td><td>Model: ${expandNsfwLevel(model.civitai_model?.nsfw_level)}</td></tr>
@@ -2151,6 +2458,8 @@ window.mmDownloadResource = async function(versionId, modelId) {
     } else {
         Object.assign(job, { target: data.version_id, versionName: data.version_name,
                              substituted: !!data.substituted });
+        // In the downloads panel too, with every other download.
+        if (data.progress) downloads().track(data.progress);
         if (data.already_installed) finishResourceDownload(versionId);
         else pollResourceDownloads();
     }
@@ -3659,7 +3968,29 @@ window.mmShowModel = async function(query) {
 
 // Open this model over in the Civitai Browser tab. The mirror of
 // cbShowInModelManager() there, down to the tab lookup.
-window.mmShowInCivitaiBrowser = function(modelId) {
+/**
+ * The Information table's first row. The button works out which version to
+ * send when pressed - the one shown then - rather than carrying an id that a
+ * switch of version would leave behind.
+ */
+function showInCivitaiRow() {
+    return `<tr class="mm-show-in-cb-row"><td colspan="2">`
+        + `<button class="mm-btn secondary mm-btn-small" onclick="window.mmShowInCivitaiBrowser()" `
+        + `title="Open this version in the Civitai Browser tab">Show in Civitai Browser</button></td></tr>`;
+}
+
+/** The query that shows the version on screen in the Civitai Browser. */
+function civitaiBrowserQuery() {
+    const model = currentModels[selectedModelIndex];
+    const modelId = safeId(model?.model_id);
+    if (!modelId) return null;
+    const versionId = safeId(remoteVersionId !== null ? remoteVersionId : shownVersion(model).id);
+    return versionId ? `model:${modelId} version:${versionId}` : `model:${modelId}`;
+}
+
+window.mmShowInCivitaiBrowser = function() {
+    const query = civitaiBrowserQuery();
+    if (!query) return;
     if (typeof window.cbShowModel !== 'function') {
         setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);
         return;
@@ -3678,7 +4009,7 @@ window.mmShowInCivitaiBrowser = function(modelId) {
 
     // The grid sizes itself from the viewport, so let the tab become visible
     // before searching - measuring a hidden tab gives nonsense.
-    setTimeout(() => window.cbShowModel('model:' + modelId), 100);
+    setTimeout(() => window.cbShowModel(query), 100);
 };
 
 // Reveal more of what is already downloaded. No request, and deliberately no
