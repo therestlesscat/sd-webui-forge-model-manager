@@ -39,6 +39,8 @@ try:
         del sys.modules[name]
     from model_manager import api
     print(f"[ModelManager] API module imported from: {api.__file__}")
+    from model_manager.version import describe
+    print(f"[ModelManager] Version {describe()['version']}")
 except Exception as e:
     print(f"[ModelManager] ERROR importing API module: {e}")
     import traceback

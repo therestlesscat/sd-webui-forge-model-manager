@@ -192,6 +192,37 @@ thing, so the next component that would have been copied has to be shared.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 
+## Versions
+
+`MAJOR.MINOR.PATCH.BUILD`, as `model_manager/version.py` explains. The build
+is the commit's place in the history and is never written down; the rest is.
+
+**Before each commit**, decide which it is:
+
+- **A minor version**: a feature that means something on its own, even inside
+  an existing tab - the settings window, the trained NSFW model. Bump MINOR,
+  PATCH to 0.
+- **A patch**: any other change a user can see - a fix, an improvement, an
+  addition to the latest feature or to any other. Bump PATCH. A patch belongs
+  to no feature; it only comes after the latest minor version.
+- **Neither**: tests, docs, refactoring - nothing a user sees. No bump; the
+  build moves on by itself, and the changelog does not list it.
+- **A major version** is the owner's call, when the extension is ready.
+
+Then, in the same commit:
+
+1. `VERSION` in `model_manager/version.py`.
+2. `CHANGELOG.md`: a line under the latest minor version's heading, newest
+   first - `- **0.20.3** (build 203) - What changed.` - where the build is
+   the commit's count once committed (`git rev-list --count HEAD`, plus one).
+   A minor version starts a new heading, with two or three sentences on what
+   it gives the user.
+3. `README.md`, for a minor or major version only: its "What's new" keeps the
+   latest few features, a short paragraph each.
+
+After committing, tag it `vMAJOR.MINOR.PATCH`. Tags, like commits, are pushed
+only by the owner.
+
 ## Known gaps
 
 - **Local-only models cannot be bookmarked.** They have a row now, but

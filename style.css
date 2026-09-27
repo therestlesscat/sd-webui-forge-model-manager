@@ -29,6 +29,26 @@ body.mm-modal-open {
     margin: 0;
 }
 
+/* The version and the gear, together at the right. */
+.mm-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* The version: small and quiet, a link to the changelog. */
+.mm-version {
+    color: var(--body-text-color-subdued, #9ca3af) !important;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-decoration: none !important;
+}
+
+.mm-version:hover {
+    color: var(--body-text-color, #fff) !important;
+    text-decoration: underline !important;
+}
+
 /* An icon, not a labelled button: square, no fill until hovered. Gradio's
    preflight resets a button's background and margin inside gr.HTML at a
    specificity one class cannot beat, hence !important on those two. */
