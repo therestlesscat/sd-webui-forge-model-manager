@@ -34,6 +34,34 @@ def _flag(value):
     return None if value is None else (1 if value else 0)
 
 
+# What the details panel shows of a version it does not hold, and what a
+# download of it needs. Everything else in Civitai's version - its images,
+# download URLs, scan results - is left out: a model can list dozens.
+_VERSION_FIELDS = ("id", "index", "name", "baseModel", "publishedAt", "updatedAt",
+                   "availability", "trainedWords", "paidAccess", "earlyAccessDeadline")
+_FILE_FIELDS = ("id", "name", "sizeKB", "primary", "type", "metadata")
+
+
+def version_summary(version: Dict[str, Any]) -> Dict[str, Any]:
+    """One of Civitai's modelVersions, trimmed to what is stored of it."""
+    summary = {k: version[k] for k in _VERSION_FIELDS if version.get(k) is not None}
+    summary["files"] = [{k: f[k] for k in _FILE_FIELDS if f.get(k) is not None}
+                        for f in (version.get("files") or []) if isinstance(f, dict)]
+    return summary
+
+
+def _civitai_order(versions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Versions in the order Civitai shows them.
+
+    A sync puts the file's own version first in the payload it hands on, so
+    the list is put back by Civitai's `index`. A list with no index - one
+    merged from sidecars, or written by another tool - goes newest first.
+    """
+    if versions and all(isinstance(v.get("index"), int) for v in versions):
+        return sorted(versions, key=lambda v: v["index"])
+    return sorted(versions, key=lambda v: v.get("publishedAt") or "", reverse=True)
+
+
 class ModelsOps:
     """
     Operations for civitai_models and model_versions tables.
@@ -145,6 +173,68 @@ class ModelsOps:
                 now if from_civitai else None,
                 model_data.get("checkpoint_type")
             ))
+            if model_data.get("versions"):
+                self._store_versions(cursor, model_data.get("id"), model_data["versions"],
+                                     from_civitai, now)
+
+    def store_civitai_versions(self, model_id: int, versions: List[Dict[str, Any]],
+                               from_civitai: bool = False) -> bool:
+        """Record the versions Civitai lists for a model. See _store_versions."""
+        with self._cursor() as cursor:
+            return self._store_versions(cursor, model_id, versions, from_civitai,
+                                        datetime.now().isoformat())
+
+    @staticmethod
+    def _store_versions(cursor, model_id, versions, from_civitai: bool, now: str) -> bool:
+        """
+        Keep a model's list of versions: every one Civitai has, local or not.
+
+        A list fetched from Civitai replaces what is held - a version deleted
+        there is gone. A sidecar's list is only added to what is held, and
+        not at all once Civitai's own list is: a sidecar is as old as the
+        file's last sync, and would bring deleted versions back.
+
+        Returns whether anything was written.
+        """
+        incoming = [version_summary(v) for v in versions if isinstance(v, dict) and v.get("id")]
+        if not model_id or not incoming:
+            return False
+        if from_civitai:
+            cursor.execute(
+                "UPDATE civitai_models SET versions = ?, versions_synced_at = ? WHERE id = ?",
+                (json.dumps(_civitai_order(incoming)), now, model_id))
+            return cursor.rowcount > 0
+
+        cursor.execute("SELECT versions, versions_synced_at FROM civitai_models WHERE id = ?",
+                       (model_id,))
+        row = cursor.fetchone()
+        if row is None or row[1]:
+            return False
+        held = json.loads(row[0]) if row[0] else []
+        known = {v["id"] for v in held}
+        added = [v for v in incoming if v["id"] not in known]
+        if not added:
+            return False
+        merged = held + added
+        if held:
+            # The index of one sidecar says nothing about another's.
+            merged = [{k: v for k, v in version.items() if k != "index"} for version in merged]
+        cursor.execute("UPDATE civitai_models SET versions = ? WHERE id = ?",
+                       (json.dumps(_civitai_order(merged)), model_id))
+        return True
+
+    def get_civitai_versions(self, model_id: int) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """A model's stored versions, and when Civitai last listed them.
+
+        (None, None) when nothing has recorded them yet.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT versions, versions_synced_at FROM civitai_models WHERE id = ?",
+                           (model_id,))
+            row = cursor.fetchone()
+        if not row or not row[0]:
+            return None, None
+        return json.loads(row[0]), row[1]
 
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """Get a Civitai model by ID."""

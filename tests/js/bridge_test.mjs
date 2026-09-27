@@ -102,7 +102,12 @@ globalThis.fetch = async (url) => {
     }
     const single = href.match(/\/model-manager\/civitai\/models\/(\d+)/);
     if (single) {
-        return { ok: true, json: async () => ({ success: true, model: remoteModel(Number(single[1])) }) };
+        const model = remoteModel(Number(single[1]));
+        // Model 555 has an older version as well, for the version: checks.
+        if (model.id === 555) {
+            model.modelVersions.push({ ...model.modelVersions[0], id: 9002, name: 'older' });
+        }
+        return { ok: true, json: async () => ({ success: true, model }) };
     }
     if (href.includes('/model-manager/civitai/models')) {
         return { ok: true, json: async () => ({
@@ -178,6 +183,24 @@ for (const query of ['model: 77', ' MODEL:77 ']) {
     await settle();
     check(`"${query}" is still a lookup`, singleLookups().length, 1);
 }
+
+// ------------------------------------------------ a version, named as well
+// The Model Manager's "Show in Civitai Browser" sends the version it was
+// showing; it used to send the model alone, and the newest version opened.
+const shownPill = () => $('cb_details').querySelector('.mm-version-pill.active')?.textContent.trim();
+await window.cbShowModel('model:555 version:9002');
+await settle();
+check('"model:555 version:9002" opens that model on that version',
+      [$('cb_search').value, shownPill()], ['model:555 version:9002', 'older']);
+await window.cbShowModel('model:555 version:31337');
+await settle();
+check('a version Civitai no longer has: the newest, and a word saying so',
+      [shownPill(), $('cb_status').textContent.includes('Version 31337 is no longer on Civitai')], ['v1', true]);
+asked.length = 0;
+$('cb_search').value = 'model:555 version:';
+await window.cbSearch();
+await settle();
+check('"model:555 version:" is a search, not a lookup', singleLookups().length, 0);
 
 // ------------------------------------------------------- a model that is gone
 asked.length = 0;

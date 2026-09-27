@@ -42,6 +42,14 @@ const {
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
+    paidAccessLabel,
+    isPaid,
+    primaryFileIndex,
+    renderDownloadControls,
+    showChosenFile,
+    downloads,
+    formatBytes: formatFileSize,
+    formatDay: formatDate,
 } = await import(sharedModule.href);
 
 // State
@@ -56,7 +64,6 @@ let currentImages = [];
 let currentImagePage = 1;
 let nextImagesCursor = null;
 let isLoadingImages = false;
-let activeDownloads = {};
 let showAllNsfwImages = false;  // Toggle for showing all images regardless of NSFW filter
 // The same kind of override for the prompt filter: with "Only with usable
 // prompts" ticked, an opened model's images without one are hidden, and this
@@ -499,16 +506,17 @@ async function searchModelsStreaming(page, cursor) {
 
 // Search models using cursor-based pagination
 /**
- * The model id in a targeted query, or null for an ordinary search.
+ * The model, and optionally the version, a targeted query names - or null
+ * for an ordinary search.
  *
  * The Model Manager's search takes model:123 / version:456 / hash:ABC, and
- * its "Show in Civitai Browser" button sends the same shape here, so the two
- * tabs read the same syntax. Only model: means anything to Civitai, which
- * has no endpoint for the rest.
+ * its "Show in Civitai Browser" button sends "model:123 version:456" here -
+ * the version it was showing - so the two tabs read the same syntax. The
+ * model is fetched by id; the version picks which of its versions is shown.
  */
-function targetedModelId(query) {
-    const match = /^\s*model:\s*(\d+)\s*$/i.exec(query || '');
-    return match ? Number(match[1]) : null;
+function targetedLookup(query) {
+    const match = /^\s*model:\s*(\d+)(?:\s+version:\s*(\d+))?\s*$/i.exec(query || '');
+    return match ? { modelId: Number(match[1]), versionId: match[2] ? Number(match[2]) : null } : null;
 }
 
 /**
@@ -518,7 +526,7 @@ function targetedModelId(query) {
  * model endpoint instead. The result is a page of exactly one, with no
  * cursors - paging past it would be meaningless.
  */
-async function showModelById(modelId) {
+async function showModelById(modelId, versionId = null) {
     // Which images are safe depends on the NSFW prompt words too.
     isLoading = true;
     updateStatus(`Loading model ${modelId}...`);
@@ -540,8 +548,13 @@ async function showModelById(modelId) {
         hasMorePages = false;
         renderGrid();
         renderPaginationControls();
-        updateStatus(`Showing model ${modelId}`);
-        openModel(0);
+        // Versions get deleted on Civitai; the model is still worth showing.
+        const versionIndex = versionId === null ? 0
+            : (data.model.modelVersions || []).findIndex(v => v.id === versionId);
+        updateStatus(versionIndex >= 0
+            ? `Showing model ${modelId}`
+            : `Version ${versionId} is no longer on Civitai; showing the newest`);
+        openModel(0, Math.max(0, versionIndex));
     } catch (e) {
         console.error('[CivitaiBrowser] Targeted lookup failed:', e);
         updateStatus(`Could not load model ${modelId}: ${e.message}`);
@@ -569,9 +582,9 @@ async function searchModels(page = 1) {
 
     // A targeted lookup is not a search: it names the model outright, so the
     // filters, the cursors and the prompt filter all have nothing to say.
-    const targeted = targetedModelId(document.getElementById('cb_search')?.value);
+    const targeted = targetedLookup(document.getElementById('cb_search')?.value);
     if (targeted !== null) {
-        await showModelById(targeted);
+        await showModelById(targeted.modelId, targeted.versionId);
         return;
     }
 
@@ -814,36 +827,6 @@ function renderCard(model, index) {
     `;
 }
 
-/**
- * Describe a version's paywall, or '' when it is free.
- *
- * `paid_access` is attached by the backend: Civitai leaves `availability`
- * as "Public" for paid versions, so the field is the only marker.
- */
-function paidAccessLabel(version) {
-    const paid = version?.paid_access;
-    if (!paid) return '';
-    if (paid.permanent) return 'Paid';
-    return paid.ends_at ? `Early Access until ${formatDate(paid.ends_at)}` : 'Early Access';
-}
-
-function isPaid(version) {
-    return !!version?.paid_access;
-}
-
-/**
- * Index of the file a download of this version will produce.
- *
- * Mirrors DownloadService.pick_file_index: files[0] is often the full
- * fp32 weights, roughly twice the size of the pruned file Civitai marks
- * primary, so the primary one is the default rather than the first.
- */
-function primaryFileIndex(version) {
-    const files = version?.files || [];
-    const primary = files.findIndex(f => f.primary);
-    return primary === -1 ? 0 : primary;
-}
-
 function primaryFile(version) {
     return (version?.files || [])[primaryFileIndex(version)];
 }
@@ -858,34 +841,14 @@ function chosenFileIndex(version) {
     return primaryFileIndex(version);
 }
 
-/**
- * How a file reads in the picker: "pruned fp16 - 1.99 GB".
- *
- * metadata carries format/size/fp for model files; anything without it
- * (a VAE, a config, training data) falls back to its name and type.
- */
-function describeFile(file) {
-    const meta = file?.metadata || {};
-    const parts = [meta.size, meta.fp].filter(Boolean);
-
-    if (!parts.length) {
-        const type = file?.type && file.type !== 'Model' ? file.type : '';
-        parts.push(type || file?.name || 'File');
-    } else if (file?.type && file.type !== 'Model') {
-        parts.push(file.type);
-    }
-
-    const size = file?.sizeKB ? formatFileSize(file.sizeKB * 1024) : '';
-    return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
-}
-
 // Open model detail
-function openModel(index) {
+function openModel(index, versionIndex = 0) {
     const model = currentModels[index];
     if (!model) return;
 
     selectedModel = model;
-    selectedVersionIndex = 0;
+    selectedVersionIndex = versionIndex;
+    selectedFileIndex = null;
     // Start matching the search, then let the toggles take over.
     showAllNsfwImages = document.getElementById('cb_nsfw')?.checked || false;
     showPromptlessImages = false;
@@ -1004,32 +967,12 @@ function renderModelDetails() {
     const fileSize = file?.sizeKB ? formatFileSize(file.sizeKB * 1024) : 'Unknown';
     const fileName = file?.name || 'Unknown';
 
-    // Only worth a control when there is something to choose between.
-    const fileOptions = versionFiles.length > 1
-        ? `<select class="cb-file-select" onchange="window.cbSelectFile(this.value)"
-                   title="Which file to download">
-             ${versionFiles.map((f, i) => `<option value="${i}" ${i === fileIndex ? 'selected' : ''}
-                    title="${escapeHtml(f.name || '')}">${escapeHtml(describeFile(f))}`
-                    + `${f.primary ? ' (default)' : ''}</option>`).join('')}
-           </select>`
-        : '';
-
     // Stats
     const stats = model.stats || {};
 
-    // Download button. A paid version answers the download URL with
-    // 401/403 until it is bought on Civitai, so do not offer it.
     const paidLabel = paidAccessLabel(version);
-    let downloadBtn = '';
-    if (isOwned) {
-        downloadBtn = `<button class="mm-btn secondary" disabled>Already Owned</button>`;
-    } else if (paidLabel) {
-        downloadBtn = `<button class="mm-btn secondary" disabled `
-            + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
-    } else if (file) {
-        downloadBtn = `<button class="mm-btn primary" id="cb_download_btn" `
-            + `onclick="window.cbDownload(${safeId(model.id)}, ${safeId(version?.id)}, ${safeId(file?.id)})">Download</button>`;
-    }
+    const downloadControls = renderDownloadControls({
+        prefix: 'cb', modelId: model.id, version, fileIndex, owned: isOwned });
 
     // Only offer the jump for models that are actually in the library.
     // Lives on the header row so it stays reachable while scrolling the
@@ -1076,8 +1019,7 @@ function renderModelDetails() {
 
             <div class="detail-section detail-actions">
                 <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}" target="_blank">View on Civitai</a>
-                ${downloadBtn}
-                ${fileOptions}
+                ${downloadControls}
             </div>
         </div>
     `;
@@ -1127,20 +1069,7 @@ function selectFile(fileIndex) {
     if (!file) return;
 
     selectedFileIndex = index;
-
-    const nameCell = document.getElementById('cb_file_name');
-    if (nameCell) nameCell.textContent = file.name || 'Unknown';
-
-    const sizeCell = document.getElementById('cb_file_size');
-    if (sizeCell) {
-        sizeCell.textContent = file.sizeKB ? formatFileSize(file.sizeKB * 1024) : 'Unknown';
-    }
-
-    const button = document.getElementById('cb_download_btn');
-    if (button) {
-        button.setAttribute('onclick',
-            `window.cbDownload(${selectedModel?.id}, ${version?.id}, ${file.id ?? 'null'})`);
-    }
+    showChosenFile('cb', selectedModel?.id, version, file);
 }
 
 function selectVersion(versionIndex) {
@@ -1679,22 +1608,13 @@ window.cbShowResources = function(index) {
     document.body.appendChild(modal);
 };
 
-// Start download
+// Start download. The list and its panel are shared with the Model
+// Manager: see downloads() in shared/common.mjs.
 async function startDownload(modelId, versionId, fileId) {
     try {
         updateStatus('Starting download...');
-
-        const result = await apiPost('/model-manager/civitai/download', {
-            model_id: modelId,
-            version_id: versionId,
-            // Omitted when unknown, which leaves the backend on the primary.
-            file_id: fileId ?? undefined
-        });
-
+        const result = await downloads().start(modelId, versionId, fileId);
         if (result.success) {
-            activeDownloads[versionId] = result.progress;
-            showDownloadsPanel();
-            pollDownloadProgress();
             updateStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
         } else {
             updateStatus(`Download error: ${result.error}`);
@@ -1705,128 +1625,8 @@ async function startDownload(modelId, versionId, fileId) {
     }
 }
 
-// Show downloads panel
-function showDownloadsPanel() {
-    const panel = document.getElementById('cb_downloads');
-    if (panel) panel.style.display = 'block';
-    renderDownloads();
-}
-
-// Render downloads list with clear status indicators
-function renderDownloads() {
-    const list = document.getElementById('cb_download_list');
-    const summary = document.getElementById('cb_downloads_summary');
-    if (!list) return;
-
-    const downloads = Object.values(activeDownloads);
-    if (downloads.length === 0) {
-        const panel = document.getElementById('cb_downloads');
-        if (panel) panel.style.display = 'none';
-        return;
-    }
-
-    // Sort: downloading first, then pending, then completed/error/cancelled
-    const statusOrder = { 'downloading': 0, 'pending': 1, 'complete': 2, 'error': 3, 'cancelled': 4 };
-    downloads.sort((a, b) => (statusOrder[a.status] || 5) - (statusOrder[b.status] || 5));
-
-    // Count by status
-    const downloadingCount = downloads.filter(d => d.status === 'downloading' || d.status === 'finishing').length;
-    const pendingCount = downloads.filter(d => d.status === 'pending').length;
-    const completedCount = downloads.filter(d => d.status === 'complete' || d.status === 'error' || d.status === 'cancelled').length;
-
-    // Update summary
-    if (summary) {
-        const parts = [];
-        if (downloadingCount > 0) parts.push(`${downloadingCount} downloading`);
-        if (pendingCount > 0) parts.push(`${pendingCount} pending`);
-        if (completedCount > 0) parts.push(`${completedCount} finished`);
-        summary.textContent = parts.join(', ') || `${downloads.length} total`;
-    }
-
-    list.innerHTML = downloads.map(dl => {
-        const status = dl.status || 'pending';
-        const percent = dl.percent?.toFixed(1) || 0;
-        const downloaded = formatFileSize(dl.downloaded_bytes || 0);
-        const total = formatFileSize(dl.total_bytes || 0);
-        // finishing: on disk, being added to the library. Not complete until
-        // it is, so that Complete and "Show in MM" arrive together.
-        const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing';
-        const showCancel = status === 'downloading' || status === 'pending';
-        const showDismiss = status === 'complete' || status === 'error' || status === 'cancelled';
-
-        // Status badge text
-        let statusText = status;
-        if (status === 'downloading') statusText = 'Downloading';
-        else if (status === 'pending') statusText = 'Queued';
-        else if (status === 'finishing') statusText = 'Adding to library';
-        else if (status === 'complete') statusText = 'Complete';
-        else if (status === 'error') statusText = 'Error';
-        else if (status === 'cancelled') statusText = 'Cancelled';
-
-        return `
-            <div class="cb-download-item ${status}">
-                <div class="cb-download-item-header">
-                    <div class="cb-download-name" title="${escapeHtml(dl.file_name || 'Unknown')}">${escapeHtml(dl.file_name || 'Unknown')}</div>
-                    <span class="cb-download-status-badge ${status}">${statusText}</span>
-                </div>
-                ${showProgress ? `
-                    <div class="cb-download-progress">
-                        <div class="cb-download-bar" style="width: ${status === 'pending' || status === 'finishing' ? 100 : percent}%"></div>
-                    </div>
-                ` : ''}
-                <div class="cb-download-info">
-                    <span class="cb-download-percent">
-                        ${status === 'downloading' ? `${percent}% - ${downloaded} / ${total}` : ''}
-                        ${status === 'pending' ? 'Waiting...' : ''}
-                        ${status === 'finishing' ? `Adding to library... ${total}` : ''}
-                        ${status === 'complete' ? `${total}` : ''}
-                        ${status === 'error' ? (dl.error || 'Download failed') : ''}
-                        ${status === 'cancelled' ? 'Download cancelled' : ''}
-                    </span>
-                    <div class="cb-download-actions">
-                        ${showCancel ? `
-                            <button class="cb-btn-small danger" onclick="window.cbCancelDownload(${dl.version_id})">Cancel</button>
-                        ` : ''}
-                        ${showDismiss ? `
-                            <button class="cb-btn-small secondary" onclick="window.cbDismissDownload(${dl.version_id})">Dismiss</button>
-                        ` : ''}
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// Dismiss a completed download from the UI
-function dismissDownload(versionId) {
-    delete activeDownloads[versionId];
-    renderDownloads();
-}
-
-// Poll download progress
-let downloadPollInterval = null;
-let needsWebUiRefresh = false;  // a download landed; the WebUI needs to re-scan
-
-// Tell the WebUI about a newly downloaded file.
-//
-// Downloading writes the file but the WebUI has already listed its model
-// directories, so a new checkpoint does not appear in the native dropdown
-// until something re-scans. Click the refresh control next to that
-// dropdown - the same one a user would press. Forge and Forge Neo both
-// expose it as #forge_refresh_checkpoint, and both hand back only new
-// choices, so the current selection is left alone.
-function refreshWebUiModelList() {
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const refreshButton = root.querySelector('#forge_refresh_checkpoint');
-
-    if (refreshButton) {
-        refreshButton.click();
-        console.log('[CivitaiBrowser] Refreshed the WebUI model list');
-    } else {
-        console.warn('[CivitaiBrowser] Could not find the checkpoint refresh button; '
-            + 'the new model may need a manual refresh');
-    }
-}
+downloads().addPanel('cb');
+downloads().onComplete(dl => markVersionOwned(dl.version_id));
 
 // Mark a freshly downloaded version as owned without re-running the
 // search. Re-searching would close the details panel the user is looking
@@ -1853,85 +1653,6 @@ function markVersionOwned(versionId) {
     renderGrid();
     if (touchedOpenModel) {
         renderModelDetails();
-    }
-}
-
-function pollDownloadProgress() {
-    if (downloadPollInterval) return;
-
-    downloadPollInterval = setInterval(async () => {
-        try {
-            const result = await apiCall({ endpoint: '/model-manager/civitai/download/progress' });
-            if (result.success && result.downloads) {
-                result.downloads.forEach(dl => {
-                    const prev = activeDownloads[dl.version_id];
-                    // The file lands well before its database row does - the
-                    // sync that writes it hashes the whole file first. Wait
-                    // for `synced` or the model still looks un-owned.
-                    if (dl.status === 'complete' && dl.synced && !(prev && prev.synced)) {
-                        markVersionOwned(dl.version_id);
-                        needsWebUiRefresh = true;
-                    }
-                    activeDownloads[dl.version_id] = dl;
-                });
-
-                renderDownloads();
-
-                // Keep polling until downloads have finished *and* been
-                // synced, so the grid is not refreshed too early
-                const hasActive = Object.values(activeDownloads).some(dl =>
-                    dl.status === 'downloading' || dl.status === 'pending' ||
-                    dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced));
-
-                if (!hasActive) {
-                    clearInterval(downloadPollInterval);
-                    downloadPollInterval = null;
-
-                    // Once per batch - re-scanning walks every model
-                    // directory, so there is no point doing it per file
-                    if (needsWebUiRefresh) {
-                        needsWebUiRefresh = false;
-                        refreshWebUiModelList();
-                    }
-                }
-            }
-        } catch (e) {
-            console.error('[CivitaiBrowser] Poll error:', e);
-        }
-    }, 1000);
-}
-
-// Cancel download
-async function cancelDownload(versionId) {
-    try {
-        await apiPost('/model-manager/civitai/download/cancel', { version_id: versionId });
-    } catch (e) {
-        console.error('[CivitaiBrowser] Cancel error:', e);
-    }
-}
-
-// Utility functions
-
-
-function formatFileSize(bytes) {
-    if (!bytes) return 'Unknown';
-    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
-    if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
-    return bytes + ' B';
-}
-
-function formatDate(dateStr) {
-    if (!dateStr) return 'Unknown';
-    try {
-        const date = new Date(dateStr);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    } catch {
-        return dateStr;
     }
 }
 
@@ -2352,8 +2073,6 @@ window.cbShowInModelManager = function(modelId) {
 };
 
 window.cbDownload = startDownload;
-window.cbCancelDownload = cancelDownload;
-window.cbDismissDownload = dismissDownload;
 window.cbLoadMoreImages = loadMoreImages;
 
 // Initialize when ready

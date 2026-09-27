@@ -838,3 +838,354 @@ export function applyCardSize({ width, height, containerId, cssPrefix, logTag })
     container.style.setProperty(`--${cssPrefix}-card-height`, `${height}px`);
     console.log(`[${logTag}] Card size set to ${width}x${height}`);
 }
+
+// ------------------------------------------------------ a version to download
+// Both tabs show a version that is not in the library the same way: what it
+// is, what it costs, which of its files a download produces. The Civitai
+// Browser shows every version of a search result; the Model Manager shows the
+// versions of a local model that were never downloaded.
+
+/** Bytes as a version's files read: "1.99 GB". */
+export function formatBytes(bytes) {
+    if (!bytes) return 'Unknown';
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return bytes + ' B';
+}
+
+/** A date as a version's details read it: "Mar 1, 2025". */
+export function formatDay(dateStr) {
+    if (!dateStr) return 'Unknown';
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch {
+        return dateStr;
+    }
+}
+
+/**
+ * Describe a version's paywall, or '' when it is free.
+ *
+ * `paid_access` is attached by the backend: Civitai leaves `availability`
+ * as "Public" for paid versions, so the field is the only marker.
+ */
+export function paidAccessLabel(version) {
+    const paid = version?.paid_access;
+    if (!paid) return '';
+    if (paid.permanent) return 'Paid';
+    return paid.ends_at ? `Early Access until ${formatDay(paid.ends_at)}` : 'Early Access';
+}
+
+export function isPaid(version) {
+    return !!version?.paid_access;
+}
+
+/**
+ * Index of the file a download of this version will produce.
+ *
+ * Mirrors DownloadService.pick_file_index: files[0] is often the full
+ * fp32 weights, roughly twice the size of the pruned file Civitai marks
+ * primary, so the primary one is the default rather than the first.
+ */
+export function primaryFileIndex(version) {
+    const files = version?.files || [];
+    const primary = files.findIndex(f => f.primary);
+    return primary === -1 ? 0 : primary;
+}
+
+/**
+ * How a file reads in the picker: "pruned fp16 - 1.99 GB".
+ *
+ * metadata carries format/size/fp for model files; anything without it
+ * (a VAE, a config, training data) falls back to its name and type.
+ */
+export function describeFile(file) {
+    const meta = file?.metadata || {};
+    const parts = [meta.size, meta.fp].filter(Boolean);
+
+    if (!parts.length) {
+        const type = file?.type && file.type !== 'Model' ? file.type : '';
+        parts.push(type || file?.name || 'File');
+    } else if (file?.type && file.type !== 'Model') {
+        parts.push(file.type);
+    }
+
+    const size = file?.sizeKB ? formatBytes(file.sizeKB * 1024) : '';
+    return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
+}
+
+/**
+ * The Download button and, when there is a choice, the file picker.
+ *
+ * `prefix` is the tab's: the button is `<prefix>_download_btn` and calls
+ * window.<prefix>Download(modelId, versionId, fileId), the picker calls
+ * window.<prefix>SelectFile(index). A paid version answers the download URL
+ * with 401/403 until it is bought on Civitai, so it is not offered.
+ */
+export function renderDownloadControls({ prefix, modelId, version, fileIndex, owned }) {
+    const files = version?.files || [];
+    const file = files[fileIndex];
+    const paidLabel = paidAccessLabel(version);
+
+    let button = '';
+    if (owned) {
+        button = `<button class="mm-btn secondary" disabled>Already Owned</button>`;
+    } else if (paidLabel) {
+        button = `<button class="mm-btn secondary" disabled `
+            + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
+    } else if (file) {
+        button = `<button class="mm-btn primary" id="${prefix}_download_btn" `
+            + `onclick="window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">Download</button>`;
+    }
+
+    // Only worth a control when there is something to choose between.
+    const picker = files.length > 1
+        ? `<select class="${prefix}-file-select" onchange="window.${prefix}SelectFile(this.value)"
+                   title="Which file to download">
+             ${files.map((f, i) => `<option value="${i}" ${i === fileIndex ? 'selected' : ''}
+                    title="${escapeHtml(f.name || '')}">${escapeHtml(describeFile(f))}`
+                    + `${f.primary ? ' (default)' : ''}</option>`).join('')}
+           </select>`
+        : '';
+
+    return `${button}\n${picker}`;
+}
+
+/**
+ * Point the File and File Size rows and the Download button at another file.
+ *
+ * In place rather than re-rendering the panel, which would scroll the reader
+ * back to the top. The rows are `<prefix>_file_name` and `<prefix>_file_size`.
+ */
+export function showChosenFile(prefix, modelId, version, file) {
+    const nameCell = document.getElementById(`${prefix}_file_name`);
+    if (nameCell) nameCell.textContent = file.name || 'Unknown';
+
+    const sizeCell = document.getElementById(`${prefix}_file_size`);
+    if (sizeCell) {
+        sizeCell.textContent = file.sizeKB ? formatBytes(file.sizeKB * 1024) : 'Unknown';
+    }
+
+    const button = document.getElementById(`${prefix}_download_btn`);
+    if (button) {
+        button.setAttribute('onclick',
+            `window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file.id)})`);
+    }
+}
+
+// ---------------------------------------------------------------- downloads
+// A download takes minutes, and neither tab should make anyone stay in it to
+// see how it is going. So there is one list, polled once, and each tab draws
+// it in a panel of its own: a download started in either shows in both.
+//
+// Each tab imports this module under its own ?mtime (see the top of either
+// tab script), so the two get separate copies of it and module state would
+// not be shared. The list lives on window instead.
+
+/**
+ * Tell the WebUI about newly downloaded files.
+ *
+ * Downloading writes the file but the WebUI has already listed its model
+ * directories, so a new checkpoint does not appear in the native dropdown
+ * until something re-scans. Click the refresh control next to that
+ * dropdown - the same one a user would press. Forge and Forge Neo both
+ * expose it as #forge_refresh_checkpoint, and both hand back only new
+ * choices, so the current selection is left alone.
+ */
+export function refreshWebUiModelList() {
+    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+    const refreshButton = root.querySelector('#forge_refresh_checkpoint');
+
+    if (refreshButton) {
+        refreshButton.click();
+        console.log('[ModelManager] Refreshed the WebUI model list');
+    } else {
+        console.warn('[ModelManager] Could not find the checkpoint refresh button; '
+            + 'the new model may need a manual refresh');
+    }
+}
+
+const DOWNLOAD_STATUS_TEXT = {
+    downloading: 'Downloading', pending: 'Queued', finishing: 'Adding to library',
+    complete: 'Complete', error: 'Error', cancelled: 'Cancelled',
+};
+
+/** One download, as a panel shows it. Classes are the tab's own: `<prefix>-download-*`. */
+function renderDownloadItem(dl, prefix) {
+    const status = dl.status || 'pending';
+    const percent = dl.percent?.toFixed(1) || 0;
+    const downloaded = formatBytes(dl.downloaded_bytes || 0);
+    const total = formatBytes(dl.total_bytes || 0);
+    // finishing: on disk, being added to the library. Not complete until
+    // it is, so that Complete and "Show in MM" arrive together.
+    const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing';
+    const showCancel = status === 'downloading' || status === 'pending';
+    const showDismiss = status === 'complete' || status === 'error' || status === 'cancelled';
+    const p = prefix;
+
+    return `
+        <div class="${p}-download-item ${status}">
+            <div class="${p}-download-item-header">
+                <div class="${p}-download-name" title="${escapeHtml(dl.file_name || 'Unknown')}">${escapeHtml(dl.file_name || 'Unknown')}</div>
+                <span class="${p}-download-status-badge ${status}">${DOWNLOAD_STATUS_TEXT[status] || status}</span>
+            </div>
+            ${showProgress ? `
+                <div class="${p}-download-progress">
+                    <div class="${p}-download-bar" style="width: ${status === 'pending' || status === 'finishing' ? 100 : percent}%"></div>
+                </div>
+            ` : ''}
+            <div class="${p}-download-info">
+                <span class="${p}-download-percent">
+                    ${status === 'downloading' ? `${percent}% - ${downloaded} / ${total}` : ''}
+                    ${status === 'pending' ? 'Waiting...' : ''}
+                    ${status === 'finishing' ? `Adding to library... ${total}` : ''}
+                    ${status === 'complete' ? `${total}` : ''}
+                    ${status === 'error' ? escapeHtml(dl.error || 'Download failed') : ''}
+                    ${status === 'cancelled' ? 'Download cancelled' : ''}
+                </span>
+                <div class="${p}-download-actions">
+                    ${showCancel ? `
+                        <button class="mm-btn mm-btn-small danger" onclick="window.mmCancelDownload(${safeId(dl.version_id)})">Cancel</button>
+                    ` : ''}
+                    ${showDismiss ? `
+                        <button class="mm-btn mm-btn-small secondary" onclick="window.mmDismissDownload(${safeId(dl.version_id)})">Dismiss</button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function createDownloads() {
+    const items = {};          // version id -> the server's progress
+    const panels = new Set();  // tab prefixes with a panel on the page
+    const completed = [];      // callbacks, each given a download once it is in the library
+    const batchDone = [];      // callbacks, once nothing is left running
+    let poll = null;
+    let landed = false;        // a download reached the library in this batch
+
+    const running = (dl) => dl.status === 'downloading' || dl.status === 'pending'
+        || dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced);
+
+    function render() {
+        const downloads = Object.values(items);
+        // Downloading first, then queued, then whatever has finished.
+        const order = { downloading: 0, finishing: 0, pending: 1, complete: 2, error: 3, cancelled: 4 };
+        downloads.sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5));
+
+        const active = downloads.filter(d => d.status === 'downloading' || d.status === 'finishing').length;
+        const queued = downloads.filter(d => d.status === 'pending').length;
+        const finished = downloads.filter(d => ['complete', 'error', 'cancelled'].includes(d.status)).length;
+        const summary = [active && `${active} downloading`, queued && `${queued} pending`,
+                         finished && `${finished} finished`].filter(Boolean).join(', ')
+            || `${downloads.length} total`;
+
+        for (const prefix of panels) {
+            const panel = document.getElementById(`${prefix}_downloads`);
+            const list = document.getElementById(`${prefix}_download_list`);
+            const summaryEl = document.getElementById(`${prefix}_downloads_summary`);
+            if (panel) panel.style.display = downloads.length ? 'block' : 'none';
+            if (!list || !downloads.length) continue;
+            if (summaryEl) summaryEl.textContent = summary;
+            list.innerHTML = downloads.map(dl => renderDownloadItem(dl, prefix)).join('');
+        }
+    }
+
+    async function tick() {
+        try {
+            const result = await apiCall({ endpoint: '/model-manager/civitai/download/progress' });
+            if (!result.success || !result.downloads) return;
+            for (const dl of result.downloads) {
+                const prev = items[dl.version_id];
+                // The file lands well before its database row does; until
+                // `synced` the model is not in the library yet.
+                const arrived = dl.status === 'complete' && dl.synced && !(prev && prev.synced);
+                items[dl.version_id] = dl;
+                if (arrived) {
+                    landed = true;
+                    for (const callback of completed) {
+                        try { callback(dl); } catch (e) { console.error('[ModelManager] Download callback:', e); }
+                    }
+                }
+            }
+            render();
+
+            if (!Object.values(items).some(running)) {
+                clearInterval(poll);
+                poll = null;
+                // Once per batch - re-scanning walks every model directory,
+                // so there is no point doing it per file.
+                if (landed) {
+                    landed = false;
+                    refreshWebUiModelList();
+                    for (const callback of batchDone) {
+                        try { callback(); } catch (e) { console.error('[ModelManager] Download callback:', e); }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('[ModelManager] Download poll error:', e);
+        }
+    }
+
+    const store = {
+        /** Draw the list in this tab's panel: `<prefix>_downloads` and the ids inside it. */
+        addPanel: (prefix) => { panels.add(prefix); render(); },
+        onComplete: (callback) => { completed.push(callback); },
+        onBatchDone: (callback) => { batchDone.push(callback); },
+
+        /** Follow a download the server has accepted. */
+        track: (progress) => {
+            if (!progress || progress.version_id == null) return;
+            items[progress.version_id] = progress;
+            render();
+            if (!poll) poll = setInterval(tick, 1000);
+        },
+
+        /** Ask for a version, and follow it. Returns the server's answer. */
+        start: async function start(modelId, versionId, fileId) {
+            const form = new FormData();
+            if (modelId) form.append('model_id', modelId);
+            form.append('version_id', versionId);
+            // Omitted when unknown, which leaves the backend on the primary.
+            if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
+            const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
+            const result = await response.json();
+            if (result.success && result.progress) store.track(result.progress);
+            return result;
+        },
+
+        cancel: async function cancel(versionId) {
+            try {
+                const form = new FormData();
+                form.append('version_id', versionId);
+                await fetch('/model-manager/civitai/download/cancel', { method: 'POST', body: form });
+            } catch (e) {
+                console.error('[ModelManager] Cancel error:', e);
+            }
+        },
+
+        dismiss: (versionId) => {
+            delete items[versionId];
+            render();
+        },
+
+        get: (versionId) => items[versionId],
+    };
+
+    window.mmCancelDownload = (versionId) => store.cancel(versionId);
+    window.mmDismissDownload = (versionId) => store.dismiss(versionId);
+    return store;
+}
+
+/** The downloads both tabs show. See above. */
+export function downloads() {
+    if (!window.mmDownloads) window.mmDownloads = createDownloads();
+    return window.mmDownloads;
+}

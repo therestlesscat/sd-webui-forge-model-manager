@@ -32,14 +32,8 @@ vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
     .replace(/^export /gm, ''), sandbox);
 sandbox.escapeHtml = sandbox.escapeHtml;
-// The browser keeps its own formatFileSize (2 decimals) on purpose.
-sandbox.formatFileSize = (bytes) => {
-    if (!bytes) return 'Unknown';
-    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
-    if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';
-    if (bytes >= 1024) return (bytes / 1024).toFixed(2) + ' KB';
-    return bytes + ' B';
-};
+// The browser imports the shared formatBytes as its formatFileSize.
+sandbox.formatFileSize = sandbox.formatBytes;
 
 function lift(name) {
     const m = src.match(new RegExp('^[ \\t]*(async )?function ' + name + '\\s*\\(', 'm'));
@@ -56,12 +50,11 @@ function lift(name) {
 }
 
 sandbox.selectedFileIndex = null;
-const primaryFileIndex = lift('primaryFileIndex');
-sandbox.primaryFileIndex = primaryFileIndex;
+// Shared with the Model Manager, so they live in common.mjs.
+const { primaryFileIndex, describeFile } = sandbox;
 const primaryFile = lift('primaryFile');
 const chosenFileIndex = lift('chosenFileIndex');
 sandbox.chosenFileIndex = chosenFileIndex;
-const describeFile = lift('describeFile');
 const selectFile = lift('selectFile');
 
 let failures = 0;
@@ -129,8 +122,10 @@ sandbox.selectedFileIndex = 5;
 check('stale index falls back to primary', chosenFileIndex(version) === 1, String(chosenFileIndex(version)));
 
 // --- the dropdown only exists when there is a choice ------------------------
-const renderSrc = src.slice(src.indexOf('const fileOptions'), src.indexOf('const fileOptions') + 600);
-check('gated on more than one file', /versionFiles\.length > 1/.test(renderSrc), renderSrc.slice(0, 80));
+const controls = (files) => sandbox.renderDownloadControls({ prefix: 'cb', modelId: 7,
+    version: { id: 42, files }, fileIndex: 0, owned: false });
+check('gated on more than one file',
+      !controls([FILES[1]]).includes('<select') && controls(FILES).includes('<select'), controls([FILES[1]]));
 
 // --- against live data ------------------------------------------------------
 const cr = JSON.parse(execSync(

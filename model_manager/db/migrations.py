@@ -1102,6 +1102,30 @@ def _migrate_to_v25(cursor, db_path: str):
     print("[ModelManager] Migration to v25 complete")
 
 
+def _migrate_to_v26(cursor):
+    """Remember every version Civitai lists for a model, not only the local ones.
+
+    versions is Civitai's modelVersions, trimmed to what the details panel
+    shows and a download needs. versions_synced_at is when that list came
+    from Civitai itself; NULL means it was read from sidecars, which can be
+    older than the model and so are only added to, never trusted to remove.
+    Both NULL until a scan, a sync or the details panel fills them.
+    """
+    print("[ModelManager] Migrating to schema v26 (every version of a model)...")
+
+    cursor.execute("PRAGMA table_info(civitai_models)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if not columns:
+        # No such table: a database made for one test, with only what it needs.
+        print("[ModelManager] Migration to v26 complete (no models table)")
+        return
+    for column in ("versions", "versions_synced_at"):
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE civitai_models ADD COLUMN {column} TEXT")
+
+    print("[ModelManager] Migration to v26 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1179,6 +1203,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 25:
         _migrate_to_v25(cursor, db_path)
+
+    if from_version < 26:
+        _migrate_to_v26(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

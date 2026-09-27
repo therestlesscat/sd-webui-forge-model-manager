@@ -62,6 +62,19 @@ blanking trigger words, dates, licences, vote counts and stored hashes. Adding
 a column means adding it in four places: the INSERT list, the VALUES tuple, the
 `DO UPDATE SET` list, and that no-clobber rule.
 
+**A model's version list is Civitai's, as of the last sync.**
+`civitai_models.versions` holds every version Civitai lists, local or not, so
+the details panel can offer the rest for download without asking Civitai. A
+sync replaces it; a sidecar only adds to it, and not at all once a sync has
+written it - a sidecar is as old as its file, and would bring back a version
+Civitai deleted. A library synced before the column existed is filled from a
+sidecar the first time the panel asks.
+
+**One downloads list for both tabs.** `downloads()` in
+`javascript/shared/common.mjs` polls once and draws into each tab's panel. It
+lives on `window`: each tab imports the shared module under its own `?mtime`,
+so module state would be two copies.
+
 **Deleting rows needs evidence.** Two kinds, and they are not equally safe.
 *Direct*: this file was about to be refreshed and is not there — sound in any
 scope. *By diff*: these rows name files a walk never found — sound only when
@@ -278,5 +291,5 @@ real time once.
 python tests/run.py
 ```
 
-Thirty-seven Python suites, thirty browser suites and the static checks,
+Thirty-eight Python suites, thirty-two browser suites and the static checks,
 about a minute. See `tests/README.md` for what they cover and how to add one.
