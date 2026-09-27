@@ -146,6 +146,27 @@ opts.model_manager_nsfw_prompt_model_percent = 2
 use(model_file('other.json.gz', {'zorp': 4.0}))
 check('   so does a new model', nsfw.prompt_words_fingerprint() != first)
 
+# ------------------------------------------------- the model, or the words
+# Settings -> NSFW detection: the trained model, or the word list alone. The
+# model is right more often and wrong in ways nobody can point at; the choice
+# is the user's.
+opts.model_manager_nsfw_prompt_model_percent = 2
+check('5b. the trained model is the default', (nsfw.detection(), nsfw.image_level(image('a zorp'))),
+      ('model', nsfw.X))
+with_model = nsfw.prompt_words_fingerprint()
+opts.model_manager_nsfw_detection = 'words'
+check('    with the word list chosen, the model judges nothing',
+      (nsfw.detection(), nsfw.prompt_model_threshold(), nsfw.image_level(image('a zorp'))),
+      ('words', None, nsfw.PG))
+check('    and stored images are judged again', nsfw.prompt_words_fingerprint() != with_model)
+open(words, 'w').write('zorp\n')
+nsfw.PROMPT_WORDS_FILE, nsfw._bundled = words, None
+check('    while the words still work', nsfw.image_level(image('a zorp')), nsfw.X)
+nsfw.PROMPT_WORDS_FILE, nsfw._bundled = os.path.join(WORK, 'no_words.txt'), None
+opts.model_manager_nsfw_detection = 'something else'
+check('    a value it does not know is the model', nsfw.detection(), 'model')
+opts.model_manager_nsfw_detection = 'model'
+
 use(os.path.join(WORK, 'missing.json.gz'))
 check('6. with no model file, the words still work and nothing fails',
       (nsfw.prompt_model(), nsfw.prompt_model_threshold(), nsfw.image_level(image('a zorp'))),

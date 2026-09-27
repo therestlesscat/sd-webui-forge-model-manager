@@ -304,6 +304,14 @@ def create_ui():
                     <div class="sync-progress-text" id="mm_sync_text">Preparing...</div>
                 </div>
 
+                <!-- While the SFW filter is on and a trained model decides what is
+                     SFW: say so, and where to switch. Filled by model_manager.mjs. -->
+                <div id="mm_sfw_only_banner" class="mm-banner" style="display: none;">
+                    <span class="mm-banner-icon">i</span>
+                    <span><strong>Only Show Models with SFW images is on.</strong>
+                        <span id="mm_sfw_only_banner_model" class="mm-banner-note"></span></span>
+                </div>
+
                 <!-- Status -->
                 <div id="mm_status" class="model-manager-status">
                     Ready. Click 'Load Models' to browse.

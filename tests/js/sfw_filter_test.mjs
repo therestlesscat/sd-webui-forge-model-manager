@@ -93,6 +93,12 @@ check('above the status line, where the short page is reported',
 check('saying what the tooltip says, word for word',
       $('cb_sfw_only_banner_text').textContent, sfwTip);
 const settingNote = $('cb_sfw_only_banner_setting')?.textContent.replace(/\s+/g, ' ') || '';
+// This suite's server answers without nsfw_detection, which is the word list:
+// the banner then says nothing of a trained model (nsfw_note_test.mjs has the
+// other side, in the Model Manager).
+await new Promise((r) => setTimeout(r, 50));
+check('with the word list judging, the banner says nothing of a trained model',
+      $('cb_sfw_only_banner_model')?.textContent, '');
 check('and where to find the setting that fills every page, and that it is not recommended',
       [settingNote.includes("Fill every page with 'Only Show Models with SFW images'"),
        settingNote.includes('Settings → Model Manager'), settingNote.includes('not recommended')],

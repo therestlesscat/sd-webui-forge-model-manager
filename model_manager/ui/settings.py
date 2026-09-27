@@ -222,10 +222,30 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_nsfw_detection",
+        shared.OptionInfo(
+            default="model",
+            label="NSFW detection: what finds explicit images Civitai rates PG or PG-13",
+            component=gr.Radio,
+            component_args={"choices": [
+                ("Trained model - catches more, and is sometimes wrong", "model"),
+                ("Word list - only the words below", "words"),
+            ]},
+            onchange=_prompt_words_changed,
+            section=section,
+        ).info("The trained model reads each image's prompts and the resources it used, and "
+               "catches most of the explicit images Civitai under-rates - but it judges by "
+               "what it learned, and sometimes raises an image that is fine or misses one that "
+               "is not. The word list treats an image as X only when its prompt uses one of "
+               "the words: nothing else, and nothing you cannot check. Stored images are "
+               "judged again in the background when this changes.")
+    )
+
+    shared.opts.add_option(
         "model_manager_nsfw_prompt_model_percent",
         shared.OptionInfo(
             default=2.0,
-            label="NSFW: prompt model - % of PG/PG-13 prompts to treat as X",
+            label="NSFW: trained model - % of PG/PG-13 prompts to treat as X",
             component=gr.Number,
             component_args={"minimum": 0, "maximum": 20, "step": 0.25},
             onchange=_prompt_words_changed,
@@ -235,8 +255,9 @@ def on_ui_settings():
                "the resources used - finds them, and this is how far it goes: the share of PG "
                "and PG-13 prompts it may treat as X. 2 (default) caught about 94% of X/XXX "
                "prompts on a library it had never seen. 1 is stricter, 3 or more catches more "
-               "at more cost. 0 turns the model off, leaving only the words. Stored images are "
-               "judged again in the background when this changes.")
+               "at more cost. 0 turns the model off, leaving only the words. Applies with NSFW "
+               "detection set to Trained model. Stored images are judged again in the "
+               "background when this changes.")
     )
 
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset

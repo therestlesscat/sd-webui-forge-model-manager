@@ -313,6 +313,16 @@ code, body = get('/model-manager/ui-options')
 check('and reports one when set', body.get('has_api_key'), True)
 webui_stub.install()
 
+# The pages note it while a trained model decides what is NSFW.
+check('it says a trained model judges prompts, by default', body.get('nsfw_detection'), 'model')
+webui_stub.install(model_manager_nsfw_detection='words')
+code, body = get('/model-manager/ui-options')
+check('and the word list when that is chosen', body.get('nsfw_detection'), 'words')
+webui_stub.install(model_manager_nsfw_prompt_model_percent=0)
+code, body = get('/model-manager/ui-options')
+check('or when the model is turned off', body.get('nsfw_detection'), 'words')
+webui_stub.install()
+
 # ------------------------------------------------------------------ deleting
 victim = facts['local_only_paths'][0]
 check('the file is there to begin with', os.path.exists(victim), True)

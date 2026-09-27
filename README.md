@@ -162,7 +162,8 @@ Found under **Settings -> Model Manager**.
 | Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
 | NSFW: extra prompt words | empty | Words added to the bundled list. An image rated PG or PG-13 whose prompt uses one is treated as X. Stored images are judged again in the background when this changes |
-| NSFW: prompt model - % of PG/PG-13 prompts to treat as X | 2 | How far the prompt model goes (0-20). 2 caught about 94% of X/XXX prompts on a library the model had never seen; 1 is stricter, higher catches more at more cost, 0 turns it off. Stored images are judged again in the background when this changes |
+| NSFW detection | Trained model | What finds explicit images Civitai rates PG or PG-13: the trained model, which catches more and is sometimes wrong, or the word list alone. While the model is in use, the galleries' filter banner and "Only Show Models with SFW images" say so. Stored images are judged again in the background when this changes |
+| NSFW: trained model - % of PG/PG-13 prompts to treat as X | 2 | How far the prompt model goes (0-20). 2 caught about 94% of X/XXX prompts on a library the model had never seen; 1 is stricter, higher catches more at more cost, 0 turns it off. Stored images are judged again in the background when this changes |
 | Send to txt2img: *model* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
 
 ### Text encoders and VAEs for newer models
@@ -217,7 +218,8 @@ The effective level for a model is the maximum of:
 
 Civitai's raters miss some images. An image rated PG or PG-13 whose prompt reads as
 explicit is treated as X everywhere: grid previews, both galleries, and the SFW filters.
-Its badge reads "X · prompt". Two things decide it:
+Its badge reads "X · prompt". Two things decide it - or, with **NSFW detection** set to
+Word list, the words alone:
 
 - **A prompt model**, trained on image prompts - their words, pairs of words, negative,
   ADetailer and hires prompts, and the resources they used - to tell the prompts of images

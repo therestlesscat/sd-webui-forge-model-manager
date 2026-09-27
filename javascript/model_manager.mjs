@@ -50,6 +50,8 @@ const {
     downloads,
     formatBytes,
     formatDay,
+    loadNsfwDetection,
+    nsfwModelNote,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
@@ -1744,7 +1746,7 @@ function renderModelImages(images) {
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
-              onchange: 'window.mmToggleShowNsfwImages(this.checked)' },
+              onchange: 'window.mmToggleShowNsfwImages(this.checked)', note: nsfwModelNote() },
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
@@ -3019,10 +3021,10 @@ async function switchForgePreset(preset) {
     const input = container?.querySelector('input');
     if (!input || !preset) return false;
     if (currentForgePreset() === preset) return true;
-
-    // The original Forge's radio buttons: press the one for the preset. The
     watchForgeCalls();
     const callsBefore = forgeCalls.started;
+
+    // The original Forge's radio buttons: press the one for the preset. The
     // dropdown path below would type into a radio's value - which it did,
     // clearing the first choice's.
     const radios = Array.from(container.querySelectorAll('input[type="radio"]'));
@@ -4882,6 +4884,19 @@ function selectBaseModel(value) {
     select.value = value || '';
 }
 
+/**
+ * While "Only Show Models with SFW images" is ticked and a trained model
+ * judges prompts, say so above the results. The word list needs no note.
+ */
+function syncSfwOnlyBanner() {
+    const banner = document.getElementById('mm_sfw_only_banner');
+    const note = document.getElementById('mm_sfw_only_banner_model');
+    if (!banner || !note) return;
+    const text = nsfwModelNote();
+    note.textContent = text;
+    banner.style.display = text && document.getElementById('mm_sfw_only')?.checked ? 'flex' : 'none';
+}
+
 function loadSearchFilters() {
     const saved = localStorage.getItem('mm_saved_filters');
     if (!saved) return false;
@@ -4903,6 +4918,7 @@ function loadSearchFilters() {
         const sfwOnly = document.getElementById('mm_sfw_only');
         if (sfwOnly && Object.prototype.hasOwnProperty.call(filters, 'sfw_only')) {
             sfwOnly.checked = Boolean(filters.sfw_only);
+            syncSfwOnlyBanner();
         }
 
         // Set NSFW checkboxes
@@ -4948,6 +4964,8 @@ function clearSearchFilters() {
 function init() {
     console.log('[ModelManager] Initializing...');
     bindElements();
+    document.getElementById('mm_sfw_only')?.addEventListener('change', syncSfwOnlyBanner);
+    loadNsfwDetection().then(syncSfwOnlyBanner);
 
 }
 
