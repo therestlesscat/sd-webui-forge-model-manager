@@ -743,6 +743,10 @@ window.mmSelectModel = async function(index) {
     visibleImageCount = IMAGE_PAGE_SIZE;
     nextImagesCursor = null;
     imagesSyncDate = null;
+    // Each model's gallery starts from the settings; its switches then last
+    // while this model is open - as in the Civitai Browser.
+    hideNsfwImagesInitialized = false;
+    hidePromptlessInitialised = false;
 
     // Reset version state
     currentVersions = [];
@@ -790,10 +794,13 @@ window.mmSelectModel = async function(index) {
 // Load details for a specific version
 async function loadVersionDetails(filePath) {
     try {
+        // Until the first answer, neither is sent: the server then goes by
+        // the settings and says what it chose. Sending the defaults here
+        // meant the settings were never read at all.
         const params = {
             path: filePath,
-            hide_nsfw_images: hideNsfwImages,
-            hide_promptless_images: hidePromptlessImages,
+            hide_nsfw_images: hideNsfwImagesInitialized ? hideNsfwImages : undefined,
+            hide_promptless_images: hidePromptlessInitialised ? hidePromptlessImages : undefined,
         };
         const data = await apiCall({ endpoint: '/model-manager/models/details', params });
         if (data.success && data.model) {
@@ -867,6 +874,7 @@ window.mmToggleShowPromptless = async function(showPromptless) {
 // meet, so the inversion is done here and nowhere else.
 window.mmToggleShowNsfwImages = async function(showNsfw) {
     hideNsfwImages = !showNsfw;
+    hideNsfwImagesInitialized = true;
     currentImagePage = 1;
     visibleImageCount = IMAGE_PAGE_SIZE;
     if (currentModelPath) {

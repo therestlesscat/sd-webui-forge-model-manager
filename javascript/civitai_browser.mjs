@@ -25,7 +25,6 @@ const {
     escapeHtml,
     safeId,
     sanitizeHtml,
-    hasUsablePrompt,
     formatNumber,
     renderThumbs,
     nsfwImageLevel,
@@ -52,6 +51,8 @@ const {
     formatDay: formatDate,
     loadNsfwDetection,
     nsfwModelNote,
+    galleryDefaults,
+    hasReadablePrompt,
 } = await import(sharedModule.href);
 
 // State
@@ -66,10 +67,9 @@ let currentImages = [];
 let currentImagePage = 1;
 let nextImagesCursor = null;
 let isLoadingImages = false;
-let showAllNsfwImages = false;  // Toggle for showing all images regardless of NSFW filter
-// The same kind of override for the prompt filter: with "Only with usable
-// prompts" ticked, an opened model's images without one are hidden, and this
-// shows them again for that model without changing the search.
+// The gallery's two switches. Each model opens as the settings say, and a
+// switch then lasts while that model is open - as in the Model Manager.
+let showAllNsfwImages = false;
 let showPromptlessImages = false;
 
 // Card sizing (default values, updated from API)
@@ -846,16 +846,13 @@ function chosenFileIndex(version) {
 }
 
 // Open model detail
-function openModel(index, versionIndex = 0) {
+async function openModel(index, versionIndex = 0) {
     const model = currentModels[index];
     if (!model) return;
 
     selectedModel = model;
     selectedVersionIndex = versionIndex;
     selectedFileIndex = null;
-    // Start matching the search, then let the toggles take over.
-    showAllNsfwImages = document.getElementById('cb_nsfw')?.checked || false;
-    showPromptlessImages = false;
 
     // Highlight selected card
     document.querySelectorAll('#cb_grid .model-card').forEach((card, i) => {
@@ -863,6 +860,14 @@ function openModel(index, versionIndex = 0) {
     });
 
     renderModelDetails();
+
+    // The switches start as the settings say - not as the search does:
+    // Include NSFW models and Only with usable prompts choose which models
+    // are listed, and someone may list them and still not want every image.
+    const defaults = await galleryDefaults();
+    if (selectedModel !== model) return;   // another model was opened meanwhile
+    showAllNsfwImages = !defaults.hideNsfw;
+    showPromptlessImages = !defaults.hidePromptless;
     loadImagesFromVersion();
 }
 
@@ -1202,6 +1207,16 @@ function updateImagesCount() {
     }
 }
 
+/**
+ * The images the gallery shows, before paging: the NSFW switch's filter, then
+ * the prompt filter's. The page controls count these, as renderImages does.
+ */
+function shownImages() {
+    let images = showAllNsfwImages ? currentImages : currentImages.filter(isImageSafe);
+    if (!showPromptlessImages) images = images.filter(hasReadablePrompt);
+    return images;
+}
+
 // Render images - EXACTLY like Model Manager
 function renderImages() {
     const container = document.getElementById('cb_images');
@@ -1214,8 +1229,8 @@ function renderImages() {
     }
 
     // The toggle below governs the image list on its own. It is seeded
-    // from the search box when a model is opened, so a search without NSFW
-    // still opens filtered - but the images are all fetched either way
+    // from the gallery setting when a model is opened - but the images are
+    // all fetched either way
     // (get_model_images asks for every level), so revealing them is local.
     let imagesToShow = currentImages;
     let hiddenCount = 0;
@@ -1225,17 +1240,15 @@ function renderImages() {
         hiddenCount = currentImages.length - imagesToShow.length;
     }
 
-    // Hide images with nothing to send to txt2img while the filter is on.
-    // Must happen before paging, so page numbers count only what is shown.
+    // Hide images with no prompt worth reading, by the Model Manager's rule
+    // (hasReadablePrompt is its MIN_PROMPT_LENGTH). Must happen before
+    // paging, so page numbers count only what is shown.
     let promptHiddenCount = 0;
-    // Images without a usable prompt among those the NSFW filter lets through:
-    // what the prompt filter hides now, or once its switch is ticked, shows.
-    const promptFilterOn = requirePromptEnabled();
-    const promptlessCount = promptFilterOn
-        ? imagesToShow.filter((img) => !hasUsablePrompt(img)).length
-        : 0;
-    if (promptFilterOn && !showPromptlessImages) {
-        imagesToShow = imagesToShow.filter(hasUsablePrompt);
+    // Images without one among those the NSFW filter lets through: what the
+    // prompt filter hides now, or once its switch is ticked, shows.
+    const promptlessCount = imagesToShow.filter((img) => !hasReadablePrompt(img)).length;
+    if (!showPromptlessImages) {
+        imagesToShow = imagesToShow.filter(hasReadablePrompt);
         promptHiddenCount = promptlessCount;
     }
 
@@ -1250,9 +1263,9 @@ function renderImages() {
     // shown, NSFW counted first as it filters first - and a switch for each on
     // the right. A ticked NSFW switch shows how many NSFW images it lets
     // through, among those the prompt filter lets through.
-    const promptPassing = promptFilterOn && !showPromptlessImages
-        ? currentImages.filter(hasUsablePrompt)
-        : currentImages;
+    const promptPassing = showPromptlessImages
+        ? currentImages
+        : currentImages.filter(hasReadablePrompt);
     const bannerOptions = {
         shown: imagesToShow.length,
         total: currentImages.length,
@@ -1263,10 +1276,8 @@ function renderImages() {
               showing: showAllNsfwImages, hidden: hiddenCount,
               count: promptPassing.filter((img) => !isImageSafe(img)).length,
               onchange: 'window.cbToggleShowAllImages(this.checked)', note: nsfwModelNote() },
-            // Only while the search asks for usable prompts: otherwise this
-            // tab does not filter on them at all.
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
-              reason: 'unusable prompt', applies: promptFilterOn,
+              reason: 'unusable prompt',
               showing: showPromptlessImages, hidden: promptHiddenCount,
               count: promptlessCount,
               onchange: 'window.cbToggleShowPromptless(this.checked)' },
@@ -1325,7 +1336,7 @@ window.cbToggleShowAllImages = function(checked) {
     renderImages();
 };
 
-// Show or hide this model's images without a usable prompt. Local: they are
+// Show or hide this model's images without a prompt. Local: they are
 // already fetched, and the search's own filter is left as it is.
 window.cbToggleShowPromptless = function(checked) {
     showPromptlessImages = checked;
@@ -1340,9 +1351,7 @@ window.cbFirstImagePage = function() {
 };
 
 window.cbLastImagePage = function() {
-    const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
-        ? currentImages.filter(img => isImageSafe(img)).length
-        : currentImages.length);
+    const totalPages = getImagePageCount(shownImages().length);
     if (currentImagePage === totalPages) return;
     currentImagePage = totalPages;
     renderImages();
@@ -1355,18 +1364,14 @@ window.cbPrevImagePage = function() {
 };
 
 window.cbNextImagePage = function() {
-    const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
-        ? currentImages.filter(img => isImageSafe(img)).length
-        : currentImages.length);
+    const totalPages = getImagePageCount(shownImages().length);
     if (currentImagePage >= totalPages) return;
     currentImagePage += 1;
     renderImages();
 };
 
 window.cbGoToImagePage = async function(page) {
-    const totalPages = getImagePageCount((!document.getElementById('cb_nsfw')?.checked && !showAllNsfwImages)
-        ? currentImages.filter(img => isImageSafe(img)).length
-        : currentImages.length);
+    const totalPages = getImagePageCount(shownImages().length);
     if (page < 1 || page > totalPages || page === currentImagePage) return;
 
     await scrollToBrowserImagesTop();

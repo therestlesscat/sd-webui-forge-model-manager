@@ -342,7 +342,7 @@ def register(app: FastAPI):
                 # Determine NSFW filter - use parameter if provided, else use setting
                 from modules import shared
                 if hide_nsfw_images is None:
-                    hide_nsfw_images = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+                    hide_nsfw_images = getattr(shared.opts, 'model_manager_gallery_hide_nsfw', True)
                 if hide_promptless_images is None:
                     hide_promptless_images = getattr(
                         shared.opts, 'model_manager_hide_promptless_images', True)

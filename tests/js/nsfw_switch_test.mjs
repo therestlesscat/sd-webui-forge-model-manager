@@ -120,6 +120,8 @@ check('the switches sit inside that one banner',
       banners()[0]?.querySelectorAll(`#${NSFW}, #${PROMPT}`).length, 2);
 check('neither ticked while its filter hides', [ticked(NSFW), ticked(PROMPT)], [false, false]);
 check('nothing says Hide any more', images().textContent.includes('Hide'), false);
+check('the first request leaves both filters to the settings, so they are read at all',
+      asked[0], [null, null]);
 
 // ---------------------------------------------------------------- NSFW shown
 asked.length = 0;
