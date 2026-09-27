@@ -857,6 +857,9 @@ function createSettings() {
                 return;
             }
             syncSettingsPage(values);
+            // A change to how images are judged has them judged again, on
+            // the server; say how far that has got.
+            if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
             take(answer);
             root.style.display = 'none';
             document.body.classList.remove('mm-modal-open');
@@ -925,6 +928,168 @@ export function syncSettingsPage(values) {
     });
 }
 
+// ------------------------------------------------------------------------
+// Judging stored images again
+
+// The settings that change how images are judged: saving one has the server
+// judge every stored image again (prompt_levels.py).
+const NSFW_KEYS = [K.words, K.detection, K.percent];
+const RESTAMP_POLL_MS = 250;
+const RESTAMP_DONE_MS = 6000;
+
+/**
+ * A notice in the corner while the server judges stored images again - a bar
+ * of how many so far, then what changed. In the corner, not the settings
+ * window: the window closes on the save that started it. One for the page.
+ */
+function createRestampNotice() {
+    let box = null;
+    let polling = null;
+    let hideTimer = null;
+
+    function show(text, share, tone = '') {
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'mm-notice mm-restamp';
+            box.setAttribute('role', 'status');
+            box.innerHTML = '<div class="mm-restamp-text"></div>'
+                + '<div class="mm-restamp-bar"><div class="mm-restamp-fill"></div></div>';
+            document.body.appendChild(box);
+        }
+        clearTimeout(hideTimer);
+        box.style.display = '';
+        box.dataset.tone = tone;
+        box.querySelector('.mm-restamp-text').textContent = text;
+        const fill = box.querySelector('.mm-restamp-fill');
+        // No share yet: the images are still being read, and how many is not known.
+        box.classList.toggle('mm-restamp-unknown', share === null);
+        fill.style.width = share === null ? '' : `${Math.round(share * 100)}%`;
+    }
+
+    function hideLater(ms) {
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => { if (box) box.style.display = 'none'; }, ms);
+    }
+
+    const count = (n) => Number(n).toLocaleString();
+
+    async function poll() {
+        let state;
+        try {
+            const response = await fetch('/model-manager/settings/nsfw-levels', { cache: 'no-store' });
+            state = await response.json();
+        } catch (e) {
+            state = null;
+        }
+        if (state?.state === 'running') {
+            // Every image judged, and the changes being written: about a
+            // second on 109,738 images, the bar full meanwhile.
+            if (state.total && state.judged === state.total) {
+                show('Saving the new levels...', 1);
+            } else if (state.total) {
+                show(`Judging stored images again... ${count(state.judged)} of ${count(state.total)}`,
+                     state.judged / state.total);
+            } else {
+                show('Reading stored images...', null);
+            }
+            polling = setTimeout(poll, RESTAMP_POLL_MS);
+            return;
+        }
+        polling = null;
+        if (state?.state === 'done') {
+            show(state.changed === null || state.changed === undefined
+                ? 'Stored images already match these settings.'
+                : `Done: ${count(state.changed)} of ${count(state.total)} images changed level.`, 1, 'good');
+            hideLater(RESTAMP_DONE_MS);
+        } else if (state?.state === 'failed') {
+            show(`Could not judge stored images again: ${state.error}`, 1, 'bad');
+            hideLater(RESTAMP_DONE_MS * 2);
+        } else if (box) {
+            box.style.display = 'none';
+        }
+    }
+
+    /** Follow the pass a save has just started, to its end. */
+    function watch() {
+        if (!polling) poll();
+    }
+
+    /** Show a pass already running when the page loads - the one at the WebUI's start. */
+    async function check() {
+        try {
+            const response = await fetch('/model-manager/settings/nsfw-levels', { cache: 'no-store' });
+            if ((await response.json()).state === 'running') watch();
+        } catch (e) {
+            // Nothing to show.
+        }
+    }
+
+    return { watch, check };
+}
+
+/** The one notice, for whichever tab asks first. */
+export function restampNotice() {
+    if (!window.mmRestampNotice) {
+        window.mmRestampNotice = createRestampNotice();
+        window.mmRestampNotice.check();
+    }
+    return window.mmRestampNotice;
+}
+
+// ------------------------------------------------------------------------
+// The WebUI's own Settings page
+
+// The Settings page's result line, and nothing else in its element: while
+// Apply runs, Gradio puts its timer ("0.1s") in the same element, beside the
+// line the last Apply left - which is not this one's answer.
+const SETTINGS_RESULT_LINE = /^\s*\d+ settings changed/;
+// A safety, should the line never be seen to settle: after this long, a
+// settled line as it stands is taken as the answer.
+const SETTINGS_RESULT_WAIT_MS = 10000;
+
+/**
+ * The settings the Settings page says it changed: its result line reads
+ * "2 settings changed: a, b." in Forge Neo and the original Forge alike
+ * (run_settings in modules/ui_settings.py). Nothing for any other line.
+ */
+export function changedOnSettingsPage(text) {
+    const found = String(text || '').match(/^\s*\d+ settings changed:? (?:without save: )?(.+?)\.?\s*$/);
+    return found ? found[1].split(',').map((key) => key.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Show the notice after Apply on the Settings page, too, when what it applied
+ * changes how images are judged. The Settings page is part of the same page as
+ * the tabs, so this is one listener for it, set once.
+ */
+function followSettingsPage() {
+    if (window.mmFollowingSettingsPage) return;
+    window.mmFollowingSettingsPage = true;
+    document.addEventListener('click', (e) => {
+        if (!e.target?.closest?.('#settings_submit')) return;
+        const app = typeof gradioApp === 'function' ? gradioApp() : document;
+        const result = app.querySelector('#settings_result');
+        if (!result) return;
+        let finished = false;
+        let observer = null;
+        const timer = setTimeout(read, SETTINGS_RESULT_WAIT_MS);
+        function read() {
+            // Gradio's timer is still there, with the last Apply's line.
+            if (finished || !SETTINGS_RESULT_LINE.test(result.textContent)) return;
+            finished = true;
+            clearTimeout(timer);
+            observer?.disconnect();
+            if (changedOnSettingsPage(result.textContent).some((key) => NSFW_KEYS.includes(key))) {
+                restampNotice().watch();
+            }
+        }
+        if (typeof MutationObserver === 'function') {
+            observer = new MutationObserver(read);
+            observer.observe(result, { childList: true, subtree: true, characterData: true });
+        }
+    }, true);
+}
+
 /** The one settings window, for whichever tab asks first. */
 export function settingsWindow() {
     if (!window.mmSettingsWindow) window.mmSettingsWindow = createSettings();
@@ -932,3 +1097,5 @@ export function settingsWindow() {
 }
 
 window.mmOpenSettings ||= () => settingsWindow().open();
+restampNotice();
+followSettingsPage();

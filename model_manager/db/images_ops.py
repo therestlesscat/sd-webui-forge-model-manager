@@ -73,7 +73,11 @@ class ImagesOps:
                     """, (img_id, version_id, page, position, url, width, height,
                           effective_nsfw_level, created_at, json.dumps(img)))
 
-    def restamp_levels(self) -> Tuple[int, int, int]:
+    # How often restamp_levels() says how far it has got: on 109,738 images
+    # judging took 3-7 s, so this is a few reports a second.
+    RESTAMP_REPORT_EVERY = 2000
+
+    def restamp_levels(self, progress=None) -> Tuple[int, int, int]:
         """
         Judge every stored image again, as image_level() now would.
 
@@ -84,14 +88,22 @@ class ImagesOps:
         the grid falls back to the version's first image that is still safe
         until a scan or sync picks the cover again.
 
+        Args:
+            progress: called as progress(judged, total) once the images are
+                read, every RESTAMP_REPORT_EVERY images, and at the end.
+
         Returns:
             (images changed, images read, safe covers cleared)
         """
         with self._cursor() as cursor:
             cursor.execute("SELECT id, version_id, effective_nsfw_level, data FROM images")
             rows = cursor.fetchall()
+        report = progress or (lambda judged, total: None)
+        report(0, len(rows))
         changed = []
-        for image_id, version_id, stored, data in rows:
+        for done, (image_id, version_id, stored, data) in enumerate(rows, 1):
+            if done % self.RESTAMP_REPORT_EVERY == 0:
+                report(done, len(rows))
             if not data:
                 continue
             try:
@@ -100,6 +112,7 @@ class ImagesOps:
                 continue
             if level != stored:
                 changed.append((level, image_id, version_id))
+        report(len(rows), len(rows))
         with self._cursor() as cursor:
             cursor.executemany(
                 "UPDATE images SET effective_nsfw_level = ? WHERE id = ? AND version_id = ?",

@@ -5,6 +5,9 @@ import { readFileSync } from 'fs';
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The Settings page's result line is watched for; linkedom has the observer,
+// the harness does not make it global.
+globalThis.MutationObserver = window.MutationObserver;
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ the server's settings
@@ -89,6 +92,9 @@ function describe(drafts = {}) {
 }
 const tableAsked = [];
 const keyTested = [];
+// What the server says of judging stored images again, one answer per ask;
+// the last is repeated. Nothing is running when the page loads.
+let restampStates = [{ state: 'idle' }];
 let keyAnswerReady = Promise.resolve();
 const modelsAsked = [];
 const libraryModel = (id) => ({ id, name: `M${id}`, display_name: `Model ${id}`, model_type: 'LORA',
@@ -97,6 +103,10 @@ let settingsAsked = 0;
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/model-manager/settings/nsfw-levels')) {
+        const state = restampStates.length > 1 ? restampStates.shift() : restampStates[0];
+        return { ok: true, json: async () => ({ success: true, ...state }) };
+    }
     if (href.includes('/model-manager/settings/test-key')) {
         const body = JSON.parse(init.body);
         keyTested.push(body);
@@ -147,6 +157,7 @@ const page = document.createElement('div');
 page.innerHTML = `
     <div id="setting_model_manager_page_size"><input type="number" value="20"><input type="range" value="20"></div>
     <div id="setting_model_manager_gallery_hide_nsfw"><input type="checkbox" checked></div>
+    <button id="settings_submit">Apply settings</button><div id="settings_result"></div>
     <div id="setting_model_manager_nsfw_detection">
         <input type="radio" name="d" value="model"><input type="radio" name="d" value="words" checked></div>`;
 document.body.appendChild(page);
@@ -430,5 +441,99 @@ $('#mm_settings_save').click();
 await waitFor('the second save', () => saved.length === 2);
 check('a save sends each preset\'s setting as text, as the Settings page holds it',
       posted[1], { model_manager_modules_flux: 'ae_fp8.safetensors, t5xxl_fp8' });
+
+// ----------------------------------------- judging stored images again
+// A save that changes how images are judged has the server judge every
+// stored image again. A notice in the corner - the window has closed - shows
+// how far it has got, then what changed.
+const notice = () => document.querySelector('.mm-restamp');
+const noticeText = () => notice()?.querySelector('.mm-restamp-text').textContent;
+const n = (x) => Number(x).toLocaleString();
+check('nothing is shown while nothing is running', notice(), null);
+
+restampStates = [
+    { state: 'running', judged: null, total: null },
+    { state: 'running', judged: 50000, total: 100000 },
+    { state: 'done', changed: 633, total: 100000 },
+];
+await window.mmOpenSettings();
+pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'));
+$('#mm_settings_save').click();
+await waitFor('the notice', () => Boolean(notice()));
+check('first, the images are being read: no share yet',
+      [noticeText(), notice()?.classList.contains('mm-restamp-unknown')], ['Reading stored images...', true]);
+await waitFor('the bar', () => noticeText()?.startsWith('Judging'));
+check('then how many so far, as a bar', [noticeText(), notice()?.querySelector('.mm-restamp-fill').style.width],
+      [`Judging stored images again... ${n(50000)} of ${n(100000)}`, '50%']);
+await waitFor('the end', () => noticeText()?.startsWith('Done'));
+check('then what changed', noticeText(), `Done: ${n(633)} of ${n(100000)} images changed level.`);
+
+restampStates = [{ state: 'done', changed: 633, total: 100000 }];
+const noticeShown = notice()?.style.display;
+if (notice()) notice().style.display = 'none';
+await window.mmOpenSettings();
+type(field('model_manager_page_size').querySelector('input[type="number"]'), '40');
+$('#mm_settings_save').click();
+await waitFor('the save', () => saved.length === 4);
+await new Promise((r) => setTimeout(r, 400));
+check('a save that changes nothing about judging shows no notice',
+      [noticeShown, notice()?.style.display], ['', 'none']);
+
+// ------------------------------------------- from the WebUI's Settings page
+// Apply there saves through the same opts.set(), so the same pass runs. Its
+// result line says what changed; the notice follows that. While Apply runs,
+// Gradio puts its timer in the same element, beside the line the LAST Apply
+// left - recorded on a real Settings page:
+//   3.48s "0.0s   2 settings changed: model_manager_image_browsing, model_manager_nsfw_detection."
+//   3.58s "1 settings changed: model_manager_nsfw_detection."
+const { changedOnSettingsPage, restampNotice } = await import(`file:///${ROOT}/javascript/shared/settings.mjs?another-tab`);
+check('the Settings page\'s result line is read for what it changed', [
+    changedOnSettingsPage('2 settings changed: model_manager_nsfw_detection, sd_vae.'),
+    changedOnSettingsPage('1 settings changed without save: model_manager_nsfw_prompt_words.'),
+    changedOnSettingsPage('0 settings changed.'),
+    changedOnSettingsPage('Unloaded all models'),
+    changedOnSettingsPage('0.1s   1 settings changed: model_manager_nsfw_detection.'),
+], [['model_manager_nsfw_detection', 'sd_vae'], ['model_manager_nsfw_prompt_words'], [], [], []]);
+
+const apply = document.getElementById('settings_submit');
+const result = document.getElementById('settings_result');
+// Apply as Gradio does it: its timer beside the last line, then the new line.
+function applied(line) {
+    const before = result.textContent;
+    apply.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    setTimeout(() => { result.innerHTML = `<span class="timer">0.0s</span>   ${before}`; }, 20);
+    setTimeout(() => { result.querySelector('.timer').textContent = '0.1s'; }, 40);
+    setTimeout(() => { result.textContent = line; }, 120);
+}
+
+notice().style.display = 'none';
+result.textContent = '1 settings changed: sd_vae.';
+restampStates = [{ state: 'running', judged: 1000, total: 100000 }, { state: 'done', changed: 12, total: 100000 }];
+applied('2 settings changed: model_manager_nsfw_detection, sd_vae.');
+await waitFor('the notice after Apply, within a second', () => noticeText()?.startsWith('Done: 12'), 20);
+check('Apply that changes how images are judged shows the notice, though the last line did not name it',
+      noticeText(), `Done: ${n(12)} of ${n(100000)} images changed level.`);
+
+notice().style.display = 'none';
+restampStates = [{ state: 'done', changed: 7, total: 100000 }];
+applied('1 settings changed: sd_vae.');
+await new Promise((r) => setTimeout(r, 600));
+check('and Apply that changes something else does not, though the last line named it',
+      notice().style.display, 'none');
+
+// The same change again: the same line, arrived at through the timer.
+result.textContent = '1 settings changed: model_manager_nsfw_prompt_words.';
+applied('1 settings changed: model_manager_nsfw_prompt_words.');
+await waitFor('the notice, the same line again', () => notice().style.display !== 'none', 20);
+check('applying the same change again shows it too', noticeText(), `Done: ${n(7)} of ${n(100000)} images changed level.`);
+
+// Every image judged, the changes being written.
+notice().style.display = 'none';
+restampStates = [{ state: 'running', judged: 100000, total: 100000 }, { state: 'running', judged: 100000, total: 100000 },
+                 { state: 'done', changed: 3, total: 100000 }];
+restampNotice().watch();
+await waitFor('saving', () => noticeText() === 'Saving the new levels...', 20);
+check('once every image is judged, it says the levels are being saved', noticeText(), 'Saving the new levels...');
+await waitFor('done after saving', () => noticeText()?.startsWith('Done: 3'), 40);
 
 done();

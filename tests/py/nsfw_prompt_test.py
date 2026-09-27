@@ -156,6 +156,73 @@ finally:
 check('three asks while one runs: that pass and one more, never two at once',
       (len(passes), overlapping), (2, []))
 
+# -------------------------------------------------- how far it has got
+# The page shows a bar while stored images are judged again, then what
+# changed. So a pass reports as it goes, and says how it ended.
+reports = []
+real_restamp = db.restamp_image_levels
+def watched_restamp(progress=None):
+    def report(judged, total):
+        reports.append((judged, total))
+        progress(judged, total)
+    return real_restamp(progress=report)
+db.restamp_image_levels = watched_restamp
+
+import model_manager.db.images_ops as images_ops         # noqa: E402
+images_ops.ImagesOps.RESTAMP_REPORT_EVERY = 1              # a report per image, on a small library
+opts.model_manager_nsfw_prompt_words = 'zorp snib'
+dbmod._db_instance = db
+prompt_levels.start_in_background()
+check('asked for, a pass is running at once, before its thread has read anything',
+      prompt_levels.progress()['state'], 'running')
+for _ in range(100):
+    time.sleep(0.05)
+    if prompt_levels.progress()['state'] != 'running':
+        break
+state = prompt_levels.progress()
+with db._cursor() as cursor:
+    cursor.execute("SELECT COUNT(*) FROM images")
+    images = cursor.fetchone()[0]
+check('it reports from none judged to all of them, never going back',
+      (reports[:1] and reports[0], reports[-1:] and reports[-1],
+       all(a[0] <= b[0] for a, b in zip(reports, reports[1:]))),
+      ((0, images), (images, images), True))
+check('and ends done, saying how many of how many changed',
+      (state['state'], state['total'], state['changed'] >= 1), ('done', images, True))
+
+prompt_levels.start_in_background()
+for _ in range(100):
+    time.sleep(0.05)
+    if prompt_levels.progress()['state'] != 'running':
+        break
+check('asked again with nothing to change: done, and nothing judged',
+      (prompt_levels.progress()['state'], prompt_levels.progress()['changed']), ('done', None))
+
+def broken(db_):
+    raise RuntimeError('the database is locked')
+prompt_levels.bring_up_to_date = broken
+try:
+    prompt_levels.start_in_background()
+    for _ in range(100):
+        time.sleep(0.05)
+        if prompt_levels.progress()['state'] != 'running':
+            break
+finally:
+    prompt_levels.bring_up_to_date = real_pass
+check('a pass that fails says so, and why',
+      (prompt_levels.progress()['state'], prompt_levels.progress()['error']), ('failed', 'the database is locked'))
+
+from fastapi import FastAPI as _FastAPI                   # noqa: E402
+import model_manager.api.settings as settings_api        # noqa: E402
+_app = _FastAPI()
+settings_api.register(_app)
+answer = TestClient(_app).get('/model-manager/settings/nsfw-levels').json()
+check('the page is told the same', (answer['success'], answer['state'], answer['error']),
+      (True, 'failed', 'the database is locked'))
+db.restamp_image_levels = real_restamp
+opts.model_manager_nsfw_prompt_words = ''
+images_ops.ImagesOps.RESTAMP_REPORT_EVERY = 2000
+
 # ------------------------------------------------------ for the browser
 # The browser no longer judges: every image it is sent carries the verdict,
 # stamped here - so the shared cases are the stamp's cases now.
