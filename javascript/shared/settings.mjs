@@ -51,7 +51,10 @@ const SECTIONS = [
     { title: 'Image gallery', keys: [K.galleryNsfw, K.promptless, K.browsing] },
     { title: 'NSFW detection', keys: [K.detection, K.percent, K.words] },
     { title: 'Sync and storage', keys: [K.threads, K.database] },
-    { title: 'Send to txt2img: text encoders and VAE', collapsed: true, prefix: MODULES_PREFIX },
+    { title: 'Send to txt2img: text encoders and VAE', collapsed: true, prefix: MODULES_PREFIX,
+      intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
+             + 'instead. A file chosen for one model is filled in for the others that use it, '
+             + 'where nothing is chosen yet.' },
     { title: 'Advanced', collapsed: true, keys: [K.fillPage] },
 ];
 
@@ -130,6 +133,10 @@ function createSettings() {
     let errors = {};
     let root = null;
     let saving = false;
+    // The text encoder and VAE table, by setting: forge_modules' description
+    // of each preset this WebUI has, with the window's edits. null when the
+    // server could not describe them, and the settings show as text instead.
+    let modules = null;
     const previewOpen = new Set();   // card size settings showing their preview
     const previewTimers = {};
     const previewAsked = {};
@@ -154,10 +161,12 @@ function createSettings() {
     function sectionsWithKeys() {
         const placed = new Set();
         const sections = SECTIONS.map((section) => {
-            const keys = section.prefix
+            let keys = section.prefix
                 ? meta.order.filter((k) => k.startsWith(section.prefix))
                 : section.keys.filter((k) => k in meta.settings);
             keys.forEach((k) => placed.add(k));
+            // A preset this WebUI does not have is left out, not offered.
+            if (section.prefix === MODULES_PREFIX && modules) keys = keys.filter((k) => k in modules);
             return { ...section, keys };
         });
         const rest = meta.order.filter((k) => !placed.has(k));
@@ -210,6 +219,7 @@ function createSettings() {
         body.innerHTML = sectionsWithKeys().map((section) => `
             <details class="mm-settings-section" ${section.collapsed ? '' : 'open'}>
                 <summary class="mm-dialog-heading">${esc(section.title)}</summary>
+                ${section.intro && modules ? `<div class="mm-settings-help">${esc(section.intro)}</div>` : ''}
                 <div class="mm-settings-fields">
                     ${section.keys.map(renderField).join('')}
                 </div>
@@ -218,6 +228,7 @@ function createSettings() {
     }
 
     function renderField(key) {
+        if (modules?.[key]) return renderModules(key);
         const s = meta.settings[key];
         const control = { ...s, ...(CONTROLS[key] || {}) };
         const label = LABELS[key] || s.label;
@@ -326,6 +337,139 @@ function createSettings() {
                            value="${esc(v)}" spellcheck="false" placeholder="${esc(c.placeholder || '')}">`;
         }
         }
+    }
+
+    // ------------------------------------------ text encoders and VAE table
+    function takeModules(presets) {
+        const table = {};
+        presets.forEach((preset) => {
+            const m = { ...preset, text: false, message: '' };
+            m.initial = moduleState(m);
+            table[preset.setting] = m;
+        });
+        return table;
+    }
+
+    /** What a preset's table says, to tell an edit from no change. */
+    function moduleState(m) {
+        return JSON.stringify([m.rows.map((r) => r.selected || ''), m.kept.map((k) => k.name)]);
+    }
+
+    /** The setting's text for what a preset's table says: the chosen files, then the kept names. */
+    function composeModules(key) {
+        const m = modules[key];
+        // Back where it started: the setting as it was written, not a respelling of it.
+        if (moduleState(m) === m.initial) return meta.settings[key].value;
+        return [...m.rows.filter((r) => r.selected).map((r) => r.selected),
+                ...m.kept.map((k) => k.name)].join(', ');
+    }
+
+    function and(items) {
+        return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+    }
+
+    function renderModules(key) {
+        const m = modules[key];
+        const search = [m.label, ...m.classes, ...m.rows.flatMap((r) => [r.label, ...r.candidates.map((c) => c.label)])]
+            .join(' ').toLowerCase();
+        const body = m.text
+            ? `<input type="text" class="mm-settings-input" data-key="${esc(key)}" value="${esc(draft[key])}"
+                      spellcheck="false" placeholder="file names, separated by commas" aria-label="${esc(m.label)}">`
+            : `<div class="mm-settings-module-rows">${m.rows.map((row) => renderModuleRow(key, m, row)).join('')}</div>
+               ${m.kept.length ? `<div class="mm-settings-chips">${m.kept.map((k, i) => `
+                   <span class="mm-settings-kept" title="Kept in the setting as written: ${esc(k.why)}">
+                       ${esc(k.name)} <em>${esc(k.why)}</em>
+                       <button type="button" data-kept-remove="${esc(key)}" data-index="${i}"
+                               aria-label="Remove ${esc(k.name)}">&times;</button>
+                   </span>`).join('')}</div>` : ''}`;
+        return `
+            <div class="mm-settings-field mm-settings-modules" data-key="${esc(key)}" data-search="${esc(search)}">
+                <div class="mm-settings-label-row">
+                    <span class="mm-settings-label mm-settings-module-title">${esc(m.label)}</span>
+                    <span>
+                        <button type="button" class="mm-settings-link" data-modules-text="${esc(key)}">${
+                            m.text ? 'Use the table' : 'Edit as text'}</button>
+                        ${resetButton(key)}
+                    </span>
+                </div>
+                ${m.note ? `<div class="mm-settings-help">${esc(m.note)}</div>` : ''}
+                ${body}
+                <div class="mm-settings-extra">${esc(m.message)}</div>
+                <div class="mm-settings-error" data-error="${esc(key)}"></div>
+            </div>`;
+    }
+
+    function renderModuleRow(key, m, row) {
+        const forWhom = m.classes.length > 1
+            ? `<span class="mm-settings-module-for">${esc(row.used_by.join(', '))}</span>` : '';
+        const choice = row.candidates.length
+            ? `<select class="mm-dialog-select mm-settings-module-select" data-module="${esc(key)}"
+                       data-file="${esc(row.file)}" aria-label="${esc(`${m.label}: ${row.label}`)}">
+                   <option value="" ${row.selected ? '' : 'selected'}>Automatic${
+                       row.automatic ? `: ${esc(row.automatic)}` : ''}</option>
+                   ${row.candidates.map((c) => `
+                       <option value="${esc(c.label)}" ${c.label === row.selected ? 'selected' : ''}>${
+                           esc(c.label)}${c.precision ? ` (${esc(c.precision)})` : ''}</option>`).join('')}
+               </select>`
+            : `<span class="mm-settings-warning">None installed.</span> Download: ${row.links.map(([name, url]) =>
+                  `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(name)}</a>`).join(', ')}`;
+        return `
+            <div class="mm-settings-module-row" data-file="${esc(row.file)}">
+                <div class="mm-settings-module-name">${esc(row.label)}${forWhom}</div>
+                <div class="mm-settings-module-choice">${choice}</div>
+            </div>`;
+    }
+
+    /**
+     * A file chosen for one preset's row. It is filled in for the other
+     * presets that use the same file, where nothing is chosen - a row set by
+     * hand is never changed from another. A row whose automatic pick is that
+     * file already is left on Automatic, to keep following it.
+     */
+    function chooseModule(key, file, label) {
+        const m = modules[key];
+        m.rows.find((r) => r.file === file).selected = label || null;
+        draft[key] = composeModules(key);
+        const also = [];
+        const kept = [];
+        if (label) {
+            Object.entries(modules).forEach(([otherKey, other]) => {
+                if (otherKey === key || other.text) return;
+                const row = other.rows.find((r) => r.file === file);
+                if (!row) return;
+                if (row.selected) {
+                    if (row.selected !== label) kept.push(`${other.label} (${row.selected})`);
+                    return;
+                }
+                if (row.automatic === label || !row.candidates.some((c) => c.label === label)) return;
+                row.selected = label;
+                draft[otherKey] = composeModules(otherKey);
+                other.message = '';
+                also.push(other.label);
+                redrawField(otherKey);
+            });
+        }
+        m.message = [
+            also.length ? `Also set for ${and(also)}.` : '',
+            kept.length ? `${and(kept)} kept ${kept.length > 1 ? 'their own choices' : 'its own choice'}.` : '',
+        ].filter(Boolean).join(' ');
+        redrawField(key);
+    }
+
+    /** Back from editing a preset as text: the server reads the text into the table. */
+    async function tableFromText(key) {
+        const m = modules[key];
+        try {
+            const drafts = JSON.stringify({ [m.preset]: draft[key] });
+            const response = await fetch(`/model-manager/settings/modules?drafts=${encodeURIComponent(drafts)}`);
+            const answer = await response.json();
+            const preset = answer.success && answer.presets.find((p) => p.preset === m.preset);
+            if (!preset) throw new Error(answer.error || 'the server did not describe it');
+            modules[key] = { ...preset, text: false, message: '', initial: m.initial };
+        } catch (e) {
+            errors[key] = `Could not read the text into the table: ${e.message}`;
+        }
+        redrawField(key);
     }
 
     // ------------------------------------------------------ card preview
@@ -473,6 +617,10 @@ function createSettings() {
     function onInput(e) {
         const t = e.target;
         if (t.id === 'mm_settings_search') return;
+        if (t.dataset.module) {
+            if (e.type === 'change') chooseModule(t.dataset.module, t.dataset.file, t.value);
+            return;
+        }
         const card = t.dataset.card;
         if (card) {
             const [w, h] = parseCardSize(draft[card]);
@@ -529,6 +677,26 @@ function createSettings() {
             const key = t.dataset.reset;
             draft[key] = meta.settings[key].default;
             delete errors[key];
+            if (modules?.[key]) {
+                const m = modules[key];
+                m.rows.forEach((r) => { r.selected = null; });
+                m.kept = [];
+                m.text = false;
+                m.message = '';
+            }
+            redrawField(key);
+        } else if (t.dataset?.modulesText) {
+            const key = t.dataset.modulesText;
+            if (modules[key].text) {
+                tableFromText(key);
+            } else {
+                modules[key].text = true;
+                redrawField(key);
+            }
+        } else if (t.dataset?.keptRemove) {
+            const key = t.dataset.keptRemove;
+            modules[key].kept.splice(Number(t.dataset.index), 1);
+            draft[key] = composeModules(key);
             redrawField(key);
         } else if (t.dataset?.cardShow) {
             const key = t.dataset.cardShow;
@@ -580,11 +748,18 @@ function createSettings() {
         const body = root.querySelector('#mm_settings_body');
         body.innerHTML = '<div class="mm-settings-loading">Loading settings...</div>';
         root.querySelector('#mm_settings_search').value = '';
+        // The table reads file headers, the first time; the settings do not
+        // wait for it, but the window draws once both have answered.
+        const table = fetch('/model-manager/settings/modules', { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((answer) => (answer.success ? takeModules(answer.presets) : null))
+            .catch(() => null);
         try {
             const response = await fetch('/model-manager/settings', { cache: 'no-store' });
             const answer = await response.json();
             if (!answer.success) throw new Error(answer.error || 'the server did not say why');
             take(answer);
+            modules = await table;
             renderBody();
         } catch (e) {
             meta = null;

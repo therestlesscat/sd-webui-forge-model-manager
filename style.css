@@ -2650,8 +2650,10 @@ body.mm-modal-open {
     margin: 0;
 }
 
-/* Reset is a text link, not a third button competing with Save. */
-.mm-settings-reset {
+/* Reset is a text link, not a third button competing with Save; so is a
+   preset's Edit as text. */
+.mm-settings-reset,
+.mm-settings-link {
     margin: 0 !important;
     padding: 0 4px;
     border: none;
@@ -2662,7 +2664,8 @@ body.mm-modal-open {
     text-decoration: underline;
 }
 
-.mm-settings-reset:hover {
+.mm-settings-reset:hover,
+.mm-settings-link:hover {
     color: var(--body-text-color, #fff);
 }
 
@@ -2830,4 +2833,69 @@ textarea.mm-settings-input {
 .mm-settings-extra code {
     font-size: 11px;
     word-break: break-all;
+}
+
+/* The text encoder and VAE table: a row per file a preset needs, its name
+   (and which of the preset's models use it) beside the choice. */
+.mm-settings-module-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mm-settings-module-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+}
+
+/* The base model a block is for: above its rows, and told apart from them. */
+.mm-settings-module-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--primary-500, #3b82f6);
+}
+
+.mm-settings-module-for {
+    display: block;
+    font-size: 11px;
+    opacity: 0.6;
+}
+
+.mm-settings-module-choice {
+    min-width: 0;
+    font-size: 12px;
+}
+
+.mm-settings-module-select {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* A name the setting holds that no row takes - not installed, say. Kept as
+   written, and removable. */
+.mm-settings-kept {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 8px;
+    border: 1px dashed var(--border-color-accent, #4b5563);
+    border-radius: 999px;
+    font-size: 11px;
+}
+
+.mm-settings-kept em {
+    font-style: normal;
+    opacity: 0.6;
+}
+
+.mm-settings-kept button {
+    margin: 0 !important;
+    padding: 0 4px;
+    border: none;
+    background: transparent !important;
+    color: inherit;
+    cursor: pointer;
 }
