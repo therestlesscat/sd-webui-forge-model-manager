@@ -52,10 +52,17 @@ const {
     formatDay,
     loadNsfwDetection,
     nsfwModelNote,
+    refreshUiOptions,
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
 } = await import(sharedModule.href);
+
+// The settings window behind the gear in the header, asked for with this
+// script's version as the shared module is.
+const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
+settingsModule.search = sharedModule.search;
+await import(settingsModule.href);
 
 // State
 let currentModels = [];
@@ -240,6 +247,43 @@ function setPreviewCheckboxFrom(previewLeastNsfw) {
     if (checkbox) checkbox.checked = !previewLeastNsfw;
     return Boolean(checkbox);
 }
+
+// After the settings window saved: redo what this tab drew from the settings.
+// The grid's page size, card size and thumbnails come with the grid, so it is
+// asked for again; the gallery reads its settings each time a model opens.
+const GRID_SETTINGS = ['model_manager_page_size', 'model_manager_card_size',
+                       'model_manager_preview_least_nsfw'];
+window.addEventListener('mm-settings-saved', (e) => {
+    const changed = e.detail?.changed || [];
+    refreshUiOptions();
+    if (changed.includes('model_manager_preview_least_nsfw')) {
+        setPreviewCheckboxFrom(e.detail.settings.model_manager_preview_least_nsfw.value);
+        previewLeastNsfwInitialized = true;
+        previewLeastNsfwUserTouched = false;
+    }
+    if (currentModels.length && GRID_SETTINGS.some((key) => changed.includes(key))) {
+        loadModels(changed.includes('model_manager_page_size') ? 1 : currentPage);
+    }
+});
+
+// The settings window's card preview: this tab's own cards, at a size not yet
+// saved. From the page already loaded when it has enough, else exactly as
+// many as the preview asks for.
+let cardPreviewModels = [];
+async function cardPreview(count) {
+    let models = currentModels;
+    if (models.length < count) {
+        if (cardPreviewModels.length < count) {
+            const data = await apiCall({ endpoint: '/model-manager/models',
+                                         params: { page: 1, page_size: count } });
+            if (!data.success) throw new Error(data.error || 'the library did not answer');
+            cardPreviewModels = data.models || [];
+        }
+        models = cardPreviewModels;
+    }
+    return models.slice(0, count).map((model, index) => renderModelCard(model, index)).join('');
+}
+(window.mmCardPreviews ||= {}).model_manager_card_size = cardPreview;
 
 function getFilters() {
     const useMax = document.getElementById('mm_nsfw_use_max')?.checked || false;

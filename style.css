@@ -14,10 +14,42 @@ body.mm-modal-open {
 
 
 
-/* Header */
+/* Header: the tab's name, and the settings gear at the far right. */
+.model-manager-header,
+.cb-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 15px 0;
+}
+
 .model-manager-header h2,
 .cb-header h2 {
-    margin: 0 0 15px 0;
+    margin: 0;
+}
+
+/* An icon, not a labelled button: square, no fill until hovered. Gradio's
+   preflight resets a button's background and margin inside gr.HTML at a
+   specificity one class cannot beat, hence !important on those two. */
+.mm-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    margin: 0 !important;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    background: transparent !important;
+    color: var(--body-text-color-subdued, #9ca3af);
+    cursor: pointer;
+}
+
+.mm-settings-btn:hover {
+    background: rgba(127, 127, 127, 0.15) !important;
+    color: var(--body-text-color, #fff);
 }
 
 /* The panel the filters sit in, in either tab. */
@@ -1970,11 +2002,13 @@ body.mm-modal-open {
 }
 
 /* Owned badge for Civitai Browser cards */
-#civitai_browser_app .model-card.owned {
+#civitai_browser_app .model-card.owned,
+.mm-settings-card-row .model-card.owned {
     border-color: var(--primary-500, #3b82f6);
 }
 
-#civitai_browser_app .cb-owned-badge {
+#civitai_browser_app .cb-owned-badge,
+.mm-settings-card-row .cb-owned-badge {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -1989,7 +2023,8 @@ body.mm-modal-open {
 
 /* Versions Civitai charges Buzz for: early access, or permanently paid.
    Sits under the Owned badge so both can show at once. */
-#civitai_browser_app .cb-paid-badge {
+#civitai_browser_app .cb-paid-badge,
+.mm-settings-card-row .cb-paid-badge {
     position: absolute;
     top: 8px;
     left: 8px;
@@ -2502,4 +2537,297 @@ body.mm-modal-open {
 .mm-type-civitai {
     color: var(--body-text-color-subdued, #9ca3af);
     font-size: 0.9em;
+}
+
+/* ============================================================
+   Settings window
+   The shared dialog, wider, with a scrolling body between a fixed head and
+   foot. Built once on document.body by javascript/shared/settings.mjs.
+   ============================================================ */
+
+.mm-dialog.mm-settings-dialog {
+    width: 60vw;
+    min-width: min(560px, 100%);
+    max-width: 100%;
+    max-height: 86vh;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.mm-settings-head,
+.mm-settings-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    flex: none;
+}
+
+.mm-settings-head {
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+}
+
+.mm-settings-head h3 {
+    margin: 0;
+    flex: none;
+}
+
+.mm-settings-foot {
+    justify-content: space-between;
+    border-top: 1px solid var(--border-color-primary, #374151);
+}
+
+.mm-settings-status {
+    font-size: 12px;
+    opacity: 0.75;
+}
+
+.mm-settings-body {
+    overflow-y: auto;
+    padding: 6px 20px 12px;
+    flex: 1;
+}
+
+.mm-settings-loading {
+    padding: 24px 0;
+    opacity: 0.7;
+}
+
+.mm-settings-section {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+}
+
+.mm-settings-section:last-child {
+    border-bottom: none;
+}
+
+.mm-settings-section > summary {
+    cursor: pointer;
+    margin: 0;
+    padding: 4px 0;
+}
+
+.mm-settings-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 8px 0 4px;
+}
+
+/* A setting changed and not yet saved: a bar down its left edge. */
+.mm-settings-field {
+    padding-left: 10px;
+    border-left: 2px solid transparent;
+}
+
+.mm-settings-field.mm-settings-changed {
+    border-left-color: var(--primary-500, #3b82f6);
+}
+
+.mm-settings-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.mm-settings-label {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.mm-settings-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.mm-settings-check input {
+    margin: 0;
+}
+
+/* Reset is a text link, not a third button competing with Save. */
+.mm-settings-reset {
+    margin: 0 !important;
+    padding: 0 4px;
+    border: none;
+    background: transparent !important;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.mm-settings-reset:hover {
+    color: var(--body-text-color, #fff);
+}
+
+.mm-settings-help,
+.mm-settings-extra {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    opacity: 0.7;
+}
+
+.mm-settings-extra:empty,
+.mm-settings-error:empty {
+    display: none;
+}
+
+.mm-settings-error {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #ef4444;
+}
+
+.mm-settings-warning {
+    color: #f59e0b;
+}
+
+.mm-settings-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
+    font-size: 11px;
+}
+
+/* Inputs take the dialog's colour through a translucent tint, as the Sync
+   dialog's select does: --input-background-fill stays white under .dark. */
+.mm-settings-input,
+.mm-settings-search {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--body-text-color, #fff);
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.dark .mm-settings-input,
+.dark .mm-settings-search {
+    background: rgba(255, 255, 255, 0.07);
+    color-scheme: dark;
+}
+
+.mm-settings-input:focus,
+.mm-settings-search:focus {
+    outline: none;
+    border-color: var(--primary-500, #3b82f6);
+}
+
+textarea.mm-settings-input {
+    resize: vertical;
+}
+
+.mm-settings-search {
+    flex: 1;
+    min-width: 0;
+}
+
+.mm-settings-number,
+.mm-settings-secret,
+.mm-settings-cardsize {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.mm-settings-range {
+    flex: 1;
+    min-width: 140px;
+    margin: 0;
+}
+
+.mm-settings-input.mm-settings-num {
+    width: 90px;
+    flex: none;
+}
+
+.mm-settings-secret .mm-settings-input {
+    flex: 1;
+    width: auto;
+}
+
+.mm-settings-unit {
+    opacity: 0.7;
+    font-size: 12px;
+}
+
+/* The card preview: one row of the tab's real cards at the size being set.
+   It never wraps - the script asks for only as many as fit, and anything
+   that would not is cut off rather than starting a second row. The cards are
+   a picture, not buttons: their clicks would open a model in the tab. */
+.mm-settings-card-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 15px;
+    overflow: hidden;
+    margin-top: 8px;
+    pointer-events: none;
+}
+
+.mm-settings-card-row[hidden] {
+    display: none;
+}
+
+.mm-settings-card-row .model-card {
+    flex: none;
+    width: var(--mm-preview-card-width, 200px);
+    height: var(--mm-preview-card-height, 280px);
+}
+
+.mm-settings-card-note {
+    margin-top: 6px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.mm-settings-card-note:empty {
+    display: none;
+}
+
+.mm-settings-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mm-settings-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.mm-settings-chip {
+    margin: 0 !important;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 999px;
+    background: transparent !important;
+    color: var(--body-text-color, #fff);
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.mm-settings-chip:hover {
+    border-color: var(--primary-500, #3b82f6);
+}
+
+.mm-settings-extra code {
+    font-size: 11px;
+    word-break: break-all;
 }

@@ -150,7 +150,7 @@ def on_ui_settings():
                 "step": 1,
             },
             section=section,
-        ).info("How fast to call the Civitai API when an API key is set. Higher is faster but more likely to be rate limited. Requires restart.")
+        ).info("How fast to call the Civitai API when an API key is set. Higher is faster but more likely to be rate limited. Applies to the next search, download or sync; one already running keeps its rate.")
     )
 
     shared.opts.add_option(
