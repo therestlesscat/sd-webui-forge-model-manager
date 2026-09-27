@@ -33,14 +33,19 @@ let apiKeyMissing = null;
 let apiKeyRequest = null;
 let uiOptionsRequest = null;
 
-/**
- * The server's ui-options, asked once for the page: whether there is an API
- * key, and which judges NSFW. A failed call answers null.
- */
-function uiOptions() {
-    uiOptionsRequest ||= fetch('/model-manager/ui-options')
+/** The server's ui-options, as they are now. A failed call answers null. */
+function fetchUiOptions() {
+    return fetch('/model-manager/ui-options', { cache: 'no-store' })
         .then((r) => r.json())
         .catch(() => null);
+}
+
+/**
+ * The same, asked once for the page: whether there is an API key, and which
+ * judges NSFW.
+ */
+function uiOptions() {
+    uiOptionsRequest ||= fetchUiOptions();
     return uiOptionsRequest;
 }
 
@@ -547,6 +552,19 @@ export function loadNsfwDetection() {
     nsfwDetectionAsked ||= uiOptions()
         .then((data) => { nsfwDetection = data?.nsfw_detection === 'model' ? 'model' : 'words'; });
     return nsfwDetectionAsked;
+}
+
+/**
+ * How a model's gallery opens, as the settings say now: asked each time a
+ * model is opened, not once per page, so a change on the Settings page applies
+ * to the next model without a reload. Hidden, both, if the server cannot say.
+ *
+ * @returns {Promise<{hideNsfw: boolean, hidePromptless: boolean}>}
+ */
+export async function galleryDefaults() {
+    const data = await fetchUiOptions();
+    return { hideNsfw: data?.gallery_hide_nsfw !== false,
+             hidePromptless: data?.hide_promptless_images !== false };
 }
 
 /** The note, while the trained model is in force; '' otherwise, or before the answer. */

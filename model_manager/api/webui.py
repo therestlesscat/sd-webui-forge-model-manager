@@ -73,6 +73,11 @@ def register(app: FastAPI):
         # The gallery asks for this before it renders, so it has to survive
         # the samplers being unreadable - hence its own try, like the key.
         image_browsing = "continuous"
+        # How the Civitai Browser's gallery opens, asked each time a model is;
+        # the Model Manager's asks the details endpoint, which reads the same
+        # settings.
+        gallery_hide_nsfw = True
+        hide_promptless_images = True
         # Which judges prompts, as in force: "model" only when the trained
         # model is chosen and on. The pages say so when it is.
         try:
@@ -87,6 +92,10 @@ def register(app: FastAPI):
             )
             image_browsing = getattr(
                 shared.opts, 'model_manager_image_browsing', 'continuous')
+            gallery_hide_nsfw = bool(getattr(
+                shared.opts, 'model_manager_gallery_hide_nsfw', True))
+            hide_promptless_images = bool(getattr(
+                shared.opts, 'model_manager_hide_promptless_images', True))
         except Exception:
             pass
 
@@ -106,6 +115,8 @@ def register(app: FastAPI):
                 "has_api_key": has_api_key,
                 "image_browsing": image_browsing,
                 "nsfw_detection": nsfw_detection,
+                "gallery_hide_nsfw": gallery_hide_nsfw,
+                "hide_promptless_images": hide_promptless_images,
             })
 
         except Exception as e:
@@ -116,6 +127,8 @@ def register(app: FastAPI):
             # the banner should not depend on samplers being readable.
             return JSONResponse(
                 {"success": False, "error": str(e), "has_api_key": has_api_key,
-                 "image_browsing": image_browsing, "nsfw_detection": nsfw_detection},
+                 "image_browsing": image_browsing, "nsfw_detection": nsfw_detection,
+                 "gallery_hide_nsfw": gallery_hide_nsfw,
+                 "hide_promptless_images": hide_promptless_images},
                 status_code=500
             )

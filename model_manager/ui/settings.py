@@ -56,11 +56,33 @@ def on_ui_settings():
         "model_manager_preview_least_nsfw",
         shared.OptionInfo(
             default=True,
-            label="Preview: Use least NSFW image",
+            label="Model Manager: card thumbnail is the least explicit image",
             component=gr.Checkbox,
             section=section,
-        ).info("If enabled, model previews show the least NSFW image. If disabled, shows the most recent image.")
+        ).info("If enabled, each card shows the model's least explicit image. If disabled, "
+               "its most recent one. Whether the image gallery hides explicit images is "
+               "its own setting, below.")
     )
+
+    # This one setting used to decide the gallery as well, so whoever turned
+    # it off for newer thumbnails also got explicit images in every gallery.
+    # Split, the gallery starts from what the old setting said - once: after
+    # that the value is saved with the rest, and the two are independent.
+    carried = carry_over_gallery_nsfw(shared.opts.data)
+    shared.opts.add_option(
+        GALLERY_HIDE_NSFW,
+        shared.OptionInfo(
+            default=True,
+            label="Image gallery: hide explicit images by default",
+            component=gr.Checkbox,
+            section=section,
+        ).info("How a model's image gallery opens, in the Model Manager and the Civitai "
+               "Browser. The Show NSFW switch above the images shows them for that model. "
+               "The Civitai Browser's Include NSFW models decides which models are listed, "
+               "not which of their images are shown.")
+    )
+    if carried is not None:
+        shared.opts.data[GALLERY_HIDE_NSFW] = carried
 
     # Civitai Browser settings
     shared.opts.add_option(
@@ -289,6 +311,22 @@ def on_ui_settings():
             ).info(needs + ". Download: " + ", ".join(
                 f"<a href='{HF}{path}' target='_blank'>{name}</a>" for name, path in links))
         )
+
+
+GALLERY_HIDE_NSFW = "model_manager_gallery_hide_nsfw"
+
+
+def carry_over_gallery_nsfw(data):
+    """
+    The gallery setting's first value, from the setting it was split out of;
+    None once it has one of its own.
+
+    Args:
+        data: the saved settings, as `shared.opts.data` holds them.
+    """
+    if GALLERY_HIDE_NSFW in data:
+        return None
+    return bool(data.get("model_manager_preview_least_nsfw", True))
 
 
 def _prompt_words_changed():

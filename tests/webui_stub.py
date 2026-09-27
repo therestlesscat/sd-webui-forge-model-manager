@@ -20,6 +20,7 @@ DEFAULTS = {
     "model_manager_card_size": "200x280",
     "model_manager_civitai_card_size": "200x280",
     "model_manager_preview_least_nsfw": True,
+    "model_manager_gallery_hide_nsfw": True,
     "model_manager_civitai_folder_template": "",
     "model_manager_civitai_min_prompt_images": 1,
     "model_manager_civitai_sfw_fill_page": False,
