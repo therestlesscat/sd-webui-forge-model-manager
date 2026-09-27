@@ -29,6 +29,14 @@ class CivitaiNotFoundError(CivitaiAPIError):
     pass
 
 
+class CivitaiAuthError(CivitaiAPIError):
+    """Civitai refused the request's key (401), or what it asked for (403)."""
+    def __init__(self, status: int):
+        self.status = status
+        super().__init__("Civitai refused the API key" if status == 401
+                         else "Civitai refused the request (403)")
+
+
 class TokenBucketRateLimiter:
     """
     Token bucket rate limiter for API calls.
@@ -211,6 +219,8 @@ class CivitaiClient:
 
         Raises:
             CivitaiNotFoundError: If resource not found (404)
+            CivitaiAuthError: If the key is refused (401, 403) - at once,
+                since asking again with the same key gets the same answer
             CivitaiRateLimitError: If rate limited and retries exhausted
             CivitaiAPIError: For other API errors
         """
@@ -244,6 +254,9 @@ class CivitaiClient:
                 # Handle specific status codes
                 if response.status_code == 404:
                     raise CivitaiNotFoundError(f"Not found: {endpoint}")
+
+                if response.status_code in (401, 403):
+                    raise CivitaiAuthError(response.status_code)
 
                 if response.status_code == 429:
                     # Rate limited - get retry-after if available
@@ -284,7 +297,7 @@ class CivitaiClient:
                     time.sleep(wait_time)
                     continue
 
-            except (CivitaiNotFoundError, CivitaiRateLimitError):
+            except (CivitaiNotFoundError, CivitaiRateLimitError, CivitaiAuthError):
                 raise
 
             except Exception as e:
@@ -295,6 +308,16 @@ class CivitaiClient:
                     continue
 
         raise last_error or CivitaiAPIError("Request failed after retries")
+
+    def whoami(self) -> Dict[str, Any]:
+        """
+        The account the API key belongs to - its username, among others.
+
+        Raises:
+            CivitaiAuthError: If Civitai refuses the key, or there is none.
+            CivitaiAPIError: If Civitai cannot be asked.
+        """
+        return self._request("GET", "/me")
 
     def get_model_by_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
         """

@@ -2899,3 +2899,25 @@ textarea.mm-settings-input {
     color: inherit;
     cursor: pointer;
 }
+
+/* What Civitai said of the API key, under it. */
+.mm-settings-key-test {
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.mm-settings-key-test:empty {
+    display: none;
+}
+
+.mm-settings-key-test[data-tone="good"] {
+    color: #22c55e;
+}
+
+.mm-settings-key-test[data-tone="bad"] {
+    color: #ef4444;
+}
+
+.mm-settings-key-test[data-tone="warn"] {
+    color: #f59e0b;
+}

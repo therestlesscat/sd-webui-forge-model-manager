@@ -245,6 +245,55 @@ restamps.clear()
 post({'model_manager_nsfw_detection': 'words'})
 check('changing the detection judges stored images again', len(restamps), 1)
 
+# ---------------------------------------------------------------- testing a key
+# A stand-in for Civitai's /me: one key it takes, one it refuses, and one for
+# which it cannot be reached. What each client was made with is noted - the
+# key, and whether it would retry.
+from model_manager.civitai import CivitaiAPIError, CivitaiAuthError, CivitaiClient   # noqa: E402
+
+tried = []
+
+
+def whoami(self):
+    tried.append((self.api_key, self.MAX_RETRIES))
+    if self.api_key == 'good-key':
+        return {'username': 'someone', 'tier': 'free'}
+    if self.api_key == 'down-key':
+        raise CivitaiAPIError('Connection error: no route to host')
+    raise CivitaiAuthError(401)
+
+
+CivitaiClient.whoami = whoami
+
+
+def test(**body):
+    r = client.post('/model-manager/settings/test-key', json=body)
+    return r.status_code, r.json(), r.text
+
+
+opts.data[KEY] = 'good-key'
+code, answer, text = test()
+check('with nothing typed, the saved key is tested',
+      (code, answer.get('result'), answer.get('which'), tried[-1][0]), (200, 'works', 'saved', 'good-key'))
+check('and who it belongs to is said', answer.get('username'), 'someone')
+check('asked once, not with retries: someone is waiting', tried[-1][1], 0)
+check('the key is not in the answer', 'good-key' in text, False)
+
+code, answer, text = test(key='  bad-key  ')
+check('a key typed in the window is tested instead, trimmed, before it is saved',
+      (answer.get('result'), answer.get('which'), tried[-1][0]), ('refused', 'typed', 'bad-key'))
+check('and is not in the answer either', 'bad-key' in text, False)
+check('nor saved by being tested', opts.data[KEY], 'good-key')
+
+code, answer, text = test(key='down-key')
+check('Civitai not answering is not a refused key',
+      (answer.get('result'), answer.get('error')), ('unreachable', 'Connection error: no route to host'))
+
+tried.clear()
+check('an empty key is not sent to Civitai', (test(key='')[1].get('result'), tried), ('none', []))
+opts.data[KEY] = ''
+check('nor is no saved key', (test()[1].get('result'), tried), ('none', []))
+
 # ------------------------------------------------------------- folder template
 def example(template):
     return client.get('/model-manager/settings/folder-example', params={'template': template}).json()

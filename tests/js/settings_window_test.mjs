@@ -88,6 +88,8 @@ function describe(drafts = {}) {
     ];
 }
 const tableAsked = [];
+const keyTested = [];
+let keyAnswerReady = Promise.resolve();
 const modelsAsked = [];
 const libraryModel = (id) => ({ id, name: `M${id}`, display_name: `Model ${id}`, model_type: 'LORA',
                                 file_path: `C:/m/${id}.safetensors`, has_civitai_data: true });
@@ -95,6 +97,17 @@ let settingsAsked = 0;
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/model-manager/settings/test-key')) {
+        const body = JSON.parse(init.body);
+        keyTested.push(body);
+        await keyAnswerReady;
+        const key = body.key ?? 'good-key';
+        const result = key === 'good-key' ? { result: 'works', username: 'someone' }
+            : key === '' ? { result: 'none' }
+            : key === 'down-key' ? { result: 'unreachable', error: 'Connection error' }
+            : { result: 'refused' };
+        return { ok: true, json: async () => ({ success: true, which: 'key' in body ? 'typed' : 'saved', ...result }) };
+    }
     if (href.includes('/model-manager/settings/modules')) {
         const drafts = new URL(href, 'http://webui').searchParams.get('drafts');
         tableAsked.push(drafts);
@@ -297,6 +310,51 @@ check('which is drawn once', document.querySelectorAll('#mm_settings').length, 1
 check('and opens with what the server has now', field('model_manager_page_size')
     .querySelector('input[type="number"]').value, '30');
 check('with nothing changed', status(), '');
+
+// ---------------------------------------------------------- testing the key
+const keyField = () => field('model_manager_civitai_api_key');
+const keyResult = () => [keyField().querySelector('#mm_settings_key_test').textContent,
+                         keyField().querySelector('#mm_settings_key_test').dataset.tone];
+async function testKey() {
+    const before = keyTested.length;
+    keyField().querySelector('[data-act="test-key"]').click();
+    await waitFor('the key test', () => keyTested.length > before
+        && !keyResult()[0].startsWith('Testing'));
+}
+await testKey();
+check('with nothing typed, Test asks about the saved key', keyTested[keyTested.length - 1], {});
+check('and says it works, and whose it is', keyResult(),
+      ['The saved key works: signed in as someone.', 'good']);
+
+type(keyField().querySelector('input'), 'wrong-key');
+check('typing a new key clears what was said of the old one', keyResult()[0], '');
+await testKey();
+check('a typed key is tested before it is saved', keyTested[keyTested.length - 1], { key: 'wrong-key' });
+check('and a refusal says so', keyResult(), ['Civitai refused the key typed here.', 'bad']);
+
+type(keyField().querySelector('input'), 'down-key');
+await testKey();
+check('Civitai not answering is not a refused key', keyResult(), ['Could not reach Civitai: Connection error.', 'warn']);
+
+// An answer for a key that has since been changed is not shown for the new one.
+let release;
+keyAnswerReady = new Promise((r) => { release = r; });
+keyField().querySelector('[data-act="test-key"]').click();
+check('while Civitai is asked, the window says so', keyResult()[0], 'Testing...');
+type(keyField().querySelector('input'), 'good-key');
+release();
+await new Promise((r) => setTimeout(r, 50));
+check('and an answer for a key since changed is dropped', keyResult()[0], '');
+keyAnswerReady = Promise.resolve();
+
+keyField().querySelector('[data-act="forget"]')?.click();
+await testKey();
+check('with the key removed, there is none to test', keyResult()[0], 'No key to test: type one, or save one first.');
+
+// Leave the key as it was: close without saving, and open again.
+confirmAnswer = true;
+$('[data-act="cancel"]').click();
+await window.mmOpenSettings();
 
 // -------------------------------------------- text encoders and VAE table
 const block = (name) => field(`model_manager_modules_${name}`);

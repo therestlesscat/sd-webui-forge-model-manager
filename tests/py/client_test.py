@@ -186,5 +186,48 @@ check('an absurd rate is clamped', clamped.rate_limiter.tokens_per_second <= 10.
 clamped.close()
 webui_stub.install()
 
+# ------------------------------------------------------------- a refused key
+# Civitai answers a key it does not take with 401 - no key, or a wrong one,
+# alike. Asking again with the same key gets the same answer, so it is not
+# asked again: the retries were for a Civitai having a bad moment, and made
+# a wrong key wait out their back-off before saying anything.
+from model_manager.civitai import CivitaiAuthError       # noqa: E402
+
+
+class Answer(object):
+    def __init__(self, status, body=None):
+        self.status_code = status
+        self.headers = {}
+        self._body = body or {}
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError('HTTP %d' % self.status_code)
+
+
+for status in (401, 403):
+    client = CivitaiClient('a-key')
+    client.RETRY_BACKOFF_BASE = 0.01
+    asked = []
+    client.session.request = lambda method, url, **kw: asked.append(url) or Answer(status)
+    try:
+        client.whoami()
+        raised = None
+    except CivitaiAuthError as e:
+        raised = e.status
+    except CivitaiAPIError as e:
+        raised = 'CivitaiAPIError: %s' % e
+    check('a %d is a refusal, said as one' % status, raised, status)
+    check('after asking once, not once and three retries (%d)' % status, len(asked), 1)
+check('a refusal is still a CivitaiAPIError, for callers that catch those',
+      issubclass(CivitaiAuthError, CivitaiAPIError), True)
+
+client = CivitaiClient('a-key')
+client.session.request = lambda method, url, **kw: Answer(200, {'username': 'someone'})
+check('whoami() is the account the key belongs to', client.whoami(), {'username': 'someone'})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
