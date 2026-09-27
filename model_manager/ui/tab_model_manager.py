@@ -7,6 +7,8 @@ are rendered into by javascript/model_manager.js.
 """
 import gradio as gr
 
+from .header import version_link
+
 
 def create_ui():
     """Create the Model Manager tab UI."""
@@ -19,6 +21,8 @@ def create_ui():
                 <div class="model-manager-header">
                     <h2>Model Manager</h2>
                     <!-- The settings window: one, shared with the Civitai Browser -->
+                    <span class="mm-header-actions">
+                    <!-- version -->
                     <button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings()"
                             title="Model Manager settings" aria-label="Model Manager settings">
                         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
@@ -27,6 +31,7 @@ def create_ui():
                             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
                         </svg>
                     </button>
+                    </span>
                 </div>
 
                 <!-- Shown only when Civitai cannot be asked properly -->
@@ -350,6 +355,6 @@ def create_ui():
                     <!-- Images populated by JS -->
                 </div>
             </div>
-        """, elem_id="model_manager_container")
+        """.replace("<!-- version -->", version_link()), elem_id="model_manager_container")
 
     return [(model_manager_tab, "Model Manager", "model_manager_tab")]
