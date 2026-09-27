@@ -16,6 +16,8 @@ javascript/                   the two tabs, and what they share
 style.css                     picked up by filename; see "The WebUI's rules"
 tests/                        see tests/README.md
 tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
+tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
+                              the same, from a pull of Civitai itself, paced at 5 req/s
 ```
 
 ### `model_manager/`
@@ -276,5 +278,5 @@ real time once.
 python tests/run.py
 ```
 
-Thirty-six Python suites, thirty browser suites and the static checks,
+Thirty-seven Python suites, thirty browser suites and the static checks,
 about a minute. See `tests/README.md` for what they cover and how to add one.
