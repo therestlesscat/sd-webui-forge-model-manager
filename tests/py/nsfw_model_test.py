@@ -3,7 +3,8 @@ The NSFW prompt model: an image rated PG or PG-13 whose prompt the model
 reads as explicit is X, as one whose prompt uses a filter word is.
 
 The words alone caught 81% of X/XXX prompts; the model, weighing every word,
-pair of words and the negative prompt, 92% at the setting's default. The
+pair of words, the other prompts and the resources, 94% at the setting's
+default, on a library it had never seen. The
 setting is a percentage - how much of PG/PG-13 it may raise - turned into a
 score by the calibration the trainer measured. A model of made-up features
 is used here, so every number can be written down; then the one that ships
