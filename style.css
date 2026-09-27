@@ -2546,11 +2546,15 @@ body.mm-modal-open {
     border: 1px solid var(--border-color-primary, #374151);
     border-left: 3px solid #f59e0b;
     border-radius: 8px;
-    background: var(--block-background-fill, #1f2937);
+    /* Not --block-background-fill: Forge Neo sets that to transparent, and
+       the notice sits over whatever the page has there - the Settings page's
+       text, say. --background-fill-primary is what the dialogs are drawn
+       with, opaque in either theme. */
+    background: var(--background-fill-primary, #1f2937);
     color: var(--body-text-color, #fff);
     font-size: 13px;
     line-height: 1.5;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* The Type row's note that Civitai lists the file as something else. */
@@ -2940,4 +2944,47 @@ textarea.mm-settings-input {
 
 .mm-settings-key-test[data-tone="warn"] {
     color: #f59e0b;
+}
+
+/* Judging stored images again: a notice in the corner with a bar. */
+.mm-restamp {
+    min-width: 280px;
+}
+
+.mm-restamp[data-tone="good"] {
+    border-left-color: #22c55e;
+}
+
+.mm-restamp[data-tone="bad"] {
+    border-left-color: #ef4444;
+}
+
+.mm-restamp-bar {
+    height: 4px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: rgba(127, 127, 127, 0.25);
+}
+
+.mm-restamp-fill {
+    width: 0;
+    height: 100%;
+    background: var(--primary-500, #3b82f6);
+    transition: width 0.2s;
+}
+
+.mm-restamp[data-tone="good"] .mm-restamp-fill {
+    background: #22c55e;
+}
+
+/* Before the images are counted: a stripe moving along, not a share. */
+.mm-restamp-unknown .mm-restamp-fill {
+    width: 30%;
+    animation: mm-restamp-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes mm-restamp-slide {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
 }

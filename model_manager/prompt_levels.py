@@ -10,9 +10,13 @@ about three seconds for 100,000 images, and nothing asked of Civitai.
 
 The words' fingerprint is kept in the metadata table once a pass finishes.
 A pass that is cut short is run again at the next start.
+
+How far a pass has got is kept for the page, which shows it after a save
+that changed how images are judged: progress().
 """
 import threading
-from typing import Optional
+import time
+from typing import Any, Dict, Optional
 
 from .nsfw import prompt_words_fingerprint
 
@@ -21,6 +25,23 @@ FINGERPRINT_KEY = "nsfw_prompt_words"
 _lock = threading.Lock()
 _running = False
 _again = False
+
+# What the page is told: "idle" until a pass is asked for, then "running" -
+# with judged and total once the images are read - then "done" with what
+# changed, or "failed" with why. `changed` is None when the stored levels
+# already matched and nothing was judged.
+_state: Dict[str, Any] = {"state": "idle"}
+
+
+def progress() -> Dict[str, Any]:
+    """Where the latest pass is, for the page."""
+    with _lock:
+        return dict(_state)
+
+
+def _report(judged: int, total: int) -> None:
+    with _lock:
+        _state.update(judged=judged, total=total)
 
 
 def bring_up_to_date(db) -> Optional[int]:
@@ -33,7 +54,9 @@ def bring_up_to_date(db) -> Optional[int]:
     fingerprint = prompt_words_fingerprint()
     if db.get_metadata(FINGERPRINT_KEY) == fingerprint:
         return None
-    changed, total, covers = db.restamp_image_levels()
+    changed, total, covers = db.restamp_image_levels(progress=_report)
+    with _lock:
+        _state.update(changed=changed, total=total)
     db.set_metadata(FINGERPRINT_KEY, fingerprint)
     print(f"[ModelManager] NSFW prompt words: {changed} of {total} images judged again"
           + (f", {covers} safe covers cleared" if covers else ""))
@@ -48,6 +71,11 @@ def start_in_background() -> None:
     """
     global _running, _again
     with _lock:
+        # Said before the thread starts, so a page asking straight after the
+        # save that started it never sees the last pass's "done".
+        _state.clear()
+        _state.update(state="running", judged=None, total=None, changed=None,
+                      started=time.time())
         if _running:
             _again = True
             return
@@ -56,15 +84,20 @@ def start_in_background() -> None:
     def run():
         global _running, _again
         while True:
+            error = None
             try:
                 from .db import get_models_db
                 bring_up_to_date(get_models_db())
             except Exception as e:
+                error = str(e)
                 print(f"[ModelManager] Could not apply the NSFW prompt words: {e}")
             with _lock:
                 if not _again:
                     _running = False
+                    _state.update(state="failed" if error else "done", error=error,
+                                  finished=time.time())
                     return
                 _again = False
+                _state.update(judged=None, total=None, changed=None)
 
     threading.Thread(target=run, name="mm-prompt-levels", daemon=True).start()

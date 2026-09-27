@@ -303,6 +303,13 @@ def register(app: FastAPI):
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.get("/model-manager/settings/nsfw-levels")
+    async def get_nsfw_levels():
+        """How far judging the stored images again has got, after a change
+        to how they are judged. See prompt_levels.progress()."""
+        from ..prompt_levels import progress
+        return JSONResponse({"success": True, **progress()})
+
     @app.post("/model-manager/settings")
     async def save_settings(values: Dict[str, Any] = Body(..., embed=True)):
         """Save the settings given, all or none; answers what they are now."""
