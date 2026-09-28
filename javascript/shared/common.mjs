@@ -703,10 +703,13 @@ export function renameLoraTags(prompt, from, to) {
 export function collectResourceChips(meta, files, gallery = null) {
     const byVersion = (files && files.versions) || {};
     const byHash = (files && files.hashes) || {};
+    // Found by the file's name, where no id or hash found it: see
+    // resourceNames(). A chip found only so says so, under the chips.
+    const byName = (files && files.names) || {};
     const chips = new Map();
     const renames = [];
 
-    const add = ({ file, type, label, weight, versionId, modelId, hash, alias }) => {
+    const add = ({ file, type, label, weight, versionId, modelId, hash, alias, named = false }) => {
         const kind = resourceKind((file && file.file_type) || type);
         if (!kind) return;
         const name = file ? file.file_stem : label;
@@ -715,6 +718,7 @@ export function collectResourceChips(meta, files, gallery = null) {
             : versionId ? `version:${versionId}` : `name:${name.toLowerCase()}`;
         const known = chips.get(key);
         if (known) {
+            if (file && !named) known.byName = false;
             if (known.weight === null && weight !== undefined && weight !== null) known.weight = weight;
             known.versionId = known.versionId || versionId || (file && file.version_id) || null;
             known.modelId = known.modelId || modelId || null;
@@ -723,7 +727,7 @@ export function collectResourceChips(meta, files, gallery = null) {
             chips.set(key, { key, kind, name, weight: weight ?? null, installed: !!file,
                              aliases: new Set(), title: label || name,
                              versionId: versionId || (file && file.version_id) || null,
-                             modelId: modelId || null, hash: hash || null });
+                             modelId: modelId || null, hash: hash || null, byName: !!file && named });
         }
         if (file && alias && alias !== name) {
             chips.get(key).aliases.add(alias);
@@ -741,8 +745,10 @@ export function collectResourceChips(meta, files, gallery = null) {
               weight: r.weight });
     }
     for (const r of (meta && meta.resources) || []) {
-        const hash = String(r.hash || '').toLowerCase();
-        add({ file: hash ? byHash[hash] : null, type: r.type, label: r.name,
+        const hash = String(r.hash || resourceHash(meta, r) || '').toLowerCase();
+        const found = hash ? byHash[hash] : null;
+        const named = !found && r.name ? byName[String(r.name).toLowerCase()] : null;
+        add({ file: found || named, type: r.type, label: r.name, named: !!named,
               weight: r.weight, alias: r.name, hash: hash || null });
     }
 
@@ -755,6 +761,32 @@ export function collectResourceChips(meta, files, gallery = null) {
         return chip;
     });
     return { chips: result, renames };
+}
+
+/**
+ * A resource's hash from the image's `hashes`, where its own entry has none:
+ * Forge writes {"lora:Ghibli_v6": "58549cc3d3"} there and leaves the
+ * resources list without them.
+ */
+function resourceHash(meta, resource) {
+    const hashes = (meta && meta.hashes) || {};
+    const kind = resourceKind(resource.type);
+    const prefixes = kind === 'lora' ? ['lora', 'lyco'] : kind === 'embedding' ? ['embed'] : [];
+    for (const prefix of prefixes) {
+        const hash = hashes[`${prefix}:${resource.name}`];
+        if (hash) return hash;
+    }
+    return '';
+}
+
+/**
+ * What to ask the library to find by name: the image's LoRAs and embeddings,
+ * each with the hash the image gives for it, which the file has to match.
+ */
+export function resourceNames(meta) {
+    return ((meta && meta.resources) || [])
+        .filter((r) => r.name && resourceKind(r.type))
+        .map((r) => ({ name: r.name, hash: String(r.hash || resourceHash(meta, r) || '') }));
 }
 
 export function renderResource(resource) {

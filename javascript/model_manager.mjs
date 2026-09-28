@@ -30,6 +30,7 @@ const {
     cardMediaUrl,
     originalMediaUrl,
     collectResourceChips,
+    resourceNames,
     promptHasChip,
     toggleChip,
     renameLoraTags,
@@ -3325,11 +3326,15 @@ async function refreshResourceChips() {
 async function fetchImageFiles(img) {
     const none = { versions: {}, hashes: {} };
     const ids = ((img.meta || {}).civitaiResources || []).map((r) => r.modelVersionId).filter(Boolean);
-    const hashes = imageResourceHashes(img);
-    if (!ids.length && !hashes.length) return none;
+    const named = resourceNames(img.meta);
+    // The resources' own hashes, and those the image keeps apart from them.
+    const hashes = [...new Set([...imageResourceHashes(img),
+                                ...named.map((n) => n.hash.toLowerCase()).filter(Boolean)])];
+    if (!ids.length && !hashes.length && !named.length) return none;
     try {
         const data = await apiCall({ endpoint: '/model-manager/image-resources',
-                                     params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
+                                     params: { version_ids: ids.join(','), hashes: hashes.join(','),
+                                               names: named.length ? JSON.stringify(named) : '' } });
         return data && data.success ? data : none;
     } catch (error) {
         console.warn('[ModelManager] Could not look up the image\'s resources:', error);
@@ -3350,6 +3355,10 @@ function promptBoxes(tab) {
              negative: gradioApp().querySelector(`#${tab}_neg_prompt textarea`) };
 }
 
+// Each chip's mark, beside its colour: whether it is here, can be
+// downloaded, or cannot - so it reads without telling the colours apart.
+const CHIP_MARKS = { have: '✓', download: '↓', unavailable: '⊘' };
+
 function showResourceChips(tab, chips) {
     resourceChips[tab] = chips && chips.length ? chips : null;
     const row = resourceChipRows[tab];
@@ -3366,14 +3375,27 @@ function showResourceChips(tab, chips) {
                        chip.where === 'negative' ? 'negative prompt' : ''].filter(Boolean);
         const missing = chip.installed ? null : missingChipState(chip);
         const title = missing ? missing.title : `${chip.title} (${notes.join(', ')})`;
-        const state = missing ? (missing.unavailable ? ' missing unavailable' : ' missing') : '';
-        return `<button type="button" class="mm-resource-chip${state}"
+        // Whether it can be used is said by colour and a mark; whether a
+        // prompt holds it, by filled or outlined (updateResourceChipStates).
+        const state = !missing ? 'have' : missing.unavailable ? 'unavailable' : 'download';
+        const classes = missing ? (missing.unavailable ? ' missing unavailable' : ' missing') : '';
+        return `<button type="button" class="mm-resource-chip${classes}" data-state="${state}"
                         data-chip="${index}" ${missing && missing.busy ? 'disabled' : ''}
                         title="${escapeHtml(title)}">`
+             + `<span class="mm-resource-chip-mark" aria-hidden="true">${CHIP_MARKS[state]}</span>`
              + `<span class="mm-resource-chip-name">${escapeHtml(chip.name)}</span>`
              + (missing ? `<span class="mm-resource-chip-note">${escapeHtml(missing.note)}</span>` : '')
              + '</button>';
-    }).join('') + '<button type="button" class="mm-btn secondary mm-btn-small" data-chips-clear>Clear</button>';
+    }).join('') + '<button type="button" class="mm-btn secondary mm-btn-small" data-chips-clear>Clear</button>'
+        + '<div class="mm-resource-chips-key">'
+        + `<span data-state="have">${CHIP_MARKS.have} in library</span>`
+        + `<span data-state="download">${CHIP_MARKS.download} can download</span>`
+        + `<span data-state="unavailable">${CHIP_MARKS.unavailable} not available</span>`
+        + '<span>filled: in the prompt</span>'
+        + (resourceChips[tab].some((chip) => chip.installed && chip.byName)
+            ? '<span class="mm-resource-chips-note">Some LoRAs and embeddings are matched by name, not by hash.</span>'
+            : '')
+        + '</div>';
     if (!row) element.addEventListener('click', (event) => onResourceChipClick(tab, event));
     keepResourceChips();
 }

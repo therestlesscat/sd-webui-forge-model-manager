@@ -5,6 +5,7 @@ Listing and filtering them, opening one, its versions, the values its filters
 offer, bookmarking, deleting, and resolving a hash to a model. Anything that
 answers "which models do I have, and what is this one".
 """
+import json
 import os
 import time
 from typing import Optional
@@ -23,6 +24,43 @@ from ..storage import read_civitai_info
 # Each is its own request with no batch endpoint behind it, and without an API
 # key the rate limit makes each one about two seconds.
 MAX_HASH_LOOKUPS = 20
+
+
+# The file types a resource can be found by name among: what a chip is for.
+_NAMED_TYPES = {"LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion", None}
+
+
+def files_by_name(db, named, by_hash) -> dict:
+    """
+    The library's file for each resource an image names, by the file's name,
+    where the resource's hash - if the image gives one - found nothing.
+
+    A file with that name is taken only if it is a LoRA, an embedding, or not
+    yet read by a scan; and, where the image gives a hash, only if that hash
+    is the file's - so a file that merely shares a name is not taken for the
+    one the image used. With no hash, a name matching one file is taken, as
+    Forge takes <lora:name> from a prompt.
+
+    Args:
+        named: [{name, hash}], from the image.
+        by_hash: what the hashes already found, lower-case hash -> row.
+    """
+    from ..hashing import names_this_file
+    wanted = [(str(n.get("name") or "").strip(), str(n.get("hash") or "").strip().lower())
+              for n in named if isinstance(n, dict)]
+    wanted = [(name, h) for name, h in wanted if name and not (h and h in by_hash)]
+    rows = db.local_versions_by_name([name for name, _ in wanted])
+    found = {}
+    for name, image_hash in wanted:
+        candidates = [r for r in rows.get(name.lower(), []) if r.get("file_type") in _NAMED_TYPES]
+        if image_hash:
+            match = next((r for r in candidates
+                          if names_this_file(r.get("file_hashes"), r.get("file_path"), image_hash)), None)
+        else:
+            match = candidates[0] if len(candidates) == 1 else None
+        if match:
+            found[name.lower()] = match
+    return found
 
 
 def register(app: FastAPI):
@@ -805,7 +843,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/image-resources")
-    def image_resources(version_ids: str = "", hashes: str = ""):
+    def image_resources(version_ids: str = "", hashes: str = "", names: str = ""):
         """
         Which local file each of an image's resources is, for the resource
         chips a send puts under the prompts.
@@ -817,9 +855,14 @@ def register(app: FastAPI):
         Args:
             version_ids: Comma-separated Civitai version ids (civitaiResources).
             hashes: Comma-separated hashes (the infotext's resources).
+            names: A JSON list of {name, hash}: the resources the infotext
+                names, for any that neither an id nor a hash finds - a file
+                Scan Disk added and no sync has identified. `hash`, if the
+                image gives one, has to be the file's.
 
         Returns:
-            versions: version id -> file; hashes: hash (lower case) -> file.
+            versions: version id -> file; hashes: hash (lower case) -> file;
+            names: name (lower case) -> file, found by its file name.
             A file is {version_id, file_stem, file_type}: file_stem is the
             name Forge knows it by in a prompt, file_type what the file itself
             is (file_identity.py), or null before a scan has read it.
@@ -834,12 +877,15 @@ def register(app: FastAPI):
                     "file_type": row.get("file_type")}
 
         try:
-            by_id, by_hash = get_models_db().local_versions_by_key(
+            db = get_models_db()
+            by_id, by_hash = db.local_versions_by_key(
                 [int(v) for v in split(version_ids) if v.isdigit()], split(hashes))
+            by_name = files_by_name(db, json.loads(names) if names else [], by_hash)
             return JSONResponse({
                 "success": True,
                 "versions": {str(k): as_file(v) for k, v in by_id.items()},
                 "hashes": {k: as_file(v) for k, v in by_hash.items()},
+                "names": {k: as_file(v) for k, v in by_name.items()},
             })
         except Exception as e:
             print(f"[ModelManager] Image resources error: {e}")

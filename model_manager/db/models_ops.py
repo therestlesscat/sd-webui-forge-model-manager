@@ -740,6 +740,25 @@ class ModelsOps:
                             by_hash[value] = self._version_row_to_dict(row)
         return by_id, by_hash
 
+    def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        The local files named each of these, by file name without its
+        extension, ignoring case: {name (lower case): [row, ...]}. For a
+        resource no id or hash finds - a file Scan Disk added and no sync has
+        identified yet. Several files can share a name, in different folders.
+        """
+        wanted = {str(n).lower() for n in names if n}
+        found: Dict[str, List[Dict[str, Any]]] = {}
+        if not wanted:
+            return found
+        with self._cursor() as cursor:
+            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
+            for row in cursor.fetchall():
+                stem = os.path.splitext(os.path.basename(row["file_path"]))[0].lower()
+                if stem in wanted:
+                    found.setdefault(stem, []).append(self._version_row_to_dict(row))
+        return found
+
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:

@@ -418,6 +418,26 @@ check('one with no file here says it is missing, and that a click downloads it',
       note('Not Here'), 'missing LoRA, click to download');
 await waitFor('the hashes to be checked', () => note('private_merge') === 'not on Civitai');
 check('one known by a hash Civitai has: downloadable too', note('hash_only'), 'missing LoRA, click to download');
+
+// Two things each chip says, told apart: whether it can be used - in the
+// library, missing but downloadable, missing for good - by colour and a mark;
+// whether a prompt holds it, by being filled (.active) rather than outlined.
+const look = (name) => [chip(name)?.dataset.state, chip(name)?.querySelector('.mm-resource-chip-mark')?.textContent,
+                        chip(name)?.classList.contains('active')];
+check('in the library and in a prompt: ✓, filled', look('add_detail'), ['have', '✓', true]);
+check('in the library, in no prompt: ✓, outlined', look('flux'), ['have', '✓', false]);
+check('missing but downloadable: ↓', look('Not Here').slice(0, 2), ['download', '↓']);
+check('missing, and nothing to download: ⊘', [look('no_hash').slice(0, 2), look('private_merge').slice(0, 2)],
+      [['unavailable', '⊘'], ['unavailable', '⊘']]);
+positiveBox.value += ', <lora:no_hash:0.5>';
+positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+await waitFor('the chips to be lit again', () => chip('no_hash')?.classList.contains('active'), 20);
+check('a missing one a prompt names is filled too, in its own colour', look('no_hash'), ['unavailable', '⊘', true]);
+positiveBox.value = positiveBox.value.replace(', <lora:no_hash:0.5>', '');
+positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+check('and a key says what the colours and filling mean',
+      Array.from(row().querySelectorAll('.mm-resource-chips-key > span')).map((s) => s.textContent),
+      ['✓ in library', '↓ can download', '⊘ not available', 'filled: in the prompt']);
 check('one whose hash Civitai has never heard of says so, and offers nothing',
       [note('private_merge'), chip('private_merge').disabled], ['not on Civitai', true]);
 check('nor one the image names with no hash or version at all',
@@ -476,6 +496,33 @@ IMAGE.meta = { prompt: 'a lighthouse', steps: 20 };
 MODEL.model_type = 'Checkpoint';
 await send();
 check('an image with nothing to chip shows no row', row(), null);
+
+// ------------------------------------------------ found by the file's name
+// A file Scan Disk added and no sync has identified has no Civitai id and no
+// stored hash; the server finds it by its name instead, and the chips say
+// some were matched so.
+IMAGE.meta = {
+    prompt: 'a cat', negativePrompt: 'blurry', steps: 20,
+    resources: [{ type: 'lora', name: 'add_detail_again', hash: 'AAAA' },
+                { type: 'lora', name: 'Ghibli_v6', weight: 0.8 }],
+    hashes: { 'lora:Ghibli_v6': '58549cc3d3' },
+};
+await send();
+check('the image\'s LoRAs and embeddings are asked for by name too, with their hashes',
+      JSON.parse(resourcesAsked[resourcesAsked.length - 1]?.get('names') || '[]'),
+      [{ name: 'add_detail_again', hash: 'AAAA' }, { name: 'Ghibli_v6', hash: '58549cc3d3' }]);
+check('and the hash the image keeps apart is asked for as a hash too',
+      resourcesAsked[resourcesAsked.length - 1]?.get('hashes'), 'aaaa,58549cc3d3');
+check('with every chip found by id or hash, no note', Boolean(row()?.querySelector('.mm-resource-chips-note')), false);
+library.names = { ghibli_v6: { version_id: null, file_stem: 'Ghibli_v6', file_type: 'LORA' } };
+await send();
+await waitFor('the chips again', () => Boolean(chip('Ghibli_v6')));
+check('one found by its name is a file you have: no missing note', note('Ghibli_v6') ?? null, null);
+check('and a small note under the chips says some were matched by name',
+      row()?.querySelector('.mm-resource-chips-note')?.textContent,
+      'Some LoRAs and embeddings are matched by name, not by hash.');
+delete library.names;
+click(row().querySelector('[data-chips-clear]'));
 
 // ------------------------------------------------ the original Forge
 // ------------------------------------------------- a slow preset change

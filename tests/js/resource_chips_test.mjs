@@ -9,7 +9,7 @@ import { ROOT, checker } from './harness.mjs';
 
 const { check, done } = checker();
 const { collectResourceChips, toggleChip, promptHasChip, renameLoraTags, chipTag,
-        DEFAULT_LORA_WEIGHT } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+        DEFAULT_LORA_WEIGHT, resourceNames } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
 
 const lora = { kind: 'lora', name: 'add_detail', weight: 0.5 };
 const embedding = { kind: 'embedding', name: 'easynegative' };
@@ -102,5 +102,29 @@ check('the gallery\'s own LoRA is a chip though the image does not list it',
       gallery.chips.map((c) => [c.name, c.installed, c.weight]), [['my_lora', true, 0.5]]);
 check('and nothing listed, nothing shown',
       collectResourceChips({}, null).chips, []);
+
+// ------------------------------------------------ found by the file's name
+// Forge writes a LoRA's hash into the image's `hashes`, not its resources:
+// one library's Ghibli_v6 was named {"type": "lora", "name": "Ghibli_v6"}
+// with "lora:Ghibli_v6": "58549cc3d3" beside it. That hash is looked up, and
+// sent with the name, for a file no id or hash finds.
+const GHIBLI = { resources: [{ type: 'lora', name: 'Ghibli_v6', weight: 0.8 }, { type: 'model', name: 'ckpt' },
+                             { type: 'embed', name: 'an12' }],
+                 hashes: { 'lora:Ghibli_v6': '58549cc3d3', 'embed:an12': '1c6c72d33a', model: 'b0d25db787' } };
+check('the names to look for: LoRAs and embeddings, each with the hash the image keeps for it',
+      resourceNames(GHIBLI), [{ name: 'Ghibli_v6', hash: '58549cc3d3' }, { name: 'an12', hash: '1c6c72d33a' }]);
+const file = { version_id: null, file_stem: 'Ghibli_v6', file_type: 'LORA' };
+const found = collectResourceChips(GHIBLI, { versions: {}, hashes: {}, names: { ghibli_v6: file } }).chips;
+check('a file found only by name is a chip you have, and says how it was found',
+      found.filter((c) => c.name === 'Ghibli_v6').map((c) => [c.installed, c.byName]), [[true, true]]);
+const both = collectResourceChips(GHIBLI, { versions: {}, hashes: { '58549cc3d3': file }, names: { ghibli_v6: file } }).chips;
+check('found by the hash, it was not found by name', both.find((c) => c.name === 'Ghibli_v6').byName, false);
+const twice = collectResourceChips({ resources: [{ type: 'lora', name: 'Ghibli_v6' },
+                                                 { type: 'lora', name: 'ghibli-other-name', hash: '58549cc3d3' }] },
+                                   { versions: {}, hashes: { '58549cc3d3': file }, names: { ghibli_v6: file } }).chips;
+check('a file one entry finds by name and another by hash is one chip, found by hash',
+      twice.map((c) => [c.name, c.byName]), [['Ghibli_v6', false]]);
+check('and with no file by name, still missing', collectResourceChips(GHIBLI, { versions: {}, hashes: {} })
+    .chips.find((c) => c.name === 'Ghibli_v6')?.installed, false);
 
 done();
