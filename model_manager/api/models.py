@@ -137,6 +137,7 @@ def register(app: FastAPI):
                 # offered by the sort dropdown; without these they silently
                 # fell through to sorting by name
                 "downloaded_at", "scanned_at", "updated_at",
+                "image_count",
             }
 
             # Map short aliases to DB columns

@@ -123,6 +123,7 @@ def create_ui():
                                     <option value="updated_at">Updated At</option>
                                     <option value="rating">Rating</option>
                                     <option value="download_count">Download Count</option>
+                                    <option value="image_count">Image Count</option>
                                 </select>
                             </div>
                             <div class="filter-group">

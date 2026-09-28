@@ -35,6 +35,7 @@ const {
     cardMediaUrl,
     getImagePageCount,
     downloadedImagesNote,
+    downloadFailedNote,
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
@@ -1068,18 +1069,14 @@ async function loadMoreImages() {
             }
             renderImages();
         } else {
-            // Reset button on error
-            if (loadMoreBtn) {
-                loadMoreBtn.disabled = false;
-                loadMoreBtn.textContent = 'Load More Images';
-            }
+            console.error('[CivitaiBrowser] Load more failed:', result.error);
+            downloadNote = downloadFailedNote(result.error);
+            renderImages();
         }
     } catch (e) {
         console.error('[CivitaiBrowser] Load more error:', e);
-        if (loadMoreBtn) {
-            loadMoreBtn.disabled = false;
-            loadMoreBtn.textContent = 'Load More Images';
-        }
+        downloadNote = downloadFailedNote(e?.message);
+        renderImages();
     } finally {
         isLoadingImages = false;
     }
