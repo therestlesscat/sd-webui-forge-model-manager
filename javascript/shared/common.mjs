@@ -12,6 +12,21 @@
 export const IMAGE_PAGE_SIZE = 100;
 
 /**
+ * How long the page waits, and how often it asks the server how something is
+ * going - in one place, so a test can shorten them all before the page loads,
+ * with window.mmTiming. In the WebUI they are these.
+ */
+export const TIMING = Object.freeze({
+    poll: 1000,           // downloads and sync progress
+    scanPoll: 500,        // Scan Disk progress
+    presetSettle: 600,    // no server call after a preset switch this long: done in the page alone
+    presetQuiet: 400,     // quiet this long after the last call: Forge has nothing more to send
+    presetMax: 15000,     // a server this slow is not waited on further
+    estimate: 120,        // the sync dialog's cost, asked once its controls stop changing
+    ...(typeof window !== 'undefined' && window.mmTiming) || {},
+});
+
+/**
  * Show a tab's "no Civitai API key" banner, once both halves exist.
  *
  * Without a key the rate limit is 0.5 requests a second rather than 6, the
@@ -1397,7 +1412,7 @@ function createDownloads() {
             if (!progress || progress.version_id == null) return;
             items[progress.version_id] = progress;
             render();
-            if (!poll) poll = setInterval(tick, 1000);
+            if (!poll) poll = setInterval(tick, TIMING.poll);
         },
 
         /** Ask for a version, and follow it. Returns the server's answer. */

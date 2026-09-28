@@ -131,11 +131,14 @@ const check = (label, got, want) => {
         fails.push(`${label}\n     got  ${JSON.stringify(got)}\n     want ${JSON.stringify(want)}`);
     }
 };
-const settle = () => new Promise((r) => setTimeout(r, 300));
+const settle = () => new Promise((r) => setTimeout(r, 50));
 const $ = (id) => window.document.getElementById(id);
 const singleLookups = () => asked.filter((u) => /\/civitai\/models\/\d+/.test(u));
 const searches = () => asked.filter((u) => /\/civitai\/models\?/.test(u));
 
+// The page's waits and polls, shortened: the fake server answers at once,
+// and the same order of events happens ten times faster. See TIMING.
+window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 await settle();
@@ -346,7 +349,8 @@ globalThis.fetch = async (url, init) => {
 };
 const badge = () => document.querySelector('#cb_downloads .cb-download-status-badge')?.textContent.trim();
 const showInManager = () => !!document.querySelector('#cb_details [onclick*="cbShowInModelManager"]');
-const poll = () => new Promise((r) => setTimeout(r, 1300));
+// One of the page's progress polls (TIMING.poll, shortened above), and a margin.
+const poll = () => new Promise((r) => setTimeout(r, 250));
 
 await window.cbShowModel('model:31');
 await settle();

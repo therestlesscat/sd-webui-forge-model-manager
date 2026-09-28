@@ -12,6 +12,9 @@
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The page's waits and polls, shortened: the fake server answers at once,
+// and the same order of events happens ten times faster. See TIMING.
+window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page
@@ -127,7 +130,7 @@ async function send() {
     events.length = 0;
     planAsked.length = 0;
     await window.mmSendToTxt2img(0);
-    await new Promise((r) => setTimeout(r, 1500));       // the modules go in after the paste
+    await window.mmSendSettled();                        // the modules go in after the paste
 }
 
 // ------------------------------------------------------ a Flux checkpoint
@@ -545,7 +548,7 @@ click(row().querySelector('[data-chips-clear]'));
 // CFG, then, chained on that, its checkpoint and modules - and each lands when
 // the server is done. The send gave it a fixed 600 ms; a Krea model's took
 // longer, and the preset's defaults landed on top of the image's settings.
-forgeDelay = 1500;
+forgeDelay = 300;
 forgeAnswersPreset = () => {
     globalThis.fetch('/run/predict').then(() => {
         events.push('forge:defaults');
@@ -555,7 +558,6 @@ forgeAnswersPreset = () => {
 preset.querySelector('input').value = 'sd';
 plan = { success: true, preset: 'flux', manage_modules: false, select: [], missing: [] };
 await send();
-await new Promise((r) => setTimeout(r, 2000));
 check('a slow preset change is waited out: its defaults and modules land before the image\'s settings',
       events.filter((e) => /^(preset|forge|paste)/.test(e)), ['preset:flux', 'forge:defaults', 'forge:modules', 'paste']);
 forgeAnswersPreset = null;

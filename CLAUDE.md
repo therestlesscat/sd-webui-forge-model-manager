@@ -49,8 +49,15 @@ be written twice.
 Kill any server, watcher or background job you start, in the turn you use it.
 Two test servers were once left running for twenty-three hours.
 
-## Before handing back
+## Testing
 
-```
-python tests/run.py
-```
+Test what a change needs, not everything.
+
+- **While working:** `python tests/run.py --changed` runs only the suites the
+  uncommitted changes need, chosen from a record of which files each suite
+  uses, and says why it chose each. Add words to narrow it further
+  (`python tests/run.py --changed chips`), or name suites alone.
+- **Before a commit:** `python tests/run.py --all` - everything, which also
+  records afresh which files each suite uses.
+- A bare `python tests/run.py` is refused by a hook in this project's Claude
+  Code settings, so a full run is always one asked for with `--all`.

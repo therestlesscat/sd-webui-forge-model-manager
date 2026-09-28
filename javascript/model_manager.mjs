@@ -57,6 +57,7 @@ const {
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
+    TIMING,
     renderModelCard,
     renderGridPagination,
     renderModelGrid: renderSharedGrid,
@@ -2460,7 +2461,7 @@ function pollResourceDownloads() {
             redrawResourceDownload(Number(id));
         }
         redrawResourceChips();
-    }, 1000);
+    }, TIMING.poll);
 }
 
 // Close modal on Escape key
@@ -3064,12 +3065,10 @@ async function presetTaken(preset, callsBefore = forgeCalls.started) {
     return currentForgePreset() === preset;
 }
 
-// No call after a switch for this long: the change was made in the page alone.
-const FORGE_PRESET_SETTLE_MS = 600;
-// Quiet for this long after the last call: Forge has nothing more to send.
-const FORGE_PRESET_QUIET_MS = 400;
-// A server this slow is not waited on further; the send goes on.
-const FORGE_PRESET_MAX_MS = 15000;
+// How long a preset switch is waited on: TIMING in common.mjs.
+const FORGE_PRESET_SETTLE_MS = TIMING.presetSettle;
+const FORGE_PRESET_QUIET_MS = TIMING.presetQuiet;
+const FORGE_PRESET_MAX_MS = TIMING.presetMax;
 
 /**
  * Select the modules the plan picked, and say what it could not find.
@@ -3764,6 +3763,13 @@ function setGradioDropdown(elem_id, value) {
 }
 
 // Send image generation params to txt2img using paste button
+// The last send's work after the paste - scheduler, modules, hires - which
+// runs on after mmSendToTxt2img returns. Resolved once all of it is done.
+let sendSettled = Promise.resolve();
+
+/** Wait for the last send to finish setting Forge up. */
+window.mmSendSettled = () => sendSettled;
+
 window.mmSendToTxt2img = async function(imageIndex) {
     const img = currentImages[imageIndex];
     if (!img || !img.meta) {
@@ -3891,8 +3897,9 @@ window.mmSendToTxt2img = async function(imageIndex) {
         pasteButton.click();
 
         // Paste button doesn't set scheduler in Forge - set it directly after a small delay
-        // Also reset hires fix if not present in metadata
-        setTimeout(() => {
+        // Also reset hires fix if not present in metadata. Kept as a promise,
+        // for anything that has to wait for all of it: see mmSendSettled.
+        sendSettled = new Promise((settled) => setTimeout(async () => {
             setGradioDropdown(`${tab}_scheduler`, scheduler);
             updateResourceChipStates(tab);
 
@@ -3901,8 +3908,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
             // from an infotext, not the "VAE:" line we write. A model whose
             // text encoders and VAE are separate gets the ones it needs; an
             // SD or SDXL one, the image's own VAE as before.
-            if (plan && plan.manage_modules) applyPlannedModules(plan);
-            else applyVaeSelection(vaePath);
+            const modules = plan && plan.manage_modules ? applyPlannedModules(plan) : applyVaeSelection(vaePath);
 
             // Reset hires fix if image doesn't have hires data
             // InputAccordion uses a hidden checkbox - need to set value and dispatch events
@@ -3926,7 +3932,9 @@ window.mmSendToTxt2img = async function(imageIndex) {
                     console.log('[ModelManager] Disabled hires fix (not in metadata)');
                 }
             }
-        }, 100);
+            await modules.catch(() => {});
+            settled();
+        }, 100));
 
         showGenerationTab(tab);
         resourceChipSources[tab] = { img, gallery: galleryFile(model) };
@@ -4099,7 +4107,7 @@ async function startSync(targets = 'all') {
 
         if (data.success) {
             // Start polling for progress
-            syncPollInterval = setInterval(pollSyncProgress, 1000);
+            syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
         } else {
             setStatus('Sync failed: ' + (data.error || 'Unknown error'), true);
             isSyncing = false;
@@ -4357,7 +4365,7 @@ function refreshSyncEstimate() {
         } catch (error) {
             console.error('[ModelManager] Sync estimate failed:', error);
         }
-    }, 120);
+    }, TIMING.estimate);
 }
 
 /** A window dropdown, each option carrying how many models it would take. */
@@ -4519,7 +4527,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             // pollSyncProgress() is a single sample that clears this
             // interval once the run reports complete - without the
             // interval the bar freezes and isSyncing is never released.
-            syncPollInterval = setInterval(pollSyncProgress, 1000);
+            syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
         } else {
             setStatus(`Metadata sync failed: ${data.error}`, true);
             isSyncing = false;
@@ -4598,7 +4606,7 @@ async function startScan() {
 
         if (data.success) {
             // Start polling for progress
-            scanPollInterval = setInterval(pollScanProgress, 500);
+            scanPollInterval = setInterval(pollScanProgress, TIMING.scanPoll);
         } else {
             setStatus('Scan failed: ' + (data.error || 'Unknown error'), true);
             isScanning = false;
@@ -5158,7 +5166,7 @@ async function checkOngoingProcesses() {
 
             // Resume polling
             if (!scanPollInterval) {
-                scanPollInterval = setInterval(pollScanProgress, 500);
+                scanPollInterval = setInterval(pollScanProgress, TIMING.scanPoll);
             }
         }
     } catch (error) {
@@ -5176,7 +5184,7 @@ async function checkOngoingProcesses() {
 
             // Resume polling
             if (!syncPollInterval) {
-                syncPollInterval = setInterval(pollSyncProgress, 1000);
+                syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
             }
         }
     } catch (error) {

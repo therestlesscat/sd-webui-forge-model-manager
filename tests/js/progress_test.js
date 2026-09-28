@@ -29,7 +29,7 @@ function body(name) {
 for (const fn of ['startSync', 'startMetadataSync']) {
     const b = body(fn);
     check(fn + ' arms a repeating poll',
-          /syncPollInterval = setInterval\(pollSyncProgress, \d+\)/.test(b), b.slice(0, 200));
+          /syncPollInterval = setInterval\(pollSyncProgress, [\w.]+\)/.test(b), b.slice(0, 200));
     check(fn + ' does not poll just once',
           !/^\s*pollSyncProgress\(\);\s*$/m.test(b), 'bare pollSyncProgress() found');
     check(fn + ' releases the UI when the request fails',
