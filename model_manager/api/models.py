@@ -13,11 +13,12 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
-from ..nsfw import NAME_TO_LEVEL, SFW_MAX, stamp_levels
+from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
 from ..scan_service import as_model_payload
 from ..storage import read_civitai_info
+from .images import GALLERY_PAGE_SIZE, gallery_switches, version_gallery
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -289,8 +290,12 @@ def register(app: FastAPI):
 
     @app.get("/model-manager/models/details")
     async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
-                                hide_promptless_images: Optional[bool] = None):
-        """Get detailed info for a specific model by file path."""
+                                hide_promptless_images: Optional[bool] = None,
+                                image_limit: int = GALLERY_PAGE_SIZE):
+        """
+        Get detailed info for a specific model by file path, with the first
+        image_limit images of its gallery.
+        """
         try:
             from ..storage import load_model_metadata
             import os
@@ -372,46 +377,16 @@ def register(app: FastAPI):
                         "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
                     }
 
-            # Get images and cursor state from database
+            # The gallery's first page, and the state it is drawn with. The
+            # rest come from /model-manager/images/page as they are asked for.
             if version_id:
-                db = get_models_db()
-                version_record = db.get_version_by_id(version_id)
-
-                # Determine NSFW filter - use parameter if provided, else use setting
-                from modules import shared
-                if hide_nsfw_images is None:
-                    hide_nsfw_images = getattr(shared.opts, 'model_manager_gallery_hide_nsfw', True)
-                if hide_promptless_images is None:
-                    hide_promptless_images = getattr(
-                        shared.opts, 'model_manager_hide_promptless_images', True)
-
-                max_nsfw_level = SFW_MAX if hide_nsfw_images else None
-
-                images = db.get_all_images_for_version(
-                    version_id, max_nsfw_level=max_nsfw_level,
-                    require_prompt=hide_promptless_images)
-                image_counts = db.get_image_counts(
-                    version_id, max_nsfw_level=max_nsfw_level,
-                    require_prompt=hide_promptless_images)
-
+                hide_nsfw_images, hide_promptless_images = gallery_switches(
+                    hide_nsfw_images, hide_promptless_images)
+                images, result["images_state"] = version_gallery(
+                    get_models_db(), version_id, hide_nsfw_images,
+                    hide_promptless_images, 0, image_limit)
                 if images:
-                    result["images"] = stamp_levels(images)  # judged here, for the browser
-
-                # Return cursor state for button visibility
-                result["images_state"] = {
-                    "version_id": version_id,
-                    "next_cursor": version_record.get("next_images_cursor") if version_record else None,
-                    "sync_date": version_record.get("images_sync_last_date") if version_record else None,
-                    "total_count": image_counts["total"],
-                    "filtered_count": image_counts["filtered"],
-                    "hidden_count": image_counts["hidden"],
-                    "hidden_nsfw": image_counts["hidden_nsfw"],
-                    "hidden_promptless": image_counts["hidden_promptless"],
-                    "nsfw_count": image_counts["nsfw_count"],
-                    "promptless_count": image_counts["promptless_count"],
-                    "hide_nsfw_images": hide_nsfw_images,
-                    "hide_promptless_images": hide_promptless_images,
-                }
+                    result["images"] = images
 
             return JSONResponse({"success": True, "model": result})
 

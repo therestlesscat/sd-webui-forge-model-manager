@@ -38,6 +38,7 @@ const {
     videoFrames,
     videoSize,
     getImagePageCount,
+    downloadedImagesNote,
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
@@ -148,9 +149,19 @@ let promptlessImageCount = 0;
 // The images the prompt filter is hiding right now, not counting any the NSFW
 // filter hides first - the other half of the banner's "hidden due to" split.
 let hiddenPromptlessCount = 0;
-// How many of the loaded images the continuous list is showing. Paging mode
-// ignores it, so the two modes cannot disagree about where you are.
-let visibleImageCount = IMAGE_PAGE_SIZE;
+// The gallery is fetched a page at a time; it used to arrive whole and be
+// sliced here. currentImages holds what is loaded - the page on show, or in
+// the continuous list every page so far - and imagesOffset is where the first
+// of them sits among the images the switches let through, of which there are
+// filteredImageCount.
+let imagesOffset = 0;
+let filteredImageCount = 0;
+// Each fetch of the gallery takes a number; an answer to anything but the
+// latest is dropped, so a slow page cannot land over a newer one.
+let imagesRequest = 0;
+// What the last "Download More Images" brought, beside the button, until the
+// gallery is next loaded some other way.
+let downloadNote = '';
 let nextImagesCursor = null;  // Cursor for loading more images
 let imagesSyncDate = null;    // Last sync date (null = never synced)
 let isLoadingMore = false;
@@ -685,7 +696,8 @@ window.mmSelectModel = async function(index) {
     currentVersionId = null;
     currentModelPath = model.file_path;
     currentImagePage = 1;
-    visibleImageCount = IMAGE_PAGE_SIZE;
+    imagesOffset = 0;
+    filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
     // Each model's gallery starts from the settings; its switches then last
@@ -746,8 +758,12 @@ async function loadVersionDetails(filePath) {
             path: filePath,
             hide_nsfw_images: hideNsfwImagesInitialized ? hideNsfwImages : undefined,
             hide_promptless_images: hidePromptlessInitialised ? hidePromptlessImages : undefined,
+            image_limit: IMAGE_PAGE_SIZE,
         };
+        const request = ++imagesRequest;
+        downloadNote = '';
         const data = await apiCall({ endpoint: '/model-manager/models/details', params });
+        if (request !== imagesRequest) return;  // superseded by a newer load
         if (data.success && data.model) {
             // Store version ID for load-more
             if (data.model.civitai_version) {
@@ -760,20 +776,12 @@ async function loadVersionDetails(filePath) {
                 updateDescription(data.model.civitai_model.description);
             }
 
-            // Store images
+            // The gallery's first page, and the state it is drawn with
             const images = data.model.images || [];
             currentImages = images;
-
-            // Get cursor state from images_state
+            currentImagePage = 1;
             const imagesState = data.model.images_state || {};
-            currentVersionId = imagesState.version_id || null;
-            nextImagesCursor = imagesState.next_cursor || null;
-            imagesSyncDate = imagesState.sync_date || null;
-            totalImageCount = imagesState.total_count || 0;
-            hiddenImageCount = imagesState.hidden_nsfw ?? imagesState.hidden_count ?? 0;
-            hiddenPromptlessCount = imagesState.hidden_promptless || 0;
-            nsfwImageCount = imagesState.nsfw_count || 0;
-            promptlessImageCount = imagesState.promptless_count || 0;
+            applyImagesState(imagesState);
 
             if (!hidePromptlessInitialised && imagesState.hide_promptless_images !== undefined) {
                 hidePromptlessImages = imagesState.hide_promptless_images;
@@ -787,7 +795,7 @@ async function loadVersionDetails(filePath) {
                 console.log(`[ModelManager] Initialized hideNsfwImages: ${hideNsfwImages}`);
             }
 
-            console.log(`[ModelManager] Loaded ${images.length} images (total: ${totalImageCount}, hidden: ${hiddenImageCount}, cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
+            console.log(`[ModelManager] Loaded ${images.length} of ${filteredImageCount} images (total: ${totalImageCount}, hidden: ${hiddenImageCount}, cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
 
             renderModelImages(images);
             updateImagesCountCell();
@@ -796,6 +804,81 @@ async function loadVersionDetails(filePath) {
         console.error('[ModelManager] Failed to load model details:', error);
         updateImagesCountCell();  // Update even on error to show "None"
     }
+}
+
+/**
+ * Take the gallery's state from the server's images_state: what Civitai has
+ * left, the counts the banner states, and where the loaded images start. Every
+ * page carries it, so the counts are always those of the images drawn.
+ */
+function applyImagesState(state) {
+    currentVersionId = state.version_id || null;
+    nextImagesCursor = state.next_cursor || null;
+    imagesSyncDate = state.sync_date || null;
+    imagesOffset = state.offset || 0;
+    totalImageCount = state.total_count || 0;
+    filteredImageCount = state.filtered_count || 0;
+    hiddenImageCount = state.hidden_nsfw ?? state.hidden_count ?? 0;
+    hiddenPromptlessCount = state.hidden_promptless || 0;
+    nsfwImageCount = state.nsfw_count || 0;
+    promptlessImageCount = state.promptless_count || 0;
+}
+
+/**
+ * Fetch a page of the open version's gallery, through its two switches, and
+ * draw it. Appended to what is loaded for the continuous list's Show More;
+ * otherwise it replaces it.
+ *
+ * @returns {Promise<boolean>} whether the page arrived and was drawn
+ */
+async function loadImagesPage(offset, { append = false } = {}) {
+    const versionId = currentVersionId;
+    if (!versionId) return false;
+    const request = ++imagesRequest;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/images/page', params: {
+            version_id: versionId, offset, limit: IMAGE_PAGE_SIZE,
+            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+        } });
+        if (request !== imagesRequest || versionId !== currentVersionId) return false;
+        if (!data.success) {
+            console.error('[ModelManager] Failed to load images:', data.error);
+            return false;
+        }
+        const images = data.images || [];
+        if (append) {
+            // The loaded list keeps its start; only the counts move.
+            const start = imagesOffset;
+            applyImagesState(data.images_state || {});
+            imagesOffset = start;
+            const have = new Set(currentImages.map((img) => img.id));
+            currentImages = currentImages.concat(images.filter((img) => !have.has(img.id)));
+        } else {
+            applyImagesState(data.images_state || {});
+            currentImages = images;
+        }
+        renderModelImages(currentImages);
+        updateImagesCountCell();
+        return true;
+    } catch (error) {
+        console.error('[ModelManager] Failed to load images:', error);
+        return false;
+    }
+}
+
+/** The gallery's counts, as downloadedImagesNote() compares them. */
+function galleryCounts() {
+    return { total: totalImageCount, filtered: filteredImageCount,
+             hidden_nsfw: hiddenImageCount, hidden_promptless: hiddenPromptlessCount };
+}
+
+/** Fetch and show one page of the gallery, when it is paged. */
+async function showImagePage(page) {
+    downloadNote = '';
+    const totalPages = getImagePageCount(filteredImageCount);
+    const target = Math.min(Math.max(1, page), totalPages);
+    currentImagePage = target;
+    return loadImagesPage((target - 1) * IMAGE_PAGE_SIZE);
 }
 
 // The no-prompt switch. It reads "Show images without prompts", as the Civitai
@@ -807,7 +890,6 @@ window.mmToggleShowPromptless = async function(showPromptless) {
     hidePromptlessImages = !showPromptless;
     hidePromptlessInitialised = true;
     currentImagePage = 1;
-    visibleImageCount = IMAGE_PAGE_SIZE;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
     }
@@ -821,7 +903,6 @@ window.mmToggleShowNsfwImages = async function(showNsfw) {
     hideNsfwImages = !showNsfw;
     hideNsfwImagesInitialized = true;
     currentImagePage = 1;
-    visibleImageCount = IMAGE_PAGE_SIZE;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
     }
@@ -832,8 +913,8 @@ function updateImagesCountCell() {
     const cell = document.getElementById('mm_images_count_cell');
     if (!cell) return;
 
-    const downloaded = currentImages.length;
-    cell.textContent = downloaded > 0 ? `${downloaded}` : 'None';
+    // The images the switches let through, loaded or not.
+    cell.textContent = filteredImageCount > 0 ? `${filteredImageCount}` : 'None';
 }
 
 // Switch to a different version within the same model group
@@ -849,7 +930,8 @@ window.mmSelectVersion = async function(versionIndex) {
     currentImages = [];
     currentVersionId = null;
     currentImagePage = 1;
-    visibleImageCount = IMAGE_PAGE_SIZE;
+    imagesOffset = 0;
+    filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
 
@@ -1118,7 +1200,8 @@ function resetImageState() {
     currentImages = [];
     currentVersionId = null;
     currentImagePage = 1;
-    visibleImageCount = IMAGE_PAGE_SIZE;
+    imagesOffset = 0;
+    filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
 }
@@ -1463,12 +1546,10 @@ window.mmResyncImages = async function() {
 
         if (data.success) {
             setStatus(`Resynced ${data.fetched_count} images`);
-            // Update images display and cursor state
-            currentImages = data.images || [];
-            nextImagesCursor = data.next_cursor || null;
-            imagesSyncDate = new Date().toISOString();
-            renderModelImages(currentImages);
-            updateImagesCountCell();
+            // The gallery again from its first page, through the switches:
+            // the answer holds every image fetched, filtered or not.
+            currentImagePage = 1;
+            await loadImagesPage(0);
         } else {
             setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
         }
@@ -1682,7 +1763,7 @@ function renderModelImages(images) {
     const container = document.getElementById('mm_images');
     if (!container) return;
 
-    const totalPages = getImagePageCount(images.length);
+    const totalPages = getImagePageCount(filteredImageCount);
     currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
 
     // One banner for both filters: what they are holding back, which adds up
@@ -1692,7 +1773,7 @@ function renderModelImages(images) {
     // would show once ticked. Built in shared/common.mjs, as the Civitai
     // Browser's is.
     const filterBannerHtml = renderFilterBanner({
-        shown: images.length,
+        shown: filteredImageCount,
         total: totalImageCount,
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
@@ -1726,16 +1807,14 @@ function renderModelImages(images) {
     }
 
     // Continuous shows everything from the first image down to wherever the
-    // reader has got to; paging shows one page. Only the slice differs - the
-    // cards, the counts and the download button are the same either way.
+    // reader has got to; paging shows one page. Either way what is drawn is
+    // what is loaded - the server sends a page at a time - and the cards, the
+    // counts and the download button are the same.
     const paging = imageBrowsing === 'pages';
-    const pageStart = paging ? (currentImagePage - 1) * IMAGE_PAGE_SIZE : 0;
-    const pageEnd = paging
-        ? Math.min(pageStart + IMAGE_PAGE_SIZE, images.length)
-        : Math.min(visibleImageCount, images.length);
-    const pageImages = images.slice(pageStart, pageEnd);
-    const imageCards = pageImages.map((img, index) => renderImageCard(img, pageStart + index)).filter(Boolean).join('');
-    const moreToShow = !paging && pageEnd < images.length;
+    const pageStart = imagesOffset;
+    const pageEnd = imagesOffset + images.length;
+    const imageCards = images.map((img, index) => renderImageCard(img, index)).filter(Boolean).join('');
+    const moreToShow = !paging && pageEnd < filteredImageCount;
 
     if (!imageCards) {
         container.style.display = 'none';
@@ -1748,18 +1827,19 @@ function renderModelImages(images) {
     const showDownloadBtn = (nextImagesCursor !== null && nextImagesCursor !== '') || (imagesSyncDate === null);
     const neverSynced = imagesSyncDate === null;
     const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
-    const infoText = neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`;
+    const infoText = downloadNote ? escapeHtml(downloadNote)
+        : (neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`);
 
     // One button at the foot of the list. While there are images already
-    // downloaded but not yet on screen it shows those - no request, no wait.
-    // Once they are all up, it offers to fetch more from Civitai.
+    // downloaded but not yet on screen it fetches the next page of those from
+    // the server. Once they are all up, it offers to fetch more from Civitai.
     const atEnd = paging ? currentImagePage === totalPages : !moreToShow;
     const downloadMoreHtml = moreToShow
         ? `<div class="mm-load-more">
              <button class="mm-btn secondary" id="mm_show_more_btn" onclick="window.mmShowMoreImages()">
                Show More Images
              </button>
-             <span class="mm-load-more-info">${pageEnd} of ${images.length} shown</span>
+             <span class="mm-load-more-info">${pageEnd} of ${filteredImageCount} shown</span>
            </div>`
         : (showDownloadBtn && atEnd
             ? `<div class="mm-load-more">
@@ -1768,11 +1848,13 @@ function renderModelImages(images) {
                  </button>
                  <span class="mm-load-more-info">${infoText}</span>
                </div>`
-            : '');
+            : (downloadNote && atEnd
+                ? `<div class="mm-load-more"><span class="mm-load-more-info">${infoText}</span></div>`
+                : ''));
 
     const countText = paging
-        ? `${pageStart + 1}-${pageEnd} of ${images.length} images (Page ${currentImagePage}/${totalPages})`
-        : `${pageEnd} of ${images.length} images`;
+        ? `${pageStart + 1}-${pageEnd} of ${filteredImageCount} images (Page ${currentImagePage}/${totalPages})`
+        : `${pageEnd} of ${filteredImageCount} images`;
 
     container.innerHTML = `
         <div class="mm-images-header">
@@ -2494,56 +2576,35 @@ window.mmLoadMoreImages = async function() {
 
         const data = await response.json();
 
-        if (data.success && data.images && data.images.length > 0) {
-            // Deduplicate: filter out images that already exist in currentImages
-            const existingIds = new Set(currentImages.map(img => img.id));
-            const newImages = data.images.filter(img => !existingIds.has(img.id));
-
-            if (newImages.length > 0) {
-                const oldCount = currentImages.length;
-                currentImages = currentImages.concat(newImages);
-
-                // Update cursor state from response
-                nextImagesCursor = data.next_cursor || null;
-                imagesSyncDate = new Date().toISOString();  // Mark as synced
-
-                if (imageBrowsing === 'pages') {
-                    const oldPages = getImagePageCount(oldCount);
-                    const newPages = getImagePageCount(currentImages.length);
-                    if (newPages > oldPages) {
-                        await scrollToModelImagesTop();
-                        currentImagePage = newPages;
-                    }
-                } else {
-                    // Show what just arrived, and stay where the reader is.
-                    visibleImageCount = Math.max(visibleImageCount,
-                                                 oldCount + newImages.length);
+        if (data.success) {
+            // The answer holds what Civitai sent, filtered or not, so the
+            // gallery is read again from the server rather than added to -
+            // which also brings the cursor, and the counts the note compares.
+            const before = galleryCounts();
+            let loaded;
+            if (imageBrowsing === 'pages') {
+                const oldPages = getImagePageCount(filteredImageCount);
+                loaded = await loadImagesPage(imagesOffset);
+                const newPages = getImagePageCount(filteredImageCount);
+                if (loaded && newPages > oldPages) {
+                    await scrollToModelImagesTop();
+                    await showImagePage(newPages);
                 }
-
-                renderModelImages(currentImages);
-
-                // Update all count displays
-                updateAllImageCounts();
-
-                console.log(`[ModelManager] Downloaded ${newImages.length} new images (${data.images.length - newImages.length} duplicates filtered, ${currentImages.length} total, has_more: ${nextImagesCursor !== null})`);
             } else {
-                // All returned images were duplicates
-                console.log(`[ModelManager] All ${data.images.length} returned images were duplicates, skipped`);
-                nextImagesCursor = data.next_cursor || null;
+                // Show what just arrived, and stay where the reader is: new
+                // images are stored after the old, so they are the next page.
+                loaded = await loadImagesPage(currentImages.length, { append: true });
             }
-
-            // Update or hide button based on cursor
-            if (nextImagesCursor && loadMoreBtn) {
+            if (loaded) downloadNote = downloadedImagesNote(before, galleryCounts(), data.message);
+            // Drawn again either way: with the note, or the button stays at
+            // "Downloading...".
+            renderModelImages(currentImages);
+            console.log(`[ModelManager] Downloaded ${data.downloaded_count || 0} images (${filteredImageCount} shown of ${totalImageCount}, has_more: ${nextImagesCursor !== null})`);
+        } else {
+            console.error('[ModelManager] Download more failed:', data.error);
+            if (loadMoreBtn) {
                 loadMoreBtn.textContent = 'Download More Images';
                 loadMoreBtn.disabled = false;
-            }
-        } else {
-            // No more images
-            nextImagesCursor = null;
-            renderModelImages(currentImages);
-
-            if (data.message) {
-                console.log('[ModelManager]', data.message);
             }
         }
     } catch (error) {
@@ -2557,67 +2618,34 @@ window.mmLoadMoreImages = async function() {
     }
 };
 
-// Update all image count displays
-function updateAllImageCounts() {
-    // Header count
-    const headerCount = document.querySelector('.mm-images-count');
-    if (headerCount && currentImages.length === 0) {
-        headerCount.textContent = '0 images';
-    } else if (headerCount && imageBrowsing === 'pages') {
-        const totalPages = getImagePageCount(currentImages.length);
-        const pageStart = ((currentImagePage - 1) * IMAGE_PAGE_SIZE) + 1;
-        const pageEnd = Math.min(currentImagePage * IMAGE_PAGE_SIZE, currentImages.length);
-        headerCount.textContent =
-            `${pageStart}-${pageEnd} of ${currentImages.length} images (Page ${currentImagePage}/${totalPages})`;
-    } else if (headerCount) {
-        headerCount.textContent =
-            `${Math.min(visibleImageCount, currentImages.length)} of ${currentImages.length} images`;
-    }
-
-    // Load more info. Left alone while the button is offering images that are
-    // already here - "downloaded" would be answering a different question.
-    const loadMoreInfo = document.querySelector('.mm-load-more-info');
-    if (loadMoreInfo && !document.getElementById('mm_show_more_btn')) {
-        loadMoreInfo.textContent = `${currentImages.length} images downloaded`;
-    }
-
-    // Info table cell
-    updateImagesCountCell();
-}
-
-window.mmFirstImagePage = function() {
+window.mmFirstImagePage = async function() {
     if (currentImagePage === 1) return;
-    currentImagePage = 1;
-    renderModelImages(currentImages);
+    await showImagePage(1);
 };
 
-window.mmLastImagePage = function() {
-    const totalPages = getImagePageCount(currentImages.length);
+window.mmLastImagePage = async function() {
+    const totalPages = getImagePageCount(filteredImageCount);
     if (currentImagePage === totalPages) return;
-    currentImagePage = totalPages;
-    renderModelImages(currentImages);
+    await showImagePage(totalPages);
 };
 
-window.mmPrevImagePage = function() {
+window.mmPrevImagePage = async function() {
     if (currentImagePage <= 1) return;
-    currentImagePage -= 1;
-    renderModelImages(currentImages);
+    await showImagePage(currentImagePage - 1);
 };
 
-window.mmNextImagePage = function() {
-    const totalPages = getImagePageCount(currentImages.length);
+window.mmNextImagePage = async function() {
+    const totalPages = getImagePageCount(filteredImageCount);
     if (currentImagePage >= totalPages) return;
-    currentImagePage += 1;
-    renderModelImages(currentImages);
+    await showImagePage(currentImagePage + 1);
 };
 
 window.mmGoToImagePage = async function(page) {
-    const totalPages = getImagePageCount(currentImages.length);
+    const totalPages = getImagePageCount(filteredImageCount);
     if (page < 1 || page > totalPages || page === currentImagePage) return;
 
     await scrollToModelImagesTop();
-    currentImagePage = page;
-    renderModelImages(currentImages);
+    await showImagePage(page);
 };
 
 // Convert full file path to dropdown-compatible path
@@ -4061,9 +4089,9 @@ window.mmShowInCivitaiBrowser = function() {
 // Reveal more of what is already downloaded. No request, and deliberately no
 // scroll: the point of the continuous list is that the images you were
 // reading stay where they were.
-window.mmShowMoreImages = function() {
-    visibleImageCount += IMAGE_PAGE_SIZE;
-    renderModelImages(currentImages);
+window.mmShowMoreImages = async function() {
+    downloadNote = '';
+    await loadImagesPage(currentImages.length, { append: true });
 };
 
 window.mmCloseDetails = function() {

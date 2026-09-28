@@ -9,7 +9,7 @@
 // a card passes over a flagged image as over any unsafe one, and the gallery
 // hides it with NSFW hidden and badges it "X · prompt" when shown. The words
 // are made up.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -27,8 +27,7 @@ globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
     if (href.includes('/images')) {
-        return { ok: true, json: async () => ({ success: true, images: [flagged, clean],
-            nextCursor: null }) };
+        return { ok: true, json: async () => browserGalleryAnswer(href, [flagged, clean]) };
     }
     if (href.includes('/model-manager/civitai/models')) {
         return { ok: true, json: async () => ({ success: true, nextCursor: null, pageSize: 20,
@@ -64,7 +63,7 @@ await waitFor('the gallery', () => document.querySelectorAll('#cb_images .mm-ima
 const shown = () => Array.from(document.querySelectorAll('#cb_images .mm-image-card img'))
     .map((img) => (img.getAttribute('data-src') || img.getAttribute('src') || '').split('/').pop());
 check('with NSFW hidden, the gallery leaves it out', shown(), ['clean.jpeg']);
-window.cbToggleShowAllImages(true);
+await window.cbToggleShowAllImages(true);
 check('shown, it is badged for why', document.querySelector('#cb_images .mm-nsfw-badge')?.textContent,
       'X · prompt');
 

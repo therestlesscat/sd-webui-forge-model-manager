@@ -133,3 +133,39 @@ export function checker(label = '') {
         },
     };
 }
+
+/**
+ * What the Civitai Browser's gallery endpoint answers for these images, as a
+ * stub server gives it: the images through the two switches the request
+ * names, one page of them, and the counts. The page no longer filters or
+ * pages - the server does, in api/images.image_list_page(), which
+ * browser_api_test.py holds to the meanings used here. Each image needs the
+ * mm_level the server stamps; the prompt floor is MIN_PROMPT_LENGTH.
+ */
+export function browserGalleryAnswer(href, images, extra = {}) {
+    const params = new URL(href, 'http://webui').searchParams;
+    const hideNsfw = params.get('hide_nsfw_images') === 'true';
+    const hidePromptless = params.get('hide_promptless_images') === 'true';
+    const offset = Number(params.get('offset') || 0);
+    const limit = Number(params.get('limit') || 100);
+    const safe = (img) => typeof img.mm_level === 'number' && img.mm_level <= 3;
+    const readable = (img) => ((img.meta || {}).prompt || '').trim().length >= 4;
+    const nsfwKept = images.filter((img) => safe(img) || !hideNsfw);
+    const shown = nsfwKept.filter((img) => readable(img) || !hidePromptless);
+    return {
+        success: true,
+        images: shown.slice(offset, offset + limit),
+        next_cursor: null,
+        images_state: {
+            offset,
+            total: images.length,
+            filtered: shown.length,
+            hidden_nsfw: images.length - nsfwKept.length,
+            hidden_promptless: nsfwKept.length - shown.length,
+            hidden: images.length - shown.length,
+            nsfw_count: images.filter((img) => !safe(img) && (readable(img) || !hidePromptless)).length,
+            promptless_count: nsfwKept.filter((img) => !readable(img)).length,
+        },
+        ...extra,
+    };
+}

@@ -6,8 +6,12 @@
 // served on /model-manager/ui-options and read once at load.
 //
 // The thing worth checking is that the two modes do not leak into each other:
-// page controls in a continuous list, or a "show more" button that fetches
-// when it should only reveal, would both look like the feature working.
+// page controls in a continuous list would look like the feature working.
+//
+// Either way the server sends a page at a time. The whole gallery used to be
+// sent and sliced here - 200 images, 900 KB, for one version of a real
+// library - and a download from Civitai was added to the list as it arrived,
+// explicit images and all, whatever the NSFW switch said.
 import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
@@ -59,15 +63,18 @@ Object.defineProperty(inputProto, 'checked', {
 });
 
 // --- the server ------------------------------------------------------------
+// It filters and pages, as /model-manager/models/details and
+// /model-manager/images/page do: the page is sent one page at a time.
 const PAGE = 100;              // IMAGE_PAGE_SIZE in the shared module
-const DOWNLOADED = 250;        // two full steps and a remainder
-let scrolledToTop = 0;
+const DOWNLOADED = 250;        // two full pages and a remainder
 const fetched = [];
 
-const image = (id) => ({
+const image = (id, level = 1) => ({
     id, url: `https://example.invalid/${id}.jpeg`, width: 512, height: 768,
-    nsfw_level: 1, meta: { prompt: `prompt ${id}`, steps: 20 },
+    nsfw_level: level, mm_level: level, meta: { prompt: `prompt ${id}`, steps: 20 },
 });
+// What the server holds. A download from Civitai adds to it.
+const library = Array.from({ length: DOWNLOADED }, (_, i) => image(i + 1));
 
 const MODEL = {
     id: 5001, model_id: 4001, name: 'A Model', display_name: 'A Model',
@@ -77,30 +84,46 @@ const MODEL = {
     local_version_count: 1, trained_words: [], tags: [],
 };
 
+// A page of the library through the NSFW switch, with the state it is drawn
+// with. The settings hide NSFW images until the page says otherwise.
+function galleryPage(params, offset, limit) {
+    const hideNsfw = params.get('hide_nsfw_images') !== 'false';
+    const shown = library.filter((img) => !hideNsfw || img.mm_level <= 3);
+    return {
+        images: shown.slice(offset, offset + limit),
+        images_state: {
+            version_id: MODEL.id, next_cursor: 'more', sync_date: '2026-01-01T00:00:00Z',
+            offset, total_count: library.length, filtered_count: shown.length,
+            hidden_nsfw: library.length - shown.length, hidden_promptless: 0,
+            nsfw_count: library.length - shown.length, promptless_count: 0,
+            hide_nsfw_images: hideNsfw, hide_promptless_images: false,
+        },
+    };
+}
+
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     fetched.push(href);
+    const params = new URL(href, 'http://webui').searchParams;
     if (href.includes('/model-manager/ui-options')) {
         return { ok: true, json: async () => ({
             success: true, samplers: ['Euler'], schedulers: ['Simple'],
             has_api_key: true, image_browsing: MODE }) };
     }
     if (href.includes('/images/load-more') || init.method === 'POST') {
-        // Five more, as a fetch from Civitai would bring.
-        return { ok: true, json: async () => ({
-            success: true, next_cursor: null,
-            images: Array.from({ length: 5 }, (_, i) => image(DOWNLOADED + i + 1)) }) };
+        // Five more from Civitai: three of them explicit. The answer holds
+        // them all, as the real one does, whatever the switches say.
+        const more = [1, 8, 1, 16, 8].map((level, i) => image(DOWNLOADED + i + 1, level));
+        library.push(...more);
+        return { ok: true, json: async () => ({ success: true, next_cursor: null, images: more }) };
+    }
+    if (href.includes('/model-manager/images/page')) {
+        const page = galleryPage(params, Number(params.get('offset')), Number(params.get('limit')));
+        return { ok: true, json: async () => ({ success: true, ...page }) };
     }
     if (href.includes('/model-manager/models/details')) {
-        return { ok: true, json: async () => ({ success: true, model: {
-            ...MODEL,
-            images: Array.from({ length: DOWNLOADED }, (_, i) => image(i + 1)),
-            images_state: {
-                version_id: MODEL.id, next_cursor: 'more',
-                sync_date: '2026-01-01T00:00:00Z',
-                total_count: DOWNLOADED, hidden_count: 0, hide_nsfw_images: false,
-            },
-        } }) };
+        const page = galleryPage(params, 0, Number(params.get('image_limit')));
+        return { ok: true, json: async () => ({ success: true, model: { ...MODEL, ...page } }) };
     }
     if (href.includes('/model-manager/models/versions')) {
         return { ok: true, json: async () => ({ success: true, versions: [MODEL] }) };
@@ -146,30 +169,71 @@ await waitFor('the grid', () => window.document.querySelectorAll('#mm_grid .mode
 await window.mmSelectModel(0);
 await waitFor('the gallery', () => cards() > 0);
 
-check('a page of images is shown to begin with', cards(), PAGE);
+check('the details ask for one page of images',
+      new URL(fetched.find((u) => u.includes('/models/details')), 'http://webui')
+          .searchParams.get('image_limit'), String(PAGE));
+check('and a page of images is shown to begin with', cards(), PAGE);
+
+// Where a gallery request asked to start, for the requests made since `from`.
+const pageOffsets = (from) => fetched.slice(from)
+    .filter((u) => u.includes('/model-manager/images/page'))
+    .map((u) => new URL(u, 'http://webui').searchParams.get('offset'));
+const downloadNote = () => (window.document.querySelector('#mm_images .mm-load-more-info')
+    ?.textContent || '').trim();
+const shownIds = () => Array.from(window.document.querySelectorAll('#mm_images .mm-image-card img'))
+    .map((img) => Number((img.getAttribute('data-src') || img.getAttribute('src') || '')
+        .match(/(\d+)\.jpeg/)?.[1]));
 
 if (MODE === 'pages') {
     check('page controls are offered', pagers() > 0, true);
     check('and no show-more button', has('mm_show_more_btn'), false);
 
-    window.mmNextImagePage();
+    let askedBefore = fetched.length;
+    await window.mmNextImagePage();
     await settle();
-    check('a page turn replaces the list', cards(), PAGE);
+    check('a page turn asks the server for that page', pageOffsets(askedBefore), [String(PAGE)]);
+    check('and replaces the list with it', cards(), PAGE);
+    check('beginning where the first page ended', shownIds()[0], PAGE + 1);
+
+    await window.mmLastImagePage();
+    await settle();
+    check('the last page holds the remainder', cards(), DOWNLOADED - 2 * PAGE);
+
+    askedBefore = fetched.length;
+    await window.mmLoadMoreImages();
+    await settle();
+    check('a download reads the page again from the server', pageOffsets(askedBefore).length > 0, true);
+    check('which leaves out the explicit ones it brought, as the switch says',
+          shownIds().filter((id) => id > DOWNLOADED), [DOWNLOADED + 1, DOWNLOADED + 3]);
+    check('and says so beside the button', downloadNote(),
+          '5 more images: 2 shown, 3 hidden by the NSFW filter');
 } else {
     check('no page controls', pagers(), 0);
     check('a show-more button is offered instead', has('mm_show_more_btn'), true);
 
-    const askedBefore = fetched.length;
-    window.mmShowMoreImages();
+    let askedBefore = fetched.length;
+    await window.mmShowMoreImages();
     await settle();
-    check('showing more adds to the list rather than replacing it', cards(), PAGE * 2);
-    check('without asking the server for anything', fetched.length - askedBefore, 0);
+    check('showing more asks the server for the next page', pageOffsets(askedBefore), [String(PAGE)]);
+    check('and adds it to the list rather than replacing it', cards(), PAGE * 2);
 
-    window.mmShowMoreImages();
+    await window.mmShowMoreImages();
     await settle();
     check('and again, up to what is downloaded', cards(), DOWNLOADED);
     check('at which point there is nothing more to show', has('mm_show_more_btn'), false);
     check('and the offer becomes one to download more', has('mm_load_more_btn'), true);
+
+    askedBefore = fetched.length;
+    await window.mmLoadMoreImages();
+    await settle();
+    check('a download asks the server for what follows the list', pageOffsets(askedBefore),
+          [String(DOWNLOADED)]);
+    check('which leaves out the explicit ones it brought, as the switch says',
+          shownIds().filter((id) => id > DOWNLOADED), [DOWNLOADED + 1, DOWNLOADED + 3]);
+    check('keeping what was already shown', cards(), DOWNLOADED + 2);
+    check('and it says so beside the button: a batch of explicit images used to look like '
+          + 'a click that did nothing', downloadNote(),
+          '5 more images: 2 shown, 3 hidden by the NSFW filter');
 }
 
 console.log(fails.length

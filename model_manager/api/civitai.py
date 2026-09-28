@@ -24,6 +24,7 @@ from ..civitai import (
 )
 from .annotations import annotate_image_levels, annotate_local_ownership, annotate_paid_access
 from ..nsfw import stamp_levels
+from .images import GALLERY_PAGE_SIZE, image_list_page, page_bounds
 from .prompts import PROMPT_CHECK_WORKERS, inspect_model
 
 # Cached Civitai enums (model types, base models). They change only when
@@ -423,13 +424,39 @@ def register(app: FastAPI):
     def civitai_get_version_images(
         version_id: int,
         model_id: int = 0,
-        use_cache: bool = True
+        use_cache: bool = True,
+        offset: int = 0,
+        limit: int = GALLERY_PAGE_SIZE,
+        hide_nsfw_images: bool = False,
+        hide_promptless_images: bool = False,
+        backfill: bool = True,
     ):
         """
-        Get images for a Civitai version with caching.
+        One page of a Civitai version's images, through the gallery's two
+        switches, with the counts the gallery states.
 
-        First checks cache, then fetches from Civitai if needed.
+        First checks cache, then fetches from Civitai if needed. The page is
+        taken from everything cached, which used to be sent whole.
+
+        backfill looks up the prompts cached images lack. Nothing remembers
+        an image Civitai has no prompt for, so each lookup asks again: the
+        gallery sends it when a version is opened, and not when it only turns
+        a page or flips a switch.
+
+        Returns:
+            images (the page), next_cursor, and images_state: the page's
+            offset and the counts, as ImagesOps.get_image_counts() means them.
         """
+        def paged(images, **extra):
+            page, counts = image_list_page(images, hide_nsfw_images,
+                                           hide_promptless_images, offset, limit)
+            return JSONResponse({
+                "success": True,
+                "images": page,
+                "images_state": {"offset": page_bounds(offset, limit)[0], **counts},
+                **extra,
+            })
+
         try:
             db = get_models_db()
 
@@ -441,7 +468,7 @@ def register(app: FastAPI):
                 if cached_images:
                     # Rows cached while the API returned `meta: null` have no
                     # prompt - backfill them now that we can fetch it again.
-                    needs_backfill = any(
+                    needs_backfill = backfill and any(
                         not (img.get("meta") or {}).get("prompt") for img in cached_images
                     )
 
@@ -457,13 +484,8 @@ def register(app: FastAPI):
                             print(f"[ModelManager] Backfilled generation data for {enriched} "
                                   f"cached images (version {version_id})")
 
-                    return JSONResponse({
-                        "success": True,
-                        "images": stamp_levels(cached_images),
-                        "next_cursor": cached_cursor,
-                        "from_cache": True,
-                        "cached_count": len(cached_images)
-                    })
+                    return paged(cached_images, next_cursor=cached_cursor,
+                                 from_cache=True, cached_count=len(cached_images))
 
             # Fetch from Civitai (first batch)
             client = CivitaiClient.from_settings()
@@ -483,13 +505,8 @@ def register(app: FastAPI):
                 if next_cursor:
                     db.store_browse_cursor(model_id, version_id, next_cursor)
 
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(images),
-                "next_cursor": next_cursor,
-                "from_cache": False,
-                "fetched_count": len(images)
-            })
+            return paged(images, next_cursor=next_cursor, from_cache=False,
+                         fetched_count=len(images))
 
         except Exception as e:
             import traceback

@@ -7,7 +7,7 @@
 // models are listed, not which of their images are shown. Then it read the
 // settings once per page, so a change on the Settings page reached a model
 // opened afterwards only after a reload.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -28,7 +28,7 @@ globalThis.fetch = async (url) => {
         return { ok: true, json: async () => ({ success: true, ...settings }) };
     }
     if (href.includes('/images')) {
-        return { ok: true, json: async () => ({ success: true, images, nextCursor: null }) };
+        return { ok: true, json: async () => browserGalleryAnswer(href, images) };
     }
     if (href.includes('/model-manager/civitai/models')) {
         return { ok: true, json: async () => ({ success: true, nextCursor: null, pageSize: 20,
@@ -65,8 +65,8 @@ check('hiding both, the gallery opens with only the safe image with a prompt',
       shown(), ['1.jpeg']);
 check('whatever Include NSFW models and Only with usable prompts say', ticked(), [false, false]);
 
-window.cbToggleShowAllImages(true);
-window.cbToggleShowPromptless(true);
+await window.cbToggleShowAllImages(true);
+await window.cbToggleShowPromptless(true);
 check('the switches show everything for this model', shown(), ['1.jpeg', '2.jpeg', '3.jpeg']);
 
 await open(1);

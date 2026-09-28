@@ -482,6 +482,31 @@ export function isVideoUrl({ url, type }) {
            lowerUrl.includes('.webm?');
 }
 
+/**
+ * What a download of more images brought, for the note beside the button:
+ * how many are new, how many of those the gallery shows, and what hid the
+ * rest. A download is filtered like everything else, so a batch of explicit
+ * images used to change nothing on screen, and looked like a click that did
+ * nothing.
+ *
+ * Worked out from the gallery's counts before and after - total, filtered,
+ * hidden_nsfw, hidden_promptless, as the server gives them - rather than from
+ * what the download says it fetched, which counts images already stored.
+ *
+ * @param {string} message the server's word when nothing new came
+ */
+export function downloadedImagesNote(before, after, message = '') {
+    const count = Math.max(0, after.total - before.total);
+    if (!count) return message || 'No new images';
+    const grew = (key) => Math.max(0, (after[key] || 0) - (before[key] || 0));
+    const parts = [`${grew('filtered')} shown`];
+    if (grew('hidden_nsfw')) parts.push(`${grew('hidden_nsfw')} hidden by the NSFW filter`);
+    if (grew('hidden_promptless')) {
+        parts.push(`${grew('hidden_promptless')} hidden for an unusable prompt`);
+    }
+    return `${count} more ${count === 1 ? 'image' : 'images'}: ${parts.join(', ')}`;
+}
+
 export function getImagePageCount(totalImages) {
     return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
 }

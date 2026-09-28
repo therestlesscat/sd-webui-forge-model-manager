@@ -954,7 +954,9 @@ class SyncService:
                 return
 
             chunk = versions[start:start + self.GALLERY_CHUNK]
-            galleries: List[Tuple[int, List[Dict[str, Any]]]] = []
+            # (version id, images, Civitai's cursor to the next page, or
+            # False when the fetch failed and there is no cursor to keep)
+            galleries: List[Tuple[int, List[Dict[str, Any]], Any]] = []
 
             def fetch(version: Dict[str, Any]) -> None:
                 if self._cancel_requested or not version.get("id"):
@@ -969,13 +971,15 @@ class SyncService:
                         version["id"], cursor=None, limit=100
                     )
                     images = result.get("images", [])
+                    next_cursor = result.get("next_cursor")
                 except Exception as e:
                     with self._progress_lock:
                         self._progress.errors += 1
                         self._progress.error_messages.append(f"{name}: images: {e}")
                     images = []
+                    next_cursor = False
                 with self._progress_lock:
-                    galleries.append((version["id"], images))
+                    galleries.append((version["id"], images, next_cursor))
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 for future in as_completed([executor.submit(fetch, v) for v in chunk]):
@@ -983,14 +987,14 @@ class SyncService:
 
             # Prompts already stored stay, whether or not this sync looks any
             # up - and are then not looked up again.
-            for version_id, images in galleries:
+            for version_id, images, _ in galleries:
                 keep_generation_data(images, db.get_images(version_id))
 
             # One pooled lookup for the whole chunk, then hand each gallery
             # back the rows that belong to it.
             pooled: List[int] = []
             if include_prompts:
-                for _, images in galleries:
+                for _, images, _ in galleries:
                     pooled.extend(generation_ids_needing_lookup(images))
 
             generation_data: Dict[int, Dict[str, Any]] = {}
@@ -1003,13 +1007,25 @@ class SyncService:
             with self._progress_lock:
                 self._progress.processed += len(chunk) - len(galleries)
 
-            for version_id, images in galleries:
+            for version_id, images, next_cursor in galleries:
                 if generation_data:
                     apply_generation_data(images, generation_data)
                 try:
-                    db.clear_version_images(version_id)
-                    if images:
-                        db.store_images(version_id, page=1, images=images)
+                    # A gallery that failed to load says nothing about what
+                    # the version has, so the stored one stays as it is. It
+                    # used to be cleared and nothing stored in its place: a
+                    # network error during a sync emptied the galleries it
+                    # touched. The failure is already counted as an error.
+                    if next_cursor is not False:
+                        db.clear_version_images(version_id)
+                        if images:
+                            db.store_images(version_id, page=1, images=images)
+                        # Where Civitai's next page starts, as a sync of one
+                        # model keeps it. Without it "Download More Images"
+                        # asked for the first page again - these images - and
+                        # showed nothing new until a second click: 718 of
+                        # 1,051 files in one library had images and no cursor.
+                        db.update_version_images_state(version_id, next_cursor)
                 except Exception as e:
                     with self._progress_lock:
                         self._progress.errors += 1

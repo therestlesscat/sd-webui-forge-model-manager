@@ -12,6 +12,7 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { browserGalleryAnswer } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
@@ -119,7 +120,7 @@ globalThis.fetch = async (url) => {
         // Stamped as the server stamps every image it sends (nsfw.stamp_levels());
         // none of these prompts uses a filter word, so the stamp is the rating.
         const images = galleryImages.map((i) => ({ ...i, mm_level: i.browsingLevel, mm_level_from_prompt: false }));
-        return { ok: true, json: async () => ({ success: true, images, next_cursor: null }) };
+        return { ok: true, json: async () => browserGalleryAnswer(href, images) };
     }
     return { ok: true, json: async () => ({ success: true }) };
 };
@@ -229,7 +230,7 @@ await settle();
 $('cb_require_prompt').checked = true;
 let renderError = null;
 try {
-    window.cbToggleShowAllImages(true);
+    await window.cbToggleShowAllImages(true);
 } catch (e) {
     renderError = e.message;
 }
@@ -250,7 +251,7 @@ check('the banner carries the prompt switch', switchLabel(PROMPT), 'Show unusabl
 check('and its sentence says what the prompt filter hides', sentence(),
       'Showing 1 of 2 images (1 hidden due to unusable prompt)');
 
-window.cbToggleShowPromptless?.(true);
+await window.cbToggleShowPromptless?.(true);
 check('ticking it shows the images without a prompt',
       $('cb_images').querySelectorAll('.mm-image-card').length, 2);
 check('and the switch is still there to turn back, saying how many it shows',
@@ -258,7 +259,7 @@ check('and the switch is still there to turn back, saying how many it shows',
 check('with nothing hidden the sentence says so', sentence(), 'Showing all 2 images');
 check("without touching the search's own filter", $('cb_require_prompt').checked, true);
 
-window.cbToggleShowPromptless?.(false);
+await window.cbToggleShowPromptless?.(false);
 check('unticking hides them again',
       $('cb_images').querySelectorAll('.mm-image-card').length, 1);
 
@@ -276,7 +277,7 @@ await window.cbShowModel('model:12345');
 await settle();
 const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
 
-window.cbToggleShowAllImages(false);
+await window.cbToggleShowAllImages(false);
 check('the NSFW switch sits in the banner', switchIn('.cb-nsfw-warning'), 1);
 check('not in the list header', switchIn('.mm-images-header'), 0);
 check('and there is one of it, though the sentence repeats below the list',
@@ -285,7 +286,7 @@ check('beside a count of what it is holding back', switchLabel(NSFW), 'Show NSFW
 check('which the sentence states too', sentence(),
       'Showing 1 of 2 images (1 hidden due to NSFW filter)');
 
-window.cbToggleShowAllImages(true);
+await window.cbToggleShowAllImages(true);
 check('with everything shown the switch is still there to turn back',
       switchIn('.cb-nsfw-warning'), 1);
 check('saying how many NSFW it shows', switchLabel(NSFW), 'Show NSFW (1)');
@@ -305,7 +306,7 @@ galleryImages = [
 await window.cbShowModel('model:12345');
 await settle();
 $('cb_require_prompt').checked = true;
-window.cbToggleShowAllImages(false);
+await window.cbToggleShowAllImages(false);
 
 check('there is one banner at the top, not one per filter', banners().length >= 1
       && banners()[0].querySelectorAll(`#${NSFW}, #${PROMPT}`).length, 2);
@@ -314,19 +315,19 @@ check('whose sentence adds up to the total', sentence(),
 check('each switch stating its clause\'s number',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (1)']);
 
-window.cbToggleShowAllImages(true);
+await window.cbToggleShowAllImages(true);
 check('showing NSFW moves the NSFW image without a prompt to the prompt clause', sentence(),
       'Showing 1 of 3 images (2 hidden due to unusable prompt)');
 check('and the switches follow',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (0)', 'Show unusable prompts (2)']);
 
-window.cbToggleShowAllImages(false);
-window.cbToggleShowPromptless(true);
+await window.cbToggleShowAllImages(false);
+await window.cbToggleShowPromptless(true);
 check('showing prompts leaves only the NSFW clause', sentence(),
       'Showing 2 of 3 images (1 hidden due to NSFW filter)');
 check('and the switches follow',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (1)']);
-window.cbToggleShowPromptless(false);
+await window.cbToggleShowPromptless(false);
 
 // ------------------------------------------ a download, finishing in place
 // A finished download used to say Complete while the library sync that

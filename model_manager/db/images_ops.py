@@ -7,7 +7,7 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..nsfw import SFW_MAX, UNKNOWN, image_level
-from typing import Tuple, Optional, List, Dict, Any, Callable
+from typing import Tuple, Optional, List, Dict, Any, Callable, Set
 
 
 
@@ -181,6 +181,44 @@ class ImagesOps:
             rows = cursor.fetchall()
             return [json.loads(row["data"]) for row in rows]
 
+    def get_image_page(
+        self,
+        version_id: int,
+        offset: int,
+        limit: int,
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        One page of a version's gallery: the images get_images() would give,
+        from the offset-th on, at most limit of them.
+
+        A gallery used to be sent whole and paged in the browser - 200 images
+        and 900 KB for one version of a real library, where one page is 100.
+
+        Args:
+            version_id: Civitai model version ID.
+            offset: How many of the filtered images come before this page.
+            limit: The most this page may hold.
+            max_nsfw_level: As get_images().
+            require_prompt: As get_images().
+
+        Returns:
+            List of image dicts.
+        """
+        with self._cursor() as cursor:
+            where = "version_id = ?"
+            params: Tuple = (version_id,)
+            if max_nsfw_level is not None:
+                where += " AND effective_nsfw_level <= ?"
+                params += (max_nsfw_level,)
+            where += self._prompt_filter(require_prompt)
+            cursor.execute(
+                f"SELECT data FROM images WHERE {where} "
+                f"ORDER BY {GALLERY_ORDER} LIMIT ? OFFSET ?",
+                params + (limit, offset))
+            return [json.loads(row["data"]) for row in cursor.fetchall()]
+
     def get_all_images_for_version(
         self,
         version_id: int,
@@ -266,6 +304,12 @@ class ImagesOps:
                 "nsfw_count": nsfw_count,
                 "promptless_count": promptless_count,
             }
+
+    def get_image_ids(self, version_id: int) -> Set[int]:
+        """The ids of the images stored for a version."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT id FROM images WHERE version_id = ?", (version_id,))
+            return {row[0] for row in cursor.fetchall()}
 
     def get_cached_page_count(self, version_id: int) -> int:
         """
