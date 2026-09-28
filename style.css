@@ -1311,6 +1311,37 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+/* Where a page starts in the continuous image list: a rule either side of
+   its number, so Show More reads as moving on to another page. */
+.mm-page-separator {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 6px 0;
+    font-size: 0.8em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-page-separator::before,
+.mm-page-separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent,
+                                var(--border-color-primary, #374151) 20%,
+                                var(--border-color-primary, #374151) 80%, transparent);
+}
+
+.mm-page-separator span {
+    padding: 2px 10px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
 .mm-image-pagination {
     margin-top: 10px;
     padding-top: 10px;
@@ -1346,6 +1377,33 @@ body.mm-modal-open {
 .mm-nsfw-warning span,
 .cb-nsfw-warning span {
     flex: 1;
+}
+
+/* The filter banner with the switches stays at the top of the window while
+   the gallery scrolls under it, so its counts and switches are always in
+   reach. The same amber as above, laid over the page's own background: the
+   amber alone lets the cards show through. */
+.filter-banner-sticky {
+    position: sticky;
+    /* A little air above it once stuck, rather than pressed to the edge. */
+    top: 2px;
+    z-index: 5;
+    background: linear-gradient(rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.15)),
+                var(--background-fill-primary, #0b0f19);
+}
+
+/* That air, blurred: the cards passing through it are softened rather than
+   seen sharp above the banner. Only as wide as the banner, and only above it. */
+.filter-banner-sticky::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 2px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    pointer-events: none;
 }
 
 /* Under a filter banner's sentence: what decides the filter, when that is

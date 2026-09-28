@@ -1117,13 +1117,14 @@ function renderImages() {
     const pageEnd = imagesOffset + currentImages.length;
 
     // One banner for both filters, built in shared/common.mjs as the Model
-    // Manager's is: what they are holding back - which adds up with what is
-    // shown, NSFW counted first as it filters first - and a switch for each on
-    // the right. A ticked NSFW switch shows how many NSFW images it lets
+    // Manager's is: what they are holding back - which adds up with what
+    // matches, NSFW counted first as it filters first - and a switch for each
+    // on the right. A ticked NSFW switch shows how many NSFW images it lets
     // through, among those the prompt filter lets through.
     const bannerOptions = {
-        shown,
+        matching: shown,
         total: counts.total,
+        onScreen: currentImages.length,
         bannerClass: 'cb-nsfw-warning',
         labelClass: 'cb-show-all-label',
         switches: [
