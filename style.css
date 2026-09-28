@@ -1908,25 +1908,59 @@ body.mm-modal-open {
     margin-top: 6px;
 }
 
+/* A chip says two things. Whether it can be used - in the library, missing
+   but downloadable, missing for good - by its colour and a mark (data-state).
+   Whether a prompt holds it, by being filled rather than outlined (.active).
+   The colours are lighter under .dark, and a filled chip's text dark there,
+   so each reads in either theme. */
+.mm-resource-chips {
+    --mm-chip-have: #15803d;
+    --mm-chip-download: #b45309;
+    --mm-chip-unavailable: #b91c1c;
+    --mm-chip-on: #fff;
+}
+
+.dark .mm-resource-chips {
+    --mm-chip-have: #4ade80;
+    --mm-chip-download: #fbbf24;
+    --mm-chip-unavailable: #f87171;
+    --mm-chip-on: #111827;
+}
+
 .mm-resource-chips .mm-resource-chip {
+    --mm-chip: var(--mm-chip-have);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     max-width: 320px;
     margin: 0;
     padding: 3px 10px;
-    border: 1px solid var(--primary-600, #2563eb);
+    border: 1px solid var(--mm-chip);
     background: transparent;
-    color: var(--body-text-color, inherit);
+    color: var(--mm-chip);
     cursor: pointer;
-}
-
-.mm-resource-chips .mm-resource-chip.active {
-    background: var(--primary-600, #2563eb);
-    color: #fff;
 }
 
 .mm-resource-chips .mm-resource-chip.missing {
     max-width: 480px;
-    border-style: dashed;
-    opacity: 0.75;
+}
+
+.mm-resource-chips .mm-resource-chip[data-state="download"] {
+    --mm-chip: var(--mm-chip-download);
+}
+
+.mm-resource-chips .mm-resource-chip[data-state="unavailable"] {
+    --mm-chip: var(--mm-chip-unavailable);
+}
+
+.mm-resource-chips .mm-resource-chip.active {
+    background: var(--mm-chip);
+    color: var(--mm-chip-on);
+}
+
+.mm-resource-chip-mark {
+    flex: none;
+    font-weight: 700;
 }
 
 .mm-resource-chips .mm-resource-chip:disabled {
@@ -1936,8 +1970,26 @@ body.mm-modal-open {
 /* Nothing to download: Civitai does not have it, or the image does not say
    what it is. */
 .mm-resource-chips .mm-resource-chip.unavailable {
-    opacity: 0.45;
     cursor: not-allowed;
+}
+
+/* Under the chips, on a line of its own: what the colours and marks mean,
+   and whether any were found by file name. */
+.mm-resource-chips-key {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.mm-resource-chips-key [data-state="have"] { color: var(--mm-chip-have); }
+.mm-resource-chips-key [data-state="download"] { color: var(--mm-chip-download); }
+.mm-resource-chips-key [data-state="unavailable"] { color: var(--mm-chip-unavailable); }
+
+.mm-resource-chips-note {
+    opacity: 0.8;
 }
 
 /* On a missing chip, what a click does - or how its download is going. */

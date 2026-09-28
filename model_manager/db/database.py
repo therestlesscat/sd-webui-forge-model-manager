@@ -306,6 +306,10 @@ class ModelsDatabase:
         """The local file each resource names: ({version id: row}, {hash: row})."""
         return self._models.local_versions_by_key(version_ids, hashes)
 
+    def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """The local files named each of these. See ModelsOps.local_versions_by_name()."""
+        return self._models.local_versions_by_name(names)
+
     def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
         """Resolve what we can from our own rows, before asking Civitai."""
         return self._models.hashes_from_local_models(hashes)

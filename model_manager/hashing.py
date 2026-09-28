@@ -261,3 +261,48 @@ class ModelHasher:
             print(f"[ModelManager] Error reading .cm-info.json: {e}")
 
         return None
+
+
+# ---------------------------------------------------------------- one file's sha256
+# For confirming a file found by name is the one an image used, before any
+# sync has stored its hashes. Kept per file until it changes: a gallery asks
+# about the same few LoRAs again and again.
+_sha256_seen: Dict[str, tuple] = {}
+
+
+def file_sha256(path: str) -> Optional[str]:
+    """The file's SHA-256, lower case; None if it cannot be read."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    known = _sha256_seen.get(path)
+    if known and known[:2] == (stat.st_mtime, stat.st_size):
+        return known[2]
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    _sha256_seen[path] = (stat.st_mtime, stat.st_size, digest.hexdigest())
+    return _sha256_seen[path][2]
+
+
+def names_this_file(stored: Optional[Dict[str, str]], path: str, image_hash: str) -> bool:
+    """
+    Whether a hash an image gives for a resource is this file's. Images give
+    AutoV2 - SHA-256's first ten characters - or twelve, or the whole of it;
+    each is a start of the file's SHA-256, stored by a sync or worked out here.
+    """
+    wanted = (image_hash or "").strip().lower()
+    if len(wanted) < 8:
+        return False
+    stored = {k.lower(): str(v or "").lower() for k, v in (stored or {}).items()}
+    if stored.get("sha256"):
+        return stored["sha256"].startswith(wanted)
+    if any(value and (value == wanted or value.startswith(wanted)) for value in stored.values()):
+        return True
+    full = file_sha256(path)
+    return bool(full) and full.startswith(wanted)

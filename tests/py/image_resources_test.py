@@ -80,5 +80,31 @@ check('4. nothing asked, nothing answered', (status, body['versions'], body['has
 check('   junk in the lists is ignored, not an error',
       ask(version_ids='abc, ,%d' % id_a, hashes=' , ')[0], 200)
 
+# ------------------------------------------------------------- by the file's name
+# A file Scan Disk added, that no sync has identified, has neither a Civitai
+# id nor a stored hash: Ghibli_v6.safetensors, in one library, which an image
+# named as "Ghibli_v6", hash 58549cc3d3 - and every chip said it was missing.
+# The name finds it, if the file's own hash is the image's.
+import hashlib, json                                        # noqa: E402
+
+local = facts['local_only_paths'][0]
+autov2_local = hashlib.sha256(open(local, 'rb').read()).hexdigest()[:10]
+named = lambda *entries: json.dumps([{'name': n, 'hash': h} for n, h in entries])
+
+body = ask(names=named((stem(local), autov2_local)))[1]
+check('5. a file no id or hash finds is found by its name, when its hash is the image\'s',
+      body['names'].get(stem(local).lower(), {}).get('file_stem'), stem(local))
+check('   the name matched whatever its case', ask(names=named((stem(local).upper(), autov2_local)))[1]['names']
+      .get(stem(local).lower(), {}).get('file_stem'), stem(local))
+check('6. but not when the image\'s hash is another file\'s: only a name in common',
+      ask(names=named((stem(local), 'ffffffffff')))[1]['names'], {})
+check('7. with no hash from the image, a name one file has is enough - as for Forge\'s <lora:name>',
+      ask(names=named((stem(local), '')))[1]['names'].get(stem(local).lower(), {}).get('file_stem'), stem(local))
+check('8. a hash that found its file already needs no name',
+      ask(hashes=autov2, names=named((stem(path_b), autov2)))[1]['names'], {})
+db.set_architecture(local, None, None, False, False, '1', file_type='Checkpoint')
+check('9. only a LoRA, an embedding, or a file not yet read is taken by name - what a chip is for',
+      ask(names=named((stem(local), autov2_local)))[1]['names'], {})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
