@@ -70,10 +70,18 @@ if count:
         # being made has already moved on.
         committed = re.search(r'^VERSION = "([^"]+)"', git('show', 'HEAD:model_manager/version.py') or '', re.M)
         check('a tagged commit\'s tag is its version', tag, 'v' + (committed.group(1) if committed else '?'))
-    # Once committed, the newest entry's build is this commit's; before, the next one.
-    newest = int(entries[0][1]) if entries else None
-    check('the newest changelog entry\'s build is this commit, or the one being made',
-          newest in (int(count), int(count) + 1), True)
+    # The newest entry's build is its tagged commit's; before the tag, while
+    # its bump is being made, this commit's or the next one. A commit that
+    # bumps nothing - tests, docs - comes after it and moves only the build.
+    if entries:
+        newest_version, newest_build = entries[0][0], int(entries[0][1])
+        tagged = git('rev-list', '--count', 'v' + newest_version)
+        if tagged:
+            check('the newest changelog entry\'s build is its tagged commit\'s',
+                  newest_build, int(tagged))
+        else:
+            check('the newest changelog entry\'s build is this commit, or the one being made',
+                  newest_build in (int(count), int(count) + 1), True)
 
 # ---------------------------------------------------------- a copy without git
 real = version._git
