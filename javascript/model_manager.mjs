@@ -1759,6 +1759,11 @@ window.mmDeleteModel = async function(scope = 'version') {
     }
 };
 
+/** Where a page starts in the continuous list: a rule with its number on it. */
+function pageSeparator(page) {
+    return `<div class="mm-page-separator" role="separator"><span>Page ${page}</span></div>`;
+}
+
 // Render model images - new list layout
 function renderModelImages(images) {
     const container = document.getElementById('mm_images');
@@ -1768,14 +1773,15 @@ function renderModelImages(images) {
     currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
 
     // One banner for both filters: what they are holding back, which adds up
-    // with what is shown to the total, and a switch for each on the right. The
-    // server splits the hidden images between the filters so that none is
+    // with what matches them to the total, and a switch for each on the right.
+    // The server splits the hidden images between the filters so that none is
     // counted twice - NSFW first, as it filters - and reports what each switch
     // would show once ticked. Built in shared/common.mjs, as the Civitai
     // Browser's is.
     const filterBannerHtml = renderFilterBanner({
-        shown: filteredImageCount,
+        matching: filteredImageCount,
         total: totalImageCount,
+        onScreen: images ? images.length : 0,
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
         switches: [
@@ -1814,7 +1820,13 @@ function renderModelImages(images) {
     const paging = imageBrowsing === 'pages';
     const pageStart = imagesOffset;
     const pageEnd = imagesOffset + images.length;
-    const imageCards = images.map((img, index) => renderImageCard(img, index)).filter(Boolean).join('');
+    // In the continuous list each page after the first is marked where it
+    // starts, so it is plain that Show More went on to another page.
+    const imageCards = images.map((img, index) => {
+        const card = renderImageCard(img, index);
+        if (!card || paging || index === 0 || index % IMAGE_PAGE_SIZE !== 0) return card;
+        return pageSeparator(index / IMAGE_PAGE_SIZE + 1) + card;
+    }).filter(Boolean).join('');
     const moreToShow = !paging && pageEnd < filteredImageCount;
 
     if (!imageCards) {
@@ -1828,8 +1840,11 @@ function renderModelImages(images) {
     const showDownloadBtn = (nextImagesCursor !== null && nextImagesCursor !== '') || (imagesSyncDate === null);
     const neverSynced = imagesSyncDate === null;
     const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
+    // Beside the button: what the last download brought, or that none has
+    // been made. It used to say "300 images downloaded" otherwise, which read
+    // as what was loaded; the banner says what is stored.
     const infoText = downloadNote ? escapeHtml(downloadNote)
-        : (neverSynced ? 'Images not yet downloaded' : `${totalImageCount} images downloaded`);
+        : (neverSynced ? 'Images not yet downloaded' : '');
 
     // One button at the foot of the list. While there are images already
     // downloaded but not yet on screen it fetches the next page of those from

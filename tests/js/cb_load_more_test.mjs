@@ -65,6 +65,11 @@ await window.cbOpenModel(0);
 await waitFor('the gallery', () => cards() > 0);
 
 check('the gallery opens with the safe images', cards(), 2);
+check('its banner is drawn twice, at the top and under the list',
+      document.querySelectorAll('#cb_images .cb-nsfw-warning').length, 2);
+check('and only the one with the switches stays in sight as it scrolls, or the two would stack',
+      Array.from(document.querySelectorAll('#cb_images .filter-banner-sticky'))
+          .map((b) => !!b.querySelector('#cb_show_all_images')), [true]);
 check('offering to load more', !!$('cb_load_more_btn'), true);
 
 // Civitai down first: the click used to look like one that found nothing.

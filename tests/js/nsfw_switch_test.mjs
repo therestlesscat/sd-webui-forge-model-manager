@@ -1,9 +1,9 @@
 // The Model Manager gallery's filter banner: one sentence, two switches.
 //
-//   Showing 1 of 4 images (2 hidden due to NSFW filter, 1 hidden due to unusable prompt)
+//   4 images stored · 1 match the filters (1 shown) · 2 hidden due to NSFW filter, 1 hidden due to unusable prompt
 //                                             [ ] Show NSFW (2)  [ ] Show unusable prompts (1)
 //
-// The hidden figures add up with what is shown to the total, so an image both
+// The hidden figures add up with what matches to the total, so an image both
 // filters hide is counted once - by the NSFW filter, which filters first. An
 // unticked switch states the same number as its clause. Once ticked, its
 // clause drops out and the switch says how many of its kind it now shows.
@@ -113,7 +113,7 @@ await waitFor('the gallery', () => cards() > 0);
 // ------------------------------------------------------------- both hiding
 check('there is one banner, not one per filter', banners().length, 1);
 check('whose sentence adds up: shown plus each hidden figure is the total', sentence(),
-      'Showing 1 of 4 images (2 hidden due to NSFW filter, 1 hidden due to unusable prompt)');
+      '4 images stored · 1 match the filters (1 shown) · 2 hidden due to NSFW filter, 1 hidden due to unusable prompt');
 check('with both switches on its right, each stating its clause\'s number',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (2)', 'Show unusable prompts (1)']);
 check('the switches sit inside that one banner',
@@ -129,7 +129,7 @@ await window.mmToggleShowNsfwImages(true);
 await waitFor('the reload', () => cards() === 2);
 check('ticking NSFW asks the server not to hide them', asked, [['false', 'true']]);
 check('its clause drops out, and the NSFW image without a prompt moves to the other',
-      sentence(), 'Showing 2 of 4 images (2 hidden due to unusable prompt)');
+      sentence(), '4 images stored · 2 match the filters (2 shown) · 2 hidden due to unusable prompt');
 check('the ticked switch says how many NSFW it now shows',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (2)']);
 check('and is ticked', ticked(NSFW), true);
@@ -144,7 +144,7 @@ asked.length = 0;
 await window.mmToggleShowPromptless(true);
 await waitFor('the reload', () => cards() === 2);
 check('ticking the prompt switch asks the server not to hide them', asked, [['true', 'false']]);
-check('its clause drops out', sentence(), 'Showing 2 of 4 images (2 hidden due to NSFW filter)');
+check('its clause drops out', sentence(), '4 images stored · 2 match the filters (2 shown) · 2 hidden due to NSFW filter');
 check('and it says how many it now shows',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (2)', 'Show unusable prompts (1)']);
 check('ticked', ticked(PROMPT), true);
@@ -159,7 +159,7 @@ everyImageLacksAPrompt = true;
 await window.mmToggleShowNsfwImages(false);
 await waitFor('the emptied gallery', () => images().textContent.includes('No images to show'));
 check('the banner stays, saying why', sentence(),
-      'Showing 0 of 2 images (2 hidden due to unusable prompt)');
+      '2 images stored · 0 match the filters (0 shown) · 2 hidden due to unusable prompt');
 check('with the switch that can bring them back', switchLabel(PROMPT), 'Show unusable prompts (2)');
 check('and the message blames neither filter in particular',
       images().textContent.includes('No images to show with the filters above.'), true);

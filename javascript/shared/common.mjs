@@ -638,7 +638,21 @@ export function nsfwModelNote() {
     return nsfwDetection === 'model' ? NSFW_MODEL_NOTE : '';
 }
 
-export function renderFilterBanner({ shown, total, bannerClass, labelClass,
+/**
+ * The gallery's filter banner: one sentence, and a switch for each filter.
+ *
+ *   300 images stored · 168 match the filters (100 shown) · 132 hidden due to unusable prompt
+ *
+ * Three numbers, kept apart because they were once confused: what is stored,
+ * what the filters let through, and what is on screen - a page at a time, so
+ * fewer than match until Show More or the page buttons bring the rest. It
+ * used to read "Showing 168 of 300", with 100 on screen.
+ *
+ * @param {number} matching images the filters let through, loaded or not
+ * @param {number} total images stored
+ * @param {number} onScreen images drawn now
+ */
+export function renderFilterBanner({ matching, total, onScreen, bannerClass, labelClass,
                                      switches, withSwitches = true }) {
     const active = switches.filter((s) => s.applies !== false);
 
@@ -652,9 +666,9 @@ export function renderFilterBanner({ shown, total, bannerClass, labelClass,
 
     if (!clauses.length && !offered.length) return '';
 
-    const counted = clauses.length
-        ? `Showing ${shown} of ${total} images (${clauses.join(', ')})`
-        : `Showing all ${total} images`;
+    const counted = `${total} ${total === 1 ? 'image' : 'images'} stored`
+        + ` · ${matching} match the filters (${onScreen} shown)`
+        + (clauses.length ? ` · ${clauses.join(', ')}` : '');
     // A switch can carry a note on what decides it: the NSFW one, while a
     // trained model does.
     const notes = offered.map((s) => s.note).filter(Boolean);
@@ -669,7 +683,10 @@ export function renderFilterBanner({ shown, total, bannerClass, labelClass,
            </div>`
         : '';
 
-    return `<div class="${bannerClass}"><span>${sentence}</span>${controls}</div>`;
+    // The banner with the switches stays in sight as the gallery scrolls; the
+    // copy under a long list, without them, does not, or the two would stack.
+    const sticky = withSwitches ? ' filter-banner-sticky' : '';
+    return `<div class="${bannerClass}${sticky}"><span>${sentence}</span>${controls}</div>`;
 }
 
 // ------------------------------------------------------------ resource chips

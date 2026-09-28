@@ -76,6 +76,10 @@ const image = (id, level = 1) => ({
 });
 // What the server holds. A download from Civitai adds to it.
 const library = Array.from({ length: DOWNLOADED }, (_, i) => image(i + 1));
+// And three explicit ones, so the NSFW filter has something to hold back and
+// the banner is drawn.
+const EXPLICIT = 3;
+library.push(...Array.from({ length: EXPLICIT }, (_, i) => image(900 + i, 8)));
 
 const MODEL = {
     id: 5001, model_id: 4001, name: 'A Model', display_name: 'A Model',
@@ -179,6 +183,26 @@ check('the details ask for one page of images',
           .searchParams.get('image_limit'), String(PAGE));
 check('and a page of images is shown to begin with', cards(), PAGE);
 
+// The banner keeps apart what is stored, what matches the filters and what is
+// on screen. It used to say "Showing 250 of 253" with 100 on screen.
+const banner = () => (window.document.querySelector('#mm_images .mm-nsfw-warning span')
+    ?.textContent || '').trim();
+const stored = DOWNLOADED + EXPLICIT;
+check('the banner says what is stored, what matches, and how many of those are on screen',
+      banner(), `${stored} images stored · ${DOWNLOADED} match the filters (${PAGE} shown)`
+                + ` · ${EXPLICIT} hidden due to NSFW filter`);
+
+// Where each page starts in the continuous list: its number, and the card
+// that follows it.
+const separators = () => Array.from(window.document.querySelectorAll('#mm_images .mm-page-separator'))
+    .map((rule) => [rule.textContent.trim(),
+                    Number((rule.nextElementSibling?.querySelector('img')?.getAttribute('data-src')
+                            || rule.nextElementSibling?.querySelector('img')?.getAttribute('src') || '')
+                        .match(/(\d+)\.jpeg/)?.[1])]);
+check('a single page has no separator', separators(), []);
+check('the banner stays in sight as the gallery scrolls',
+      !!window.document.querySelector('#mm_images .mm-nsfw-warning.filter-banner-sticky'), true);
+
 // Where a gallery request asked to start, for the requests made since `from`.
 const pageOffsets = (from) => fetched.slice(from)
     .filter((u) => u.includes('/model-manager/images/page'))
@@ -199,6 +223,7 @@ if (MODE === 'pages') {
     check('a page turn asks the server for that page', pageOffsets(askedBefore), [String(PAGE)]);
     check('and replaces the list with it', cards(), PAGE);
     check('beginning where the first page ended', shownIds()[0], PAGE + 1);
+    check('a page on its own needs no separator', separators(), []);
 
     await window.mmLastImagePage();
     await settle();
@@ -232,12 +257,19 @@ if (MODE === 'pages') {
     await settle();
     check('showing more asks the server for the next page', pageOffsets(askedBefore), [String(PAGE)]);
     check('and adds it to the list rather than replacing it', cards(), PAGE * 2);
+    check('marking where the second page starts, before its first image',
+          separators(), [['Page 2', PAGE + 1]]);
+    check('and the banner counts what is now on screen', banner().includes(`(${PAGE * 2} shown)`), true);
 
     await window.mmShowMoreImages();
     await settle();
     check('and again, up to what is downloaded', cards(), DOWNLOADED);
+    check('each page marked where it starts', separators(),
+          [['Page 2', PAGE + 1], ['Page 3', 2 * PAGE + 1]]);
     check('at which point there is nothing more to show', has('mm_show_more_btn'), false);
     check('and the offer becomes one to download more', has('mm_load_more_btn'), true);
+    check('with nothing beside it until a download says what it brought - "253 images '
+          + 'downloaded" read as what was loaded', downloadNote(), '');
 
     // Civitai down first: the click used to look like one that found nothing.
     let before = cards();
