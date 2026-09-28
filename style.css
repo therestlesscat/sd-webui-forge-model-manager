@@ -1358,20 +1358,29 @@ body.mm-modal-open {
     margin-top: 10px;
 }
 
-/* NSFW Filter Warning Panel */
+/* The gallery's filter banner. Its colours are variables, so the whole look
+   is one set of values: a quiet box in the page's own text colour, with an
+   amber bar down its left edge. It was amber throughout when it only said
+   what the NSFW filter hid; it counts now, rather than warns. */
 .mm-nsfw-warning,
 .cb-nsfw-warning {
+    --banner-tint: rgba(148, 163, 184, 0.07);
+    --banner-border: rgba(148, 163, 184, 0.18);
+    --banner-edge: #f59e0b;
+    --banner-edge-width: 3px;
+    --banner-text: var(--body-text-color, #e5e7eb);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 15px;
     padding: 12px 16px;
-    background: rgba(245, 158, 11, 0.15);
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: var(--banner-tint);
+    border: 1px solid var(--banner-border);
+    border-left: var(--banner-edge-width) solid var(--banner-edge);
     border-radius: 6px;
     margin-bottom: 15px;
     font-size: 0.9em;
-    color: #fbbf24;
+    color: var(--banner-text);
 }
 
 .mm-nsfw-warning span,
@@ -1381,14 +1390,14 @@ body.mm-modal-open {
 
 /* The filter banner with the switches stays at the top of the window while
    the gallery scrolls under it, so its counts and switches are always in
-   reach. The same amber as above, laid over the page's own background: the
-   amber alone lets the cards show through. */
+   reach. The banner's tint, laid over the page's own background: the tint
+   alone lets the cards show through. */
 .filter-banner-sticky {
     position: sticky;
     /* A little air above it once stuck, rather than pressed to the edge. */
     top: 2px;
     z-index: 5;
-    background: linear-gradient(rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.15)),
+    background: linear-gradient(var(--banner-tint), var(--banner-tint)),
                 var(--background-fill-primary, #0b0f19);
 }
 
