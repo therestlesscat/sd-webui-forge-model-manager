@@ -590,5 +590,62 @@ del sys.modules['tqdm']
 # ------------------------------------------------------------- the singleton
 check('the service is made once', get_download_service() is get_download_service(), True)
 
+# ---------------------------------------------------------------- .partial
+# A download is written as <name>.partial and renamed once whole and its
+# SHA-256 checked: a download that fails never leaves a file under the
+# model's own name, and what it removes is only ever its own .partial.
+del synced[:]
+written_to = []
+real_download_file = service._download_file
+def watched_download_file(url, path, *rest):
+    written_to.append(path)
+    return real_download_file(url, path, *rest)
+service._download_file = watched_download_file
+
+name = 'partial_%d.safetensors'
+def partial_version(version_id, sha=SHA):
+    return version(id=version_id, files=[{'id': 9, 'name': name % version_id, 'primary': True,
+                                          'downloadUrl': 'https://example.invalid/p',
+                                          'hashes': {'SHA256': sha}}])
+
+civitai_says(FakeResponse([BODY]))
+done_ = service.download_version(520, CHECKPOINT, partial_version(520))
+final = os.path.join(CKPT_DIR, name % 520)
+check('the download is written as .partial', written_to[-1], final + '.partial')
+check('and ends under its own name, with no .partial left',
+      [done_.status, os.path.exists(final), os.path.exists(final + '.partial')], ['complete', True, False])
+
+left = os.path.join(CKPT_DIR, name % 521) + '.partial'
+io.open(left, 'wb').write(b'the start of a download the WebUI was closed in the middle of')
+civitai_says(FakeResponse([BODY]))
+again_ = service.download_version(521, CHECKPOINT, partial_version(521))
+check('a .partial left by a download cut short is written over, and the download finishes',
+      [again_.status, io.open(os.path.join(CKPT_DIR, name % 521), 'rb').read(), os.path.exists(left)],
+      ['complete', BODY, False])
+
+arrived = os.path.join(CKPT_DIR, name % 522)
+def arriving(url, path, *rest):
+    ok = real_download_file(url, path, *rest)
+    io.open(arrived, 'wb').write(b'put there by someone else meanwhile')
+    return ok
+service._download_file = arriving
+civitai_says(FakeResponse([BODY]))
+raced = service.download_version(522, CHECKPOINT, partial_version(522))
+check('a file that appears under the name meanwhile is not replaced',
+      [raced.status, (raced.error or '').startswith('A file named %s appeared' % (name % 522)),
+       io.open(arrived, 'rb').read()], ['error', True, b'put there by someone else meanwhile'])
+check('and the download\'s own .partial is removed', os.path.exists(arrived + '.partial'), False)
+
+service._download_file = watched_download_file
+civitai_says(FakeResponse([BODY]))
+wrong = service.download_version(523, CHECKPOINT, partial_version(523, 'F' * 64))
+check('a download whose SHA-256 is not Civitai\'s leaves nothing: no file, no .partial',
+      [wrong.status, os.path.exists(os.path.join(CKPT_DIR, name % 523)),
+       os.path.exists(os.path.join(CKPT_DIR, name % 523) + '.partial')], ['error', False, False])
+service._download_file = real_download_file
+
+leftovers = [os.path.join(root, f) for root, _, files in os.walk(MODELS) for f in files if f.endswith('.partial')]
+check('after every download here, failed ones included, no .partial is left anywhere', leftovers, [])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

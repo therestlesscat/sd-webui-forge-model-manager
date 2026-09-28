@@ -17,6 +17,11 @@ from .civitai import paid_access_info
 from .hashing import HashResult
 
 
+# What a download is written as until it is whole and verified: never a
+# model file extension, so no scan takes it for a model.
+PARTIAL = ".partial"
+
+
 @dataclass
 class DownloadProgress:
     """Track download progress."""
@@ -408,6 +413,7 @@ class DownloadService:
 
         progress = DownloadProgress(version_id=version_id)
         progress.status = "downloading"
+        partial_path = None
 
         with self._lock:
             self._active_downloads[version_id] = progress
@@ -499,17 +505,34 @@ class DownloadService:
             print(f"[ModelManager] Downloading: {file_name}")
             print(f"[ModelManager] Target: {target_dir}")
 
-            success = self._download_file(download_url, target_path, headers, progress)
+            # Written under another name until it is whole and verified, so a
+            # download that fails never leaves a file under the model's own
+            # name - one a scan would take for the model - and whatever the
+            # download deletes is only ever its own .partial.
+            partial_path = target_path + PARTIAL
+            success = self._download_file(download_url, partial_path, headers, progress)
 
             if not success:
                 return progress
 
             if expected and progress.sha256 != expected:
-                os.remove(target_path)
+                os.remove(partial_path)
                 progress.status = "error"
                 progress.error = ("The downloaded file does not match Civitai's SHA-256, "
                                   "so it was removed. Try downloading it again.")
                 return progress
+
+            # Never over a file: one may have arrived under this name while
+            # the download ran. (Windows' rename refuses one anyway.)
+            if os.path.exists(target_path):
+                os.remove(partial_path)
+                progress.status = "error"
+                progress.error = (f"A file named {file_name} appeared in {target_dir} while "
+                                  "downloading, so the download was not put in its place")
+                progress.file_path = target_path
+                return progress
+            os.rename(partial_path, target_path)
+            partial_path = None
 
             # Create .civitai.info file
             info_path = os.path.splitext(target_path)[0] + ".civitai.info"
@@ -532,6 +555,9 @@ class DownloadService:
             traceback.print_exc()
             progress.status = "error"
             progress.error = str(e)
+            # Only ever this download's own unfinished file.
+            if partial_path and os.path.exists(partial_path):
+                os.remove(partial_path)
             return progress
         finally:
             with self._lock:
