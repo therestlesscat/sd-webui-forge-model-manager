@@ -129,16 +129,6 @@ f = getFilters();
 check('missing control is safe', f.checkpoint_type === '');
 els.cb_checkpoint_type = makeSelect('Merge', group);
 
-// The cache key must change with checkpoint_type, or a Trained search would
-// serve a Merge search's cursors.
-sandbox.getFilters = getFilters;
-const hashFilters = lift('hashFilters');
-els.cb_checkpoint_type.value = 'Merge';
-const hMerge = hashFilters(getFilters());
-els.cb_checkpoint_type.value = 'Trained';
-const hTrained = hashFilters(getFilters());
-check('cache key follows checkpoint_type', hMerge !== hTrained, hMerge + ' vs ' + hTrained);
-
 // --- syncCheckpointTypeEnabled ----------------------------------------------
 const sync = lift('syncCheckpointTypeEnabled');
 els.cb_type.value = 'Checkpoint';

@@ -174,8 +174,7 @@ def create_civitai_browser_ui():
                     </details>
                     <!-- The same row the Model Manager puts its actions on. -->
                     <div class="filter-buttons-row">
-                        <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()" oncontextmenu="window.cbClearSearchCache && window.cbClearSearchCache(); return false;" title="Right-click to clear pagination cache">Search</button>
-                        <button type="button" id="cb_resume_btn" class="cb-btn" onclick="window.cbResumePage && window.cbResumePage()" style="display: none;">Resume</button>
+                        <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()">Search</button>
                     </div>
                 </div>
 
