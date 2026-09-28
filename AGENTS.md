@@ -319,8 +319,10 @@ real time once.
 ## Before you push
 
 ```
-python tests/run.py
+python tests/run.py --all
 ```
 
-Thirty-eight Python suites, thirty-two browser suites and the static checks,
-about a minute. See `tests/README.md` for what they cover and how to add one.
+Forty-three Python suites, thirty-four browser suites and the static checks,
+run side by side: about ten seconds. While working, `--changed` runs only the
+suites the uncommitted changes need. See `tests/README.md` for what they
+cover, how the choice is made, and how to add one.

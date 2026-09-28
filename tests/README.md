@@ -1,13 +1,32 @@
 # Tests
 
 ```
-python tests/run.py                 the offline suites and the static checks
+python tests/run.py --all           the offline suites and the static checks
+python tests/run.py --changed       only the suites the uncommitted changes need
 python tests/run.py --online        those, plus the ones that call Civitai
 python tests/run.py nsfw hash       only suites matching these words
+python tests/run.py -j 4            at most 4 at a time (default: one per CPU)
 python tests/py/hash_test.py        any suite, on its own, always
 ```
 
-About fifteen seconds. Node is needed for the JavaScript suites; one of them
+The suites run side by side, each in its own process with its own folder under
+`tests/work/`: about ten seconds for all of them.
+
+**--changed** compares the working tree with the last commit and runs the
+suites that use a changed file, a changed suite itself, and the static checks.
+Which files a suite uses is recorded by every `--all` run in
+`tests/work/test_map.json`: the extension's functions a Python suite called
+(`trace_run.py`), the scripts whose functions a browser suite ran (Node's
+coverage), and the files either read - the tab markup, the stylesheet, the
+changelog. Importing is not using: nearly every suite imports the whole
+package. Code no recorded run used runs every suite that could use it, and a
+change to `harness.mjs`, `fixtures.py` or `webui_stub.py` runs every suite of
+that kind. `runner_test.py` covers the rules.
+
+A page setting that waits or polls reads `TIMING` in `common.mjs`; a browser
+suite shortens them with `window.mmTiming` before loading the page, and waits
+for what it is waiting on (`window.mmSendSettled()`, a condition) rather than
+for a fixed time. Node is needed for the JavaScript suites; one of them
 also wants a DOM:
 
 ```

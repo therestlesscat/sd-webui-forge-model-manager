@@ -194,12 +194,23 @@ const check = (label, got, want) => {
     const ok = JSON.stringify(got) === JSON.stringify(want);
     if (!ok) fails.push(`${label}\n     got  ${JSON.stringify(got)}\n     want ${JSON.stringify(want)}`);
 };
-const settle = () => new Promise((r) => setTimeout(r, 300));
+const settle = () => new Promise((r) => setTimeout(r, 50));
+/** Wait for what a step is waiting on, rather than for a fixed time. */
+async function until(what, predicate, ms = 3000) {
+    for (const start = Date.now(); Date.now() - start < ms;) {
+        if (predicate()) return;
+        await new Promise((r) => setTimeout(r, 20));
+    }
+    fails.push(`timed out waiting for ${what}`);
+}
 const closeSyncDialogFromTest = () => { $('mm_sync_dialog').style.display = 'none'; };
 const $ = (id) => window.document.getElementById(id);
 const click = (id) => $(id).dispatchEvent(new window.Event('click', { bubbles: true }));
 const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
 
+// The page's waits and polls, shortened: the fake server answers at once,
+// and the same order of events happens ten times faster. See TIMING.
+window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 // linkedom has no readyState, so onReady() is waiting on the event rather
 // than its 100ms timer. Fire it, as a browser would.
@@ -224,7 +235,7 @@ await settle();
 // call sites had already run and found the other half missing.
 bannerHome.insertBefore(bannerNode, bannerHome.firstChild);
 bannerNode.style.display = 'none';
-await new Promise((r) => setTimeout(r, 700));
+await new Promise((r) => setTimeout(r, 150));
 
 if (hasApiKey) {
     check('the banner stays hidden when a key is set',
@@ -382,7 +393,7 @@ check('and forces', forceBody.get('force'), 'true');
 posts.length = 0;
 
 // wait out the progress poll, so the run is finished and the dialog usable
-await new Promise((r) => setTimeout(r, 1300));
+await until('the sync to finish', () => $('mm_sync_btn').disabled === false);
 check('the sync releases when it completes', $('mm_sync_btn').disabled, false);
 
 click('mm_sync_btn');
@@ -449,7 +460,7 @@ check('nor a download window', body.get('downloaded_days'), '0');
 // out afterwards.
 // The metadata sync above is still running as far as the page is concerned,
 // and Scan Disk is disabled while one is. Let its progress poll finish.
-await new Promise((r) => setTimeout(r, 1300));
+await until('the sync\'s last poll', () => $('mm_refresh_btn').disabled === false);
 check('the scan button is available again', $('mm_refresh_btn').disabled, false);
 
 posts.length = 0;
