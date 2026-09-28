@@ -39,6 +39,7 @@ const {
     videoSize,
     getImagePageCount,
     downloadedImagesNote,
+    downloadFailedNote,
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
@@ -2602,17 +2603,13 @@ window.mmLoadMoreImages = async function() {
             console.log(`[ModelManager] Downloaded ${data.downloaded_count || 0} images (${filteredImageCount} shown of ${totalImageCount}, has_more: ${nextImagesCursor !== null})`);
         } else {
             console.error('[ModelManager] Download more failed:', data.error);
-            if (loadMoreBtn) {
-                loadMoreBtn.textContent = 'Download More Images';
-                loadMoreBtn.disabled = false;
-            }
+            downloadNote = downloadFailedNote(data.error);
+            renderModelImages(currentImages);
         }
     } catch (error) {
         console.error('[ModelManager] Download more error:', error);
-        if (loadMoreBtn) {
-            loadMoreBtn.textContent = 'Download More Images';
-            loadMoreBtn.disabled = false;
-        }
+        downloadNote = downloadFailedNote(error?.message);
+        renderModelImages(currentImages);
     } finally {
         isLoadingMore = false;
     }

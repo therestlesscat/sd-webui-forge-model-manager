@@ -217,7 +217,13 @@ def query_models_grouped(
         # Civitai Browser. Everything acquired another way falls back
         # to the file timestamp, which is when it landed on disk.
         "downloaded_at": "group_acquired_at",
-        "updated_at": "cm_updated_at"
+        "updated_at": "cm_updated_at",
+        # How many images the card's version has stored. A subquery on the
+        # row being sorted, named by {row}: ranked while the page is chosen,
+        # page once it has been. Counting through idx_images_version for
+        # every model took 6.3 ms on a library of 1,051 files and 86,872
+        # images; sorting by file size, 2.9.
+        "image_count": "(SELECT COUNT(*) FROM images WHERE images.version_id = {row}.id)",
     }
     sort_field = valid_sort_fields.get(sort_by, "file_modified")
     sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
@@ -279,6 +285,8 @@ def query_models_grouped(
     # apart came back in no fixed order, so paging through them could show
     # a model twice and another never.
     order_by = f"{sort_field} {sort_dir}, file_path"
+    ranked_order_by = order_by.replace("{row}", "ranked")
+    order_by = order_by.replace("{row}", "page")
     query = f"""
         WITH filtered_versions AS (
             SELECT
@@ -330,7 +338,7 @@ def query_models_grouped(
         ),
         page AS (
             SELECT * FROM ranked WHERE {outer_where}
-            ORDER BY {order_by}
+            ORDER BY {ranked_order_by}
             LIMIT ? OFFSET ?
         )
         SELECT

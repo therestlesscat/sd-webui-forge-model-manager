@@ -507,6 +507,18 @@ export function downloadedImagesNote(before, after, message = '') {
     return `${count} more ${count === 1 ? 'image' : 'images'}: ${parts.join(', ')}`;
 }
 
+/**
+ * The note beside the button when a download failed - Civitai answering 503,
+ * the connection dropping. The error used to go only to the console, and the
+ * click looked like one that found nothing. Nothing is stored by a download
+ * that fails, and the next click starts from the same place.
+ *
+ * @param {string} error what the server, or the request itself, said
+ */
+export function downloadFailedNote(error) {
+    return `Nothing was downloaded: ${error || 'the server did not answer'}`;
+}
+
 export function getImagePageCount(totalImages) {
     return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
 }

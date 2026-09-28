@@ -18,12 +18,17 @@ const image = (id, level) => ({
 // What the server has cached for the version: two safe, one explicit.
 const cached = [image(1, 1), image(2, 1), image(3, 8)];
 let cursor = 'more';
+let civitaiDown = false;       // Civitai answering 503, as it does in an outage
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     if (href.includes('/model-manager/ui-options')) {
         return { ok: true, json: async () => ({ success: true, gallery_hide_nsfw: true,
                                                 hide_promptless_images: true }) };
+    }
+    if (href.includes('/images/load-more') && civitaiDown) {
+        return { ok: false, status: 500, json: async () => ({
+            success: false, error: 'Request failed: Server error: 503' }) };
     }
     if (href.includes('/images/load-more')) {
         // Ten more from Civitai, nine of them explicit; the answer lists them
@@ -61,6 +66,15 @@ await waitFor('the gallery', () => cards() > 0);
 
 check('the gallery opens with the safe images', cards(), 2);
 check('offering to load more', !!$('cb_load_more_btn'), true);
+
+// Civitai down first: the click used to look like one that found nothing.
+civitaiDown = true;
+await window.cbLoadMoreImages();
+civitaiDown = false;
+check('a download that fails says so beside the button', note(),
+      'Nothing was downloaded: Request failed: Server error: 503');
+check('changing nothing else', cards(), 2);
+check('and the button is offered again', !!$('cb_load_more_btn'), true);
 
 await window.cbLoadMoreImages();
 await waitFor('the download', () => note().includes('more'));

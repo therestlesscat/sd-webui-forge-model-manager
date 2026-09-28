@@ -68,6 +68,7 @@ Object.defineProperty(inputProto, 'checked', {
 const PAGE = 100;              // IMAGE_PAGE_SIZE in the shared module
 const DOWNLOADED = 250;        // two full pages and a remainder
 const fetched = [];
+let civitaiDown = false;       // Civitai answering 503, as it does in an outage
 
 const image = (id, level = 1) => ({
     id, url: `https://example.invalid/${id}.jpeg`, width: 512, height: 768,
@@ -109,6 +110,10 @@ globalThis.fetch = async (url, init = {}) => {
         return { ok: true, json: async () => ({
             success: true, samplers: ['Euler'], schedulers: ['Simple'],
             has_api_key: true, image_browsing: MODE }) };
+    }
+    if ((href.includes('/images/load-more') || init.method === 'POST') && civitaiDown) {
+        return { ok: false, status: 500, json: async () => ({
+            success: false, error: 'Request failed: Server error: 503' }) };
     }
     if (href.includes('/images/load-more') || init.method === 'POST') {
         // Five more from Civitai: three of them explicit. The answer holds
@@ -199,6 +204,17 @@ if (MODE === 'pages') {
     await settle();
     check('the last page holds the remainder', cards(), DOWNLOADED - 2 * PAGE);
 
+    // Civitai down first: the click used to look like one that found nothing.
+    let before = cards();
+    civitaiDown = true;
+    await window.mmLoadMoreImages();
+    await settle();
+    civitaiDown = false;
+    check('a download that fails says so beside the button', downloadNote(),
+          'Nothing was downloaded: Request failed: Server error: 503');
+    check('changing nothing else', cards(), before);
+    check('and the button is offered again', has('mm_load_more_btn'), true);
+
     askedBefore = fetched.length;
     await window.mmLoadMoreImages();
     await settle();
@@ -222,6 +238,17 @@ if (MODE === 'pages') {
     check('and again, up to what is downloaded', cards(), DOWNLOADED);
     check('at which point there is nothing more to show', has('mm_show_more_btn'), false);
     check('and the offer becomes one to download more', has('mm_load_more_btn'), true);
+
+    // Civitai down first: the click used to look like one that found nothing.
+    let before = cards();
+    civitaiDown = true;
+    await window.mmLoadMoreImages();
+    await settle();
+    civitaiDown = false;
+    check('a download that fails says so beside the button', downloadNote(),
+          'Nothing was downloaded: Request failed: Server error: 503');
+    check('changing nothing else', cards(), before);
+    check('and the button is offered again', has('mm_load_more_btn'), true);
 
     askedBefore = fetched.length;
     await window.mmLoadMoreImages();

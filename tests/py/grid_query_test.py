@@ -80,8 +80,21 @@ check('NSFW allowed, the preview is the first image in gallery order, whatever i
       {r['id']: r['preview_url'] for r in nsfw_rows if r['id'] in versions},
       {v: f'https://e.invalid/{n}-first.jpeg' for n, v in enumerate(versions) if v in shown})
 
+# -------------------------------------------------------------- image count
+# How many images the card's version has stored: the three above, and more
+# for one of them.
+db.store_images(versions[0], 3, [{'id': 50000 + i, 'url': f'https://e.invalid/more-{i}.jpeg',
+                                  'browsingLevel': 1} for i in range(4)])
+rows, _ = query(sort_by='image_count', sort_order='desc')
+stored = db.count_images_by_version()
+counts = [stored.get(r['id'], 0) for r in rows]
+check('sorted by image count, most first', counts, sorted(counts, reverse=True))
+check('with counts to tell apart', len(set(counts)) > 2)
+rows, _ = query(sort_by='image_count', sort_order='asc')
+check('and fewest first', [stored.get(r['id'], 0) for r in rows], sorted(counts))
+
 # ------------------------------------------------------------------- paging
-for sort in ('base_model', 'file_modified', 'name', 'downloaded_at'):
+for sort in ('base_model', 'file_modified', 'name', 'downloaded_at', 'image_count'):
     everything, total = query(sort_by=sort, sort_order='asc')
     paged, offset = [], 0
     while True:

@@ -99,6 +99,23 @@ code, body = get('/model-manager/models', sort_by='name', sort_order='asc')
 names = [m.get('display_name') or m.get('name') for m in body.get('models', [])]
 check('sorting by name is ordered', names, sorted(names, key=lambda s: (s or '').lower()))
 
+# A sort the endpoint does not know falls back to the name without a word, so
+# each one the dropdown offers has to be let through. The model the name puts
+# last is given the most images, so only a sort by image count puts it first.
+code, body = get('/model-manager/models', sort_by='name', sort_order='desc', page_size=100)
+stored = db.count_images_by_version()
+last_by_name = [m['id'] for m in body['models'] if stored.get(m.get('id'))][-1]
+db.store_images(last_by_name, 9, [{'id': 94000 + i, 'url': 'n%d' % i, 'browsingLevel': 1}
+                                  for i in range(20)])
+code, body = get('/model-manager/models', sort_by='image_count', sort_order='desc', page_size=100)
+stored = db.count_images_by_version()
+counts = [stored.get(m.get('id'), 0) for m in body.get('models', [])]
+check('sorting by image count reaches the query', counts, sorted(counts, reverse=True))
+check('putting first the model with the most, which the name puts last',
+      body['models'][0]['id'], last_by_name)
+with db._cursor() as cursor:                            # later checks count its images
+    cursor.execute("DELETE FROM images WHERE id BETWEEN 94000 AND 94019")
+
 code, body = get('/model-manager/models', paths_only=True, type='Checkpoint')
 check('paths_only answers with paths', code, 200)
 check('and nothing but paths', sorted(body), ['models', 'paths', 'success'])
