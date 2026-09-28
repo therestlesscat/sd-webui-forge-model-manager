@@ -229,5 +229,26 @@ client = CivitaiClient('a-key')
 client.session.request = lambda method, url, **kw: Answer(200, {'username': 'someone'})
 check('whoami() is the account the key belongs to', client.whoami(), {'username': 'someone'})
 
+# ------------------------------------------------------------- Civitai overloaded
+# Civitai says why it failed, in the body: the page said only "Request failed:
+# Server error: 503" while Civitai's answer read "Image search is temporarily
+# overloaded - please retry."
+OVERLOADED = 'Image search is temporarily overloaded — please retry.'
+for body, want in (({'error': OVERLOADED}, 'Civitai: %s (503)' % OVERLOADED),
+                   ({'message': 'Down for maintenance'}, 'Civitai: Down for maintenance (503)'),
+                   (None, 'Server error: 503')):
+    client = CivitaiClient()
+    client.RETRY_BACKOFF_BASE = 0.001
+    asked = []
+    client.session.request = lambda method, url, **kw: asked.append(url) or Answer(503, body)
+    try:
+        client.get_model_images(1, limit=1)
+        said = None
+    except CivitaiAPIError as e:
+        said = str(e)
+    check('a 503 says what Civitai said (%s)' % (body or 'nothing'), said, want)
+    check('after the retries, as before (%s)' % (body or 'nothing'), len(asked),
+          client.MAX_RETRIES + 1)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -17,6 +17,18 @@ class CivitaiAPIError(Exception):
     pass
 
 
+def _civitai_says(response) -> str:
+    """What Civitai's answer says went wrong - its "error", or "message" - or ''."""
+    try:
+        body = response.json()
+    except Exception:
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    said = body.get("error") or body.get("message")
+    return said.strip() if isinstance(said, str) else ""
+
+
 class CivitaiRateLimitError(CivitaiAPIError):
     """Rate limit exceeded."""
     def __init__(self, retry_after: int = 60):
@@ -268,13 +280,19 @@ class CivitaiClient:
                     raise CivitaiRateLimitError(retry_after)
 
                 if response.status_code >= 500:
-                    # Server error - retry with backoff
+                    # Server error - retry with backoff. Civitai says why in
+                    # the body, when it says anything: "Image search is
+                    # temporarily overloaded - please retry." It used to be
+                    # left unread, and the page said only "Server error: 503".
+                    said = _civitai_says(response)
                     if attempt < self.MAX_RETRIES:
                         wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
-                        print(f"[ModelManager] Server error {response.status_code}, retrying in {wait_time}s...")
+                        print(f"[ModelManager] Server error {response.status_code}"
+                              f"{': ' + said if said else ''}, retrying in {wait_time}s...")
                         time.sleep(wait_time)
                         continue
-                    raise CivitaiAPIError(f"Server error: {response.status_code}")
+                    raise CivitaiAPIError(f"Civitai: {said} ({response.status_code})" if said
+                                          else f"Server error: {response.status_code}")
 
                 # Check for other errors
                 response.raise_for_status()
@@ -297,7 +315,9 @@ class CivitaiClient:
                     time.sleep(wait_time)
                     continue
 
-            except (CivitaiNotFoundError, CivitaiRateLimitError, CivitaiAuthError):
+            except CivitaiAPIError:
+                # Raised above, and already saying what happened - not to be
+                # wrapped again as "Request failed: ...".
                 raise
 
             except Exception as e:
