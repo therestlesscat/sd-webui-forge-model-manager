@@ -397,6 +397,38 @@ check('and points at what is already there', again.file_path, progress.file_path
 os.remove(progress.file_path)
 os.remove(info)
 
+# ------------------------------------------------ already on disk
+# A file already where the download would put it - downloaded before, and
+# forgotten by a scan that never looked in its folder - is the one Civitai
+# lists if its SHA-256 is Civitai's: added to the library, not fetched again.
+# One with other bytes under that name is refused, and said to be another.
+import contextlib                                        # noqa: E402
+fetched = []
+civitai_says(FakeResponse([b'never sent']))
+real_download_file = service._download_file
+service._download_file = lambda *a, **k: fetched.append(a) or real_download_file(*a, **k)
+del synced[:]
+there = service.download_version(510, CHECKPOINT, hashed(510, SHA))
+check('a file already there with Civitai\'s SHA-256 is added to the library',
+      (there.status, there.synced, synced), ('complete', True, [good.file_path]))
+check('without downloading it again', fetched, [])
+check('the sync is given Civitai\'s hashes, as after a download',
+      getattr((handed[-1][0] or {}).get('hashes'), 'sha256', None), SHA)
+
+other = os.path.join(CKPT_DIR, 'hashed_512.safetensors')
+io.open(other, 'wb').write(b'some other weights')
+said = io.StringIO()
+with contextlib.redirect_stdout(said):
+    clash = service.download_version(512, CHECKPOINT, hashed(512, SHA))
+check('one with other bytes under that name is refused, and said to be a different file',
+      (clash.status, (clash.error or '').startswith('A different file named hashed_512.safetensors')),
+      ('error', True))
+check('and left alone', io.open(other, 'rb').read(), b'some other weights')
+check('a failed download is said in the console, with why',
+      'Download of hashed_512.safetensors failed: A different file named' in said.getvalue(), True)
+service._download_file = real_download_file
+os.remove(other)
+
 # a template that puts it in a subfolder
 opts.model_manager_civitai_folder_template = '{baseModel}/{modelName}'
 civitai_says(FakeResponse([b'weights']))

@@ -433,7 +433,9 @@ class DownloadService:
 
             template = getattr(shared.opts, 'model_manager_civitai_folder_template', '_{baseModel}/{modelName}')
             subfolder = self.apply_folder_template(template, model_data, version_data)
-            target_dir = os.path.join(base_path, subfolder) if subfolder else base_path
+            # Absolute, with no "..": the path a scan finds the file by, which
+            # is how the library knows it is the same file.
+            target_dir = os.path.abspath(os.path.join(base_path, subfolder) if subfolder else base_path)
 
             os.makedirs(target_dir, exist_ok=True)
 
@@ -455,10 +457,37 @@ class DownloadService:
             progress.file_name = file_name
             target_path = os.path.join(target_dir, file_name)
 
+            # Civitai lists every hash the library keeps for a file. When the
+            # bytes are the ones it hashed, its list is used rather than
+            # reading the file again; when they are not, the file is corrupt.
+            civitai_hashes = {k.lower(): v for k, v in (file_info.get("hashes") or {}).items() if v}
+            expected = str(civitai_hashes.get("sha256") or "").upper()
+            known = None
+            if expected:
+                known = {"hashes": HashResult.from_stored(civitai_hashes),
+                         "version": version_data, "model": model_data}
+
             if os.path.exists(target_path):
-                progress.status = "error"
-                progress.error = f"File already exists: {file_name}"
+                # Already there - downloaded before, and forgotten by a scan
+                # that did not look in its folder, say. If it is the file
+                # Civitai lists, it is added to the library, not fetched again.
+                from .hashing import file_sha256
                 progress.file_path = target_path
+                if expected and (file_sha256(target_path) or "").upper() == expected:
+                    print(f"[ModelManager] Already on disk, adding to the library: {target_path}")
+                    info_path = os.path.splitext(target_path)[0] + ".civitai.info"
+                    if not os.path.exists(info_path):
+                        self._write_civitai_info(info_path, model_data, version_data, model_type)
+                    progress.total_bytes = progress.downloaded_bytes = os.path.getsize(target_path)
+                    progress.status = "finishing"
+                    self._sync_downloaded_file(target_path, progress, known)
+                    progress.synced = True
+                    progress.status = "complete"
+                    return progress
+                progress.status = "error"
+                progress.error = (
+                    f"A different file named {file_name} is already in {target_dir}" if expected
+                    else f"File already exists: {file_name}, and Civitai lists no SHA-256 to compare it with")
                 return progress
 
             api_key = getattr(shared.opts, 'model_manager_civitai_api_key', '')
@@ -475,40 +504,16 @@ class DownloadService:
             if not success:
                 return progress
 
-            # Civitai lists every hash the library keeps for a file. When the
-            # bytes are the ones it hashed, its list is used rather than
-            # reading the file again; when they are not, the file is corrupt.
-            civitai_hashes = {k.lower(): v for k, v in (file_info.get("hashes") or {}).items() if v}
-            expected = str(civitai_hashes.get("sha256") or "").upper()
             if expected and progress.sha256 != expected:
                 os.remove(target_path)
                 progress.status = "error"
                 progress.error = ("The downloaded file does not match Civitai's SHA-256, "
                                   "so it was removed. Try downloading it again.")
                 return progress
-            known = None
-            if expected:
-                known = {"hashes": HashResult.from_stored(civitai_hashes),
-                         "version": version_data, "model": model_data}
 
             # Create .civitai.info file
             info_path = os.path.splitext(target_path)[0] + ".civitai.info"
-            civitai_info = {
-                "id": model_data.get("id"),
-                "modelId": model_data.get("id"),
-                "name": model_data.get("name"),
-                "description": model_data.get("description"),
-                "type": model_type,
-                "nsfw": model_data.get("nsfw"),
-                "nsfwLevel": model_data.get("nsfwLevel"),
-                "tags": model_data.get("tags", []),
-                "creator": model_data.get("creator"),
-                "stats": model_data.get("stats"),
-                "modelVersions": [version_data],
-            }
-
-            with open(info_path, 'w', encoding='utf-8') as f:
-                json.dump(civitai_info, f, indent=2)
+            self._write_civitai_info(info_path, model_data, version_data, model_type)
 
             print(f"[ModelManager] Downloaded: {target_path}")
 
@@ -531,6 +536,31 @@ class DownloadService:
         finally:
             with self._lock:
                 self._cancel_flags.pop(version_id, None)
+            # Every way a download fails sets the reason on its progress, for
+            # the page; most never said it here too.
+            if progress.status == "error":
+                print(f"[ModelManager] Download of {progress.file_name or 'version %s' % version_id} "
+                      f"failed: {progress.error}")
+
+    @staticmethod
+    def _write_civitai_info(info_path: str, model_data: Dict[str, Any], version_data: Dict[str, Any],
+                            model_type: str) -> None:
+        """The sidecar a scan reads: the model's payload, with this version."""
+        civitai_info = {
+            "id": model_data.get("id"),
+            "modelId": model_data.get("id"),
+            "name": model_data.get("name"),
+            "description": model_data.get("description"),
+            "type": model_type,
+            "nsfw": model_data.get("nsfw"),
+            "nsfwLevel": model_data.get("nsfwLevel"),
+            "tags": model_data.get("tags", []),
+            "creator": model_data.get("creator"),
+            "stats": model_data.get("stats"),
+            "modelVersions": [version_data],
+        }
+        with open(info_path, 'w', encoding='utf-8') as f:
+            json.dump(civitai_info, f, indent=2)
 
     def queue_download(
         self,

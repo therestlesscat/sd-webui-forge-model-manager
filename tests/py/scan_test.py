@@ -127,6 +127,32 @@ stored = db.get_version(rich)
 check('the sidecar reached the database', stored['id'], 8888)
 check('with its trigger words', stored['trained_words'], ['boop'])
 
+# ------------------------------------------------------------- embeddings
+# The downloader files embeddings in --embeddings-dir; the scan never walked
+# it, so it never saw them - and forgot each one a download had added, as a
+# file gone from disk. Such a row was also stored under the folder as given,
+# "models\\..\\embeddings", which is not how a walk finds it.
+from modules import shared as _shared                     # noqa: E402
+embeddings = os.path.join(models_dir, 'embeddings')
+os.makedirs(embeddings, exist_ok=True)
+_shared.cmd_opts.embeddings_dir = embeddings
+check('the scan walks the embeddings folder, as the WebUI names it',
+      os.path.normcase(embeddings) in [os.path.normcase(d) for d in scan._get_model_directories()], True)
+
+negative = os.path.join(embeddings, 'easy_negative.pt')
+io.open(negative, 'wb').write(b'embedding')
+as_given = os.path.join(models_dir, 'Lora', '..', 'embeddings', 'easy_negative.pt')
+db.upsert_version({'file_path': as_given, 'file_name': 'easy_negative.pt', 'file_extension': '.pt',
+                   'has_civitai_data': False, 'nsfw_level': 1})
+db.set_downloaded_at(as_given)
+scan.scan_models(directories=[models_dir])
+paths = db.get_all_version_paths()
+check('a downloaded file stored under "..": still in the library after a scan, under its plain path',
+      [as_given in paths, negative in paths], [False, True])
+check('once, not twice', sum(1 for p in paths if p.endswith('easy_negative.pt')), 1)
+check('and keeping what it had - when it was downloaded', bool((db.get_version(negative) or {}).get('downloaded_at')), True)
+os.remove(negative)                  # the next scan forgets it, as a file gone
+
 # ---------------------------------------------------------- and what is gone
 os.remove(plain)
 progress = scan.scan_models(directories=[models_dir])

@@ -306,6 +306,10 @@ class ModelsDatabase:
         """The local file each resource names: ({version id: row}, {hash: row})."""
         return self._models.local_versions_by_key(version_ids, hashes)
 
+    def normalize_version_paths(self) -> int:
+        """Store each file's path as a scan finds it. See ModelsOps.normalize_version_paths()."""
+        return self._models.normalize_version_paths()
+
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""
         return self._models.local_versions_by_name(names)
