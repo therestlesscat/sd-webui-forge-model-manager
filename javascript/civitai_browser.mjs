@@ -1141,12 +1141,6 @@ function renderImages() {
     };
     const filterBannerHtml = renderFilterBanner(bannerOptions);
 
-    // The same sentence again under a long list, without a second set of
-    // switches - they would share ids, and one set is enough.
-    const filterFooterHtml = (hiddenCount + promptHiddenCount) > 0
-        ? renderFilterBanner({ ...bannerOptions, withSwitches: false })
-        : '';
-
     const imageCards = currentImages.map((img, index) => renderImageCard(img, index)).join('');
 
     // Only show "Load More" button if there's a cursor (more images available)
@@ -1169,7 +1163,6 @@ function renderImages() {
         ${filterBannerHtml}
         ${renderImagePagination(totalPages, 'top')}
         <div class="model-images-list">${imageCards}</div>
-        ${filterFooterHtml}
         ${loadMoreHtml}
         ${renderImagePagination(totalPages, 'bottom')}
     `;

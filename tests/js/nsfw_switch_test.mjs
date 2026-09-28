@@ -55,6 +55,7 @@ function answer(hideNsfw, hidePromptless) {
 
 const asked = [];               // [hide_nsfw_images, hide_promptless_images] per request
 let everyImageLacksAPrompt = false;
+let everyImagePasses = false;
 
 globalThis.fetch = async (url) => {
     const href = String(url);
@@ -68,6 +69,13 @@ globalThis.fetch = async (url) => {
         const hidePromptless = params.get('hide_promptless_images') !== 'false';
         asked.push([params.get('hide_nsfw_images'), params.get('hide_promptless_images')]);
 
+        if (everyImagePasses) {
+            return { ok: true, json: async () => ({ success: true, model: { ...MODEL,
+                images: [toImage(LIBRARY[0])],
+                images_state: { version_id: 5001, total_count: 1, filtered_count: 1, hidden_nsfw: 0,
+                                hidden_promptless: 0, nsfw_count: 0, promptless_count: 0,
+                                hide_nsfw_images: true, hide_promptless_images: true } } }) };
+        }
         if (everyImageLacksAPrompt) {
             return { ok: true, json: async () => ({ success: true, model: { ...MODEL, images: [],
                 images_state: { version_id: 5001, total_count: 2, filtered_count: 0, hidden_nsfw: 0,
@@ -164,5 +172,16 @@ check('with the switch that can bring them back', switchLabel(PROMPT), 'Show unu
 check('and the message blames neither filter in particular',
       images().textContent.includes('No images to show with the filters above.'), true);
 check('rather than telling you to untick an NSFW box', images().textContent.includes('Uncheck'), false);
+
+// --------------------------------------- a gallery the filters leave whole
+// It used to have no banner at all, and so nowhere saying what is stored.
+everyImageLacksAPrompt = false;
+everyImagePasses = true;
+await window.mmToggleShowNsfwImages(false);
+await waitFor('the whole gallery', () => cards() === 1);
+check('with nothing hidden, the banner is still drawn, with the counts', sentence(),
+      '1 image stored · 1 match the filters (1 shown)');
+check('and no switch, as neither has anything to hide or show',
+      [switchLabel(NSFW), switchLabel(PROMPT)], ['', '']);
 
 done();

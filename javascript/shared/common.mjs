@@ -572,35 +572,6 @@ export function sortBaseModels(values) {
     return values.includes('Other') ? named.concat('Other') : named;
 }
 
-/**
- * The one banner above a gallery: what its filters are holding back, and a
- * switch for each, on the right.
- *
- *   Showing 91 of 100 images (6 hidden due to NSFW filter, 3 hidden due to unusable prompt)
- *                                             [ ] Show NSFW (6)  [ ] Show unusable prompts (3)
- *
- * The hidden figures add up with what is shown to the total, so an image both
- * filters would hide is counted once - by the first filter to hide it, which
- * the caller decides by the order it applies them. Each switch states the same
- * number as its clause while it hides; once ticked its clause drops out, since
- * it hides nothing, and the switch says how many of its kind it now shows.
- *
- * Both tabs build their banner here, so the two cannot drift apart.
- *
- * @param {object} options
- * @param {number} options.shown - images on screen after both filters.
- * @param {number} options.total - images loaded for this version.
- * @param {string} options.bannerClass - the tab's banner class.
- * @param {string} options.labelClass - the tab's switch label class.
- * @param {boolean} [options.withSwitches=true] - false for a repeat of the
- *     sentence alone, under a long list; a second set of switches would
- *     duplicate their ids.
- * @param {Array<object>} options.switches - one per filter:
- *     id, onchange (a fixed call, never data), label, reason (for "hidden due
- *     to ..."), showing (ticked), hidden (what it hides now), count (what it
- *     would show once ticked, i.e. its kind among what the other filter lets
- *     through), and applies (false to leave it out altogether).
- */
 // ---------------------------------------------------- which judges prompts
 // Settings -> Model Manager -> NSFW detection: a trained model, or the word
 // list alone. The model is sometimes wrong in ways nobody can point at, so
@@ -642,18 +613,42 @@ export function nsfwModelNote() {
  * The gallery's filter banner: one sentence, and a switch for each filter.
  *
  *   300 images stored · 168 match the filters (100 shown) · 132 hidden due to unusable prompt
+ *                                             [ ] Show unusable prompts (132)
  *
  * Three numbers, kept apart because they were once confused: what is stored,
  * what the filters let through, and what is on screen - a page at a time, so
  * fewer than match until Show More or the page buttons bring the rest. It
  * used to read "Showing 168 of 300", with 100 on screen.
  *
- * @param {number} matching images the filters let through, loaded or not
- * @param {number} total images stored
- * @param {number} onScreen images drawn now
+ * The hidden figures add up with what matches to the total, so an image both
+ * filters would hide is counted once - by the first filter to hide it, which
+ * the caller decides by the order it applies them. Each switch states the same
+ * number as its clause while it hides; once ticked its clause drops out, since
+ * it hides nothing, and the switch says how many of its kind it now shows. A
+ * switch with nothing to hide or show is left out.
+ *
+ * Drawn whenever anything is stored, filtered or not, since it is where the
+ * counts are; it stays in sight as the gallery scrolls. It used to appear only
+ * while a filter hid something, and the Civitai Browser drew it again under
+ * the list, before it stuck. Both tabs build it here, so the two cannot drift
+ * apart.
+ *
+ * @param {object} options
+ * @param {number} options.matching - images the filters let through, loaded or not.
+ * @param {number} options.total - images stored.
+ * @param {number} options.onScreen - images drawn now.
+ * @param {string} options.bannerClass - the tab's banner class.
+ * @param {string} options.labelClass - the tab's switch label class.
+ * @param {Array<object>} options.switches - one per filter:
+ *     id, onchange (a fixed call, never data), label, reason (for "hidden due
+ *     to ..."), showing (ticked), hidden (what it hides now), count (what it
+ *     would show once ticked, i.e. its kind among what the other filter lets
+ *     through), note (a word on what decides it), and applies (false to leave
+ *     it out altogether).
  */
 export function renderFilterBanner({ matching, total, onScreen, bannerClass, labelClass,
-                                     switches, withSwitches = true }) {
+                                     switches }) {
+    if (!total) return '';
     const active = switches.filter((s) => s.applies !== false);
 
     const clauses = active
@@ -664,8 +659,6 @@ export function renderFilterBanner({ matching, total, onScreen, bannerClass, lab
         .map((s) => ({ ...s, number: s.showing ? s.count : s.hidden }))
         .filter((s) => s.number > 0 || s.showing);
 
-    if (!clauses.length && !offered.length) return '';
-
     const counted = `${total} ${total === 1 ? 'image' : 'images'} stored`
         + ` · ${matching} match the filters (${onScreen} shown)`
         + (clauses.length ? ` · ${clauses.join(', ')}` : '');
@@ -674,7 +667,7 @@ export function renderFilterBanner({ matching, total, onScreen, bannerClass, lab
     const notes = offered.map((s) => s.note).filter(Boolean);
     const sentence = counted + notes.map((n) => `<small class="filter-banner-note">${escapeHtml(n)}</small>`).join('');
 
-    const controls = withSwitches && offered.length
+    const controls = offered.length
         ? `<div class="filter-banner-switches">${offered.map((s) => `
                 <label class="${labelClass}">
                     <input type="checkbox" id="${s.id}" ${s.showing ? 'checked' : ''} onchange="${s.onchange}">
@@ -683,10 +676,7 @@ export function renderFilterBanner({ matching, total, onScreen, bannerClass, lab
            </div>`
         : '';
 
-    // The banner with the switches stays in sight as the gallery scrolls; the
-    // copy under a long list, without them, does not, or the two would stack.
-    const sticky = withSwitches ? ' filter-banner-sticky' : '';
-    return `<div class="${bannerClass}${sticky}"><span>${sentence}</span>${controls}</div>`;
+    return `<div class="${bannerClass} filter-banner-sticky"><span>${sentence}</span>${controls}</div>`;
 }
 
 // ------------------------------------------------------------ resource chips
