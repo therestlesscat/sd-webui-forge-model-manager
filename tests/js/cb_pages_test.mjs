@@ -1,11 +1,10 @@
 // The Civitai Browser's page numbers: only pages this search has been to.
 //
-// Reaching page 2 or later saves that filter set's cursors, so Resume can go
-// back there. Search used to load them too, so after an earlier visit had
-// reached page 6, a new search offered pages 1 to 6 while having been to
-// page 2 - and a filtered page's saved cursor holds what the filters found
-// that day, not what they find now. Search now starts fresh; the saved
-// position is Resume's to offer.
+// Reaching page 2 or later used to save that filter set's cursors, for a
+// Resume button to go back there, and Search loaded them too: after an
+// earlier visit had reached page 6, a new search offered pages 1 to 6 while
+// having been to page 2. Resume is gone, and nothing is saved: every search
+// starts fresh.
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
@@ -50,12 +49,11 @@ window.cbNextPage();
 await onPage(2);
 check('and grows as it goes, not to where the last visit got', pageNumbers(), ['1', '2', '3']);
 
-// Going back to where the earlier visit was is Resume's job.
-window.cbSearch();
-await onPage(1);
-check('Resume offers the saved position', $('cb_resume_btn').textContent, 'Resume (page 2)');
-window.cbResumePage();
-await onPage(2);
-check('and goes there', $('cb_status').textContent.includes('(page 2)'), true);
+// There is no going back to where an earlier visit got, and nothing kept for it.
+check('there is no Resume button', $('cb_resume_btn'), null);
+check('and no saved position in the browser\'s storage',
+      Object.keys(localStorage._d).filter((k) => k.startsWith('civitai_cursors_')), []);
+check('Search is only a search: no right-click to clear a saved position',
+      $('cb_search_btn').hasAttribute('oncontextmenu'), false);
 
 done();

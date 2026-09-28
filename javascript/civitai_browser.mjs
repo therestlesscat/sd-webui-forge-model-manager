@@ -143,107 +143,6 @@ let activeStream = null;
 // While streaming, pagination controls are held back until the page is final
 let isStreaming = false;
 
-// LocalStorage key prefix for cursor cache
-const CURSOR_CACHE_PREFIX = "civitai_cursors_";
-
-// Get current filters hash
-function getFiltersHash() {
-    return hashFilters(getFilters());
-}
-
-let resumeWired = false;
-
-/**
- * Attach updateResumeButton() to the filters, once the filters exist.
- *
- * init() runs on onReady(), which is ~100ms after the document is
- * interactive - and Gradio renders its blocks after that. Doing this once in
- * init() found no controls and no button, attached nothing, and left the
- * offer depending on a Search press exactly as before. So it is retried from
- * the same interval the tag input and the enums use.
- *
- * Returns nothing; sets resumeWired when the markup was there to wire.
- */
-function wireResumeButton() {
-    const controls = document.querySelectorAll('.cb-filters input, .cb-filters select');
-    if (!controls.length || !document.getElementById('cb_resume_btn')) return;
-
-    controls.forEach(control => {
-        control.addEventListener('change', updateResumeButton);
-        control.addEventListener('input', updateResumeButton);
-    });
-    resumeWired = true;
-    updateResumeButton();
-}
-
-/**
- * Show "Resume" when there is a saved position for the filters now in the box.
- *
- * The cursors are only valid for the filter set they were collected under -
- * Civitai's cursor encodes the sort and period - so the saved position is
- * keyed on the filters, and changing any of them means there is nothing to
- * resume. That is why this has to be re-checked whenever a filter changes,
- * not only when Search is pressed: otherwise the button reads as broken.
- */
-function updateResumeButton() {
-    const btn = document.getElementById('cb_resume_btn');
-    if (!btn) return;
-
-    const cached = loadFromCache(getFiltersHash());
-    if (cached && cached.lastPage > 1 && cached.lastPage !== currentPage) {
-        btn.textContent = `Resume (page ${cached.lastPage})`;
-        btn.style.display = '';
-    } else {
-        btn.style.display = 'none';
-    }
-}
-
-// Hash filters to create a cache key
-function hashFilters(filters) {
-    const str = JSON.stringify(filters);
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return hash.toString(36);
-}
-
-// Load cache data from localStorage
-function loadFromCache(hash) {
-    try {
-        const cached = localStorage.getItem(CURSOR_CACHE_PREFIX + hash);
-        if (cached) {
-            return JSON.parse(cached);
-        }
-    } catch (e) {
-        console.warn('[CivitaiBrowser] Failed to load cache:', e);
-    }
-    return null;
-}
-
-// Save cache data to localStorage
-function saveToCache(hash, cursorsArray, lastPage) {
-    try {
-        localStorage.setItem(CURSOR_CACHE_PREFIX + hash, JSON.stringify({
-            cursors: cursorsArray,
-            lastPage: lastPage
-        }));
-    } catch (e) {
-        console.warn('[CivitaiBrowser] Failed to save cache:', e);
-    }
-}
-
-// Clear cache for specific hash
-function clearCursorCache(hash) {
-    try {
-        localStorage.removeItem(CURSOR_CACHE_PREFIX + hash);
-        console.log('[CivitaiBrowser] Cleared cursor cache for', hash);
-    } catch (e) {
-        // Ignore
-    }
-}
 
 // Tag state (single tag)
 let selectedTag = '';
@@ -516,11 +415,6 @@ async function searchModelsStreaming(page, cursor) {
                     } else {
                         hasMorePages = false;
                     }
-                    if (page >= 2) {
-                        saveToCache(getFiltersHash(), cursors, page);
-                    }
-
-                    updateResumeButton();
 
                     const stats = evt.filterStats || {};
                     const status = `Showing ${currentModels.length} models (page ${page})`
@@ -683,14 +577,8 @@ async function searchModels(page = 1) {
                 hasMorePages = false;
             }
 
-            // Save cursors and current page to cache (only for page 2+)
-            if (page >= 2) {
-                saveToCache(getFiltersHash(), cursors, page);
-            }
-
             renderGrid();
             closeDetails();
-            updateResumeButton();
 
             let status = `Showing ${currentModels.length} models (page ${currentPage})`;
             const stats = result.filterStats;
@@ -1674,7 +1562,6 @@ function selectTag(tagName) {
         input.style.display = selectedTag ? 'none' : '';
         if (!selectedTag) input.focus?.();
     }
-    updateResumeButton();
 }
 
 // Text typed but never chosen still counts at Search, as it always has, and
@@ -1890,7 +1777,6 @@ function init() {
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
-    wireResumeButton();
 
     // Retry initialization for dynamically loaded elements (Gradio tabs)
     const initRetry = setInterval(() => {
@@ -1900,10 +1786,7 @@ function init() {
         if (!enumsLoaded) {
             loadEnums();
         }
-        if (!resumeWired) {
-            wireResumeButton();
-        }
-        if (tagInputInitialized && enumsLoaded && resumeWired) {
+        if (tagInputInitialized && enumsLoaded) {
             clearInterval(initRetry);
         }
     }, 500);
@@ -1935,32 +1818,11 @@ window.cbSearch = function() {
     initTagInput();
     loadEnums();
     commitTypedTag();
-    // A search starts at page 1 with only the pages it has been to. The saved
-    // position for these filters is Resume's to offer: loading it here showed
-    // every page any earlier visit had reached - pages 1 to 6 after going to
-    // page 2 - and a filtered page's saved cursor holds what the filters
-    // found that day, which is not what they find now.
+    // A search starts at page 1 with only the pages it has been to: a
+    // filtered page's cursor holds what the filters found then, not now.
     cursors = [""];
     hasMorePages = true;
-    updateResumeButton();
     searchModels(1);
-};
-
-// Resume to last viewed page
-window.cbResumePage = function() {
-    const hash = getFiltersHash();
-    const cached = loadFromCache(hash);
-    if (cached && cached.lastPage && cached.cursors) {
-        cursors = cached.cursors;
-        searchModels(cached.lastPage);
-    }
-};
-
-// Right-click on search clears cache for current filters
-window.cbClearSearchCache = function() {
-    initTagInput();
-    const hash = getFiltersHash();
-    clearCursorCache(hash);
 };
 window.cbPrevPage = function() {
     if (currentPage > 1) {
