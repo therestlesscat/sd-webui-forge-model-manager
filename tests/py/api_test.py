@@ -435,6 +435,163 @@ check('the endpoint reports what each switch is showing when nothing is hidden',
       (state['nsfw_count'], state['promptless_count'], state['hidden_nsfw'],
        state['hidden_promptless']), (2, 5, 0, 0))
 
+# ------------------------------------------------------ a page at a time
+# The gallery used to be sent whole and paged in the browser: 200 images and
+# 900 KB for one version of a real library. The details carry the first page,
+# /model-manager/images/page the rest, each with the counts it is drawn with.
+from model_manager.api.images import GALLERY_PAGE_SIZE, image_list_page   # noqa: E402
+
+LARGE = facts['version_ids'][1]
+db.clear_version_images(LARGE)
+db.store_images(LARGE, page=1, images=[
+    {'id': 91000 + n, 'url': 'l%d' % n, 'browsingLevel': 8 if n % 5 == 0 else 1,
+     'meta': {'prompt': 'a long enough prompt %d' % n, 'steps': 20}}
+    for n in range(250)])
+large_path = db.get_version_by_id(LARGE)['file_path']
+SAFE = [91000 + n for n in range(250) if n % 5]            # 200 of them, in gallery order
+
+status, body = get('/model-manager/models/details', path=large_path,
+                   hide_nsfw_images='true', hide_promptless_images='true')
+state = body['model']['images_state']
+check('the details carry one page of the gallery, not all of it',
+      [i['id'] for i in body['model']['images']], SAFE[:GALLERY_PAGE_SIZE])
+check('with counts for all of it', (state.get('offset'), state['filtered_count'],
+                                    state['total_count'], state['hidden_nsfw']), (0, 200, 250, 50))
+
+status, body = get('/model-manager/models/details', path=large_path,
+                   hide_nsfw_images='true', image_limit=20)
+check('a smaller page can be asked for', len(body['model']['images']), 20)
+status, body = get('/model-manager/models/details', path=large_path,
+                   hide_nsfw_images='true', image_limit=5000)
+check('but not a larger one than a page', len(body['model']['images']), GALLERY_PAGE_SIZE)
+
+status, body = get('/model-manager/images/page', version_id=LARGE, offset=100, limit=100,
+                   hide_nsfw_images='true', hide_promptless_images='true')
+check('the next page follows on', [i['id'] for i in body['images']], SAFE[100:200])
+check('carrying its place and the same counts',
+      (body['images_state']['offset'], body['images_state']['filtered_count']), (100, 200))
+check('judged for the browser, as every image it is sent is',
+      all('mm_level' in i for i in body['images']), True)
+
+status, body = get('/model-manager/images/page', version_id=LARGE, offset=200, limit=100,
+                   hide_nsfw_images='false', hide_promptless_images='true')
+check('through the switches the page sends', len(body['images']), 50)
+status, body = get('/model-manager/images/page', version_id=LARGE, offset=250,
+                   hide_nsfw_images='false')
+check('past the end is an empty page, not an error', (status, body['images']), (200, []))
+status, body = get('/model-manager/images/page', version_id=LARGE, offset=-5,
+                   hide_nsfw_images='true', hide_promptless_images='true')
+check('and before the start is the first page', body['images'][0]['id'], SAFE[0])
+
+# The Civitai Browser's cache has no level column, so its pages are filtered
+# in Python. The two must mean the same by every count, on the same images.
+same = db.get_all_images_for_version(VERSION)
+for hide_nsfw in (True, False):
+    for hide_promptless in (True, False):
+        _, listed = image_list_page(same, hide_nsfw, hide_promptless)
+        stored = db.get_image_counts(VERSION, max_nsfw_level=SFW_MAX if hide_nsfw else None,
+                                     require_prompt=hide_promptless)
+        check('paging a list counts as the table does (hide NSFW %s, hide no-prompt %s)'
+              % (hide_nsfw, hide_promptless), listed, stored)
+
+# A download from Civitai goes on a page of its own, after the last. Its
+# number came from the image count, which lands on the last page's own when
+# the count is not a multiple of 100.
+import model_manager.api.images as images_api                 # noqa: E402
+
+
+class MoreImages:
+    def __init__(self, ids):
+        self.ids = ids
+
+    def get_model_images(self, version_id, cursor=None, limit=100):
+        return {'images': [{'id': i, 'url': 'm%d' % i, 'browsingLevel': 1,
+                            'meta': {'prompt': 'downloaded', 'steps': 20}} for i in self.ids],
+                'next_cursor': None}
+
+    def get_generation_data(self, ids):
+        return {}
+
+    def close(self):
+        pass
+
+
+real_client = images_api.CivitaiClient
+try:
+    images_api.CivitaiClient = type('Stub', (), {'from_settings': staticmethod(
+        lambda: MoreImages([92001, 92002]))})
+    db.update_version_images_state(LARGE, 'a-cursor')
+    before = db.get_cached_page_count(LARGE)
+    status, body = post('/model-manager/images/load-more', version_id=LARGE)
+    check('a download is stored on a page after the last',
+          db.get_cached_page_count(LARGE), before + 1)
+    status, body = get('/model-manager/images/page', version_id=LARGE, offset=200,
+                       hide_nsfw_images='true', hide_promptless_images='true')
+    check('so it follows everything stored before it', [i['id'] for i in body['images']],
+          [92001, 92002])
+finally:
+    images_api.CivitaiClient = real_client
+
+
+# A version a bulk sync stored had no cursor, so "Download More Images" asked
+# for the first page again: the images already stored. They were stored again
+# under a new page number, and the click showed nothing new until a second.
+class Pages:
+    """Civitai's gallery, a batch per cursor."""
+    def __init__(self, batches):
+        self.batches, self.asked = batches, []
+
+    def get_model_images(self, version_id, cursor=None, limit=100):
+        self.asked.append(cursor)
+        ids, next_cursor = self.batches[cursor]
+        return {'images': [{'id': i, 'url': 'c%d' % i, 'browsingLevel': 1,
+                            'meta': {'prompt': 'from civitai', 'steps': 20}} for i in ids],
+                'next_cursor': next_cursor}
+
+    def get_generation_data(self, ids):
+        return {}
+
+    def close(self):
+        pass
+
+
+SYNCED = facts['version_ids'][2]
+FIRST = list(range(93000, 93100))
+db.clear_version_images(SYNCED)
+db.store_images(SYNCED, page=1, images=[
+    {'id': i, 'url': 'f%d' % i, 'browsingLevel': 1, 'meta': {'prompt': 'stored', 'steps': 20}}
+    for i in FIRST])
+db.update_version_images_state(SYNCED, None)
+civitai_pages = Pages({None: (FIRST, 'c1'), 'c1': ([93100, 93101, 93102], 'c2')})
+try:
+    images_api.CivitaiClient = type('Stub', (), {'from_settings': staticmethod(
+        lambda: civitai_pages)})
+    status, body = post('/model-manager/images/load-more', version_id=SYNCED)
+    check('with no cursor, the first click passes over the batch already stored',
+          civitai_pages.asked, [None, 'c1'])
+    check('and brings the new ones', body['downloaded_count'], 3)
+    check('leaving the stored images on their page',
+          [i['id'] for i in db.get_images(SYNCED, page=1)], FIRST)
+    check('and filing only the new ones on the next',
+          [i['id'] for i in db.get_images(SYNCED, page=2)], [93100, 93101, 93102])
+    check('where the next click carries on from',
+          db.get_version_by_id(SYNCED)['next_images_cursor'], 'c2')
+
+    # A long run of images already stored is not followed forever.
+    db.update_version_images_state(SYNCED, None)
+    civitai_pages = Pages({None: (FIRST, 'd1'),
+                           **{'d%d' % n: (FIRST, 'd%d' % (n + 1)) for n in range(1, 10)}})
+    status, body = post('/model-manager/images/load-more', version_id=SYNCED)
+    check('batches of images already stored are followed only so far',
+          len(civitai_pages.asked), images_api.LOAD_MORE_BATCHES)
+    check('bringing nothing new', (body['downloaded_count'], body['images']), (0, []))
+    check('but keeping where it got to, so the next click carries on',
+          db.get_version_by_id(SYNCED)['next_images_cursor'],
+          'd%d' % images_api.LOAD_MORE_BATCHES)
+    check('and saying why', body.get('message'), 'Only images already downloaded so far')
+finally:
+    images_api.CivitaiClient = real_client
+
 # ------------------------------------------------- resolving hashes, locally
 # The gallery labels its Resources buttons from what the server already knows
 # - the library, and past lookups - in one request that must never reach

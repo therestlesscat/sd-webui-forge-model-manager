@@ -19,7 +19,7 @@ import os
 import sqlite3
 import threading
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Set, Tuple
 from contextlib import contextmanager
 
 from .migrations import run_migrations
@@ -363,6 +363,18 @@ class ModelsDatabase:
         return self._images.get_all_images_for_version(
             version_id, max_nsfw_level, require_prompt)
 
+    def get_image_page(
+        self,
+        version_id: int,
+        offset: int,
+        limit: int,
+        max_nsfw_level: Optional[int] = None,
+        require_prompt: bool = False
+    ) -> List[Dict[str, Any]]:
+        """One page of a version's gallery. See db/images_ops.py."""
+        return self._images.get_image_page(
+            version_id, offset, limit, max_nsfw_level, require_prompt)
+
     def get_image_counts(
         self,
         version_id: int,
@@ -371,6 +383,10 @@ class ModelsDatabase:
     ) -> Dict[str, int]:
         """Get total and filtered image counts for a version."""
         return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt)
+
+    def get_image_ids(self, version_id: int) -> Set[int]:
+        """The ids of the images stored for a version."""
+        return self._images.get_image_ids(version_id)
 
     def get_cached_page_count(self, version_id: int) -> int:
         """Get how many pages have been cached for a version."""

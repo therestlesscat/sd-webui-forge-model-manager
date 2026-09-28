@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 A gear in both tabs opens one window for the extension's settings: grouped, searchable, and showing only what applies. Card sizes come with a preview of real cards, the download folder with an example path, and the text encoders and VAE for each model with a choice of the files installed. It saves to the WebUI's own settings, so the Settings page stays in step.
 
+- **0.20.10** (build 213) - Galleries arrive a page at a time instead of whole, in both tabs; images a download brings no longer show past the NSFW switch; "Download More Images" brings new images on the first click after a bulk sync, which now keeps where Civitai's next page starts; a note beside the button says how many came and what hid them; a sync that fails to fetch a gallery no longer empties it.
 - **0.20.9** (build 212) - Download to <name>.partial and rename it only once whole and its SHA-256 checked, never over a file that appeared meanwhile; a failed download removes only its own .partial, never a file under a model's name.
 - **0.20.8** (build 209) - Remove the Civitai Browser's Resume button, the search positions it saved in the browser, and Search's right-click that cleared them.
 - **0.20.7** (build 208) - Scan Disk reads the embeddings folder, and no longer forgets every embedding a download added; a file already on disk that is the one Civitai lists is added to the library instead of refusing the download; every failed download says why - on its chip, in the browser console and in the WebUI's.

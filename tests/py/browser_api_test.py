@@ -569,6 +569,38 @@ status, body = get('/model-manager/civitai/versions/90130/images/cached')
 check('an empty cache is empty, not an error', (status, body['images']), (200, []))
 check('with no cursor', body['next_cursor'], None)
 
+# ------------------------------------------------------ a page at a time
+# The gallery used to be sent whole, and filtered and paged in the browser.
+# Now the switches are sent, and one page comes back with the counts.
+PAGED_VERSION = 90140
+db.store_browse_images(90141, PAGED_VERSION, [
+    {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': 8 if n % 4 == 0 else 1,
+     'meta': USABLE if n % 3 else None}
+    for n in range(150)])
+forget()
+status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION)
+check('with no switches sent nothing is hidden, and a page is at most 100',
+      (len(body['images']), body['images_state']['filtered']), (100, 150))
+check('the cache is still counted whole', body['cached_count'], 150)
+check('opening it looks up the prompts the cache lacks',
+      [c[0] for c in Stub.calls].count('get_generation_data'), 1)
+
+forget()
+status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION,
+                   hide_nsfw_images='true', hide_promptless_images='true',
+                   offset=50, limit=100, backfill='false')
+kept = [95000 + n for n in range(150) if n % 4 and n % 3]
+check('the switches filter on the server', [i['id'] for i in body['images']], kept[50:150])
+state = body['images_state']
+check('with the counts the banner states',
+      (state['offset'], state['total'], state['filtered'], state['hidden_nsfw'],
+       state['hidden_promptless']),
+      (50, 150, len(kept), 38, 150 - 38 - len(kept)))
+check('each page judged, as every image the browser is sent is',
+      all('mm_level' in i for i in body['images']), True)
+check('and a page turn does not look up the prompts the cache lacks',
+      [c for c in Stub.calls if c[0] == 'get_generation_data'], [])
+
 
 # ------------------------------------------------------------------ downloads
 class FakeDownloads:

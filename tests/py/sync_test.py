@@ -531,6 +531,20 @@ check('the gallery replaced what was there', len(stored), 1)
 check('with the prompt that was looked up',
       stored[0]['meta']['prompt'], 'fetched')
 
+# Where Civitai's next page starts is kept, as a sync of one model keeps it.
+# Without it "Download More Images" asked for this first page again, and
+# showed nothing new until a second click.
+sync, client = service(
+    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    images=lambda version_id: {
+        'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
+        'next_cursor': 'after-%d' % version_id})
+sync.sync_metadata(model_paths=TWO_PATHS, include_images=True, include_prompts=False)
+kept = db.get_version(TWO_PATHS[0])
+check('the sync keeps the cursor to the next page of each gallery',
+      kept['next_images_cursor'], 'after-%d' % kept['id'])
+check('and when the gallery was synced', bool(kept['images_sync_last_date']), True)
+
 # Declining the prompts used to replace each gallery with what /images says,
 # which is meta: null - every prompt fetched before was lost. These use two
 # single-version models no earlier check has synced, so each file keeps its
@@ -581,11 +595,16 @@ stored = {img['id']: (img['meta'] or {}).get('prompt') for img in db.get_images(
 check('and both end up with theirs',
       (stored[first], stored[first + 50000]), ('fetched', 'looked up'))
 
+held = sorted(img['id'] for img in db.get_images(kept['id']))
 sync, client = service(
     models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
     images_raises=RuntimeError('gallery gone'))
 progress = sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
 check('a gallery that will not load is an error per version', progress.errors, 2)
+check('and leaves the gallery it had: a failure says nothing about what the version has',
+      (len(held) > 0, sorted(img['id'] for img in db.get_images(kept['id']))), (True, held))
+check('and leaves the cursor it had', db.get_version(TWO_PATHS[0])['next_images_cursor'],
+      'after-%d' % kept['id'])
 check('while the metadata half still succeeded', progress.synced, 2)
 
 # a callback sees the work happen

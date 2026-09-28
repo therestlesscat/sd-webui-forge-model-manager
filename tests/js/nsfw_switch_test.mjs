@@ -70,7 +70,7 @@ globalThis.fetch = async (url) => {
 
         if (everyImageLacksAPrompt) {
             return { ok: true, json: async () => ({ success: true, model: { ...MODEL, images: [],
-                images_state: { version_id: 5001, total_count: 2, hidden_nsfw: 0,
+                images_state: { version_id: 5001, total_count: 2, filtered_count: 0, hidden_nsfw: 0,
                                 hidden_promptless: 2, nsfw_count: 0, promptless_count: 2,
                                 hide_nsfw_images: hideNsfw, hide_promptless_images: true } } }) };
         }
@@ -78,7 +78,7 @@ globalThis.fetch = async (url) => {
         return { ok: true, json: async () => ({ success: true, model: {
             ...MODEL, images: a.shown.map(toImage),
             images_state: { version_id: 5001, total_count: LIBRARY.length,
-                            hidden_nsfw: a.hidden_nsfw, hidden_promptless: a.hidden_promptless,
+                            filtered_count: a.shown.length, hidden_nsfw: a.hidden_nsfw, hidden_promptless: a.hidden_promptless,
                             nsfw_count: a.nsfw_count, promptless_count: a.promptless_count,
                             hide_nsfw_images: hideNsfw,
                             hide_promptless_images: hidePromptless } } }) };
