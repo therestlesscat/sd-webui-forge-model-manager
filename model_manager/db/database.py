@@ -11,6 +11,7 @@ WHAT LIVES WHERE
   query.py              turning a filter bar into one grouped SQL query
   images_ops.py         the image rows belonging to a version
   browse_cache_ops.py   the Civitai Browser's own image cache
+  generations_ops.py    the images you generate, and the model files each used
 
 Connections are per-thread: scans and syncs run on several threads at once and
 SQLite objects cannot cross between them.
@@ -26,10 +27,11 @@ from .migrations import run_migrations
 from .models_ops import ModelsOps
 from .images_ops import ImagesOps
 from .browse_cache_ops import BrowserCacheOps
+from .generations_ops import GenerationsOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 
 class ModelsDatabase:
@@ -62,6 +64,7 @@ class ModelsDatabase:
         self._models = ModelsOps(self._cursor)
         self._images = ImagesOps(self._cursor)
         self._browser_cache = BrowserCacheOps(self._cursor)
+        self._generations = GenerationsOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -343,6 +346,25 @@ class ModelsDatabase:
     def restamp_image_levels(self, progress=None) -> Tuple[int, int, int]:
         """Judge every stored image again. See ImagesOps.restamp_levels()."""
         return self._images.restamp_levels(progress)
+
+    # ==================== Your generations (delegated) ====================
+
+    def library_spelling(self, paths) -> Dict[str, str]:
+        """Each path as model_versions spells it. See db/generations_ops.py."""
+        return self._generations.library_spelling(paths)
+
+    def record_generation(self, generation: Dict[str, Any], images: List[Dict[str, Any]],
+                          files: List[List[str]]) -> int:
+        """Store one generation and its images, in one transaction."""
+        return self._generations.record_generation(generation, images, files)
+
+    def get_generation(self, generation_id: int) -> Optional[Dict[str, Any]]:
+        """A generation, with its images and the files each used."""
+        return self._generations.get_generation(generation_id)
+
+    def restamp_generation_levels(self, level) -> Tuple[int, int]:
+        """Judge every generated image's prompt again. See GenerationsOps.restamp_levels()."""
+        return self._generations.restamp_levels(level)
 
     def get_images(
         self,

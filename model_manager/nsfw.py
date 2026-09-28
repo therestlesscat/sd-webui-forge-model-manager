@@ -393,6 +393,21 @@ def image_level(image: Dict[str, Any]) -> int:
     return level
 
 
+def generated_level(meta: Optional[Dict[str, Any]]) -> int:
+    """
+    How explicit one of your own images is: its prompt is all there is to go
+    on, as nobody has rated it. PG, unless its prompt is explicit by the rule
+    every Civitai image is held to (prompt_is_explicit()), when it is X - as
+    a PG image with that prompt would be.
+
+    Args:
+        meta: The image's generation data, as a Civitai image's meta: prompt,
+            negativePrompt, and "Hires prompt", "ADetailer prompt" and the
+            rest under their infotext names.
+    """
+    return PROMPT_LEVEL if prompt_is_explicit({"meta": meta or {}}) else PG
+
+
 def stamp_levels(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
     """
     Write each image's level on it, for the browser, in place.

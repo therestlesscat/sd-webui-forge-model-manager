@@ -10,6 +10,7 @@ import os
 import gradio as gr
 from modules import shared
 
+from ..generations import RECORD_GENERATIONS
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
                              SETTING_PREFIX, preset_classes, preset_files)
 
@@ -115,6 +116,19 @@ def on_ui_settings():
         ).info("About a tenth of Civitai's images carry no prompt at all, and "
                "they cannot be read or reused. Can be turned back on per model "
                "from the panel above the images.")
+    )
+
+    shared.opts.add_option(
+        RECORD_GENERATIONS,
+        shared.OptionInfo(
+            default=True,
+            label="Your generations: record each image generated",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Every txt2img and img2img result that is saved to disk is recorded with "
+               "all its settings, and shown in the gallery of each model it used. Only "
+               "images generated while this is on are recorded; turning it off keeps "
+               "what was recorded.")
     )
 
     shared.opts.add_option(
@@ -318,6 +332,7 @@ def on_ui_settings():
 
 
 GALLERY_HIDE_NSFW = "model_manager_gallery_hide_nsfw"
+
 
 
 def carry_over_gallery_nsfw(data):
