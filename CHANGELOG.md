@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 A gear in both tabs opens one window for the extension's settings: grouped, searchable, and showing only what applies. Card sizes come with a preview of real cards, the download folder with an example path, and the text encoders and VAE for each model with a choice of the files installed. It saves to the WebUI's own settings, so the Settings page stays in step.
 
+- **0.20.14** (build 217) - The gallery banner is always there while anything is stored, filtered or not, since it is where the counts are; the Civitai Browser no longer draws it a second time under the list.
 - **0.20.13** (build 216) - The gallery banner is a quiet box in the page's own text colour with an amber bar down its left edge, rather than amber throughout: it counts now, rather than warns.
 - **0.20.12** (build 215) - The gallery banner says what is stored, what matches the filters and how many of those are shown - it read "Showing 168 of 300" with 100 on screen - and stays at the top as the gallery scrolls; the continuous list marks where each page starts; "300 images downloaded" beside Download More is gone.
 - **0.20.11** (build 214) - Sort the Model Manager by how many images each model has stored; a download of more images that fails - Civitai answering 503, the connection dropping - now says so beside the button, in both tabs, instead of looking like a click that found nothing.
