@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from .nsfw import prompt_words_fingerprint
+from .nsfw import generated_level, prompt_words_fingerprint
 
 FINGERPRINT_KEY = "nsfw_prompt_words"
 
@@ -55,6 +55,12 @@ def bring_up_to_date(db) -> Optional[int]:
     if db.get_metadata(FINGERPRINT_KEY) == fingerprint:
         return None
     changed, total, covers = db.restamp_image_levels(progress=_report)
+    # Your own generations are judged by their prompts alone, so a change to
+    # the words moves them too.
+    generated, generated_total = db.restamp_generation_levels(generated_level)
+    if generated:
+        print(f"[ModelManager] NSFW prompt words: {generated} of {generated_total} "
+              f"generated images judged again")
     with _lock:
         _state.update(changed=changed, total=total)
     db.set_metadata(FINGERPRINT_KEY, fingerprint)

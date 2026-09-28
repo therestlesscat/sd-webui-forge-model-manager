@@ -1126,6 +1126,94 @@ def _migrate_to_v26(cursor):
     print("[ModelManager] Migration to v26 complete")
 
 
+def _migrate_to_v27(cursor):
+    """Record the images you generate: three tables.
+
+    generations holds a press of Generate - everything Forge had for it: the
+    prompt as typed, the files it loaded, every processing field, the
+    always-on scripts' arguments and the settings an infotext carries.
+    generation_images holds each result saved to disk, with the infotext
+    written into its file. generation_files is an index and nothing else:
+    which image each model file was used for, so a model's gallery finds its
+    generations without reading every one. A file's path is spelled as
+    model_versions spells it, so the gallery joins on equality.
+
+    The prompt's NSFW level is stamped on each image and on its generation -
+    derived, and stamped again when the prompt words change; the user's own
+    rating is kept apart, empty until set.
+    """
+    print("[ModelManager] Migrating to schema v27 (your generations)...")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            forge TEXT,
+            prompt TEXT,
+            negative_prompt TEXT,
+            styles TEXT,
+            hr_prompt TEXT,
+            hr_negative_prompt TEXT,
+            n_iter INTEGER,
+            batch_size INTEGER,
+            width INTEGER,
+            height INTEGER,
+            checkpoint_path TEXT,
+            checkpoint_hash TEXT,
+            modules TEXT,
+            hr_checkpoint_path TEXT,
+            hr_modules TEXT,
+            refiner_path TEXT,
+            params TEXT,
+            extra_params TEXT,
+            script_args TEXT,
+            settings TEXT,
+            infotext TEXT,
+            image_count INTEGER NOT NULL DEFAULT 0,
+            prompt_nsfw_level INTEGER,
+            user_nsfw_level INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generation_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            generation_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            iteration INTEGER,
+            path TEXT NOT NULL,
+            infotext TEXT,
+            meta TEXT,
+            prompt TEXT,
+            negative_prompt TEXT,
+            seed INTEGER,
+            subseed INTEGER,
+            hr_prompt TEXT,
+            hr_negative_prompt TEXT,
+            loras TEXT,
+            width INTEGER,
+            height INTEGER,
+            prompt_nsfw_level INTEGER,
+            user_nsfw_level INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generation_files (
+            file_path TEXT NOT NULL,
+            image_id INTEGER NOT NULL,
+            generation_id INTEGER NOT NULL,
+            PRIMARY KEY (file_path, image_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generation_images_generation "
+                   "ON generation_images(generation_id, position)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generation_files_generation "
+                   "ON generation_files(generation_id)")
+
+    print("[ModelManager] Migration to v27 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1206,6 +1294,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 26:
         _migrate_to_v26(cursor)
+
+    if from_version < 27:
+        _migrate_to_v27(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
