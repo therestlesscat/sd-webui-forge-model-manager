@@ -603,20 +603,10 @@ body.mm-modal-open {
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
     border: 2px solid transparent;
-    height: 280px;
-    width: 200px;
-}
-
-/* Model Manager cards use MM variables */
-#model_manager_app .model-card {
+    /* One rule for every card. The size is its container's - each tab's app,
+       the settings window's preview row - set by applyCardSize(). */
     width: var(--mm-card-width, 200px);
     height: var(--mm-card-height, 280px);
-}
-
-/* Civitai Browser cards use CB variables */
-#civitai_browser_app .model-card {
-    width: var(--cb-card-width, 200px);
-    height: var(--cb-card-height, 280px);
 }
 
 .model-card:hover {
@@ -1826,8 +1816,8 @@ body.mm-modal-open {
 
 #civitai_browser_app {
     padding: 10px;
-    --cb-card-width: 200px;
-    --cb-card-height: 280px;
+    --mm-card-width: 200px;
+    --mm-card-height: 280px;
 }
 
 
@@ -2811,8 +2801,6 @@ textarea.mm-settings-input {
 
 .mm-settings-card-row .model-card {
     flex: none;
-    width: var(--mm-preview-card-width, 200px);
-    height: var(--mm-preview-card-height, 280px);
 }
 
 .mm-settings-card-note {

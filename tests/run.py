@@ -25,7 +25,7 @@ ONLINE = {'enums_test.js', 'picker_test.js', 'thumbs_test.js'}
 
 # Suites that compare against a commit, to show a refactor changed nothing.
 # They are history rather than a statement about today's code.
-HISTORICAL = {'smoke.js', 'primary_file_test.js'}
+HISTORICAL = {'smoke.js', 'primary_file_test.js', 'card_parity_test.mjs'}
 
 
 def discover():

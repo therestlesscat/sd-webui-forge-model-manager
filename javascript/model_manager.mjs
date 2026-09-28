@@ -56,6 +56,9 @@ const {
     IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
     renderImagePagination: sharedImagePagination,
+    renderModelCard,
+    renderGridPagination,
+    renderModelGrid: renderSharedGrid,
 } = await import(sharedModule.href);
 
 // The settings window behind the gear in the header, asked for with this
@@ -105,7 +108,6 @@ function applyCardSize(width, height) {
         sharedApplyCardSize({
             width, height,
             containerId: 'model_manager_app',
-            cssPrefix: 'mm',
             logTag: 'ModelManager',
         });
     }
@@ -281,7 +283,7 @@ async function cardPreview(count) {
         }
         models = cardPreviewModels;
     }
-    return models.slice(0, count).map((model, index) => renderModelCard(model, index)).join('');
+    return models.slice(0, count).map((model, index) => mmCard(model, index)).join('');
 }
 (window.mmCardPreviews ||= {}).model_manager_card_size = cardPreview;
 
@@ -613,164 +615,61 @@ window.mmGoToPage = function(page) {
     }
 };
 
-// Render model card
-function renderModelCard(model, index) {
-    const previewSrc = cardMediaUrl(model.preview_url);
+// NSFW level -> the card's class, by the integer bitmask (1=PG, 2=PG-13,
+// 4=R, 8=X, 16=XXX); PG has none.
+function nsfwCardClass(level) {
+    if (level >= 16) return 'nsfw-xxx';
+    if (level >= 8) return 'nsfw-x';
+    if (level >= 4) return 'nsfw-r';
+    if (level >= 2) return 'nsfw-pg13';
+    return '';
+}
 
-    const hasPreview = previewSrc !== '';
-    const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23666' font-size='10'%3ENo Image%3C/text%3E%3C/svg%3E";
-
-    const name = escapeHtml(model.display_name || 'Unknown');
-    const nameShort = name.length > 30 ? name.substring(0, 30) + '...' : name;
-
-    // NSFW class based on integer bitmask (1=PG, 2=PG-13, 4=R, 8=X, 16=XXX)
-    let nsfwClass = '';
-    const nsfwLevel = model.nsfw_level || 1;
-    if (nsfwLevel >= 16) {
-        nsfwClass = 'nsfw-xxx';
-    } else if (nsfwLevel >= 8) {
-        nsfwClass = 'nsfw-x';
-    } else if (nsfwLevel >= 4) {
-        nsfwClass = 'nsfw-r';
-    } else if (nsfwLevel >= 2) {
-        nsfwClass = 'nsfw-pg13';
-    }
-
-    const civitaiClass = model.has_civitai_data ? 'has-civitai' : 'no-civitai';
-
-    const baseModelBadge = model.base_model
-        ? `<span class="badge base-model">${escapeHtml(model.base_model)}</span>`
-        : '';
-
-    // Civitai retired star ratings; thumbs are what it reports now, and
-    // our stats_rating is only those two numbers folded into one. Show the
-    // pair rather than the derivation.
-    const thumbsHtml = renderThumbs(model.thumbs_up, model.thumbs_down);
-
-    const downloadsHtml = model.download_count > 0
-        ? `<span title="Downloads">↓ ${formatNumber(model.download_count)}</span>`
-        : '';
-
-    // Version count badge (only show if multiple local versions)
-    const versionCount = model.local_version_count || 1;
-    const versionsBadge = versionCount > 1
-        ? `<span class="badge versions-badge" title="${versionCount} local versions">v${versionCount}</span>`
-        : '';
-
-    // Bookmark indicator
-    const bookmarkIndicator = model.is_bookmarked
-        ? '<div class="mm-bookmark-indicator" title="Bookmarked">★</div>'
-        : '';
-
-    // Check if preview is a video
-    const isVideo = isVideoUrl({ url: previewSrc });
-    const previewHtml = hasPreview
-        ? (isVideo
-            ? `<video src="${escapeHtml(previewSrc)}" loop muted autoplay playsinline></video>`
-            : `<img src="${escapeHtml(previewSrc)}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
-        : `<img src="${placeholderSvg}" alt="${name}">`;
-
-    return `
-        <div class="model-card ${civitaiClass} ${nsfwClass}" data-index="${index}" data-model-id="${model.civitai_model_id || ''}" onclick="window.mmSelectModel(${index})">
-            <div class="model-card-image">
-                ${previewHtml}
-                ${!model.has_civitai_data ? '<div class="no-data-overlay">No Civitai Data</div>' : ''}
-                ${bookmarkIndicator}
-            </div>
-            <div class="model-card-info">
-                <div class="model-card-name" title="${name}">${nameShort}</div>
-                <div class="model-card-meta">
-                    <span class="badge type-badge">${escapeHtml(model.model_type || 'Unknown')}</span>
-                    ${baseModelBadge}
-                    ${versionsBadge}
-                </div>
-                <div class="model-card-stats">
-                    <span>${formatFileSize(model.file_size)}</span>
-                    ${thumbsHtml}
-                    ${downloadsHtml}
-                </div>
-            </div>
-        </div>
-    `;
+/**
+ * A library model as a card: what renderModelCard() is to show. The preview
+ * was chosen by the server, by the card thumbnail setting.
+ */
+function mmCard(model, index) {
+    const src = cardMediaUrl(model.preview_url);
+    const versions = model.local_version_count || 1;
+    return renderModelCard({
+        index,
+        onclick: `window.mmSelectModel(${index})`,
+        name: model.display_name,
+        media: { src, video: isVideoUrl({ url: src }) },
+        classes: [model.has_civitai_data ? 'has-civitai' : 'no-civitai', nsfwCardClass(model.nsfw_level || 1)],
+        data: { 'model-id': model.civitai_model_id || '' },
+        overlays: [
+            ...(model.has_civitai_data ? [] : [{ cls: 'no-data-overlay', text: 'No Civitai Data' }]),
+            ...(model.is_bookmarked ? [{ cls: 'mm-bookmark-indicator', text: '★', title: 'Bookmarked' }] : []),
+        ],
+        badges: [
+            { cls: 'type-badge', text: model.model_type || 'Unknown' },
+            ...(model.base_model ? [{ cls: 'base-model', text: model.base_model }] : []),
+            // Only when several versions are on disk.
+            ...(versions > 1 ? [{ cls: 'versions-badge', text: `v${versions}`, title: `${versions} local versions` }] : []),
+        ],
+        stats: [
+            { text: formatFileSize(model.file_size) },
+            // Civitai retired star ratings; thumbs are what it reports now.
+            { html: renderThumbs(model.thumbs_up, model.thumbs_down) },
+            ...(model.download_count > 0 ? [{ text: `↓ ${formatNumber(model.download_count)}`, title: 'Downloads' }] : []),
+        ],
+    });
 }
 
 // Render model grid
 function renderModelGrid(models) {
-    const container = document.getElementById('mm_grid');
-    if (!container) return;
-
-    if (!models || models.length === 0) {
-        container.innerHTML = '<div class="model-grid-empty">No models found matching your filters.</div>';
-        return;
-    }
-
-    const cards = models.map((model, index) => renderModelCard(model, index)).join('');
-
-    // Build pagination controls
-    const paginationHtml = totalPages > 1 ? renderPaginationControls() : '';
-
-    container.innerHTML = `<div class="model-grid-inner">${cards}</div>${paginationHtml}`;
-    balanceGridRows('mm_grid');
-}
-
-// Render pagination controls
-function renderPaginationControls() {
-    const prevDisabled = currentPage <= 1 ? 'disabled' : '';
-    const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
-
-    // Generate page numbers to show
-    let pageNumbers = [];
-    const maxVisible = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-
-    // Adjust start if we're near the end
-    if (endPage - startPage < maxVisible - 1) {
-        startPage = Math.max(1, endPage - maxVisible + 1);
-    }
-
-    // Add first page and ellipsis if needed
-    if (startPage > 1) {
-        pageNumbers.push({ page: 1, label: '1' });
-        if (startPage > 2) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-    }
-
-    // Add visible page range
-    for (let i = startPage; i <= endPage; i++) {
-        pageNumbers.push({ page: i, label: String(i) });
-    }
-
-    // Add ellipsis and last page if needed
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-        pageNumbers.push({ page: totalPages, label: String(totalPages) });
-    }
-
-    const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
-        if (page === null) {
-            return `<span class="mm-page-ellipsis">${label}</span>`;
-        }
-        const activeClass = page === currentPage ? 'active' : '';
-        return `<button class="mm-page-num ${activeClass}" onclick="window.mmGoToPage(${page})">${label}</button>`;
-    }).join('');
-
-    return `
-        <div class="mm-pagination">
-            <button class="mm-btn mm-page-btn" onclick="window.mmPrevPage()" ${prevDisabled}>
-                ← Prev
-            </button>
-            <div class="mm-page-numbers">
-                ${pageNumbersHtml}
-            </div>
-            <button class="mm-btn mm-page-btn" onclick="window.mmNextPage()" ${nextDisabled}>
-                Next →
-            </button>
-        </div>
-    `;
+    renderSharedGrid({
+        gridId: 'mm_grid',
+        cards: (models || []).map((model, index) => mmCard(model, index)),
+        empty: 'No models found matching your filters.',
+        // The library's page count is known: the server gives the total.
+        pagination: totalPages > 1 ? renderGridPagination({
+            current: currentPage, last: totalPages, hasNext: currentPage < totalPages,
+            goTo: 'mmGoToPage', prev: 'mmPrevPage', next: 'mmNextPage',
+        }) : '',
+    });
 }
 
 // Select a model

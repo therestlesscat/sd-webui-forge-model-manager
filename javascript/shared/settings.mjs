@@ -548,8 +548,9 @@ function createSettings() {
             note.textContent = `Too small to preview: a card has to be at least ${CARD_PREVIEW_MIN} × ${CARD_PREVIEW_MIN}.`;
             return;
         }
-        row.style.setProperty('--mm-preview-card-width', `${w}px`);
-        row.style.setProperty('--mm-preview-card-height', `${h}px`);
+        // The one pair every card is sized by, set on the row it is in.
+        row.style.setProperty('--mm-card-width', `${w}px`);
+        row.style.setProperty('--mm-card-height', `${h}px`);
         const count = Math.min(CARD_PREVIEW_MOST,
                                Math.max(1, Math.floor((row.clientWidth + CARD_GAP) / (w + CARD_GAP))));
         const drawing = `${w}x${h}:${count}`;

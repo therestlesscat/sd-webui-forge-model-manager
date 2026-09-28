@@ -54,6 +54,9 @@ const {
     galleryDefaults,
     hasReadablePrompt,
     refreshUiOptions,
+    renderModelCard,
+    renderGridPagination,
+    renderModelGrid: renderSharedGrid,
 } = await import(sharedModule.href);
 
 // The settings window behind the gear in the header, asked for with this
@@ -91,7 +94,6 @@ function applyCardSize(width, height) {
         sharedApplyCardSize({
             width, height,
             containerId: 'civitai_browser_app',
-            cssPrefix: 'cb',
             logTag: 'CivitaiBrowser',
         });
     }
@@ -253,8 +255,6 @@ let tagSuggestions = [];
 let tagSelectedIndex = -1;
 let tagInputInitialized = false;
 
-// Placeholder SVG for missing images
-const placeholderSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23666' font-size='10'%3ENo Image%3C/text%3E%3C/svg%3E";
 const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
 // Calculate effective NSFW level using same algorithm as Python backend
@@ -590,7 +590,6 @@ async function showModelById(modelId, versionId = null) {
         cursors = [""];
         hasMorePages = false;
         renderGrid();
-        renderPaginationControls();
         // Versions get deleted on Civitai; the model is still worth showing.
         const versionIndex = versionId === null ? 0
             : (data.model.modelVersions || []).findIndex(v => v.id === versionId);
@@ -725,149 +724,52 @@ function cardImage(version) {
 
 // Render model grid
 function renderGrid() {
-    const grid = document.getElementById('cb_grid');
-    if (!grid) return;
-
-    if (currentModels.length === 0) {
-        grid.innerHTML = isStreaming
-            ? `<div class="model-grid-empty">${filteringMessage()}</div>`
-            : '<div class="model-grid-empty">No models found.</div>';
-        return;
-    }
-
-    const cards = currentModels.map((model, index) => renderCard(model, index)).join('');
-    // Show pagination if we have visited pages or there might be more
-    const maxPageVisited = cursors.length;  // cursors.length = number of pages we can navigate to
-    const showPagination = !isStreaming && (maxPageVisited > 1 || hasMorePages);
-    const paginationHtml = showPagination ? renderPaginationControls() : '';
-    grid.innerHTML = `<div class="model-grid-inner">${cards}</div>${paginationHtml}`;
-    balanceGridRows('cb_grid');
+    renderSharedGrid({
+        gridId: 'cb_grid',
+        cards: currentModels.map((model, index) => renderCard(model, index)),
+        empty: isStreaming ? filteringMessage() : 'No models found.',
+        // Civitai's page count is not known: the pages are the ones a cursor
+        // leads to - so far as this search has been - and there is another
+        // while Civitai hands back a cursor for it.
+        pagination: !isStreaming && (cursors.length > 1 || hasMorePages) ? renderGridPagination({
+            current: currentPage, last: cursors.length, hasNext: hasMorePages,
+            goTo: 'cbGoToPage', prev: 'cbPrevPage', next: 'cbNextPage',
+        }) : '',
+    });
 }
 
-
-// Render pagination controls - builds dynamically as user navigates
-function renderPaginationControls() {
-    // cursors.length = max page we can navigate to (we have cursor for each)
-    const maxPageVisited = cursors.length;
-
-    // Build page numbers with ellipsis for large ranges
-    let pageNumbers = [];
-    const maxVisible = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let endPage = Math.min(maxPageVisited, startPage + maxVisible - 1);
-
-    // Adjust start if we're near the end
-    if (endPage - startPage < maxVisible - 1) {
-        startPage = Math.max(1, endPage - maxVisible + 1);
-    }
-
-    // Add first page and ellipsis if needed
-    if (startPage > 1) {
-        pageNumbers.push({ page: 1, label: '1' });
-        if (startPage > 2) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-    }
-
-    // Add visible page range
-    for (let i = startPage; i <= endPage; i++) {
-        pageNumbers.push({ page: i, label: String(i) });
-    }
-
-    // Add ellipsis and last page if needed
-    if (endPage < maxPageVisited) {
-        if (endPage < maxPageVisited - 1) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-        pageNumbers.push({ page: maxPageVisited, label: String(maxPageVisited) });
-    }
-
-    const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
-        if (page === null) {
-            return `<span class="mm-page-ellipsis">${label}</span>`;
-        }
-        const activeClass = page === currentPage ? 'active' : '';
-        return `<button class="mm-page-num ${activeClass}" onclick="window.cbGoToPage(${page})">${label}</button>`;
-    }).join('');
-
-    return `
-        <div class="mm-pagination">
-            ${currentPage > 1 ? `<button class="mm-btn mm-page-btn" onclick="window.cbPrevPage()">← Prev</button>` : ''}
-            <div class="mm-page-numbers">
-                ${pageNumbersHtml}
-            </div>
-            ${hasMorePages ? `<button class="mm-btn mm-page-btn" onclick="window.cbNextPage()">Next →</button>` : ''}
-        </div>
-    `;
-}
-
-// Render single model card - EXACTLY like Model Manager
+/**
+ * A Civitai search result as a card: what renderModelCard() is to show. Its
+ * image is the first version's, per cardImage() and so per Include NSFW models.
+ */
 function renderCard(model, index) {
-    const name = escapeHtml(model.name || 'Unknown');
-    const nameShort = name.length > 30 ? name.substring(0, 30) + '...' : name;
-    const type = model.type || 'Unknown';
-    const downloads = formatNumber(model.stats?.downloadCount || 0);
-
-    // Get preview image from first version
     const firstVersion = model.modelVersions?.[0];
-    const firstImage = cardImage(firstVersion);
-    const previewImage = firstImage?.url || '';
-    const previewUrl = previewImage ? cardMediaUrl(previewImage, firstImage?.type) : '';
-    const hasPreview = previewUrl !== '';
-    const previewIsVideo = isVideoUrl({ url: previewUrl, type: firstImage?.type });
-
-    // Base model badge
-    const baseModel = firstVersion?.baseModel || '';
-    const baseModelBadge = baseModel
-        ? `<span class="badge base-model">${escapeHtml(baseModel)}</span>`
-        : '';
-
-    // Ownership indicator
-    const owned = model.owned_locally;
-    const ownedClass = owned ? 'owned' : '';
-    const ownedBadge = owned ? '<div class="cb-owned-badge">Owned</div>' : '';
-
-    // Buzz paywall on the version this card is previewing
-    const paidBadge = isPaid(firstVersion)
-        ? `<div class="cb-paid-badge" title="${escapeHtml(paidAccessLabel(firstVersion))}">`
-          + `${firstVersion.paid_access.permanent ? 'Paid' : 'Early Access'}</div>`
-        : '';
-
-    // stats.rating no longer exists in the API, so the star it used to draw
-    // never rendered. Thumbs are what Civitai reports now.
-    const thumbsHtml = renderThumbs(model.stats?.thumbsUpCount, model.stats?.thumbsDownCount);
-
-    const downloadsHtml = downloads
-        ? `<span title="Downloads">↓ ${downloads}</span>`
-        : '';
-
-    // Build preview HTML (video or image)
-    const previewHtml = hasPreview
-        ? (previewIsVideo
-            ? `<video src="${escapeHtml(previewUrl)}" loop muted autoplay playsinline></video>`
-            : `<img src="${escapeHtml(previewUrl)}" alt="${name}" loading="lazy" onerror="this.src='${placeholderSvg}'">`)
-        : `<img src="${placeholderSvg}" alt="${name}">`;
-
-    return `
-        <div class="model-card ${ownedClass}" data-index="${index}" onclick="window.cbOpenModel(${index})">
-            <div class="model-card-image">
-                ${previewHtml}
-                ${ownedBadge}
-                ${paidBadge}
-            </div>
-            <div class="model-card-info">
-                <div class="model-card-name" title="${name}">${nameShort}</div>
-                <div class="model-card-meta">
-                    <span class="badge type-badge">${type}</span>
-                    ${baseModelBadge}
-                </div>
-                <div class="model-card-stats">
-                    ${thumbsHtml}
-                    ${downloadsHtml}
-                </div>
-            </div>
-        </div>
-    `;
+    const image = cardImage(firstVersion);
+    const src = image?.url ? cardMediaUrl(image.url, image.type) : '';
+    return renderModelCard({
+        index,
+        onclick: `window.cbOpenModel(${index})`,
+        name: model.name,
+        media: { src, video: isVideoUrl({ url: src, type: image?.type }) },
+        classes: [model.owned_locally ? 'owned' : ''],
+        overlays: [
+            ...(model.owned_locally ? [{ cls: 'cb-owned-badge', text: 'Owned' }] : []),
+            // Buzz paywall on the version this card is previewing
+            ...(isPaid(firstVersion) ? [{
+                cls: 'cb-paid-badge', title: paidAccessLabel(firstVersion),
+                text: firstVersion.paid_access.permanent ? 'Paid' : 'Early Access',
+            }] : []),
+        ],
+        badges: [
+            { cls: 'type-badge', text: model.type || 'Unknown' },
+            ...(firstVersion?.baseModel ? [{ cls: 'base-model', text: firstVersion.baseModel }] : []),
+        ],
+        stats: [
+            // stats.rating no longer exists in the API; thumbs are what Civitai reports now.
+            { html: renderThumbs(model.stats?.thumbsUpCount, model.stats?.thumbsDownCount) },
+            { text: `↓ ${formatNumber(model.stats?.downloadCount || 0)}`, title: 'Downloads' },
+        ],
+    });
 }
 
 function primaryFile(version) {
