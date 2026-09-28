@@ -2409,6 +2409,7 @@ window.mmDownloadResource = async function(versionId, modelId) {
         // is said as such, with nothing to retry; anything else can be.
         Object.assign(job, { state: status === 404 ? 'unavailable' : 'error',
                              error: (data && data.error) || 'Download failed' });
+        console.warn(`[ModelManager] Download of version ${versionId} refused: ${job.error}`);
     } else {
         Object.assign(job, { target: data.version_id, versionName: data.version_name,
                              substituted: !!data.substituted });
@@ -2454,6 +2455,7 @@ function pollResourceDownloads() {
             if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
             else if (progress.status === 'error' || progress.status === 'cancelled') {
                 Object.assign(job, { state: 'error', error: progress.error || progress.status });
+                console.warn(`[ModelManager] Download of ${progress.file_name || `version ${id}`} failed: ${job.error}`);
             }
             redrawResourceDownload(Number(id));
         }
@@ -3237,8 +3239,12 @@ function missingChipState(chip) {
                  title: `The image's version of ${chip.title} is gone from Civitai; the newest was downloaded` };
     }
     if (job && job.state === 'error') {
-        return { busy: false, note: 'download failed, click to retry',
-                 title: `${chip.title}: ${job.error || 'the download failed'}` };
+        // Why, on the chip itself - it was only in the tooltip - cut short;
+        // the tooltip keeps all of it.
+        const why = String(job.error || '');
+        const short = why.length > CHIP_REASON_LENGTH ? `${why.slice(0, CHIP_REASON_LENGTH)}...` : why;
+        return { busy: false, note: `download failed${short ? `: ${short}` : ''}, click to retry`,
+                 title: `${chip.title}: ${why || 'the download failed'}` };
     }
     return { busy: false, note: `missing ${what}, click to download`,
              title: `${chip.title} is not in the library: click to download it` };
@@ -3354,6 +3360,9 @@ function promptBoxes(tab) {
     return { positive: gradioApp().querySelector(`#${tab}_prompt textarea`),
              negative: gradioApp().querySelector(`#${tab}_neg_prompt textarea`) };
 }
+
+// A failed download's reason is shown on its chip up to this many characters.
+const CHIP_REASON_LENGTH = 60;
 
 // Each chip's mark, beside its colour: whether it is here, can be
 // downloaded, or cannot - so it reads without telling the colours apart.

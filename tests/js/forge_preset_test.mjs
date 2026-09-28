@@ -487,6 +487,21 @@ await waitFor('the hash to be looked up and downloaded', () => chipDownloads.len
 check('a chip that knows only a hash is looked up first, then downloaded by version and model',
       [chipDownloads[1].version_id, chipDownloads[1].model_id], ['98', '97']);
 
+// A download that fails says why on the chip - it was only in the tooltip -
+// and in the console.
+const warned = [];
+const warn = console.warn;
+console.warn = (...args) => warned.push(args.join(' '));
+chipProgress[98] = { version_id: 98, status: 'error', file_name: 'hash_only.safetensors',
+                     error: 'File already exists: hash_only.safetensors, and Civitai lists no SHA-256 to compare it with' };
+await waitFor('the failure', () => chip('hash_only')?.textContent.includes('download failed'), 60);
+console.warn = warn;
+check('a failed download says why on the chip, cut short',
+      chip('hash_only')?.querySelector('.mm-resource-chip-note')?.textContent,
+      `download failed: ${'File already exists: hash_only.safetensors, and Civitai lists no SHA-256'.slice(0, 60)}..., click to retry`);
+check('all of it in the tooltip', chip('hash_only')?.title.endsWith('lists no SHA-256 to compare it with'), true);
+check('and in the console', warned.some((w) => w.includes('Download of hash_only.safetensors failed: File already exists')), true);
+
 click(row().querySelector('[data-chips-clear]'));
 check('Clear takes the chips away', row(), null);
 check('and leaves the prompts as they were', [positiveBox.value, negativeBox.value],

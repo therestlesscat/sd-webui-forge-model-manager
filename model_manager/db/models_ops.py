@@ -380,6 +380,31 @@ class ModelsOps:
             """)
             return cursor.rowcount, images
 
+    def normalize_version_paths(self) -> int:
+        """
+        Store each file's path as a scan finds it: absolute, with no "..".
+        A download filed under a folder given as "models\\..\\embeddings" was
+        stored so, and a scan - which finds it as "embeddings" - took the row
+        for a file gone from disk. A path another row already holds is left
+        as it is, for the scan to settle.
+
+        Returns:
+            How many rows were changed.
+        """
+        changed = 0
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path FROM model_versions WHERE file_path IS NOT NULL")
+            stored = [row[0] for row in cursor.fetchall()]
+            taken = set(stored)
+            for path in stored:
+                clean = os.path.abspath(path)
+                if clean != path and clean not in taken:
+                    cursor.execute("UPDATE model_versions SET file_path = ? WHERE file_path = ?",
+                                   (clean, path))
+                    taken.add(clean)
+                    changed += 1
+        return changed
+
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         with self._cursor() as cursor:

@@ -38,6 +38,10 @@ MODEL_DIR_OPTIONS = {
     "VAE": ("vae_dir", "vae_dirs", "text_encoder_dirs"),
     "Hypernetwork": ("hypernetwork_dir",),
     "Controlnet": ("controlnet_dir",),
+    # Both WebUIs define it, with a default, as the folder the downloader
+    # files embeddings in. Left out, a scan never saw them - and forgot every
+    # one a download had added, as a file gone from disk.
+    "TextualInversion": ("embeddings_dir",),
 }
 
 
@@ -364,6 +368,9 @@ class ScanService:
 
         # Get database
         db = get_models_db()
+        fixed = db.normalize_version_paths()
+        if fixed:
+            print(f"[ModelManager] Stored {fixed} file paths as a scan finds them")
 
         # Track which files we've seen (to remove deleted ones)
         seen_paths = set()

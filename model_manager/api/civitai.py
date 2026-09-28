@@ -624,6 +624,7 @@ def register(app: FastAPI):
                     version = client.get_model_version(version_id)
                     model_id = (version or {}).get("modelId")
                     if not model_id:
+                        print(f"[ModelManager] Download of version {version_id} refused: not on Civitai")
                         return JSONResponse(
                             {"success": False, "error": "Version not found on Civitai"},
                             status_code=404
@@ -633,6 +634,7 @@ def register(app: FastAPI):
                 client.close()
 
             if not model_data:
+                print(f"[ModelManager] Download of version {version_id} refused: model {model_id} not on Civitai")
                 return JSONResponse(
                     {"success": False, "error": "Model not found on Civitai"},
                     status_code=404
@@ -652,6 +654,7 @@ def register(app: FastAPI):
                 substituted = True
 
             if not version_data:
+                print(f"[ModelManager] Download of version {version_id} refused: not among model {model_id}'s versions")
                 return JSONResponse(
                     {"success": False, "error": "Version not found"},
                     status_code=404
