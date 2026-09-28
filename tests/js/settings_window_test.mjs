@@ -262,8 +262,8 @@ field('model_manager_card_size').querySelector('[data-card-show]').click();
 await waitFor('the preview', () => cardCount() > 0);
 check('Show preview draws the tab\'s own cards', row().hidden, false);
 check('as many as fit in one row: 700px holds four 160px cards and their gaps', cardCount(), 4);
-check('at the size being set', [row().style.getPropertyValue('--mm-preview-card-width'),
-                                row().style.getPropertyValue('--mm-preview-card-height')], ['160px', '224px']);
+check('at the size being set', [row().style.getPropertyValue('--mm-card-width'),
+                                row().style.getPropertyValue('--mm-card-height')], ['160px', '224px']);
 check('asking the library for exactly that many, the tab having none loaded', modelsAsked, ['4']);
 
 const [width] = field('model_manager_card_size').querySelectorAll('input');

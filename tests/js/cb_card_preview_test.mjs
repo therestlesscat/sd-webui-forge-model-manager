@@ -29,7 +29,7 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const preview = window.mmCardPreviews?.model_manager_civitai_card_size;
 check('the tab offers the settings window a preview of its cards', typeof preview, 'function');
 
-const cards = (html) => (html.match(/class="model-card /g) || []).length;
+const cards = (html) => (html.match(/class="model-card[ "]/g) || []).length;
 let html = await preview(3);
 check('before any search, it asks Civitai for exactly as many as the row holds', searches, [3]);
 check('and draws them as this tab\'s cards', cards(html), 3);

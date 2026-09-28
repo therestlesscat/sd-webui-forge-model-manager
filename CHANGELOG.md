@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 A gear in both tabs opens one window for the extension's settings: grouped, searchable, and showing only what applies. Card sizes come with a preview of real cards, the download folder with an example path, and the text encoders and VAE for each model with a choice of the files installed. It saves to the WebUI's own settings, so the Settings page stays in step.
 
+- **0.20.5** (build 206) - Draw both tabs' model cards, page strips and grids with one renderer; the Civitai Browser's Prev and Next now show disabled at the ends, its type badge is escaped, and a long name is no longer cut inside a character like &.
 - **0.20.4** (build 205) - Show how far judging stored images again has got after an NSFW setting changes - from the settings window or the WebUI's Settings page - and what changed.
 - **0.20.3** (build 203) - Show the extension's version beside the settings gear, linking to this changelog.
 - **0.20.2** (build 202) - Test the Civitai API key from the settings window.

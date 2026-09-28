@@ -66,7 +66,10 @@ if count:
     check('and follows the version', found['version'], '%s.%s' % (version.VERSION, count))
     tag = git('describe', '--tags', '--exact-match', 'HEAD')
     if tag:
-        check('a tagged commit\'s tag is its version', tag, 'v' + version.VERSION)
+        # The version the tagged commit holds - not the file, which a change
+        # being made has already moved on.
+        committed = re.search(r'^VERSION = "([^"]+)"', git('show', 'HEAD:model_manager/version.py') or '', re.M)
+        check('a tagged commit\'s tag is its version', tag, 'v' + (committed.group(1) if committed else '?'))
     # Once committed, the newest entry's build is this commit's; before, the next one.
     newest = int(entries[0][1]) if entries else None
     check('the newest changelog entry\'s build is this commit, or the one being made',
