@@ -36,6 +36,7 @@ let civitaiVersions = listed;
 const posted = [];
 const detailsAsked = [];
 const progress = [];
+let refuse = null;               // an error the download request is answered with
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -43,6 +44,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: structuredClone(progress) });
     if (href.includes('/civitai/download')) {
         posted.push(Object.fromEntries(init.body.entries()));
+        if (refuse) return reply({ success: false, error: refuse });
         progress.push({ version_id: 503, file_name: 'v3_fp32.safetensors', status: 'downloading', percent: 40,
                         downloaded_bytes: 400, total_bytes: 1000, synced: false });
         return reply({ success: true, progress: structuredClone(progress[0]) });
@@ -142,9 +144,31 @@ check('6. back to the local version: its panel, gallery and all',
 // ------------------------------------------------------------ downloading
 await click(pill('v3'));
 window.mmSelectFile('0');
+// One click, one download: from the click until the version is in the
+// library, the button says how it is going and takes no clicks. A second
+// click used to start the same download again.
+refuse = 'Civitai: overloaded (503)';
 await click(button());
-check('7. Download asks for that version and file', posted,
+check('7. a download Civitai refuses gives the button back, to try again',
+      [button()?.disabled, button()?.textContent.trim()], [false, 'Download']);
+refuse = null;
+posted.length = 0;
+
+const clicked = click(button());
+check('   Download is disabled at the click, before the server answers',
+      [button()?.disabled, button()?.textContent.trim()], [true, 'Starting...']);
+await clicked;
+check('   Download asks for that version and file', posted,
       [{ model_id: '4001', version_id: '503', file_id: '9031' }]);
+check('   and stays disabled, saying how it is going',
+      [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
+await click(button());
+check('   so a second click starts nothing', posted.length, 1);
+await click(pill('v2'));
+await click(pill('v3'));
+check('   and it is still disabled after another version and back',
+      [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
+window.mmSelectFile('0');
 const panel = document.getElementById('mm_downloads');
 const badge = () => panel.querySelector('.mm-download-status-badge')?.textContent.trim();
 check('   and the download shows in the tab\'s own panel, as it does in the Civitai Browser\'s',

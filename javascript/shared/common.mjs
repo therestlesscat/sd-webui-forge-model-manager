@@ -1271,13 +1271,28 @@ export function describeFile(file) {
     return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
 }
 
+// What a Download button says while its version is on its way, and is
+// disabled for: one click, one download.
+const DOWNLOAD_BUTTON_BUSY = {
+    starting: 'Starting...', pending: 'Queued', downloading: 'Downloading...',
+    finishing: 'Adding to library...', complete: 'Downloaded',
+};
+
+/** A Download button's label and whether it is disabled, from its version's download. */
+function downloadButtonState(versionId) {
+    const busy = DOWNLOAD_BUTTON_BUSY[downloads().status(versionId)];
+    return { disabled: !!busy, label: busy || 'Download' };
+}
+
 /**
  * The Download button and, when there is a choice, the file picker.
  *
  * `prefix` is the tab's: the button is `<prefix>_download_btn` and calls
  * window.<prefix>Download(modelId, versionId, fileId), the picker calls
  * window.<prefix>SelectFile(index). A paid version answers the download URL
- * with 401/403 until it is bought on Civitai, so it is not offered.
+ * with 401/403 until it is bought on Civitai, so it is not offered. While
+ * the version is downloading - from the click until it is in the library - the
+ * button says so and takes no clicks: a second click started it again.
  */
 export function renderDownloadControls({ prefix, modelId, version, fileIndex, owned }) {
     const files = version?.files || [];
@@ -1291,8 +1306,11 @@ export function renderDownloadControls({ prefix, modelId, version, fileIndex, ow
         button = `<button class="mm-btn secondary" disabled `
             + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
+        const state = downloadButtonState(version?.id);
         button = `<button class="mm-btn primary" id="${prefix}_download_btn" `
-            + `onclick="window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">Download</button>`;
+            + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
+            + `onclick="window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">`
+            + `${state.label}</button>`;
     }
 
     // Only worth a control when there is something to choose between.
@@ -1427,6 +1445,16 @@ function createDownloads() {
 
     const running = (dl) => dl.status === 'downloading' || dl.status === 'pending'
         || dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced);
+    const starting = new Set();  // clicked, and the server has not answered yet
+
+    /** Every Download button on the page, as its version's download stands. */
+    function renderButtons() {
+        for (const button of document.querySelectorAll('[data-download-version]')) {
+            const state = downloadButtonState(Number(button.getAttribute('data-download-version')));
+            button.disabled = state.disabled;
+            button.textContent = state.label;
+        }
+    }
 
     function render() {
         const downloads = Object.values(items);
@@ -1441,6 +1469,7 @@ function createDownloads() {
                          done && `${done} finished`].filter(Boolean).join(', ')
             || `${downloads.length} total`;
 
+        renderButtons();
         for (const prefix of panels) {
             const panel = document.getElementById(`${prefix}_downloads`);
             const list = document.getElementById(`${prefix}_download_list`);
@@ -1517,16 +1546,29 @@ function createDownloads() {
 
         /** Ask for a version, and follow it. Returns the server's answer. */
         start: async function start(modelId, versionId, fileId) {
-            const form = new FormData();
-            if (modelId) form.append('model_id', modelId);
-            form.append('version_id', versionId);
-            // Omitted when unknown, which leaves the backend on the primary.
-            if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
-            const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
-            const result = await response.json();
-            if (result.success && result.progress) store.track(result.progress);
-            return result;
+            if (downloadButtonState(versionId).disabled) return { success: false, error: 'Already downloading' };
+            starting.add(Number(versionId));
+            renderButtons();
+            try {
+                const form = new FormData();
+                if (modelId) form.append('model_id', modelId);
+                form.append('version_id', versionId);
+                // Omitted when unknown, which leaves the backend on the primary.
+                if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
+                const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
+                const result = await response.json();
+                starting.delete(Number(versionId));
+                if (result.success && result.progress) store.track(result.progress);
+                return result;
+            } finally {
+                starting.delete(Number(versionId));
+                renderButtons();
+            }
         },
+
+        /** Where a version's download stands: 'starting', the server's status, or undefined. */
+        status: (versionId) => (starting.has(Number(versionId)) ? 'starting'
+            : items[versionId]?.status),
 
         cancel: async function cancel(versionId) {
             try {
