@@ -2341,6 +2341,13 @@ body.mm-modal-open {
     color: var(--body-text-color, #fff);
 }
 
+.mm-downloads-header-end,
+.cb-downloads-header-end {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .mm-downloads-summary,
 .cb-downloads-summary {
     font-size: 0.85em;

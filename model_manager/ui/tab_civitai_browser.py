@@ -206,7 +206,12 @@ def create_civitai_browser_ui():
                 <div id="cb_downloads" class="cb-downloads-inline" style="display: none;">
                     <div class="cb-downloads-header">
                         <h4>Downloads</h4>
-                        <span class="cb-downloads-summary" id="cb_downloads_summary"></span>
+                        <div class="cb-downloads-header-end">
+                            <span class="cb-downloads-summary" id="cb_downloads_summary"></span>
+                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_dismiss_all"
+                                    title="Take every finished download off the list" style="display: none;"
+                                    onclick="window.mmDismissFinishedDownloads()">Dismiss all</button>
+                        </div>
                     </div>
                     <div id="cb_download_list" class="cb-downloads-list"></div>
                 </div>
