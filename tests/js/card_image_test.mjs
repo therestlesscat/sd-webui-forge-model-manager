@@ -56,8 +56,8 @@ $('cb_nsfw').checked = true;
 await search();
 check('NSFW models included: the first image, whatever it is', previews(), ['pg', 'x', 'r']);
 
-// The Civitai Browser's card asks Civitai for the same resized copy as the
-// Model Manager's (see card_media_test.mjs).
+// The Civitai Browser's card asks Civitai for a copy the card's size, as the
+// Model Manager's does (see card_media_test.mjs).
 MODELS.splice(0, MODELS.length,
     { id: 4, name: 'Animated', showcase: [
         { url: 'https://image.civitai.com/acct/1234-abcd/original=true/293422.mp4', type: 'video', nsfwLevel: 1 }] },
@@ -66,9 +66,9 @@ MODELS.splice(0, MODELS.length,
 await search();
 const sources = Array.from(document.querySelectorAll('#cb_grid .model-card'))
     .map((card) => card.querySelector('video, img')?.getAttribute('src'));
-check('the Civitai Browser card asks for a video resized and an image as uploaded, '
+check('the Civitai Browser card asks for a video and an image as copies the card\'s size, '
       + 'as the Model Manager does',
-      sources, ['https://image.civitai.com/acct/1234-abcd/width=450/293422.mp4',
-                'https://image.civitai.com/acct/5678-efgh/original=true/a.jpeg']);
+      sources, ['https://image.civitai.com/acct/1234-abcd/width=320/293422.mp4',
+                'https://image.civitai.com/acct/5678-efgh/width=320/a.jpeg']);
 
 done();
