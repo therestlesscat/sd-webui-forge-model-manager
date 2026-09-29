@@ -57,6 +57,26 @@ UNKNOWN = 64
 #: Everything a "safe for work" view should admit: PG and PG-13.
 SFW_MAX = PG | PG13  # 3
 
+#: The levels a person can give one of their own images. Blocked and Unknown
+#: are what Civitai or nobody says, not a rating anyone chooses.
+USER_LEVELS = (PG, PG13, R, X, XXX)
+
+
+def user_level(value: Any) -> Optional[int]:
+    """
+    A rating a person gave, checked: one of USER_LEVELS, or None for none -
+    the image goes back to the level its prompt gives it.
+
+    Raises:
+        ValueError: for anything else.
+    """
+    if value is None or value == "":
+        return None
+    level = int(value)
+    if level not in USER_LEVELS:
+        raise ValueError(f"not a level one can rate an image: {value!r}")
+    return level
+
 LEVEL_TO_NAME = {
     PG: "PG",
     PG13: "PG-13",

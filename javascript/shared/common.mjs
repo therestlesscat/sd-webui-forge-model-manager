@@ -671,6 +671,28 @@ export async function galleryDefaults() {
              hidePromptless: data?.hide_promptless_images !== false };
 }
 
+// The NSFW levels one can give an image of one's own, as nsfw.USER_LEVELS on
+// the server, which checks them: [value, name].
+export const RATING_LEVELS = [[1, 'PG'], [2, 'PG-13'], [4, 'R'], [8, 'X'], [16, 'XXX']];
+
+/**
+ * A row of the levels one can rate an image of one's own, the one it has
+ * marked: outlined when it is its prompt's, filled when it is a person's
+ * rating. `of` is an image - its mm_level and user_level - or something
+ * holding several, with the level and user_level they share, if they do.
+ * `call` is the click, % standing for the level. Both tabs that show your
+ * generations draw it.
+ */
+export function ratingRowHtml(of, call) {
+    const level = of.mm_level ?? of.level;
+    const mine = of.user_level;
+    return `<div class="mm-rate" title="NSFW level: click to rate, click your rating again to clear it">
+        ${RATING_LEVELS.map(([value, name]) => `<button type="button" class="mm-rate-chip${
+            level === value ? ' mm-rate-current' : ''}${mine === value ? ' mm-rate-mine' : ''}"
+            onclick="event.stopPropagation(); ${call.replace('%', value)}">${name}</button>`).join('')}
+    </div>`;
+}
+
 /** The note, while the trained model is in force; '' otherwise, or before the answer. */
 export function nsfwModelNote() {
     return nsfwDetection === 'model' ? NSFW_MODEL_NOTE : '';

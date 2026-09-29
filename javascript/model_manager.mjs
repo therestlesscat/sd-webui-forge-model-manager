@@ -53,6 +53,7 @@ const {
     isPaid,
     primaryFileIndex,
     renderDownloadControls,
+    ratingRowHtml,
     showChosenFile,
     downloads,
     formatBytes,
@@ -1879,7 +1880,10 @@ function imagesFooterHtml() {
  */
 function imagesHeaderHtml(countText = '') {
     const refresh = galleryTab === 'generations'
-        ? `<button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
+        ? `<label class="mm-rate-switch" title="Rate each image's NSFW level: a row of levels on every card">
+               <input type="checkbox" id="mm_rate_generations" ${rateGenerations ? 'checked' : ''}
+                      onchange="window.mmSetRatingGenerations(this.checked)"> Rate</label>
+           <button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
                    title="Show images generated since this was drawn">Refresh</button>`
         : '';
     const tab = (key, label) => `
@@ -1920,6 +1924,70 @@ window.mmShowGalleryTab = async function(tab) {
         return;
     }
     renderModelImages(currentImages);
+};
+
+// "Rate" on your generations: a row of NSFW levels on each card and on each
+// image "Show images" shows. Not remembered.
+let rateGenerations = false;
+
+window.mmSetRatingGenerations = function(checked) {
+    rateGenerations = !!checked;
+    renderGenerations();
+};
+
+/**
+ * Rate a card - its image, or every image of it this gallery shows, through
+ * both switches - or, with `imageId`, one image "Show images" shows. Your
+ * rating again clears it. What the switches now hide leaves at once.
+ */
+window.mmRateGeneration = async function(id, value, imageId = null) {
+    const { card } = drawnGeneration(id);
+    if (!card) return;
+    const image = imageId !== null ? (card.all || card.images || []).find((i) => Number(i.id) === Number(imageId))
+        : card.matching_count <= 1 ? card.images?.[0] : null;
+    const mine = image ? image.user_level : card.user_level;
+    const fields = { level: mine === value ? '' : value, hide_nsfw_images: hideNsfwImages,
+                     hide_promptless_images: hidePromptlessImages };
+    if (image) fields.image_id = image.id;
+    else Object.assign(fields, { path: currentModelPath, generation: card.id });
+    let answer;
+    try {
+        const response = await fetch('/model-manager/generations/rate', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(Object.entries(fields).map(([k, v]) => [k, String(v)])).toString(),
+        });
+        answer = await response.json();
+    } catch (error) {
+        answer = { success: false, error: error.message };
+    }
+    if (!answer?.success) {
+        setStatus('Could not rate: ' + (answer?.error || 'no answer'), true);
+        return;
+    }
+    if (!image) {
+        // Every image of the card may have changed: the list again, where it was.
+        const y = window.scrollY || document.documentElement.scrollTop || 0;
+        await refreshGenerations();
+        window.scrollTo?.(0, y);
+        return;
+    }
+    Object.assign(image, answer.image || {});
+    if (answer.visible === false) {
+        for (const key of ['images', 'all']) {
+            if (card[key]) card[key] = card[key].filter((i) => Number(i.id) !== Number(image.id));
+        }
+        card.matching_count = Math.max(0, (card.matching_count || 1) - 1);
+        if (!card.matching_count || !(card.images || []).length) {
+            removeGenerationCard(card.id);
+            await refreshGenerationTotals();
+            return;
+        }
+    } else if (card.matching_count <= 1) {
+        card.level = image.mm_level;
+        card.user_level = image.user_level;
+    }
+    redrawGenerationCard(card.id);
+    await refreshGenerationTotals();
 };
 
 /** Fetch the generations again, from page 1. */
@@ -2191,6 +2259,8 @@ function renderGenerationCard(card, index) {
                 <div class="mm-generation-preview mm-generation-preview-${Math.min(preview.length, 4)}">
                     ${preview.map(generationImageHtml).join('')}
                 </div>
+                ${rateGenerations ? ratingRowHtml(card.matching_count <= 1 ? first : card,
+                                                  `window.mmRateGeneration(${Number(card.id)}, %)`) : ''}
             </div>
             <div class="mm-image-right">
                 <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
@@ -2209,7 +2279,10 @@ function renderGenerationCard(card, index) {
                         </label>
                     </span>
                 </div>
-                ${card.all ? `<div class="mm-generation-all">${card.all.map(generationImageHtml).join('')}</div>` : ''}
+                ${card.all ? `<div class="mm-generation-all">${card.all.map((img) => rateGenerations
+                    ? `<div class="mm-generation-rated">${generationImageHtml(img)}${ratingRowHtml(img,
+                        `window.mmRateGeneration(${Number(card.id)}, %, ${Number(img.id)})`)}</div>`
+                    : generationImageHtml(img)).join('')}</div>` : ''}
             </div>
         </div>`;
 }

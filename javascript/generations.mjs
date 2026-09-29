@@ -33,6 +33,7 @@ const {
     nsfwBadgeLabel,
     nsfwModelNote,
     galleryDefaults,
+    ratingRowHtml,
     IMAGE_PLACEHOLDER_SVG,
 } = await import(sharedModule.href);
 
@@ -54,6 +55,7 @@ const GROUP_NAMES = {
 };
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
+let rating = false;      // "Rate": a row of levels under every image - not remembered
 let groupBy = readSetting(GROUP_BY_KEY, '');
 let hideNsfw = true;
 // The level shown: its tiles, as loaded, and where it is. The levels above it
@@ -207,17 +209,7 @@ window.genBack = async function() {
     const above = levels.pop();
     ({ tiles, state, scope, part, more, at, title } = above);
     if (above.dirty) {
-        const parts = part;
-        tiles = [];
-        part = 0;
-        more = true;
-        const grid = byId('gen_grid');
-        if (grid) grid.innerHTML = '';
-        while (part < parts && more) {
-            const before = part;
-            await loadNext();
-            if (part === before) break;
-        }
+        await reloadKeepingPlace();
     } else {
         redrawAll();
         renderBanner();
@@ -330,12 +322,17 @@ function tileHtml(tile, index) {
     const label = [when, size].filter(Boolean).join(' · ');
     if (label) media += `<span class="gen-date">${escapeHtml(label)}</span>`;
 
+    // A group is not rated whole: its images are of any prompt and settings.
+    const rateRow = rating && tile.kind !== 'group'
+        ? ratingRowHtml(folded ? tile : image, `window.genRate(${index}, %)`) : '';
+
     const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
                      tile.kind === 'group' && 'gen-grouping'].filter(Boolean).join(' ');
     const remove = `<button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${index})">Delete</button>`;
     return `
         <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
             <div class="gen-media">${media}</div>
+            ${rateRow}
             <div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
                         onclick="window.genSend(${index})">${mode}</button>
@@ -508,6 +505,114 @@ async function sendImage(tile, image) {
     }
 }
 
+// ------------------------------------------------------------- rating
+/**
+ * Rate a tile: its image, or - a batch - every image of it the tab shows.
+ * Your rating again clears it. An image the NSFW switch now hides leaves the
+ * grid at once. A group is not rated whole - too easily misrated; its
+ * batches and images are, once it is opened.
+ */
+window.genRate = async function(index, value) {
+    const tile = tiles[index];
+    if (!tile || tile.kind === 'group') return;
+    const single = tile.kind === 'image' || (tile.kind === 'generation' && tile.matching_count <= 1);
+    if (single) {
+        await rateImage(index, tile.images[0], value);
+        return;
+    }
+    const level = tile.user_level === value ? '' : value;
+    const scope = { group: groupBy, in_group: at.in_group, generation: tile.generation.id };
+    if (await postRating({ ...scope, level })) {
+        markAboveChanged();
+        await reloadKeepingPlace();
+    }
+};
+
+/**
+ * Rate one image, and draw it as it now is - taken off its tile if the NSFW
+ * switch now hides it. True if it is still shown.
+ */
+async function rateImage(index, image, value) {
+    const level = image.user_level === value ? '' : value;
+    const answer = await postRating({ image_id: image.id, level });
+    if (!answer?.image) return true;
+    Object.assign(image, answer.image);
+    markAboveChanged();
+    if (!answer.visible) {
+        hideImage(index, image.id);
+        await refreshTotals();
+        return false;
+    }
+    const tile = tiles[index];
+    if (tile && tile.matching_count <= 1) {
+        tile.level = image.mm_level;
+        tile.user_level = image.user_level;
+    }
+    redrawTile(index);
+    return true;
+}
+
+async function postRating(fields) {
+    try {
+        const body = new URLSearchParams({ hide_nsfw_images: String(hideNsfw) });
+        for (const [key, value] of Object.entries(fields)) {
+            if (value !== undefined && value !== null) body.set(key, String(value));
+        }
+        const response = await fetch('/model-manager/generations/rate', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        });
+        const answer = await response.json();
+        if (!answer.success) {
+            setStatus(`Could not rate: ${answer.error || 'no answer'}`);
+            return null;
+        }
+        return answer;
+    } catch (error) {
+        setStatus(`Could not rate: ${error.message}`);
+        return null;
+    }
+}
+
+/** An image the NSFW switch now hides: off its tile, and the tile with its last. */
+function hideImage(index, imageId) {
+    const tile = tiles[index];
+    if (!tile) return;
+    tile.images = tile.images.filter((img) => img.id !== imageId);
+    tile.matching_count = Math.max(0, (tile.matching_count || 1) - 1);
+    if (tile.matching_count > 0 && tile.images.length) redrawTile(index);
+    else removeTile(index);
+}
+
+/**
+ * This level again, as far as it had been loaded, and the page where it was:
+ * after a batch or a group was rated, what each tile holds may have changed.
+ */
+async function reloadKeepingPlace() {
+    const y = currentScroll();
+    const parts = part;
+    closeMenu();
+    request += 1;
+    loading = false;
+    tiles = [];
+    part = 0;
+    more = true;
+    const grid = byId('gen_grid');
+    if (grid) grid.innerHTML = '';
+    while (part < parts && more) {
+        const before = part;
+        await loadNext();
+        if (part === before) break;
+    }
+    setStatus(tiles.length ? '' : emptyText());
+    window.scrollTo?.(0, y);
+}
+
+window.genSetRating = function(checked) {
+    rating = !!checked;
+    redrawAll();
+};
+
 // ------------------------------------------------------------- the ⋯ menu
 // More that can be done with a tile or the image in the viewer, in a menu
 // under its ⋯ - which is not drawn when there is nothing in it.
@@ -604,6 +709,7 @@ function openViewer() {
                 <div class="gen-viewer-frame"><img class="gen-viewer-image" alt="Generated image"></div>
                 <div class="gen-viewer-bar">
                     <span class="gen-viewer-where"></span>
+                    <span class="gen-viewer-rate"></span>
                     <span class="gen-viewer-actions">
                         <button type="button" class="mm-btn primary mm-btn-small" data-send></button>
                         <button type="button" class="mm-btn secondary mm-btn-small" data-delete>Delete</button>
@@ -744,6 +850,7 @@ function renderViewer() {
     const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
     root.querySelector('[data-send]').textContent = `Send to ${mode}`;
     root.querySelector('[data-menu]').hidden = !menuFor(image.checkpoint_path).length;
+    root.querySelector('.gen-viewer-rate').innerHTML = ratingRowHtml(image, 'window.genRateInViewer(%)');
     const shown = tile.images.length;
     const count = tile.matching_count || shown;
     const what = tile.kind === 'group' ? 'this group' : 'this generation';
@@ -793,6 +900,33 @@ function infoHtml(tile, image, url) {
                 rel="noopener">Open full size</a>` : ''}
         </div>`;
 }
+
+/**
+ * Rate the image shown. If the NSFW switch now hides it, the viewer moves on
+ * to the next - or back, if it was the last - as after a delete.
+ */
+window.genRateInViewer = async function(value) {
+    if (!viewer) return;
+    const index = viewer.tile;
+    const tile = tiles[index];
+    const image = tile?.images?.[viewer.image];
+    if (!image) return;
+    const shown = await rateImage(index, image, value);
+    if (!viewer) return;
+    if (shown) {
+        renderViewer();
+        return;
+    }
+    if (!tiles.length) {
+        closeViewer();
+        return;
+    }
+    if (index >= tiles.length) {
+        showInViewer(tiles.length - 1, tiles[tiles.length - 1].images.length - 1);
+        return;
+    }
+    showInViewer(index, tiles[index] === tile ? viewer.image : 0);
+};
 
 /** Send the image shown - closing the viewer, as the page goes to txt2img or img2img. */
 async function sendFromViewer() {
@@ -1049,6 +1183,9 @@ onReady(async () => {
     }
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;
+    // "Rate" starts off, whatever the browser kept ticked from before.
+    const rate = byId('gen_rate');
+    if (rate) rate.checked = false;
     const group = byId('gen_group_by');
     if (group) group.value = groupBy;
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);

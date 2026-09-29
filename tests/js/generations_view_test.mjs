@@ -23,7 +23,7 @@ const img = (id, generation, position, level = 1) => ({
     meta: { prompt: `prompt ${id}`, negativePrompt: 'blurry', steps: 20, sampler: 'Euler' },
     infotext: `prompt ${id}\nSteps: 20, Seed: ${1000 + id}`,
     url: `/model-manager/generations/images/${id}/file`, exists: true,
-    mm_level: level, mm_level_from_prompt: level > 1,
+    mm_level: level, mm_level_from_prompt: level > 1, user_level: null, prompt_level: level,
 });
 // Newest first: G3 of five (one X), G2 of one, G1 of three.
 let generations = [
@@ -38,6 +38,7 @@ let generations = [
 const shownOf = (g, hide) => g.images.filter((i) => !hide || i.mm_level <= 3);
 const asked = [];
 const posted = [];
+const rated = [];
 
 // Grouped by size only, here - the server's groupings are generations_test.py's.
 const sizeOf = (i) => `${i.width}×${i.height}`;
@@ -63,6 +64,8 @@ function browse(params) {
         images: rs.slice(0, 4).map((r) => ({ ...r.i, checkpoint_path: r.g.generation.checkpoint_path })),
         checkpoint_path: new Set(rs.map((r) => r.g.generation.checkpoint_path)).size === 1
             ? rs[0].g.generation.checkpoint_path : null,
+        level: new Set(rs.map((r) => r.i.mm_level)).size === 1 ? rs[0].i.mm_level : null,
+        user_level: new Set(rs.map((r) => r.i.user_level)).size === 1 ? rs[0].i.user_level : null,
         ...(kind === 'group' ? { group: { id: unit, value: unit, latest: rs[0].g.generation.created_at,
                                           generations: new Set(rs.map((r) => r.g.generation.id)).size } } : {}),
     }));
@@ -96,6 +99,22 @@ globalThis.fetch = async (url, init = {}) => {
     if (images) {
         const g = generations.find((x) => x.generation.id === Number(images[1]));
         return reply({ success: true, images: g ? shownOf(g, params.get('hide_nsfw_images') !== 'false') : [] });
+    }
+    if (href.includes('/generations/rate')) {
+        const form = new URLSearchParams(String(init.body));
+        rated.push(Object.fromEntries(form));
+        const hide = form.get('hide_nsfw_images') !== 'false';
+        const level = form.get('level') ? Number(form.get('level')) : null;
+        const apply = (i) => { i.user_level = level; i.mm_level = level ?? i.prompt_level; };
+        if (form.get('image_id')) {
+            const image = generations.flatMap((g) => g.images).find((i) => i.id === Number(form.get('image_id')));
+            apply(image);
+            return reply({ success: true, rated: 1, image: { ...image }, visible: !hide || image.mm_level <= 3 });
+        }
+        const g = generations.find((x) => x.generation.id === Number(form.get('generation')));
+        const shown = shownOf(g, hide);
+        shown.forEach(apply);
+        return reply({ success: true, rated: shown.length });
     }
     if (href.includes('/generations/group/delete')) {
         const form = new URLSearchParams(String(init.body));
@@ -437,5 +456,47 @@ await waitFor('the next part', () => tileEls().length === 3);
 check('scrolling near the end brings the next part, added after', tileIds(), ['3g', '2', '0']);
 check('the last', lastAsked().get('page'), '2');
 endTop = 100000;
+
+// ---------------------------------------------------------------- rating
+// "Rate": a row of NSFW levels under every image - the level it has outlined,
+// your rating filled; your rating again clears it. A rated image the switch
+// now hides leaves at once; a batch rated, every image of it shown.
+await window.genShowNsfw(false);
+await window.genLoadMore();
+const rows = () => tileEls().map((t) => !!t.querySelector('.mm-rate'));
+const chips = (tile) => Array.from(tile.querySelectorAll('.mm-rate-chip'));
+const marked = (tile, cls) => chips(tile).filter((c) => c.classList.contains(cls)).map((c) => c.textContent.trim());
+check('no row of levels until "Rate" is ticked', rows().every((r) => !r), true);
+window.genSetRating(true);
+check('then one under every image', [rows().every(Boolean), chips(tileEls()[1]).map((c) => c.textContent.trim())],
+      [true, ['PG', 'PG-13', 'R', 'X', 'XXX']]);
+check('the level an image has outlined, none of them yours yet',
+      [marked(tileEls()[1], 'mm-rate-current'), marked(tileEls()[1], 'mm-rate-mine')], [['PG'], []]);
+await window.genRate(1, 2);
+check('a click rates the image, and marks it as yours',
+      [rated.at(-1).image_id, rated.at(-1).level, marked(tileEls()[1], 'mm-rate-mine')], ['21', '2', ['PG-13']]);
+await window.genRate(1, 2);
+check('your rating clicked again clears it', [rated.at(-1).level, marked(tileEls()[1], 'mm-rate-mine')], ['', []]);
+await window.genRate(1, 8);
+check('an image rated X, with NSFW hidden, leaves the grid at once', tileIds(), ['3g', '0']);
+const loadsBeforeBatch = asked.length;
+await window.genRate(0, 2);
+check('a batch rated: every image of it the tab shows, and the grid loaded again in place',
+      [rated.at(-1).generation, rated.at(-1).level, asked.length > loadsBeforeBatch,
+       marked(tileEls()[0], 'mm-rate-mine')], ['3', '2', true, ['PG-13']]);
+await window.genSetGroupBy('size');
+check('a group has no row: rated whole, its images are easily misrated', rows(), [false]);
+await window.genSetGroupBy('');
+window.genSetRating(false);
+check('unticked, the rows go', rows().every((r) => !r), true);
+
+await window.genView(1, 0);
+check('the viewer always shows the row of levels', chips(viewer()).map((c) => c.textContent.trim()),
+      ['PG', 'PG-13', 'R', 'X', 'XXX']);
+await window.genRateInViewer(4);
+await waitFor('the viewer to move on', () => !viewer() || shownId() !== '1');
+check('an image rated R there, with NSFW hidden, leaves, and the viewer goes on or closes',
+      [rated.at(-1).image_id, tileIds()], ['1', ['3g']]);
+key('Escape');
 
 done();

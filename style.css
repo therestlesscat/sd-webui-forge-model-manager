@@ -3342,6 +3342,66 @@ textarea.mm-settings-input {
     grid-template-rows: 1fr 1fr;
 }
 
+/* "Rate": a row of NSFW levels under each of your own images - in the
+   Generations tab and a model's "Your generations" - and always in the
+   viewer. The level it has is outlined; a person's own rating is filled. */
+.mm-rate {
+    display: flex;
+    gap: 3px;
+    height: 24px;
+}
+
+.mm-rate-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 4px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 4px;
+    background: transparent !important;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.72em;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.mm-rate-chip:hover {
+    color: var(--body-text-color, #e5e7eb);
+    border-color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-rate-chip.mm-rate-current {
+    color: var(--body-text-color, #e5e7eb);
+    border-color: #f59e0b;
+}
+
+.mm-rate-chip.mm-rate-mine {
+    background: #f59e0b !important;
+    border-color: #f59e0b;
+    color: #111827;
+}
+
+.mm-image-left .mm-rate {
+    margin-top: 6px;
+}
+
+.mm-generation-rated {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mm-rate-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.gen-viewer-rate .mm-rate {
+    width: 260px;
+    height: 28px;
+}
+
 /* In this tab, an image's NSFW badge is at its top-left: ⋯ has the top-right. */
 .gen-media .mm-nsfw-badge {
     right: auto;

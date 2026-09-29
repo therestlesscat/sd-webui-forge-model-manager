@@ -328,7 +328,7 @@ if has_fastapi:
           [i['position'] for i in card['images']], [0, 1, 2, 3])
     check('each with what a card draws', sorted(card['images'][0]) == sorted(
         ['id', 'generation_id', 'position', 'iteration', 'seed', 'width', 'height', 'meta',
-         'infotext', 'url', 'exists', 'mm_level', 'mm_level_from_prompt']), True)
+         'infotext', 'url', 'exists', 'mm_level', 'mm_level_from_prompt', 'user_level']), True)
     check('and the file is there', card['images'][0]['exists'], True)
 
     body = page(CHECKPOINT, hide_nsfw_images='true', hide_promptless_images='true')
@@ -477,6 +477,51 @@ if has_fastapi:
     check('while its images keep their own', len({i['checkpoint_path'] for i in
           browse(generation=other, hide_nsfw_images='false')['tiles'][0]['images']}), 1)
     db.delete_generation(other)
+
+    # Rating: a person's own NSFW level for an image, over its prompt's - one
+    # image, or what a batch or group shows, and never what a switch hid.
+    def rate(**data):
+        return client.post('/model-manager/generations/rate', data=data)
+
+    def user_levels():
+        return [i['user_nsfw_level'] for i in db.get_generation(generation_id)['images']]
+
+    images = db.get_generation(generation_id)['images']
+    first_id = images[0]['id']
+    body = rate(image_id=first_id, level=8, hide_nsfw_images='true').json()
+    check('one image rated X is X, as rated, not as its prompt says',
+          (body['rated'], body['image']['mm_level'], body['image']['user_level'],
+           body['image']['mm_level_from_prompt']), (1, 8, 8, False))
+    check('and with the NSFW switch on, is said to be hidden now', body['visible'], False)
+    body = rate(image_id=first_id, level='', hide_nsfw_images='true').json()
+    check('a rating cleared, it goes back to its prompt\'s level, and shows again',
+          (body['image']['user_level'], body['image']['mm_level'], body['visible']), (None, PG, True))
+    check('a level nobody can choose is refused', rate(image_id=first_id, level=5).status_code, 400)
+    check('and so is a rating of nothing in particular', rate(level=8).status_code, 400)
+
+    body = rate(generation=generation_id, level=4, hide_nsfw_images='true').json()
+    check('a batch rated: the images of it the tab shows, and not those the switch hid',
+          (body['rated'], user_levels()), (2, [4, None, 4, None]))
+    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    check('a tile of mixed levels shows none as the one they share', (tile['level'], tile['user_level']), (None, None))
+    rate(generation=generation_id, level=1, hide_nsfw_images='false')
+    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    check('one they all share, it does', (tile['level'], tile['user_level'], user_levels()), (PG, PG, [PG] * 4))
+    refused = rate(group='prompt', in_group=groups('prompt')[PROMPTS[1]]['group']['id'], level=16,
+                   hide_nsfw_images='false')
+    check('a group is not rated whole: its images are of any prompt, and easily misrated',
+          (refused.status_code, user_levels()), (400, [PG] * 4))
+    body = rate(group='prompt', in_group=groups('prompt')[PROMPTS[1]]['group']['id'], generation=generation_id,
+                level=16, hide_nsfw_images='false').json()
+    check('a batch opened from a group is: its images in that group', (body['rated'], user_levels()),
+          (1, [PG, 16, PG, PG]))
+    rate(path=CHECKPOINT, generation=generation_id, level=2, hide_nsfw_images='false',
+         hide_promptless_images='false')
+    check('a card of a model\'s "Your generations": its images that gallery shows', user_levels(), [2] * 4)
+    db.restamp_generation_levels(lambda meta: PG)
+    check('the prompt words changing leaves a rating as it was', user_levels(), [2] * 4)
+    rate(generation=generation_id, level='', hide_nsfw_images='false')
+    check('and a batch\'s ratings clear together', user_levels(), [None] * 4)
 
     # A group deleted: its images the grid shows, each as one image is.
     unloraed = groups('loras')['']

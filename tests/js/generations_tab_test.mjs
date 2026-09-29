@@ -41,6 +41,7 @@ const STATE = { offset: 0, generation_count: 2, total: 7, filtered: 7, hidden_ns
                 hidden_promptless: 0, hidden: 0, nsfw_count: 0, promptless_count: 0 };
 
 const asked = [];
+const ratings = [];
 let deleteBody = null;
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
@@ -60,6 +61,17 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     }
     if (href.match(/\/model-manager\/generations\/2\/images/)) {
         return reply({ success: true, images: [21, 22, 23, 24, 25, 26].map((id) => image(id, 2)) });
+    }
+    if (href.includes('/model-manager/generations/rate')) {
+        const form = Object.fromEntries(new URLSearchParams(String(init.body)));
+        ratings.push(form);
+        const level = form.level ? Number(form.level) : null;
+        if (form.image_id) {
+            return reply({ success: true, rated: 1, visible: !(level > 3),
+                           image: image(Number(form.image_id), 2, { mm_level: level ?? 1, user_level: level }) });
+        }
+        Object.assign(CARDS[1], { level, user_level: level });
+        return reply({ success: true, rated: 6 });
     }
     if (href.includes('/model-manager/generations/1/delete')) {
         deleteBody = String(init.body || '');
@@ -184,6 +196,32 @@ check('and its card goes where it was: the rest are not drawn again, and the tab
       [cards()[0] === remaining, tabs()[1][0]], [true, 'Your generations (1)']);
 check('the card left still names its own generation, not its old place',
       cards()[0].querySelector('.mm-send-btn').getAttribute('onclick'), 'window.mmSendGeneration(2)');
+
+// "Rate": a row of NSFW levels on each card, and on each image "Show images"
+// shows - a card's rates every image of it this gallery shows.
+check('the tab offers "Rate", unticked', document.getElementById('mm_rate_generations')?.checked, false);
+window.mmSetRatingGenerations(true);
+const cardRow = () => cards()[0].querySelector('.mm-image-left .mm-rate');
+check('ticked, a card has a row of levels under its images',
+      Array.from(cardRow()?.querySelectorAll('.mm-rate-chip') || []).map((c) => c.textContent.trim()),
+      ['PG', 'PG-13', 'R', 'X', 'XXX']);
+const pagesBefore = asked.filter((u) => u.includes('/generations/page')).length;
+await window.mmRateGeneration(2, 4);
+check('a card rated: every image of it the gallery shows, by the model\'s file and the generation',
+      [ratings.at(-1).path, ratings.at(-1).generation, ratings.at(-1).level, ratings.at(-1).hide_promptless_images],
+      ['C:/models/a.safetensors', '2', '4', 'true']);
+check('and the cards loaded again, the rating marked as yours',
+      [asked.filter((u) => u.includes('/generations/page')).length > pagesBefore,
+       cardRow()?.querySelector('.mm-rate-mine')?.textContent.trim()], [true, 'R']);
+// (The stand-in hands back the same card objects, so it may still be open from above.)
+if (!cards()[0].querySelector('.mm-generation-all')) await window.mmShowAllGeneration(2);
+const imageRows = () => cards()[0].querySelectorAll('.mm-generation-rated .mm-rate');
+check('each image "Show images" shows has its own row', imageRows().length, 6);
+await window.mmRateGeneration(2, 8, 23);
+check('an image rated X there, with NSFW hidden, leaves the card at once',
+      [ratings.at(-1).image_id, ratings.at(-1).level, imageRows().length], ['23', '8', 5]);
+window.mmSetRatingGenerations(false);
+check('unticked, the rows go', [!!cardRow(), imageRows().length], [false, 0]);
 
 await window.mmSelectModel(1);
 await waitFor('the next model', () => tabs().length === 2 && tabs()[0][1]);
