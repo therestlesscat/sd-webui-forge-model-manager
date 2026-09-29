@@ -211,5 +211,37 @@ body = client.get('/model-manager/forge-modules', params={'base_model': 'HiDream
 check('and with no preset to go by, nothing is set up', (body['preset'], body['manage_modules']),
       (None, False))
 
+# What Send makes the VAE / Text Encoder control hold: `target`, exactly - the
+# page changes only what differs from it. For a model whose modules are
+# managed, what pick() selects; for SD and SDXL, the image's own VAE as Forge
+# lists it, or nothing.
+body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+check('a managed model\'s target is what is picked for it', body['target'], body['select'])
+body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
+                                                          'vae': 'sdxl_vae'}).json()
+check('an SDXL image\'s is its own VAE, found by its bare name',
+      (body['target'], body['vae_not_found']), (['sdxl_vae.safetensors'], None))
+body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
+                                                          'vae': 'vae_i_do_not_have'}).json()
+check('a VAE not installed is said, and nothing is its target',
+      (body['target'], body['vae_not_found']), ([], 'vae_i_do_not_have'))
+body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
+check('and an image that names none has nothing to hold', body['target'], [])
+
+labels = ['sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', 'ae.safetensors']
+check('a VAE name is matched as the file, the file less its extension, or the start of one',
+      [fm.match_vae(n, labels) for n in ('ae.safetensors', 'SDXL_VAE', 'vae-ft-mse-840000', 'nope', '')],
+      ['ae.safetensors', 'sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', None, None])
+
+# What Forge holds, to check a change took: its setting, as the labels it shows.
+shared = sys.modules['modules.shared']
+shared.opts.forge_additional_modules = ['C:/models/VAE/ae.safetensors', 'C:/models/text_encoder/clip_l.safetensors']
+check('what Forge holds is read from its setting, by file name',
+      client.get('/model-manager/forge-modules/current').json()['modules'],
+      ['ae.safetensors', 'clip_l.safetensors'])
+del shared.opts.forge_additional_modules
+check('and where there is no such setting, nothing is claimed',
+      client.get('/model-manager/forge-modules/current').json()['modules'], None)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

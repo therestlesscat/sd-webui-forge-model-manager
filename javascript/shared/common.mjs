@@ -21,6 +21,8 @@ export const TIMING = Object.freeze({
     presetQuiet: 400,     // quiet this long after the last call: Forge has nothing more to send
     presetMax: 15000,     // a server this slow is not waited on further
     estimate: 120,        // the sync dialog's cost, asked once its controls stop changing
+    modulesCheck: 300,    // between asks whether Forge took a VAE / Text Encoder change
+    modulesCheckMax: 3000, // and how long it is given to
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

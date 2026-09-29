@@ -89,14 +89,17 @@ function buildControl(selected, available, flavour = 'neo') {
     const input = new El('input', {});
     input.value = '';
 
-    const state = { selected: [...selected], optionsOpen: false };
+    // commits: the selection after each change - Neo sends Forge one request
+    // per change, carrying the whole selection as it then stands.
+    const state = { selected: [...selected], optionsOpen: false, commits: [] };
+    const commit = () => state.commits.push([...state.selected]);
 
     function renderTokens() {
         wrapInner.children = wrapInner.children.filter(c => !c.classList.contains('token'));
         const toks = state.selected.map(name => {
             const tok = new El('div', { class: 'token' }, name);
             const rm = new El('div', { class: 'token-remove svelte-1scun43' }, '\u00d7');
-            rm.onclick = () => { state.selected = state.selected.filter(n => n !== name); renderTokens(); };
+            rm.onclick = () => { state.selected = state.selected.filter(n => n !== name); commit(); renderTokens(); };
             return tok.append(rm);
         });
         wrapInner.children.unshift(...toks);
@@ -105,7 +108,7 @@ function buildControl(selected, available, flavour = 'neo') {
 
     const secondary = new El('div', { class: 'secondary-wrap' });
     const removeAll = new El('div', { class: 'token-remove remove-all svelte-1scun43' }, '\u00d7');
-    removeAll.onclick = () => { state.selected = []; renderTokens(); };
+    removeAll.onclick = () => { state.selected = []; commit(); renderTokens(); };
     secondary.append(input, removeAll);
     wrapInner.append(secondary);
     renderTokens();
@@ -124,6 +127,7 @@ function buildControl(selected, available, flavour = 'neo') {
             li.append(new El('span', { class: 'inner-item svelte-y6qw75' }, name));
             li.addEventListener('mousedown', () => {
                 if (!state.selected.includes(name)) state.selected.push(name);
+                commit();
                 renderTokens();
             });
             list.append(li);
@@ -164,7 +168,8 @@ function lift(name) {
 
 vm.runInContext("const NEO_MODULES_ID = 'setting_sd_modules'; const MODULES_LABEL = 'VAE / Text Encoder';", sandbox);
 for (const fn of ['getModulesControl', 'nextFrame', 'readModuleOptions', 'matchVAEName',
-                  'pressOption', 'clearModules', 'selectedModuleLabels', 'applyForgeModules', 'applyVaeSelection']) {
+                  'pressOption', 'clearModules', 'tokenLabel', 'selectedModuleLabels', 'applyForgeModules',
+                  'applyVaeSelection', 'patchForgeModules']) {
     sandbox[fn] = lift(fn);
 }
 
@@ -272,6 +277,61 @@ const AVAILABLE = ['qwen_image_vae.safetensors', 'sdxl_vae.safetensors',
     await sandbox.applyVaeSelection(null);
     check('with no control at all, selectVAE is used', stubCalls.join() === 'None',
           JSON.stringify(stubCalls));
+
+    // 12. A PATCH, NOT A RESET: Send makes the control hold exactly what the
+    //     image needs, with as few changes as can be. Each change is a request
+    //     of Forge's, carrying the whole selection; they can land out of order,
+    //     and after a clear-and-reselect Neo sometimes loaded an Anima model
+    //     with no VAE while the control showed it. So nothing different,
+    //     nothing touched; else only what differs.
+    const ANIMA = ['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'];
+    const ALL = [...AVAILABLE, 'qwen_3_06b_base.safetensors', 'sdxl_vae_fix.safetensors'];
+    const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+    control = buildControl(ANIMA, ALL);
+    await sandbox.patchForgeModules(ANIMA);
+    check('patch: what is already exact is not touched at all', control.state.commits.length === 0,
+          JSON.stringify(control.state.commits));
+
+    control = buildControl([...ANIMA, 'clip_l.safetensors'], ALL);
+    await sandbox.patchForgeModules(ANIMA);
+    check('patch: an extra file is taken out on its own, in one change',
+          same(control.state.selected, ANIMA) && control.state.commits.length === 1,
+          JSON.stringify(control.state.commits));
+
+    control = buildControl(['qwen_image_vae.safetensors'], ALL);
+    await sandbox.patchForgeModules(ANIMA);
+    check('patch: a missing file is added on its own, the rest left in place',
+          same(control.state.selected, ANIMA) && control.state.commits.length === 1
+          && control.state.commits[0].includes('qwen_image_vae.safetensors'),
+          JSON.stringify(control.state.commits));
+
+    control = buildControl(['sdxl_vae.safetensors'], ALL);
+    await sandbox.patchForgeModules(['sdxl_vae_fix.safetensors']);
+    check('patch: one file for another is one out and one in, never an empty-then-refill',
+          same(control.state.selected, ['sdxl_vae_fix.safetensors'])
+          && control.state.commits.length === 2,
+          JSON.stringify(control.state.commits));
+
+    control = buildControl(['qwen_image_vae.safetensors', 'clip_l.safetensors'], ALL);
+    await sandbox.patchForgeModules([]);
+    check('patch: an image that needs nothing leaves nothing', control.state.selected.length === 0,
+          JSON.stringify(control.state.selected));
+
+    // A file that cannot be taken out alone: the whole control is cleared and
+    // filled, the one case that still costs every change.
+    control = buildControl(['sdxl_vae.safetensors', 'qwen_image_vae.safetensors'], ALL);
+    control.root.querySelectorAll('.token-remove').forEach((rm) => {
+        if (!rm.classList.contains('remove-all')) rm.remove();
+    });
+    await sandbox.patchForgeModules(['qwen_image_vae.safetensors', 'clip_l.safetensors']);
+    check('patch: with no way to take one out, it is cleared and filled, and still exact',
+          same(control.state.selected, ['qwen_image_vae.safetensors', 'clip_l.safetensors']),
+          JSON.stringify(control.state.selected));
+
+    control = buildControl([], AVAILABLE, 'classic');
+    control.root.children = [];
+    check('patch: no control, no patch', (await sandbox.patchForgeModules(['x'])) === false);
 
     console.log(failures === 0 ? 'All checks passed.' : failures + ' check(s) failed.');
     process.exit(failures ? 1 : 0);

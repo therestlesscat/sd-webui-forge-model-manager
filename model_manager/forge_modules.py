@@ -290,6 +290,39 @@ def saved_modules(preset: str) -> List[str]:
         return []
 
 
+def current_modules() -> Optional[List[str]]:
+    """
+    The modules Forge holds now, as the labels it shows - what it will load,
+    whatever its control shows. None where Forge is not there to ask.
+    """
+    try:
+        from modules import shared
+        return sorted(os.path.basename(p) for p in shared.opts.forge_additional_modules or [])
+    except Exception:
+        return None
+
+
+def match_vae(name: str, labels) -> Optional[str]:
+    """
+    The installed module an image's VAE name means, as Forge lists it.
+
+    Generation data usually carries the bare name while Forge lists the file,
+    so "vae-ft-mse-840000" has to find "vae-ft-mse-840000-ema-pruned.safetensors":
+    the file itself first, then one named the same without its extension, then
+    one whose name starts with it. Case does not matter.
+    """
+    if not name:
+        return None
+    labels = list(labels)
+    if name in labels:
+        return name
+    wanted = name.lower()
+    exact = _match(name, labels)
+    if exact:
+        return exact
+    return next((label for label in labels if label.lower().startswith(wanted)), None)
+
+
 # The setting naming a preset's files: model_manager_modules_<preset>.
 SETTING_PREFIX = "model_manager_modules_"
 

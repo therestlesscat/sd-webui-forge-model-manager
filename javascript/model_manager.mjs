@@ -3174,10 +3174,107 @@ function clearModules(container) {
         .forEach((button) => button.click());
 }
 
+/** A token's label: its text, less the ✕ that removes it. */
+function tokenLabel(token) {
+    return token.textContent.replace(/\s*×\s*$/, '').trim();
+}
+
 function selectedModuleLabels(container) {
     return Array.from(container.querySelectorAll('.wrap-inner .token'))
-        .map((token) => token.textContent.replace(/\s*×\s*$/, '').trim())
+        .map(tokenLabel)
         .filter(Boolean);
+}
+
+/**
+ * Make Forge's VAE / Text Encoder control hold exactly `target`, with as few
+ * changes to it as there can be: what is there and wanted stays, what is
+ * extra is removed one by one, what is missing is added. Nothing different,
+ * nothing touched.
+ *
+ * Every change to that control is a request of Forge's own, each carrying
+ * the whole selection as it stands, and they can land out of order: after
+ * the old clear-and-reselect, Neo would sometimes load an Anima model with no
+ * VAE, the control showing it all the while. So the fewer changes, the fewer
+ * chances. The whole control is cleared only if one file cannot be taken out
+ * alone.
+ *
+ * @param {string[]} target - the labels, exactly as Forge lists them.
+ * @returns {Promise<boolean>} false when the control is absent (not Forge).
+ */
+async function patchForgeModules(target) {
+    const container = getModulesControl();
+    if (!container) return false;
+
+    const current = selectedModuleLabels(container);
+    const extra = current.filter((label) => !target.includes(label));
+    let missing = target.filter((label) => !current.includes(label));
+    if (!extra.length && !missing.length) {
+        console.log('[ModelManager] VAE / Text Encoder already as needed:', current);
+        return true;
+    }
+
+    for (const label of extra) {
+        const token = Array.from(container.querySelectorAll('.wrap-inner .token'))
+            .find((t) => tokenLabel(t) === label);
+        const remove = token && token.querySelector('.token-remove');
+        if (!remove) {
+            console.warn(`[ModelManager] Could not take "${label}" out on its own; clearing the lot`);
+            clearModules(container);
+            await nextFrame();
+            missing = [...target];
+            break;
+        }
+        remove.click();
+        await nextFrame();
+    }
+
+    const input = container.querySelector('input');
+    for (const label of missing) {
+        if (!input) break;
+        input.focus();
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await nextFrame();
+
+        const option = readModuleOptions(container).find((o) => o.label === label);
+        if (!option) {
+            console.warn(`[ModelManager] "${label}" is not offered by the control; left out`);
+            continue;
+        }
+        pressOption(option.element);
+        await nextFrame();
+    }
+    input?.blur();
+    console.log('[ModelManager] VAE / Text Encoder: removed', extra, 'added', missing,
+                'now', selectedModuleLabels(container));
+    return true;
+}
+
+/**
+ * Ask Forge what it holds now, and say so if it is not `target`: the control
+ * can show one thing while Forge's setting - what it loads - holds another.
+ * Only said, for now, so that it is seen before anything is done about it.
+ * Forge takes each change on a request of its own, so it is given a moment.
+ */
+async function checkForgeModules(target) {
+    const wanted = [...target].sort();
+    const deadline = Date.now() + TIMING.modulesCheckMax;
+    let held = null;
+    for (;;) {
+        try {
+            const answer = await (await fetch('/model-manager/forge-modules/current')).json();
+            held = answer && answer.modules;
+        } catch (e) {
+            return;
+        }
+        if (!Array.isArray(held)) return;                 // not Forge: nothing to compare
+        if (held.length === wanted.length && held.every((label, i) => label === wanted[i])) return;
+        if (Date.now() >= deadline) break;
+        await nextFrame(TIMING.modulesCheck);
+    }
+    const list = (labels) => (labels.length ? labels.join(', ') : 'nothing');
+    showNotice(`Forge did not take the VAE / Text Encoder change: it holds ${list(held)}, `
+               + `where the image needs ${list(wanted)}. Check "VAE / Text Encoder" before generating.`);
 }
 
 /**
@@ -3340,7 +3437,7 @@ function imageCheckpoint(img) {
  * own, a LoRA's, Civitai's say - the server works out (send_plan.py).
  * null if the server cannot say.
  */
-async function fetchForgePlan(model, img) {
+async function fetchForgePlan(model, img, vae) {
     if (!model) return null;
     const version = shownVersion(model);
     const checkpoint = imageCheckpoint(img);
@@ -3351,6 +3448,7 @@ async function fetchForgePlan(model, img) {
     if (checkpoint.versionIds.length) params.set('version_ids', checkpoint.versionIds.join(','));
     if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
     if (checkpoint.name) params.set('model_name', checkpoint.name);
+    if (vae) params.set('vae', vae);
     try {
         const response = await fetch('/model-manager/forge-modules?' + params.toString());
         const plan = await response.json();
@@ -3487,11 +3585,17 @@ const FORGE_PRESET_MAX_MS = TIMING.presetMax;
 
 /**
  * Select the modules the plan picked, and say what it could not find.
- * Called after the paste, as applyVaeSelection() is: the paste re-renders
- * much of the page but never touches the modules.
+ * Called after the paste: it re-renders much of the page but never touches
+ * the modules. Every model goes this way, SD and SDXL too - theirs is the
+ * image's own VAE, or none.
  */
-async function applyPlannedModules(plan) {
-    await applyForgeModules(plan.select || []);
+async function applyPlannedModules(plan, vaeName) {
+    const target = plan.target || plan.select || [];
+    if (await patchForgeModules(target)) {
+        await checkForgeModules(target);
+    } else if (!plan.manage_modules) {
+        await applyVaeSelection(vaeName);      // no Forge control: the A1111 way
+    }
     const problems = [];
     if (plan.missing && plan.missing.length) {
         const names = plan.missing.map((kind) => MODULE_KIND_NAMES[kind] || kind).join(', ');
@@ -3502,6 +3606,9 @@ async function applyPlannedModules(plan) {
         problems.push(`Settings -> Model Manager names ${plan.not_found.join(', ')} for ${plan.preset} `
                       + 'models, but Forge does not list it: check the name, or put the file in Forge\'s '
                       + 'VAE or text_encoder folder.');
+    }
+    if (plan.vae_not_found) {
+        console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
     }
     if (problems.length) showNotice(problems.join(' '));
 }
@@ -4278,7 +4385,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
         const filesAsked = fetchImageFiles(img);
-        const plan = await fetchForgePlan(model, img);
+        const plan = await fetchForgePlan(model, img, vaeFromMeta(meta));
 
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to
@@ -4351,8 +4458,9 @@ window.mmSendToTxt2img = async function(imageIndex) {
                 // touches the modules itself - Neo reads "Module 1"/"Module 2"
                 // from an infotext, not the "VAE:" line we write. A model whose
                 // text encoders and VAE are separate gets the ones it needs; an
-                // SD or SDXL one, the image's own VAE as before.
-                return plan && plan.manage_modules ? applyPlannedModules(plan) : applyVaeSelection(vaePath);
+                // SD or SDXL one, the image's own VAE. With no plan - the
+                // server did not answer - the image's VAE, the old way.
+                return plan ? applyPlannedModules(plan, vaePath) : applyVaeSelection(vaePath);
             },
         });
         if (!pasted) return;
