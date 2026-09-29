@@ -37,6 +37,8 @@ const CARDS = [
       infotext: 'a harbour\nSteps: 30',
       images: [image(21, 2), image(22, 2, { exists: false }), image(23, 2), image(24, 2)] },
 ];
+// The first generation used a LoRA: its images list it, as a Civitai image lists its resources.
+CARDS[0].images[0].meta.resources = [{ type: 'lora', name: 'add_detail', weight: 0.6, hash: 'aaaa1111' }];
 const STATE = { offset: 0, generation_count: 2, total: 7, filtered: 7, hidden_nsfw: 0,
                 hidden_promptless: 0, hidden: 0, nsfw_count: 0, promptless_count: 0 };
 
@@ -61,6 +63,10 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     }
     if (href.match(/\/model-manager\/generations\/2\/images/)) {
         return reply({ success: true, images: [21, 22, 23, 24, 25, 26].map((id) => image(id, 2)) });
+    }
+    if (href.includes('/model-manager/resolve-hashes')) {
+        return reply({ success: true, deferred: [], resolved: {
+            aaaa1111: { version_id: 11, model_id: 10, name: 'Add Detail', model_type: 'LORA', version_name: 'v1' } } });
     }
     if (href.includes('/model-manager/generations/rate')) {
         const form = Object.fromEntries(new URLSearchParams(String(init.body)));
@@ -155,6 +161,17 @@ check('only that card is drawn again: the others stay as they were',
 check('which shows all of them, in the card',
       cards()[1].querySelectorAll('.mm-generation-all img').length, 6);
 check('and then offers to hide them again', buttons(cards()[1]).includes('Hide images (6)'), true);
+
+// Resources: what a generation used, as a Civitai image's card offers it.
+await waitFor('the Resources button', () => buttons(cards()[0]).includes('Resources (1)'));
+check('a card whose images used a LoRA offers Resources, counting it; one that used none, nothing',
+      [buttons(cards()[0]).includes('Resources (1)'), buttons(cards()[1]).some((b) => b.startsWith('Resources'))],
+      [true, false]);
+await window.mmShowGenerationResources(1);
+const modal = document.querySelector('.mm-resources-modal');
+check('which opens the Resources dialog on them, as a Civitai image\'s does',
+      Array.from(modal?.querySelectorAll('.mm-res-name') || []).map((n) => n.textContent.trim()), ['Add Detail v1']);
+modal?.closest('.mm-modal-overlay, .mm-modal, .modal-overlay')?.remove();
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);

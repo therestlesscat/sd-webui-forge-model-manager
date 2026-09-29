@@ -51,6 +51,50 @@ def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,
     }
 
 
+def _hash_list(value: Any) -> Dict[str, str]:
+    """Forge's "Lora hashes" / "TI hashes" line - "name: hash, name: hash" - by name."""
+    found: Dict[str, str] = {}
+    for part in str(value or "").strip().strip('"').split(","):
+        name, _, hash_ = part.rpartition(":")
+        if name.strip() and hash_.strip():
+            found[name.strip()] = hash_.strip()
+    return found
+
+
+def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    An image's LoRAs and embeddings as a Civitai image lists them - its meta's
+    `resources`, each with a type, name, weight and hash - so Send shows their
+    chips in txt2img as it does a Civitai image's, by the same code.
+
+    The LoRAs are the record's - what Forge loaded for the image's own
+    iteration, at the weight it loaded them - each with its hash from the
+    infotext's "Lora hashes"; the embeddings are the infotext's "TI hashes".
+    """
+    meta = row.get("meta") or {}
+    loras = row.get("loras") or []
+    if isinstance(loras, str):
+        try:
+            loras = json.loads(loras)
+        except ValueError:
+            loras = []
+    lora_hashes = _hash_list(meta.get("Lora hashes"))
+    resources, seen = [], set()
+    for lora in loras:
+        name = isinstance(lora, dict) and lora.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        resources.append({"type": "lora", "name": name, "weight": lora.get("te_multiplier"),
+                          "hash": lora_hashes.get(name, "")})
+    for name, hash_ in lora_hashes.items():
+        if name not in seen:
+            resources.append({"type": "lora", "name": name, "weight": None, "hash": hash_})
+    for name, hash_ in _hash_list(meta.get("TI hashes")).items():
+        resources.append({"type": "embedding", "name": name, "weight": None, "hash": hash_})
+    return resources
+
+
 def _image(row: Dict[str, Any]) -> Dict[str, Any]:
     """An image as the page draws one: its generation data as a Civitai
     image's meta, its level stamped as every image the page gets is."""
@@ -66,7 +110,7 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
         "seed": row.get("seed"),
         "width": row.get("width"),
         "height": row.get("height"),
-        "meta": row.get("meta") or {},
+        "meta": {**(row.get("meta") or {}), "resources": image_resources(row)},
         "infotext": row.get("infotext"),
         "url": f"/model-manager/generations/images/{row['id']}/file",
         "exists": bool(row.get("path")) and os.path.isfile(row["path"]),
