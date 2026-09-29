@@ -146,11 +146,11 @@ check('and then offers to hide them again', buttons(cards()[1]).includes('Hide i
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
-window.mmSendGeneration(1);
+await window.mmSendGeneration(1);
 check('Send pastes the generation\'s own infotext, and presses paste',
       [document.querySelector('#txt2img_prompt textarea').value, pasted.txt2img],
       ['a lighthouse 1\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Karras', 1]);
-window.mmSendGeneration(2);
+await window.mmSendGeneration(2);
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
 check('saying its source image is not kept',

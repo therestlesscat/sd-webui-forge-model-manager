@@ -16,7 +16,8 @@ body.mm-modal-open {
 
 /* Header: the tab's name, and the settings gear at the far right. */
 .model-manager-header,
-.cb-header {
+.cb-header,
+.gen-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -25,7 +26,8 @@ body.mm-modal-open {
 }
 
 .model-manager-header h2,
-.cb-header h2 {
+.cb-header h2,
+.gen-header h2 {
     margin: 0;
 }
 
@@ -1122,10 +1124,15 @@ body.mm-modal-open {
 }
 
 /* Individual image card */
-/* --mm-card-image-width is how wide a card's image is: its image column, and
-   each image of a generation's "Show images", which are drawn the same size. */
-.mm-image-card {
+/* --mm-card-image-width is how wide a card's image is: its image column, each
+   image of a generation's "Show images", and every tile of the Generations
+   tab, which are all drawn the same size. */
+.mm-image-card,
+#generations_app {
     --mm-card-image-width: 200px;
+}
+
+.mm-image-card {
     display: flex;
     gap: 15px;
     background: rgba(0, 0, 0, 0.2);
@@ -3211,4 +3218,406 @@ textarea.mm-settings-input {
 @keyframes mm-restamp-slide {
     from { transform: translateX(-100%); }
     to { transform: translateX(340%); }
+}
+
+
+/* ==================== Generations tab ==================== */
+/* Every image you have generated: a tile per generation, or per image, in a
+   grid that scrolls. Every tile is the same height, its buttons in one row at
+   the bottom, where they are whatever the image: a vertical tile is a column
+   wide - the gallery's image width, or what the buttons need if that is more
+   (fitColumns() measures it) - and a horizontal one, for a wide image, two
+   columns and the gap between, so the two kinds line up in rows. */
+
+#generations_app {
+    padding: 10px;
+    --gen-column-width: var(--mm-card-image-width);
+    --gen-image-height: 300px;
+    --gen-gap: 0px;
+    --gen-tile-padding: 4px;
+    --gen-tile-border: 2px;
+}
+
+.gen-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.gen-toolbar-fill {
+    flex: 1;
+}
+
+.gen-view-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+/* dense: a vertical tile fills the hole a horizontal one leaves at the end
+   of a row, rather than the row ending short. */
+.gen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--gen-column-width));
+    grid-auto-flow: row dense;
+    gap: var(--gen-gap);
+    align-items: start;
+}
+
+/* "Preserve order": every tile one column, so nothing fills in out of order. */
+.gen-grid.gen-ordered {
+    grid-auto-flow: row;
+}
+
+.gen-grid.gen-ordered .gen-tile.gen-wide {
+    grid-column: span 1;
+}
+
+/* A tile's place: the grid sees its tiles, not it, so an opened-out
+   generation's images flow on as tiles of their own. */
+.gen-set {
+    display: contents;
+}
+
+.gen-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--gen-tile-padding);
+    background: rgba(0, 0, 0, 0.2);
+    border: var(--gen-tile-border) solid transparent;
+    border-radius: 8px;
+    min-width: 0;
+}
+
+.gen-tile.gen-wide {
+    grid-column: span 2;
+}
+
+/* A generation of several images, folded or opened out: its own colour. */
+.gen-tile.gen-group,
+.gen-tile.gen-member {
+    border-color: rgba(99, 102, 241, 0.7);
+}
+
+.gen-tile.gen-member {
+    background: rgba(99, 102, 241, 0.08);
+}
+
+/* The image's box: the same height for every tile, the image cropped to fill it. */
+.gen-media {
+    position: relative;
+    height: var(--gen-image-height);
+    overflow: hidden;
+    border-radius: 6px;
+}
+
+.gen-media > div,
+.gen-media .mm-generation-tile {
+    height: 100%;
+    min-height: 0;
+}
+
+.gen-media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+}
+
+/* A folded batch: its first images share the box, each cropped to its cell. */
+.gen-group-preview.mm-generation-preview-2 {
+    grid-template-rows: 1fr;
+}
+
+.gen-group-preview.mm-generation-preview-3,
+.gen-group-preview.mm-generation-preview-4 {
+    grid-template-rows: 1fr 1fr;
+}
+
+/* How many images a folded generation holds. */
+.gen-count {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    padding: 2px 7px;
+    background: rgba(79, 70, 229, 0.9);
+    color: #fff;
+    font-size: 0.8em;
+    font-weight: 600;
+    border-radius: 10px;
+}
+
+/* One row, always: a column is made wide enough for it (fitColumns). And one
+   column wide on every tile, so its buttons are the same size on a wide tile
+   as on a vertical one, where they would otherwise stretch across it. */
+/* When it was made, and its size, in the image's bottom-right corner. */
+.gen-date {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    padding: 1px 6px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.72em;
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+.gen-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    gap: 4px;
+    width: calc(var(--gen-column-width) - 2 * (var(--gen-tile-padding) + var(--gen-tile-border)));
+    max-width: 100%;
+}
+
+.gen-actions .mm-btn {
+    flex: 1 1 auto;
+}
+
+.gen-status {
+    padding: 16px;
+    text-align: center;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.gen-status:empty {
+    display: none;
+}
+
+.gen-sentinel {
+    height: 1px;
+}
+
+/* An image in a tile opens the viewer. */
+.gen-viewable {
+    cursor: zoom-in;
+}
+
+/* The count is a button: it opens a batch out in the grid, or folds it back. */
+button.gen-count {
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+button.gen-count:hover {
+    background: rgba(99, 102, 241, 1);
+}
+
+/* ------------------------------------------------------------- the viewer
+   An image over the page, as large as it goes; the details beside it, in a
+   panel that folds away to a narrow strip. */
+.gen-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    background: rgba(0, 0, 0, 0.94);
+    color: var(--body-text-color, #e5e7eb);
+}
+
+.gen-viewer-stage {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+}
+
+.gen-viewer-main {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
+}
+
+.gen-viewer-frame {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gen-viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.gen-viewer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+.gen-viewer-where {
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.gen-viewer-where:empty {
+    display: none;
+}
+
+.gen-viewer-actions {
+    display: inline-flex;
+    gap: 6px;
+}
+
+.gen-viewer-step {
+    flex: 0 0 56px;
+    align-self: stretch;
+    border: none;
+    background: transparent;
+    color: #fff;
+    font-size: 48px;
+    cursor: pointer;
+    opacity: 0.6;
+}
+
+.gen-viewer-step:hover:not(:disabled) {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.gen-viewer-step:disabled {
+    opacity: 0.15;
+    cursor: default;
+}
+
+.gen-viewer-close {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    border: none;
+    background: transparent;
+    color: #fff;
+    font-size: 32px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.gen-viewer-close:hover {
+    opacity: 1;
+}
+
+.gen-viewer-panel {
+    position: relative;
+    flex: 0 0 360px;
+    display: flex;
+    background: var(--background-fill-primary, #1f2937);
+    border-left: 1px solid var(--border-color-primary, #374151);
+    transition: flex-basis 0.15s;
+}
+
+.gen-viewer-panel-toggle {
+    flex: 0 0 22px;
+    border: none;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--body-text-color-subdued, #9ca3af);
+    cursor: pointer;
+}
+
+.gen-viewer-panel-toggle::before {
+    content: '›';
+}
+
+.gen-viewer-panel-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.gen-viewer-info {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gen-viewer.gen-viewer-collapsed .gen-viewer-panel {
+    flex-basis: 22px;
+}
+
+.gen-viewer.gen-viewer-collapsed .gen-viewer-info {
+    display: none;
+}
+
+.gen-viewer.gen-viewer-collapsed .gen-viewer-panel-toggle::before {
+    content: '‹';
+}
+
+@media (max-width: 800px) {
+    .gen-viewer-panel {
+        flex-basis: 260px;
+    }
+}
+
+/* An image's information: everything recorded, in the viewer's panel. */
+.gen-info-heading {
+    font-weight: 600;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.85em;
+}
+
+.gen-info-prompt {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+
+.gen-info-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gen-info-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.gen-info-value {
+    font-size: 0.9em;
+    word-break: break-word;
+}
+
+.gen-info-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.gen-delete-files {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.gen-delete-note {
+    margin: 8px 0 0;
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
 }

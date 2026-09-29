@@ -366,12 +366,12 @@ class ModelsDatabase:
         """The model files whose generations one gallery shows."""
         return self._generations.gallery_files(path)
 
-    def generation_gallery_images(self, files: List[str]) -> List[Dict[str, Any]]:
+    def generation_gallery_images(self, files: Optional[List[str]]) -> List[Dict[str, Any]]:
         """Every generated image filed under these files, newest first, briefly."""
         return self._generations.gallery_images(files)
 
-    def count_generations(self, files: List[str]) -> int:
-        """How many generations used any of these files."""
+    def count_generations(self, files: Optional[List[str]]) -> int:
+        """How many generations used any of these files - or at all, for None."""
         return self._generations.count_generations(files)
 
     def get_generations(self, generation_ids: List[int]) -> Dict[int, Dict[str, Any]]:
@@ -385,6 +385,11 @@ class ModelsDatabase:
     def get_generation_image_path(self, image_id: int) -> Optional[str]:
         """Where one generated image was saved."""
         return self._generations.get_image_path(image_id)
+
+    def delete_generation_image(self, image_id: int) -> Tuple[List[str], Optional[int]]:
+        """Remove one generated image, and its generation with its last; see
+        db/generations_ops.py."""
+        return self._generations.delete_image(image_id)
 
     def delete_generation(self, generation_id: int) -> List[str]:
         """Remove a generation's rows; returns its images' paths no other record names.
