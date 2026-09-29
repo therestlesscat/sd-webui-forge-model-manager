@@ -600,9 +600,9 @@ click(row().querySelector('[data-chips-clear]'));
 // kind of model. Pasting the infotext alone did none of it: Neo ignores an
 // infotext's checkpoint and modules by default, so an SD 1.5 image sent after
 // an Anima one kept the Anima model and its encoders.
-async function sendGeneration(id) {
+async function sendGeneration(id, meta = {}) {
     events.length = 0;
-    await window.mmSendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: {},
+    await window.mmSendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta,
                                   generationId: id });
     await window.mmSendSettled();
 }
@@ -631,6 +631,21 @@ check('what was made with and is gone is said, by name, and the rest still sent'
       [missingNote.includes('gone.safetensors'), missingNote.includes('qwen_image_vae.safetensors'),
        events.includes('paste'), events.some((e) => e.startsWith('checkpoint'))], [true, true, true, false]);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
+// the server lists your images' resources as a Civitai image's, from the
+// record - what Forge loaded, at its weight - and the infotext's hashes.
+generationPlan = { success: true, preset: null, checkpoint: null, target: [], modules_missing: [] };
+await sendGeneration(301, { prompt: 'a lighthouse <lora:add_detail:0.6>', resources: [
+    { type: 'lora', name: 'add_detail', weight: 0.6, hash: 'aaaa' },
+    { type: 'embedding', name: 'easynegative', weight: null, hash: 'bbbb' },
+    { type: 'lora', name: 'gone_lora', weight: 0.8, hash: 'cccc' }] });
+await waitFor('its chips', () => row() && chip('gone_lora')?.dataset.state === 'download');
+check('a generation sent shows its LoRAs and embeddings as chips, found by their hashes',
+      [look('add_detail').slice(0, 2), look('easynegative').slice(0, 2), look('gone_lora').slice(0, 2)],
+      [['have', '✓'], ['have', '✓'], ['download', '↓']]);
+await sendGeneration(302, {});
+check('one that used none leaves none behind from the one before', row(), null);
 generationPlan = null;
 
 // ------------------------------------------------ the original Forge

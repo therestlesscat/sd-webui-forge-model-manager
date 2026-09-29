@@ -2087,6 +2087,7 @@ function renderGenerations() {
         <div class="mm-images-footer">${generationsFooterHtml()}</div>
     `;
     setupLazyMedia(container);
+    refreshResourceButtons();
 }
 
 /**
@@ -2104,6 +2105,7 @@ function appendGenerationPage(page, cards) {
     list.insertAdjacentHTML('beforeend', generationPageHtml(page, cards));
     refreshGenerationsChrome();
     setupLazyMedia(list);
+    refreshResourceButtons();
 }
 
 /**
@@ -2253,6 +2255,7 @@ function renderGenerationCard(card, index) {
         : `${count} ${count === 1 ? 'image' : 'images'}`;
     const preview = (card.images || []);
     const moreThanShown = card.matching_count > preview.length;
+    const resourcesLabel = resourceButtonLabel(generationResourcesImage(card));
     return `
         <div class="mm-image-card mm-generation-card" data-generation="${card.id}">
             <div class="mm-image-left">
@@ -2270,6 +2273,8 @@ function renderGenerationCard(card, index) {
                         Send to ${sendTab(card)}
                     </button>
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
+                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-generation="${Number(card.id)}"
+                        onclick="window.mmShowGenerationResources(${Number(card.id)})">${resourcesLabel}</button>` : ''}
                     ${moreThanShown || card.all ? `<button class="mm-btn secondary" onclick="window.mmShowAllGeneration(${Number(card.id)})">
                         ${card.all ? 'Hide images' : 'Show images'} (${card.matching_count})</button>` : ''}
                     <span class="mm-generation-delete">
@@ -2352,11 +2357,21 @@ window.mmSendInfotext = async function({ infotext, mode, meta = {}, generationId
     const hasHiresFix = meta['Denoising strength'] &&
         (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
     const tab = sendTab({ mode });
-    // Chips belong to a Civitai image's send; an earlier one's would stay.
+    // An earlier send's chips would stay; this one's come from its own record.
     showResourceChips(tab, []);
+    const image = { meta };
+    const filesAsked = meta.resources?.length ? fetchImageFiles(image) : null;
     const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
     if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste })) return false;
     showGenerationTab(tab);
+    // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
+    // the server gives your images a Civitai image's `resources`.
+    if (filesAsked) {
+        const { chips } = collectResourceChips(meta, await filesAsked, null);
+        resourceChipSources[tab] = { img: image, gallery: null };
+        showResourceChips(tab, chips);
+        checkMissingChips(tab);
+    }
     if (tab === 'img2img') {
         showNotice('The settings are in img2img. The image this generation started from '
                    + 'is not kept: drop an image in before generating.');
@@ -2853,11 +2868,17 @@ function resourceButtonLabel(img) {
     return count ? `Resources (${count})` : '';
 }
 
-/** Relabel the gallery's Resources buttons from what is known now. */
+/** Relabel the gallery's Resources buttons from what is known now - your generations' too. */
 function updateResourceButtons() {
     document.querySelectorAll('#mm_images [data-resources-index]').forEach((button) => {
         const img = currentImages[Number(button.dataset.resourcesIndex)];
         const label = img ? resourceButtonLabel(img) : '';
+        if (label) button.textContent = label;
+        else button.remove();
+    });
+    document.querySelectorAll('#mm_images [data-resources-generation]').forEach((button) => {
+        const { card } = drawnGeneration(Number(button.dataset.resourcesGeneration));
+        const label = card ? resourceButtonLabel(generationResourcesImage(card)) : '';
         if (label) button.textContent = label;
         else button.remove();
     });
@@ -2869,7 +2890,8 @@ function updateResourceButtons() {
  * that happens only when a panel is opened.
  */
 async function refreshResourceButtons() {
-    const unknown = [...new Set(currentImages.flatMap(imageResourceHashes))]
+    const images = [...currentImages, ...generationCards.map(generationResourcesImage)];
+    const unknown = [...new Set(images.flatMap(imageResourceHashes))]
         .filter(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
     if (!unknown.length) return;
     try {
@@ -2888,8 +2910,40 @@ async function refreshResourceButtons() {
 }
 
 // Show the resources behind an image, resolved and merged
-window.mmShowResources = async function(imageIndex) {
-    const img = currentImages[imageIndex];
+window.mmShowResources = function(imageIndex) {
+    return showImageResources(currentImages[imageIndex]);
+};
+
+/**
+ * One of your generations' resources, in the same dialog: its LoRAs and
+ * embeddings, as its images list them (api/generations.image_resources).
+ */
+window.mmShowGenerationResources = function(id) {
+    const { card } = drawnGeneration(id);
+    return card ? showImageResources(generationResourcesImage(card)) : undefined;
+};
+
+/**
+ * A generation card's resources as one image's: every LoRA and embedding of
+ * the images it holds, each once - a batch's iterations can each load their
+ * own.
+ */
+function generationResourcesImage(card) {
+    const seen = new Set();
+    const resources = [];
+    for (const img of card.all || card.images || []) {
+        for (const r of (img.meta || {}).resources || []) {
+            const key = `${(r.hash || '').toLowerCase()}|${r.type}:${r.name}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            resources.push(r);
+        }
+    }
+    return { meta: { resources } };
+}
+
+/** The Resources dialog for an image - a Civitai image, or one of your own. */
+async function showImageResources(img) {
     if (!img || !img.meta) return;
 
     const civitai = img.meta.civitaiResources || [];

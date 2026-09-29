@@ -330,6 +330,20 @@ if has_fastapi:
         ['id', 'generation_id', 'position', 'iteration', 'seed', 'width', 'height', 'meta',
          'infotext', 'url', 'exists', 'mm_level', 'mm_level_from_prompt', 'user_level']), True)
     check('and the file is there', card['images'][0]['exists'], True)
+    # Its LoRAs and embeddings as a Civitai image lists them, for Send's chips:
+    # the LoRAs Forge loaded for its own iteration, at their weight.
+    check('each image lists the LoRAs of its own iteration, as a Civitai image lists its resources',
+          [i['meta']['resources'] for i in card['images'][1:3]],
+          [[{'type': 'lora', 'name': 'a', 'weight': 0.7, 'hash': ''}],
+           [{'type': 'lora', 'name': 'b', 'weight': 0.5, 'hash': ''}]])
+    from model_manager.api.generations import image_resources          # noqa: E402
+    check('with each LoRA\'s hash from the infotext, and its embeddings from "TI hashes"',
+          image_resources({'loras': [{'name': 'add_detail', 'te_multiplier': 0.6}],
+                           'meta': {'Lora hashes': 'add_detail: 47aaaf0d2945, other: 1234abcd',
+                                    'TI hashes': '"easynegative: c74b4e810b"'}}),
+          [{'type': 'lora', 'name': 'add_detail', 'weight': 0.6, 'hash': '47aaaf0d2945'},
+           {'type': 'lora', 'name': 'other', 'weight': None, 'hash': '1234abcd'},
+           {'type': 'embedding', 'name': 'easynegative', 'weight': None, 'hash': 'c74b4e810b'}])
 
     body = page(CHECKPOINT, hide_nsfw_images='true', hide_promptless_images='true')
     check('the NSFW switch hides the explicit ones, as in the Civitai gallery',
