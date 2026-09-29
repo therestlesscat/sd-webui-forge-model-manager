@@ -19,7 +19,7 @@ from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
 from ..scan_service import as_model_payload
 from ..storage import read_civitai_info
-from .images import GALLERY_PAGE_SIZE, gallery_switches, version_gallery
+from .images import gallery_state, gallery_switches
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -321,11 +321,10 @@ def register(app: FastAPI):
 
     @app.get("/model-manager/models/details")
     async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
-                                hide_promptless_images: Optional[bool] = None,
-                                image_limit: int = GALLERY_PAGE_SIZE):
+                                hide_promptless_images: Optional[bool] = None):
         """
-        Get detailed info for a specific model by file path, with the first
-        image_limit images of its gallery.
+        Get detailed info for a specific model by file path, with its
+        gallery's totals; the gallery's pages are asked for on their own.
         """
         try:
             from ..storage import load_model_metadata
@@ -408,16 +407,14 @@ def register(app: FastAPI):
                         "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
                     }
 
-            # The gallery's first page, and the state it is drawn with. The
-            # rest come from /model-manager/images/page as they are asked for.
+            # The gallery's totals, for its banner. Its pages come from
+            # /model-manager/images/gallery-page, after: page 1 may have to
+            # be fetched from Civitai, and the details must not wait on it.
             if version_id:
                 hide_nsfw_images, hide_promptless_images = gallery_switches(
                     hide_nsfw_images, hide_promptless_images)
-                images, result["images_state"] = version_gallery(
-                    get_models_db(), version_id, hide_nsfw_images,
-                    hide_promptless_images, 0, image_limit)
-                if images:
-                    result["images"] = images
+                result["images_state"] = gallery_state(
+                    get_models_db(), version_id, hide_nsfw_images, hide_promptless_images)
 
             # For the label of the gallery's other tab: your generations.
             result["generations_count"] = db.count_generations(db.generation_gallery_files(path))

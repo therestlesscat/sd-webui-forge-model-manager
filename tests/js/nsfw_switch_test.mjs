@@ -14,7 +14,7 @@
 // check that matters is what the request says, not only how the box looks.
 //
 // A gallery a filter has emptied must keep the banner, and with it the switch.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -57,7 +57,7 @@ const asked = [];               // [hide_nsfw_images, hide_promptless_images] pe
 let everyImageLacksAPrompt = false;
 let everyImagePasses = false;
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     if (href.includes('/ui-options')) {
         return { ok: true, json: async () => ({ success: true, samplers: [], schedulers: [],
@@ -67,7 +67,9 @@ globalThis.fetch = async (url) => {
         const params = new URL(href, 'http://webui').searchParams;
         const hideNsfw = params.get('hide_nsfw_images') !== 'false';
         const hidePromptless = params.get('hide_promptless_images') !== 'false';
-        asked.push([params.get('hide_nsfw_images'), params.get('hide_promptless_images')]);
+        if (!params.has('via_page')) {
+            asked.push([params.get('hide_nsfw_images'), params.get('hide_promptless_images')]);
+        }
 
         if (everyImagePasses) {
             return { ok: true, json: async () => ({ success: true, model: { ...MODEL,
@@ -99,7 +101,7 @@ globalThis.fetch = async (url) => {
             page_size: 10, models: [MODEL] }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
-};
+});
 
 const images = () => document.getElementById('mm_images');
 const cards = () => images().querySelectorAll('.mm-image-card').length;
@@ -165,12 +167,13 @@ check('unticking asks it to hide them again', asked, [['true', 'true']]);
 // ------------------------------------------------- a gallery emptied by a filter
 everyImageLacksAPrompt = true;
 await window.mmToggleShowNsfwImages(false);
-await waitFor('the emptied gallery', () => images().textContent.includes('No images to show'));
+await waitFor('the emptied gallery', () => images().textContent.includes('Displaying 0 images'));
 check('the banner stays, saying why', sentence(),
       '2 images stored · 0 match the filters (0 shown) · 2 hidden due to unusable prompt');
 check('with the switch that can bring them back', switchLabel(PROMPT), 'Show unusable prompts (2)');
 check('and the message blames neither filter in particular',
-      images().textContent.includes('No images to show with the filters above.'), true);
+      images().querySelector('.mm-page-note')?.textContent,
+      'Displaying 0 images for page 1 · 2 hidden due to unusable prompt · no more images on Civitai');
 check('rather than telling you to untick an NSFW box', images().textContent.includes('Uncheck'), false);
 
 // --------------------------------------- a gallery the filters leave whole

@@ -67,6 +67,7 @@ class Client:
         self.model = answers.get('model')
         self.models = answers.get('models', {})
         self.images = answers.get('images', {'images': [], 'next_cursor': None})
+        self.limits = []
         self.types = answers.get('types', {})
         self.generation = answers.get('generation', {})
         self.raises = answers.get('raises')
@@ -96,6 +97,7 @@ class Client:
 
     def get_model_images(self, version_id, cursor=None, limit=None):
         self.asked.append(('images', version_id))
+        self.limits.append(limit)
         if self.images_raises is not None:
             raise self.images_raises
         # Image ids are unique across Civitai and the cache is keyed on them,
@@ -229,7 +231,9 @@ sync, client = service(
                        {'id': 2, 'url': 'u2', 'meta': None}],
             'next_cursor': 'more'},
     types={70010: 'Merge'})
+opts.model_manager_gallery_page_size = 40
 result = sync.sync_model(FRESH)
+opts.model_manager_gallery_page_size = 100
 # A single checkpoint goes all the way through, classification included. It
 # used not to: _classify_checkpoints() takes self._progress_lock, which only
 # sync_all() and sync_metadata() created, so every download of a checkpoint
@@ -252,6 +256,8 @@ check('marked as identified', row['has_civitai_data'], True)
 check('with the hashes that found it', row['file_hashes']['sha256'], fresh_hashes.sha256)
 check('its trigger words', row['trained_words'], ['trigger'])
 check('and the images are stored', len(db.get_images(70011)), 2)
+check('fetched at the gallery page size set, as a download is synced this way',
+      client.limits, [40])
 check('and it was asked whether it was trained or merged',
       [a for a in client.asked if a[0] == 'types'], [('types', [70010])])
 
@@ -526,6 +532,29 @@ check('a gallery is fetched per version',
       len([a for a in client.asked if a[0] == 'images']), 2)
 check('and the prompts behind them in one pooled request',
       len([a for a in client.asked if a[0] == 'generation']), 1)
+
+# A gallery's first page is fetched at the size it is paged in, so opening
+# the model after a sync needs no request of its own. It was always 100.
+opts.model_manager_gallery_page_size = 30
+sync, client = service(
+    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    images=lambda version_id: {
+        'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
+        'next_cursor': None})
+sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
+check('a sync asks for each gallery at the page size set', client.limits, [30, 30])
+
+# Civitai answers at most 200 images to a request; a size set by hand above
+# that is kept to it, rather than failing every gallery's fetch.
+opts.model_manager_gallery_page_size = 300
+sync, client = service(
+    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    images=lambda version_id: {
+        'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
+        'next_cursor': None})
+sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
+check('a page size above what Civitai gives is asked for at 200', client.limits, [200, 200])
+opts.model_manager_gallery_page_size = 100
 stored = db.get_images(rows[0]['id'])
 check('the gallery replaced what was there', len(stored), 1)
 check('with the prompt that was looked up',

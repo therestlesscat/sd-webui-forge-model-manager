@@ -303,6 +303,22 @@ if has_fastapi:
     def page(path, **params):
         return client.get('/model-manager/generations/page', params={'path': path, **params}).json()
 
+    # A page is a slice of the gallery's generations, newest first - its size
+    # the images-per-page setting - before the switches.
+    newer = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    opts.model_manager_gallery_page_size = 1
+    first = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
+    second = page(CHECKPOINT, page=2, hide_nsfw_images='true', hide_promptless_images='false')
+    opts.model_manager_gallery_page_size = 100
+    check('at one generation a page, page 1 is the newest, and more come after it',
+          ([c['id'] for c in first['generations']], first['page']['more']), ([newer], True))
+    check('page 2 the one before it, the last',
+          ([c['id'] for c in second['generations']], second['page']['more']), ([generation_id], False))
+    check('each page\'s note counts its own images',
+          {k: second['page'][k] for k in ('number', 'generations', 'count', 'shown', 'hidden_nsfw')},
+          {'number': 2, 'generations': 1, 'count': 4, 'shown': 2, 'hidden_nsfw': 2})
+    db.delete_generation(newer)
+
     # The prompt words above made images 1 and 3 explicit.
     body = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
     card = body['generations'][0]

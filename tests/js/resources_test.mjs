@@ -11,7 +11,7 @@
 // real data: "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix". What
 // this checks is therefore which endpoint was asked and what came back, not
 // only the number of rows.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -78,7 +78,7 @@ const resolver = { cap: null, hold: null, answers: RESOLVED };
 const localAnswers = {};
 const localCalls = [];
 
-globalThis.fetch = async (url, init = {}) => {
+globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     if (href.includes('/model-manager/ui-options')) {
         return { ok: true, json: async () => ({
@@ -126,7 +126,7 @@ globalThis.fetch = async (url, init = {}) => {
             success: true, total: 1, page: 1, page_size: 10, models: [MODEL] }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
-};
+});
 
 // --- run --------------------------------------------------------------------
 const panel = () => document.querySelector('.mm-resources-modal');
@@ -271,7 +271,7 @@ const downloadsAsked = [];
 const progressAsked = [];
 const server = { download: {}, progress: {} };
 const fetchBefore = globalThis.fetch;
-globalThis.fetch = async (url, init = {}) => {
+globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: !body.status, status: body.status || 200, json: async () => body });
     if (href.includes('/model-manager/image-resources')) {
@@ -289,7 +289,7 @@ globalThis.fetch = async (url, init = {}) => {
         return reply(server.download[form.get('version_id')]);
     }
     return fetchBefore(url, init);
-};
+});
 const cell = (id) => panel()?.querySelector(`[data-res-download="${id}"]`);
 // The button's own onclick, run as the browser would: the harness's DOM does
 // not run inline handlers, and what it calls with is part of what is checked.

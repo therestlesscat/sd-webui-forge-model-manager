@@ -7,7 +7,7 @@
 // one whose file is gone says so and opens nothing. Send pastes the
 // generation's own infotext, as Forge's PNG Info does, and Delete removes the
 // record - and the files only with the box beside it ticked.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -42,7 +42,7 @@ const STATE = { offset: 0, generation_count: 2, total: 7, filtered: 7, hidden_ns
 
 const asked = [];
 let deleteBody = null;
-globalThis.fetch = async (url, init = {}) => {
+globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
     const reply = (body) => ({ ok: true, json: async () => body });
@@ -52,7 +52,10 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/model-manager/generations/page')) {
         const cards = CARDS.filter((c) => !c.deleted);
+        const shown = cards.reduce((n, c) => n + c.matching_count, 0);
         return reply({ success: true, generations: cards,
+                       page: { number: 1, size: 100, generations: cards.length, count: shown, shown,
+                               hidden_nsfw: 0, hidden_promptless: 0, more: false, error: null },
                        state: { ...STATE, generation_count: cards.length, stored_generations: cards.length } });
     }
     if (href.match(/\/model-manager\/generations\/2\/images/)) {
@@ -77,7 +80,7 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, total: 2, page: 1, page_size: 20, models: [MODEL, OTHER] });
     }
     return reply({ success: true });
-};
+});
 window.confirm = globalThis.confirm = () => true;
 
 // Each generation tab's prompt and paste button, for Send.
@@ -110,6 +113,10 @@ await waitFor('the cards', () => cards().length === 2);
 check('opened, it asks for the open model\'s generations',
       asked.some((u) => u.includes('/generations/page') && u.includes('a.safetensors')), true);
 check('and draws a card per generation', cards().length, 2);
+check('page 1 of them, ending with its note - which says nothing of Civitai, as none come from it',
+      Array.from(document.querySelectorAll('#mm_images .mm-page-note')).map((n) => n.textContent.trim()),
+      ['Displaying 7 images for page 1']);
+check('and, the last page, no Load More', !!document.getElementById('mm_show_more_generations_btn'), false);
 check('one image fills the card\'s image column, as most generations are one',
       cards()[0].querySelector('.mm-generation-preview').className.includes('preview-1'), true);
 check('four share it', cards()[1].querySelector('.mm-generation-preview').className.includes('preview-4'), true);
@@ -129,18 +136,21 @@ const buttons = (card) => Array.from(card.querySelectorAll('.mm-image-actions bu
     .map((b) => b.textContent.trim());
 check('a generation shown whole has no "Show images"', buttons(cards()[0]).some((b) => b.startsWith('Show images')), false);
 check('one with more than its preview has, with how many', buttons(cards()[1]).includes('Show images (6)'), true);
-await window.mmShowAllGeneration(1);
+const firstGeneration = cards()[0];
+await window.mmShowAllGeneration(2);
+check('only that card is drawn again: the others stay as they were',
+      [cards()[0] === firstGeneration, firstGeneration.isConnected], [true, true]);
 check('which shows all of them, in the card',
       cards()[1].querySelectorAll('.mm-generation-all img').length, 6);
 check('and then offers to hide them again', buttons(cards()[1]).includes('Hide images (6)'), true);
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
-window.mmSendGeneration(0);
+window.mmSendGeneration(1);
 check('Send pastes the generation\'s own infotext, and presses paste',
       [document.querySelector('#txt2img_prompt textarea').value, pasted.txt2img],
       ['a lighthouse 1\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Karras', 1]);
-window.mmSendGeneration(1);
+window.mmSendGeneration(2);
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
 check('saying its source image is not kept',
@@ -166,11 +176,14 @@ check('and opening your generations again fetches them again',
 await waitFor('the cards again', () => cards().length === 2);
 
 cards()[0].querySelector('input[type="checkbox"]').checked = true;
-await window.mmDeleteGeneration(0);
+const remaining = cards()[1];
+await window.mmDeleteGeneration(1);
 check('Delete, with the box ticked, asks for the files to go too', deleteBody, 'delete_files=true');
 await waitFor('the card gone', () => cards().length === 1);
-check('and the gallery is drawn again without it, the tab counting one fewer',
-      [cards().length, tabs()[1][0]], [1, 'Your generations (1)']);
+check('and its card goes where it was: the rest are not drawn again, and the tab counts one fewer',
+      [cards()[0] === remaining, tabs()[1][0]], [true, 'Your generations (1)']);
+check('the card left still names its own generation, not its old place',
+      cards()[0].querySelector('.mm-send-btn').getAttribute('onclick'), 'window.mmSendGeneration(2)');
 
 await window.mmSelectModel(1);
 await waitFor('the next model', () => tabs().length === 2 && tabs()[0][1]);

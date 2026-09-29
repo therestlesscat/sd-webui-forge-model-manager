@@ -5,7 +5,7 @@
 // The page used to send its own "hide" on the first request, so the server's
 // fall-back to the settings never ran and neither setting was read at all;
 // and a switch ticked on one model stayed ticked for every model after it.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -23,7 +23,7 @@ const LIBRARY = [{ id: 1, nsfw: false, prompt: true }, { id: 2, nsfw: true, prom
                  { id: 3, nsfw: false, prompt: false }];
 const settings = { hide_nsfw_images: true, hide_promptless_images: true };
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     if (href.includes('/models/details')) {
         const params = new URL(href, 'http://webui').searchParams;
@@ -53,7 +53,7 @@ globalThis.fetch = async (url) => {
             page_size: 10, models: MODELS }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
-};
+});
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));

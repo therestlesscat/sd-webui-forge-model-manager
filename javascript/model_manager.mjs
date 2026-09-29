@@ -34,6 +34,8 @@ const {
     mediaFallback,
     IMAGE_PLACEHOLDER_SVG,
     galleryImageWidth,
+    pageSeparator,
+    pageNoteHtml,
     collectResourceChips,
     resourceNames,
     promptHasChip,
@@ -42,9 +44,6 @@ const {
     sortBaseModels,
     videoFrames,
     videoSize,
-    getImagePageCount,
-    downloadedImagesNote,
-    downloadFailedNote,
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
@@ -61,9 +60,7 @@ const {
     loadNsfwDetection,
     nsfwModelNote,
     refreshUiOptions,
-    IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
-    renderImagePagination: sharedImagePagination,
     TIMING,
     renderModelCard,
     renderGridPagination,
@@ -135,11 +132,6 @@ let scanPollInterval = null;
 let currentImages = [];
 let currentVersionId = null;
 let currentModelPath = null;
-let currentImagePage = 1;
-// "continuous" grows one list downwards; "pages" shows a page at a time. The
-// setting is read once at load, below, and defaults to continuous so a WebUI
-// that has never seen the option behaves like the one that has.
-let imageBrowsing = 'continuous';
 // Whether the gallery is hiding images with no prompt worth reading. Filtered
 // in SQL, like the NSFW one, so the counts come from the same place the images
 // do rather than from whatever happens to be loaded.
@@ -155,19 +147,19 @@ let promptlessImageCount = 0;
 // The images the prompt filter is hiding right now, not counting any the NSFW
 // filter hides first - the other half of the banner's "hidden due to" split.
 let hiddenPromptlessCount = 0;
-// The gallery is fetched a page at a time; it used to arrive whole and be
-// sliced here. currentImages holds what is loaded - the page on show, or in
-// the continuous list every page so far - and imagesOffset is where the first
-// of them sits among the images the switches let through, of which there are
-// filteredImageCount.
-let imagesOffset = 0;
+// The gallery is a list of pages, each a slice of what is stored, in gallery
+// order, before the switches filter it - see model_manager/gallery.py. Load
+// more adds the next. currentImages holds the images drawn, every page's in
+// turn, and imagePages each page loaded: its number, where its images start
+// in currentImages, and its own counts, for its note.
+let imagePages = [];
+let loadingImagePage = false;
+// Why the last page asked for did not come, above Load More, until the next.
+let pageRequestError = '';
 let filteredImageCount = 0;
 // Each fetch of the gallery takes a number; an answer to anything but the
 // latest is dropped, so a slow page cannot land over a newer one.
 let imagesRequest = 0;
-// What the last "Download More Images" brought, beside the button, until the
-// gallery is next loaded some other way.
-let downloadNote = '';
 
 // The gallery's two tabs: the version's example images from Civitai, and your
 // own generations with the model. Each model opens on Civitai's. The
@@ -175,10 +167,11 @@ let downloadNote = '';
 // is first opened - see model_manager/api/generations.py.
 let galleryTab = 'civitai';
 let generationsCount = 0;       // for the tab's label, from the details
-let generationCards = [];       // the cards loaded: the page, or every page so far
-let generationsState = null;    // the server's counts; null until the tab loads
-let generationsOffset = 0;      // where the first loaded card sits
-let generationsPage = 1;
+let generationCards = [];       // the cards drawn, every page's in turn
+let generationPages = [];       // each page loaded: its number, first card, counts
+let generationsState = null;    // the server's totals; null until the tab loads
+let loadingGenerationPage = false;
+let generationPageError = '';   // why the last page asked for did not come
 let generationsRequest = 0;
 let nextImagesCursor = null;  // Cursor for loading more images
 let imagesSyncDate = null;    // Last sync date (null = never synced)
@@ -193,12 +186,6 @@ let hiddenImageCount = 0;
 // Helper to detect video URLs
 
 
-
-function renderImagePagination(totalPages, position = 'bottom') {
-    return sharedImagePagination({
-        currentPage: currentImagePage, totalPages, position, prefix: 'mm',
-    });
-}
 
 function scrollToModelImagesTop() {
     return new Promise((resolve) => {
@@ -712,8 +699,7 @@ window.mmSelectModel = async function(index) {
     currentImages = [];
     currentVersionId = null;
     currentModelPath = model.file_path;
-    currentImagePage = 1;
-    imagesOffset = 0;
+    imagePages = [];
     filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
@@ -776,10 +762,8 @@ async function loadVersionDetails(filePath) {
             path: filePath,
             hide_nsfw_images: hideNsfwImagesInitialized ? hideNsfwImages : undefined,
             hide_promptless_images: hidePromptlessInitialised ? hidePromptlessImages : undefined,
-            image_limit: IMAGE_PAGE_SIZE,
         };
         const request = ++imagesRequest;
-        downloadNote = '';
         const data = await apiCall({ endpoint: '/model-manager/models/details', params });
         if (request !== imagesRequest) return;  // superseded by a newer load
         if (data.success && data.model) {
@@ -794,10 +778,10 @@ async function loadVersionDetails(filePath) {
                 updateDescription(data.model.civitai_model.description);
             }
 
-            // The gallery's first page, and the state it is drawn with
-            const images = data.model.images || [];
-            currentImages = images;
-            currentImagePage = 1;
+            // The gallery's totals now, its first page after: page 1 may be
+            // fetched from Civitai, and the details do not wait for it.
+            currentImages = [];
+            imagePages = [];
             const imagesState = data.model.images_state || {};
             applyImagesState(imagesState);
             generationsCount = data.model.generations_count || 0;
@@ -814,10 +798,8 @@ async function loadVersionDetails(filePath) {
                 console.log(`[ModelManager] Initialized hideNsfwImages: ${hideNsfwImages}`);
             }
 
-            console.log(`[ModelManager] Loaded ${images.length} of ${filteredImageCount} images (total: ${totalImageCount}, hidden: ${hiddenImageCount}, cursor: ${nextImagesCursor ? 'yes' : 'no'}, synced: ${imagesSyncDate ? 'yes' : 'no'})`);
-
-            renderModelImages(images);
             updateImagesCountCell();
+            await loadGalleryPage(1);
         }
     } catch (error) {
         console.error('[ModelManager] Failed to load model details:', error);
@@ -834,7 +816,6 @@ function applyImagesState(state) {
     currentVersionId = state.version_id || null;
     nextImagesCursor = state.next_cursor || null;
     imagesSyncDate = state.sync_date || null;
-    imagesOffset = state.offset || 0;
     totalImageCount = state.total_count || 0;
     filteredImageCount = state.filtered_count || 0;
     hiddenImageCount = state.hidden_nsfw ?? state.hidden_count ?? 0;
@@ -844,60 +825,51 @@ function applyImagesState(state) {
 }
 
 /**
- * Fetch a page of the open version's gallery, through its two switches, and
- * draw it. Appended to what is loaded for the continuous list's Show More;
- * otherwise it replaces it.
+ * Fetch page `number` of the open version's gallery, through its two
+ * switches, and draw it: added to the list after the pages loaded - Load
+ * more - or as the first, replacing them. The server fills a page the
+ * library cannot from Civitai first, so this can wait on Civitai.
  *
  * @returns {Promise<boolean>} whether the page arrived and was drawn
  */
-async function loadImagesPage(offset, { append = false } = {}) {
+async function loadGalleryPage(number, { append = false } = {}) {
     const versionId = currentVersionId;
-    if (!versionId) return false;
+    if (!versionId) {
+        renderModelImages(currentImages);
+        return false;
+    }
     const request = ++imagesRequest;
     try {
-        const data = await apiCall({ endpoint: '/model-manager/images/page', params: {
-            version_id: versionId, offset, limit: IMAGE_PAGE_SIZE,
+        const data = await apiCall({ endpoint: '/model-manager/images/gallery-page', params: {
+            version_id: versionId, page: number,
             hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
         } });
         if (request !== imagesRequest || versionId !== currentVersionId) return false;
         if (!data.success) {
             console.error('[ModelManager] Failed to load images:', data.error);
+            if (append) pageRequestError = `Page ${number} could not be loaded: ${data.error || 'no answer'}`;
             return false;
         }
+        pageRequestError = '';
+        applyImagesState(data.images_state || {});
         const images = data.images || [];
+        const page = { ...(data.page || { number }), first: append ? currentImages.length : 0 };
         if (append) {
-            // The loaded list keeps its start; only the counts move.
-            const start = imagesOffset;
-            applyImagesState(data.images_state || {});
-            imagesOffset = start;
-            const have = new Set(currentImages.map((img) => img.id));
-            currentImages = currentImages.concat(images.filter((img) => !have.has(img.id)));
+            currentImages = currentImages.concat(images);
+            imagePages.push(page);
+            appendGalleryPage(page, images);
         } else {
-            applyImagesState(data.images_state || {});
             currentImages = images;
+            imagePages = [page];
+            renderModelImages(currentImages);
         }
-        renderModelImages(currentImages);
         updateImagesCountCell();
         return true;
     } catch (error) {
         console.error('[ModelManager] Failed to load images:', error);
+        if (append) pageRequestError = `Page ${number} could not be loaded: ${error.message}`;
         return false;
     }
-}
-
-/** The gallery's counts, as downloadedImagesNote() compares them. */
-function galleryCounts() {
-    return { total: totalImageCount, filtered: filteredImageCount,
-             hidden_nsfw: hiddenImageCount, hidden_promptless: hiddenPromptlessCount };
-}
-
-/** Fetch and show one page of the gallery, when it is paged. */
-async function showImagePage(page) {
-    downloadNote = '';
-    const totalPages = getImagePageCount(filteredImageCount);
-    const target = Math.min(Math.max(1, page), totalPages);
-    currentImagePage = target;
-    return loadImagesPage((target - 1) * IMAGE_PAGE_SIZE);
 }
 
 // The no-prompt switch. It reads "Show images without prompts", as the Civitai
@@ -908,10 +880,10 @@ async function showImagePage(page) {
 window.mmToggleShowPromptless = async function(showPromptless) {
     hidePromptlessImages = !showPromptless;
     hidePromptlessInitialised = true;
-    currentImagePage = 1;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
-        if (galleryTab === 'generations') await showGenerationsPage(1);
+        await scrollToModelImagesTop();
+        if (galleryTab === 'generations') await loadGenerationsPage(1);
     }
 };
 
@@ -922,10 +894,10 @@ window.mmToggleShowPromptless = async function(showPromptless) {
 window.mmToggleShowNsfwImages = async function(showNsfw) {
     hideNsfwImages = !showNsfw;
     hideNsfwImagesInitialized = true;
-    currentImagePage = 1;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
-        if (galleryTab === 'generations') await showGenerationsPage(1);
+        await scrollToModelImagesTop();
+        if (galleryTab === 'generations') await loadGenerationsPage(1);
     }
 };
 
@@ -950,8 +922,7 @@ window.mmSelectVersion = async function(versionIndex) {
     // Reset image state
     currentImages = [];
     currentVersionId = null;
-    currentImagePage = 1;
-    imagesOffset = 0;
+    imagePages = [];
     filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
@@ -1221,8 +1192,7 @@ window.mmSelectPill = async function(index) {
 function resetImageState() {
     currentImages = [];
     currentVersionId = null;
-    currentImagePage = 1;
-    imagesOffset = 0;
+    imagePages = [];
     filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
@@ -1570,8 +1540,7 @@ window.mmResyncImages = async function() {
             setStatus(`Resynced ${data.fetched_count} images`);
             // The gallery again from its first page, through the switches:
             // the answer holds every image fetched, filtered or not.
-            currentImagePage = 1;
-            await loadImagesPage(0);
+            await loadGalleryPage(1);
         } else {
             setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
         }
@@ -1780,10 +1749,6 @@ window.mmDeleteModel = async function(scope = 'version') {
     }
 };
 
-/** Where a page starts in the continuous list: a rule with its number on it. */
-function pageSeparator(page) {
-    return `<div class="mm-page-separator" role="separator"><span>Page ${page}</span></div>`;
-}
 
 // Render model images - new list layout
 function renderModelImages(images) {
@@ -1794,19 +1759,78 @@ function renderModelImages(images) {
         return;
     }
 
-    const totalPages = getImagePageCount(filteredImageCount);
-    currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
+    // No page loaded, or nothing stored and none to fetch: nothing to list.
+    if (!imagePages.length || (!totalImageCount && !imagePages[0].count)) {
+        if (!totalImageCount && generationsCount > 0) {
+            // No example images, but your own generations: the tabs still
+            // show, or there would be no way to them.
+            container.innerHTML = `
+                ${imagesHeaderHtml()}
+                <div class="model-images-list"><p class="mm-no-images">No example images from Civitai.</p></div>
+            `;
+            container.style.display = 'block';
+            return;
+        }
+        container.style.display = 'none';
+        return;
+    }
 
-    // One banner for both filters: what they are holding back, which adds up
-    // with what matches them to the total, and a switch for each on the right.
-    // The server splits the hidden images between the filters so that none is
-    // counted twice - NSFW first, as it filters - and reports what each switch
-    // would show once ticked. Built in shared/common.mjs, as the Civitai
-    // Browser's is.
-    const filterBannerHtml = renderFilterBanner({
+    galleryWidth = galleryImageWidth(container);
+    container.innerHTML = `
+        ${imagesHeaderHtml()}
+        ${imagesBannerHtml()}
+        <div class="model-images-list">${imagePages.map((page) =>
+            galleryPageHtml(page, images.slice(page.first, page.first + (page.shown || 0)))).join('')}</div>
+        <div class="mm-images-footer">${imagesFooterHtml()}</div>
+    `;
+    container.style.display = 'block';
+    setupLazyMedia(container);
+    refreshResourceButtons();
+}
+
+/**
+ * Add a page to the end of the gallery's list: what Load more brings. The
+ * cards already drawn are left alone - the whole gallery used to be drawn
+ * again, and every image above came back as a blank square until it
+ * reloaded, moving the page under the reader. Only the banner and the foot
+ * are drawn again. Anything else - a filter, another model - draws it all.
+ */
+function appendGalleryPage(page, images) {
+    const container = document.getElementById('mm_images');
+    const list = container?.querySelector('.model-images-list');
+    if (!list || galleryTab !== 'civitai' || !list.querySelector('.mm-page-note')) {
+        renderModelImages(currentImages);
+        return;
+    }
+    list.insertAdjacentHTML('beforeend', galleryPageHtml(page, images));
+    refreshImagesChrome();
+    setupLazyMedia(list);
+    refreshResourceButtons();
+}
+
+/** Draw again what sums the gallery up - the banner, the foot - and not the images. */
+function refreshImagesChrome() {
+    const container = document.getElementById('mm_images');
+    if (!container || galleryTab !== 'civitai') return;
+    const banner = container.querySelector('.mm-nsfw-warning');
+    if (banner) banner.outerHTML = imagesBannerHtml();
+    const footer = container.querySelector('.mm-images-footer');
+    if (footer) footer.innerHTML = imagesFooterHtml();
+}
+
+/**
+ * One banner for both filters, over every stored image: what they are holding
+ * back, which adds up with what matches them to the total, and a switch for
+ * each on the right. The server splits the hidden images between the filters
+ * so that none is counted twice - NSFW first, as it filters - and reports
+ * what each switch would show once ticked. Built in shared/common.mjs, as the
+ * Civitai Browser's is.
+ */
+function imagesBannerHtml() {
+    return renderFilterBanner({
         matching: filteredImageCount,
         total: totalImageCount,
-        onScreen: images ? images.length : 0,
+        onScreen: currentImages.length,
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
         switches: [
@@ -1820,103 +1844,32 @@ function renderModelImages(images) {
               onchange: 'window.mmToggleShowPromptless(this.checked)' },
         ],
     });
+}
 
-    if (!images || images.length === 0) {
-        // Still show the banner if a filter is what emptied it
-        if (hiddenImageCount > 0 || hiddenPromptlessCount > 0) {
-            container.innerHTML = `
-                ${imagesHeaderHtml()}
-                ${filterBannerHtml}
-                <div class="model-images-list"><p class="mm-no-images">No images to show with the filters above.</p></div>
-            `;
-            container.style.display = 'block';
-            return;
-        }
-        // No example images, but your own generations: the tabs still show,
-        // or there would be no way to them.
-        if (generationsCount > 0) {
-            container.innerHTML = `
-                ${imagesHeaderHtml()}
-                <div class="model-images-list"><p class="mm-no-images">No example images from Civitai.</p></div>
-            `;
-            container.style.display = 'block';
-            return;
-        }
-        container.style.display = 'none';
-        return;
-    }
+/**
+ * One page of the list: its separator, after the first, its cards, and its
+ * note, which says what that page held - what it shows, and what each switch
+ * hid - so a page showing few images, or none, says why. `images` are the
+ * page's shown images; their cards take their places in currentImages.
+ */
+function galleryPageHtml(page, images) {
+    const cards = images.map((img, i) => renderImageCard(img, page.first + i)).filter(Boolean).join('');
+    return (page.number > 1 ? pageSeparator(page.number) : '') + cards + pageNoteHtml(page);
+}
 
-    // Continuous shows everything from the first image down to wherever the
-    // reader has got to; paging shows one page. Either way what is drawn is
-    // what is loaded - the server sends a page at a time - and the cards, the
-    // counts and the download button are the same.
-    const paging = imageBrowsing === 'pages';
-    const pageStart = imagesOffset;
-    const pageEnd = imagesOffset + images.length;
-    // In the continuous list each page after the first is marked where it
-    // starts, so it is plain that Show More went on to another page.
-    galleryWidth = galleryImageWidth(container);
-    const imageCards = images.map((img, index) => {
-        const card = renderImageCard(img, index);
-        if (!card || paging || index === 0 || index % IMAGE_PAGE_SIZE !== 0) return card;
-        return pageSeparator(index / IMAGE_PAGE_SIZE + 1) + card;
-    }).filter(Boolean).join('');
-    const moreToShow = !paging && pageEnd < filteredImageCount;
 
-    if (!imageCards) {
-        container.style.display = 'none';
-        return;
-    }
-
-    // Download button visibility:
-    // - Show if never synced (imagesSyncDate is null) OR
-    // - Show if cursor exists (more images available)
-    const showDownloadBtn = (nextImagesCursor !== null && nextImagesCursor !== '') || (imagesSyncDate === null);
-    const neverSynced = imagesSyncDate === null;
-    const buttonText = neverSynced ? 'Download Images' : 'Download More Images';
-    // Beside the button: what the last download brought, or that none has
-    // been made. It used to say "300 images downloaded" otherwise, which read
-    // as what was loaded; the banner says what is stored.
-    const infoText = downloadNote ? escapeHtml(downloadNote)
-        : (neverSynced ? 'Images not yet downloaded' : '');
-
-    // One button at the foot of the list. While there are images already
-    // downloaded but not yet on screen it fetches the next page of those from
-    // the server. Once they are all up, it offers to fetch more from Civitai.
-    const atEnd = paging ? currentImagePage === totalPages : !moreToShow;
-    const downloadMoreHtml = moreToShow
-        ? `<div class="mm-load-more">
-             <button class="mm-btn secondary" id="mm_show_more_btn" onclick="window.mmShowMoreImages()">
-               Show More Images
+/** The foot of the list: why a page did not come, and Load more while there is a next. */
+function imagesFooterHtml() {
+    const last = imagePages[imagePages.length - 1];
+    const error = pageRequestError
+        ? `<div class="mm-page-note">${escapeHtml(pageRequestError)}</div>` : '';
+    if (!last || !last.more) return error;
+    return `${error}<div class="mm-load-more">
+             <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()"
+                     ${loadingImagePage ? 'disabled' : ''}>
+               ${loadingImagePage ? 'Loading...' : 'Load More Images'}
              </button>
-             <span class="mm-load-more-info">${pageEnd} of ${filteredImageCount} shown</span>
-           </div>`
-        : (showDownloadBtn && atEnd
-            ? `<div class="mm-load-more">
-                 <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()">
-                   ${buttonText}
-                 </button>
-                 <span class="mm-load-more-info">${infoText}</span>
-               </div>`
-            : (downloadNote && atEnd
-                ? `<div class="mm-load-more"><span class="mm-load-more-info">${infoText}</span></div>`
-                : ''));
-
-    const countText = paging
-        ? `${pageStart + 1}-${pageEnd} of ${filteredImageCount} images (Page ${currentImagePage}/${totalPages})`
-        : `${pageEnd} of ${filteredImageCount} images`;
-
-    container.innerHTML = `
-        ${imagesHeaderHtml(countText)}
-        ${filterBannerHtml}
-        ${paging ? renderImagePagination(totalPages, 'top') : ''}
-        <div class="model-images-list">${imageCards}</div>
-        ${downloadMoreHtml}
-        ${paging ? renderImagePagination(totalPages, 'bottom') : ''}
-    `;
-    container.style.display = 'block';
-    setupLazyMedia(container);
-    refreshResourceButtons();
+           </div>`;
 }
 
 /**
@@ -1950,9 +1903,9 @@ function resetGenerations() {
     galleryTab = 'civitai';
     generationsCount = 0;
     generationCards = [];
+    generationPages = [];
     generationsState = null;
-    generationsOffset = 0;
-    generationsPage = 1;
+    generationPageError = '';
     generationsRequest += 1;
 }
 
@@ -1969,72 +1922,71 @@ window.mmShowGalleryTab = async function(tab) {
     renderModelImages(currentImages);
 };
 
-/** Fetch the generations again: the page on show, or in the continuous list its first. */
+/** Fetch the generations again, from page 1. */
 function refreshGenerations() {
-    return showGenerationsPage(imageBrowsing === 'pages' ? generationsPage : 1);
+    return loadGenerationsPage(1);
 }
 
 window.mmRefreshGenerations = refreshGenerations;
 
 /**
- * Fetch a page of the open model's generation cards, through the gallery's
- * two switches, and draw it. Appended to what is loaded for the continuous
- * list's Show More; otherwise it replaces it.
+ * Fetch page `number` of the open model's generations, through the gallery's
+ * two switches, and draw it: added after the pages loaded - Load More - or
+ * as the first, replacing them.
  *
  * @returns {Promise<boolean>} whether the page arrived and was drawn
  */
-async function loadGenerationsPage(offset, { append = false } = {}) {
+async function loadGenerationsPage(number, { append = false } = {}) {
     const path = currentModelPath;
     if (!path) return false;
     const request = ++generationsRequest;
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/page', params: {
-            path, offset, limit: IMAGE_PAGE_SIZE,
+            path, page: number,
             hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
         } });
         if (request !== generationsRequest || path !== currentModelPath) return false;
         if (!data.success) {
             console.error('[ModelManager] Failed to load your generations:', data.error);
+            if (append) generationPageError = `Page ${number} could not be loaded: ${data.error || 'no answer'}`;
             return false;
         }
-        const cards = data.generations || [];
-        if (append) {
-            const have = new Set(generationCards.map((card) => card.id));
-            generationCards = generationCards.concat(cards.filter((card) => !have.has(card.id)));
-        } else {
-            generationCards = cards;
-            generationsOffset = data.state?.offset || 0;
-        }
+        generationPageError = '';
         generationsState = data.state || null;
         if (typeof generationsState?.stored_generations === 'number') {
             generationsCount = generationsState.stored_generations;
         }
-        if (galleryTab === 'generations') renderGenerations();
+        const cards = data.generations || [];
+        const page = { ...(data.page || { number }), first: append ? generationCards.length : 0,
+                       cards: cards.length };
+        if (append) {
+            generationCards = generationCards.concat(cards);
+            generationPages.push(page);
+            if (galleryTab === 'generations') appendGenerationPage(page, cards);
+        } else {
+            generationCards = cards;
+            generationPages = [page];
+            if (galleryTab === 'generations') renderGenerations();
+        }
         return true;
     } catch (error) {
         console.error('[ModelManager] Failed to load your generations:', error);
+        if (append) generationPageError = `Page ${number} could not be loaded: ${error.message}`;
         return false;
     }
 }
 
-/** Fetch and show one page of the generation cards. */
-async function showGenerationsPage(page) {
-    const totalPages = getImagePageCount(generationsState?.generation_count || 0);
-    generationsPage = Math.min(Math.max(1, page), totalPages);
-    return loadGenerationsPage((generationsPage - 1) * IMAGE_PAGE_SIZE);
-}
-
 window.mmShowMoreGenerations = async function() {
-    await loadGenerationsPage(generationCards.length, { append: true });
-};
-window.mmGenFirstImagePage = () => showGenerationsPage(1);
-window.mmGenPrevImagePage = () => showGenerationsPage(generationsPage - 1);
-window.mmGenNextImagePage = () => showGenerationsPage(generationsPage + 1);
-window.mmGenLastImagePage = () => showGenerationsPage(
-    getImagePageCount(generationsState?.generation_count || 0));
-window.mmGenGoToImagePage = async (page) => {
-    await scrollToModelImagesTop();
-    await showGenerationsPage(page);
+    const last = generationPages[generationPages.length - 1];
+    if (loadingGenerationPage || !last || !last.more) return;
+    loadingGenerationPage = true;
+    refreshGenerationsChrome();
+    try {
+        await loadGenerationsPage(last.number + 1, { append: true });
+    } finally {
+        loadingGenerationPage = false;
+        refreshGenerationsChrome();
+    }
 };
 
 /** How many images the generation cards draw now: previews, or all of one. */
@@ -2042,7 +1994,7 @@ function drawnGenerationImages() {
     return generationCards.reduce((n, card) => n + (card.all || card.images || []).length, 0);
 }
 
-/** The "Your generations" tab: a banner, and a card per generation. */
+/** The "Your generations" tab: a banner, and its pages of cards. */
 function renderGenerations() {
     const container = document.getElementById('mm_images');
     if (!container) return;
@@ -2053,10 +2005,115 @@ function renderGenerations() {
             <div class="mm-images-loading">Loading your generations...</div>`;
         return;
     }
+    if (!state.total) {
+        container.innerHTML = `${imagesHeaderHtml()}${generationsBannerHtml()}
+            <div class="model-images-list"><p class="mm-no-images">No generations with this model yet. Images you generate with it from now on appear here.</p></div>`;
+        return;
+    }
 
-    const paging = imageBrowsing === 'pages';
-    const totalPages = getImagePageCount(state.generation_count);
-    const filterBannerHtml = renderFilterBanner({
+    container.innerHTML = `
+        ${imagesHeaderHtml()}
+        ${generationsBannerHtml()}
+        <div class="model-images-list">${generationPages.map((page) =>
+            generationPageHtml(page, generationCards.slice(page.first, page.first + page.cards))).join('')}</div>
+        <div class="mm-images-footer">${generationsFooterHtml()}</div>
+    `;
+    setupLazyMedia(container);
+}
+
+/**
+ * Add a page of generations to the end of the list - Load More - and leave
+ * the cards already drawn alone, as appendGalleryPage() does for the Civitai
+ * images; only the banner and the foot are drawn again.
+ */
+function appendGenerationPage(page, cards) {
+    const container = document.getElementById('mm_images');
+    const list = container?.querySelector('.model-images-list');
+    if (!list || galleryTab !== 'generations' || !list.querySelector('.mm-page-note')) {
+        renderGenerations();
+        return;
+    }
+    list.insertAdjacentHTML('beforeend', generationPageHtml(page, cards));
+    refreshGenerationsChrome();
+    setupLazyMedia(list);
+}
+
+/**
+ * A drawn generation, by its id: its card, and its place among those drawn.
+ * The cards' buttons name a generation by id, not by place: a card taken out
+ * in place would leave every later card's buttons naming the one after it.
+ */
+function drawnGeneration(id) {
+    const index = generationCards.findIndex((card) => Number(card.id) === Number(id));
+    return { card: generationCards[index], index };
+}
+
+/** Draw one generation's card again - its images shown or hidden - and nothing else. */
+function redrawGenerationCard(id) {
+    const container = document.getElementById('mm_images');
+    const { card, index } = drawnGeneration(id);
+    const drawn = container?.querySelector(`.mm-generation-card[data-generation="${card?.id}"]`);
+    if (!drawn) {
+        renderGenerations();
+        return;
+    }
+    drawn.outerHTML = renderGenerationCard(card, index);
+    refreshGenerationsChrome();
+    setupLazyMedia(container);
+}
+
+/**
+ * Take a deleted generation's card out where it is, and nothing else: the
+ * list used to be loaded again from page 1, and the reader lost their place.
+ * Its page's note is not counted again until the next load.
+ */
+function removeGenerationCard(id) {
+    const { index } = drawnGeneration(id);
+    if (index < 0) return;
+    generationCards.splice(index, 1);
+    for (const page of generationPages) {
+        if (index >= page.first && index < page.first + page.cards) page.cards -= 1;
+        else if (page.first > index) page.first -= 1;
+    }
+    document.querySelector(`#mm_images .mm-generation-card[data-generation="${Number(id)}"]`)?.remove();
+    generationsCount = Math.max(0, generationsCount - 1);
+}
+
+/** The gallery's totals afresh - the banner's, the tab's label - leaving the cards as they are. */
+async function refreshGenerationTotals() {
+    const path = currentModelPath;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/generations/page', params: {
+            path, page: 1,
+            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+        } });
+        if (!data.success || path !== currentModelPath) return;
+        generationsState = data.state || generationsState;
+        if (typeof generationsState?.stored_generations === 'number') {
+            generationsCount = generationsState.stored_generations;
+        }
+    } catch (error) {
+        console.error('[ModelManager] Failed to count your generations:', error);
+    }
+    refreshGenerationsChrome();
+    const label = document.querySelectorAll('#mm_images .mm-gallery-tab')[1];
+    if (label) label.textContent = 'Your generations' + ` (${generationsCount})`;
+}
+
+/** Draw again what sums the generations up - banner, foot - and not the cards. */
+function refreshGenerationsChrome() {
+    const container = document.getElementById('mm_images');
+    if (!container || galleryTab !== 'generations' || !generationsState) return;
+    const banner = container.querySelector('.mm-nsfw-warning');
+    if (banner) banner.outerHTML = generationsBannerHtml();
+    const footer = container.querySelector('.mm-images-footer');
+    if (footer) footer.innerHTML = generationsFooterHtml();
+}
+
+/** The generations' banner: the Civitai images' switches, over your images' counts. */
+function generationsBannerHtml() {
+    const state = generationsState;
+    return renderFilterBanner({
         matching: state.filtered,
         total: state.total,
         onScreen: drawnGenerationImages(),
@@ -2073,48 +2130,30 @@ function renderGenerations() {
               onchange: 'window.mmToggleShowPromptless(this.checked)' },
         ],
     });
+}
 
-    if (!generationCards.length) {
-        const empty = state.total
-            ? 'No images to show with the filters above.'
-            : 'No generations with this model yet. Images you generate with it from now on appear here.';
-        container.innerHTML = `${imagesHeaderHtml()}${filterBannerHtml}
-            <div class="model-images-list"><p class="mm-no-images">${empty}</p></div>`;
-        return;
-    }
+/**
+ * One page of generations: its separator, after the first, its cards, and
+ * its note of what its images were - nothing here comes from Civitai, so the
+ * last page says no more than what it held.
+ */
+function generationPageHtml(page, cards) {
+    const html = cards.map((card, i) => renderGenerationCard(card, page.first + i)).join('');
+    return (page.number > 1 ? pageSeparator(page.number) : '') + html + pageNoteHtml(page, { end: '' });
+}
 
-    const cards = generationCards.map((card, index) => {
-        const html = renderGenerationCard(card, index);
-        if (paging || index === 0 || index % IMAGE_PAGE_SIZE !== 0) return html;
-        return pageSeparator(index / IMAGE_PAGE_SIZE + 1) + html;
-    }).join('');
-
-    const loaded = generationsOffset + generationCards.length;
-    const moreToShow = !paging && loaded < state.generation_count;
-    const countText = paging
-        ? `${generationsOffset + 1}-${loaded} of ${state.generation_count} generations (Page ${generationsPage}/${totalPages})`
-        : `${loaded} of ${state.generation_count} generations`;
-    const moreHtml = moreToShow
-        ? `<div class="mm-load-more">
-             <button class="mm-btn secondary" id="mm_show_more_generations_btn" onclick="window.mmShowMoreGenerations()">
-               Show More Generations
+/** The foot: why a page did not come, and Load More while there is a next. */
+function generationsFooterHtml() {
+    const last = generationPages[generationPages.length - 1];
+    const error = generationPageError
+        ? `<div class="mm-page-note">${escapeHtml(generationPageError)}</div>` : '';
+    if (!last || !last.more) return error;
+    return `${error}<div class="mm-load-more">
+             <button class="mm-btn secondary" id="mm_show_more_generations_btn" onclick="window.mmShowMoreGenerations()"
+                     ${loadingGenerationPage ? 'disabled' : ''}>
+               ${loadingGenerationPage ? 'Loading...' : 'Load More Generations'}
              </button>
-             <span class="mm-load-more-info">${loaded} of ${state.generation_count} shown</span>
-           </div>`
-        : '';
-    const pagination = (position) => paging
-        ? sharedImagePagination({ currentPage: generationsPage, totalPages, position, prefix: 'mmGen' })
-        : '';
-
-    container.innerHTML = `
-        ${imagesHeaderHtml(countText)}
-        ${filterBannerHtml}
-        ${pagination('top')}
-        <div class="model-images-list">${cards}</div>
-        ${moreHtml}
-        ${pagination('bottom')}
-    `;
-    setupLazyMedia(container);
+           </div>`;
 }
 
 /** One generated image: opens full size in a new tab, or says its file is gone. */
@@ -2157,14 +2196,14 @@ function renderGenerationCard(card, index) {
                 <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
                 ${imageTextHtml(first)}
                 <div class="mm-image-actions">
-                    <button class="mm-btn primary mm-send-btn" onclick="window.mmSendGeneration(${index})">
+                    <button class="mm-btn primary mm-send-btn" onclick="window.mmSendGeneration(${Number(card.id)})">
                         Send to ${sendTab(card)}
                     </button>
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
-                    ${moreThanShown || card.all ? `<button class="mm-btn secondary" onclick="window.mmShowAllGeneration(${index})">
+                    ${moreThanShown || card.all ? `<button class="mm-btn secondary" onclick="window.mmShowAllGeneration(${Number(card.id)})">
                         ${card.all ? 'Hide images' : 'Show images'} (${card.matching_count})</button>` : ''}
                     <span class="mm-generation-delete">
-                        <button class="mm-btn secondary" onclick="window.mmDeleteGeneration(${index})">Delete</button>
+                        <button class="mm-btn secondary" onclick="window.mmDeleteGeneration(${Number(card.id)})">Delete</button>
                         <label title="Also delete the image files from disk; off, only the record goes">
                             <input type="checkbox" id="mm_generation_delete_files_${card.id}"> also delete image files
                         </label>
@@ -2187,8 +2226,8 @@ function sendTab(card) {
  * send sets them. An img2img generation's source image is not kept, so
  * img2img gets its settings and a word to add an image.
  */
-window.mmSendGeneration = function(index) {
-    const card = generationCards[index];
+window.mmSendGeneration = function(id) {
+    const { card } = drawnGeneration(id);
     const first = card?.images?.[0];
     const infotext = card?.infotext || first?.infotext;
     if (!infotext) {
@@ -2218,12 +2257,12 @@ window.mmSendGeneration = function(index) {
 };
 
 /** Show every image of a generation this gallery has, in the card; or hide them again. */
-window.mmShowAllGeneration = async function(index) {
-    const card = generationCards[index];
+window.mmShowAllGeneration = async function(id) {
+    const { card } = drawnGeneration(id);
     if (!card) return;
     if (card.all) {
         card.all = null;
-        renderGenerations();
+        redrawGenerationCard(id);
         return;
     }
     try {
@@ -2233,7 +2272,7 @@ window.mmShowAllGeneration = async function(index) {
         } });
         if (data.success) {
             card.all = data.images || [];
-            renderGenerations();
+            redrawGenerationCard(id);
         }
     } catch (error) {
         console.error('[ModelManager] Failed to load a generation\'s images:', error);
@@ -2241,8 +2280,8 @@ window.mmShowAllGeneration = async function(index) {
 };
 
 /** Delete a generation's record, and its image files when the box beside Delete is ticked. */
-window.mmDeleteGeneration = async function(index) {
-    const card = generationCards[index];
+window.mmDeleteGeneration = async function(id) {
+    const { card } = drawnGeneration(id);
     if (!card) return;
     const withFiles = !!document.getElementById(`mm_generation_delete_files_${card.id}`)?.checked;
     const n = card.image_count || 1;
@@ -2269,8 +2308,8 @@ window.mmDeleteGeneration = async function(index) {
             ? `Deleted the generation and ${data.deleted_files} image file${data.deleted_files === 1 ? '' : 's'}`
               + (failed.length ? `; ${failed.length} could not be deleted` : '')
             : 'Deleted the generation\'s record; its image files are still on disk', failed.length > 0);
-        generationsCount = Math.max(0, generationsCount - 1);
-        await showGenerationsPage(imageBrowsing === 'pages' ? generationsPage : 1);
+        removeGenerationCard(card.id);
+        await refreshGenerationTotals();
     } catch (error) {
         setStatus('Delete failed: ' + error.message, true);
     }
@@ -2982,95 +3021,18 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
-// Download more images (appends to existing list without resetting scroll)
+// Load the next page, filled from Civitai first if the library cannot fill it.
 window.mmLoadMoreImages = async function() {
-    // Guard: prevent calls if already loading, no version selected, or no more images to load
-    // Allow call if: first download (imagesSyncDate null) OR cursor exists (more images available)
-    const canLoadMore = imagesSyncDate === null || (nextImagesCursor !== null && nextImagesCursor !== '');
-    if (isLoadingMore || !currentVersionId || !canLoadMore) return;
-
-    isLoadingMore = true;
-    const loadMoreBtn = document.getElementById('mm_load_more_btn');
-    if (loadMoreBtn) {
-        loadMoreBtn.disabled = true;
-        loadMoreBtn.textContent = 'Downloading...';
-    }
-
+    const last = imagePages[imagePages.length - 1];
+    if (loadingImagePage || !last || !last.more) return;
+    loadingImagePage = true;
+    refreshImagesChrome();
     try {
-        const response = await fetch('/model-manager/images/load-more', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `version_id=${currentVersionId}`
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // The answer holds what Civitai sent, filtered or not, so the
-            // gallery is read again from the server rather than added to -
-            // which also brings the cursor, and the counts the note compares.
-            const before = galleryCounts();
-            let loaded;
-            if (imageBrowsing === 'pages') {
-                const oldPages = getImagePageCount(filteredImageCount);
-                loaded = await loadImagesPage(imagesOffset);
-                const newPages = getImagePageCount(filteredImageCount);
-                if (loaded && newPages > oldPages) {
-                    await scrollToModelImagesTop();
-                    await showImagePage(newPages);
-                }
-            } else {
-                // Show what just arrived, and stay where the reader is: new
-                // images are stored after the old, so they are the next page.
-                loaded = await loadImagesPage(currentImages.length, { append: true });
-            }
-            if (loaded) downloadNote = downloadedImagesNote(before, galleryCounts(), data.message);
-            // Drawn again either way: with the note, or the button stays at
-            // "Downloading...".
-            renderModelImages(currentImages);
-            console.log(`[ModelManager] Downloaded ${data.downloaded_count || 0} images (${filteredImageCount} shown of ${totalImageCount}, has_more: ${nextImagesCursor !== null})`);
-        } else {
-            console.error('[ModelManager] Download more failed:', data.error);
-            downloadNote = downloadFailedNote(data.error);
-            renderModelImages(currentImages);
-        }
-    } catch (error) {
-        console.error('[ModelManager] Download more error:', error);
-        downloadNote = downloadFailedNote(error?.message);
-        renderModelImages(currentImages);
+        await loadGalleryPage(last.number + 1, { append: true });
     } finally {
-        isLoadingMore = false;
+        loadingImagePage = false;
+        refreshImagesChrome();
     }
-};
-
-window.mmFirstImagePage = async function() {
-    if (currentImagePage === 1) return;
-    await showImagePage(1);
-};
-
-window.mmLastImagePage = async function() {
-    const totalPages = getImagePageCount(filteredImageCount);
-    if (currentImagePage === totalPages) return;
-    await showImagePage(totalPages);
-};
-
-window.mmPrevImagePage = async function() {
-    if (currentImagePage <= 1) return;
-    await showImagePage(currentImagePage - 1);
-};
-
-window.mmNextImagePage = async function() {
-    const totalPages = getImagePageCount(filteredImageCount);
-    if (currentImagePage >= totalPages) return;
-    await showImagePage(currentImagePage + 1);
-};
-
-window.mmGoToImagePage = async function(page) {
-    const totalPages = getImagePageCount(filteredImageCount);
-    if (page < 1 || page > totalPages || page === currentImagePage) return;
-
-    await scrollToModelImagesTop();
-    await showImagePage(page);
 };
 
 // Convert full file path to dropdown-compatible path
@@ -3986,12 +3948,6 @@ async function loadUIOptionsFromAPI() {
                 console.log('[ModelManager] Loaded samplers from API:', cachedSamplers);
             }
         }
-        // Outside the success check: the endpoint answers this even when the
-        // samplers cannot be read, for the same reason the key banner does.
-        if (data.image_browsing === 'pages' || data.image_browsing === 'continuous') {
-            imageBrowsing = data.image_browsing;
-            console.log('[ModelManager] Example images:', imageBrowsing);
-        }
     } catch (error) {
         console.error('[ModelManager] Failed to load UI options:', error);
         cachedSchedulers = [];
@@ -4526,10 +4482,6 @@ window.mmShowInCivitaiBrowser = function() {
 // Reveal more of what is already downloaded. No request, and deliberately no
 // scroll: the point of the continuous list is that the images you were
 // reading stay where they were.
-window.mmShowMoreImages = async function() {
-    downloadNote = '';
-    await loadImagesPage(currentImages.length, { append: true });
-};
 
 window.mmCloseDetails = function() {
     const detailsContainer = document.getElementById('mm_details');

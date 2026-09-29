@@ -15,7 +15,7 @@
 // linkedom does not run inline handlers, so the checks are on what the markup
 // *is* rather than on whether something fired: no hostile value may end up in
 // an event attribute, and what is copied must be the text itself.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -49,7 +49,7 @@ const IMAGES = [
       meta: { prompt: TEMPLATE_PAYLOAD, steps: 20, sampler: 'Euler', cfgScale: 7 } },
 ];
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     if (href.includes('/ui-options')) {
         return { ok: true, json: async () => ({ success: true, samplers: [], schedulers: [],
@@ -70,7 +70,7 @@ globalThis.fetch = async (url) => {
             page_size: 10, models: [MODEL] }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
-};
+});
 
 const copied = [];
 Object.defineProperty(globalThis, 'navigator', { configurable: true,

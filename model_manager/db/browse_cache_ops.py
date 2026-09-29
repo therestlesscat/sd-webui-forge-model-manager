@@ -35,13 +35,17 @@ class BrowserCacheOps:
             version_id: Civitai version ID.
 
         Returns:
-            List of image data dicts, ordered by cached_at.
+            List of image data dicts, in the order they were cached: a batch
+            shares its cached_at, and its rows are in Civitai's order, so the
+            row order breaks the tie. Without it a batch's order was SQLite's
+            choice, and the Civitai Browser's pages, slices of this list,
+            could change between two asks.
         """
         with self._cursor() as cursor:
             cursor.execute("""
                 SELECT data FROM civitai_browser_cache
                 WHERE version_id = ? AND type = 'image'
-                ORDER BY cached_at ASC
+                ORDER BY cached_at ASC, rowid ASC
             """, (version_id,))
 
             return [json.loads(row["data"]) for row in cursor.fetchall()]

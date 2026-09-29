@@ -6,7 +6,7 @@
 // says so and where to switch: above the results while "Only Show Models with
 // SFW images" is ticked, and in the gallery's filter banner. The word list
 // needs no note; sfw_filter_test.mjs checks the Civitai Browser says none.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -20,7 +20,7 @@ const MODEL = {
 const IMAGE = { id: 1, url: 'https://example.invalid/1.jpeg', browsingLevel: 1, mm_level: 1,
     meta: { prompt: 'a lighthouse at dusk', steps: 20, sampler: 'Euler', cfgScale: 7 } };
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
@@ -37,7 +37,7 @@ globalThis.fetch = async (url) => {
         return reply({ success: true, total: 1, page: 1, page_size: 20, models: [MODEL] });
     }
     return reply({ success: true });
-};
+});
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));

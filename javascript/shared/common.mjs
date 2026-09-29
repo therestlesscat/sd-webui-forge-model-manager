@@ -9,8 +9,6 @@
  * than reaching for a global and depending on load order.
  */
 
-export const IMAGE_PAGE_SIZE = 100;
-
 /**
  * How long the page waits, and how often it asks the server how something is
  * going - in one place, so a test can shorten them all before the page loads,
@@ -583,47 +581,6 @@ export function isVideoUrl({ url, type }) {
            lowerUrl.includes('.webm?');
 }
 
-/**
- * What a download of more images brought, for the note beside the button:
- * how many are new, how many of those the gallery shows, and what hid the
- * rest. A download is filtered like everything else, so a batch of explicit
- * images used to change nothing on screen, and looked like a click that did
- * nothing.
- *
- * Worked out from the gallery's counts before and after - total, filtered,
- * hidden_nsfw, hidden_promptless, as the server gives them - rather than from
- * what the download says it fetched, which counts images already stored.
- *
- * @param {string} message the server's word when nothing new came
- */
-export function downloadedImagesNote(before, after, message = '') {
-    const count = Math.max(0, after.total - before.total);
-    if (!count) return message || 'No new images';
-    const grew = (key) => Math.max(0, (after[key] || 0) - (before[key] || 0));
-    const parts = [`${grew('filtered')} shown`];
-    if (grew('hidden_nsfw')) parts.push(`${grew('hidden_nsfw')} hidden by the NSFW filter`);
-    if (grew('hidden_promptless')) {
-        parts.push(`${grew('hidden_promptless')} hidden for an unusable prompt`);
-    }
-    return `${count} more ${count === 1 ? 'image' : 'images'}: ${parts.join(', ')}`;
-}
-
-/**
- * The note beside the button when a download failed - Civitai answering 503,
- * the connection dropping. The error used to go only to the console, and the
- * click looked like one that found nothing. Nothing is stored by a download
- * that fails, and the next click starts from the same place.
- *
- * @param {string} error what the server, or the request itself, said
- */
-export function downloadFailedNote(error) {
-    return `Nothing was downloaded: ${error || 'the server did not answer'}`;
-}
-
-export function getImagePageCount(totalImages) {
-    return Math.max(1, Math.ceil(totalImages / IMAGE_PAGE_SIZE));
-}
-
 export function setupLazyMedia(container) {
     if (!container) return;
 
@@ -984,63 +941,6 @@ export function renderResource(resource) {
 }
 
 /**
- * Page controls for an image gallery.
- *
- * `prefix` names the tab's global handlers: 'mm' calls window.mmGoToImagePage
- * and friends, 'cb' calls the window.cb* equivalents.
- */
-export function renderImagePagination({ currentPage, totalPages, position, prefix }) {
-    if (totalPages <= 1) return '';
-
-    const firstDisabled = currentPage <= 1 ? 'disabled' : '';
-    const prevDisabled = currentPage <= 1 ? 'disabled' : '';
-    const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
-    const lastDisabled = currentPage >= totalPages ? 'disabled' : '';
-
-    const maxVisible = 5;
-    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
-    if (endPage - startPage < maxVisible - 1) {
-        startPage = Math.max(1, endPage - maxVisible + 1);
-    }
-
-    const pageNumbers = [];
-    if (startPage > 1) {
-        pageNumbers.push({ page: 1, label: '1' });
-        if (startPage > 2) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-    }
-    for (let i = startPage; i <= endPage; i++) {
-        pageNumbers.push({ page: i, label: String(i) });
-    }
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) {
-            pageNumbers.push({ page: null, label: '...' });
-        }
-        pageNumbers.push({ page: totalPages, label: String(totalPages) });
-    }
-
-    const pageNumbersHtml = pageNumbers.map(({ page, label }) => {
-        if (page === null) {
-            return `<span class="mm-page-ellipsis">${label}</span>`;
-        }
-        const activeClass = page === currentPage ? 'active' : '';
-        return `<button class="mm-page-num ${activeClass}" onclick="window.${prefix}GoToImagePage(${page})">${label}</button>`;
-    }).join('');
-
-    return `
-        <div class="mm-image-pagination mm-pagination mm-image-pagination-${position}">
-            <button class="mm-btn mm-page-btn" onclick="window.${prefix}FirstImagePage()" ${firstDisabled}>|&lt;</button>
-            <button class="mm-btn mm-page-btn" onclick="window.${prefix}PrevImagePage()" ${prevDisabled}>← Prev</button>
-            <div class="mm-page-numbers">${pageNumbersHtml}</div>
-            <button class="mm-btn mm-page-btn" onclick="window.${prefix}NextImagePage()" ${nextDisabled}>Next →</button>
-            <button class="mm-btn mm-page-btn" onclick="window.${prefix}LastImagePage()" ${lastDisabled}>&gt;|</button>
-        </div>
-    `;
-}
-
-/**
  * How many columns to lay a page of cards out in, so its rows come out even.
  *
  * Use the fewest rows the width allows, then spread the cards across them:
@@ -1120,6 +1020,33 @@ export function setCardSize(element, width, height) {
 // Both tabs' grids, and the settings window's card previews, are drawn here:
 // a card, the page strip under the grid, and the grid itself. They take what
 // to show and read no setting; each tab turns its own data into that.
+
+// -------------------------------------------------------------- gallery pages
+// A gallery is a list of pages, each a slice of what is stored before the
+// switches filter it (model_manager/gallery.py). Both tabs draw a page the
+// same way: its separator, after the first, its cards, and its note.
+
+/** Where a page starts in the continuous list: a rule with its number on it. */
+export function pageSeparator(page) {
+    return `<div class="mm-page-separator" role="separator"><span>Page ${page}</span></div>`;
+}
+
+/**
+ * What a page held, under its images: "Displaying 30 images for page 1 ·
+ * 50 hidden due to NSFW filter · 20 hidden due to unusable prompt", the
+ * switches' own words for why. The last page says there is no more - `end`,
+ * which a gallery that does not come from Civitai leaves out - and a page
+ * Civitai failed to fill says so.
+ */
+export function pageNoteHtml(page, { end = 'no more images on Civitai' } = {}) {
+    const shown = page.shown || 0;
+    const parts = [`Displaying ${shown} ${shown === 1 ? 'image' : 'images'} for page ${page.number}`];
+    if (page.hidden_nsfw) parts.push(`${page.hidden_nsfw} hidden due to NSFW filter`);
+    if (page.hidden_promptless) parts.push(`${page.hidden_promptless} hidden due to unusable prompt`);
+    if (page.error) parts.push(`more could not be fetched from Civitai: ${page.error}`);
+    else if (!page.more && end) parts.push(end);
+    return `<div class="mm-page-note">${escapeHtml(parts.join(' · '))}</div>`;
+}
 
 /** What a card shows when it has no image, or its image does not load. */
 export const CARD_PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23333' width='100' height='100'/%3E%3Ctext x='50' y='50' text-anchor='middle' dy='.3em' fill='%23666' font-size='10'%3ENo Image%3C/text%3E%3C/svg%3E";
