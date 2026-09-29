@@ -150,7 +150,13 @@ Where they differ, and what the extension does about it:
   the matching radio; typing into it as a dropdown cleared the first radio's
   value.
 - **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
-  the original Forge's has none, and is found by its label.
+  the original Forge's has none, and is found by its label. Every change to
+  it is a request of Forge's own carrying the whole selection, and they can
+  land out of order: after a clear-and-reselect, Neo sometimes loaded an
+  Anima model with no VAE while the control showed it. So Send patches it -
+  takes out only what is extra, adds only what is missing, touches nothing
+  when nothing differs - and then asks the server what Forge's setting
+  (`forge_additional_modules`) actually holds.
 
 **They can share one database** (Settings -> Model Manager -> database
 path), and do here: Neo's setting points at the file in the original Forge's

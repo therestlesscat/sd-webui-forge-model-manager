@@ -15,7 +15,8 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/forge-modules")
     def forge_modules_for(file_path: str = "", base_model: str = "",
-                          version_ids: str = "", hashes: str = "", model_name: str = ""):
+                          version_ids: str = "", hashes: str = "", model_name: str = "",
+                          vae: str = ""):
         """
         What Send to txt2img should set up in Forge before sending an image.
 
@@ -31,6 +32,7 @@ def register(app: FastAPI):
                 as checkpoints.
             hashes: Comma-separated hashes the image names its checkpoint by.
             model_name: The checkpoint's name in the image's generation data.
+            vae: The VAE the image's generation data names, if any.
 
         Returns:
             preset: Forge's UI preset, or null if unknown. source: how it was
@@ -38,10 +40,14 @@ def register(app: FastAPI):
             call's business at all - SD and SDXL checkpoints bring their own,
             and keep the image's VAE as before. select: labels to select;
             missing: kinds nothing installed is; not_found: file names the
-            settings give that are not installed.
+            settings give that are not installed. target: exactly what the
+            VAE / Text Encoder control should hold once the image is sent -
+            `select` for a model whose modules are managed, else the image's
+            own VAE as Forge lists it, or nothing; vae_not_found: the image's
+            VAE, when it names one this install does not have.
         """
         from ..db import get_models_db
-        from ..forge_modules import (classify_file, installed_modules, pick,
+        from ..forge_modules import (classify_file, installed_modules, match_vae, pick,
                                      preferred_modules, saved_modules)
         from ..send_plan import SendModel, plan_model
 
@@ -57,14 +63,31 @@ def register(app: FastAPI):
         answer = {"success": True, "preset": preset, "model_class": model_class,
                   "source": source, "video": found.video,
                   "manage_modules": preset not in (None, "sd", "xl"),
-                  "select": [], "missing": [], "needed": [], "not_found": []}
+                  "select": [], "missing": [], "needed": [], "not_found": [],
+                  "target": [], "vae_not_found": None}
+        installed = installed_modules()
         if not answer["manage_modules"]:
+            # SD and SDXL bring their own: the image's VAE, if it names one
+            named = match_vae(vae.strip(), installed)
+            answer["target"] = [named] if named else []
+            answer["vae_not_found"] = vae.strip() if vae.strip() and not named else None
             return JSONResponse(answer)
 
-        modules = {label: classify_file(path) for label, path in installed_modules().items()}
+        modules = {label: classify_file(path) for label, path in installed.items()}
         answer.update(pick(model_class, preset, bundled_te, bundled_vae,
                            modules, saved_modules(preset), preferred_modules(preset)))
+        answer["target"] = list(answer["select"])
         return JSONResponse(answer)
+
+    @app.get("/model-manager/forge-modules/current")
+    def forge_modules_current():
+        """
+        The modules Forge holds now - what it will load - for Send to check
+        its change took: the control can show one thing while Forge's setting
+        holds another. modules is null where Forge is not there to ask.
+        """
+        from ..forge_modules import current_modules
+        return JSONResponse({"success": True, "modules": current_modules()})
 
     @app.get("/model-manager/ui-options")
     async def get_ui_options():

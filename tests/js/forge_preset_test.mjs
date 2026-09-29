@@ -14,7 +14,8 @@ import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
-window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
+window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
+                    modulesCheck: 20, modulesCheckMax: 200 };
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page
@@ -37,8 +38,12 @@ function dropdown(id, options, multi) {
                     const token = document.createElement('div');
                     token.className = 'token';
                     token.innerHTML = `${label}<span class="token-remove">×</span>`;
-                    token.querySelector('.token-remove').addEventListener('click', () => token.remove());
+                    token.querySelector('.token-remove').addEventListener('click', () => {
+                        token.remove();
+                        events.push(`module-:${label}`);
+                    });
                     root.querySelector('.wrap-inner').appendChild(token);
+                    events.push(`module+:${label}`);
                 } else {
                     input.value = label;
                     events.push(`preset:${label}`);
@@ -90,11 +95,17 @@ const IMAGE = { id: 1, url: 'https://example.invalid/1.jpeg', browsingLevel: 1,
             seed: 1, Size: '1024x1024' } };
 let plan = null;
 const planAsked = [];
+// What Forge's setting holds, asked after the modules are set: as a rule what
+// the control shows. A section that wants Forge to disagree sets it.
+let forgeHolds = () => selected();
 globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     if (href.includes('/run/')) {
         await new Promise((r) => setTimeout(r, forgeDelay));
         return { ok: true, json: async () => ({ data: [] }) };
+    }
+    if (href.includes('/model-manager/forge-modules/current')) {
+        return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
     if (href.includes('/model-manager/forge-modules')) {
         planAsked.push(new URL(href, 'http://webui').searchParams);
@@ -172,10 +183,49 @@ check('a file the settings name that Forge does not list is said, by name, in th
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ---------------------------------------------------------- an SDXL model
-plan = { success: true, preset: 'xl', manage_modules: false, select: [], missing: [] };
+plan = { success: true, preset: 'xl', manage_modules: false, select: [], missing: [], target: [] };
 await send();
 check('an SDXL model switches the preset too', events[0], 'preset:xl');
 check('and keeps the image\'s own VAE, as before - none named, none selected', selected(), []);
+
+// ------------------------------------------- only what differs is changed
+// Send makes the control hold exactly what the image needs, changing only
+// what differs: each change is a request of Forge's, and after the old
+// clear-and-reselect Neo sometimes loaded a model without its VAE.
+const changes = () => events.filter((e) => e.startsWith('module'));
+IMAGE.meta.VAE = 'sdxl_vae';
+plan = { ...plan, target: ['sdxl_vae.safetensors'] };
+await send();
+check('the image\'s VAE is sent for the server to find', planAsked[0]?.get('vae'), 'sdxl_vae');
+check('and the file it found is selected, in one change', [selected(), changes()],
+      [['sdxl_vae.safetensors'], ['module+:sdxl_vae.safetensors']]);
+await send();
+check('a second image needing the same leaves the control untouched', changes(), []);
+
+plan = { success: true, preset: 'flux', manage_modules: true, source: 'file',
+         select: ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'],
+         target: ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], missing: [] };
+await send();
+check('a model needing others takes out only what it does not need, and adds only what is missing',
+      changes().sort(), ['module+:ae.safetensors', 'module+:clip_l.safetensors',
+                         'module+:t5xxl_fp16.safetensors', 'module-:sdxl_vae.safetensors']);
+plan = { ...plan, target: ['clip_l.safetensors', 't5xxl_fp16.safetensors'] };
+await send();
+check('and one needing one fewer takes that one out, and nothing else', changes(), ['module-:ae.safetensors']);
+check('Forge holding what was sent, nothing is said', document.querySelector('.mm-notice'), null);
+
+// Forge's setting is what it loads, whatever the control shows. When the two
+// disagree after a send, that is said - only said, for now.
+forgeHolds = () => ['clip_l.safetensors'];
+await send();
+const disagreed = document.querySelector('.mm-notice')?.textContent || '';
+check('when Forge does not hold what the control shows, it is said, with what each is',
+      [disagreed.startsWith('Forge did not take the VAE / Text Encoder change'),
+       disagreed.includes('it holds clip_l.safetensors'),
+       disagreed.includes('needs clip_l.safetensors, t5xxl_fp16.safetensors')], [true, true, true]);
+forgeHolds = () => selected();
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+delete IMAGE.meta.VAE;
 
 // ------------------------------------------------------- the server failing
 plan = 'fail';
