@@ -10,7 +10,6 @@ WHAT LIVES WHERE
   models_ops.py         models and versions: writing them, reading them back
   query.py              turning a filter bar into one grouped SQL query
   images_ops.py         the image rows belonging to a version
-  browse_cache_ops.py   the Civitai Browser's own image cache
   generations_ops.py    the images you generate, and the model files each used
 
 Connections are per-thread: scans and syncs run on several threads at once and
@@ -26,12 +25,11 @@ from contextlib import contextmanager
 from .migrations import run_migrations
 from .models_ops import ModelsOps
 from .images_ops import ImagesOps
-from .browse_cache_ops import BrowserCacheOps
 from .generations_ops import GenerationsOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 
 class ModelsDatabase:
@@ -63,7 +61,6 @@ class ModelsDatabase:
 
         self._models = ModelsOps(self._cursor)
         self._images = ImagesOps(self._cursor)
-        self._browser_cache = BrowserCacheOps(self._cursor)
         self._generations = GenerationsOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -506,46 +503,6 @@ class ModelsDatabase:
             db_size = os.path.getsize(self.db_path) / (1024 * 1024)
         stats["db_size_mb"] = round(db_size, 2)
         return stats
-
-    # ==================== Browser Cache Operations (delegated) ====================
-
-    def get_cached_browse_images(self, version_id: int) -> List[Dict[str, Any]]:
-        """Get cached images for Civitai browser."""
-        return self._browser_cache.get_cached_images(version_id)
-
-    def store_browse_images(
-        self,
-        model_id: int,
-        version_id: int,
-        images: List[Dict[str, Any]]
-    ):
-        """Store images in Civitai browser cache."""
-        self._browser_cache.store_images(model_id, version_id, images)
-
-    def update_browse_images(self, version_id: int, images: List[Dict[str, Any]]):
-        """Update payloads of already-cached Civitai browser images."""
-        self._browser_cache.update_image_data(version_id, images)
-
-    def get_browse_cursor(self, version_id: int) -> Optional[str]:
-        """Get cached cursor for Civitai browser pagination."""
-        return self._browser_cache.get_cursor(version_id)
-
-    def store_browse_cursor(
-        self,
-        model_id: int,
-        version_id: int,
-        cursor_value: str
-    ):
-        """Store cursor in Civitai browser cache."""
-        self._browser_cache.store_cursor(model_id, version_id, cursor_value)
-
-    def clear_browse_version_cache(self, version_id: int):
-        """Clear all cached data for a version in Civitai browser."""
-        self._browser_cache.clear_version_cache(version_id)
-
-    def get_browse_cached_image_count(self, version_id: int) -> int:
-        """Get count of cached images for a version in Civitai browser."""
-        return self._browser_cache.get_cached_image_count(version_id)
 
     # ==================== Combined Operations ====================
 

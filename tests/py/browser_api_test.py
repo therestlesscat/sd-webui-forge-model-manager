@@ -479,9 +479,10 @@ check('so does a model looked up by id',
 shared_opts = sys.modules['modules.shared'].opts
 
 
-def cache_rows():
+def cache_table():
+    """The old cache's table, if there is still one: gone since v28."""
     with db._cursor() as cursor:
-        return cursor.execute('SELECT COUNT(*) FROM civitai_browser_cache').fetchone()[0]
+        return cursor.execute("SELECT name FROM sqlite_master WHERE name = 'civitai_browser_cache'").fetchone()
 
 
 class Gallery:
@@ -509,7 +510,6 @@ def image(n, level=1, meta=USABLE):
     return {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': level, 'meta': meta}
 
 
-rows_before = cache_rows()
 shared_opts.model_manager_gallery_page_size = 2
 gallery = Gallery([image(n) for n in range(5)], short=2)
 Stub.get_model_images = staticmethod(gallery)
@@ -583,7 +583,32 @@ status, body = get('/model-manager/civitai/versions/90100/images')
 check('a version with no images at all is not an error',
       (status, body['page']['count'], body['page']['more']), (200, 0, False))
 
-check('and none of it is written down', cache_rows(), rows_before)
+check('and none of it is written down: there is no cache to write it to', cache_table(), None)
+
+# v28 drops the old cache, and nothing else: on one library it held 16,807
+# images and 754 cursors, about 81 MB, as old as each fetch, never cleared.
+import sqlite3                                            # noqa: E402
+from model_manager.db.migrations import run_migrations   # noqa: E402
+path27 = os.path.join(WORK, 'v27.db')
+if os.path.exists(path27):
+    os.remove(path27)
+conn = sqlite3.connect(path27)
+cur = conn.cursor()
+cur.execute("CREATE TABLE schema_info (key TEXT PRIMARY KEY, value TEXT)")
+cur.execute("CREATE TABLE civitai_browser_cache (id INTEGER PRIMARY KEY, model_id INTEGER, version_id INTEGER, "
+            "type TEXT, data_id TEXT, data TEXT, cached_at TEXT)")
+cur.execute("CREATE INDEX idx_browser_cache_version_type ON civitai_browser_cache(version_id, type)")
+cur.executemany("INSERT INTO civitai_browser_cache (version_id, type, data) VALUES (?, 'image', '{}')",
+                [(1,), (2,)])
+cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY)")
+cur.execute("INSERT INTO model_versions VALUES (7, 'kept.safetensors')")
+run_migrations(cur, 27, 28, path27, WORK)
+names = {r[0] for r in cur.execute("SELECT name FROM sqlite_master")}
+check('v28 drops the old cache, its index with it',
+      ('civitai_browser_cache' in names, 'idx_browser_cache_version_type' in names), (False, False))
+check('and nothing else', cur.execute("SELECT id, file_path FROM model_versions").fetchall(), [(7, 'kept.safetensors')])
+check('the schema then at 28', cur.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone(), ('28',))
+conn.close()
 check('nor is there an endpoint to load more from a stored cursor, or read what was stored',
       [client.post('/model-manager/civitai/versions/90080/images/load-more',
                    data={'model_id': 1}).status_code,

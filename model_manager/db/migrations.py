@@ -1214,6 +1214,20 @@ def _migrate_to_v27(cursor):
     print("[ModelManager] Migration to v27 complete")
 
 
+def _migrate_to_v28(cursor):
+    """
+    Drop the Civitai Browser's image cache. Since 0.30.3 the Browser reads
+    Civitai's images live and nothing reads or writes the table; what it held -
+    on one library, 16,807 images and 754 cursors, about 81 MB - was never
+    cleared, and was as old as each fetch. The space goes back to the file
+    only on a VACUUM, which this does not run: it rewrites the whole file.
+    """
+    print("[ModelManager] Migrating to v28: dropping the Civitai Browser's old image cache...")
+    cursor.execute("DROP INDEX IF EXISTS idx_browser_cache_version_type")
+    cursor.execute("DROP TABLE IF EXISTS civitai_browser_cache")
+    print("[ModelManager] Migration to v28 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1297,6 +1311,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 27:
         _migrate_to_v27(cursor)
+
+    if from_version < 28:
+        _migrate_to_v28(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
