@@ -36,7 +36,9 @@ def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
     button, say - point at one specific model instead of hoping a free-text
     search happens to match it.
 
-    Supported: model:<id>, version:<id>, hash:<any hash>, file:<name>.
+    Supported: model:<id>, version:<id>, hash:<any hash>, file:<name>, and
+    path:<the file's full path>, exactly - where a generation's record says
+    which checkpoint it used; file: matches any name containing its value.
     Anything else (including a plain search that happens to contain a
     colon) returns None so the caller falls back to free-text matching.
 
@@ -62,6 +64,9 @@ def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
 
     if prefix == "file":
         return "v.file_name LIKE ?", f"%{value}%"
+
+    if prefix == "path":
+        return "v.file_path = ? COLLATE NOCASE", value
 
     return None
 

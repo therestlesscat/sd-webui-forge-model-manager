@@ -3342,6 +3342,62 @@ textarea.mm-settings-input {
     grid-template-rows: 1fr 1fr;
 }
 
+/* In this tab, an image's NSFW badge is at its top-left: ⋯ has the top-right. */
+.gen-media .mm-nsfw-badge {
+    right: auto;
+    left: 6px;
+}
+
+/* More that can be done with a tile, behind ⋯ at its image's top-right. */
+.gen-menu-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6) !important;
+    color: #fff;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.gen-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.85) !important;
+}
+
+.gen-menu {
+    position: fixed;
+    z-index: 10002;
+    min-width: 200px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    background: var(--background-fill-primary, #1f2937);
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.gen-menu button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    background: transparent !important;
+    color: var(--body-text-color, #e5e7eb);
+    text-align: left;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.gen-menu button:hover {
+    background: rgba(127, 127, 127, 0.18) !important;
+}
+
 /* How many images a folded generation holds. */
 .gen-count {
     position: absolute;

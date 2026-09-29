@@ -318,6 +318,12 @@ function tileHtml(tile, index) {
         media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${imageHtml(image)}</div>`;
     }
 
+    // More, behind ⋯ - while there is anything to offer.
+    if (tileMenu(tile).length) {
+        media += `<button type="button" class="gen-menu-btn" title="More"
+                          onclick="event.stopPropagation(); window.genMenu(${index}, this)">⋯</button>`;
+    }
+
     // When, and its size: a group's newest image's, a batch's first's.
     const when = formatWhen(tile.kind === 'group' ? tile.group.latest : generation.created_at);
     const size = image.width && image.height ? `${Number(image.width)}×${Number(image.height)}` : '';
@@ -502,6 +508,72 @@ async function sendImage(tile, image) {
     }
 }
 
+// ------------------------------------------------------------- the ⋯ menu
+// More that can be done with a tile or the image in the viewer, in a menu
+// under its ⋯ - which is not drawn when there is nothing in it.
+
+/** What a tile's menu offers: its checkpoint, if its images share one. */
+function tileMenu(tile) {
+    return menuFor(tile.checkpoint_path);
+}
+
+function menuFor(checkpoint) {
+    const items = [];
+    if (checkpoint) items.push({ label: 'Show model in Model Manager', run: () => showModel(checkpoint) });
+    return items;
+}
+
+window.genMenu = function(index, button) {
+    const tile = tiles[index];
+    if (tile) openMenu(button, tileMenu(tile));
+};
+
+let menu = null;
+
+/** The menu, under the button that opened it; a click anywhere else, or Esc, closes it. */
+function openMenu(anchor, items) {
+    closeMenu();
+    if (!items.length) return;
+    const element = document.createElement('div');
+    element.className = 'gen-menu';
+    element.setAttribute('role', 'menu');
+    element.innerHTML = items.map((item, i) => `<button type="button" role="menuitem" data-item="${i}">`
+        + `${escapeHtml(item.label)}</button>`).join('');
+    element.addEventListener('click', (event) => {
+        const chosen = event.target.closest?.('[data-item]');
+        if (!chosen) return;
+        closeMenu();
+        items[Number(chosen.getAttribute('data-item'))].run();
+    });
+    const box = anchor.getBoundingClientRect?.() || { right: 0, bottom: 0 };
+    element.style.top = `${Math.round(box.bottom + 4)}px`;
+    element.style.right = `${Math.max(8, Math.round((window.innerWidth || 0) - box.right))}px`;
+    document.body.appendChild(element);
+    const away = (event) => {
+        if (!element.contains(event.target)) closeMenu();
+    };
+    setTimeout(() => document.addEventListener('click', away, true), 0);
+    menu = { element, away };
+}
+
+function closeMenu() {
+    if (!menu) return false;
+    menu.element.remove();
+    document.removeEventListener('click', menu.away, true);
+    menu = null;
+    return true;
+}
+
+/** This model, in the Model Manager tab: the file's own version. */
+function showModel(path) {
+    closeViewer();
+    if (typeof window.mmShowFile !== 'function') {
+        setStatus('The Model Manager tab has not started yet: open it once and try again.');
+        return;
+    }
+    window.mmShowFile(path);
+}
+
 // ------------------------------------------------------------- the viewer
 // An image over the page, as large as it goes, with ← and → through the
 // images the grid shows - a batch's or a group's first four, as on its tile -
@@ -535,6 +607,7 @@ function openViewer() {
                     <span class="gen-viewer-actions">
                         <button type="button" class="mm-btn primary mm-btn-small" data-send></button>
                         <button type="button" class="mm-btn secondary mm-btn-small" data-delete>Delete</button>
+                        <button type="button" class="mm-btn secondary mm-btn-small" data-menu title="More">⋯</button>
                     </span>
                 </div>
             </div>
@@ -556,6 +629,8 @@ function openViewer() {
             return undefined;
         }
         if (target.closest?.('[data-send]')) return sendFromViewer();
+        const more = target.closest?.('[data-menu]');
+        if (more) return openMenu(more, viewerMenu());
         if (target.closest?.('[data-delete]')) return deleteFromViewer();
         // Around the image - not on it, a button or the details - closes it.
         if (target.matches?.('.gen-viewer, .gen-viewer-stage, .gen-viewer-main, .gen-viewer-frame, '
@@ -598,6 +673,10 @@ function onViewerWheel(event) {
  */
 function onKey(event) {
     if (document.querySelector('.mm-dialog-backdrop')) return;     // a question is open
+    if (event.key === 'Escape' && closeMenu()) {
+        event.preventDefault?.();
+        return;
+    }
     if (viewer) {
         if (event.key === 'ArrowLeft') stepViewer(-1);
         else if (event.key === 'ArrowRight') stepViewer(1);
@@ -612,8 +691,15 @@ function onKey(event) {
     }
 }
 
+/** The viewer's menu: the image's own checkpoint - a group's images can have several. */
+function viewerMenu() {
+    const image = viewer && tiles[viewer.tile]?.images?.[viewer.image];
+    return menuFor(image?.checkpoint_path || null);
+}
+
 /** Close the viewer, with the grid showing the tile it was on. */
 function closeViewer() {
+    closeMenu();
     if (!viewer) return;
     const tile = viewer.tile;
     viewer.element.remove();
@@ -657,6 +743,7 @@ function renderViewer() {
     root.querySelector('.gen-viewer-image').setAttribute('src', image.exists ? url : IMAGE_PLACEHOLDER_SVG);
     const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
     root.querySelector('[data-send]').textContent = `Send to ${mode}`;
+    root.querySelector('[data-menu]').hidden = !menuFor(image.checkpoint_path).length;
     const shown = tile.images.length;
     const count = tile.matching_count || shown;
     const what = tile.kind === 'group' ? 'this group' : 'this generation';

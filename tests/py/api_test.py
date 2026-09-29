@@ -92,6 +92,16 @@ check('a wider NSFW ceiling admits at least as much', body.get('total') >= pg_on
 code, body = get('/model-manager/models', search='Model %d' % facts['checkpoint_ids'][0])
 check('searching by name finds one', body.get('total'), 1)
 
+# path: - a file exactly, as a generation's record names its checkpoint.
+target = facts['linked_paths'][0]
+code, body = get('/model-manager/models', search='path:' + target)
+check('a file is found by its full path, exactly', (body.get('total'), body['models'][0]['model_id'] if body.get('models') else None),
+      (1, db.get_version(target)['model_id']))
+code, body = get('/model-manager/models', search='path:' + target.swapcase())
+check('whatever its case, as Windows does not mind it', body.get('total'), 1)
+code, body = get('/model-manager/models', search='path:' + target[:-5])
+check('and only exactly: part of a path finds nothing', body.get('total'), 0)
+
 code, body = get('/model-manager/models', has_civitai='No')
 check('models with no Civitai data are findable', body.get('total') >= 1, True)
 

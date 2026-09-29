@@ -4593,6 +4593,25 @@ window.mmShowModel = async function(query) {
     }
 };
 
+/**
+ * Show one model file here, from another tab: this tab, the file's model,
+ * and the version that file is - not the one the model's row happens to name.
+ * The Generations tab's "Show model in Model Manager" asks with the
+ * checkpoint a generation's record names.
+ */
+window.mmShowFile = async function(path) {
+    if (!path) return;
+    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+    const tabButton = Array.from(root.querySelectorAll('#tabs button'))
+        .find((b) => b.textContent.trim() === 'Model Manager');
+    tabButton?.click();
+    // The grid sizes itself from the viewport: let the tab show first.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await window.mmShowModel(`path:${path}`);
+    const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
+    if (wanted >= 0) await window.mmSelectVersion(wanted);
+};
+
 // Open this model over in the Civitai Browser tab. The mirror of
 // cbShowInModelManager() there, down to the tab lookup.
 /**
