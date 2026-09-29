@@ -461,6 +461,23 @@ if has_fastapi:
     check('an unknown grouping groups nothing', {t['kind'] for t in browse(group='nonsense')['tiles']},
           {'generation'})
 
+    # Each tile says its checkpoint, for "Show model in Model Manager" - a
+    # group only if every image of it had the same one - and each image its own.
+    recorded = db.get_generation(generation_id)['checkpoint_path']
+    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    check('a generation\'s tile names its checkpoint, and so does each image',
+          (tile['checkpoint_path'], {i['checkpoint_path'] for i in tile['images']}), (recorded, {recorded}))
+    real_info = shared.sd_model.sd_checkpoint_info
+    shared.sd_model = types.SimpleNamespace(sd_checkpoint_info=types.SimpleNamespace(
+        filename=facts['linked_paths'][2], sha256='def456'))
+    other = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False)
+    shared.sd_model = types.SimpleNamespace(sd_checkpoint_info=real_info)
+    today = next(iter(groups('day').values()))
+    check('a group of images made with two checkpoints names none', today['checkpoint_path'], None)
+    check('while its images keep their own', len({i['checkpoint_path'] for i in
+          browse(generation=other, hide_nsfw_images='false')['tiles'][0]['images']}), 1)
+    db.delete_generation(other)
+
     # A group deleted: its images the grid shows, each as one image is.
     unloraed = groups('loras')['']
     body = client.post('/model-manager/generations/group/delete', data={

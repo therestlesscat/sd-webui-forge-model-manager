@@ -333,11 +333,15 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     for key in part:
         first = previews[key][0]
         generation_row = generations.get(first["generation_id"]) or {"id": first["generation_id"]}
+        # The checkpoint its images were made with, if one: a group can span several.
+        checkpoints = {r.get("checkpoint_path") for r in units[key]}
         tile = {
             "kind": kind,
             "generation": {k: generation_row.get(k) for k in TILE_FIELDS},
-            "images": [_image(images[r["id"]]) for r in previews[key] if r["id"] in images],
+            "images": [{**_image(images[r["id"]]), "checkpoint_path": r.get("checkpoint_path")}
+                       for r in previews[key] if r["id"] in images],
             "matching_count": len(units[key]),
+            "checkpoint_path": next(iter(checkpoints)) if len(checkpoints) == 1 else None,
         }
         if kind == "group":
             tile["group"] = {"id": group_id(key), "value": key, "latest": first.get("created_at"),

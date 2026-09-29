@@ -188,6 +188,22 @@ check('   with the delete buttons for a model with two versions here',
 check('   and Show in Civitai Browser sends the version now shown, as does its Version ID row',
       [(await showInBrowser()).query, row('Version ID')], ['model:4001 version:503', '503']);
 
+// ------------------------------------------------ a file, from another tab
+// The Generations tab's "Show model in Model Manager": the file's model, and
+// the version that file is - not the one the model's row names.
+const searched = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/model-manager/models?')) searched.push(new URL(String(url)).searchParams.get('search'));
+    return realFetch(url, init);
+};
+await click(pill('v1'));
+check('   (v1 shown first, so the file has to be found)', active(), ['v1 ✓']);
+await window.mmShowFile('C:/models/v3.safetensors');
+check('10. a file shown from another tab is looked up by its exact path, and its own version opened',
+      [searched.at(-1), active(), detailsAsked.at(-1)], ['path:C:/models/v3.safetensors', ['v3 ✓'], 'C:/models/v3.safetensors']);
+globalThis.fetch = realFetch;
+
 // -------------------------------------------------- nothing recorded yet
 civitaiVersions = () => [];
 localVersions = [local(501, 'v1')];

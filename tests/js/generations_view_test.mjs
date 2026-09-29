@@ -8,6 +8,7 @@
 // it was made in and is deleted - a batch whole, an image alone - with its
 // files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
+import { readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
@@ -58,7 +59,10 @@ function browse(params) {
         units.get(unit).push(r);
     }
     const tiles = [...units.entries()].map(([unit, rs]) => ({
-        kind, generation: rs[0].g.generation, images: rs.slice(0, 4).map((r) => r.i), matching_count: rs.length,
+        kind, generation: rs[0].g.generation, matching_count: rs.length,
+        images: rs.slice(0, 4).map((r) => ({ ...r.i, checkpoint_path: r.g.generation.checkpoint_path })),
+        checkpoint_path: new Set(rs.map((r) => r.g.generation.checkpoint_path)).size === 1
+            ? rs[0].g.generation.checkpoint_path : null,
         ...(kind === 'group' ? { group: { id: unit, value: unit, latest: rs[0].g.generation.created_at,
                                           generations: new Set(rs.map((r) => r.g.generation.id)).size } } : {}),
     }));
@@ -118,9 +122,11 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-// The Model Manager's paste, which this tab calls.
+// The Model Manager's paste, and its showing a file, which this tab calls.
 const sent = [];
 window.mmSendInfotext = (what) => { sent.push(what); return true; };
+const shownFiles = [];
+window.mmShowFile = (path) => { shownFiles.push(path); };
 
 // This DOM has no layout: the end of the grid is put where the test says,
 // far below the window until it is scrolled to.
@@ -200,13 +206,34 @@ check('there is no "Show every image": a tile is a generation', document.getElem
 check('the banner counts what is stored, and what the NSFW switch hides',
       document.querySelector('#gen_banner .mm-nsfw-warning span')?.textContent.includes('9 images stored'), true);
 
+// ---------------------------------------------------------------- the ⋯ menu
+// More that can be done with a tile, behind ⋯ at its image's top-right -
+// drawn only when there is something in it. First: its model, in the Model
+// Manager, when its images share one checkpoint.
+const menuEl = () => document.querySelector('.gen-menu');
+const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+const ANIMA = 'C:/models/Stable-diffusion/anima.safetensors';
+check('a tile whose images share a checkpoint has ⋯; one with no checkpoint recorded has none',
+      tileEls().map((t) => !!t.querySelector('.gen-menu-btn')), [true, false]);
+check('its NSFW badge moved to the left, out of ⋯\'s way: the tab\'s stylesheet says so',
+      /\.gen-media \.mm-nsfw-badge \{[^}]*left: 6px/.test(readFileSync(`${ROOT}/style.css`, 'utf8')), true);
+window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+check('⋯ opens a menu, its first item the model in the Model Manager',
+      Array.from(menuEl()?.querySelectorAll('button') || []).map((b) => b.textContent.trim()),
+      ['Show model in Model Manager']);
+key('Escape');
+check('Esc closes it', menuEl(), null);
+window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+click(menuEl().querySelector('button'));
+check('and the item shows the checkpoint\'s own file there', [shownFiles, menuEl()], [[ANIMA], null]);
+
 // ---------------------------------------------------------------- the viewer
 // An image over the page, ← and → through every image in the grid's order -
 // a folded batch's too - and past the last loaded, the next part, into the
 // grid as well. Send and Delete below it; its details beside it.
 const viewer = () => document.querySelector('.gen-viewer');
 const shownId = () => viewer()?.querySelector('.gen-viewer-image')?.getAttribute('src')?.match(/images\/(\d+)\//)?.[1];
-const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 await window.genView(0, 0);
@@ -216,14 +243,20 @@ check('with its details beside it: its prompts and what was recorded, and a way 
       [viewer()?.querySelector('.gen-info-prompt')?.textContent, viewer()?.textContent.includes('anima.safetensors'),
        viewer()?.textContent.includes('Seed'), !!viewer()?.querySelector('a[href$="/images/31/file"]')],
       ['prompt 31', true, true, true]);
-check('Send and Delete below the image', Array.from(viewer().querySelectorAll('.gen-viewer-actions button'))
-      .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete']);
+check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.gen-viewer-actions button'))
+      .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
+click(viewer().querySelector('[data-menu]'));
+click(menuEl().querySelector('button'));
+check('⋯ in the viewer shows the image\'s own checkpoint, closing the viewer',
+      [shownFiles.at(-1), viewer()], [ANIMA, null]);
+await window.genView(0, 0);
 check('nothing before the first', viewer().querySelector('.gen-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();
 check('→ steps through them', shownId(), '33');
 for (let i = 0; i < 3; i++) { key('ArrowRight'); await settle(); }
 check('then on to the next generation', [shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent],
       ['21', '']);
+check('with no ⋯ for an image with no checkpoint recorded', viewer().querySelector('[data-menu]').hidden, true);
 key('ArrowLeft'); await settle();
 check('← back to the batch\'s last image', shownId(), '35');
 key('ArrowRight'); await settle();
