@@ -536,7 +536,7 @@ class MoreImages:
                             'meta': {'prompt': 'downloaded', 'steps': 20}} for i in self.ids],
                 'next_cursor': None}
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         return {}
 
     def close(self):
@@ -574,7 +574,7 @@ class Pages:
                             'meta': {'prompt': 'from civitai', 'steps': 20}} for i in ids],
                 'next_cursor': next_cursor}
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         return {}
 
     def close(self):

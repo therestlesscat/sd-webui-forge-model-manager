@@ -106,7 +106,7 @@ class Client:
             return self.images(version_id)
         return self.images
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         self.asked.append(('generation', list(ids)))
         return self.generation
 

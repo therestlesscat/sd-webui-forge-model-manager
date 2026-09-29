@@ -26,7 +26,11 @@ from .annotations import annotate_image_levels, annotate_local_ownership, annota
 from ..nsfw import stamp_levels
 from ..gallery import gallery_page_size
 from .images import PAGE_FETCHES, filter_images
-from .prompts import PROMPT_CHECK_WORKERS, inspect_model
+
+# The most Civitai's /images gives one request, whatever limit it is sent:
+# 150, 200 and 201 all came back as 100.
+CIVITAI_IMAGES_PER_REQUEST = 100
+from .prompts import PROMPT_CHECK_WORKERS, inspect_models
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -45,7 +49,7 @@ MAX_FILTER_SEARCHES = 5
 SIZE_FILTER_BATCH = 100
 
 
-def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
+def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
                     limit, min_usable, fill_page=False):
     """
     The filter loop's arguments for the filters asked for.
@@ -72,14 +76,14 @@ def _filter_options(client, db, *, require_prompt, sfw_only, nsfw, size_check,
     if costly:
         client.wait_on_rate_limit = False
 
-    inspect = (
-        (lambda m: inspect_model(client, db, m, want_prompts=require_prompt,
-                                 want_sfw=sfw, min_usable=min_usable))
+    inspect_many = (
+        (lambda models: inspect_models(client, models, want_prompts=require_prompt,
+                                       want_sfw=sfw, min_usable=min_usable))
         if costly else None
     )
     unbounded = sfw and fill_page
     return sfw, dict(
-        inspect=inspect,
+        inspect_many=inspect_many,
         page_size=limit,
         max_checks=None if unbounded else max(limit * 4, 20),
         batch_size=max(limit * 2, 20) if costly else SIZE_FILTER_BATCH,
@@ -188,7 +192,7 @@ def register(app: FastAPI):
                 min_usable = max(int(getattr(
                     shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
                 sfw, options = _filter_options(
-                    client, get_models_db(), require_prompt=require_prompt,
+                    client, require_prompt=require_prompt,
                     sfw_only=sfw_only, nsfw=nsfw, size_check=size_check,
                     limit=limit, min_usable=min_usable,
                     fill_page=_fill_page_setting())
@@ -324,7 +328,7 @@ def register(app: FastAPI):
                 }) + "\n"
 
                 sfw, options = _filter_options(
-                    client, db, require_prompt=require_prompt, sfw_only=sfw_only,
+                    client, require_prompt=require_prompt, sfw_only=sfw_only,
                     nsfw=nsfw, size_check=size_check, limit=limit,
                     min_usable=min_usable, fill_page=_fill_page_setting())
 
@@ -424,205 +428,80 @@ def register(app: FastAPI):
     @app.get("/model-manager/civitai/versions/{version_id}/images")
     def civitai_get_version_images(
         version_id: int,
-        model_id: int = 0,
-        use_cache: bool = True,
         page: int = 1,
+        cursor: str = "",
         hide_nsfw_images: bool = False,
         hide_promptless_images: bool = False,
-        backfill: bool = True,
     ):
         """
-        Page `page` of a Civitai version's images, as the Model Manager's
-        gallery pages a version's (api/images.gallery_page): the images cached
-        at places (page - 1) * size + 1 to page * size, in the order they were
-        cached, before the switches - which only decide which are drawn. A
-        page the cache cannot fill is filled from Civitai first, 100 at a time.
-        It used to fetch 10 at a time, and page what passed the switches.
+        Page `page` of a Civitai version's images, live from Civitai: the next
+        `size` images after `cursor` (the first when it is empty), before the
+        switches - which only decide which are drawn. The page carries the
+        cursor to the one after it; nothing is kept here.
 
-        backfill looks up the prompts cached images lack. Nothing remembers
-        an image Civitai has no prompt for, so each lookup asks again: the
-        gallery sends it when a version is opened, and not when it loads
-        another page or flips a switch. use_cache=false fetches the first
-        batch afresh whatever is cached.
+        It used to page a cache of every image the browser had fetched, which
+        was never cleared: 16,807 images for 911 versions, 825 of them only
+        the search filter's samples, with the ratings they had when fetched.
 
         Returns:
             images (the page's shown images, judged); page: its number, size,
-            how many it holds, shows and each switch hid, whether more come
-            after it, and the error if Civitai failed to fill it; images_state:
-            the counts over everything cached, for the banner; next_cursor,
-            from_cache, cached_count and fetched_count.
+            how many it holds and shows, what each switch hid and how many of
+            each kind it holds, whether more come after it, and the error if
+            Civitai failed part-way; next_cursor, for the page after.
         """
         try:
-            db = get_models_db()
             size = gallery_page_size()
             page = max(1, int(page or 1))
-            cached = db.get_cached_browse_images(version_id)
-            cursor = db.get_browse_cursor(version_id)
-            if not use_cache:
-                cursor = None
+            images, next_cursor, error = [], cursor or None, None
+            client = CivitaiClient.from_settings()
+            try:
+                # Civitai gives at most 100 a request, and sometimes fewer
+                # with more to come, so a page asks until it is full.
+                for fetch in range(PAGE_FETCHES):
+                    want = min(size - len(images), CIVITAI_IMAGES_PER_REQUEST)
+                    try:
+                        result = client.get_model_images(
+                            version_id, cursor=next_cursor, limit=want)
+                    except Exception as e:
+                        if not images:
+                            raise
+                        error = str(e)
+                        print(f"[ModelManager] Filling page {page} of version "
+                              f"{version_id} failed: {e}")
+                        break
+                    batch = result.get("images") or []
+                    images.extend(batch)
+                    next_cursor = result.get("next_cursor") or None
+                    if not batch or not next_cursor or len(images) >= size:
+                        break
+                # /images returns meta: null - the prompts come separately
+                enrich_images_with_generation_data(client, images,
+                                                   workers=PROMPT_CHECK_WORKERS)
+            finally:
+                client.close()
 
-            def more():
-                # A cursor to the next batch, or nothing fetched yet.
-                return bool(cursor) or not cached
-
-            fetched, fetches, error = 0, 0, None
-            while ((not use_cache and fetches == 0)
-                   or (len(cached) < page * size and more() and fetches < PAGE_FETCHES)):
-                fetches += 1
-                client = CivitaiClient.from_settings()
-                try:
-                    result = client.get_model_images(version_id, cursor=cursor or None, limit=100)
-                    images = result.get("images", [])
-                    # /images returns meta: null - fetch generation data separately
-                    enrich_images_with_generation_data(client, images)
-                except Exception as e:
-                    if not cached:
-                        raise
-                    error = str(e)
-                    print(f"[ModelManager] Fetching images for page {page} of version "
-                          f"{version_id} failed: {e}")
-                    break
-                finally:
-                    client.close()
-                next_cursor = result.get("next_cursor")
-                if images:
-                    db.store_browse_images(model_id, version_id, images)
-                # "" says Civitai has no more; None, that it was never asked.
-                db.store_browse_cursor(model_id, version_id, next_cursor or "")
-                cursor = next_cursor or ""
-                before = len(cached)
-                cached = db.get_cached_browse_images(version_id)
-                # Only what is new counts, and a batch of nothing new ends it:
-                # Civitai sending what is cached again would be asked again
-                # and again.
-                fetched += len(cached) - before
-                if len(cached) == before:
-                    break
-
-            # Rows cached while the API returned `meta: null` have no
-            # prompt - backfill them now that we can fetch it again.
-            if backfill and not fetches and any(
-                    not (img.get("meta") or {}).get("prompt") for img in cached):
-                client = CivitaiClient.from_settings()
-                try:
-                    enriched = enrich_images_with_generation_data(client, cached)
-                finally:
-                    client.close()
-                if enriched:
-                    db.update_browse_images(version_id, cached)
-                    print(f"[ModelManager] Backfilled generation data for {enriched} "
-                          f"cached images (version {version_id})")
-
-            rows = cached[(page - 1) * size:page * size]
-            shown, counts = filter_images(rows, hide_nsfw_images, hide_promptless_images)
-            _, totals = filter_images(cached, hide_nsfw_images, hide_promptless_images)
+            shown, counts = filter_images(images, hide_nsfw_images, hide_promptless_images)
             return JSONResponse({
                 "success": True,
                 "images": stamp_levels(shown),
                 "page": {
                     "number": page,
                     "size": size,
-                    "count": len(rows),
+                    "count": len(images),
                     "shown": counts["filtered"],
                     "hidden_nsfw": counts["hidden_nsfw"],
                     "hidden_promptless": counts["hidden_promptless"],
-                    "more": len(cached) > page * size or more(),
+                    "nsfw_count": counts["nsfw_count"],
+                    "promptless_count": counts["promptless_count"],
+                    "more": bool(next_cursor),
                     "error": error,
                 },
-                "images_state": totals,
-                "next_cursor": cursor or None,
-                "from_cache": not fetches,          # Civitai was not asked
-                "cached_count": len(cached),
-                "fetched_count": fetched,
+                "next_cursor": next_cursor,
             })
 
         except Exception as e:
             import traceback
             print(f"[ModelManager] Civitai images error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
-
-    @app.post("/model-manager/civitai/versions/{version_id}/images/load-more")
-    def civitai_load_more_images(version_id: int, model_id: int = Form(...)):
-        """
-        Load more images for a Civitai version using cached cursor.
-        """
-        try:
-            db = get_models_db()
-
-            # Get cached cursor
-            cursor = db.get_browse_cursor(version_id)
-
-            if not cursor:
-                return JSONResponse({
-                    "success": True,
-                    "images": [],
-                    "next_cursor": None,
-                    "message": "No more images (no cursor)"
-                })
-
-            # Fetch from Civitai
-            client = CivitaiClient.from_settings()
-            try:
-                result = client.get_model_images(version_id, cursor=cursor, limit=100)
-                images = result.get("images", [])
-                # /images returns meta: null - fetch generation data separately
-                enrich_images_with_generation_data(client, images)
-            finally:
-                client.close()
-
-            next_cursor = result.get("next_cursor")
-
-            # Store new images and update cursor
-            if images:
-                db.store_browse_images(model_id, version_id, images)
-
-            if next_cursor:
-                db.store_browse_cursor(model_id, version_id, next_cursor)
-            else:
-                # Clear cursor to indicate no more images
-                db.store_browse_cursor(model_id, version_id, "")
-
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(images),
-                "next_cursor": next_cursor,
-                "fetched_count": len(images)
-            })
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai load more error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
-
-    @app.get("/model-manager/civitai/versions/{version_id}/images/cached")
-    async def civitai_get_cached_images(version_id: int):
-        """
-        Get only cached images for a version (no API call).
-        """
-        try:
-            db = get_models_db()
-
-            images = db.get_cached_browse_images(version_id)
-            cursor = db.get_browse_cursor(version_id)
-
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(images),
-                "next_cursor": cursor if cursor else None,
-                "cached_count": len(images)
-            })
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai cached images error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},

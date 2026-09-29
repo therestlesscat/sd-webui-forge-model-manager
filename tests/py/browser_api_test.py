@@ -3,8 +3,8 @@ The Civitai Browser's endpoints, with Civitai replaced by a stub.
 
 Every one of these calls out to Civitai, so `CivitaiClient` is swapped for a
 class whose `from_settings()` hands back scripted answers. That reaches the
-paths that only happen when Civitai fails, the browse cache the gallery is
-served from, and the ownership marks that make a search result say "you
+paths that only happen when Civitai fails, the gallery's pages, read live
+from Civitai, and the ownership marks that make a search result say "you
 already have this".
 """
 import json
@@ -37,9 +37,6 @@ import model_manager.download_service as ds              # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 from model_manager.api.annotations import (              # noqa: E402
     annotate_local_ownership, annotate_paid_access,
-)
-from model_manager.api.prompts import (                  # noqa: E402
-    count_usable_prompt_images,
 )
 
 WORK = os.path.join(TESTS, 'work', 'browser_api')
@@ -107,7 +104,7 @@ class Stub:
         self._maybe_fail()
         return Stub.images
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         Stub.calls.append(('get_generation_data', list(ids)))
         return Stub.generation
 
@@ -409,7 +406,7 @@ try:
         base = dict(require_prompt=False, sfw_only=False, nsfw=False, size_check=None,
                     limit=20, min_usable=1, fill_page=True)
         base.update(kw)
-        _, o = _filter_options(Quiet(), None, **base)
+        _, o = _filter_options(Quiet(), **base)
         return o['max_checks'], o['max_searches']
 
     check('the setting lifts both limits in SFW mode', limits(sfw_only=True), (None, None))
@@ -476,172 +473,123 @@ check('so does a model looked up by id',
       body['model']['modelVersions'][0]['images'][0].get('mm_level'), 4)
 
 # ----------------------------------------------------------------- the gallery
-# What a gallery's cache does, at pages of 2: Civitai's two images are a whole
-# page, so a page that has them needs nothing more. Pages proper are below.
+# A page is the next page-size images of Civitai's, after the cursor the last
+# page ended at, before the switches - which only decide which are shown. Nothing
+# is kept: it used to page a cache of every image ever fetched, never cleared.
 shared_opts = sys.modules['modules.shared'].opts
+
+
+def cache_rows():
+    with db._cursor() as cursor:
+        return cursor.execute('SELECT COUNT(*) FROM civitai_browser_cache').fetchone()[0]
+
+
+class Gallery:
+    """Civitai's gallery for a version: the cursor is an offset, and at offset
+    `short` it gives one image whatever it is asked, with more to come - as
+    Civitai does, 80 where 100 were asked for."""
+
+    def __init__(self, images, short=None, fail_at=None):
+        self.images, self.short, self.fail_at = images, short, fail_at
+        self.asked = []
+
+    def __call__(self, version_id, cursor=None, limit=None):
+        Stub.calls.append(('get_model_images', version_id, cursor, limit))
+        start = int(cursor or 0)
+        self.asked.append((cursor, limit))
+        if self.fail_at is not None and start == self.fail_at:
+            raise RuntimeError('Civitai: overloaded (503)')
+        batch = self.images[start:start + (1 if start == self.short else limit)]
+        end = start + len(batch)
+        return {'images': [dict(i) for i in batch],
+                'next_cursor': str(end) if end < len(self.images) else None}
+
+
+def image(n, level=1, meta=USABLE):
+    return {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': level, 'meta': meta}
+
+
+rows_before = cache_rows()
 shared_opts.model_manager_gallery_page_size = 2
-FRESH_VERSION = 90080
-civitai(images={'images': [{'id': 1, 'url': 'u1', 'meta': USABLE},
-                           {'id': 2, 'url': 'u2', 'meta': USABLE}],
-                'next_cursor': 'more'})
-status, body = get('/model-manager/civitai/versions/%d/images' % FRESH_VERSION,
-                   model_id=90081)
-check('images are fetched when nothing is cached', body['from_cache'], False)
-check('and counted', body['fetched_count'], 2)
-check('with a cursor for the next page', body['next_cursor'], 'more')
+gallery = Gallery([image(n) for n in range(5)], short=2)
+Stub.get_model_images = staticmethod(gallery)
+civitai(generation={})
+status, body = get('/model-manager/civitai/versions/90080/images')
+check('page 1 is Civitai\'s first page-size images, from the start',
+      ([i['id'] for i in body['images']], gallery.asked), ([95000, 95001], [(None, 2)]))
+check('with the cursor to the page after it', (body['next_cursor'], body['page']['more']), ('2', True))
 check('each judged here, for the browser to read - it does not judge',
       [('mm_level' in i, 'mm_level_from_prompt' in i) for i in body['images']], [(True, True)] * 2)
 
+gallery.asked = []
+status, body = get('/model-manager/civitai/versions/90080/images', page=2, cursor='2')
+check('the next page starts at that cursor, and a short batch is followed by another',
+      ([i['id'] for i in body['images']], gallery.asked), ([95002, 95003], [('2', 2), ('3', 1)]))
+check('numbered as asked', body['page']['number'], 2)
+
+gallery.asked = []
+status, body = get('/model-manager/civitai/versions/90080/images', page=3, cursor='4')
+check('the last page says Civitai has no more',
+      ([i['id'] for i in body['images']], body['next_cursor'], body['page']['more']),
+      ([95004], None, False))
+
+# Civitai gives at most 100 images a request, whatever it is asked: 150, 200
+# and 201 all came back as 100. A larger page is asked for in parts.
+shared_opts.model_manager_gallery_page_size = 150
+gallery = Gallery([image(n, meta=None) for n in range(300)])
+Stub.get_model_images = staticmethod(gallery)
 forget()
-status, body = get('/model-manager/civitai/versions/%d/images' % FRESH_VERSION,
-                   model_id=90081)
-check('the second ask is served from the cache', body['from_cache'], True)
-check('with the same images', body['cached_count'], 2)
-check('judged again on the way out of the cache', all('mm_level' in i for i in body['images']), True)
-check('and the stored cursor', body['next_cursor'], 'more')
-check('without asking Civitai again',
-      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
-
-status, body = get('/model-manager/civitai/versions/%d/images' % FRESH_VERSION,
-                   model_id=90081, use_cache='false')
-check('but the cache can be bypassed', body['from_cache'], False)
-
-# Images cached before generation data could be fetched have no prompt, and are
-# backfilled the next time the gallery is opened.
-BARE_VERSION = 90090
-db.store_browse_images(90091, BARE_VERSION, [{'id': 7, 'url': 'u7', 'meta': None}])
-civitai(generation={7: {'meta': USABLE}})
-status, body = get('/model-manager/civitai/versions/%d/images' % BARE_VERSION)
-check('a cached image with no prompt is backfilled',
-      body['images'][0]['meta']['prompt'], 'a cat')
-check('served as cache all the same', body['from_cache'], True)
-forget()
-status, body = get('/model-manager/civitai/versions/%d/images' % BARE_VERSION)
-check('and the backfill was written, so it is not fetched twice',
-      [c for c in Stub.calls if c[0] == 'get_generation_data'], [])
-
-civitai(images={'images': [], 'next_cursor': None})
-status, body = get('/model-manager/civitai/versions/90100/images')
-check('a version with no images at all is not an error', status, 200)
-check('and nothing is cached', body['fetched_count'], 0)
-
-civitai(raises=RuntimeError('images failed'))
-status, body = get('/model-manager/civitai/versions/90110/images')
-check('images that fail to fetch are a 500', status, 500)
-
-# ------------------------------------------------------------------ load more
-civitai(images={'images': [{'id': 3, 'url': 'u3', 'meta': USABLE}],
-                'next_cursor': 'even-more'})
-status, body = post('/model-manager/civitai/versions/%d/images/load-more' % FRESH_VERSION,
-                    model_id=90081)
-check('load-more follows the stored cursor',
-      [c for c in Stub.calls if c[0] == 'get_model_images'][0][2], 'more')
-check('and returns what it found', body['fetched_count'], 1)
-check('with the next cursor', body['next_cursor'], 'even-more')
-
-civitai(images={'images': [{'id': 4, 'url': 'u4', 'meta': USABLE}],
-                'next_cursor': None})
-status, body = post('/model-manager/civitai/versions/%d/images/load-more' % FRESH_VERSION,
-                    model_id=90081)
-check('the end of the gallery gives no cursor', body['next_cursor'], None)
-forget()
-status, body = post('/model-manager/civitai/versions/%d/images/load-more' % FRESH_VERSION,
-                    model_id=90081)
-check('and asking again does not go back to Civitai',
-      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
-check('saying why', body['message'], 'No more images (no cursor)')
-
-status, body = post('/model-manager/civitai/versions/90120/images/load-more',
-                    model_id=90121)
-check('a version that was never opened has nothing more to load', body['images'], [])
-
-db.store_browse_cursor(90091, BARE_VERSION, 'a-cursor')
-civitai(raises=RuntimeError('load more failed'))
-status, body = post('/model-manager/civitai/versions/%d/images/load-more' % BARE_VERSION,
-                    model_id=90091)
-check('and a failure is a 500', status, 500)
-
+status, body = get('/model-manager/civitai/versions/90081/images')
+check('a page larger than Civitai gives is asked for 100, then the rest',
+      (gallery.asked, body['page']['count']), ([(None, 100), ('100', 50)], 150))
+check('and its prompts looked up in one go, not one request per part',
+      [c[0] for c in Stub.calls].count('get_generation_data'), 1)
 shared_opts.model_manager_gallery_page_size = 100
 
-# --------------------------------------------------------------- cached only
-forget()
-status, body = get('/model-manager/civitai/versions/%d/images/cached' % FRESH_VERSION)
-check('the cache can be read on its own', body['success'], True)
-check('with what is in it', body['cached_count'] >= 2, True)
-check('and no request to Civitai',
-      [c for c in Stub.calls if c[0] == 'get_model_images'], [])
-
-status, body = get('/model-manager/civitai/versions/90130/images/cached')
-check('an empty cache is empty, not an error', (status, body['images']), (200, []))
-check('with no cursor', body['next_cursor'], None)
-
-# ------------------------------------------------------ a page at a time
-# A page is a slice of what is cached, in the order it was cached - 100 by
-# default - before the switches, which only decide which of its images are
-# shown; its counts say what they hid. It used to be 10 fetched at a time,
-# and pages of what passed the switches.
-PAGED_VERSION = 90140
-db.store_browse_images(90141, PAGED_VERSION, [
-    {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': 8 if n % 4 == 0 else 1,
-     'meta': USABLE if n % 3 else None}
-    for n in range(150)])
-forget()
-status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION)
-check('page 1 is the first 100 cached, with nothing hidden when no switch is sent',
+# The switches: which of the page's images are shown, and its counts.
+gallery = Gallery([image(n, level=8 if n % 4 == 0 else 1, meta=USABLE if n % 3 else None)
+                   for n in range(150)])
+Stub.get_model_images = staticmethod(gallery)
+status, body = get('/model-manager/civitai/versions/90140/images')
+check('with no switch sent, nothing is hidden',
       ([i['id'] for i in body['images']], body['page']['count'], body['page']['more']),
       ([95000 + n for n in range(100)], 100, True))
-check('the banner\'s totals are over everything cached', body['images_state']['filtered'], 150)
-check('the cache is still counted whole', body['cached_count'], 150)
-check('opening it looks up the prompts the cache lacks',
-      [c[0] for c in Stub.calls].count('get_generation_data'), 1)
-
-forget()
-status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION,
-                   hide_nsfw_images='true', hide_promptless_images='true',
-                   page=2, backfill='false')
-rows = range(100, 150)
-kept = [95000 + n for n in rows if n % 4 and n % 3]
+status, body = get('/model-manager/civitai/versions/90140/images', page=2, cursor='100',
+                   hide_nsfw_images='true', hide_promptless_images='true')
+kept = [95000 + n for n in range(100, 150) if n % 4 and n % 3]
 check('page 2 is the rest, through the switches', [i['id'] for i in body['images']], kept)
-check('its note counts what each switch hid, of the images it holds',
-      {k: body['page'][k] for k in ('number', 'count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'more')},
+check('its note counts what each switch hid, and each kind it holds, for the banner to add up',
+      {k: body['page'][k] for k in ('number', 'count', 'shown', 'hidden_nsfw',
+                                    'hidden_promptless', 'nsfw_count', 'promptless_count', 'more')},
       {'number': 2, 'count': 50, 'shown': len(kept), 'hidden_nsfw': 13,
-       'hidden_promptless': 50 - 13 - len(kept), 'more': False})
-check('each page judged, as every image the browser is sent is',
-      all('mm_level' in i for i in body['images']), True)
-check('and another page does not look up the prompts the cache lacks',
-      [c for c in Stub.calls if c[0] == 'get_generation_data'], [])
+       'hidden_promptless': 50 - 13 - len(kept), 'nsfw_count': 9,
+       'promptless_count': 50 - 13 - len(kept), 'more': False})
 
-# A page the cache cannot fill is filled from Civitai first, 100 at a time.
-TOPUP = 90150
-db.store_browse_images(90151, TOPUP, [{'id': 96000 + n, 'url': 't%d' % n, 'meta': USABLE}
-                                      for n in range(30)])
-db.store_browse_cursor(90151, TOPUP, 'after-30')
-civitai(images={'images': [{'id': 96100 + n, 'url': 'u%d' % n, 'meta': USABLE} for n in range(70)],
-                'next_cursor': None})
-status, body = get('/model-manager/civitai/versions/%d/images' % TOPUP, model_id=90151,
-                   backfill='false')
-asked_images = [c for c in Stub.calls if c[0] == 'get_model_images']
-check('a page the cache cannot fill asks Civitai for more, from where it left off',
-      (len(asked_images), asked_images[0][2] if asked_images else None), (1, 'after-30'))
-check('and is whole: the 30 cached, then the 70 that came',
-      [i['id'] for i in body['images']],
-      [96000 + n for n in range(30)] + [96100 + n for n in range(70)])
-check('fetched, with nothing more on Civitai',
-      (body['from_cache'], body['fetched_count'], body['page']['more']), (False, 70, False))
+# Failures: the first request is the whole page; a later one leaves a part.
+shared_opts.model_manager_gallery_page_size = 2
+Stub.get_model_images = staticmethod(Gallery([image(n) for n in range(5)], fail_at=0))
+status, body = get('/model-manager/civitai/versions/90110/images')
+check('a page Civitai will not give is a 500, saying why',
+      (status, body['error']), (500, 'Civitai: overloaded (503)'))
+Stub.get_model_images = staticmethod(Gallery([image(n) for n in range(5)], short=2, fail_at=3))
+status, body = get('/model-manager/civitai/versions/90110/images', page=2, cursor='2')
+check('one that fails part-way is what came, with the error, and where to go on from',
+      ([i['id'] for i in body['images']], body['page']['error'], body['next_cursor']),
+      ([95002], 'Civitai: overloaded (503)', '3'))
+shared_opts.model_manager_gallery_page_size = 100
 
-# Civitai sending back what is cached - a stale cursor - is asked once, not
-# until the loop's limit, and what came counts for nothing.
-STALE = 90160
-db.store_browse_images(90161, STALE, [{'id': 97000 + n, 'url': 's%d' % n, 'meta': USABLE}
-                                      for n in range(10)])
-db.store_browse_cursor(90161, STALE, 'stale')
-civitai(images={'images': [{'id': 97000 + n, 'url': 's%d' % n, 'meta': USABLE} for n in range(10)],
-                'next_cursor': 'stale'})
-status, body = get('/model-manager/civitai/versions/%d/images' % STALE, model_id=90161,
-                   backfill='false')
-check('a batch of nothing new ends the filling, after one ask',
-      (len([c for c in Stub.calls if c[0] == 'get_model_images']), body['fetched_count'],
-       body['page']['count']), (1, 0, 10))
+Stub.get_model_images = staticmethod(Gallery([]))
+status, body = get('/model-manager/civitai/versions/90100/images')
+check('a version with no images at all is not an error',
+      (status, body['page']['count'], body['page']['more']), (200, 0, False))
+
+check('and none of it is written down', cache_rows(), rows_before)
+check('nor is there an endpoint to load more from a stored cursor, or read what was stored',
+      [client.post('/model-manager/civitai/versions/90080/images/load-more',
+                   data={'model_id': 1}).status_code,
+       client.get('/model-manager/civitai/versions/90080/images/cached').status_code],
+      [404, 404])
+Stub.get_model_images = _scripted_images
 
 # ------------------------------------------------------------------ downloads
 class FakeDownloads:
@@ -839,44 +787,6 @@ check('so is one inside paidAccess', paid[1],
 check('and a version with neither is free', paid[2], None)
 check('a model with no versions is left alone',
       annotate_paid_access([{'id': 1}]), None)
-
-# ------------------------------------------------------- counting usable prompts
-class Counting:
-    def __init__(self, images):
-        self.images = images
-        self.asked = []
-
-    def get_model_images(self, version_id, cursor=None, limit=None):
-        self.asked.append(version_id)
-        return self.images
-
-    def get_generation_data(self, ids):
-        return {}
-
-
-COUNT_VERSION = 90200
-counter = Counting({'images': [{'id': 1, 'meta': USABLE},
-                               {'id': 2, 'meta': None}],
-                    'next_cursor': 'next'})
-check('a model is checked by fetching its images',
-      count_usable_prompt_images(counter, db, remote(90201, COUNT_VERSION)), 1)
-check('and what was fetched is cached, so opening it is instant',
-      len(db.get_cached_browse_images(COUNT_VERSION)), 2)
-check('with its cursor', db.get_browse_cursor(COUNT_VERSION), 'next')
-
-second = Counting({'images': [], 'next_cursor': None})
-check('a second check costs no request',
-      count_usable_prompt_images(second, db, remote(90201, COUNT_VERSION)), 1)
-check('and really none', second.asked, [])
-
-check('a model with no versions counts nothing',
-      count_usable_prompt_images(counter, db, {'id': 1, 'modelVersions': []}), 0)
-check('nor one whose version has no id',
-      count_usable_prompt_images(counter, db, {'id': 1, 'modelVersions': [{}]}), 0)
-
-empty = Counting({'images': [], 'next_cursor': None})
-check('a version with no images counts nothing',
-      count_usable_prompt_images(empty, db, remote(90202, 90203)), 0)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

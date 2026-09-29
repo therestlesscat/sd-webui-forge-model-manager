@@ -249,14 +249,14 @@ const NSFW = 'cb_show_all_images';
 
 check('the banner carries the prompt switch', switchLabel(PROMPT), 'Show unusable prompts (1)');
 check('and its sentence says what the prompt filter hides', sentence(),
-      '2 images stored · 1 match the filters (1 shown) · 1 hidden due to unusable prompt');
+      '2 images loaded · 1 match the filters (1 shown) · 1 hidden due to unusable prompt');
 
 await window.cbToggleShowPromptless?.(true);
 check('ticking it shows the images without a prompt',
       $('cb_images').querySelectorAll('.mm-image-card').length, 2);
 check('and the switch is still there to turn back, saying how many it shows',
       switchLabel(PROMPT), 'Show unusable prompts (1)');
-check('with nothing hidden the sentence says so', sentence(), '2 images stored · 2 match the filters (2 shown)');
+check('with nothing hidden the sentence says so', sentence(), '2 images loaded · 2 match the filters (2 shown)');
 check("without touching the search's own filter", $('cb_require_prompt').checked, true);
 
 await window.cbToggleShowPromptless?.(false);
@@ -284,13 +284,13 @@ check('and there is one of it, though the sentence repeats below the list',
       document.querySelectorAll('#cb_show_all_images').length, 1);
 check('beside a count of what it is holding back', switchLabel(NSFW), 'Show NSFW (1)');
 check('which the sentence states too', sentence(),
-      '2 images stored · 1 match the filters (1 shown) · 1 hidden due to NSFW filter');
+      '2 images loaded · 1 match the filters (1 shown) · 1 hidden due to NSFW filter');
 
 await window.cbToggleShowAllImages(true);
 check('with everything shown the switch is still there to turn back',
       switchIn('.cb-nsfw-warning'), 1);
 check('saying how many NSFW it shows', switchLabel(NSFW), 'Show NSFW (1)');
-check('and the sentence says nothing is hidden', sentence(), '2 images stored · 2 match the filters (2 shown)');
+check('and the sentence says nothing is hidden', sentence(), '2 images loaded · 2 match the filters (2 shown)');
 
 // ------------------------------------------- what the numbers count
 // One banner for both filters. The hidden figures and what is shown add up
@@ -311,20 +311,20 @@ await window.cbToggleShowAllImages(false);
 check('there is one banner at the top, not one per filter', banners().length >= 1
       && banners()[0].querySelectorAll(`#${NSFW}, #${PROMPT}`).length, 2);
 check('whose sentence adds up to the total', sentence(),
-      '3 images stored · 1 match the filters (1 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt');
+      '3 images loaded · 1 match the filters (1 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt');
 check('each switch stating its clause\'s number',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (1)']);
 
 await window.cbToggleShowAllImages(true);
 check('showing NSFW moves the NSFW image without a prompt to the prompt clause', sentence(),
-      '3 images stored · 1 match the filters (1 shown) · 2 hidden due to unusable prompt');
+      '3 images loaded · 1 match the filters (1 shown) · 2 hidden due to unusable prompt');
 check('and the switches follow',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (0)', 'Show unusable prompts (2)']);
 
 await window.cbToggleShowAllImages(false);
 await window.cbToggleShowPromptless(true);
 check('showing prompts leaves only the NSFW clause', sentence(),
-      '3 images stored · 2 match the filters (2 shown) · 1 hidden due to NSFW filter');
+      '3 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter');
 check('and the switches follow',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (1)']);
 await window.cbToggleShowPromptless(false);

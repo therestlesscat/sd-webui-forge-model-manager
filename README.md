@@ -155,7 +155,7 @@ Search Civitai and download directly into the right model folder.
   "Show in Model Manager" jump
 - **Usable-prompt filter**: only show models whose images carry a prompt plus
   steps/sampler/CFG
-- Image gallery with pagination and cached results
+- Image gallery read live from Civitai, a page at a time, with Load More
 - **Downloads**: parallel queue with progress, configurable destination folder template,
   a SHA-256 check against Civitai's, the model added to your library before the download
   counts as complete, and a WebUI model-list refresh

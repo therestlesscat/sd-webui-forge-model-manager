@@ -92,7 +92,7 @@ class Civitai:
         return {'images': [{'id': i, 'url': 'fresh', 'meta': None} for i in before]
                 + [{'id': 777777, 'url': 'fresh', 'meta': None}], 'next_cursor': None}
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         if Civitai.generation is None:
             raise RuntimeError('no API key')
         return Civitai.generation

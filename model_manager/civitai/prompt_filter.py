@@ -115,6 +115,7 @@ def search_models_with_usable_prompts(
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
     max_searches: Optional[int] = None,
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
+    inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -128,7 +129,7 @@ def search_models_with_usable_prompts(
         client, search_params, count_usable_images, page_size,
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
         batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
-        inspect=inspect,
+        inspect=inspect, inspect_many=inspect_many,
     ):
         if kind == "done":
             summary = payload
@@ -149,6 +150,7 @@ def iter_models_with_usable_prompts(
     accept: Optional[Callable[[Dict[str, Any]], bool]] = None,
     max_searches: Optional[int] = None,
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
+    inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -172,7 +174,10 @@ def iter_models_with_usable_prompts(
     `inspect` is the general form of the costly check, for more than one
     question per model: it returns None to keep a model, or why it was left
     out - "prompt" or "nsfw" - and each reason is counted on its own. It
-    replaces `count_usable_images`; give one or the other.
+    replaces `count_usable_images`; give one or the other. `inspect_many`
+    is the same for a whole chunk at once, so the chunk's requests can be
+    pooled; it answers one verdict per model, and RATE_LIMITED for one
+    Civitai refused. It takes precedence over `inspect`.
 
     If Civitai rate-limits a search or a check (CivitaiRateLimitError), the
     page stops there with `rate_limited` set, and the token points at the
@@ -191,6 +196,7 @@ def iter_models_with_usable_prompts(
         accept: Free check run before the prompt check; False drops the model.
         max_searches: Maximum search calls before giving up on filling the page.
         inspect: Costly check returning None to keep, or a reason to drop.
+        inspect_many: The same, for a chunk of models at once.
 
     Yields events as the work happens, so a caller can show results while the
     rest are still being checked:
@@ -202,7 +208,7 @@ def iter_models_with_usable_prompts(
     Yields:
         Tuples of (event kind, payload).
     """
-    if inspect is not None and count_usable_images is not None:
+    if (inspect is not None or inspect_many is not None) and count_usable_images is not None:
         raise ValueError("give count_usable_images or inspect, not both")
     if count_usable_images is not None:
         def inspect(model):
@@ -283,7 +289,7 @@ def iter_models_with_usable_prompts(
                 continue
 
         # No costly check: whatever accept() let through qualifies as it is.
-        if inspect is None:
+        if inspect is None and inspect_many is None:
             model = batch[index]
             index += 1
             models.append(model)
@@ -314,7 +320,17 @@ def iter_models_with_usable_prompts(
                 print(f"[ModelManager] Check failed for model {model.get('id')}: {e}")
                 return "prompt" if count_usable_images is not None else "failed"
 
-        if len(chunk) == 1:
+        if inspect_many is not None:
+            eligible = [accept is None or accept(model) for model in chunk]
+            try:
+                answers = iter(inspect_many([m for m, ok in zip(chunk, eligible) if ok]))
+                verdicts = [(next(answers) or KEEP) if ok else SKIPPED for ok in eligible]
+            except CivitaiRateLimitError:
+                verdicts = [RATE_LIMITED if ok else SKIPPED for ok in eligible]
+            except Exception as e:
+                print(f"[ModelManager] Checks failed for {len(chunk)} models: {e}")
+                verdicts = ["failed" if ok else SKIPPED for ok in eligible]
+        elif len(chunk) == 1:
             verdicts = [check(chunk[0])]
         else:
             with ThreadPoolExecutor(max_workers=len(chunk)) as executor:
@@ -322,8 +338,9 @@ def iter_models_with_usable_prompts(
 
         checked += sum(1 for v in verdicts if v not in (SKIPPED, RATE_LIMITED))
 
-        # Anything checked past the end of the page is left for the next one.
-        # Its answer is cached now, so checking it again there costs nothing.
+        # Anything checked past the end of the page is left for the next one,
+        # and checked again there: the SFW check remembers its verdict, the
+        # prompt check does not.
         consumed = 0
         for model, verdict in zip(chunk, verdicts):
             if len(models) >= page_size:
@@ -401,7 +418,8 @@ def _map_civitai_resources(resources: Optional[List[Dict[str, Any]]]) -> List[Di
 
 def enrich_images_with_generation_data(
     client: CivitaiClient,
-    images: List[Dict[str, Any]]
+    images: List[Dict[str, Any]],
+    workers: int = 1,
 ) -> int:
     """
     Fill in missing generation metadata on images, in place.
@@ -412,6 +430,7 @@ def enrich_images_with_generation_data(
     Args:
         client: Civitai client to use for the lookup.
         images: Image dicts from the /images endpoint (modified in place).
+        workers: Lookup requests in flight at once (get_generation_data).
 
     Returns:
         Number of images that were enriched.
@@ -421,7 +440,7 @@ def enrich_images_with_generation_data(
         return 0
 
     try:
-        generation_data = client.get_generation_data(needs_lookup)
+        generation_data = client.get_generation_data(needs_lookup, workers=workers)
     except Exception as e:
         print(f"[ModelManager] Generation data lookup failed: {e}")
         return 0
