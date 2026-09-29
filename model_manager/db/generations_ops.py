@@ -146,16 +146,21 @@ class GenerationsOps:
             cursor.execute("SELECT file_path FROM model_versions WHERE id = ?", (row[0],))
             return [r[0] for r in cursor.fetchall()]
 
-    def gallery_images(self, files: List[str]) -> List[Dict[str, Any]]:
+    def gallery_images(self, files: Optional[List[str]]) -> List[Dict[str, Any]]:
         """
-        Every image filed under any of these files, with what filtering and
+        Every image filed under any of these files - or every image recorded,
+        for files None: the Generations tab's - with what filtering and
         ordering need and nothing more: its generation, its place in it, its
         level - the user's rating when set, else the prompt's - how long its
         prompt is, and when its generation was made. Newest generation first.
         """
-        if not files:
+        if files is not None and not files:
             return []
-        marks = ", ".join("?" * len(files))
+        where, args = "", []
+        if files is not None:
+            where = ("WHERE gi.id IN (SELECT image_id FROM generation_files WHERE file_path IN "
+                     f"({', '.join('?' * len(files))}))")
+            args = list(files)
         with self._cursor() as cursor:
             cursor.execute(f"""
                 SELECT gi.id, gi.generation_id, gi.position,
@@ -164,13 +169,17 @@ class GenerationsOps:
                        g.created_at
                 FROM generation_images gi
                 JOIN generations g ON g.id = gi.generation_id
-                WHERE gi.id IN (SELECT image_id FROM generation_files WHERE file_path IN ({marks}))
+                {where}
                 ORDER BY g.created_at DESC, g.id DESC, gi.position
-            """, files)
+            """, args)
             return [dict(r) for r in cursor.fetchall()]
 
-    def count_generations(self, files: List[str]) -> int:
-        """How many generations used any of these files."""
+    def count_generations(self, files: Optional[List[str]]) -> int:
+        """How many generations used any of these files - or at all, for None."""
+        if files is None:
+            with self._cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM generations")
+                return cursor.fetchone()[0]
         if not files:
             return 0
         marks = ", ".join("?" * len(files))
@@ -233,6 +242,37 @@ class GenerationsOps:
                 if not cursor.fetchone():
                     own.append(path)
             return own
+
+    def delete_image(self, image_id: int) -> Tuple[List[str], Optional[int]]:
+        """
+        Remove one image of a generation, and the generation too when it was
+        the last one left.
+
+        Returns:
+            (its path, if no other record names it - as delete_generation()
+            says why - and the id of the generation removed with it, or None).
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT generation_id, path FROM generation_images WHERE id = ?", (image_id,))
+            row = cursor.fetchone()
+            if not row:
+                return [], None
+            generation_id, path = row[0], row[1]
+            cursor.execute("DELETE FROM generation_files WHERE image_id = ?", (image_id,))
+            cursor.execute("DELETE FROM generation_images WHERE id = ?", (image_id,))
+            cursor.execute("SELECT COUNT(*) FROM generation_images WHERE generation_id = ?",
+                           (generation_id,))
+            left = cursor.fetchone()[0]
+            gone = None
+            if left:
+                cursor.execute("UPDATE generations SET image_count = ? WHERE id = ?",
+                               (left, generation_id))
+            else:
+                cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+                gone = generation_id
+            cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
+                           (path,))
+            return ([] if cursor.fetchone() or not path else [path]), gone
 
     def restamp_levels(self, level: Callable[[Optional[Dict[str, Any]]], int]) -> Tuple[int, int]:
         """

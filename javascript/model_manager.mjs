@@ -2220,13 +2220,13 @@ function sendTab(card) {
 }
 
 /**
- * Send a generation back to the tab it was made in: its own infotext, pasted
- * as Forge's PNG Info sends one - the checkpoint and modules come back from
- * its lines as Forge reads them - then the scheduler and hires fix as every
- * send sets them. An img2img generation's source image is not kept, so
- * img2img gets its settings and a word to add an image.
+ * Send a generation back to the tab it was made in: Forge set up as it was
+ * made with (mmSendInfotext), then its own infotext, pasted as Forge's PNG
+ * Info sends one, and the scheduler and hires fix as every send sets them.
+ * An img2img generation's source image is not kept, so img2img gets its
+ * settings and a word to add an image.
  */
-window.mmSendGeneration = function(id) {
+window.mmSendGeneration = async function(id) {
     const { card } = drawnGeneration(id);
     const first = card?.images?.[0];
     const infotext = card?.infotext || first?.infotext;
@@ -2237,23 +2237,58 @@ window.mmSendGeneration = function(id) {
     const scrollPos = window.scrollY || document.documentElement.scrollTop || 0;
     localStorage.setItem('mm_scroll_position', scrollPos.toString());
     updateScrollRestoreButton();
+    if (await window.mmSendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
+        console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
+    }
+};
 
-    const meta = first?.meta || {};
+/**
+ * Send one of your own generations' infotexts back to the tab it was made
+ * in - `mode`, txt2img or img2img - as the Generations tab and this one's
+ * generation cards both do. On window: the Generations tab is a script of its
+ * own, and this is where the paste lives (pasteInfotext).
+ *
+ * Forge is first set up as the generation was made with, from its record
+ * (api/generations.send_plan): its checkpoint's UI preset, the checkpoint,
+ * and after the paste exactly the modules it loaded - the same for every kind
+ * of model. The paste alone did none of it: Forge Neo ignores the checkpoint
+ * and modules an infotext names by default, and an SD 1.5 image, naming no
+ * modules, left an Anima model's in place.
+ *
+ * @returns {Promise<boolean>} whether it could be pasted
+ */
+window.mmSendInfotext = async function({ infotext, mode, meta = {}, generationId = null }) {
+    if (!infotext) return false;
+    meta = meta || {};
+    let plan = null;
+    if (generationId !== null && generationId !== undefined) {
+        try {
+            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan` });
+            plan = answer && answer.success ? answer : null;
+        } catch (error) {
+            console.warn('[ModelManager] Could not ask how the generation was made:', error);
+        }
+    }
+    if (plan?.preset) await switchForgePreset(plan.preset);
+    if (plan?.checkpoint && typeof selectCheckpoint === 'function') {
+        console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
+        selectCheckpoint(plan.checkpoint);
+    }
     let scheduler = meta['Schedule type'];
     if (!scheduler && meta.sampler) scheduler = splitSamplerScheduler(meta.sampler).scheduler;
     const hasHiresFix = meta['Denoising strength'] &&
         (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
-    const tab = sendTab(card);
+    const tab = sendTab({ mode });
     // Chips belong to a Civitai image's send; an earlier one's would stay.
     showResourceChips(tab, []);
-    if (pasteInfotext(tab, infotext, { scheduler, hasHiresFix })) {
-        showGenerationTab(tab);
-        if (tab === 'img2img') {
-            showNotice('The settings are in img2img. The image this generation started from '
-                       + 'is not kept: drop an image in before generating.');
-        }
-        console.log(`[ModelManager] Sent generation ${card.id} to ${tab}`);
+    const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
+    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste })) return false;
+    showGenerationTab(tab);
+    if (tab === 'img2img') {
+        showNotice('The settings are in img2img. The image this generation started from '
+                   + 'is not kept: drop an image in before generating.');
     }
+    return true;
 };
 
 /** Show every image of a generation this gallery has, in the card; or hide them again. */
@@ -3611,6 +3646,23 @@ async function applyPlannedModules(plan, vaeName) {
         console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
     }
     if (problems.length) showNotice(problems.join(' '));
+}
+
+/**
+ * A generation's own modules, after the paste, as applyPlannedModules() does a
+ * Civitai image's: patched to exactly what was loaded, checked with Forge, and
+ * what is no longer there said.
+ */
+async function applyRecordedModules(plan) {
+    const target = plan.target || [];
+    if (await patchForgeModules(target)) await checkForgeModules(target);
+    const gone = [];
+    if (plan.checkpoint_missing) gone.push(`its checkpoint ${plan.checkpoint_missing}`);
+    if (plan.modules_missing?.length) gone.push(plan.modules_missing.join(', '));
+    if (gone.length) {
+        showNotice(`This generation was made with ${gone.join(' and ')}, which Forge does not list any more: `
+                   + 'the rest is sent, and the current choice is kept for what is missing.');
+    }
 }
 
 /** A short message in the corner of the page, gone after a while. */

@@ -14,7 +14,7 @@ scripts/model_manager_ui.py   the entry point Forge loads
 scripts/model_manager_generations.py
                               the always-on script that records your generations
 model_manager/                the extension proper
-javascript/                   the two tabs, and what they share
+javascript/                   the three tabs, and what they share
 style.css                     picked up by filename; see "The WebUI's rules"
 tests/                        see tests/README.md
 tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
@@ -42,8 +42,8 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `storage.py` | reading and writing `.civitai.info` |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py` |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (a model's gallery of your own), `jobs`, `civitai`, `webui`, `settings` (the settings window's). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
-| `ui/` | settings, and the markup for each tab |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
+| `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order |
 
 ## What the pieces assume about each other
 

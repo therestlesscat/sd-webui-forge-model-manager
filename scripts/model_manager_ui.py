@@ -14,14 +14,16 @@ from modules import script_callbacks
 
 from model_manager.ui import (
     create_civitai_browser_ui,
+    create_generations_ui,
     create_ui,
     on_ui_settings,
 )
 
 
 def create_all_tabs():
-    """Create all Model Manager tabs."""
-    tabs = create_ui()
+    """Create all Model Manager tabs: Generations first, before the Model Manager."""
+    tabs = [(create_generations_ui(), "Generations", "generations_tab")]
+    tabs += create_ui()
     civitai_tab = create_civitai_browser_ui()
     tabs.append((civitai_tab, "Civitai Browser", "civitai_browser_tab"))
     return tabs

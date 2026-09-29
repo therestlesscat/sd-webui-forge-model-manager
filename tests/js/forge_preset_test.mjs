@@ -95,6 +95,7 @@ const IMAGE = { id: 1, url: 'https://example.invalid/1.jpeg', browsingLevel: 1,
             seed: 1, Size: '1024x1024' } };
 let plan = null;
 const planAsked = [];
+let generationPlan = null;               // a generation of your own's send plan
 // What Forge's setting holds, asked after the modules are set: as a rule what
 // the control shows. A section that wants Forge to disagree sets it.
 let forgeHolds = () => selected();
@@ -104,6 +105,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
         await new Promise((r) => setTimeout(r, forgeDelay));
         return { ok: true, json: async () => ({ data: [] }) };
     }
+    if (href.includes('/send-plan')) return { ok: true, json: async () => generationPlan };
     if (href.includes('/model-manager/forge-modules/current')) {
         return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
@@ -591,6 +593,45 @@ check('and a small note under the chips says some were matched by name',
       'Some LoRAs and embeddings are matched by name, not by hash.');
 delete library.names;
 click(row().querySelector('[data-chips-clear]'));
+
+// ------------------------------------------- one of your own generations
+// Sent back set up as it was made with, from its record - the checkpoint's
+// preset, the checkpoint, exactly the modules it loaded - the same for every
+// kind of model. Pasting the infotext alone did none of it: Neo ignores an
+// infotext's checkpoint and modules by default, so an SD 1.5 image sent after
+// an Anima one kept the Anima model and its encoders.
+async function sendGeneration(id) {
+    events.length = 0;
+    await window.mmSendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: {},
+                                  generationId: id });
+    await window.mmSendSettled();
+}
+const moduleChanges = () => events.filter((e) => e.startsWith('module'));
+preset.querySelector('input').value = 'flux';
+generationPlan = { success: true, preset: 'flux', checkpoint: '_Flux/flux1.safetensors [aa6ba2ab9f]',
+                   checkpoint_missing: null, target: ['clip_l.safetensors', 'ae.safetensors'], modules_missing: [] };
+await sendGeneration(299);
+check('a generation is sent with the modules it loaded, exactly', selected().sort(),
+      ['ae.safetensors', 'clip_l.safetensors']);
+generationPlan = { success: true, preset: 'sd', checkpoint: '_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]',
+                   checkpoint_missing: null, target: [], modules_missing: [] };
+await sendGeneration(263);
+check('one made with another model switches the preset, then the checkpoint, before the paste',
+      events.filter((e) => /^(preset|checkpoint|paste)/.test(e)),
+      ['preset:sd', 'checkpoint:_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]', 'paste']);
+check('and one that loaded no modules takes out the ones left from before', [selected(), moduleChanges().length],
+      [[], 2]);
+check('Forge holding what was sent, nothing is said', document.querySelector('.mm-notice'), null);
+
+generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'gone.safetensors',
+                   target: [], modules_missing: ['qwen_image_vae.safetensors'] };
+await sendGeneration(300);
+const missingNote = document.querySelector('.mm-notice')?.textContent || '';
+check('what was made with and is gone is said, by name, and the rest still sent',
+      [missingNote.includes('gone.safetensors'), missingNote.includes('qwen_image_vae.safetensors'),
+       events.includes('paste'), events.some((e) => e.startsWith('checkpoint'))], [true, true, true, false]);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+generationPlan = null;
 
 // ------------------------------------------------ the original Forge
 // ------------------------------------------------- a slow preset change

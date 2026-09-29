@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.40 - Generations
+
+*29 September 2026*
+
+A Generations tab, before the Model Manager, holds every image you have generated, newest first, whatever model made it: a tile per generation - a batch its first four images and how many it has, opening out in place - that loads on as you scroll, with the NSFW filter. A click opens an image in a viewer, as large as the window, stepping through them all with the arrow keys or the wheel, the prompt and every setting beside it. Sending one back now sets Forge up as it was made - its preset, checkpoint and exactly its text encoders and VAE - which the infotext alone never did, as Forge Neo ignores those lines by default.
+
+- **0.40.0** (build 228) - Add the Generations tab: every generation as a tile, 300px high and as wide as its image wants, up to four columns ("Preserve order" keeps every tile one column, strictly newest first), with its date and size; a viewer with ← → and the wheel, Send, Delete and a details panel that folds away; Send and Delete under every tile, a batch deleted whole or an image alone. Your generations' Send, here and in a model's gallery, now switches the preset, selects the recorded checkpoint and patches the modules to exactly those recorded - an SD 1.5 image sent after an Anima one kept the Anima model and encoders.
+
 ## 0.30 - Your generations
 
 *28 September 2026*

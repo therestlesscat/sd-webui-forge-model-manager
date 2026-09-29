@@ -393,6 +393,98 @@ if has_fastapi:
     check('and its file is not found', client.get(body['generations'][0]['images'][3]['url']).status_code,
           404)
 
+    # -------------------------------------------------- the Generations tab
+    # Every generation, whatever model made it: a tile each - its first four
+    # images, and how many it has. The tab scrolls and has no page notes, so
+    # images are filtered first and the parts cut from what is left.
+    def browse(**params):
+        return client.get('/model-manager/generations/browse', params=params).json()
+
+    single = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False)
+    body = browse(hide_nsfw_images='false')
+    tiles = {t['generation']['id']: t for t in body['tiles']}
+    check('every generation is a tile, the newest first, whatever model made it',
+          (body['tiles'][0]['generation']['id'], single in tiles, generation_id in tiles), (single, True, True))
+    check('a generation of four: its four images, and how many it has',
+          ([i['position'] for i in tiles[generation_id]['images']], tiles[generation_id]['matching_count']),
+          ([0, 1, 2, 3], 4))
+    check('with what a tile says of its generation',
+          (tiles[generation_id]['generation']['mode'], tiles[generation_id]['generation']['image_count']),
+          ('txt2img', 4))
+    check('and every generation recorded is counted', body['state']['stored_generations'],
+          db.count_generations(None))
+
+    body = browse(hide_nsfw_images='true')
+    tile = next(t for t in body['tiles'] if t['generation']['id'] == generation_id)
+    check('the NSFW switch leaves a generation what it does not hide',
+          ([i['position'] for i in tile['images']], tile['matching_count']), ([0, 2], 2))
+
+    opts.model_manager_gallery_page_size = 1
+    parts = [browse(page=n, hide_nsfw_images='false') for n in (1, 2)]
+    last = browse(page=db.count_generations(None), hide_nsfw_images='false')
+    opts.model_manager_gallery_page_size = 100
+    check('parts of the images-per-page setting, one after another, until there are no more',
+          ([len(p['tiles']) for p in parts], parts[0]['more'], last['more'],
+           parts[1]['tiles'][0]['generation']['id'] != parts[0]['tiles'][0]['generation']['id']),
+          ([1, 1], True, False, True))
+
+    body = client.get('/model-manager/generations/%d/images' % generation_id,
+                      params={'hide_nsfw_images': 'false'}).json()
+    check('a tile opens out into every image of its generation, with no model to go by',
+          [i['position'] for i in body['images']], [0, 1, 2, 3])
+
+    # Deleting one image: its record, the generation's with its last, and its
+    # file only when asked.
+    pair = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    first_image, second_image = db.get_generation(pair)['images']
+    body = client.post('/model-manager/generations/images/%d/delete' % first_image['id']).json()
+    after = db.get_generation(pair)
+    check('one image of a generation is deleted alone, and its generation stays',
+          (body['success'], body['generation_deleted'], [i['id'] for i in after['images']],
+           after['image_count']), (True, None, [second_image['id']], 1))
+    check('with its file, unless asked', os.path.isfile(first_image['path']), True)
+    body = client.post('/model-manager/generations/images/%d/delete' % second_image['id'],
+                       data={'delete_files': 'true'}).json()
+    check('the last image takes its generation with it, and its file when asked',
+          (body['generation_deleted'], db.get_generation(pair), body['deleted_files'],
+           os.path.isfile(second_image['path'])), (pair, None, 1, False))
+    check('an image nobody recorded is nothing to delete',
+          client.post('/model-manager/generations/images/999999/delete').json()['generation_deleted'],
+          None)
+    db.delete_generation(single)
+
+    # Sending one back: Forge set up as it was made with, from its record -
+    # the checkpoint's preset, the name Forge lists it under, exactly the
+    # modules it loaded. Neo ignores an infotext's checkpoint and modules by
+    # default, so the paste alone set up none of it.
+    import model_manager.architecture as arch                  # noqa: E402
+    import model_manager.forge_modules as fm                   # noqa: E402
+    sd_models = types.ModuleType('modules.sd_models')
+    sd_models.checkpoints_list = {'m': types.SimpleNamespace(filename=CHECKPOINT, title='linked/m.safetensors [abc]')}
+    sys.modules['modules.sd_models'] = sd_models
+    sys.modules['modules'].sd_models = sd_models
+    db.set_architecture(CHECKPOINT, 'sd', 'SD15', True, True, '1', file_type='Checkpoint')
+    real_check, real_installed = arch.needs_check, fm.installed_modules
+    arch.needs_check = lambda db_, p: None                     # read already, as stored
+    fm.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
+    try:
+        plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
+        check('a generation is sent back set up as it was made: preset, checkpoint as Forge lists it, '
+              'exactly its modules',
+              {k: plan[k] for k in ('preset', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
+              {'preset': 'sd', 'checkpoint': 'linked/m.safetensors [abc]', 'checkpoint_missing': None,
+               'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
+        sd_models.checkpoints_list = {}
+        fm.installed_modules = lambda: {}
+        plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
+        check('what Forge no longer lists is named, and not asked for',
+              (plan['checkpoint'], plan['checkpoint_missing'].lower(), plan['target'], plan['modules_missing']),
+              (None, os.path.basename(CHECKPOINT).lower(), [], ['sdxl_vae.safetensors']))
+        check('a generation nobody recorded has no plan',
+              client.get('/model-manager/generations/999999/send-plan').status_code, 404)
+    finally:
+        arch.needs_check, fm.installed_modules = real_check, real_installed
+
 # ------------------------------------------------------ a failure costs nothing
 p = Processing(n_iter=1)
 real = db.record_generation

@@ -12,6 +12,13 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.40 - Generations.** A new tab, before the Model Manager, with every image you have
+generated, newest first, whatever model made it. Each generation is a tile - a batch shows
+its first four images and how many there are, and opens out in place - and the grid loads
+on as you scroll. A click opens the image large, with the arrow keys or the wheel to step
+through them all and its prompt and settings beside it. Sending one back to txt2img or
+img2img sets Forge up as it was made: its preset, checkpoint, text encoders and VAE.
+
 **0.30 - Your generations.** Every image you generate and save is recorded - the prompt
 as you typed it, the infotext written into each file, every setting and the arguments of
 each extension - and filed under every model it used, LoRAs included. A model's gallery

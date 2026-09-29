@@ -1,6 +1,6 @@
 """
-A model's gallery of your own generations: the second tab beside its Civitai
-images.
+Your own generations: a model's gallery of them, the second tab beside its
+Civitai images; and every one of them, in the Generations tab.
 
 A gallery shows the generations that used any file of the open model's
 version - as the Civitai tab shows one gallery per version - one card per
@@ -142,8 +142,165 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     }
 
 
+def _delete_files(paths: List[str]) -> Tuple[List[str], List[Dict[str, str]]]:
+    """Delete these image files - the ones a record's delete handed back -
+    and say which went, and which could not, with why."""
+    deleted, failed = [], []
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+            deleted.append(path)
+        except OSError as e:
+            failed.append({"path": path, "error": str(e)})
+    return deleted, failed
+
+
+def forge_checkpoint_name(path: str) -> Optional[str]:
+    """
+    The name Forge lists a checkpoint file under, for its selectCheckpoint(),
+    or None if Forge does not list it - it is gone, or outside every folder
+    Forge looks in. Found by the file, not guessed from its folders.
+    """
+    if not path:
+        return None
+    try:
+        from modules import sd_models
+        wanted = os.path.normcase(os.path.abspath(path))
+        for info in sd_models.checkpoints_list.values():
+            if os.path.normcase(os.path.abspath(info.filename)) == wanted:
+                return info.title
+    except Exception as e:
+        print(f"[ModelManager] Could not ask Forge for its checkpoints: {e}")
+    return None
+
+
+def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
+    """
+    What Forge is set up with before a generation of your own is sent back to
+    it: the same as it was made with, from what was recorded - its checkpoint's
+    UI preset, the checkpoint, and exactly the VAE / text encoder files that
+    were loaded, none for a model that loaded none. The same for every kind of
+    model.
+
+    Pasting the infotext does not do it: Forge Neo ignores the checkpoint and
+    the modules an infotext names unless told otherwise ("Ignore the
+    Checkpoint / VAE / Text Encoder when reading infotext", both on by
+    default), and a model that loaded no modules names none to clear.
+
+    Returns:
+        preset (None if unknown), checkpoint (the name Forge lists it under,
+        None if it does not), checkpoint_missing (its file name, then),
+        target (the module labels to hold), modules_missing (the recorded
+        modules Forge does not offer) - or None for no such generation.
+    """
+    from ..architecture import record_architecture
+    from ..file_identity import identify
+    from ..forge_modules import installed_modules
+
+    generation = db.get_generation(generation_id)
+    if not generation:
+        return None
+    path = generation.get("checkpoint_path") or ""
+
+    preset = None
+    if path:
+        # Read as any checkpoint is, once, and stored; a file the library
+        # does not hold is read without storing.
+        spelled = db.library_spelling([path]).get(path, path)
+        try:
+            record_architecture(db, spelled)
+        except Exception as e:
+            print(f"[ModelManager] Could not read {os.path.basename(path)}: {e}")
+        preset = (db.get_version(spelled) or {}).get("architecture")
+        if not preset and os.path.isfile(path):
+            preset = identify(path).preset
+
+    checkpoint = forge_checkpoint_name(path)
+    installed = installed_modules()
+    recorded = [os.path.basename(p) for p in generation.get("modules") or [] if p]
+    return {
+        "preset": preset,
+        "checkpoint": checkpoint,
+        "checkpoint_missing": os.path.basename(path) if path and not checkpoint else None,
+        "target": [m for m in recorded if m in installed],
+        "modules_missing": [m for m in recorded if m not in installed],
+    }
+
+
+# What a tile needs of its generation, besides its images.
+TILE_FIELDS = ("id", "created_at", "mode", "image_count", "width", "height", "checkpoint_path")
+
+
+def browse_page(db, hide_nsfw: bool, page: int = 1) -> Dict[str, Any]:
+    """
+    Part `page` of the Generations tab: every generation recorded, newest
+    first, a tile each - its first images, and how many it has.
+
+    The tab scrolls rather than pages, so there is no page note to count what
+    the NSFW switch hid on each: images are filtered first and the parts cut
+    from what is left, and no part comes back emptied. The prompt switch is
+    not offered here; nothing is hidden for a prompt.
+
+    Returns:
+        tiles: each {"generation", "images", "matching_count"}; more: whether
+        another part follows; state: the totals, for the banner.
+    """
+    size = gallery_page_size()
+    page = max(1, int(page or 1))
+    rows = db.generation_gallery_images(None)
+    shown, counts = _filtered(rows, hide_nsfw, False)
+
+    by_generation: Dict[int, List[Dict[str, Any]]] = {}
+    for row in shown:
+        by_generation.setdefault(row["generation_id"], []).append(row)
+    order = list(by_generation)
+
+    part_ids = order[(page - 1) * size:page * size]
+    groups = [(g, by_generation[g][:PREVIEW_IMAGES]) for g in part_ids]
+    more = len(order) > page * size
+
+    generations = db.get_generations(list(dict.fromkeys(g for g, _ in groups)))
+    images = db.get_generation_images([r["id"] for _, rs in groups for r in rs])
+    tiles = []
+    for generation_id, rs in groups:
+        generation = generations.get(generation_id) or {"id": generation_id}
+        tiles.append({
+            "generation": {k: generation.get(k) for k in TILE_FIELDS},
+            "images": [_image(images[r["id"]]) for r in rs if r["id"] in images],
+            "matching_count": len(by_generation[generation_id]),
+        })
+
+    return {
+        "tiles": tiles,
+        "more": more,
+        "state": {
+            "generation_count": len(order),
+            "stored_generations": db.count_generations(None),
+            "hide_nsfw_images": hide_nsfw,
+            **counts,
+        },
+    }
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
+
+    @app.get("/model-manager/generations/browse")
+    async def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None):
+        """
+        Part `page` of the Generations tab, through the NSFW switch - the
+        setting decides it when not sent. See browse_page().
+        """
+        try:
+            hide_nsfw, _ = gallery_switches(hide_nsfw_images, False)
+            return JSONResponse({"success": True, **browse_page(get_models_db(), hide_nsfw, page)})
+        except Exception as e:
+            import traceback
+            print(f"[ModelManager] Generations page error: {e}")
+            traceback.print_exc()
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/page")
     async def get_generation_page(path: str, page: int = 1,
@@ -170,15 +327,19 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/{generation_id}/images")
-    async def get_generation_all_images(generation_id: int, path: str,
+    async def get_generation_all_images(generation_id: int, path: str = "",
                                         hide_nsfw_images: Optional[bool] = None,
                                         hide_promptless_images: Optional[bool] = None):
-        """Every image of one generation this gallery shows, for "Show images"."""
+        """
+        Every image of one generation a gallery shows, for "Show images" - or,
+        with no path, as the Generations tab shows it, for expanding its tile.
+        """
         try:
             db = get_models_db()
             hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
                                                           hide_promptless_images)
-            rows = [r for r in db.generation_gallery_images(db.generation_gallery_files(path))
+            files = db.generation_gallery_files(path) if path else None
+            rows = [r for r in db.generation_gallery_images(files)
                     if r["generation_id"] == generation_id]
             shown, _ = _filtered(rows, hide_nsfw, hide_promptless)
             images = db.get_generation_images([r["id"] for r in shown])
@@ -189,6 +350,21 @@ def register(app: FastAPI):
             print(f"[ModelManager] Generation images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.get("/model-manager/generations/{generation_id}/send-plan")
+    def get_send_plan(generation_id: int):
+        """
+        How to set Forge up before sending a generation back: see send_plan().
+        A plain `def`: it may read the checkpoint's header.
+        """
+        try:
+            plan = send_plan(get_models_db(), generation_id)
+            if plan is None:
+                return JSONResponse({"success": False, "error": "No such generation"}, status_code=404)
+            return JSONResponse({"success": True, **plan})
+        except Exception as e:
+            print(f"[ModelManager] Send plan error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.get("/model-manager/generations/images/{image_id}/file")
     async def get_generation_image_file(image_id: int):
         """A generated image, by its record: only what was recorded is served."""
@@ -196,6 +372,28 @@ def register(app: FastAPI):
         if not path or not os.path.isfile(path):
             return JSONResponse({"success": False, "error": "Image not found"}, status_code=404)
         return FileResponse(path)
+
+    @app.post("/model-manager/generations/images/{image_id}/delete")
+    def delete_generation_image(image_id: int, delete_files: bool = Form(default=False)):
+        """
+        Remove one generated image's record - its generation's too, when it
+        was the last - and with delete_files its file, if no other record
+        names it. Only the file it was saved to is touched.
+
+        Returns:
+            deleted_files, failed (as delete_generation), and
+            generation_deleted: the generation's id when it went with it.
+        """
+        try:
+            paths, gone = get_models_db().delete_generation_image(image_id)
+            deleted, failed = _delete_files(paths) if delete_files else ([], [])
+            print(f"[ModelManager] Deleted generated image {image_id}"
+                  + (" and its file" if deleted else ""))
+            return JSONResponse({"success": True, "deleted_files": len(deleted), "failed": failed,
+                                 "generation_deleted": gone})
+        except Exception as e:
+            print(f"[ModelManager] Delete generated image error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/{generation_id}/delete")
     def delete_generation(generation_id: int, delete_files: bool = Form(default=False)):
@@ -211,16 +409,7 @@ def register(app: FastAPI):
         """
         try:
             paths = get_models_db().delete_generation(generation_id)
-            deleted, failed = [], []
-            if delete_files:
-                for path in paths:
-                    if not os.path.isfile(path):
-                        continue
-                    try:
-                        os.remove(path)
-                        deleted.append(path)
-                    except OSError as e:
-                        failed.append({"path": path, "error": str(e)})
+            deleted, failed = _delete_files(paths) if delete_files else ([], [])
             print(f"[ModelManager] Deleted generation {generation_id}"
                   + (f" and {len(deleted)} of its image files" if delete_files else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted),
