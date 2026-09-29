@@ -112,9 +112,11 @@ body.mm-modal-open {
    same padding, which is why the NSFW Levels and Commercial Use dropdowns sat
    taller than the selects beside them. State the height rather than deriving
    it - 36px, the same as the buttons below. Checkboxes are excluded: they
-   live inside these groups but are not controls of this shape. */
+   live inside these groups but are not controls of this shape. The
+   Generations tab's toolbar has a dropdown of the same kind. */
 .filter-group input:not([type="checkbox"]),
 .filter-group select,
+.gen-toolbar select,
 .filter-group .mm-multiselect-display,
 .filter-group .mm-checkbox-label,
 .filter-group .cb-checkbox-label,
@@ -147,7 +149,8 @@ body.mm-modal-open {
 }
 
 .filter-group input:focus,
-.filter-group select:focus {
+.filter-group select:focus,
+.gen-toolbar select:focus {
     outline: none;
     border-color: var(--primary-500, #3b82f6);
 }
@@ -3400,15 +3403,66 @@ textarea.mm-settings-input {
     cursor: zoom-in;
 }
 
-/* The count is a button: it opens a batch out in the grid, or folds it back. */
-button.gen-count {
-    border: none;
+/* A batch or a group opens in a grid of its own. */
+.gen-openable {
     cursor: pointer;
-    font-family: inherit;
 }
 
-button.gen-count:hover {
-    background: rgba(99, 102, 241, 1);
+/* A group: its own colour, and what it is, over its images. */
+.gen-tile.gen-grouping {
+    border-color: rgba(16, 185, 129, 0.7);
+}
+
+.gen-group-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    padding: 4px 6px;
+    background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
+    color: #fff;
+    font-size: 0.75em;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* Inside a group or a batch: Back, the way here, and what it is. */
+.gen-path {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+}
+
+.gen-path-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.gen-path-trail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.gen-path-sep {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.gen-path-facts {
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 /* ------------------------------------------------------------- the viewer

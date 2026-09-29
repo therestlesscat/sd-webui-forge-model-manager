@@ -1,12 +1,12 @@
 // The Generations tab: every image you have generated, newest first.
 //
-// A tile per generation - its first four images, how many it has, a border
-// of its own colour - which a click opens out into every image, each a tile
-// the gallery's size, and a click on the first folds back; a generation of one
-// image is a plain tile, opening full size in a new tab. Every tile sends its
-// own infotext to the tab it was made in, shows its information, and is
-// deleted - a folded generation whole, an opened-out image alone - with its
-// files only when asked. Each image says when it was made, in its corner. The
+// A tile per generation - a batch its first four images, how many it has, a
+// border of its own colour - or, grouped, a tile per group of images. A click
+// on a batch or a group opens it in a grid of its own, in place of this one,
+// with a header and Back, which lands where the grid was left; a click on an
+// image opens the viewer. Every tile sends its image's own infotext to the tab
+// it was made in and is deleted - a batch whole, an image alone - with its
+// files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { ROOT, checker, mountTab } from './harness.mjs';
 
@@ -38,22 +38,42 @@ const shownOf = (g, hide) => g.images.filter((i) => !hide || i.mm_level <= 3);
 const asked = [];
 const posted = [];
 
+// Grouped by size only, here - the server's groupings are generations_test.py's.
+const sizeOf = (i) => `${i.width}×${i.height}`;
 function browse(params) {
     const hide = params.get('hide_nsfw_images') !== 'false';
     const page = Number(params.get('page') || 1);
-    const all = generations.flatMap((g) => shownOf(g, hide));
-    const tiles = generations.filter((g) => shownOf(g, hide).length)
-        .map((g) => ({ generation: g.generation, images: shownOf(g, hide).slice(0, 4),
-                       matching_count: shownOf(g, hide).length }));
-    const count = tiles.length;
-    const total = generations.reduce((n, g) => n + g.images.length, 0);
+    const grouped = params.get('group') === 'size';
+    const inGroup = params.get('in_group');
+    const opened = params.get('generation');
+    let rows = generations.flatMap((g) => g.images.map((i) => ({ g, i })));
+    if (grouped && inGroup) rows = rows.filter((r) => sizeOf(r.i) === inGroup);
+    if (opened) rows = rows.filter((r) => r.g.generation.id === Number(opened));
+    const shown = rows.filter((r) => !hide || r.i.mm_level <= 3);
+    const kind = opened ? 'image' : grouped && !inGroup ? 'group' : 'generation';
+    const units = new Map();
+    for (const r of shown) {
+        const unit = kind === 'image' ? r.i.id : kind === 'group' ? sizeOf(r.i) : r.g.generation.id;
+        if (!units.has(unit)) units.set(unit, []);
+        units.get(unit).push(r);
+    }
+    const tiles = [...units.entries()].map(([unit, rs]) => ({
+        kind, generation: rs[0].g.generation, images: rs.slice(0, 4).map((r) => r.i), matching_count: rs.length,
+        ...(kind === 'group' ? { group: { id: unit, value: unit, latest: rs[0].g.generation.created_at,
+                                          generations: new Set(rs.map((r) => r.g.generation.id)).size } } : {}),
+    }));
+    const total = rows.length;
     return {
         success: true,
         tiles: tiles.slice((page - 1) * PART, page * PART),
-        more: count > page * PART,
-        state: { total, filtered: all.length, hidden_nsfw: total - all.length,
-                 nsfw_count: total - generations.flatMap((g) => shownOf(g, true)).length,
+        more: tiles.length > page * PART,
+        state: { total, filtered: shown.length, hidden_nsfw: total - shown.length,
+                 nsfw_count: rows.filter((r) => r.i.mm_level > 3).length,
                  hide_nsfw_images: hide, stored_generations: generations.length },
+        scope: { count: shown.length, first: shown.at(-1)?.g.generation.created_at,
+                 last: shown[0]?.g.generation.created_at,
+                 ...(grouped ? { grouping: 'Size', value: inGroup || undefined } : {}),
+                 ...(opened ? { generation: rows[0]?.g.generation } : {}) },
     };
 }
 
@@ -72,6 +92,16 @@ globalThis.fetch = async (url, init = {}) => {
     if (images) {
         const g = generations.find((x) => x.generation.id === Number(images[1]));
         return reply({ success: true, images: g ? shownOf(g, params.get('hide_nsfw_images') !== 'false') : [] });
+    }
+    if (href.includes('/generations/group/delete')) {
+        const form = new URLSearchParams(String(init.body));
+        posted.push(['/generations/group/delete', String(init.body)]);
+        const hide = form.get('hide_nsfw_images') !== 'false';
+        for (const g of generations) {
+            g.images = g.images.filter((i) => sizeOf(i) !== form.get('in_group') || (hide && i.mm_level > 3));
+        }
+        generations = generations.filter((g) => g.images.length);
+        return reply({ success: true, deleted: 1, deleted_files: 0, failed: [] });
     }
     const deleteImage = href.match(/\/generations\/images\/(\d+)\/delete/);
     const deleteGeneration = href.match(/\/generations\/(\d+)\/delete/);
@@ -113,8 +143,10 @@ holder.appendChild(app);
 
 const grid = () => document.getElementById('gen_grid');
 const tileEls = () => Array.from(grid().querySelectorAll('.gen-tile'));
-const tileIds = () => tileEls().map((t) => `${t.getAttribute('data-generation')}${t.classList.contains('gen-group') ? 'g' : ''}`
-                                           + `${t.classList.contains('gen-member') ? 'm' : ''}`);
+// A tile by its generation, "g" for a folded one, "G" for a group.
+const tileIds = () => tileEls().map((t) => `${t.getAttribute('data-generation')}`
+    + `${t.classList.contains('gen-grouping') ? 'G' : t.classList.contains('gen-group') ? 'g' : ''}`);
+const pathText = () => (document.getElementById('gen_path')?.textContent || '').replace(/\s+/g, ' ').trim();
 const click = (el) => el.dispatchEvent(new window.Event('click', { bubbles: true }));
 const dialog = () => document.querySelector('.mm-dialog-backdrop');
 const lastAsked = () => asked.at(-1);
@@ -127,9 +159,9 @@ const group = tileEls()[0];
 check('a folded batch shows its first four images the filter leaves, and how many there are',
       [group.querySelectorAll('.mm-generation-tile').length, group.querySelector('.gen-count')?.textContent], [4, '×4']);
 check('the NSFW images hidden as the gallery setting says', lastAsked().get('hide_nsfw_images'), 'true');
-const viewAt = (tile) => tile.querySelector('.gen-viewable')?.getAttribute('onclick');
-check('a click on an image opens the viewer on it, a folded batch\'s on its first',
-      [viewAt(tileEls()[1]), viewAt(group)], ['window.genView(1, 0)', 'window.genView(0, 0)']);
+const clickAt = (tile) => tile.querySelector('.gen-viewable, .gen-openable')?.getAttribute('onclick');
+check('a click on an image opens the viewer on it; on a batch, the batch, in a grid of its own',
+      [clickAt(tileEls()[1]), clickAt(group)], ['window.genView(1, 0)', 'window.genOpen(0)']);
 check('every tile offers Send - named for the tab it was made in - and Delete, in one row',
       [Array.from(tileEls()[1].querySelectorAll('.gen-actions button')).map((b) => b.textContent.trim()),
        tileEls()[1].querySelector('.gen-actions button')?.getAttribute('title')],
@@ -178,7 +210,7 @@ const key = (name) => document.dispatchEvent(Object.assign(new window.Event('key
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 await window.genView(0, 0);
-check('the viewer opens on a folded batch\'s first image, saying where it is in the batch',
+check('the viewer steps through the images a batch\'s tile shows, saying where it is in the batch',
       [shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent], ['31', '1 of 4 in this generation']);
 check('with its details beside it: its prompts and what was recorded, and a way to the file',
       [viewer()?.querySelector('.gen-info-prompt')?.textContent, viewer()?.textContent.includes('anima.safetensors'),
@@ -188,7 +220,7 @@ check('Send and Delete below the image', Array.from(viewer().querySelectorAll('.
       .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete']);
 check('nothing before the first', viewer().querySelector('.gen-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();
-check('→ steps through the batch\'s images, those past its first four fetched', shownId(), '33');
+check('→ steps through them', shownId(), '33');
 for (let i = 0; i < 3; i++) { key('ArrowRight'); await settle(); }
 check('then on to the next generation', [shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent],
       ['21', '']);
@@ -238,49 +270,66 @@ await settle();
 check('Send from the viewer sends that image, and closes it',
       [sent.at(-1)?.infotext.startsWith('prompt 21'), sent.at(-1)?.mode, viewer()], [true, 'img2img', null]);
 
-// ---------------------------------------------------- opening out, folding back
-await window.genToggle(0);
-check('a click on a batch opens it out: every image it shows, a tile each, in its place',
-      tileIds(), ['3m', '3m', '3m', '3m', '2', '1g']);
-const members = tileEls().slice(0, 4);
-check('marked as one generation\'s, the first\'s count to fold it back, each opening the viewer on itself',
-      [members[0].classList.contains('gen-member-first'), members[0].querySelector('.gen-count')?.textContent,
-       viewAt(members[1])], [true, '×4', 'window.genView(0, 1)']);
-
-window.genSend(0, 2);
-check('Send on an opened-out image sends that image\'s own infotext, to its generation\'s tab',
+// ---------------------------------------------------- a batch's own grid
+// A click on a batch opens it in a grid of its own, in place of this one: its
+// images, a tile each, under a header with Back. Back lands where the grid was
+// left - the same tiles, the page scrolled back - loaded again only if
+// something was deleted inside.
+const scrolled = [];
+window.scrollTo = (x, y) => scrolled.push(y);
+const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
+scrollTo(640);
+await window.genOpen(0);
+await window.genLoadMore();              // two tiles a part, here, at every level
+check('a click on a batch opens it in a grid of its own: a tile for each of its images',
+      [lastAsked().get('generation'), tileIds()], ['3', ['3', '3', '3', '3']]);
+check('under a header with Back, the way here, and what it is',
+      [!!document.querySelector('#gen_path button'), pathText().includes('Generations ›'),
+       pathText().includes('4 images'), pathText().includes('anima.safetensors')], [true, true, true, true]);
+window.genSend(2);
+check('Send on one of its images sends that image\'s own infotext, to its generation\'s tab',
       [sent.at(-1).infotext, sent.at(-1).mode], ['prompt 34\nSteps: 20, Seed: 1034', 'txt2img']);
-await window.genToggle(0);
-check('a click on the first folds it back', tileIds(), ['3g', '2', '1g']);
-window.genSend(0, -1);
-check('Send on a folded batch sends its first image\'s', sent.at(-1).infotext.startsWith('prompt 31'), true);
-window.genSend(1, -1);
-check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
 
-
-// ---------------------------------------------------------------- deleting
-await window.genToggle(0);
-const deleting = window.genDelete(0, 1);
+const deleting = window.genDelete(1);
 await waitFor('the question', () => dialog());
 check('Delete asks first, offering to delete the file too',
       dialog().querySelector('h3')?.textContent, 'Delete this image?');
 dialog().querySelector('[data-files]').checked = true;
 click(dialog().querySelector('[data-confirm]'));
 await deleting;
-check('an opened-out image is deleted alone, with its file when asked',
-      posted.at(-1), ['/generations/images/33/delete', 'delete_files=true']);
-check('taken out of its generation, which stays open', tileIds(), ['3m', '3m', '3m', '2', '1g']);
-await window.genToggle(0);
+check('an image is deleted alone, with its file when asked',
+      [posted.at(-1), tileIds()], [['/generations/images/33/delete', 'delete_files=true'], ['3', '3', '3']]);
+scrollTo(0);
+await window.genBack();
+check('Back lands where the grid was left, the page scrolled back to it', scrolled.at(-1), 640);
+check('with what was deleted inside counted there', [tileIds(), tileEls()[0].querySelector('.gen-count')?.textContent],
+      [['3g', '2', '1g'], '×3']);
+check('and no header on the top grid', pathText(), '');
 
-const cancelled = window.genDelete(1, -1);
+await window.genOpen(2);
+await window.genLoadMore();
+check('another batch opens the same way', tileIds(), ['1', '1', '1']);
+const loadsBefore = asked.length;
+key('Escape');
+await waitFor('the way back', () => pathText() === '');
+check('Esc goes back too, drawing the grid again as it was, without loading it',
+      [tileIds(), asked.length], [['3g', '2', '1g'], loadsBefore]);
+
+window.genSend(0);
+check('Send on a batch sends its first image\'s', sent.at(-1).infotext.startsWith('prompt 31'), true);
+window.genSend(1);
+check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
+
+// ---------------------------------------------------------------- deleting
+const cancelled = window.genDelete(1);
 await waitFor('the question', () => dialog());
 click(dialog().querySelector('[data-close]'));
 await cancelled;
 check('cancelled, nothing is deleted', [posted.length, tileIds()], [1, ['3g', '2', '1g']]);
 
-const whole = window.genDelete(2, -1);
+const whole = window.genDelete(2);
 await waitFor('the question', () => dialog());
-check('a folded generation is deleted whole, and says how many images',
+check('a batch is deleted whole, and says how many images',
       dialog().querySelector('h3')?.textContent, 'Delete this generation of 3 images?');
 click(dialog().querySelector('[data-confirm]'));
 await whole;
@@ -299,12 +348,49 @@ check('Delete in the viewer deletes the image shown, and shows the one after it'
       ['/generations/images/34/delete', '35', '2 of 2 in this generation']);
 key('Escape');
 
+// ---------------------------------------------------------------- grouping
+// Grouped, a tile per group of images, whatever generation they are of; a
+// group opens onto its generations, a generation onto its images.
+await window.genSetGroupBy('size');
+check('"Group by" is remembered in this browser, and asked for',
+      [window.localStorage.getItem('mm_generations_group_by'), lastAsked().get('group')], ['size', 'size']);
+check('a tile per group, saying what it is', [tileIds(), tileEls().map((t) => t.querySelector('.gen-group-name')?.textContent)],
+      [['3G', '2G'], ['832×1216', '1216×832']]);
+check('a group has Send and Delete too',
+      Array.from(tileEls()[0].querySelectorAll('.gen-actions button')).map((b) => b.textContent.trim()),
+      ['txt2img', 'Delete']);
+await window.genOpen(0);
+check('a group opens onto its generations', [lastAsked().get('in_group'), tileIds()], ['832×1216', ['3g']]);
+check('its header naming the group', pathText().includes('Size: 832×1216'), true);
+await window.genOpen(0);
+check('and a generation in it onto its images in the group, as deep as it goes',
+      [lastAsked().get('in_group'), lastAsked().get('generation'), tileIds()], ['832×1216', '3', ['3', '3']]);
+check('the way here all in its header', pathText().includes('Generations › Size: 832×1216 ›'), true);
+await window.genBack();
+await window.genBack();
+check('Back, and Back, to the groups', tileIds(), ['3G', '2G']);
+const groupDelete = window.genDelete(1);
+await waitFor('the question', () => dialog());
+check('deleting a group asks first, saying how many images, from how many generations',
+      dialog().querySelector('h3')?.textContent, 'Delete these 1 image, from 1 generation?');
+click(dialog().querySelector('[data-confirm]'));
+await groupDelete;
+check('and deletes the images of it the grid shows, the grouping and the filter sent with it',
+      [posted.at(-1)[0], Object.fromEntries(new URLSearchParams(posted.at(-1)[1]))],
+      ['/generations/group/delete', { group: 'size', in_group: '1216×832', hide_nsfw_images: 'true',
+                                      delete_files: 'false' }]);
+check('its tile gone', tileIds(), ['3G']);
+await window.genSetGroupBy('');
+check('and grouped by nothing, a tile per generation again', tileIds(), ['3g']);
+
 // ---------------------------------------------------------------- the switches
 
 await window.genShowNsfw(true);
 check('the NSFW switch starts again from the first part, showing NSFW',
       [lastAsked().get('page'), lastAsked().get('hide_nsfw_images'), tileEls()[0].querySelector('.gen-count')?.textContent],
-      ['1', 'false', '×3']);   // 33 and 34 deleted above
+      ['1', 'false', '×3']);   // 33 and 34 deleted above, 32 hidden until now
+generations.push({ generation: { id: 2, mode: 'img2img', created_at: '2026-09-28T19:00:00', image_count: 1 },
+                   images: [{ ...img(21, 2, 0), width: 1216, height: 832 }] });
 const before = asked.length;
 await window.genRefresh();
 check('Refresh loads it again from the first part', [asked.length > before, lastAsked().get('page')], [true, '1']);

@@ -149,10 +149,12 @@ class GenerationsOps:
     def gallery_images(self, files: Optional[List[str]]) -> List[Dict[str, Any]]:
         """
         Every image filed under any of these files - or every image recorded,
-        for files None: the Generations tab's - with what filtering and
-        ordering need and nothing more: its generation, its place in it, its
-        level - the user's rating when set, else the prompt's - how long its
-        prompt is, and when its generation was made. Newest generation first.
+        for files None: the Generations tab's - with what filtering, ordering
+        and grouping need and nothing more: its generation, its place in it,
+        its level - the user's rating when set, else the prompt's - how long
+        its prompt is, when its generation was made, and what the Generations
+        tab groups by: its own prompt and the one typed, its checkpoint, its
+        LoRAs and its size. Newest generation first.
         """
         if files is not None and not files:
             return []
@@ -166,7 +168,8 @@ class GenerationsOps:
                 SELECT gi.id, gi.generation_id, gi.position,
                        COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
                        LENGTH(TRIM(COALESCE(gi.prompt, ''))) AS prompt_length,
-                       g.created_at
+                       g.created_at, gi.prompt AS image_prompt, g.prompt AS typed_prompt,
+                       g.checkpoint_path, gi.loras, gi.width, gi.height
                 FROM generation_images gi
                 JOIN generations g ON g.id = gi.generation_id
                 {where}
