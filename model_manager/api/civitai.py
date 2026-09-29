@@ -687,6 +687,23 @@ def register(app: FastAPI):
                 status_code=500
             )
 
+    @app.post("/model-manager/civitai/download/dismiss")
+    async def civitai_dismiss_download(version_id: int = Form(default=0)):
+        """
+        Forget a finished download, so the downloads list stops showing it -
+        or, with version_id=0, every finished one. One still running is kept.
+
+        Returns:
+            dismissed: the version ids forgotten.
+        """
+        try:
+            from ..download_service import get_download_service
+            gone = get_download_service().dismiss(version_id or None)
+            return JSONResponse({"success": True, "dismissed": gone})
+        except Exception as e:
+            print(f"[ModelManager] Dismiss download error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.get("/model-manager/civitai/tags")
     def civitai_search_tags(
         query: str = "",

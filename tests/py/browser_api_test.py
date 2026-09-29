@@ -661,6 +661,29 @@ status, body = post('/model-manager/civitai/download/cancel')
 check('and no id cancels everything', downloads.all_cancelled, 1)
 
 
+# Dismissing: the service forgets a finished download, so the next poll does
+# not hand it back. It kept every one until the WebUI restarted, and one
+# dismissed in the page came straight back.
+service = ds.DownloadService()
+for vid, status in ((1, 'complete'), (2, 'error'), (3, 'downloading'), (4, 'cancelled')):
+    service._active_downloads[vid] = ds.DownloadProgress(version_id=vid, status=status)
+check('one finished download is forgotten on its own', service.dismiss(1), [1])
+check('one still running is kept, whatever is asked', service.dismiss(3), [])
+check('and every finished one at once, leaving the running one',
+      (sorted(service.dismiss()), [p['version_id'] for p in service.get_all_progress()]),
+      ([2, 4], [3]))
+
+ds.get_download_service = lambda: service
+service._active_downloads[5] = ds.DownloadProgress(version_id=5, status='complete')
+service._active_downloads[6] = ds.DownloadProgress(version_id=6, status='error')
+status, body = post('/model-manager/civitai/download/dismiss', version_id=5)
+check('the endpoint forgets the one asked', (status, body['dismissed']), (200, [5]))
+status, body = post('/model-manager/civitai/download/dismiss')
+check('and with no id, every finished one',
+      (body['dismissed'], [p['version_id'] for p in service.get_all_progress()]), ([6], [3]))
+ds.get_download_service = lambda: downloads
+
+
 def broken_service():
     raise RuntimeError('no download service')
 
@@ -670,6 +693,7 @@ check('progress with no service is a 500',
       get('/model-manager/civitai/download/progress')[0], 500)
 check('and so is a cancel',
       post('/model-manager/civitai/download/cancel', version_id=1)[0], 500)
+check('and a dismiss', post('/model-manager/civitai/download/dismiss', version_id=1)[0], 500)
 ds.get_download_service = lambda: downloads
 
 # ------------------------------------------------- downloads from an image

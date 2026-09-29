@@ -150,6 +150,23 @@ class DownloadService:
         with self._lock:
             return [p.to_dict() for p in self._active_downloads.values()]
 
+    def dismiss(self, version_id: Optional[int] = None) -> List[int]:
+        """
+        Forget finished downloads - one, or every one - so they are not
+        handed to the page again. Every download was kept until the WebUI
+        restarted, so one dismissed in the page came back with the next poll.
+        One still running is kept, whatever is asked.
+
+        Returns:
+            The version ids forgotten.
+        """
+        with self._lock:
+            gone = [vid for vid, progress in self._active_downloads.items()
+                    if progress.is_complete and (version_id is None or vid == version_id)]
+            for vid in gone:
+                del self._active_downloads[vid]
+        return gone
+
     def get_model_type_folder(self, model_type: str) -> Optional[str]:
         """Get WebUI folder name for a model type."""
         return self.MODEL_TYPE_FOLDERS.get(model_type, "Other")

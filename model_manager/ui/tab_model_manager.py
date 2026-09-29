@@ -341,7 +341,12 @@ def create_ui():
                 <div id="mm_downloads" class="mm-downloads-inline" style="display: none;">
                     <div class="mm-downloads-header">
                         <h4>Downloads</h4>
-                        <span class="mm-downloads-summary" id="mm_downloads_summary"></span>
+                        <div class="mm-downloads-header-end">
+                            <span class="mm-downloads-summary" id="mm_downloads_summary"></span>
+                            <button class="mm-btn mm-btn-small secondary" id="mm_downloads_dismiss_all"
+                                    title="Take every finished download off the list" style="display: none;"
+                                    onclick="window.mmDismissFinishedDownloads()">Dismiss all</button>
+                        </div>
                     </div>
                     <div id="mm_download_list" class="mm-downloads-list"></div>
                 </div>

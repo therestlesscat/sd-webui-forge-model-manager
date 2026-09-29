@@ -1418,8 +1418,12 @@ function createDownloads() {
     const panels = new Set();  // tab prefixes with a panel on the page
     const completed = [];      // callbacks, each given a download once it is in the library
     const batchDone = [];      // callbacks, once nothing is left running
+    // Dismissed here, and asked of the server to forget. A poll already on its
+    // way can still carry one; it is not taken back unless it starts again.
+    const dismissed = new Set();
     let poll = null;
     let landed = false;        // a download reached the library in this batch
+    const finished = (dl) => ['complete', 'error', 'cancelled'].includes(dl.status);
 
     const running = (dl) => dl.status === 'downloading' || dl.status === 'pending'
         || dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced);
@@ -1432,17 +1436,19 @@ function createDownloads() {
 
         const active = downloads.filter(d => d.status === 'downloading' || d.status === 'finishing').length;
         const queued = downloads.filter(d => d.status === 'pending').length;
-        const finished = downloads.filter(d => ['complete', 'error', 'cancelled'].includes(d.status)).length;
+        const done = downloads.filter(finished).length;
         const summary = [active && `${active} downloading`, queued && `${queued} pending`,
-                         finished && `${finished} finished`].filter(Boolean).join(', ')
+                         done && `${done} finished`].filter(Boolean).join(', ')
             || `${downloads.length} total`;
 
         for (const prefix of panels) {
             const panel = document.getElementById(`${prefix}_downloads`);
             const list = document.getElementById(`${prefix}_download_list`);
             const summaryEl = document.getElementById(`${prefix}_downloads_summary`);
+            const dismissAll = document.getElementById(`${prefix}_downloads_dismiss_all`);
             if (panel) panel.style.display = downloads.length ? 'block' : 'none';
-            if (!list || !downloads.length) continue;
+            if (dismissAll) dismissAll.style.display = done ? '' : 'none';
+            if (!list) continue;
             if (summaryEl) summaryEl.textContent = summary;
             list.innerHTML = downloads.map(dl => renderDownloadItem(dl, prefix)).join('');
         }
@@ -1452,7 +1458,16 @@ function createDownloads() {
         try {
             const result = await apiCall({ endpoint: '/model-manager/civitai/download/progress' });
             if (!result.success || !result.downloads) return;
+            // The list is the server's: one it no longer has is gone here too.
+            const listed = new Set(result.downloads.map((dl) => dl.version_id));
+            for (const id of Object.keys(items)) {
+                if (!listed.has(items[id].version_id)) delete items[id];
+            }
             for (const dl of result.downloads) {
+                if (dismissed.has(dl.version_id)) {
+                    if (finished(dl)) continue;
+                    dismissed.delete(dl.version_id);         // started again
+                }
                 const prev = items[dl.version_id];
                 // The file lands well before its database row does; until
                 // `synced` the model is not in the library yet.
@@ -1494,6 +1509,7 @@ function createDownloads() {
         /** Follow a download the server has accepted. */
         track: (progress) => {
             if (!progress || progress.version_id == null) return;
+            dismissed.delete(progress.version_id);
             items[progress.version_id] = progress;
             render();
             if (!poll) poll = setInterval(tick, TIMING.poll);
@@ -1522,9 +1538,28 @@ function createDownloads() {
             }
         },
 
-        dismiss: (versionId) => {
-            delete items[versionId];
+        /** Take a finished download off the list, here and on the server. */
+        dismiss: (versionId) => store.forget([versionId], versionId),
+
+        /** Take every finished download off the list. */
+        dismissFinished: () => store.forget(
+            Object.values(items).filter(finished).map((dl) => dl.version_id), 0),
+
+        // The server forgets them too: it kept every download until the WebUI
+        // restarted, and the next poll brought back what was dismissed here.
+        forget: async function forget(versionIds, asked) {
+            for (const id of versionIds) {
+                dismissed.add(id);
+                delete items[id];
+            }
             render();
+            try {
+                const form = new FormData();
+                form.append('version_id', asked);
+                await fetch('/model-manager/civitai/download/dismiss', { method: 'POST', body: form });
+            } catch (e) {
+                console.error('[ModelManager] Dismiss error:', e);
+            }
         },
 
         get: (versionId) => items[versionId],
@@ -1532,6 +1567,7 @@ function createDownloads() {
 
     window.mmCancelDownload = (versionId) => store.cancel(versionId);
     window.mmDismissDownload = (versionId) => store.dismiss(versionId);
+    window.mmDismissFinishedDownloads = () => store.dismissFinished();
     return store;
 }
 
