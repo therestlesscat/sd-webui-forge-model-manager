@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..db import get_models_db
-from ..nsfw import PG, SFW_MAX
+from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size
 from .images import gallery_switches
 
@@ -71,6 +71,8 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
         "url": f"/model-manager/generations/images/{row['id']}/file",
         "exists": bool(row.get("path")) and os.path.isfile(row["path"]),
         "mm_level": level,
+        # The rating a person gave it, or None: it wins over the prompt's.
+        "user_level": row.get("user_nsfw_level"),
         # What set the level, for the badge's "X · prompt": nobody rates
         # these images, so it is the prompt unless the user has.
         "mm_level_from_prompt": from_prompt and level != PG,
@@ -116,6 +118,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     for generation_id in drawn:
         card = dict(generations.get(generation_id) or {"id": generation_id})
         card["matching_count"] = len(by_generation[generation_id])
+        card.update(shared_levels(by_generation[generation_id]))
         card["images"] = [_image(images[r["id"]]) for r in by_generation[generation_id][:PREVIEW_IMAGES]
                           if r["id"] in images]
         cards.append(card)
@@ -142,6 +145,18 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             **counts,
         },
     }
+
+
+def shared_levels(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
+    """
+    The level every one of these images has, if they share one - what a folded
+    tile or card shows selected when rating - and the rating a person gave
+    them all, if they share that; else None for either.
+    """
+    levels = {r.get("level") for r in rows}
+    users = {r.get("user_level") for r in rows}
+    return {"level": next(iter(levels)) if len(levels) == 1 else None,
+            "user_level": next(iter(users)) if len(users) == 1 else None}
 
 
 def _delete_files(paths: List[str]) -> Tuple[List[str], List[Dict[str, str]]]:
@@ -342,6 +357,7 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
                        for r in previews[key] if r["id"] in images],
             "matching_count": len(units[key]),
             "checkpoint_path": next(iter(checkpoints)) if len(checkpoints) == 1 else None,
+            **shared_levels(units[key]),
         }
         if kind == "group":
             tile["group"] = {"id": group_id(key), "value": key, "latest": first.get("created_at"),
@@ -489,6 +505,60 @@ def register(app: FastAPI):
                                  "generation_deleted": gone})
         except Exception as e:
             print(f"[ModelManager] Delete generated image error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.post("/model-manager/generations/rate")
+    def rate_generated_images(level: str = Form(default=""), image_id: Optional[int] = Form(default=None),
+                              group: str = Form(default=""), in_group: str = Form(default=""),
+                              generation: Optional[int] = Form(default=None), path: str = Form(default=""),
+                              hide_nsfw_images: bool = Form(default=True),
+                              hide_promptless_images: bool = Form(default=False)):
+        """
+        Rate your own images' NSFW level - `level` one of nsfw.USER_LEVELS, or
+        empty to clear the rating, back to what the prompt gives. Which images:
+
+        - `image_id`: that one;
+        - `path` and `generation`: a model's "Your generations" card - its
+          images that gallery shows, through both its switches;
+        - `generation`: a batch of the Generations tab - within the group
+          `in_group`, if opened from one - its images the tab shows, through
+          the NSFW switch.
+
+        Only what the page showed is rated: an image a switch hid, nobody saw.
+        A group is not rated whole: its images are of any number of prompts
+        and settings, and one click would misrate many.
+
+        Returns:
+            rated: how many; and for one image, image: it as the page draws
+            one, and visible: whether the switches still let it through.
+        """
+        try:
+            db = get_models_db()
+            try:
+                chosen = user_level(level)
+            except ValueError as e:
+                return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+            if image_id is not None:
+                ids = [image_id]
+            elif path and generation is not None:
+                rows = [r for r in db.generation_gallery_images(db.generation_gallery_files(path))
+                        if r["generation_id"] == generation]
+                ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, hide_promptless_images)[0]]
+            elif generation is not None:
+                ids = [r["id"] for r in _scoped(db, hide_nsfw_images, group, in_group, generation)[0]]
+            else:
+                return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
+            rated = db.set_generation_image_levels(ids, chosen)
+            answer = {"success": True, "rated": rated}
+            if image_id is not None:
+                row = db.get_generation_images([image_id]).get(image_id)
+                if row:
+                    answer["image"] = _image(row)
+                    level_now = answer["image"]["mm_level"]
+                    answer["visible"] = not hide_nsfw_images or (level_now is not None and level_now <= SFW_MAX)
+            return JSONResponse(answer)
+        except Exception as e:
+            print(f"[ModelManager] Rate images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/group/delete")

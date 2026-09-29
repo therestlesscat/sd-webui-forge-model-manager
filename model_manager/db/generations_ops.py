@@ -167,6 +167,7 @@ class GenerationsOps:
             cursor.execute(f"""
                 SELECT gi.id, gi.generation_id, gi.position,
                        COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
+                       gi.user_nsfw_level AS user_level,
                        LENGTH(TRIM(COALESCE(gi.prompt, ''))) AS prompt_length,
                        g.created_at, gi.prompt AS image_prompt, g.prompt AS typed_prompt,
                        g.checkpoint_path, gi.loras, gi.width, gi.height
@@ -245,6 +246,23 @@ class GenerationsOps:
                 if not cursor.fetchone():
                     own.append(path)
             return own
+
+    def set_user_levels(self, image_ids: List[int], level: Optional[int]) -> int:
+        """
+        Give these images the level a person rated them, or none (None) - they
+        go back to their prompt's. The prompt's is left as it is: a restamp
+        rewrites only that, so a rating outlives a change of prompt words.
+
+        Returns:
+            How many images were rated.
+        """
+        if not image_ids:
+            return 0
+        marks = ", ".join("?" * len(image_ids))
+        with self._cursor() as cursor:
+            cursor.execute(f"UPDATE generation_images SET user_nsfw_level = ? WHERE id IN ({marks})",
+                           [level, *image_ids])
+            return cursor.rowcount
 
     def delete_image(self, image_id: int) -> Tuple[List[str], Optional[int]]:
         """

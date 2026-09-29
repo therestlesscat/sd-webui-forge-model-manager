@@ -38,6 +38,10 @@ def create_generations_ui():
                         <input type="checkbox" id="gen_preserve_order" onchange="window.genSetPreserveOrder(this.checked)">
                         Preserve order
                     </label>
+                    <label class="gen-view-switch" title="Rate each image's NSFW level: a row of levels under every image">
+                        <input type="checkbox" id="gen_rate" onchange="window.genSetRating(this.checked)">
+                        Rate
+                    </label>
                     <span class="gen-toolbar-fill"></span>
                     <button type="button" class="mm-btn secondary" id="gen_refresh_btn"
                             onclick="window.genRefresh()">Refresh</button>

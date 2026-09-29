@@ -386,6 +386,10 @@ class ModelsDatabase:
         """Where one generated image was saved."""
         return self._generations.get_image_path(image_id)
 
+    def set_generation_image_levels(self, image_ids: List[int], level: Optional[int]) -> int:
+        """Rate these generated images, or clear their rating; see db/generations_ops.py."""
+        return self._generations.set_user_levels(image_ids, level)
+
     def delete_generation_image(self, image_id: int) -> Tuple[List[str], Optional[int]]:
         """Remove one generated image, and its generation with its last; see
         db/generations_ops.py."""
