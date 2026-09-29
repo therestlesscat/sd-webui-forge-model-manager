@@ -127,6 +127,113 @@ class GenerationsOps:
                 image["files"] = used.get(image["id"], [])
             return generation
 
+    # ------------------------------------------------------------ galleries
+
+    def gallery_files(self, path: str) -> List[str]:
+        """
+        The model files whose generations one gallery shows: every file of the
+        open file's Civitai version, as the Civitai tab shows one gallery per
+        version; the file alone when it has no version.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT id, file_path FROM model_versions "
+                           "WHERE file_path = ? COLLATE NOCASE", (path,))
+            row = cursor.fetchone()
+            if not row:
+                return [path]
+            if row[0] is None:
+                return [row[1]]
+            cursor.execute("SELECT file_path FROM model_versions WHERE id = ?", (row[0],))
+            return [r[0] for r in cursor.fetchall()]
+
+    def gallery_images(self, files: List[str]) -> List[Dict[str, Any]]:
+        """
+        Every image filed under any of these files, with what filtering and
+        ordering need and nothing more: its generation, its place in it, its
+        level - the user's rating when set, else the prompt's - how long its
+        prompt is, and when its generation was made. Newest generation first.
+        """
+        if not files:
+            return []
+        marks = ", ".join("?" * len(files))
+        with self._cursor() as cursor:
+            cursor.execute(f"""
+                SELECT gi.id, gi.generation_id, gi.position,
+                       COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
+                       LENGTH(TRIM(COALESCE(gi.prompt, ''))) AS prompt_length,
+                       g.created_at
+                FROM generation_images gi
+                JOIN generations g ON g.id = gi.generation_id
+                WHERE gi.id IN (SELECT image_id FROM generation_files WHERE file_path IN ({marks}))
+                ORDER BY g.created_at DESC, g.id DESC, gi.position
+            """, files)
+            return [dict(r) for r in cursor.fetchall()]
+
+    def count_generations(self, files: List[str]) -> int:
+        """How many generations used any of these files."""
+        if not files:
+            return 0
+        marks = ", ".join("?" * len(files))
+        with self._cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(DISTINCT generation_id) FROM generation_files "
+                           f"WHERE file_path IN ({marks})", files)
+            return cursor.fetchone()[0]
+
+    def get_generations(self, generation_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """These generations' rows, without the bulky JSON a card never shows."""
+        if not generation_ids:
+            return {}
+        marks = ", ".join("?" * len(generation_ids))
+        with self._cursor() as cursor:
+            cursor.execute(f"""
+                SELECT id, created_at, mode, forge, prompt, negative_prompt, n_iter,
+                       batch_size, width, height, image_count, infotext, checkpoint_path
+                FROM generations WHERE id IN ({marks})
+            """, generation_ids)
+            return {r["id"]: dict(r) for r in cursor.fetchall()}
+
+    def get_generation_images(self, image_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """These images' rows, by id."""
+        if not image_ids:
+            return {}
+        marks = ", ".join("?" * len(image_ids))
+        with self._cursor() as cursor:
+            cursor.execute(f"SELECT * FROM generation_images WHERE id IN ({marks})", image_ids)
+            return {r["id"]: _read(r) for r in cursor.fetchall()}
+
+    def get_image_path(self, image_id: int) -> Optional[str]:
+        """Where one generated image was saved."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT path FROM generation_images WHERE id = ?", (image_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def delete_generation(self, generation_id: int) -> List[str]:
+        """
+        Remove a generation's rows from all three tables.
+
+        Returns:
+            The paths its images were saved to that no other record names,
+            for a caller asked to delete the files as well. Forge can save a
+            later image over an earlier one's file, when its replace action
+            is Override, and the earlier record then names a file that is not
+            only its own. The files themselves are not touched here.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT path FROM generation_images WHERE generation_id = ?",
+                           (generation_id,))
+            paths = [r[0] for r in cursor.fetchall()]
+            cursor.execute("DELETE FROM generation_files WHERE generation_id = ?", (generation_id,))
+            cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
+            cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+            own = []
+            for path in dict.fromkeys(paths):
+                cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
+                               (path,))
+                if not cursor.fetchone():
+                    own.append(path)
+            return own
+
     def restamp_levels(self, level: Callable[[Optional[Dict[str, Any]]], int]) -> Tuple[int, int]:
         """
         Judge every image's prompt again, and each generation by its most

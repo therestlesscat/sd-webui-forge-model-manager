@@ -362,6 +362,35 @@ class ModelsDatabase:
         """A generation, with its images and the files each used."""
         return self._generations.get_generation(generation_id)
 
+    def generation_gallery_files(self, path: str) -> List[str]:
+        """The model files whose generations one gallery shows."""
+        return self._generations.gallery_files(path)
+
+    def generation_gallery_images(self, files: List[str]) -> List[Dict[str, Any]]:
+        """Every generated image filed under these files, newest first, briefly."""
+        return self._generations.gallery_images(files)
+
+    def count_generations(self, files: List[str]) -> int:
+        """How many generations used any of these files."""
+        return self._generations.count_generations(files)
+
+    def get_generations(self, generation_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """These generations' rows, for their cards."""
+        return self._generations.get_generations(generation_ids)
+
+    def get_generation_images(self, image_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """These generated images' rows, by id."""
+        return self._generations.get_generation_images(image_ids)
+
+    def get_generation_image_path(self, image_id: int) -> Optional[str]:
+        """Where one generated image was saved."""
+        return self._generations.get_image_path(image_id)
+
+    def delete_generation(self, generation_id: int) -> List[str]:
+        """Remove a generation's rows; returns its images' paths no other record names.
+        Files are not touched."""
+        return self._generations.delete_generation(generation_id)
+
     def restamp_generation_levels(self, level) -> Tuple[int, int]:
         """Judge every generated image's prompt again. See GenerationsOps.restamp_levels()."""
         return self._generations.restamp_levels(level)

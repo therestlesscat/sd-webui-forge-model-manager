@@ -5,6 +5,7 @@ Everything the browser can ask for, grouped by what it is asking about:
 
   models.py       which models do I have, and what is this one
   images.py       a version's gallery
+  generations.py  a model's gallery of your own generations
   jobs.py         scanning and syncing, and how far along they are
   civitai.py      searching and downloading from Civitai
   webui.py        what Forge itself knows, such as samplers
@@ -18,7 +19,7 @@ so adding an endpoint means editing one file rather than scrolling one.
 from fastapi import FastAPI
 from modules import script_callbacks
 
-from . import civitai, images, jobs, models, settings, webui
+from . import civitai, generations, images, jobs, models, settings, webui
 
 print("[ModelManager API] === api package loading ===")
 
@@ -27,6 +28,7 @@ def setup_api(app: FastAPI):
     """Attach every endpoint to the running app."""
     models.register(app)
     images.register(app)
+    generations.register(app)
     jobs.register(app)
     civitai.register(app)
     webui.register(app)

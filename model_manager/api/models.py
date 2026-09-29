@@ -419,6 +419,9 @@ def register(app: FastAPI):
                 if images:
                     result["images"] = images
 
+            # For the label of the gallery's other tab: your generations.
+            result["generations_count"] = db.count_generations(db.generation_gallery_files(path))
+
             return JSONResponse({"success": True, "model": result})
 
         except Exception as e:

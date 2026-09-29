@@ -163,6 +163,18 @@ let imagesRequest = 0;
 // What the last "Download More Images" brought, beside the button, until the
 // gallery is next loaded some other way.
 let downloadNote = '';
+
+// The gallery's two tabs: the version's example images from Civitai, and your
+// own generations with the model. Each model opens on Civitai's. The
+// generations are a page of cards, one per generation, fetched when the tab
+// is first opened - see model_manager/api/generations.py.
+let galleryTab = 'civitai';
+let generationsCount = 0;       // for the tab's label, from the details
+let generationCards = [];       // the cards loaded: the page, or every page so far
+let generationsState = null;    // the server's counts; null until the tab loads
+let generationsOffset = 0;      // where the first loaded card sits
+let generationsPage = 1;
+let generationsRequest = 0;
 let nextImagesCursor = null;  // Cursor for loading more images
 let imagesSyncDate = null;    // Last sync date (null = never synced)
 let isLoadingMore = false;
@@ -701,6 +713,7 @@ window.mmSelectModel = async function(index) {
     filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
+    resetGenerations();
     // Each model's gallery starts from the settings; its switches then last
     // while this model is open - as in the Civitai Browser.
     hideNsfwImagesInitialized = false;
@@ -783,6 +796,7 @@ async function loadVersionDetails(filePath) {
             currentImagePage = 1;
             const imagesState = data.model.images_state || {};
             applyImagesState(imagesState);
+            generationsCount = data.model.generations_count || 0;
 
             if (!hidePromptlessInitialised && imagesState.hide_promptless_images !== undefined) {
                 hidePromptlessImages = imagesState.hide_promptless_images;
@@ -893,6 +907,7 @@ window.mmToggleShowPromptless = async function(showPromptless) {
     currentImagePage = 1;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
+        if (galleryTab === 'generations') await showGenerationsPage(1);
     }
 };
 
@@ -906,6 +921,7 @@ window.mmToggleShowNsfwImages = async function(showNsfw) {
     currentImagePage = 1;
     if (currentModelPath) {
         await loadVersionDetails(currentModelPath);
+        if (galleryTab === 'generations') await showGenerationsPage(1);
     }
 };
 
@@ -935,6 +951,7 @@ window.mmSelectVersion = async function(versionIndex) {
     filteredImageCount = 0;
     nextImagesCursor = null;
     imagesSyncDate = null;
+    resetGenerations();
 
     // Update version selector UI
     updateVersionSelectorUI();
@@ -1768,6 +1785,10 @@ function pageSeparator(page) {
 function renderModelImages(images) {
     const container = document.getElementById('mm_images');
     if (!container) return;
+    if (galleryTab === 'generations') {
+        renderGenerations();
+        return;
+    }
 
     const totalPages = getImagePageCount(filteredImageCount);
     currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
@@ -1800,11 +1821,19 @@ function renderModelImages(images) {
         // Still show the banner if a filter is what emptied it
         if (hiddenImageCount > 0 || hiddenPromptlessCount > 0) {
             container.innerHTML = `
-                <div class="mm-images-header">
-                    <h4>Example Images</h4>
-                </div>
+                ${imagesHeaderHtml()}
                 ${filterBannerHtml}
                 <div class="model-images-list"><p class="mm-no-images">No images to show with the filters above.</p></div>
+            `;
+            container.style.display = 'block';
+            return;
+        }
+        // No example images, but your own generations: the tabs still show,
+        // or there would be no way to them.
+        if (generationsCount > 0) {
+            container.innerHTML = `
+                ${imagesHeaderHtml()}
+                <div class="model-images-list"><p class="mm-no-images">No example images from Civitai.</p></div>
             `;
             container.style.display = 'block';
             return;
@@ -1873,10 +1902,7 @@ function renderModelImages(images) {
         : `${pageEnd} of ${filteredImageCount} images`;
 
     container.innerHTML = `
-        <div class="mm-images-header">
-            <h4>Example Images</h4>
-            <span class="mm-images-count">${countText}</span>
-        </div>
+        ${imagesHeaderHtml(countText)}
         ${filterBannerHtml}
         ${paging ? renderImagePagination(totalPages, 'top') : ''}
         <div class="model-images-list">${imageCards}</div>
@@ -1888,15 +1914,372 @@ function renderModelImages(images) {
     refreshResourceButtons();
 }
 
-// Render a single image card in list format
-function renderImageCard(img, index) {
-    const src = img.url || '';
+/**
+ * The gallery's header: its two tabs, which are its title, and on the right
+ * what the tab showing is counting - with, on your generations, a Refresh for
+ * images made since the tab was drawn.
+ */
+function imagesHeaderHtml(countText = '') {
+    const refresh = galleryTab === 'generations'
+        ? `<button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
+                   title="Show images generated since this was drawn">Refresh</button>`
+        : '';
+    const tab = (key, label) => `
+        <button class="mm-gallery-tab ${galleryTab === key ? 'active' : ''}" role="tab"
+                aria-selected="${galleryTab === key}" onclick="window.mmShowGalleryTab('${key}')">${label}</button>`;
+    return `
+        <div class="mm-images-header">
+            <div class="mm-gallery-tabs" role="tablist">
+                ${tab('civitai', 'Civitai images')}
+                ${tab('generations', 'Your generations' + ` (${generationsCount})`)}
+            </div>
+            <div class="mm-images-header-right">
+                ${refresh}
+                <span class="mm-images-count">${countText}</span>
+            </div>
+        </div>`;
+}
 
+/** Forget the open model's generations: another model, or version, is opening. */
+function resetGenerations() {
+    galleryTab = 'civitai';
+    generationsCount = 0;
+    generationCards = [];
+    generationsState = null;
+    generationsOffset = 0;
+    generationsPage = 1;
+    generationsRequest += 1;
+}
+
+window.mmShowGalleryTab = async function(tab) {
+    if (tab === galleryTab) return;
+    galleryTab = tab;
+    if (tab === 'generations') {
+        // Drawn from what is loaded, or "Loading...", then fetched again:
+        // opening the tab shows what was generated since it was last open.
+        renderGenerations();
+        await refreshGenerations();
+        return;
+    }
+    renderModelImages(currentImages);
+};
+
+/** Fetch the generations again: the page on show, or in the continuous list its first. */
+function refreshGenerations() {
+    return showGenerationsPage(imageBrowsing === 'pages' ? generationsPage : 1);
+}
+
+window.mmRefreshGenerations = refreshGenerations;
+
+/**
+ * Fetch a page of the open model's generation cards, through the gallery's
+ * two switches, and draw it. Appended to what is loaded for the continuous
+ * list's Show More; otherwise it replaces it.
+ *
+ * @returns {Promise<boolean>} whether the page arrived and was drawn
+ */
+async function loadGenerationsPage(offset, { append = false } = {}) {
+    const path = currentModelPath;
+    if (!path) return false;
+    const request = ++generationsRequest;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/generations/page', params: {
+            path, offset, limit: IMAGE_PAGE_SIZE,
+            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+        } });
+        if (request !== generationsRequest || path !== currentModelPath) return false;
+        if (!data.success) {
+            console.error('[ModelManager] Failed to load your generations:', data.error);
+            return false;
+        }
+        const cards = data.generations || [];
+        if (append) {
+            const have = new Set(generationCards.map((card) => card.id));
+            generationCards = generationCards.concat(cards.filter((card) => !have.has(card.id)));
+        } else {
+            generationCards = cards;
+            generationsOffset = data.state?.offset || 0;
+        }
+        generationsState = data.state || null;
+        if (typeof generationsState?.stored_generations === 'number') {
+            generationsCount = generationsState.stored_generations;
+        }
+        if (galleryTab === 'generations') renderGenerations();
+        return true;
+    } catch (error) {
+        console.error('[ModelManager] Failed to load your generations:', error);
+        return false;
+    }
+}
+
+/** Fetch and show one page of the generation cards. */
+async function showGenerationsPage(page) {
+    const totalPages = getImagePageCount(generationsState?.generation_count || 0);
+    generationsPage = Math.min(Math.max(1, page), totalPages);
+    return loadGenerationsPage((generationsPage - 1) * IMAGE_PAGE_SIZE);
+}
+
+window.mmShowMoreGenerations = async function() {
+    await loadGenerationsPage(generationCards.length, { append: true });
+};
+window.mmGenFirstImagePage = () => showGenerationsPage(1);
+window.mmGenPrevImagePage = () => showGenerationsPage(generationsPage - 1);
+window.mmGenNextImagePage = () => showGenerationsPage(generationsPage + 1);
+window.mmGenLastImagePage = () => showGenerationsPage(
+    getImagePageCount(generationsState?.generation_count || 0));
+window.mmGenGoToImagePage = async (page) => {
+    await scrollToModelImagesTop();
+    await showGenerationsPage(page);
+};
+
+/** How many images the generation cards draw now: previews, or all of one. */
+function drawnGenerationImages() {
+    return generationCards.reduce((n, card) => n + (card.all || card.images || []).length, 0);
+}
+
+/** The "Your generations" tab: a banner, and a card per generation. */
+function renderGenerations() {
+    const container = document.getElementById('mm_images');
+    if (!container) return;
+    const state = generationsState;
+    container.style.display = 'block';
+    if (!state) {
+        container.innerHTML = `${imagesHeaderHtml()}
+            <div class="mm-images-loading">Loading your generations...</div>`;
+        return;
+    }
+
+    const paging = imageBrowsing === 'pages';
+    const totalPages = getImagePageCount(state.generation_count);
+    const filterBannerHtml = renderFilterBanner({
+        matching: state.filtered,
+        total: state.total,
+        onScreen: drawnGenerationImages(),
+        bannerClass: 'mm-nsfw-warning',
+        labelClass: 'mm-show-all-label',
+        switches: [
+            { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
+              showing: !hideNsfwImages, hidden: state.hidden_nsfw, count: state.nsfw_count,
+              onchange: 'window.mmToggleShowNsfwImages(this.checked)', note: nsfwModelNote() },
+            { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
+              reason: 'unusable prompt',
+              showing: !hidePromptlessImages, hidden: state.hidden_promptless,
+              count: state.promptless_count,
+              onchange: 'window.mmToggleShowPromptless(this.checked)' },
+        ],
+    });
+
+    if (!generationCards.length) {
+        const empty = state.total
+            ? 'No images to show with the filters above.'
+            : 'No generations with this model yet. Images you generate with it from now on appear here.';
+        container.innerHTML = `${imagesHeaderHtml()}${filterBannerHtml}
+            <div class="model-images-list"><p class="mm-no-images">${empty}</p></div>`;
+        return;
+    }
+
+    const cards = generationCards.map((card, index) => {
+        const html = renderGenerationCard(card, index);
+        if (paging || index === 0 || index % IMAGE_PAGE_SIZE !== 0) return html;
+        return pageSeparator(index / IMAGE_PAGE_SIZE + 1) + html;
+    }).join('');
+
+    const loaded = generationsOffset + generationCards.length;
+    const moreToShow = !paging && loaded < state.generation_count;
+    const countText = paging
+        ? `${generationsOffset + 1}-${loaded} of ${state.generation_count} generations (Page ${generationsPage}/${totalPages})`
+        : `${loaded} of ${state.generation_count} generations`;
+    const moreHtml = moreToShow
+        ? `<div class="mm-load-more">
+             <button class="mm-btn secondary" id="mm_show_more_generations_btn" onclick="window.mmShowMoreGenerations()">
+               Show More Generations
+             </button>
+             <span class="mm-load-more-info">${loaded} of ${state.generation_count} shown</span>
+           </div>`
+        : '';
+    const pagination = (position) => paging
+        ? sharedImagePagination({ currentPage: generationsPage, totalPages, position, prefix: 'mmGen' })
+        : '';
+
+    container.innerHTML = `
+        ${imagesHeaderHtml(countText)}
+        ${filterBannerHtml}
+        ${pagination('top')}
+        <div class="model-images-list">${cards}</div>
+        ${moreHtml}
+        ${pagination('bottom')}
+    `;
+    setupLazyMedia(container);
+}
+
+/** One generated image: opens full size in a new tab, or says its file is gone. */
+function generationImageHtml(img) {
+    const url = new URL(img.url, window.location.origin).href;
+    const level = nsfwBadgeLabel(img, 'Unknown');
+    const badge = level !== 'PG' && level !== 'Unknown' && level !== 'None'
+        ? `<span class="mm-nsfw-badge">${escapeHtml(level)}</span>` : '';
+    const image = img.exists
+        ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
+                onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
+                data-open-url="${escapeHtml(url)}" title="Click to open full size">`
+        : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
+                title="Image unavailable: its file is no longer where it was saved">`;
+    return `<div class="mm-generation-tile">${image}${badge}</div>`;
+}
+
+/** A card for one generation: its images on the left, its settings on the right. */
+function renderGenerationCard(card, index) {
+    const images = card.all || card.images || [];
+    const first = (card.images || [])[0] || {};
+    const prompt = first.meta?.prompt || '';
+    const when = card.created_at
+        ? new Date(card.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+        : '';
+    const count = card.image_count || images.length;
+    const imagesText = card.matching_count < count
+        ? `${card.matching_count} of ${count} images here`
+        : `${count} ${count === 1 ? 'image' : 'images'}`;
+    const preview = (card.images || []);
+    const moreThanShown = card.matching_count > preview.length;
+    return `
+        <div class="mm-image-card mm-generation-card" data-generation="${card.id}">
+            <div class="mm-image-left">
+                <div class="mm-generation-preview mm-generation-preview-${Math.min(preview.length, 4)}">
+                    ${preview.map(generationImageHtml).join('')}
+                </div>
+            </div>
+            <div class="mm-image-right">
+                <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
+                ${imageTextHtml(first)}
+                <div class="mm-image-actions">
+                    <button class="mm-btn primary mm-send-btn" onclick="window.mmSendGeneration(${index})">
+                        Send to ${sendTab(card)}
+                    </button>
+                    <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
+                    ${moreThanShown || card.all ? `<button class="mm-btn secondary" onclick="window.mmShowAllGeneration(${index})">
+                        ${card.all ? 'Hide images' : 'Show images'} (${card.matching_count})</button>` : ''}
+                    <span class="mm-generation-delete">
+                        <button class="mm-btn secondary" onclick="window.mmDeleteGeneration(${index})">Delete</button>
+                        <label title="Also delete the image files from disk; off, only the record goes">
+                            <input type="checkbox" id="mm_generation_delete_files_${card.id}"> also delete image files
+                        </label>
+                    </span>
+                </div>
+                ${card.all ? `<div class="mm-generation-all">${card.all.map(generationImageHtml).join('')}</div>` : ''}
+            </div>
+        </div>`;
+}
+
+/** Where a generation's settings go: back to the tab it was made in. */
+function sendTab(card) {
+    return card?.mode === 'img2img' ? 'img2img' : 'txt2img';
+}
+
+/**
+ * Send a generation back to the tab it was made in: its own infotext, pasted
+ * as Forge's PNG Info sends one - the checkpoint and modules come back from
+ * its lines as Forge reads them - then the scheduler and hires fix as every
+ * send sets them. An img2img generation's source image is not kept, so
+ * img2img gets its settings and a word to add an image.
+ */
+window.mmSendGeneration = function(index) {
+    const card = generationCards[index];
+    const first = card?.images?.[0];
+    const infotext = card?.infotext || first?.infotext;
+    if (!infotext) {
+        console.error('[ModelManager] No infotext to send for generation', card?.id);
+        return;
+    }
+    const scrollPos = window.scrollY || document.documentElement.scrollTop || 0;
+    localStorage.setItem('mm_scroll_position', scrollPos.toString());
+    updateScrollRestoreButton();
+
+    const meta = first?.meta || {};
+    let scheduler = meta['Schedule type'];
+    if (!scheduler && meta.sampler) scheduler = splitSamplerScheduler(meta.sampler).scheduler;
+    const hasHiresFix = meta['Denoising strength'] &&
+        (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
+    const tab = sendTab(card);
+    // Chips belong to a Civitai image's send; an earlier one's would stay.
+    showResourceChips(tab, []);
+    if (pasteInfotext(tab, infotext, { scheduler, hasHiresFix })) {
+        showGenerationTab(tab);
+        if (tab === 'img2img') {
+            showNotice('The settings are in img2img. The image this generation started from '
+                       + 'is not kept: drop an image in before generating.');
+        }
+        console.log(`[ModelManager] Sent generation ${card.id} to ${tab}`);
+    }
+};
+
+/** Show every image of a generation this gallery has, in the card; or hide them again. */
+window.mmShowAllGeneration = async function(index) {
+    const card = generationCards[index];
+    if (!card) return;
+    if (card.all) {
+        card.all = null;
+        renderGenerations();
+        return;
+    }
+    try {
+        const data = await apiCall({ endpoint: `/model-manager/generations/${card.id}/images`, params: {
+            path: currentModelPath,
+            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+        } });
+        if (data.success) {
+            card.all = data.images || [];
+            renderGenerations();
+        }
+    } catch (error) {
+        console.error('[ModelManager] Failed to load a generation\'s images:', error);
+    }
+};
+
+/** Delete a generation's record, and its image files when the box beside Delete is ticked. */
+window.mmDeleteGeneration = async function(index) {
+    const card = generationCards[index];
+    if (!card) return;
+    const withFiles = !!document.getElementById(`mm_generation_delete_files_${card.id}`)?.checked;
+    const n = card.image_count || 1;
+    const confirmed = confirm(withFiles
+        ? `Delete this generation and its ${n} image file${n === 1 ? '' : 's'}?\n\n`
+          + 'The image files are deleted from disk. This cannot be undone.'
+        : 'Delete this generation\'s record?\n\n'
+          + `Its ${n} image file${n === 1 ? ' stays' : 's stay'} on disk; only the record goes, `
+          + 'from this gallery and from those of the other models it used.');
+    if (!confirmed) return;
+    try {
+        const response = await fetch(`/model-manager/generations/${card.id}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `delete_files=${withFiles}`,
+        });
+        const data = await response.json();
+        if (!data.success) {
+            setStatus('Delete failed: ' + (data.error || 'unknown error'), true);
+            return;
+        }
+        const failed = data.failed || [];
+        setStatus(withFiles
+            ? `Deleted the generation and ${data.deleted_files} image file${data.deleted_files === 1 ? '' : 's'}`
+              + (failed.length ? `; ${failed.length} could not be deleted` : '')
+            : 'Deleted the generation\'s record; its image files are still on disk', failed.length > 0);
+        generationsCount = Math.max(0, generationsCount - 1);
+        await showGenerationsPage(imageBrowsing === 'pages' ? generationsPage : 1);
+    } catch (error) {
+        setStatus('Delete failed: ' + error.message, true);
+    }
+};
+
+/**
+ * The text of an image card: its prompt, negative prompt, settings, hires and
+ * ADetailer lines, from the image's generation data. A Civitai image's card
+ * and a card of your own generations are both drawn with it.
+ */
+function imageTextHtml(img) {
     const meta = img.meta || {};
     const prompt = meta.prompt || '';
     const negPrompt = meta.negativePrompt || '';
-    const resources = meta.resources || [];
-    const civitaiResources = meta.civitaiResources || [];
 
     // Split sampler if it contains scheduler
     let displaySampler = meta.sampler;
@@ -1944,25 +2327,7 @@ function renderImageCard(img, index) {
     if (meta['ADetailer denoising strength']) adetailerParams.push(`Denoise: ${meta['ADetailer denoising strength']}`);
     if (meta['ADetailer inpaint only masked']) adetailerParams.push(`Inpaint masked: ${meta['ADetailer inpaint only masked']}`);
 
-    // Image ID
-    const imageIdHtml = img.id
-        ? `<div class="mm-image-id">
-             <span class="mm-resources-label">Image ID:</span>
-             <span>${img.id}</span>
-           </div>`
-        : '';
-
-    // Resources (LoRAs, etc)
-    const resourcesHtml = resources.length > 0
-        ? `<div class="mm-image-resources">
-             <span class="mm-resources-label">Resources:</span>
-             ${resources.map(r => renderResource(r)).join('')}
-           </div>`
-        : '';
-
     // Prompt (truncated)
-    const resourcesLabel = resourceButtonLabel(img);
-
     const promptShort = prompt.length > 300 ? prompt.substring(0, 300) + '...' : prompt;
     const promptHtml = prompt
         ? `<div class="mm-image-prompt">
@@ -1995,6 +2360,37 @@ function renderImageCard(img, index) {
         ? `<div class="mm-image-adetailer">ADetailer: ${adetailerParams.join(', ')}</div>`
         : '';
 
+    return promptHtml + negPromptHtml + genParamsHtml + hiresHtml + adetailerHtml;
+}
+
+// Render a single image card in list format
+function renderImageCard(img, index) {
+    const src = img.url || '';
+
+    const meta = img.meta || {};
+    const prompt = meta.prompt || '';
+    const resources = meta.resources || [];
+    const civitaiResources = meta.civitaiResources || [];
+
+    // Image ID
+    const imageIdHtml = img.id
+        ? `<div class="mm-image-id">
+             <span class="mm-resources-label">Image ID:</span>
+             <span>${img.id}</span>
+           </div>`
+        : '';
+
+    // Resources (LoRAs, etc)
+    const resourcesHtml = resources.length > 0
+        ? `<div class="mm-image-resources">
+             <span class="mm-resources-label">Resources:</span>
+             ${resources.map(r => renderResource(r)).join('')}
+           </div>`
+        : '';
+
+    // The Resources button's label
+    const resourcesLabel = resourceButtonLabel(img);
+
     // NSFW indicator
     const nsfwLevel = nsfwBadgeLabel(img, img.nsfw || 'Unknown');
     const nsfwClass = nsfwLevel !== 'PG' && nsfwLevel !== 'Unknown' && nsfwLevel !== 'None'
@@ -2021,11 +2417,7 @@ function renderImageCard(img, index) {
             <div class="mm-image-right">
                 ${imageIdHtml}
                 ${resourcesHtml}
-                ${promptHtml}
-                ${negPromptHtml}
-                ${genParamsHtml}
-                ${hiresHtml}
-                ${adetailerHtml}
+                ${imageTextHtml(img)}
                 <div class="mm-image-actions">
                     <button class="mm-btn primary mm-send-btn" onclick="window.mmSendToTxt2img(${index})">
                         Send to txt2img
@@ -3810,6 +4202,67 @@ let sendSettled = Promise.resolve();
 /** Wait for the last send to finish setting Forge up. */
 window.mmSendSettled = () => sendSettled;
 
+/**
+ * Put an infotext into a generation tab and press the tab's paste button, as
+ * Forge's own "Send to txt2img" from PNG Info does; then, once the paste has
+ * redrawn the page, what the paste leaves undone: the scheduler, which Forge
+ * does not set from it, and hires fix, turned off when the infotext has none.
+ * afterPaste runs at that point too, and may return a promise to wait for.
+ * sendSettled waits for all of it.
+ *
+ * Used by both Sends: a Civitai image's, whose infotext is built from its
+ * generation data, and one of your own generations', whose is its own.
+ *
+ * @returns {boolean} whether the paste could be made at all
+ */
+function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {}) {
+    // Both tabs' paste buttons are id="paste"; each sits in its own tab's
+    // tools row.
+    const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
+    let pasteButton = gradioApp().querySelector(`#${tab}_tools #paste`);
+    if (!pasteButton && tab === 'txt2img') {
+        pasteButton = gradioApp().querySelector('#paste')
+            || gradioApp().querySelector('#txt2img_paste');   // SD.Next and others
+    }
+
+    if (!promptTextarea) {
+        console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
+        return false;
+    }
+    if (!pasteButton) {
+        console.error('[ModelManager] Could not find paste button');
+        return false;
+    }
+
+    promptTextarea.value = infotext;
+    promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    pasteButton.click();
+
+    sendSettled = new Promise((settled) => setTimeout(async () => {
+        setGradioDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
+        const pending = afterPaste ? afterPaste() : null;
+
+        // Reset hires fix if the infotext has no hires data. InputAccordion
+        // uses a hidden checkbox - its value is set and events dispatched.
+        if (!hasHiresFix && tab === 'txt2img') {
+            const hiresContainer = gradioApp().querySelector('#txt2img_hr-checkbox');
+            const hiresCheckbox = hiresContainer?.querySelector('input[type="checkbox"]');
+            if (hiresCheckbox && hiresCheckbox.checked) {
+                hiresCheckbox.checked = false;
+                hiresCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
+                hiresCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                if (typeof inputAccordionChecked === 'function') {
+                    inputAccordionChecked('txt2img_hr', false);
+                }
+                console.log('[ModelManager] Disabled hires fix (not in metadata)');
+            }
+        }
+        await Promise.resolve(pending).catch(() => {});
+        settled();
+    }, 100));
+    return true;
+}
+
 window.mmSendToTxt2img = async function(imageIndex) {
     const img = currentImages[imageIndex];
     if (!img || !img.meta) {
@@ -3912,69 +4365,20 @@ window.mmSendToTxt2img = async function(imageIndex) {
             return;
         }
 
-        // Find prompt textarea and paste button. Both tabs' paste buttons
-        // are id="paste"; each sits in its own tab's tools row.
-        const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
-        let pasteButton = gradioApp().querySelector(`#${tab}_tools #paste`);
-        if (!pasteButton && tab === 'txt2img') {
-            pasteButton = gradioApp().querySelector('#paste')
-                || gradioApp().querySelector('#txt2img_paste');   // SD.Next and others
-        }
-
-        if (!promptTextarea) {
-            console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
-            return;
-        }
-
-        if (!pasteButton) {
-            console.error('[ModelManager] Could not find paste button');
-            return;
-        }
-
-        // Set infotext in prompt and trigger paste
-        promptTextarea.value = infotext;
-        promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-        pasteButton.click();
-
-        // Paste button doesn't set scheduler in Forge - set it directly after a small delay
-        // Also reset hires fix if not present in metadata. Kept as a promise,
-        // for anything that has to wait for all of it: see mmSendSettled.
-        sendSettled = new Promise((settled) => setTimeout(async () => {
-            setGradioDropdown(`${tab}_scheduler`, scheduler);
-            updateResourceChipStates(tab);
-
-            // After the paste: it re-renders much of the page, and it never
-            // touches the modules itself - Neo reads "Module 1"/"Module 2"
-            // from an infotext, not the "VAE:" line we write. A model whose
-            // text encoders and VAE are separate gets the ones it needs; an
-            // SD or SDXL one, the image's own VAE as before.
-            const modules = plan && plan.manage_modules ? applyPlannedModules(plan) : applyVaeSelection(vaePath);
-
-            // Reset hires fix if image doesn't have hires data
-            // InputAccordion uses a hidden checkbox - need to set value and dispatch events
-            if (!hasHiresFix && tab === 'txt2img') {
-                const hiresContainer = gradioApp().querySelector('#txt2img_hr-checkbox');
-                const hiresCheckbox = hiresContainer?.querySelector('input[type="checkbox"]');
-                console.log('[ModelManager] Hires fix reset:', {
-                    containerFound: !!hiresContainer,
-                    checkboxFound: !!hiresCheckbox,
-                    isChecked: hiresCheckbox?.checked
-                });
-                if (hiresCheckbox && hiresCheckbox.checked) {
-                    // Set value and dispatch proper events for Gradio
-                    hiresCheckbox.checked = false;
-                    hiresCheckbox.dispatchEvent(new Event('input', { bubbles: true }));
-                    hiresCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-                    // Also call the InputAccordion JS function if available
-                    if (typeof inputAccordionChecked === 'function') {
-                        inputAccordionChecked('txt2img_hr', false);
-                    }
-                    console.log('[ModelManager] Disabled hires fix (not in metadata)');
-                }
-            }
-            await modules.catch(() => {});
-            settled();
-        }, 100));
+        const pasted = pasteInfotext(tab, infotext, {
+            scheduler,
+            hasHiresFix,
+            afterPaste: () => {
+                updateResourceChipStates(tab);
+                // After the paste: it re-renders much of the page, and it never
+                // touches the modules itself - Neo reads "Module 1"/"Module 2"
+                // from an infotext, not the "VAE:" line we write. A model whose
+                // text encoders and VAE are separate gets the ones it needs; an
+                // SD or SDXL one, the image's own VAE as before.
+                return plan && plan.manage_modules ? applyPlannedModules(plan) : applyVaeSelection(vaePath);
+            },
+        });
+        if (!pasted) return;
 
         showGenerationTab(tab);
         resourceChipSources[tab] = { img, gallery: galleryFile(model) };

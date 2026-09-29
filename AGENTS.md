@@ -11,6 +11,8 @@ does that better.
 
 ```
 scripts/model_manager_ui.py   the entry point Forge loads
+scripts/model_manager_generations.py
+                              the always-on script that records your generations
 model_manager/                the extension proper
 javascript/                   the two tabs, and what they share
 style.css                     picked up by filename; see "The WebUI's rules"
@@ -24,7 +26,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 
 | | |
 |---|---|
-| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `browse_cache_ops`, `query`, `migrations` |
+| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `browse_cache_ops`, `generations_ops`, `query`, `migrations` |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
@@ -32,6 +34,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `hashing.py` | the hashes that tell Civitai which file this is |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
+| `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors |
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
@@ -39,10 +42,21 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `storage.py` | reading and writing `.civitai.info` |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py` |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `jobs`, `civitai`, `webui`, `settings` (the settings window's). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (a model's gallery of your own), `jobs`, `civitai`, `webui`, `settings` (the settings window's). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab |
 
 ## What the pieces assume about each other
+
+**A generation's result is known by the object Forge hands every script.**
+`postprocess_image_after_composite` gives each script the same
+`PostprocessImageArgs`, and Forge saves the image it holds once they are all
+done - not necessarily the image our hook saw: forge-helpers' hires cap
+replaces it. So the object is kept, and a save matched to it in
+`on_image_saved`. Masks, grids, ControlNet's maps and the "before" copies
+never match. The prompts are read in `before_process`, before styles are
+merged and Dynamic Prompts overwrites `p.prompt`; the LoRAs per iteration,
+since Forge loads only the first prompt's for a whole batch. See
+`model_manager/generations.py`.
 
 **`nsfw.py` is the single source of truth.** There were once three
 implementations giving two different answers. If you need a level, ask it; if
