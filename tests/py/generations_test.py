@@ -128,13 +128,22 @@ class Always(object):
 def save(p, image, name):
     """images.save_image: the path on the image, then on_image_saved."""
     image.already_saved_as = os.path.join(OUT, name)
+    os.makedirs(OUT, exist_ok=True)
+    with open(image.already_saved_as, 'wb') as f:
+        f.write(b'an image: ' + name.encode())
     generations.image_saved(types.SimpleNamespace(
         image=image, p=p, filename=image.already_saved_as,
         pnginfo={'parameters': getattr(image, 'infotext', None)}))
 
 
-def generate(p, prompts, loras_by_iteration, replace=(), extra_saves=True, video=None):
-    """Drive one generation through the hooks, as processing.py does."""
+counter = [0]
+
+
+def generate(p, prompts, loras_by_iteration, replace=(), extra_saves=True, video=None,
+             names=None):
+    """Drive one generation through the hooks, as processing.py does. Its
+    files are numbered on from the last, as Forge numbers them, unless names
+    says otherwise."""
     generations.before_process(p)
     # Styles are merged, then Dynamic Prompts rewrites the prompts - and p.prompt.
     p.prompt = 'a {fox|cat}, cinematic'
@@ -155,7 +164,12 @@ def generate(p, prompts, loras_by_iteration, replace=(), extra_saves=True, video
                 pp.image = Image('resized %d' % index, (1664, 2432))
             pp.image.infotext = '%s\nNegative prompt: blurry\nSteps: 30, Sampler: Euler, Seed: %d' % (
                 prompts[index], 1000 + index)
-            save(p, pp.image, '%05d.png' % index)
+            if names:
+                name = names[index]
+            else:
+                name = '%05d.png' % counter[0]
+                counter[0] += 1
+            save(p, pp.image, name)
             if extra_saves:
                 mask = Image('mask %d' % index)
                 mask.infotext = pp.image.infotext
@@ -269,6 +283,99 @@ g = db.get_generation(generation_id)
 check('each by its own prompt', [i['prompt_nsfw_level'] for i in g['images']],
       [PG, PROMPT_LEVEL, PG, PROMPT_LEVEL])
 check('and the generation by its most explicit', g['prompt_nsfw_level'], PROMPT_LEVEL)
+
+# ---------------------------------------------------------------- the gallery
+# The tab beside a model's Civitai images: a page of generation cards, through
+# the same two switches, and an image served only by its record.
+try:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    has_fastapi = True
+except ImportError:
+    has_fastapi = False
+
+if has_fastapi:
+    from model_manager.api import setup_api                       # noqa: E402
+    app = FastAPI()
+    setup_api(app)
+    client = TestClient(app)
+
+    def page(path, **params):
+        return client.get('/model-manager/generations/page', params={'path': path, **params}).json()
+
+    # The prompt words above made images 1 and 3 explicit.
+    body = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
+    card = body['generations'][0]
+    check('the checkpoint\'s gallery holds the generation, as one card',
+          (len(body['generations']), card['id'], card['matching_count']), (1, generation_id, 4))
+    check('whose preview is its first four images, in order',
+          [i['position'] for i in card['images']], [0, 1, 2, 3])
+    check('each with what a card draws', sorted(card['images'][0]) == sorted(
+        ['id', 'generation_id', 'position', 'iteration', 'seed', 'width', 'height', 'meta',
+         'infotext', 'url', 'exists', 'mm_level', 'mm_level_from_prompt']), True)
+    check('and the file is there', card['images'][0]['exists'], True)
+
+    body = page(CHECKPOINT, hide_nsfw_images='true', hide_promptless_images='true')
+    check('the NSFW switch hides the explicit ones, as in the Civitai gallery',
+          [i['position'] for i in body['generations'][0]['images']], [0, 2])
+    check('and how many generations are filed here, filtered or not, for the tab\'s label',
+          body['state']['stored_generations'], 1)
+    check('and the banner is told what it hid',
+          {k: body['state'][k] for k in ('total', 'filtered', 'hidden_nsfw', 'nsfw_count')},
+          {'total': 4, 'filtered': 2, 'hidden_nsfw': 2, 'nsfw_count': 2})
+    check('an image made with a LoRA is in the LoRA\'s gallery too, and only those that used it',
+          [i['position'] for i in page(LORA_A, hide_nsfw_images='false')['generations'][0]['images']],
+          [0, 1])
+    check('a model nobody generated with has an empty gallery',
+          page(facts['linked_paths'][2])['generations'], [])
+
+    body = client.get('/model-manager/generations/%d/images' % generation_id,
+                      params={'path': CHECKPOINT, 'hide_nsfw_images': 'false'}).json()
+    check('"Show all" brings every image of the generation the gallery shows',
+          [i['position'] for i in body['images']], [0, 1, 2, 3])
+
+    first = card['images'][0]
+    served = client.get(first['url'])
+    check('an image is served by its record', (served.status_code, served.content),
+          (200, b'an image: 00000.png'))
+    check('an id nobody recorded is not found',
+          client.get('/model-manager/generations/images/999999/file').status_code, 404)
+
+    details = client.get('/model-manager/models/details', params={'path': CHECKPOINT}).json()
+    check('the details say how many generations the model has, for the tab\'s label',
+          details['model']['generations_count'], 1)
+
+    # Deleting: the records always, the files only when asked.
+    kept = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    kept_paths = [i['path'] for i in db.get_generation(kept)['images']]
+    body = client.post('/model-manager/generations/%d/delete' % kept).json()
+    check('delete removes the records', (body['success'], db.get_generation(kept)), (True, None))
+    check('from the index too', db.count_generations([in_library]), 1)
+    check('and leaves the files, unless asked', all(os.path.isfile(p) for p in kept_paths), True)
+    gone = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    gone_paths = [i['path'] for i in db.get_generation(gone)['images']]
+    body = client.post('/model-manager/generations/%d/delete' % gone, data={'delete_files': 'true'}).json()
+    check('asked, it deletes its image files as well',
+          (body['deleted_files'], any(os.path.isfile(p) for p in gone_paths)), (2, False))
+    check('and only those: the other generation\'s are still there',
+          all(os.path.isfile(i['path']) for i in db.get_generation(generation_id)['images']), True)
+
+    # Forge saved over an earlier image's file (replace action Override):
+    # deleting the later generation must not take the earlier one's image.
+    first_path = db.get_generation(generation_id)['images'][0]['path']
+    over = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False,
+                    names=[os.path.basename(first_path)])
+    body = client.post('/model-manager/generations/%d/delete' % over, data={'delete_files': 'true'}).json()
+    check('a file another record still names is not deleted with it',
+          (body['deleted_files'], os.path.isfile(first_path)), (0, True))
+
+    # A file gone from disk leaves its record, which can still be sent.
+    os.remove(db.get_generation(generation_id)['images'][3]['path'])
+    body = page(CHECKPOINT, hide_nsfw_images='false')
+    check('an image whose file is gone keeps its record, marked missing',
+          [i['exists'] for i in body['generations'][0]['images']], [True, True, True, False])
+    check('and its file is not found', client.get(body['generations'][0]['images'][3]['url']).status_code,
+          404)
 
 # ------------------------------------------------------ a failure costs nothing
 p = Processing(n_iter=1)

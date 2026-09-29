@@ -1122,7 +1122,10 @@ body.mm-modal-open {
 }
 
 /* Individual image card */
+/* --mm-card-image-width is how wide a card's image is: its image column, and
+   each image of a generation's "Show images", which are drawn the same size. */
 .mm-image-card {
+    --mm-card-image-width: 200px;
     display: flex;
     gap: 15px;
     background: rgba(0, 0, 0, 0.2);
@@ -1138,7 +1141,7 @@ body.mm-modal-open {
 /* Left side - image */
 .mm-image-left {
     flex-shrink: 0;
-    width: 200px;
+    width: var(--mm-card-image-width);
     position: relative;
 }
 
@@ -1311,6 +1314,108 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+/* The gallery's two tabs, which are its title: Civitai's example images, and
+   your own generations - in the type the title had, a bold heading at the
+   body's size. Gradio's preflight resets a button's margin and background
+   inside gr.HTML at a specificity one class cannot beat - the second tab sat
+   lower than the first - hence !important on those two. */
+.mm-gallery-tabs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.mm-gallery-tab {
+    margin: 0 !important;
+    padding: 4px 12px;
+    background: transparent !important;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-family: inherit;
+    font-size: 1em;
+    font-weight: var(--prose-header-text-weight, 600);
+    cursor: pointer;
+}
+
+.mm-gallery-tab:hover {
+    color: var(--body-text-color, #e5e7eb);
+}
+
+.mm-gallery-tab.active {
+    color: var(--body-text-color, #e5e7eb);
+    border-bottom-color: #f59e0b;
+}
+
+/* The header's right: what the tab counts, and on your generations a Refresh,
+   shorter than a card's buttons so the header keeps its height. */
+.mm-images-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.mm-refresh-generations {
+    --mm-btn-height: 26px;
+    padding: 0 10px !important;
+    font-size: 0.85em;
+}
+
+/* A generation's card: when it was made, above the settings. */
+.mm-generation-when {
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* Its images, in the card's image column: one fills it, as on a Civitai
+   image's card - most generations are one image - and two to four share it. */
+.mm-generation-preview {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+}
+
+.mm-generation-preview-2,
+.mm-generation-preview-3,
+.mm-generation-preview-4 {
+    grid-template-columns: 1fr 1fr;
+}
+
+.mm-generation-tile {
+    position: relative;
+}
+
+/* All of a generation's images, under its settings, after "Show images": each as
+   large as the card's own image, not shrunk to fit more in a row. */
+.mm-generation-all {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, var(--mm-card-image-width));
+    gap: 6px;
+}
+
+.mm-generation-all img {
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.mm-generation-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-generation-delete label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
 /* Where a page starts in the continuous image list: a rule either side of
    its number, so Show More reads as moving on to another page. */
 .mm-page-separator {
@@ -1465,8 +1570,8 @@ body.mm-modal-open {
 
 /* Responsive */
 @media (max-width: 900px) {
-    .mm-image-left {
-        width: 150px;
+    .mm-image-card {
+        --mm-card-image-width: 150px;
     }
 
     .mm-resource-name {
@@ -1486,10 +1591,7 @@ body.mm-modal-open {
     /* Stack image cards vertically on mobile */
     .mm-image-card {
         flex-direction: column;
-    }
-
-    .mm-image-left {
-        width: 100%;
+        --mm-card-image-width: 100%;
     }
 
     .mm-image-actions {

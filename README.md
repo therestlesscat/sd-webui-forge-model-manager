@@ -12,6 +12,14 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.30 - Your generations.** Every image you generate and save is recorded - the prompt
+as you typed it, the infotext written into each file, every setting and the arguments of
+each extension - and filed under every model it used, LoRAs included. A model's gallery
+gets a second tab beside its Civitai images, with your own generations with it: a card
+per generation, its images opening full size, and a button that sends its settings back
+to the tab it was made in. Only images generated from now on are recorded; a setting
+turns it off.
+
 **0.20 - A settings window.** A gear in the header of both tabs opens one window for
 all the extension's settings, grouped by what they are for, with search, and showing only
 the options that apply to what else is chosen. Card sizes are set with a preview: a row of
@@ -29,13 +37,6 @@ and the resources it used, and raises the explicit ones to X - in the grid previ
 galleries and the SFW filters. How far it goes is a setting; at the default it caught
 about 94% of explicit prompts on a library it had never seen. The word list still applies
 alongside it, and can be chosen instead.
-
-**0.16 - LoRA and embedding chips.** Most images list their LoRAs as resources without
-naming them in the prompt, which left finding each one by hand. Send to txt2img now lays
-an image's LoRAs, LoCons and embeddings out as chips under the prompts, named as your
-files are: a click puts one in at the image's weight, or takes it out. One you do not
-have downloads from its chip straight into your library, into the folder for its type,
-ready to use.
 
 Every change, version by version, is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -67,6 +68,15 @@ says how many images are hidden as NSFW or for having no usable prompt, with a s
 for each.
 
 ![Image gallery with generation parameters](docs/images/mm-gallery.png)
+
+### Your own generations
+
+Beside a model's Civitai images, a tab of the images you have generated with it - with
+the checkpoint, or with any LoRA, text encoder or VAE it used. Each generation is one
+card: its image, or its batch as a grid, with the settings from its infotext. Send puts
+them back in txt2img or img2img as Forge's PNG Info would; Delete removes the record, and
+the image files too if you tick the box beside it. Recording starts once the extension is
+installed, and can be turned off in its settings.
 
 ### Keeping it in sync
 
