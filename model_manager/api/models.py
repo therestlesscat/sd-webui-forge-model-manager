@@ -7,6 +7,7 @@ answers "which models do I have, and what is this one".
 """
 import json
 import os
+import re
 import time
 from typing import Optional
 from fastapi import FastAPI, Form
@@ -31,6 +32,29 @@ MAX_HASH_LOOKUPS = 20
 _NAMED_TYPES = {"LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion", None}
 
 
+_NUMBERS = re.compile(r"([0-9]+)")
+
+
+def _natural(text: str) -> list:
+    """Forge's natural_sort_key (modules/util.py): numbers as numbers, the
+    rest ignoring case - the file's name and its extension apart, as Neo's does."""
+    return [[int(part) if part.isdigit() else part.lower() for part in _NUMBERS.split(piece)]
+            for piece in os.path.splitext(text)]
+
+
+def _forge_walk_order(row) -> tuple:
+    """
+    Where Forge's walk of its LoRA folders reaches a file: folders in natural
+    order, then the files in each. networks.py indexes every file by its name
+    as it goes, each overwriting the last with that name, so of several files
+    named alike the one reached last is the one <lora:name> loads - a
+    .safetensors after a .pt of the same name, a later folder after an
+    earlier one.
+    """
+    path = str(row.get("file_path") or "")
+    return (_natural(os.path.dirname(path)), _natural(os.path.basename(path)))
+
+
 def files_by_name(db, named, by_hash) -> dict:
     """
     The library's file for each resource an image names, by the file's name,
@@ -39,8 +63,9 @@ def files_by_name(db, named, by_hash) -> dict:
     A file with that name is taken only if it is a LoRA, an embedding, or not
     yet read by a scan; and, where the image gives a hash, only if that hash
     is the file's - so a file that merely shares a name is not taken for the
-    one the image used. With no hash, a name matching one file is taken, as
-    Forge takes <lora:name> from a prompt.
+    one the image used. With no hash, the name alone decides, as it does for
+    Forge's <lora:name>: the whole name, never a part of one, and of several
+    files with it, the one Forge would load.
 
     Args:
         named: [{name, hash}], from the image.
@@ -58,7 +83,12 @@ def files_by_name(db, named, by_hash) -> dict:
             match = next((r for r in candidates
                           if names_this_file(r.get("file_hashes"), r.get("file_path"), image_hash)), None)
         else:
-            match = candidates[0] if len(candidates) == 1 else None
+            # Several files can have the name: the same LoRA as .safetensors
+            # and .pt, or two models in two folders. Forge loads one of them
+            # for <lora:name> - the last its walk of the folders reaches - so
+            # that is the one taken. It used to take none, and the chip said
+            # the image's LoRA was missing with the file right there.
+            match = max(candidates, key=_forge_walk_order) if candidates else None
         if match:
             found[name.lower()] = match
     return found

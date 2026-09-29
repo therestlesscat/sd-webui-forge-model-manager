@@ -106,5 +106,38 @@ db.set_architecture(local, None, None, False, False, '1', file_type='Checkpoint'
 check('9. only a LoRA, an embedding, or a file not yet read is taken by name - what a chip is for',
       ask(names=named((stem(local), autov2_local)))[1]['names'], {})
 
+# Several files with one name: epi_noiseoffset2.safetensors and .pt. An image
+# naming it without a hash found neither - two files had the name - and its
+# chip said it was missing with the files right there. Forge loads one of them
+# for <lora:epi_noiseoffset2>: the last its walk of the LoRA folders reaches,
+# folders and files in natural order. That one is taken.
+lora_dir = os.path.join(WORK, 'models', 'Lora')
+os.makedirs(os.path.join(lora_dir, 'zz later'), exist_ok=True)
+
+
+def lora_file(name, version_id):
+    path = os.path.join(lora_dir, name)
+    with open(path, 'wb') as f:
+        f.write(b'lora')
+    db.upsert_version({'id': version_id, 'model_id': 77000, 'file_path': path,
+                       'file_name': os.path.basename(name), 'file_size': 4,
+                       'file_extension': os.path.splitext(name)[1],
+                       'has_civitai_data': True, 'nsfw_level': 1})
+    db.set_architecture(path, None, None, False, False, '1', file_type='LORA')
+    return path
+
+
+lora_file('noiseoffset.safetensors', 77001)
+lora_file('noiseoffset.pt', 77002)
+lora_file('noiseoffset_2.safetensors', 77003)
+found = lambda name: ask(names=named((name, '')))[1]['names'].get(name.lower(), {}).get('version_id')
+check('10. with no hash, of several files with the name the one Forge loads is taken: '
+      'the .safetensors, which its walk reaches after the .pt', found('noiseoffset'), 77001)
+check('11. only the whole name matches, as in Forge: noiseoffset_2 is another name',
+      found('noiseoffset_2'), 77003)
+check('    and a part of one matches nothing', found('noise'), None)
+lora_file(os.path.join('zz later', 'noiseoffset.safetensors'), 77004)
+check('12. across folders, the one in the folder Forge reaches last', found('noiseoffset'), 77004)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
