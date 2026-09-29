@@ -700,8 +700,10 @@ export function nsfwModelNote() {
  *
  * @param {object} options
  * @param {number} options.matching - images the filters let through, loaded or not.
- * @param {number} options.total - images stored.
+ * @param {number} options.total - images stored, or loaded.
  * @param {number} options.onScreen - images drawn now.
+ * @param {string} [options.word] - what `total` counts: 'stored' in the library,
+ *     'loaded' from Civitai in the Civitai Browser, which keeps nothing.
  * @param {string} options.bannerClass - the tab's banner class.
  * @param {string} options.labelClass - the tab's switch label class.
  * @param {Array<object>} options.switches - one per filter:
@@ -711,8 +713,8 @@ export function nsfwModelNote() {
  *     through), note (a word on what decides it), and applies (false to leave
  *     it out altogether).
  */
-export function renderFilterBanner({ matching, total, onScreen, bannerClass, labelClass,
-                                     switches }) {
+export function renderFilterBanner({ matching, total, onScreen, word = 'stored', bannerClass,
+                                     labelClass, switches }) {
     if (!total) return '';
     const active = switches.filter((s) => s.applies !== false);
 
@@ -724,7 +726,7 @@ export function renderFilterBanner({ matching, total, onScreen, bannerClass, lab
         .map((s) => ({ ...s, number: s.showing ? s.count : s.hidden }))
         .filter((s) => s.number > 0 || s.showing);
 
-    const counted = `${total} ${total === 1 ? 'image' : 'images'} stored`
+    const counted = `${total} ${total === 1 ? 'image' : 'images'} ${word}`
         + ` · ${matching} match the filters (${onScreen} shown)`
         + (clauses.length ? ` · ${clauses.join(', ')}` : '');
     // A switch can carry a note on what decides it: the NSFW one, while a

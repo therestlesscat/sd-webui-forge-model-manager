@@ -137,8 +137,9 @@ export function checker(label = '') {
 /**
  * What the Civitai Browser's gallery endpoint answers for these images, as a
  * stub server gives it: page N of them - the Nth slice of 100, before the
- * switches the request names - its images through those switches, and its
- * counts, with the totals over all of them for the banner. The page does not
+ * switches the request names - its images through those switches, its
+ * counts, which the page adds up for the banner, and a cursor to the next
+ * page while there is one. The page does not
  * filter; the server does, in api/civitai.py, which browser_api_test.py holds
  * to the meanings used here. Each image needs the mm_level the server stamps;
  * the prompt floor is MIN_PROMPT_LENGTH. `more` says whether a page follows
@@ -169,14 +170,15 @@ export function browserGalleryAnswer(href, images, extra = {}, { more = false, s
     };
     const rows = images.slice((number - 1) * size, number * size);
     const page = count(rows);
+    const hasMore = images.length > number * size || more;
     return {
         success: true,
         images: page.shown,
-        next_cursor: null,
+        next_cursor: hasMore ? String(number * size) : null,
         page: { number, size, count: rows.length, shown: page.counts.filtered,
                 hidden_nsfw: page.counts.hidden_nsfw, hidden_promptless: page.counts.hidden_promptless,
-                more: images.length > number * size || more, error: null },
-        images_state: count(images).counts,
+                nsfw_count: page.counts.nsfw_count, promptless_count: page.counts.promptless_count,
+                more: hasMore, error: null },
         ...extra,
     };
 }

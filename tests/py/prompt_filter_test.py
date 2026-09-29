@@ -97,7 +97,7 @@ class Client:
         self.blow_up = blow_up
         self.asked = []
 
-    def get_generation_data(self, ids):
+    def get_generation_data(self, ids, workers=1, errors=None):
         self.asked.append(list(ids))
         if self.blow_up:
             raise RuntimeError('nope')

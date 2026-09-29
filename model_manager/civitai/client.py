@@ -648,19 +648,26 @@ class CivitaiClient:
             "next_cursor": next_cursor
         }
 
-    def get_generation_data(self, image_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    def get_generation_data(self, image_ids: List[int], workers: int = 1,
+                            errors: Optional[Dict[int, Exception]] = None
+                            ) -> Dict[int, Dict[str, Any]]:
         """
         Get generation data (prompt, params, resources) for images.
 
         The public /api/v1/images endpoint returns `meta: null` for every
         image, so generation parameters come from the website's own tRPC
-        endpoint instead. Requests are batched (20 per call).
+        endpoint instead, GENERATION_DATA_BATCH ids per request.
 
         Requires an API key - returns {} without one, so callers fall back
         to whatever the public API gave them.
 
         Args:
             image_ids: Civitai image IDs to look up.
+            workers: Requests in flight at once. The rate limiter still paces
+                them, so this only saves waiting on Civitai: a gallery page's
+                four requests took 0.38 s one after another.
+            errors: Filled with each id whose request failed, and why, for a
+                caller that treats "no prompt" and "not known" differently.
 
         Returns:
             Dict mapping image ID to its generation data. IDs that could not
@@ -673,22 +680,33 @@ class CivitaiClient:
         if not ids:
             return {}
 
-        results: Dict[int, Dict[str, Any]] = {}
+        chunks = [ids[start:start + self.GENERATION_DATA_BATCH]
+                  for start in range(0, len(ids), self.GENERATION_DATA_BATCH)]
 
-        for start in range(0, len(ids), self.GENERATION_DATA_BATCH):
-            chunk = ids[start:start + self.GENERATION_DATA_BATCH]
-
+        def fetch(chunk):
             procedures = ",".join([self.GENERATION_DATA_PROC] * len(chunk))
             payload = {str(i): {"json": {"id": image_id}} for i, image_id in enumerate(chunk)}
             url = (
                 f"{self.TRPC_BASE_URL}{procedures}"
                 f"?batch=1&input={quote(json.dumps(payload))}"
             )
-
             try:
-                data = self._request("GET", "", absolute_url=url)
+                return chunk, self._request("GET", "", absolute_url=url), None
             except CivitaiAPIError as e:
                 print(f"[ModelManager] Generation data batch failed: {e}")
+                return chunk, None, e
+
+        if workers > 1 and len(chunks) > 1:
+            with ThreadPoolExecutor(max_workers=min(workers, len(chunks))) as executor:
+                answers = list(executor.map(fetch, chunks))
+        else:
+            answers = [fetch(chunk) for chunk in chunks]
+
+        results: Dict[int, Dict[str, Any]] = {}
+        for chunk, data, error in answers:
+            if error is not None:
+                if errors is not None:
+                    errors.update((image_id, error) for image_id in chunk)
                 continue
 
             # tRPC batch responses are a list positionally matching the input

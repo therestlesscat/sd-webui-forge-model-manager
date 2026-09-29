@@ -1,7 +1,9 @@
 // The Civitai Browser's gallery, a page at a time, as the Model Manager's.
 //
-// A page is a slice of what is cached - pages of 3 here - before the
-// switches, which only decide which of its images are drawn. Load More adds
+// A page is Civitai's next page - pages of 3 here - read live, from the
+// cursor the last one ended at, before the switches, which only decide which
+// of its images are drawn. Nothing is kept on the server; the banner adds up
+// the pages loaded. Load More adds
 // the next page after its separator, with a note of what it held, leaving the
 // cards already drawn alone. It used to fetch 10 at a time, page what passed
 // the switches, and say what a download brought beside the button: three
@@ -21,6 +23,7 @@ const image = (id, level) => ({
 const cached = [image(1, 1), image(2, 1), image(3, 8)];
 const civitai = [image(100, 1), image(101, 16), image(102, 8)];
 let civitaiDown = false;       // Civitai answering 503, as it does in an outage
+const galleryAsks = [];
 
 globalThis.fetch = async (url) => {
     const href = String(url);
@@ -29,6 +32,7 @@ globalThis.fetch = async (url) => {
                                                 hide_promptless_images: true }) };
     }
     if (href.includes('/images')) {
+        galleryAsks.push(new URL(href, 'http://webui').searchParams);
         const page = Number(new URL(href, 'http://webui').searchParams.get('page') || 1);
         if (page * 3 > cached.length && civitai.length) {
             if (civitaiDown) {
@@ -57,6 +61,9 @@ const notes = () => Array.from(document.querySelectorAll('#cb_images .model-imag
     .map((n) => n.textContent.trim());
 const separators = () => Array.from(document.querySelectorAll('#cb_images .mm-page-separator'))
     .map((s) => s.textContent.trim());
+const sentence = () => (document.querySelector('#cb_images .cb-nsfw-warning span')?.textContent || '').trim();
+// An empty cursor is left out of the request altogether: from the start.
+const asked = (from) => galleryAsks.slice(from).map((p) => [p.get('page'), p.get('cursor') ?? '']);
 const footer = () => (document.querySelector('#cb_images .mm-images-footer')?.textContent || '')
     .replace(/\s+/g, ' ').trim();
 
@@ -69,6 +76,10 @@ await waitFor('the gallery', () => cards().length > 0);
 check('page 1 shows its safe images, and says what it held',
       [cards().length, notes()], [2, ['Displaying 2 images for page 1 · 1 hidden due to NSFW filter']]);
 check('with Load More below it', !!$('cb_load_more_btn'), true);
+check('asked for from the start', asked(0), [['1', '']]);
+check('its banner counts what is loaded, not stored - the server keeps nothing',
+      sentence(), '3 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter');
+check('and the details say there are more to come', $('cb_images_count').textContent, '3+');
 check('its banner is drawn once, and stays in sight as the gallery scrolls',
       Array.from(document.querySelectorAll('#cb_images .cb-nsfw-warning'))
           .map((b) => b.classList.contains('filter-banner-sticky')), [true]);
@@ -84,17 +95,23 @@ check('changing nothing else', [cards().length, separators()], [2, []]);
 check('and Load More is offered again', !!$('cb_load_more_btn'), true);
 
 const firstCard = cards()[0];
+let from = galleryAsks.length;
 await window.cbLoadMoreImages();
 await waitFor('page 2', () => separators().length === 1);
 check('Load More adds page 2 after its separator, with its own note',
       [separators(), notes()[1]], [['Page 2'],
        'Displaying 1 image for page 2 · 2 hidden due to NSFW filter · no more images on Civitai']);
 check('leaving the cards already drawn as they were', [cards()[0] === firstCard, cards().length], [true, 3]);
+check('asked for from where page 1 ended', asked(from), [['2', '3']]);
+check('the banner adds the two pages up',
+      sentence(), '6 images loaded · 3 match the filters (3 shown) · 3 hidden due to NSFW filter');
+check('and the details count them, with no more to come', $('cb_images_count').textContent, '6');
 check('and the foot is clear again, with nothing more to load', [footer(), !!$('cb_load_more_btn')], ['', false]);
 
+from = galleryAsks.length;
 await window.cbToggleShowAllImages(true);
 await waitFor('the reload', () => separators().length === 0);
-check('a switch starts again from page 1', [cards().length, notes()],
-      [3, ['Displaying 3 images for page 1']]);
+check('a switch starts again from page 1, asked for afresh', [cards().length, notes(), asked(from)],
+      [3, ['Displaying 3 images for page 1'], [['1', '']]]);
 
 done();

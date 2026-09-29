@@ -77,12 +77,13 @@ let isLoading = false;
 let selectedModel = null;
 let selectedVersionIndex = 0;
 let selectedFileIndex = null;  // null = whichever file Civitai marks primary
-// The gallery is a list of pages, as the Model Manager's is: each a slice of
-// what is cached, before the switches filter it, and Load More adds the next
-// (model_manager/gallery.py). currentImages holds the images drawn, every
-// page's in turn; imagePages each page loaded, with where its images start
-// and its own counts, for its note; imageCounts the totals the banner states
-// (ImagesOps.get_image_counts() says what each means).
+// The gallery is a list of pages, as the Model Manager's is, but live: each
+// the next page of Civitai's, before the switches filter it, and Load More
+// adds the next (model_manager/gallery.py). Nothing is kept on the server;
+// nextImagesCursor is where Civitai's next page starts. currentImages holds
+// the images drawn, every page's in turn; imagePages each page loaded, with
+// where its images start and its own counts, for its note; imageCounts those
+// counts added up, for the banner.
 let currentImages = [];
 let imagePages = [];
 let loadingImagePage = false;
@@ -939,34 +940,41 @@ function selectVersion(versionIndex) {
 }
 
 /**
- * Fetch page `number` of the selected version's gallery, through the two
- * switches, filled from Civitai first when the cache cannot fill it. Only
- * opening a version asks the server to look up missing prompts on Civitai;
- * another page or a switch only reads what is cached.
+ * Fetch page `number` of the selected version's gallery from Civitai, through
+ * the two switches: page 1 from the start, any other from where the last
+ * one ended.
  *
  * @returns {Promise<object|null>} the answer, or null if a newer fetch or
  *     another version has taken over since
  */
-async function fetchImagesPage(number, { opening = false } = {}) {
+async function fetchImagesPage(number) {
     const version = getSelectedVersion();
     if (!version?.id) return null;
     const request = ++imagesRequest;
     const result = await apiCall({
         endpoint: `/model-manager/civitai/versions/${version.id}/images`,
         params: {
-            model_id: selectedModel.id, page: number,
+            page: number, cursor: number > 1 ? (nextImagesCursor || '') : '',
             hide_nsfw_images: !showAllNsfwImages,
             hide_promptless_images: !showPromptlessImages,
-            backfill: opening,
         },
     });
     if (request !== imagesRequest || getSelectedVersion() !== version) return null;
     return result;
 }
 
-/** Take a page's answer: the banner's totals, and the page itself. */
+/** Every loaded page's counts added up: what the banner states. */
+function addUpPages() {
+    const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'nsfw_count', 'promptless_count'];
+    const sums = Object.fromEntries(keys.map((key) =>
+        [key, imagePages.reduce((sum, page) => sum + (page[key] || 0), 0)]));
+    return { total: sums.count, filtered: sums.shown, hidden_nsfw: sums.hidden_nsfw,
+             hidden_promptless: sums.hidden_promptless, nsfw_count: sums.nsfw_count,
+             promptless_count: sums.promptless_count };
+}
+
+/** Take a page's answer: the page itself, and the banner's totals again. */
 function takeImagesPage(result, { append }) {
-    imageCounts = result.images_state || null;
     nextImagesCursor = result.next_cursor || null;
     const images = result.images || [];
     const page = { ...(result.page || { number: 1 }), first: append ? currentImages.length : 0 };
@@ -977,6 +985,7 @@ function takeImagesPage(result, { append }) {
         currentImages = images;
         imagePages = [page];
     }
+    imageCounts = addUpPages();
     return { page, images };
 }
 
@@ -1002,7 +1011,7 @@ async function loadImagesFromVersion() {
     }
 
     try {
-        const result = await fetchImagesPage(1, { opening: true });
+        const result = await fetchImagesPage(1);
         if (!result) return;
         if (result.success) {
             takeImagesPage(result, { append: false });
@@ -1045,17 +1054,19 @@ async function loadMoreImages() {
     }
 }
 
-// Update images count in the details table: every image cached, filtered or not
+// Update images count in the details table: every image loaded, filtered or
+// not, and a "+" while Civitai has more - it does not say how many.
 function updateImagesCount() {
     const countCell = document.getElementById('cb_images_count');
     if (countCell) {
-        countCell.textContent = imageCounts ? imageCounts.total : '...';
+        const last = imagePages[imagePages.length - 1];
+        countCell.textContent = imageCounts ? `${imageCounts.total}${last?.more ? '+' : ''}` : '...';
     }
 }
 
 /**
  * The banner, built in shared/common.mjs as the Model Manager's is: what the
- * switches hold back over everything cached - which adds up with what
+ * switches hold back over everything loaded - which adds up with what
  * matches, NSFW counted first as it filters first - and a switch for each on
  * the right. A ticked NSFW switch shows how many NSFW images it lets through,
  * among those the prompt filter lets through.
@@ -1066,6 +1077,7 @@ function imagesBannerHtml() {
         matching: counts.filtered || 0,
         total: counts.total || 0,
         onScreen: currentImages.length,
+        word: 'loaded',
         bannerClass: 'cb-nsfw-warning',
         labelClass: 'cb-show-all-label',
         switches: [
