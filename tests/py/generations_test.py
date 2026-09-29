@@ -419,6 +419,60 @@ if has_fastapi:
     check('the NSFW switch leaves a generation what it does not hide',
           ([i['position'] for i in tile['images']], tile['matching_count']), ([0, 2], 2))
 
+    # Grouped: a tile per group of images, whatever generation each is of -
+    # a group opens onto its generations, a generation onto its images.
+    def groups(by):
+        return {t['group']['value']: t for t in browse(group=by, hide_nsfw_images='false')['tiles']}
+
+    body = browse(group='prompt', hide_nsfw_images='false')
+    check('grouped, every tile is a group', {t['kind'] for t in body['tiles']}, {'group'})
+    fox = groups('prompt')[PROMPTS[0]]
+    check('by the prompt each image was made with: two generations\' images in one group',
+          (fox['matching_count'], fox['group']['generations']), (2, 2))
+    check('its other prompts a group each', all(groups('prompt')[p]['matching_count'] == 1 for p in PROMPTS[1:]),
+          True)
+    written = groups('prompt_written')['a {fox|cat}']
+    check('by the prompt as written, a wildcard batch stays together', written['matching_count'] >= 4, True)
+    check('by the LoRAs each image used, the same set a group whatever the weight, none a group too',
+          {k: v['matching_count'] for k, v in groups('loras').items() if k in ('a', 'b', '')},
+          {'a': 2, 'b': 2, '': 1})
+    check('by size, an image a later script enlarged in a group of its own',
+          groups('size')['1664×2432']['matching_count'], 1)
+    check('by model, the checkpoint by its name',
+          os.path.splitext(os.path.basename(CHECKPOINT))[0].lower() in {k.lower() for k in groups('model')}, True)
+    check('by day, the day each was made', all(len(k) == 10 for k in groups('day')), True)
+
+    inside = browse(group='prompt', in_group=fox['group']['id'], hide_nsfw_images='false')
+    check('a group opens onto its generations, each a tile of the images it has there',
+          (sorted(t['generation']['id'] for t in inside['tiles']), {t['kind'] for t in inside['tiles']},
+           [t['matching_count'] for t in inside['tiles']]),
+          (sorted([generation_id, single]), {'generation'}, [1, 1]))
+    check('saying what the group is, for its header', (inside['scope']['value'], inside['scope']['count'],
+                                                      inside['scope']['grouping']),
+          (PROMPTS[0], 2, 'Prompt, as generated'))
+    batch = browse(generation=generation_id, hide_nsfw_images='false')
+    check('a generation opens onto its images, a tile each',
+          ([t['kind'] for t in batch['tiles']], [t['images'][0]['position'] for t in batch['tiles']],
+           batch['scope']['generation']['id']), (['image'] * 4, [0, 1, 2, 3], generation_id))
+    deeper = browse(group='prompt', in_group=fox['group']['id'], generation=generation_id,
+                    hide_nsfw_images='false')
+    check('and a generation opened inside a group shows only its images in that group',
+          [t['images'][0]['position'] for t in deeper['tiles']], [0])
+    check('an unknown grouping groups nothing', {t['kind'] for t in browse(group='nonsense')['tiles']},
+          {'generation'})
+
+    # A group deleted: its images the grid shows, each as one image is.
+    unloraed = groups('loras')['']
+    body = client.post('/model-manager/generations/group/delete', data={
+        'group': 'loras', 'in_group': unloraed['group']['id'], 'hide_nsfw_images': 'false'}).json()
+    check('a group is deleted: its images, and nothing else',
+          (body['success'], body['deleted'], '' in groups('loras'), len(db.get_generation(generation_id)['images'])),
+          (True, 1, False, 4))
+    check('a generation going with its last image', body['generations_deleted'], [single])
+    single = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False)
+    check('a grouping that is not one is refused',
+          client.post('/model-manager/generations/group/delete', data={'group': 'x', 'in_group': 'y'}).status_code, 400)
+
     opts.model_manager_gallery_page_size = 1
     parts = [browse(page=n, hide_nsfw_images='false') for n in (1, 2)]
     last = browse(page=db.count_generations(None), hide_nsfw_images='false')

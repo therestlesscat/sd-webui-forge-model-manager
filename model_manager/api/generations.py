@@ -10,6 +10,8 @@ recorded, and how, is model_manager/generations.py's.
 An image file is served by its record's id, never by a path the page sends:
 only what was recorded can be opened.
 """
+import hashlib
+import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -233,10 +235,62 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
 TILE_FIELDS = ("id", "created_at", "mode", "image_count", "width", "height", "checkpoint_path")
 
 
-def browse_page(db, hide_nsfw: bool, page: int = 1) -> Dict[str, Any]:
+def _one_line(text: Any) -> str:
+    """A prompt as a group's key: its spacing tidied, nothing else changed."""
+    return " ".join(str(text or "").split())
+
+
+def _lora_names(loras: Any) -> List[str]:
+    if isinstance(loras, str):
+        try:
+            loras = json.loads(loras)
+        except ValueError:
+            return []
+    return sorted({str(l.get("name")) for l in loras or [] if isinstance(l, dict) and l.get("name")})
+
+
+# What the Generations tab can group images by: name -> (what it is called,
+# an image row's value). An image is in exactly one group of each.
+GROUPINGS = {
+    "prompt_written": ("Prompt, as written", lambda r: _one_line(r.get("typed_prompt"))),
+    "prompt": ("Prompt, as generated", lambda r: _one_line(r.get("image_prompt"))),
+    "model": ("Model", lambda r: os.path.splitext(os.path.basename(r.get("checkpoint_path") or ""))[0]),
+    "loras": ("LoRA combination", lambda r: ", ".join(_lora_names(r.get("loras")))),
+    "size": ("Size", lambda r: f"{r.get('width')}×{r.get('height')}" if r.get("width") else ""),
+    "day": ("Day", lambda r: str(r.get("created_at") or "")[:10]),
+}
+
+
+def group_id(value: str) -> str:
+    """A group's id in a request: its value can be a prompt of any length."""
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _scoped(db, hide_nsfw: bool, group: str = "", in_group: str = "",
+            generation: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    Part `page` of the Generations tab: every generation recorded, newest
-    first, a tile each - its first images, and how many it has.
+    The images a level of the Generations tab holds - inside a group, a
+    generation, or both - that the NSFW switch lets through, and the counts
+    over them all.
+    """
+    grouping = GROUPINGS.get(group)
+    rows = db.generation_gallery_images(None)
+    if grouping and in_group:
+        rows = [r for r in rows if group_id(grouping[1](r)) == in_group]
+    if generation is not None:
+        rows = [r for r in rows if r["generation_id"] == generation]
+    return _filtered(rows, hide_nsfw, False)
+
+
+def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
+                in_group: str = "", generation: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Part `page` of a level of the Generations tab, newest first. The top level
+    is a tile per generation - its first images and how many it has - or, with
+    `group`, a tile per group of images (GROUPINGS), whatever generations they
+    are of. A level inside one, `in_group` (a group_id) or `generation`, is
+    what that holds: a group's generations, and a generation's images, each a
+    tile - so a group opens onto its batches, and a batch onto its images.
 
     The tab scrolls rather than pages, so there is no page note to count what
     the NSFW switch hid on each: images are filtered first and the parts cut
@@ -244,43 +298,73 @@ def browse_page(db, hide_nsfw: bool, page: int = 1) -> Dict[str, Any]:
     not offered here; nothing is hidden for a prompt.
 
     Returns:
-        tiles: each {"generation", "images", "matching_count"}; more: whether
-        another part follows; state: the totals, for the banner.
+        tiles: each {"kind": "group" | "generation" | "image", "group",
+        "generation", "images", "matching_count"}; more: whether another part
+        follows; state: the level's totals, for the banner; scope: what the
+        level is, for its header - how many images, from when to when, and
+        the group's value or the generation's.
     """
     size = gallery_page_size()
     page = max(1, int(page or 1))
-    rows = db.generation_gallery_images(None)
-    shown, counts = _filtered(rows, hide_nsfw, False)
+    grouping = GROUPINGS.get(group)
+    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation)
 
-    by_generation: Dict[int, List[Dict[str, Any]]] = {}
-    for row in shown:
-        by_generation.setdefault(row["generation_id"], []).append(row)
-    order = list(by_generation)
+    units: Dict[Any, List[Dict[str, Any]]] = {}
+    if generation is not None:
+        kind = "image"
+        for row in shown:
+            units[row["id"]] = [row]
+    elif grouping and not in_group:
+        kind = "group"
+        for row in shown:
+            units.setdefault(grouping[1](row), []).append(row)
+    else:
+        kind = "generation"
+        for row in shown:
+            units.setdefault(row["generation_id"], []).append(row)
+    order = list(units)
+    part = order[(page - 1) * size:page * size]
 
-    part_ids = order[(page - 1) * size:page * size]
-    groups = [(g, by_generation[g][:PREVIEW_IMAGES]) for g in part_ids]
-    more = len(order) > page * size
-
-    generations = db.get_generations(list(dict.fromkeys(g for g, _ in groups)))
-    images = db.get_generation_images([r["id"] for _, rs in groups for r in rs])
+    previews = {key: units[key][:PREVIEW_IMAGES] for key in part}
+    images = db.get_generation_images([r["id"] for rs in previews.values() for r in rs])
+    generations = db.get_generations(list(dict.fromkeys(r["generation_id"] for rs in previews.values()
+                                                        for r in rs)))
     tiles = []
-    for generation_id, rs in groups:
-        generation = generations.get(generation_id) or {"id": generation_id}
-        tiles.append({
-            "generation": {k: generation.get(k) for k in TILE_FIELDS},
-            "images": [_image(images[r["id"]]) for r in rs if r["id"] in images],
-            "matching_count": len(by_generation[generation_id]),
-        })
+    for key in part:
+        first = previews[key][0]
+        generation_row = generations.get(first["generation_id"]) or {"id": first["generation_id"]}
+        tile = {
+            "kind": kind,
+            "generation": {k: generation_row.get(k) for k in TILE_FIELDS},
+            "images": [_image(images[r["id"]]) for r in previews[key] if r["id"] in images],
+            "matching_count": len(units[key]),
+        }
+        if kind == "group":
+            tile["group"] = {"id": group_id(key), "value": key, "latest": first.get("created_at"),
+                             "generations": len({r["generation_id"] for r in units[key]})}
+        tiles.append(tile)
+
+    scope = {"count": len(shown),
+             "first": shown[-1]["created_at"] if shown else None,
+             "last": shown[0]["created_at"] if shown else None}
+    if grouping:
+        scope["grouping"] = grouping[0]
+        if in_group and shown:
+            scope["value"] = grouping[1](shown[0])
+    if generation is not None:
+        generation_row = db.get_generations([generation]).get(generation) or {}
+        scope["generation"] = {k: generation_row.get(k) for k in TILE_FIELDS}
 
     return {
         "tiles": tiles,
-        "more": more,
+        "more": len(order) > page * size,
         "state": {
-            "generation_count": len(order),
+            "generation_count": len({r["generation_id"] for r in shown}),
             "stored_generations": db.count_generations(None),
             "hide_nsfw_images": hide_nsfw,
             **counts,
         },
+        "scope": scope,
     }
 
 
@@ -288,14 +372,22 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
 
     @app.get("/model-manager/generations/browse")
-    async def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None):
+    async def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
+                              group: str = "", in_group: str = "",
+                              generation: Optional[int] = None):
         """
-        Part `page` of the Generations tab, through the NSFW switch - the
-        setting decides it when not sent. See browse_page().
+        Part `page` of a level of the Generations tab, through the NSFW switch
+        - the setting decides it when not sent. See browse_page().
+
+        Args:
+            group: what images are grouped by (GROUPINGS), or none.
+            in_group: the group opened, by its id.
+            generation: the generation opened.
         """
         try:
             hide_nsfw, _ = gallery_switches(hide_nsfw_images, False)
-            return JSONResponse({"success": True, **browse_page(get_models_db(), hide_nsfw, page)})
+            return JSONResponse({"success": True, **browse_page(
+                get_models_db(), hide_nsfw, page, group, in_group, generation)})
         except Exception as e:
             import traceback
             print(f"[ModelManager] Generations page error: {e}")
@@ -393,6 +485,39 @@ def register(app: FastAPI):
                                  "generation_deleted": gone})
         except Exception as e:
             print(f"[ModelManager] Delete generated image error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.post("/model-manager/generations/group/delete")
+    def delete_generation_group(group: str = Form(...), in_group: str = Form(...),
+                                hide_nsfw_images: bool = Form(default=True),
+                                delete_files: bool = Form(default=False)):
+        """
+        Delete a group of the Generations tab: the images of it the grid shows
+        - through the NSFW switch, so an image it hides, and the tile does not
+        count, stays - each as one image is, a generation going with its last.
+
+        Returns:
+            deleted: how many images; deleted_files and failed, as
+            delete_generation; generations_deleted: the ids that went.
+        """
+        try:
+            db = get_models_db()
+            if group not in GROUPINGS:
+                return JSONResponse({"success": False, "error": "Not a grouping"}, status_code=400)
+            shown, _ = _scoped(db, hide_nsfw_images, group, in_group)
+            paths, gone = [], []
+            for row in shown:
+                own, generation_gone = db.delete_generation_image(row["id"])
+                paths += own
+                if generation_gone is not None:
+                    gone.append(generation_gone)
+            deleted, failed = _delete_files(paths) if delete_files else ([], [])
+            print(f"[ModelManager] Deleted a group of {len(shown)} generated images"
+                  + (f" and {len(deleted)} of their files" if delete_files else ""))
+            return JSONResponse({"success": True, "deleted": len(shown), "deleted_files": len(deleted),
+                                 "failed": failed, "generations_deleted": gone})
+        except Exception as e:
+            print(f"[ModelManager] Delete group error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/{generation_id}/delete")

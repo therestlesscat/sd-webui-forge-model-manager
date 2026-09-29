@@ -1,18 +1,21 @@
 /**
  * The Generations tab: every image you have generated, newest first.
  *
- * A tile per generation - its first images, and how many it has - which a
- * click opens out into all of them, each a tile the same size, and a click on
- * the first folds back - by its count. A click on an image opens it in the
- * viewer, large, with ← and → through them all and its information beside it.
- * Each tile sends its own infotext back to the tab it was made in, or is
- * deleted. The grid scrolls: the next part loads as its
- * end comes near. Only the NSFW switch applies; nothing is hidden here for its
- * prompt.
+ * A tile per generation - a batch its first four images and how many it has
+ * - or, with "Group by", a tile per group of images: the same prompt, model,
+ * LoRAs, size or day, whatever generations they are of. A click on a batch or
+ * a group opens it in a grid of its own, in place of this one - a group onto
+ * its generations, a batch onto its images, as deep as it goes - with Back,
+ * which lands where the grid was left. A click on an image opens the viewer,
+ * large, with ← and → through the images the grid shows and its information
+ * beside it. Each image sends its own infotext back to the tab it was made
+ * in, or is deleted. The grid scrolls: the next part loads as its end comes
+ * near. Only the NSFW switch applies; nothing is hidden here for its prompt.
  *
- * The server does the filtering and the parts (api/generations.browse_page).
- * The paste into txt2img or img2img is the Model Manager's, on window
- * (window.mmSendInfotext): it lives in that tab's script, loaded with this.
+ * The server does the filtering, the grouping and the parts
+ * (api/generations.browse_page). The paste into txt2img or img2img is the
+ * Model Manager's, on window (window.mmSendInfotext): it lives in that tab's
+ * script, loaded with this.
  */
 
 // The shared module, asked for with this script's own version: see the top of
@@ -37,28 +40,45 @@ const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
 settingsModule.search = sharedModule.search;
 await import(settingsModule.href);
 
-// "Preserve order", remembered in this browser.
+// "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';
+const GROUP_BY_KEY = 'mm_generations_group_by';
 // How near the end of the grid the next part is asked for.
 const LOAD_AHEAD_PX = 800;
 // The most columns a wide image's tile takes.
 const MAX_SPAN = 4;
+// What a group is called, by what the images are grouped by (GROUPINGS on the server).
+const GROUP_NAMES = {
+    prompt_written: 'Prompt, as written', prompt: 'Prompt, as generated', model: 'Model',
+    loras: 'LoRA combination', size: 'Size', day: 'Day',
+};
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
+let groupBy = readSetting(GROUP_BY_KEY, '');
 let hideNsfw = true;
-let tiles = [];          // each {generation, images, matching_count, expanded: images or null}
+// The level shown: its tiles, as loaded, and where it is. The levels above it
+// are kept whole in `levels`, so Back draws them again as they were left.
+let tiles = [];          // each {kind, generation, group, images, matching_count}
 let state = null;        // the totals, for the banner
+let scope = null;        // what the level is, for its header
 let part = 0;            // the last part loaded
 let more = true;
+let at = {};             // what the level is inside: {in_group, generation}
+let title = '';          // what the path calls it
+const levels = [];       // the levels above, each as it was left
 let loading = false;
 let request = 0;         // a newer load drops an older one's answer
 let started = false;
 
 function readFlag(key) {
+    return readSetting(key, 'false') === 'true';
+}
+
+function readSetting(key, fallback) {
     try {
-        return localStorage.getItem(key) === 'true';
+        return localStorage.getItem(key) ?? fallback;
     } catch (e) {
-        return false;
+        return fallback;
     }
 }
 
@@ -71,7 +91,7 @@ function writeFlag(key, value) {
 const byId = (id) => document.getElementById(id);
 
 // ------------------------------------------------------------- loading
-/** Everything again from the first part: a switch, Refresh, or opening. */
+/** This level again from its first part: a switch, Refresh, or opening. */
 async function reload() {
     closeViewer();
     tiles = [];
@@ -81,6 +101,7 @@ async function reload() {
     request += 1;
     const grid = byId('gen_grid');
     if (grid) grid.innerHTML = '';
+    renderPath();
     setStatus('Loading...');
     await loadNext();
 }
@@ -92,7 +113,8 @@ async function loadNext() {
     const asked = ++request;
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
-            page: part + 1, hide_nsfw_images: hideNsfw,
+            page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
+            in_group: at.in_group, generation: at.generation,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -102,10 +124,12 @@ async function loadNext() {
         part += 1;
         more = !!data.more;
         state = data.state;
+        scope = data.scope;
         const first = tiles.length;
-        tiles = tiles.concat((data.tiles || []).map((tile) => ({ ...tile, expanded: null })));
+        tiles = tiles.concat(data.tiles || []);
         appendTiles(first);
         renderBanner();
+        renderPath();
         setStatus(tiles.length ? '' : emptyText());
     } catch (error) {
         if (asked === request) setStatus(`Could not load your generations: ${error.message}`);
@@ -116,6 +140,7 @@ async function loadNext() {
 }
 
 function emptyText() {
+    if (levels.length) return 'Nothing left here.';
     if (state && state.total) return 'Every image is hidden by the NSFW filter.';
     return 'Nothing recorded yet: images you generate from now on appear here.';
 }
@@ -147,60 +172,168 @@ function watchEnd() {
     window.addEventListener('scroll', loadIfNearEnd, { passive: true });
 }
 
+// ------------------------------------------------------------- levels
+/**
+ * Open a batch or a group in a grid of its own, in place of this one. This
+ * level is kept as it is - its tiles and where the page was scrolled - for
+ * Back.
+ */
+window.genOpen = async function(index) {
+    const tile = tiles[index];
+    if (!tile) return;
+    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false });
+    if (tile.kind === 'group') {
+        at = { in_group: tile.group.id };
+        title = groupTitle(tile.group.value);
+    } else {
+        at = { in_group: at.in_group, generation: tile.generation.id };
+        title = `${formatWhen(tile.generation.created_at)} · ${tile.matching_count} images`;
+    }
+    scope = null;
+    window.scrollTo?.(0, topOfTab());
+    await reload();
+};
+
+/**
+ * Back to the level above, where it was left: the same tiles, drawn again, and
+ * the page scrolled where it was. Loaded again only if something was deleted
+ * inside - and then as far as it had been, so the place is the same.
+ */
+window.genBack = async function() {
+    if (!levels.length) return;
+    closeViewer();
+    request += 1;
+    loading = false;
+    const above = levels.pop();
+    ({ tiles, state, scope, part, more, at, title } = above);
+    if (above.dirty) {
+        const parts = part;
+        tiles = [];
+        part = 0;
+        more = true;
+        const grid = byId('gen_grid');
+        if (grid) grid.innerHTML = '';
+        while (part < parts && more) {
+            const before = part;
+            await loadNext();
+            if (part === before) break;
+        }
+    } else {
+        redrawAll();
+        renderBanner();
+    }
+    renderPath();
+    setStatus(tiles.length ? '' : emptyText());
+    window.scrollTo?.(0, above.scrollY);
+};
+
+/** Something above this level may have changed: it loads again on Back. */
+function markAboveChanged() {
+    for (const level of levels) level.dirty = true;
+}
+
+function currentScroll() {
+    return window.scrollY || document.documentElement?.scrollTop || 0;
+}
+
+/** Where the tab starts on the page, to show a new level from its top. */
+function topOfTab() {
+    const app = byId('generations_app');
+    const top = app?.getBoundingClientRect?.().top;
+    return typeof top === 'number' ? Math.max(0, top + currentScroll()) : 0;
+}
+
+function groupTitle(value) {
+    const name = GROUP_NAMES[groupBy] || 'Group';
+    const shown = value || (groupBy === 'loras' ? 'No LoRAs' : 'None');
+    return `${name}: ${shown}`;
+}
+
+function formatWhen(when, style = 'short') {
+    return when ? new Date(when).toLocaleString(undefined, { dateStyle: style, timeStyle: 'short' }) : '';
+}
+
+/**
+ * The header of a level inside another: Back, the way here, and what the
+ * level is - its whole prompt, if it is one, how many images, and when.
+ */
+function renderPath() {
+    const path = byId('gen_path');
+    if (!path) return;
+    if (!levels.length) {
+        path.innerHTML = '';
+        return;
+    }
+    const trail = ['Generations', ...levels.slice(1).map((l) => l.title), title];
+    const facts = [];
+    if (scope) {
+        facts.push(`${scope.count} image${scope.count === 1 ? '' : 's'}`);
+        const first = formatWhen(scope.first);
+        const last = formatWhen(scope.last);
+        if (first) facts.push(first === last ? first : `${first} – ${last}`);
+        const generation = scope.generation;
+        if (generation) {
+            facts.push(generation.mode);
+            const checkpoint = (generation.checkpoint_path || '').split(/[\\/]/).pop();
+            if (checkpoint) facts.push(checkpoint);
+        }
+    }
+    path.innerHTML = `
+        <div class="gen-path">
+            <button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genBack()"
+                    title="Back to where you were (Esc)">← Back</button>
+            <div class="gen-path-text">
+                <div class="gen-path-trail">${trail.map((t) => `<span>${escapeHtml(t)}</span>`).join(' <span class="gen-path-sep">›</span> ')}</div>
+                ${facts.length ? `<div class="gen-path-facts">${escapeHtml(facts.join(' · '))}</div>` : ''}
+            </div>
+        </div>`;
+}
+
 // ------------------------------------------------------------- drawing
 /**
- * One tile: a generation of several images, folded (its first four, and how
- * many), or one image - of a generation opened out (member), or on its own.
- * `at` is where its actions find it: the tile's place, and the image's
- * within its generation when opened out.
+ * One tile: a group, or a batch - its first four images, how many there are,
+ * and a click opens it - or one image, which a click shows in the viewer.
  */
-function tileHtml(tile, at) {
+function tileHtml(tile, index) {
     const generation = tile.generation || {};
-    const group = !tile.expanded && tile.matching_count > 1;
+    const folded = tile.kind === 'group' || (tile.kind === 'generation' && tile.matching_count > 1);
     const mode = generation.mode === 'img2img' ? 'img2img' : 'txt2img';
     const image = tile.images?.[0] || {};
 
-    // A click on an image opens the viewer on it - a folded batch on its
-    // first. The count opens a batch out in the grid, and on its first image
-    // folds it back.
-    const view = `onclick="window.genView(${at.tile}, ${Math.max(at.member ?? 0, 0)})"`;
     let media;
-    if (group) {
+    if (folded) {
         const preview = tile.images.slice(0, 4);
+        const what = tile.kind === 'group' ? 'group' : 'generation';
         media = `
-            <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview gen-viewable"
-                 ${view} title="View">
+            <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview gen-openable"
+                 onclick="window.genOpen(${index})" title="Open this ${what}: all ${tile.matching_count} images">
                 ${preview.map((img) => imageHtml(img)).join('')}
             </div>
-            <button type="button" class="gen-count" title="Show all ${tile.matching_count} images here"
-                    onclick="event.stopPropagation(); window.genToggle(${at.tile})">×${tile.matching_count}</button>`;
-    } else {
-        media = `<div class="gen-viewable" ${view} title="View">${imageHtml(image)}</div>`;
-        if (at.member === 0) {
-            media += `<button type="button" class="gen-count" title="Fold the generation back"
-                    onclick="event.stopPropagation(); window.genToggle(${at.tile})">×${tile.expanded.length}</button>`;
+            <span class="gen-count">×${tile.matching_count}</span>`;
+        if (tile.kind === 'group') {
+            media += `<span class="gen-group-name" title="${escapeHtml(groupTitle(tile.group.value))}">`
+                + `${escapeHtml(tile.group.value || (groupBy === 'loras' ? 'No LoRAs' : 'None'))}</span>`;
         }
+    } else {
+        media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${imageHtml(image)}</div>`;
     }
 
-    const when = generation.created_at
-        ? new Date(generation.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-        : '';
-    // Its size after the date: a folded batch's is its first image's.
+    // When, and its size: a group's newest image's, a batch's first's.
+    const when = formatWhen(tile.kind === 'group' ? tile.group.latest : generation.created_at);
     const size = image.width && image.height ? `${Number(image.width)}×${Number(image.height)}` : '';
     const label = [when, size].filter(Boolean).join(' · ');
     if (label) media += `<span class="gen-date">${escapeHtml(label)}</span>`;
 
-    const classes = ['gen-tile', wide(image) && 'gen-wide', group && 'gen-group',
-                     at.member !== undefined && 'gen-member', at.member === 0 && 'gen-member-first']
-        .filter(Boolean).join(' ');
-    const args = `${at.tile}, ${at.member ?? -1}`;
+    const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
+                     tile.kind === 'group' && 'gen-grouping'].filter(Boolean).join(' ');
+    const remove = `<button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${index})">Delete</button>`;
     return `
         <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
             <div class="gen-media">${media}</div>
             <div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
-                        onclick="window.genSend(${args})">${mode}</button>
-                <button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${args})">Delete</button>
+                        onclick="window.genSend(${index})">${mode}</button>
+                ${remove}
             </div>
         </div>`;
 }
@@ -234,7 +367,6 @@ function spanFor(ratio, columnWidth, gap, imageHeight, columns) {
     return Math.min(Math.max(2, Math.min(ideal, MAX_SPAN)), Math.max(columns, 1));
 }
 window.genSpanFor = spanFor;            // for tests
-
 
 /**
  * Give every wide tile its columns, as the grid now is: its column width,
@@ -286,11 +418,7 @@ function imageHtml(img) {
 
 /** A tile's place in the grid: a wrapper the grid does not see, so it can be redrawn alone. */
 function setHtml(index) {
-    const tile = tiles[index];
-    const inner = tile.expanded
-        ? tile.expanded.map((img, member) => tileHtml({ ...tile, images: [img] }, { tile: index, member })).join('')
-        : tileHtml(tile, { tile: index });
-    return `<div class="gen-set" data-tile="${index}">${inner}</div>`;
+    return `<div class="gen-set" data-tile="${index}">${tileHtml(tiles[index], index)}</div>`;
 }
 
 function appendTiles(from) {
@@ -340,7 +468,7 @@ function redrawAll() {
 function renderBanner() {
     const banner = byId('gen_banner');
     if (!banner || !state) return;
-    const onScreen = tiles.reduce((sum, t) => sum + (t.expanded ? t.expanded.length : t.matching_count), 0);
+    const onScreen = tiles.reduce((sum, t) => sum + (t.matching_count || 0), 0);
     banner.innerHTML = renderFilterBanner({
         matching: state.filtered || 0,
         total: state.total || 0,
@@ -356,42 +484,11 @@ function renderBanner() {
 }
 
 // ------------------------------------------------------------- the tiles' actions
-/** The image an action is for: a folded generation's first, or the one opened out. */
-function imageAt(index, member) {
+/** Send a tile's image - a folded one's first - back to the tab it was made in. */
+window.genSend = async function(index) {
     const tile = tiles[index];
-    if (!tile) return null;
-    return member >= 0 ? tile.expanded?.[member] : tile.images?.[0];
-}
-
-/** Open a generation out into all its images, or fold it back. */
-window.genToggle = async function(index) {
-    const tile = tiles[index];
-    if (!tile) return;
-    if (tile.expanded) {
-        tile.expanded = null;
-        redrawTile(index);
-        renderBanner();
-        return;
-    }
-    try {
-        const data = await apiCall({ endpoint: `/model-manager/generations/${Number(tile.generation.id)}/images`,
-                                     params: { hide_nsfw_images: hideNsfw } });
-        if (!data.success) return;
-        tile.expanded = data.images || [];
-        if (tile.expanded.length < 2) tile.expanded = null;
-        redrawTile(index);
-        renderBanner();
-    } catch (error) {
-        console.error('[ModelManager] Could not open a generation out:', error);
-    }
-};
-
-/** Send the image's own infotext back to the tab its generation was made in. */
-window.genSend = async function(index, member) {
-    const tile = tiles[index];
-    const image = imageAt(index, member);
-    if (!tile || !image) return;
-    await sendImage(tile, image);
+    if (!tile?.images?.[0]) return;
+    await sendImage(tile, tile.images[0]);
 };
 
 async function sendImage(tile, image) {
@@ -403,46 +500,25 @@ async function sendImage(tile, image) {
                                        generationId: tile.generation.id })) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
-};
+}
 
 // ------------------------------------------------------------- the viewer
-// An image over the page, as large as it goes, with ← and → through every
-// image in the grid's order - a folded batch's too, fetched when reached -
+// An image over the page, as large as it goes, with ← and → through the
+// images the grid shows - a batch's or a group's first four, as on its tile -
 // and on, loading the next part into the grid, past the last. Send and
 // Delete below it; beside it, everything recorded, in a panel that folds away
-// (remembered). Esc closes it.
+// (remembered). The wheel steps too; Esc closes it.
 const VIEWER_PANEL_KEY = 'mm_generations_viewer_panel_closed';
 // The wheel: how far it has to turn for one image, and how soon the next.
 const WHEEL_STEP = 50;
 const WHEEL_PAUSE_MS = 150;
-let viewer = null;       // {tile, image, element}: where it is, and its markup
-
-/** A generation's images as far as they are here: all of them, once fetched. */
-function imagesOf(tile) {
-    return tile.expanded || tile.all || tile.images || [];
-}
-
-function countOf(tile) {
-    return (tile.expanded || tile.all)?.length ?? tile.matching_count ?? imagesOf(tile).length;
-}
-
-/** Fetch every image of a folded batch, for the viewer, without opening it out. */
-async function fetchAll(tile) {
-    if (tile.expanded || tile.all || countOf(tile) <= imagesOf(tile).length) return;
-    try {
-        const data = await apiCall({ endpoint: `/model-manager/generations/${Number(tile.generation.id)}/images`,
-                                     params: { hide_nsfw_images: hideNsfw } });
-        if (data.success && data.images?.length) tile.all = data.images;
-    } catch (error) {
-        console.error('[ModelManager] Could not fetch a generation\'s images:', error);
-    }
-}
+let viewer = null;       // {tile, image, element, wheel, wheelAt}
 
 /** Open the viewer on image `image` of tile `index`. */
 window.genView = async function(index, image = 0) {
     if (!tiles[index]) return;
     if (!viewer) openViewer();
-    await showInViewer(index, image);
+    showInViewer(index, image);
 };
 
 function openViewer() {
@@ -487,7 +563,6 @@ function openViewer() {
         return undefined;
     });
     element.addEventListener('wheel', onViewerWheel, { passive: false });
-    document.addEventListener('keydown', onViewerKey);
     document.body.appendChild(element);
     // The page under it stays where it is: the wheel is the viewer's.
     document.body.classList.add('mm-modal-open');
@@ -517,75 +592,82 @@ function onViewerWheel(event) {
     stepViewer(by);
 }
 
-function onViewerKey(event) {
-    if (!viewer || document.querySelector('.mm-dialog-backdrop')) return;   // a question is open
-    if (event.key === 'ArrowLeft') stepViewer(-1);
-    else if (event.key === 'ArrowRight') stepViewer(1);
-    else if (event.key === 'Escape') closeViewer();
-    else return;
-    event.preventDefault?.();
+/**
+ * The keys: the viewer's ← → and Esc while it is open; else Esc goes back up
+ * a level - while this tab is the one shown, and nothing else is asking.
+ */
+function onKey(event) {
+    if (document.querySelector('.mm-dialog-backdrop')) return;     // a question is open
+    if (viewer) {
+        if (event.key === 'ArrowLeft') stepViewer(-1);
+        else if (event.key === 'ArrowRight') stepViewer(1);
+        else if (event.key === 'Escape') closeViewer();
+        else return;
+        event.preventDefault?.();
+        return;
+    }
+    if (event.key === 'Escape' && levels.length && byId('gen_grid')?.offsetParent !== null) {
+        event.preventDefault?.();
+        window.genBack();
+    }
 }
 
 /** Close the viewer, with the grid showing the tile it was on. */
 function closeViewer() {
     if (!viewer) return;
-    const at = viewer.tile;
+    const tile = viewer.tile;
     viewer.element.remove();
-    document.removeEventListener('keydown', onViewerKey);
     document.body.classList.remove('mm-modal-open');
     viewer = null;
-    document.querySelector(`#gen_grid .gen-set[data-tile="${at}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    document.querySelector(`#gen_grid .gen-set[data-tile="${tile}"]`)?.scrollIntoView?.({ block: 'nearest' });
 }
 
-async function showInViewer(index, image) {
+function showInViewer(index, image) {
     const tile = tiles[index];
     if (!viewer || !tile) return;
-    await fetchAll(tile);
     viewer.tile = index;
-    viewer.image = Math.max(0, Math.min(image, imagesOf(tile).length - 1));
+    viewer.image = Math.max(0, Math.min(image, tile.images.length - 1));
     renderViewer();
 }
 
 /**
- * One image on: the next in its generation, or the next generation's first -
- * a previous one's last going back. Past the last loaded, the next part is
+ * One image on: the next of the tile's, or the next tile's first - a
+ * previous one's last going back. Past the last loaded, the next part is
  * loaded into the grid first.
  */
 async function stepViewer(by) {
-    if (!viewer) return;
-    const tile = tiles[viewer.tile];
+    if (!viewer) return undefined;
     const next = viewer.image + by;
-    if (next >= 0 && next < imagesOf(tile).length) return showInViewer(viewer.tile, next);
-    let index = viewer.tile + by;
+    if (next >= 0 && next < tiles[viewer.tile].images.length) return showInViewer(viewer.tile, next);
+    const index = viewer.tile + by;
     if (index >= tiles.length && more) {
         while (loading) await new Promise((resolve) => setTimeout(resolve, 50));
         await loadNext();
     }
     if (index < 0 || index >= tiles.length) return undefined;
-    if (by < 0) {
-        await fetchAll(tiles[index]);
-        return showInViewer(index, imagesOf(tiles[index]).length - 1);
-    }
-    return showInViewer(index, 0);
+    return showInViewer(index, by < 0 ? tiles[index].images.length - 1 : 0);
 }
 
 function renderViewer() {
     const tile = tiles[viewer.tile];
-    const image = imagesOf(tile)[viewer.image];
+    const image = tile?.images?.[viewer.image];
     const root = viewer.element;
     if (!tile || !image) return closeViewer();
     const url = new URL(image.url || '', window.location.origin).href;
-    const img = root.querySelector('.gen-viewer-image');
-    img.setAttribute('src', image.exists ? url : IMAGE_PLACEHOLDER_SVG);
+    root.querySelector('.gen-viewer-image').setAttribute('src', image.exists ? url : IMAGE_PLACEHOLDER_SVG);
     const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
-    const send = root.querySelector('[data-send]');
-    send.textContent = `Send to ${mode}`;
-    const count = countOf(tile);
-    root.querySelector('.gen-viewer-where').textContent = count > 1 ? `${viewer.image + 1} of ${count} in this generation` : '';
-    const last = viewer.tile === tiles.length - 1 && viewer.image === imagesOf(tile).length - 1 && !more;
+    root.querySelector('[data-send]').textContent = `Send to ${mode}`;
+    const shown = tile.images.length;
+    const count = tile.matching_count || shown;
+    const what = tile.kind === 'group' ? 'this group' : 'this generation';
+    root.querySelector('.gen-viewer-where').textContent = count <= 1 ? ''
+        : shown < count ? `${viewer.image + 1} of the ${shown} shown · ${count} in ${what}`
+            : `${viewer.image + 1} of ${count} in ${what}`;
     root.querySelector('.gen-viewer-prev').disabled = viewer.tile === 0 && viewer.image === 0;
-    root.querySelector('.gen-viewer-next').disabled = last;
+    root.querySelector('.gen-viewer-next').disabled = viewer.tile === tiles.length - 1
+        && viewer.image === shown - 1 && !more;
     root.querySelector('.gen-viewer-info').innerHTML = infoHtml(tile, image, url);
+    return undefined;
 }
 
 /**
@@ -596,12 +678,9 @@ function renderViewer() {
 function infoHtml(tile, image, url) {
     const generation = tile.generation || {};
     const meta = image.meta || {};
-    const when = generation.created_at
-        ? new Date(generation.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-        : '';
     const checkpoint = (generation.checkpoint_path || '').split(/[\\/]/).pop();
     const rows = [
-        ['Made', [when, generation.mode].filter(Boolean).join(' · ')],
+        ['Made', [formatWhen(generation.created_at, 'medium'), generation.mode].filter(Boolean).join(' · ')],
         ['Checkpoint', checkpoint],
         ['Size', image.width && image.height ? `${image.width}×${image.height}` : ''],
         ['Seed', image.seed ?? ''],
@@ -631,10 +710,10 @@ function infoHtml(tile, image, url) {
 /** Send the image shown - closing the viewer, as the page goes to txt2img or img2img. */
 async function sendFromViewer() {
     if (!viewer) return;
-    const { tile, image } = viewer;
-    const img = imagesOf(tiles[tile])[image];
+    const tile = tiles[viewer.tile];
+    const image = tile.images[viewer.image];
     closeViewer();
-    await sendImage(tiles[tile], img);
+    await sendImage(tile, image);
 }
 
 /** Delete the image shown, and show the one after it - or before it, if it was the last. */
@@ -642,39 +721,67 @@ async function deleteFromViewer() {
     if (!viewer) return;
     const index = viewer.tile;
     const tile = tiles[index];
-    const image = imagesOf(tile)[viewer.image];
+    const image = tile.images[viewer.image];
     if (!image || !await deleteImage(index, image)) return;
     if (!viewer) return;
-    if (!tiles.length) return closeViewer();
-    if (index >= tiles.length) {
-        await fetchAll(tiles[tiles.length - 1]);
-        return showInViewer(tiles.length - 1, imagesOf(tiles[tiles.length - 1]).length - 1);
+    if (!tiles.length) {
+        closeViewer();
+        return;
     }
-    // Its generation still there, the image now in its place; else the next generation's first.
-    return showInViewer(index, tiles[index] === tile ? viewer.image : 0);
+    if (index >= tiles.length) {
+        showInViewer(tiles.length - 1, tiles[tiles.length - 1].images.length - 1);
+        return;
+    }
+    // Its tile still there, the image now in its place; else the next tile's first.
+    showInViewer(index, tiles[index] === tile ? viewer.image : 0);
 }
 
+// ------------------------------------------------------------- deleting
 /**
- * Delete a folded generation - every image - or one image, asking first, and
- * whether the files go too.
+ * Delete a tile: one image, a batch - every image of it - or a group - every
+ * image of it the grid shows - asking first, and whether the files go too.
  */
-window.genDelete = async function(index, member) {
+window.genDelete = async function(index) {
     const tile = tiles[index];
     if (!tile) return;
-    if (member >= 0 || countOf(tile) === 1) {
-        await deleteImage(index, imageAt(index, member));
+    if (tile.kind === 'group') {
+        await deleteGroup(index);
+        return;
+    }
+    if (tile.matching_count <= 1 || tile.kind === 'image') {
+        await deleteImage(index, tile.images[0]);
         return;
     }
     const n = tile.generation.image_count || tile.matching_count || 1;
     const answer = await askDelete(`Delete this generation of ${n} image${n === 1 ? '' : 's'}?`, n);
     if (!answer) return;
     if (await postDelete(`/model-manager/generations/${Number(tile.generation.id)}/delete`, answer)) {
-        tiles.splice(index, 1);
-        redrawAll();
-        if (!tiles.length) setStatus(emptyText());
+        removeTile(index);
+        markAboveChanged();
         await refreshTotals();
     }
 };
+
+/**
+ * Delete a group: its images the grid shows, each as one image is - a
+ * generation going with its last, and the files only when asked.
+ */
+async function deleteGroup(index) {
+    const tile = tiles[index];
+    const n = tile.matching_count || 1;
+    const k = tile.group.generations || 1;
+    const answer = await askDelete(
+        `Delete these ${n} image${n === 1 ? '' : 's'}, from ${k} generation${k === 1 ? '' : 's'}?`, n);
+    if (!answer) return;
+    const done = await postDelete('/model-manager/generations/group/delete', answer, {
+        group: groupBy, in_group: tile.group.id, hide_nsfw_images: hideNsfw,
+    });
+    if (done) {
+        removeTile(index);
+        markAboveChanged();
+        await refreshTotals();
+    }
+}
 
 /** Delete one image, asking first; true once it is gone, from the grid too. */
 async function deleteImage(index, image) {
@@ -683,17 +790,19 @@ async function deleteImage(index, image) {
     if (!answer) return false;
     if (!await postDelete(`/model-manager/generations/images/${Number(image.id)}/delete`, answer)) return false;
     forgetImage(index, image.id);
+    markAboveChanged();
     await refreshTotals();
     return true;
 }
 
 /** Ask the server to delete; true if it did. */
-async function postDelete(endpoint, answer) {
+async function postDelete(endpoint, answer, fields = {}) {
     try {
+        const body = new URLSearchParams({ ...fields, delete_files: String(answer.withFiles) });
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `delete_files=${answer.withFiles}`,
+            body: body.toString(),
         });
         const data = await response.json();
         if (!data.success) {
@@ -708,25 +817,21 @@ async function postDelete(endpoint, answer) {
     }
 }
 
-/**
- * Take a deleted image off the grid: out of its generation, opened out or
- * folded, and the generation's tile with its last image.
- */
+/** Take a deleted image off the grid: off its tile, and the tile with its last. */
 function forgetImage(index, imageId) {
     const tile = tiles[index];
     if (!tile) return;
-    const keep = (list) => list && list.filter((img) => img.id !== imageId);
-    const left = keep(imagesOf(tile));
-    tile.expanded = keep(tile.expanded);
-    tile.all = keep(tile.all);
-    tile.matching_count = Math.max(0, (tile.expanded || tile.all) ? left.length : tile.matching_count - 1);
-    tile.images = left.slice(0, 4);
-    if (tile.generation.image_count) tile.generation.image_count -= 1;
-    if (tile.expanded && tile.expanded.length < 2) tile.expanded = null;
+    tile.images = tile.images.filter((img) => img.id !== imageId);
+    tile.matching_count = Math.max(0, (tile.matching_count || 1) - 1);
+    if (tile.generation?.image_count) tile.generation.image_count -= 1;
     if (tile.matching_count > 0 && tile.images.length) {
         redrawTile(index);
         return;
     }
+    removeTile(index);
+}
+
+function removeTile(index) {
     tiles.splice(index, 1);
     redrawAll();
     if (!tiles.length) setStatus(emptyText());
@@ -736,11 +841,13 @@ function forgetImage(index, imageId) {
 async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
-            page: 1, hide_nsfw_images: hideNsfw,
+            page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group, generation: at.generation,
         } });
         if (data.success) {
             state = data.state;
+            scope = data.scope;
             renderBanner();
+            renderPath();
         }
     } catch (error) {
         console.warn('[ModelManager] Could not count your generations again:', error);
@@ -759,14 +866,14 @@ function openDialog(html, onClose = () => {}) {
     const close = () => {
         if (!backdrop.isConnected) return;
         backdrop.remove();
-        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('keydown', onEscape);
         onClose();
     };
-    const onKey = (event) => { if (event.key === 'Escape') close(); };
+    const onEscape = (event) => { if (event.key === 'Escape') close(); };
     backdrop.addEventListener('click', (event) => {
         if (event.target === backdrop || event.target.closest?.('[data-close]')) close();
     });
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onEscape);
     document.body.appendChild(backdrop);
     return { element: backdrop, close };
 }
@@ -804,13 +911,28 @@ window.genSetPreserveOrder = function(checked) {
     applySpans();
 };
 
+/** Group by something else, or nothing: the tab starts again from its top level. */
+window.genSetGroupBy = function(value) {
+    groupBy = GROUP_NAMES[value] ? value : '';
+    writeFlag(GROUP_BY_KEY, groupBy);
+    levels.length = 0;
+    at = {};
+    title = '';
+    scope = null;
+    return reload();
+};
+
 window.genShowNsfw = function(checked) {
     hideNsfw = !checked;
+    markAboveChanged();
     window.scrollTo?.(0, 0);
     return reload();
 };
 
-window.genRefresh = () => reload();
+window.genRefresh = () => {
+    markAboveChanged();
+    return reload();
+};
 
 /** For tests, and anything else that wants the next part now. */
 window.genLoadMore = () => loadNext();
@@ -840,11 +962,14 @@ onReady(async () => {
     }
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;
+    const group = byId('gen_group_by');
+    if (group) group.value = groupBy;
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
     try {
         hideNsfw = (await galleryDefaults()).hideNsfw;
     } catch (e) { /* the gallery's default: hidden */ }
     watchEnd();
+    document.addEventListener('keydown', onKey);
     // Hidden, nothing could be measured: measure again once it is shown.
     window.addEventListener('resize', layout);
     if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(layout);
