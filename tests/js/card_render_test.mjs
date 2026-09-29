@@ -38,8 +38,9 @@ check('its place, its data and its click',
       ['3', '77', 'window.mmSelectModel(3)']);
 const img = card.querySelector('.model-card-image img');
 check('its image, lazily, falling back to the placeholder',
-      [img.getAttribute('src'), img.getAttribute('loading'), img.getAttribute('onerror').includes(CARD_PLACEHOLDER)],
-      ['https://example.invalid/a.jpeg', 'lazy', true]);
+      [img.getAttribute('src'), img.getAttribute('loading'), img.getAttribute('data-placeholder'),
+       img.getAttribute('onerror')],
+      ['https://example.invalid/a.jpeg', 'lazy', CARD_PLACEHOLDER, 'window.mmMediaFallback(this)']);
 check('overlays on the image',
       Array.from(card.querySelectorAll('.model-card-image > div')).map((o) => [o.className, o.textContent, o.getAttribute('title')]),
       [['mm-bookmark-indicator', '★', 'Bookmarked']]);

@@ -33,6 +33,12 @@ const {
     isVideoUrl,
     sortBaseModels,
     cardMediaUrl,
+    originalMediaUrl,
+    sizedMediaUrl,
+    videoStillUrl,
+    mediaFallback,
+    IMAGE_PLACEHOLDER_SVG,
+    galleryImageWidth,
     getImagePageCount,
     downloadedImagesNote,
     downloadFailedNote,
@@ -168,7 +174,6 @@ let tagSuggestions = [];
 let tagSelectedIndex = -1;
 let tagInputInitialized = false;
 
-const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
 // Calculate effective NSFW level using same algorithm as Python backend
 // NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
@@ -647,12 +652,13 @@ function renderGrid() {
 function renderCard(model, index) {
     const firstVersion = model.modelVersions?.[0];
     const image = cardImage(firstVersion);
-    const src = image?.url ? cardMediaUrl(image.url, image.type) : '';
+    const src = image?.url ? cardMediaUrl(image.url, image.type, cardWidth, image.width) : '';
     return renderModelCard({
         index,
         onclick: `window.cbOpenModel(${index})`,
         name: model.name,
-        media: { src, video: isVideoUrl({ url: src, type: image?.type }) },
+        media: { src, video: isVideoUrl({ url: src, type: image?.type }),
+                 original: image?.url ? originalMediaUrl(image.url) : '' },
         classes: [model.owned_locally ? 'owned' : ''],
         overlays: [
             ...(model.owned_locally ? [{ cls: 'cb-owned-badge', text: 'Owned' }] : []),
@@ -1141,6 +1147,7 @@ function renderImages() {
     };
     const filterBannerHtml = renderFilterBanner(bannerOptions);
 
+    galleryWidth = galleryImageWidth(container);
     const imageCards = currentImages.map((img, index) => renderImageCard(img, index)).join('');
 
     // Only show "Load More" button if there's a cursor (more images available)
@@ -1219,6 +1226,9 @@ window.cbGoToImagePage = async function(page) {
 };
 
 // Helper to detect video URLs
+
+// How wide the gallery draws a card's image, measured as each page is drawn.
+let galleryWidth = null;
 
 // Render single image card - EXACTLY like Model Manager
 function renderImageCard(img, index) {
@@ -1334,13 +1344,17 @@ function renderImageCard(img, index) {
         : '';
 
     // Render media element (image or video)
+    // A copy the size the card draws it, not the upload; a click opens the upload.
+    const shown = sizedMediaUrl(src, { cssWidth: galleryWidth, originalWidth: img.width, type: img.type });
     const mediaHtml = isVideo
-        ? `<video data-src="${escapeHtml(src)}" class="mm-lazy-media" preload="none" controls loop muted
+        ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoStillUrl(src))}"
+                  class="mm-lazy-media" preload="none" controls loop muted
+                  ${mediaFallback(originalMediaUrl(src))}
                   onclick="event.stopPropagation()"
                   title="Click to play"></video>`
-        : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
-                onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
-                ${src ? `data-open-url="${escapeHtml(src)}"` : ''}
+        : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
+                ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
+                ${src ? `data-open-url="${escapeHtml(originalMediaUrl(src))}"` : ''}
                 title="Click to view full size">`;
 
     return `

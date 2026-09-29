@@ -411,32 +411,133 @@ export function hasUsablePrompt(image) {
     return true;
 }
 
-/** How wide a card's video is asked for: twice a card, for high-DPI screens. */
-export const CARD_VIDEO_WIDTH = 450;
+/**
+ * The widths Civitai's image server makes copies at. Asked for a width in
+ * between, it sends the next one up - 128 to 320 all came back 320 wide,
+ * 400 and 450 came back 450 - so these are the only sizes there are
+ * (measured on 8 images, 28 September 2026). It enlarges as readily: an
+ * 832-wide upload asked for at 1600 came back 1600 wide.
+ */
+export const CIVITAI_WIDTHS = [320, 450, 512, 800, 1200, 1600, 2200];
+
+/** The segment before a Civitai image URL's file name: what to send. */
+const CIVITAI_OPTIONS = /\/[a-z]+=[^/]*\/([^/]+)$/i;
+
+/** The smallest of Civitai's widths at least `pixels` wide. */
+export function civitaiWidth(pixels) {
+    const needed = Math.ceil(Number(pixels) || 0);
+    return CIVITAI_WIDTHS.find((width) => width >= needed) || CIVITAI_WIDTHS[CIVITAI_WIDTHS.length - 1];
+}
+
+/** How many image pixels show `cssWidth` CSS pixels sharply on this screen - twice as many on a 2x one. */
+function screenPixels(cssWidth) {
+    const density = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return (Number(cssWidth) || 0) * density;
+}
 
 /**
- * The URL a card should load a Civitai image or video from.
+ * The URL to load a Civitai image or video from, to show it `cssWidth` CSS
+ * pixels wide - or, given `pixels`, that many image pixels whatever the
+ * screen: a copy at the width civitaiWidth() picks, not the upload.
  *
- * The path segment before a Civitai image URL's file name tells its image
- * server what to send: original=true is the file exactly as uploaded,
- * width=N a copy the server makes on first request and keeps.
+ * The segment before the file name tells Civitai's image server what to
+ * send: original=true is the file as uploaded, width=N a copy it makes on
+ * the first request and keeps. Originals ran from 107 KB to 2.9 MB where a
+ * 450-wide copy was 86 KB, and a gallery page holds up to 100 of them.
+ * Images were asked for as uploaded until 0.30.1, lest Civitai throttle so
+ * many copies; 130 requests at five a second met no limit, and a copy that
+ * fails to load falls back to the upload (mediaFallback).
  *
- * A video needs the copy. An animated upload is kept as the GIF it was, even
- * under a .mp4 name: original=true sent a 17 MB GIF, which a card read as
- * video by its name and could not play, so it stayed blank. width=450 is a
- * real MP4 of about 1 MB.
- *
- * An image does not, so it is asked for as uploaded. Resizing is Civitai
- * generating a file on request; a card for every image would ask it for a
- * great many, and there is no knowing how it is throttled.
+ * An image is never asked for wider than it was uploaded - Civitai would
+ * enlarge it, larger and no sharper - but as uploaded instead. A video is
+ * always asked for as a copy: an animated upload stays the GIF it was, even
+ * under a .mp4 name, and original=true sent a 17 MB GIF that a card read as
+ * video by its name, could not play, and left blank. A copy is a real MP4.
  *
  * Anything that is not a Civitai image URL with such a segment is returned
  * as it is.
  */
-export function cardMediaUrl(url, type) {
+export function sizedMediaUrl(url, { cssWidth, pixels = null, originalWidth = null, type = null } = {}) {
     if (!url || !url.includes('image.civitai.com')) return url || '';
-    const options = isVideoUrl({ url, type }) ? `width=${CARD_VIDEO_WIDTH}` : 'original=true';
-    return url.replace(/\/[a-z]+=[^/]*\/([^/]+)$/i, `/${options}/$1`);
+    const width = civitaiWidth(pixels ?? screenPixels(cssWidth));
+    if (!isVideoUrl({ url, type }) && originalWidth && width >= Number(originalWidth)) {
+        return originalMediaUrl(url);
+    }
+    return url.replace(CIVITAI_OPTIONS, `/width=${width}/$1`);
+}
+
+/**
+ * A still of a Civitai video: its first frame as a JPEG, shown until it is
+ * played. Civitai makes these at the video's own size, whatever width is
+ * asked - 92 and 232 KB for two videos of 0.9 and 3.6 MB.
+ */
+export function videoStillUrl(url) {
+    if (!url || !url.includes('image.civitai.com')) return '';
+    return url.replace(CIVITAI_OPTIONS, '/anim=false/$1');
+}
+
+/**
+ * How wide a gallery card's image is drawn, in CSS pixels, when it cannot be
+ * measured: style.css's --mm-card-image-width on a wide window.
+ */
+export const GALLERY_IMAGE_WIDTH = 200;
+
+/**
+ * How wide a gallery card's image is drawn in this container, in CSS pixels,
+ * measured rather than assumed: the stylesheet decides it, and narrows it -
+ * 150px under 900px, the full width under 600px - where a fixed number here
+ * would drift from it. A card is drawn out of sight, measured and removed.
+ * GALLERY_IMAGE_WIDTH when nothing can be measured: a hidden container, or
+ * no layout at all.
+ */
+export function galleryImageWidth(container) {
+    if (!container || typeof container.appendChild !== 'function') return GALLERY_IMAGE_WIDTH;
+    const probe = document.createElement('div');
+    probe.className = 'mm-image-card';
+    probe.style.cssText = 'position:absolute;visibility:hidden;left:0;right:0;pointer-events:none';
+    probe.innerHTML = '<div class="mm-image-left"></div>';
+    container.appendChild(probe);
+    const width = probe.firstElementChild?.getBoundingClientRect?.().width || 0;
+    probe.remove();
+    return width > 0 ? width : GALLERY_IMAGE_WIDTH;
+}
+
+/** How wide a model card is drawn when a tab has not said otherwise. */
+const DEFAULT_CARD_WIDTH = 200;
+
+/** The URL a model card loads its Civitai image or video from, at the card's width. */
+export function cardMediaUrl(url, type, cardWidth = DEFAULT_CARD_WIDTH, originalWidth = null) {
+    return sizedMediaUrl(url, { cssWidth: cardWidth, originalWidth, type });
+}
+
+/** What a gallery image shows when it does not load. */
+export const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
+
+/**
+ * The attributes that make a Civitai image or video fall back when a copy
+ * does not load: to the upload, then to the placeholder, if one is given.
+ * The placeholder is an attribute, not written into the handler: its SVG
+ * holds quotes, and inside onerror's string it broke the handler.
+ */
+export function mediaFallback(original, placeholder = '') {
+    return `data-original="${escapeHtml(original || '')}" data-placeholder="${escapeHtml(placeholder)}"`
+        + ' onerror="window.mmMediaFallback(this)"';
+}
+
+// The handler itself, on window: the markup is strings, and each tab imports
+// this module under its own ?mtime, so a module-level function would be two.
+if (typeof window !== 'undefined' && !window.mmMediaFallback) {
+    window.mmMediaFallback = (node) => {
+        const original = node.getAttribute('data-original');
+        if (original && node.getAttribute('src') !== original) {
+            node.setAttribute('src', original);
+            if (node.tagName === 'VIDEO') node.load();
+            return;
+        }
+        node.onerror = null;
+        const placeholder = node.getAttribute('data-placeholder');
+        if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
+    };
 }
 
 /**
@@ -445,7 +546,7 @@ export function cardMediaUrl(url, type) {
  */
 export function originalMediaUrl(url) {
     if (!url || !url.includes('image.civitai.com')) return url || '';
-    return url.replace(/\/[a-z]+=[^/]*\/([^/]+)$/i, '/original=true/$1');
+    return url.replace(CIVITAI_OPTIONS, '/original=true/$1');
 }
 
 // Wan generates at 16 frames a second, and Forge Neo's Frames slider stops at
@@ -532,6 +633,13 @@ export function setupLazyMedia(container) {
     const loadNode = (node) => {
         const src = node.getAttribute('data-src');
         if (!src) return;
+        // A video's still, lazily as well: every video's at once was one
+        // request per card before any came into view.
+        const poster = node.getAttribute('data-poster');
+        if (poster) {
+            node.setAttribute('poster', poster);
+            node.removeAttribute('data-poster');
+        }
         node.setAttribute('src', src);
         node.removeAttribute('data-src');
         node.classList.remove('mm-lazy-media');
@@ -1031,8 +1139,9 @@ const CARD_NAME_LENGTH = 30;
  * @param {number} card.index - its place in the grid, as data-index.
  * @param {string} card.onclick - what a click runs, e.g. "window.mmSelectModel(3)".
  * @param {string} card.name - the model's name, in full; the card cuts it.
- * @param {{src: string, video: boolean}} [card.media] - the card image's URL,
- *     as cardMediaUrl() gives it; none, or an empty src, shows the placeholder.
+ * @param {{src: string, video: boolean, original?: string}} [card.media] - the
+ *     card image's URL, as cardMediaUrl() gives it, and the upload's, to fall
+ *     back to; none, or an empty src, shows the placeholder.
  * @param {string[]} [card.classes] - added to model-card: owned, nsfw-x, ...
  * @param {Object<string, string|number>} [card.data] - data- attributes.
  * @param {{cls: string, text: string, title?: string}[]} [card.overlays] -
@@ -1052,8 +1161,8 @@ export function renderModelCard({ index, onclick, name, media, classes = [], dat
     const image = !src
         ? `<img src="${CARD_PLACEHOLDER}" alt="${escapeHtml(full)}">`
         : media.video
-            ? `<video src="${escapeHtml(src)}" loop muted autoplay playsinline></video>`
-            : `<img src="${escapeHtml(src)}" alt="${escapeHtml(full)}" loading="lazy" onerror="this.src='${CARD_PLACEHOLDER}'">`;
+            ? `<video src="${escapeHtml(src)}" loop muted autoplay playsinline ${mediaFallback(media.original)}></video>`
+            : `<img src="${escapeHtml(src)}" alt="${escapeHtml(full)}" loading="lazy" ${mediaFallback(media.original, CARD_PLACEHOLDER)}>`;
     const attributes = Object.entries(data)
         .map(([key, value]) => ` data-${key}="${escapeHtml(value ?? '')}"`).join('');
     return `

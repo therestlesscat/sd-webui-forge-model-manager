@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Every txt2img and img2img result you save is recorded with everything Forge had for it - the prompt as typed, each image's own infotext, every setting and extension's arguments - and filed under each model it used, LoRAs included. A model's gallery gains a second tab beside its Civitai images: your generations with it, a card per generation, which sends its settings back to txt2img or img2img, and can be deleted with or without its files.
 
+- **0.30.1** (build 222) - Model cards and both image galleries load Civitai's copy the size they draw an image, not the upload - 86 KB at 450 wide against originals up to 2.9 MB - falling back to the upload if the copy does not load; gallery videos play a copy and show a still until played; a failed image shows its placeholder, which a broken handler never did.
 - **0.30.0** (build 221) - Add your generations to each model's gallery, recorded as you generate: a card per generation, one image or a grid of them, Show images for the rest, Send back to txt2img or img2img, Delete with or without the files, Refresh, and the same filters as the Civitai images. A setting turns recording off.
 
 ## 0.20 - The settings window

@@ -29,6 +29,11 @@ const {
     isVideoUrl,
     cardMediaUrl,
     originalMediaUrl,
+    sizedMediaUrl,
+    videoStillUrl,
+    mediaFallback,
+    IMAGE_PLACEHOLDER_SVG,
+    galleryImageWidth,
     collectResourceChips,
     resourceNames,
     promptHasChip,
@@ -178,7 +183,6 @@ let generationsRequest = 0;
 let nextImagesCursor = null;  // Cursor for loading more images
 let imagesSyncDate = null;    // Last sync date (null = never synced)
 let isLoadingMore = false;
-const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 200'%3E%3Crect fill='%23222933' width='320' height='200'/%3E%3Cg fill='%236b7280'%3E%3Cpath d='M130 78h60v44h-60z'/%3E%3Cpath d='M92 132l34-30 28 24 18-14 56 44H92z'/%3E%3Ccircle cx='208' cy='82' r='10'/%3E%3C/g%3E%3Ctext x='160' y='176' text-anchor='middle' fill='%239ca3af' font-size='14'%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
 // NSFW image filtering state
 let hideNsfwImages = true;  // Default to hide, will be set from setting on first load
@@ -656,13 +660,13 @@ function nsfwCardClass(level) {
  * was chosen by the server, by the card thumbnail setting.
  */
 function mmCard(model, index) {
-    const src = cardMediaUrl(model.preview_url);
+    const src = cardMediaUrl(model.preview_url, null, cardWidth);
     const versions = model.local_version_count || 1;
     return renderModelCard({
         index,
         onclick: `window.mmSelectModel(${index})`,
         name: model.display_name,
-        media: { src, video: isVideoUrl({ url: src }) },
+        media: { src, video: isVideoUrl({ url: src }), original: originalMediaUrl(model.preview_url) },
         classes: [model.has_civitai_data ? 'has-civitai' : 'no-civitai', nsfwCardClass(model.nsfw_level || 1)],
         data: { 'model-id': model.civitai_model_id || '' },
         overlays: [
@@ -1851,6 +1855,7 @@ function renderModelImages(images) {
     const pageEnd = imagesOffset + images.length;
     // In the continuous list each page after the first is marked where it
     // starts, so it is plain that Show More went on to another page.
+    galleryWidth = galleryImageWidth(container);
     const imageCards = images.map((img, index) => {
         const card = renderImageCard(img, index);
         if (!card || paging || index === 0 || index % IMAGE_PAGE_SIZE !== 0) return card;
@@ -2120,7 +2125,7 @@ function generationImageHtml(img) {
         ? `<span class="mm-nsfw-badge">${escapeHtml(level)}</span>` : '';
     const image = img.exists
         ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
-                onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
+                ${mediaFallback('', IMAGE_PLACEHOLDER_SVG)}
                 data-open-url="${escapeHtml(url)}" title="Click to open full size">`
         : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
                 title="Image unavailable: its file is no longer where it was saved">`;
@@ -2363,6 +2368,18 @@ function imageTextHtml(img) {
     return promptHtml + negPromptHtml + genParamsHtml + hiresHtml + adetailerHtml;
 }
 
+/**
+ * A Civitai video's copy for Send to read its length and first frame from, a
+ * fixed 450 pixels wide whatever the screen: what Send used before cards
+ * were sized to it. A copy, not the upload: see sizedMediaUrl().
+ */
+function videoCopyUrl(img) {
+    return sizedMediaUrl(img.url, { pixels: 450, type: img.type });
+}
+
+// How wide the gallery draws a card's image, measured as each list is drawn.
+let galleryWidth = null;
+
 // Render a single image card in list format
 function renderImageCard(img, index) {
     const src = img.url || '';
@@ -2399,13 +2416,17 @@ function renderImageCard(img, index) {
 
     // Detect video
     const isVideo = isVideoUrl({ url: src, type: img.type });
+    // A copy the size the card draws it, not the upload; a click opens the upload.
+    const shown = sizedMediaUrl(src, { cssWidth: galleryWidth, originalWidth: img.width, type: img.type });
     const mediaHtml = isVideo
-        ? `<video data-src="${escapeHtml(src)}" class="mm-lazy-media" preload="none" controls loop muted
+        ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoStillUrl(src))}"
+                  class="mm-lazy-media" preload="none" controls loop muted
+                  ${mediaFallback(originalMediaUrl(src))}
                   onclick="event.stopPropagation()"
                   title="Click to play"></video>`
-        : `<img data-src="${escapeHtml(src || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
-                onerror="this.onerror=null; this.src='${IMAGE_PLACEHOLDER_SVG}'"
-                ${src ? `data-open-url="${escapeHtml(src)}"` : ''}
+        : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
+                ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
+                ${src ? `data-open-url="${escapeHtml(originalMediaUrl(src))}"` : ''}
                 title="Click to view full size">`;
 
     return `
@@ -3536,8 +3557,8 @@ function showNotice(text) {
 /**
  * An image's generation data with a video's frames and size added: Civitai
  * keeps neither its length nor its frame rate, so they are read from the
- * video itself. Its card copy is read rather than the upload - the upload can
- * be a GIF under an .mp4 name (cardMediaUrl), whose length a video element
+ * video itself. A copy is read rather than the upload - the upload can be a
+ * GIF under an .mp4 name (sizedMediaUrl), whose length a video element
  * cannot read. What cannot be read is left to the preset, and said.
  */
 async function withVideoParams(meta, img, isVideo = true) {
@@ -3548,7 +3569,7 @@ async function withVideoParams(meta, img, isVideo = true) {
         params.Size = `${size.width}x${size.height}`;
     }
     if (!isVideo) return params;
-    const frames = videoFrames(await videoDuration(cardMediaUrl(img.url, img.type)));
+    const frames = videoFrames(await videoDuration(videoCopyUrl(img)));
     if (frames) params['Batch size'] = frames;
     else showNotice('Could not read this video\'s length: Frames are left as the Wan preset has them.');
     return params;
@@ -3576,7 +3597,7 @@ async function startFrame(img, isVideo) {
     }
     let blob = await firstFrame(originalMediaUrl(img.url));
     const small = !blob;
-    if (!blob) blob = await firstFrame(cardMediaUrl(img.url, img.type));
+    if (!blob) blob = await firstFrame(videoCopyUrl(img));
     return blob ? { file: new File([blob], `${name}.png`, { type: 'image/png' }), small } : null;
 }
 
