@@ -39,16 +39,13 @@ const {
     mediaFallback,
     IMAGE_PLACEHOLDER_SVG,
     galleryImageWidth,
-    getImagePageCount,
-    downloadedImagesNote,
-    downloadFailedNote,
+    pageSeparator,
+    pageNoteHtml,
     setupLazyMedia,
     renderResource,
     renderFilterBanner,
     balanceGridRows,
-    IMAGE_PAGE_SIZE,
     applyCardSize: sharedApplyCardSize,
-    renderImagePagination: sharedImagePagination,
     paidAccessLabel,
     isPaid,
     primaryFileIndex,
@@ -80,21 +77,21 @@ let isLoading = false;
 let selectedModel = null;
 let selectedVersionIndex = 0;
 let selectedFileIndex = null;  // null = whichever file Civitai marks primary
-// The gallery is fetched a page at a time, filtered on the server; it used to
-// arrive whole and be filtered and sliced here. currentImages is the page on
-// show, imagesOffset where it starts among the images the switches let
-// through, and imageCounts the counts the banner states, as the server gives
-// them (ImagesOps.get_image_counts() says what each means).
+// The gallery is a list of pages, as the Model Manager's is: each a slice of
+// what is cached, before the switches filter it, and Load More adds the next
+// (model_manager/gallery.py). currentImages holds the images drawn, every
+// page's in turn; imagePages each page loaded, with where its images start
+// and its own counts, for its note; imageCounts the totals the banner states
+// (ImagesOps.get_image_counts() says what each means).
 let currentImages = [];
-let currentImagePage = 1;
-let imagesOffset = 0;
+let imagePages = [];
+let loadingImagePage = false;
+// Why the last page asked for did not come, above Load More, until the next.
+let pageRequestError = '';
 let imageCounts = null;
 // Each fetch of the gallery takes a number; an answer to anything but the
 // latest is dropped, so a slow page cannot land over a newer one.
 let imagesRequest = 0;
-// What the last Load More brought, beside the button, until the gallery is
-// next loaded some other way.
-let downloadNote = '';
 let nextImagesCursor = null;
 let isLoadingImages = false;
 // The gallery's two switches. Each model opens as the settings say, and a
@@ -177,12 +174,6 @@ let tagInputInitialized = false;
 
 // Calculate effective NSFW level using same algorithm as Python backend
 // NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
-function renderImagePagination(totalPages, position = 'bottom') {
-    return sharedImagePagination({
-        currentPage: currentImagePage, totalPages, position, prefix: 'cb',
-    });
-}
-
 function scrollToBrowserImagesTop() {
     return new Promise((resolve) => {
         const container = document.getElementById('cb_images');
@@ -735,6 +726,7 @@ function closeDetails() {
     selectedVersionIndex = 0;
     selectedFileIndex = null;
     currentImages = [];
+    imagePages = [];
     imageCounts = null;
     nextImagesCursor = null;
 }
@@ -947,56 +939,60 @@ function selectVersion(versionIndex) {
 }
 
 /**
- * Fetch a page of the selected version's gallery, through the two switches.
- * Only opening a version asks the server to look up missing prompts on
- * Civitai; a page turn or a switch only reads what is cached.
+ * Fetch page `number` of the selected version's gallery, through the two
+ * switches, filled from Civitai first when the cache cannot fill it. Only
+ * opening a version asks the server to look up missing prompts on Civitai;
+ * another page or a switch only reads what is cached.
  *
  * @returns {Promise<object|null>} the answer, or null if a newer fetch or
  *     another version has taken over since
  */
-async function fetchImagesPage(offset, { opening = false } = {}) {
+async function fetchImagesPage(number, { opening = false } = {}) {
     const version = getSelectedVersion();
     if (!version?.id) return null;
     const request = ++imagesRequest;
     const result = await apiCall({
         endpoint: `/model-manager/civitai/versions/${version.id}/images`,
         params: {
-            model_id: selectedModel.id, offset, limit: IMAGE_PAGE_SIZE,
+            model_id: selectedModel.id, page: number,
             hide_nsfw_images: !showAllNsfwImages,
             hide_promptless_images: !showPromptlessImages,
             backfill: opening,
         },
     });
     if (request !== imagesRequest || getSelectedVersion() !== version) return null;
-    if (result.success) {
-        currentImages = result.images || [];
-        imageCounts = result.images_state || null;
-        imagesOffset = imageCounts?.offset || 0;
-        currentImagePage = Math.floor(imagesOffset / IMAGE_PAGE_SIZE) + 1;
-        nextImagesCursor = result.next_cursor || null;
-    }
     return result;
+}
+
+/** Take a page's answer: the banner's totals, and the page itself. */
+function takeImagesPage(result, { append }) {
+    imageCounts = result.images_state || null;
+    nextImagesCursor = result.next_cursor || null;
+    const images = result.images || [];
+    const page = { ...(result.page || { number: 1 }), first: append ? currentImages.length : 0 };
+    if (append) {
+        currentImages = currentImages.concat(images);
+        imagePages.push(page);
+    } else {
+        currentImages = images;
+        imagePages = [page];
+    }
+    return { page, images };
 }
 
 // Load images from API (with full metadata)
 async function loadImagesFromVersion() {
     // Which images are safe depends on the NSFW prompt words too.
     const version = getSelectedVersion();
+    currentImages = [];
+    imagePages = [];
+    imageCounts = null;
+    nextImagesCursor = null;
+    pageRequestError = '';
     if (!version?.id) {
-        currentImages = [];
-        imageCounts = null;
-        nextImagesCursor = null;
         renderImages();
         return;
     }
-
-    // Reset state
-    currentImages = [];
-    imageCounts = null;
-    downloadNote = '';
-    currentImagePage = 1;
-    imagesOffset = 0;
-    nextImagesCursor = null;
     isLoadingImages = true;
 
     const container = document.getElementById('cb_images');
@@ -1006,9 +1002,10 @@ async function loadImagesFromVersion() {
     }
 
     try {
-        const result = await fetchImagesPage(0, { opening: true });
+        const result = await fetchImagesPage(1, { opening: true });
         if (!result) return;
         if (result.success) {
+            takeImagesPage(result, { append: false });
             renderImages();
         } else if (container) {
             container.innerHTML = `<div class="mm-images-error">Error: ${escapeHtml(result.error || '')}</div>`;
@@ -1023,68 +1020,28 @@ async function loadImagesFromVersion() {
     }
 }
 
-/** Fetch and show one page of the gallery. */
-async function showImagePage(page) {
-    downloadNote = '';
-    const totalPages = getImagePageCount(imageCounts?.filtered || 0);
-    const target = Math.min(Math.max(1, page), totalPages);
-    try {
-        const result = await fetchImagesPage((target - 1) * IMAGE_PAGE_SIZE);
-        if (result?.success) renderImages();
-    } catch (e) {
-        console.error('[CivitaiBrowser] Load images error:', e);
-    }
-}
-
-// Load more images from API (server tracks cursor)
+// Load More: the next page, added to the end of the list.
 async function loadMoreImages() {
-    const version = getSelectedVersion();
-    if (!version?.id || isLoadingImages || !nextImagesCursor) return;
-
-    isLoadingImages = true;
-
-    const loadMoreBtn = document.getElementById('cb_load_more_btn');
-    if (loadMoreBtn) {
-        loadMoreBtn.disabled = true;
-        loadMoreBtn.textContent = 'Loading...';
-    }
-
+    const last = imagePages[imagePages.length - 1];
+    if (loadingImagePage || !last || !last.more) return;
+    loadingImagePage = true;
+    pageRequestError = '';
+    refreshImagesChrome();
     try {
-        // POST to load-more endpoint (server uses cached cursor)
-        const result = await apiPost(`/model-manager/civitai/versions/${version.id}/images/load-more`, {
-            model_id: selectedModel.id
-        });
-
-        if (result.success) {
-            // The answer holds what Civitai sent, filtered or not, so the
-            // page is read again from the server rather than added to. A new
-            // page means the new images are on it: go there.
-            const before = { ...imageCounts };
-            const oldPages = getImagePageCount(imageCounts?.filtered || 0);
-            const page = await fetchImagesPage(imagesOffset);
-            if (!page) return;   // another version, or a newer fetch, took over
-            if (page.success) {
-                const newPages = getImagePageCount(imageCounts?.filtered || 0);
-                if (newPages > oldPages) {
-                    await scrollToBrowserImagesTop();
-                    await showImagePage(newPages);
-                }
-                downloadNote = downloadedImagesNote(before, imageCounts || before, result.message);
-            } else {
-                nextImagesCursor = result.next_cursor || null;
-            }
-            renderImages();
-        } else {
-            console.error('[CivitaiBrowser] Load more failed:', result.error);
-            downloadNote = downloadFailedNote(result.error);
-            renderImages();
+        const result = await fetchImagesPage(last.number + 1);
+        if (!result) return;
+        if (!result.success) {
+            pageRequestError = `Page ${last.number + 1} could not be loaded: ${result.error || 'no answer'}`;
+            return;
         }
+        const { page, images } = takeImagesPage(result, { append: true });
+        appendImagesPage(page, images);
     } catch (e) {
         console.error('[CivitaiBrowser] Load more error:', e);
-        downloadNote = downloadFailedNote(e?.message);
-        renderImages();
+        pageRequestError = `Page ${last.number + 1} could not be loaded: ${e.message}`;
     } finally {
-        isLoadingImages = false;
+        loadingImagePage = false;
+        refreshImagesChrome();
     }
 }
 
@@ -1096,133 +1053,133 @@ function updateImagesCount() {
     }
 }
 
-// Render images - EXACTLY like Model Manager
+/**
+ * The banner, built in shared/common.mjs as the Model Manager's is: what the
+ * switches hold back over everything cached - which adds up with what
+ * matches, NSFW counted first as it filters first - and a switch for each on
+ * the right. A ticked NSFW switch shows how many NSFW images it lets through,
+ * among those the prompt filter lets through.
+ */
+function imagesBannerHtml() {
+    const counts = imageCounts || {};
+    return renderFilterBanner({
+        matching: counts.filtered || 0,
+        total: counts.total || 0,
+        onScreen: currentImages.length,
+        bannerClass: 'cb-nsfw-warning',
+        labelClass: 'cb-show-all-label',
+        switches: [
+            { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
+              showing: showAllNsfwImages, hidden: counts.hidden_nsfw || 0,
+              count: counts.nsfw_count || 0,
+              onchange: 'window.cbToggleShowAllImages(this.checked)', note: nsfwModelNote() },
+            { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
+              reason: 'unusable prompt',
+              showing: showPromptlessImages, hidden: counts.hidden_promptless || 0,
+              count: counts.promptless_count || 0,
+              onchange: 'window.cbToggleShowPromptless(this.checked)' },
+        ],
+    });
+}
+
+/** One page of the list: its separator, after the first, its cards, its note. */
+function imagesPageHtml(page, images) {
+    const cards = images.map((img, i) => renderImageCard(img, page.first + i)).join('');
+    return (page.number > 1 ? pageSeparator(page.number) : '') + cards + pageNoteHtml(page);
+}
+
+/** The foot of the list: why a page did not come, and Load More while there is a next. */
+function imagesFooterHtml() {
+    const last = imagePages[imagePages.length - 1];
+    const error = pageRequestError
+        ? `<div class="mm-page-note">${escapeHtml(pageRequestError)}</div>` : '';
+    if (!last || !last.more) return error;
+    return `${error}<div class="mm-load-more">
+            <button class="mm-btn secondary" id="cb_load_more_btn" onclick="window.cbLoadMoreImages()"
+                    ${loadingImagePage ? 'disabled' : ''}>
+                ${loadingImagePage ? 'Loading...' : 'Load More Images'}
+            </button>
+           </div>`;
+}
+
+// Draw the gallery whole: when a version opens, or a switch changes.
 function renderImages() {
     const container = document.getElementById('cb_images');
     if (!container) return;
 
-    const counts = imageCounts || { total: 0, filtered: 0, hidden_nsfw: 0,
-                                    hidden_promptless: 0, nsfw_count: 0, promptless_count: 0 };
-    if (counts.total === 0) {
+    if (!imageCounts || !imageCounts.total) {
         container.innerHTML = '<div class="mm-images-empty">No images available for this version.</div>';
         container.style.display = 'block';
         updateImagesCount();
         return;
     }
 
-    // The server filters, NSFW first and then the prompt filter (hiding
-    // images with no prompt worth reading, by the Model Manager's rule), and
-    // pages what is left, so page numbers count only what is shown. What each
-    // filter holds back, and each switch's count, come with the page.
-    const shown = counts.filtered;
-    const hiddenCount = counts.hidden_nsfw;
-    const promptHiddenCount = counts.hidden_promptless;
-    const totalPages = getImagePageCount(shown);
-    currentImagePage = Math.min(Math.max(1, currentImagePage), totalPages);
-    const pageStart = imagesOffset;
-    const pageEnd = imagesOffset + currentImages.length;
-
-    // One banner for both filters, built in shared/common.mjs as the Model
-    // Manager's is: what they are holding back - which adds up with what
-    // matches, NSFW counted first as it filters first - and a switch for each
-    // on the right. A ticked NSFW switch shows how many NSFW images it lets
-    // through, among those the prompt filter lets through.
-    const bannerOptions = {
-        matching: shown,
-        total: counts.total,
-        onScreen: currentImages.length,
-        bannerClass: 'cb-nsfw-warning',
-        labelClass: 'cb-show-all-label',
-        switches: [
-            { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
-              showing: showAllNsfwImages, hidden: hiddenCount,
-              count: counts.nsfw_count,
-              onchange: 'window.cbToggleShowAllImages(this.checked)', note: nsfwModelNote() },
-            { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
-              reason: 'unusable prompt',
-              showing: showPromptlessImages, hidden: promptHiddenCount,
-              count: counts.promptless_count,
-              onchange: 'window.cbToggleShowPromptless(this.checked)' },
-        ],
-    };
-    const filterBannerHtml = renderFilterBanner(bannerOptions);
-
     galleryWidth = galleryImageWidth(container);
-    const imageCards = currentImages.map((img, index) => renderImageCard(img, index)).join('');
-
-    // Only show "Load More" button if there's a cursor (more images available)
-    const loadMoreHtml = currentImagePage === totalPages && nextImagesCursor
-        ? `<div class="mm-load-more">
-            <button class="mm-btn secondary" id="cb_load_more_btn" onclick="window.cbLoadMoreImages()">
-                Load More Images
-            </button>
-            <span class="mm-load-more-info">${escapeHtml(downloadNote) || `${counts.total} images loaded`}</span>
-           </div>`
-        : (currentImagePage === totalPages ? `<div class="mm-load-more">
-            <span class="mm-load-more-info">${downloadNote ? escapeHtml(downloadNote) : `${counts.total} images (all loaded)`}</span>
-           </div>` : '');
-
     container.innerHTML = `
         <div class="mm-images-header">
             <h4>Example Images</h4>
-            <span class="mm-images-count">${shown > 0 ? `${pageStart + 1}-${pageEnd} of ${shown}` : '0'}${(hiddenCount + promptHiddenCount) > 0 ? ` (${hiddenCount + promptHiddenCount} hidden)` : ''} images (Page ${currentImagePage}/${totalPages})</span>
         </div>
-        ${filterBannerHtml}
-        ${renderImagePagination(totalPages, 'top')}
-        <div class="model-images-list">${imageCards}</div>
-        ${loadMoreHtml}
-        ${renderImagePagination(totalPages, 'bottom')}
+        ${imagesBannerHtml()}
+        <div class="model-images-list">${imagePages.map((page) =>
+            imagesPageHtml(page, currentImages.slice(page.first, page.first + (page.shown || 0)))).join('')}</div>
+        <div class="mm-images-footer">${imagesFooterHtml()}</div>
     `;
-
     container.style.display = 'block';
     setupLazyMedia(container);
-
-    // Update the images count in the details table
     updateImagesCount();
+}
+
+/**
+ * Add a page to the end of the list - Load More - leaving the cards already
+ * drawn alone; only the banner and the foot are drawn again.
+ */
+function appendImagesPage(page, images) {
+    const container = document.getElementById('cb_images');
+    const list = container?.querySelector('.model-images-list');
+    if (!list) {
+        renderImages();
+        return;
+    }
+    list.insertAdjacentHTML('beforeend', imagesPageHtml(page, images));
+    setupLazyMedia(list);
+    updateImagesCount();
+}
+
+/** Draw again what sums the gallery up - the banner, the foot - and not the images. */
+function refreshImagesChrome() {
+    const container = document.getElementById('cb_images');
+    if (!container) return;
+    const banner = container.querySelector('.cb-nsfw-warning');
+    if (banner) banner.outerHTML = imagesBannerHtml();
+    const footer = container.querySelector('.mm-images-footer');
+    if (footer) footer.innerHTML = imagesFooterHtml();
+}
+
+/** A switch changed: the gallery again from page 1, at its first image. */
+async function reloadFromFirstPage() {
+    try {
+        const result = await fetchImagesPage(1);
+        if (!result?.success) return;
+        takeImagesPage(result, { append: false });
+        renderImages();
+        await scrollToBrowserImagesTop();
+    } catch (e) {
+        console.error('[CivitaiBrowser] Load images error:', e);
+    }
 }
 
 // Toggle show all images checkbox. The server filters, so the gallery is
 // fetched again from its first page.
 window.cbToggleShowAllImages = async function(checked) {
     showAllNsfwImages = checked;
-    await showImagePage(1);
+    await reloadFromFirstPage();
 };
 
 // Show or hide this model's images without a prompt. The search's own filter
 // is left as it is.
 window.cbToggleShowPromptless = async function(checked) {
     showPromptlessImages = checked;
-    await showImagePage(1);
-};
-
-window.cbFirstImagePage = async function() {
-    if (currentImagePage === 1) return;
-    await showImagePage(1);
-};
-
-window.cbLastImagePage = async function() {
-    const totalPages = getImagePageCount(imageCounts?.filtered || 0);
-    if (currentImagePage === totalPages) return;
-    await showImagePage(totalPages);
-};
-
-window.cbPrevImagePage = async function() {
-    if (currentImagePage <= 1) return;
-    await showImagePage(currentImagePage - 1);
-};
-
-window.cbNextImagePage = async function() {
-    const totalPages = getImagePageCount(imageCounts?.filtered || 0);
-    if (currentImagePage >= totalPages) return;
-    await showImagePage(currentImagePage + 1);
-};
-
-window.cbGoToImagePage = async function(page) {
-    const totalPages = getImagePageCount(imageCounts?.filtered || 0);
-    if (page < 1 || page > totalPages || page === currentImagePage) return;
-
-    await scrollToBrowserImagesTop();
-    await showImagePage(page);
+    await reloadFromFirstPage();
 };
 
 // Helper to detect video URLs

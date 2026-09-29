@@ -192,7 +192,7 @@ Found under **Settings -> Model Manager**.
 | Preview: Use least NSFW image | on | Off shows the most recent image instead |
 | Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
 | Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
-| Example images: how to move through them | Continuous | Continuous grows one list with a button to show more; Pages shows a page at a time |
+| Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Requires restart |
 | Sync: Hashing threads | 4 | Files hashed at once when identifying them (1-16). Raise for fast NVMe, lower for a spinning disk |

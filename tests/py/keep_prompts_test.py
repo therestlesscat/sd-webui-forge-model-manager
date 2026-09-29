@@ -25,7 +25,7 @@ for _p in (ROOT, TESTS):
 
 import webui_stub                                        # noqa: E402
 
-webui_stub.install()
+opts = webui_stub.install()
 
 try:
     from fastapi import FastAPI
@@ -79,12 +79,14 @@ class Civitai:
 
     images_fail = False
     generation = {}
+    limits = []
 
     @classmethod
     def from_settings(cls):
         return cls()
 
     def get_model_images(self, version_id, cursor=None, limit=None):
+        Civitai.limits.append(limit)
         if Civitai.images_fail:
             raise RuntimeError('Civitai is down')
         return {'images': [{'id': i, 'url': 'fresh', 'meta': None} for i in before]
@@ -102,7 +104,10 @@ class Civitai:
 civitai_pkg.CivitaiClient = Civitai
 
 Civitai.generation = None            # the lookup fails
+opts.model_manager_gallery_page_size = 50
 r = client.post('/model-manager/images/resync', data={'version_id': version})
+opts.model_manager_gallery_page_size = 100
+check('a resync asks for the first page at the gallery page size set', Civitai.limits, [50])
 check('a resync whose prompt lookup fails still succeeds', r.json().get('success'), True)
 after = {img['id']: img for img in db.get_images(version)}
 check('and every image keeps the prompt it had',

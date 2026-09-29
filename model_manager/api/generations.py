@@ -19,7 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..db import get_models_db
 from ..nsfw import PG, SFW_MAX
-from .images import GALLERY_PAGE_SIZE, gallery_switches, page_bounds
+from ..gallery import gallery_page_size
+from .images import gallery_switches
 
 # The images a card shows before "Show images".
 PREVIEW_IMAGES = 4
@@ -75,26 +76,42 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
-                    offset: int = 0, limit: int = GALLERY_PAGE_SIZE) -> Dict[str, Any]:
+                    page: int = 1) -> Dict[str, Any]:
     """
-    One page of a gallery's generation cards, newest first, and the state the
-    gallery draws around them.
+    Page `page` of a gallery's generations, as every gallery pages
+    (model_manager/gallery.py): the generations filed under the gallery's
+    files at places (page - 1) * size + 1 to page * size, newest first,
+    before the switches - which only decide which of their images are drawn.
+    A generation with none left to draw has no card, and is still counted in
+    its page's note.
+
+    Returns:
+        generations: the page's cards, each with its first images;
+        page: its number and size, how many generations and images it holds,
+            how many images are shown, what each switch hid, and whether
+            more come after it;
+        state: the gallery's totals, over every page, for the banner.
     """
-    offset, limit = page_bounds(offset, limit)
+    size = gallery_page_size()
+    page = max(1, int(page or 1))
     files = db.generation_gallery_files(path)
-    shown, counts = _filtered(db.generation_gallery_images(files), hide_nsfw, hide_promptless)
+    rows = db.generation_gallery_images(files)
+    order = list(dict.fromkeys(r["generation_id"] for r in rows))
+    on_page = set(order[(page - 1) * size:page * size])
+    page_rows = [r for r in rows if r["generation_id"] in on_page]
+    shown, page_counts = _filtered(page_rows, hide_nsfw, hide_promptless)
+    _, counts = _filtered(rows, hide_nsfw, hide_promptless)
 
     by_generation: Dict[int, List[Dict[str, Any]]] = {}
     for row in shown:
         by_generation.setdefault(row["generation_id"], []).append(row)
-    order = list(by_generation)
-    page = order[offset:offset + limit]
+    drawn = [g for g in order if g in by_generation]
 
-    generations = db.get_generations(page)
-    previews = [r["id"] for g in page for r in by_generation[g][:PREVIEW_IMAGES]]
+    generations = db.get_generations(drawn)
+    previews = [r["id"] for g in drawn for r in by_generation[g][:PREVIEW_IMAGES]]
     images = db.get_generation_images(previews)
     cards = []
-    for generation_id in page:
+    for generation_id in drawn:
         card = dict(generations.get(generation_id) or {"id": generation_id})
         card["matching_count"] = len(by_generation[generation_id])
         card["images"] = [_image(images[r["id"]]) for r in by_generation[generation_id][:PREVIEW_IMAGES]
@@ -103,8 +120,18 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
 
     return {
         "generations": cards,
+        "page": {
+            "number": page,
+            "size": size,
+            "generations": len(on_page),
+            "count": len(page_rows),
+            "shown": page_counts["filtered"],
+            "hidden_nsfw": page_counts["hidden_nsfw"],
+            "hidden_promptless": page_counts["hidden_promptless"],
+            "more": len(order) > page * size,
+            "error": None,
+        },
         "state": {
-            "offset": offset,
             "generation_count": len(order),
             # Every generation filed here, filtered or not: the tab's label.
             "stored_generations": db.count_generations(files),
@@ -119,24 +146,23 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
 
     @app.get("/model-manager/generations/page")
-    async def get_generation_page(path: str, offset: int = 0, limit: int = GALLERY_PAGE_SIZE,
+    async def get_generation_page(path: str, page: int = 1,
                                   hide_nsfw_images: Optional[bool] = None,
                                   hide_promptless_images: Optional[bool] = None):
         """
-        One page of the open model's generation cards, through the gallery's
-        two switches - the settings decide either one not sent.
+        Page `page` of the open model's generations, through the gallery's
+        two switches - the settings decide either one not sent. See
+        generation_page().
 
         Args:
             path: The open model's file; its version's files make the gallery.
-            offset: How many cards come before the page.
-            limit: The most cards the page may hold.
+            page: Which page, from 1.
         """
         try:
             hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
                                                           hide_promptless_images)
-            page = generation_page(get_models_db(), path, hide_nsfw, hide_promptless,
-                                   offset, limit)
-            return JSONResponse({"success": True, **page})
+            return JSONResponse({"success": True, **generation_page(
+                get_models_db(), path, hide_nsfw, hide_promptless, page)})
         except Exception as e:
             import traceback
             print(f"[ModelManager] Generation page error: {e}")

@@ -26,6 +26,7 @@ from .storage import write_civitai_info
 from .architecture import record_architecture
 from .nsfw import UNKNOWN, version_covers
 from .db import get_models_db
+from .gallery import gallery_page_size
 
 
 
@@ -289,10 +290,12 @@ class SyncService:
                 result.error = "Failed to write civitai.info"
                 return result
 
-            # Fetch first batch of images (100) using cursor pagination
+            # The first page of the gallery, at the size it is paged in, so
+            # opening the model needs no request of its own
             if version_id:
                 print(f"[ModelManager] Fetching images for {model_name}...")
-                images_result = self.client.get_model_images(version_id, cursor=None, limit=100)
+                images_result = self.client.get_model_images(
+                    version_id, cursor=None, limit=gallery_page_size())
                 images = images_result.get("images", [])
                 db = get_models_db()
                 # /images returns meta: null - generation data comes from a
@@ -948,6 +951,8 @@ class SyncService:
                            include_prompts: bool = True) -> None:
         """Replace each version's cached gallery with a fresh first page."""
         db = get_models_db()
+        # Read once: a setting changed mid-sync would give one sync two sizes
+        page_size = gallery_page_size()
 
         for start in range(0, len(versions), self.GALLERY_CHUNK):
             if self._cancel_requested:
@@ -968,7 +973,7 @@ class SyncService:
                     self._progress.current_model = f"Images: {name}"
                 try:
                     result = self.client.get_model_images(
-                        version["id"], cursor=None, limit=100
+                        version["id"], cursor=None, limit=page_size
                     )
                     images = result.get("images", [])
                     next_cursor = result.get("next_cursor")

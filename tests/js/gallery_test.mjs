@@ -1,85 +1,60 @@
-// Moving through a model's example images, both ways.
+// Moving through a model's example images: a page at a time.
 //
-// A large model can hold hundreds of images. Paged, adding a page jumps the
-// list back to the top, which loses your place; continuous grows one list
-// downwards and leaves you where you were. Which one you get is a setting,
-// served on /model-manager/ui-options and read once at load.
+// A page is a slice of what is stored, in gallery order - 100 by default -
+// before the NSFW and prompt switches, which only decide which of its images
+// are drawn. Load More adds the next page to the end of the list, filled from
+// Civitai first when the library cannot fill it. Each page after the first
+// starts with its separator, and each ends with a note of what it held: what
+// it shows, and what each switch hid. Changing a switch starts again from
+// page 1, at the top.
 //
-// The thing worth checking is that the two modes do not leak into each other:
-// page controls in a continuous list would look like the feature working.
-//
-// Either way the server sends a page at a time. The whole gallery used to be
-// sent and sliced here - 200 images, 900 KB, for one version of a real
-// library - and a download from Civitai was added to the list as it arrived,
-// explicit images and all, whatever the NSFW switch said.
-import { readFileSync } from 'fs';
-import { parseHTML } from 'linkedom';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+// It used to be muddled: a page was 100 images that passed the switches, a
+// download from Civitai was 100 before them, the two never lined up, and a
+// second Load More could add images without a page of its own - "PAGE 3"
+// never showed. The whole gallery was drawn again on each Load More too, and
+// every image above came back blank until it reloaded, moving the page.
+import { ROOT, checker, mountTab } from './harness.mjs';
 
-const ROOT = process.env.MM_ROOT
-    ? process.env.MM_ROOT.replace(/\\/g, '/')
-    : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
-
-// The mode is fixed at module load, so the suite runs twice - once each way.
-const MODE = process.env.MM_IMAGE_BROWSING === 'pages' ? 'pages' : 'continuous';
-
-const tabSource = readFileSync(`${ROOT}/model_manager/ui/tab_model_manager.py`, 'utf8');
-const htmlMatch = tabSource.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
-if (!htmlMatch) throw new Error('could not find the tab markup in tab_model_manager.py');
-const { window } = parseHTML(`<!doctype html><html><body>${htmlMatch[2]}</body></html>`);
-
-globalThis.window = window;
-globalThis.document = window.document;
-globalThis.location = { origin: 'http://localhost:7860' };
-window.location = globalThis.location;
-globalThis.URL = URL;
-globalThis.Event = window.Event;
-globalThis.MouseEvent = window.MouseEvent ?? window.Event;
-globalThis.CustomEvent = window.CustomEvent;
-globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
-globalThis.gradioApp = () => window.document;
-globalThis.onUiLoaded = (cb) => cb();
-globalThis.onAfterUiUpdate = () => {};
-globalThis.onUiUpdate = () => {};
-globalThis.opts = {};
-globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
-globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
-window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-window.scrollTo = () => {};
-window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.requestAnimationFrame = window.requestAnimationFrame;
-window.localStorage = {
-    _d: {}, getItem(k) { return this._d[k] ?? null; },
-    setItem(k, v) { this._d[k] = String(v); }, removeItem(k) { delete this._d[k]; },
-};
-globalThis.localStorage = window.localStorage;
-
-const inputProto = Object.getPrototypeOf(window.document.createElement('input'));
-Object.defineProperty(inputProto, 'checked', {
-    configurable: true,
-    get() { return this.hasAttribute('checked'); },
-    set(on) { if (on) this.setAttribute('checked', ''); else this.removeAttribute('checked'); },
-});
+const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+const { check, waitFor, done } = checker();
 
 // --- the server ------------------------------------------------------------
-// It filters and pages, as /model-manager/models/details and
-// /model-manager/images/page do: the page is sent one page at a time.
-const PAGE = 100;              // IMAGE_PAGE_SIZE in the shared module
-const DOWNLOADED = 250;        // two full pages and a remainder
-const fetched = [];
-let civitaiDown = false;       // Civitai answering 503, as it does in an outage
-
-const image = (id, level = 1) => ({
+// It pages as model_manager/api/images.gallery_page() does, which
+// tests/py/api_test.py holds to it: slices of 100 of what is stored, filled
+// from "Civitai" when short.
+const SIZE = 100;
+const image = (id) => ({
     id, url: `https://example.invalid/${id}.jpeg`, width: 512, height: 768,
-    nsfw_level: level, mm_level: level, meta: { prompt: `prompt ${id}`, steps: 20 },
+    mm_level: id % 10 === 0 || id > 300 ? 8 : 1, meta: { prompt: `prompt ${id}`, steps: 20 },
 });
-// What the server holds. A download from Civitai adds to it.
-const library = Array.from({ length: DOWNLOADED }, (_, i) => image(i + 1));
-// And three explicit ones, so the NSFW filter has something to hold back and
-// the banner is drawn.
-const EXPLICIT = 3;
-library.push(...Array.from({ length: EXPLICIT }, (_, i) => image(900 + i, 8)));
+// 250 stored, every tenth rated X. Civitai has 150 more: 251-300 like them,
+// then 301-400 all X, and nothing after.
+const stored = Array.from({ length: 250 }, (_, i) => image(i + 1));
+const civitai = Array.from({ length: 150 }, (_, i) => image(251 + i));
+const asked = [];
+let serverDown = false;
+
+function galleryPage(params) {
+    const number = Number(params.get('page'));
+    const hideNsfw = params.get('hide_nsfw_images') !== 'false';
+    while (stored.length < number * SIZE && civitai.length) stored.push(...civitai.splice(0, 100));
+    const rows = stored.slice((number - 1) * SIZE, number * SIZE);
+    const shown = rows.filter((img) => !hideNsfw || img.mm_level <= 3);
+    const all = stored.filter((img) => !hideNsfw || img.mm_level <= 3);
+    return {
+        success: true,
+        images: shown,
+        page: { number, size: SIZE, count: rows.length, shown: shown.length,
+                hidden_nsfw: rows.length - shown.length, hidden_promptless: 0,
+                more: stored.length > number * SIZE || civitai.length > 0, error: null },
+        images_state: { version_id: 5001, next_cursor: civitai.length ? 'more' : null,
+                        sync_date: '2026-01-01T00:00:00Z', total_count: stored.length,
+                        filtered_count: all.length, hidden_nsfw: stored.length - all.length,
+                        hidden_promptless: 0, nsfw_count: stored.length - all.length,
+                        promptless_count: 0, hide_nsfw_images: hideNsfw,
+                        hide_promptless_images: false },
+    };
+}
 
 const MODEL = {
     id: 5001, model_id: 4001, name: 'A Model', display_name: 'A Model',
@@ -89,213 +64,96 @@ const MODEL = {
     local_version_count: 1, trained_words: [], tags: [],
 };
 
-// A page of the library through the NSFW switch, with the state it is drawn
-// with. The settings hide NSFW images until the page says otherwise.
-function galleryPage(params, offset, limit) {
-    const hideNsfw = params.get('hide_nsfw_images') !== 'false';
-    const shown = library.filter((img) => !hideNsfw || img.mm_level <= 3);
-    return {
-        images: shown.slice(offset, offset + limit),
-        images_state: {
-            version_id: MODEL.id, next_cursor: 'more', sync_date: '2026-01-01T00:00:00Z',
-            offset, total_count: library.length, filtered_count: shown.length,
-            hidden_nsfw: library.length - shown.length, hidden_promptless: 0,
-            nsfw_count: library.length - shown.length, promptless_count: 0,
-            hide_nsfw_images: hideNsfw, hide_promptless_images: false,
-        },
-    };
-}
-
-globalThis.fetch = async (url, init = {}) => {
+globalThis.fetch = async (url) => {
     const href = String(url);
-    fetched.push(href);
+    asked.push(href);
     const params = new URL(href, 'http://webui').searchParams;
-    if (href.includes('/model-manager/ui-options')) {
-        return { ok: true, json: async () => ({
-            success: true, samplers: ['Euler'], schedulers: ['Simple'],
-            has_api_key: true, image_browsing: MODE }) };
-    }
-    if ((href.includes('/images/load-more') || init.method === 'POST') && civitaiDown) {
-        return { ok: false, status: 500, json: async () => ({
-            success: false, error: 'Request failed: Server error: 503' }) };
-    }
-    if (href.includes('/images/load-more') || init.method === 'POST') {
-        // Five more from Civitai: three of them explicit. The answer holds
-        // them all, as the real one does, whatever the switches say.
-        const more = [1, 8, 1, 16, 8].map((level, i) => image(DOWNLOADED + i + 1, level));
-        library.push(...more);
-        return { ok: true, json: async () => ({ success: true, next_cursor: null, images: more }) };
-    }
-    if (href.includes('/model-manager/images/page')) {
-        const page = galleryPage(params, Number(params.get('offset')), Number(params.get('limit')));
-        return { ok: true, json: async () => ({ success: true, ...page }) };
+    const reply = (body) => ({ ok: true, json: async () => body });
+    if (href.includes('/model-manager/images/gallery-page')) {
+        if (serverDown) return { ok: false, status: 500, json: async () => ({
+            success: false, error: 'Civitai: overloaded (503)' }) };
+        return reply(galleryPage(params));
     }
     if (href.includes('/model-manager/models/details')) {
-        const page = galleryPage(params, 0, Number(params.get('image_limit')));
-        return { ok: true, json: async () => ({ success: true, model: { ...MODEL, ...page } }) };
+        const { images_state } = galleryPage(new URLSearchParams(
+            `page=1&hide_nsfw_images=${params.get('hide_nsfw_images') ?? 'true'}`));
+        return reply({ success: true, model: { ...MODEL, images_state, generations_count: 0 } });
     }
-    if (href.includes('/model-manager/models/versions')) {
-        return { ok: true, json: async () => ({ success: true, versions: [MODEL] }) };
-    }
+    if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions: [MODEL] });
     if (href.includes('/model-manager/models')) {
-        return { ok: true, json: async () => ({
-            success: true, total: 1, page: 1, page_size: 10, models: [MODEL] }) };
+        return reply({ success: true, total: 1, page: 1, page_size: 10, models: [MODEL] });
     }
-    return { ok: true, json: async () => ({ success: true }) };
+    return reply({ success: true });
 };
+const scrolls = [];
+window.scrollTo = (to) => scrolls.push(to);
 
 // --- run --------------------------------------------------------------------
-const fails = [];
-const check = (label, got, want) => {
-    if (JSON.stringify(got) !== JSON.stringify(want)) {
-        fails.push(`[${MODE}] ${label}\n     got  ${JSON.stringify(got)}\n     want ${JSON.stringify(want)}`);
-    }
-};
-const settle = () => new Promise((r) => setTimeout(r, 300));
-// The details load is a fetch chain, so waiting a fixed 300ms is a race that
-// passes most of the time - which is worse than failing.
-const waitFor = async (what, predicate) => {
-    for (let tries = 0; tries < 60; tries++) {
-        if (predicate()) return;
-        await new Promise((r) => setTimeout(r, 50));
-    }
-    fails.push(`[${MODE}] timed out waiting for ${what}`);
-};
-const cards = () => window.document.querySelectorAll('#mm_images .mm-image-card').length;
-const $ = (id) => window.document.getElementById(id);
-const pagers = () => window.document.querySelectorAll('#mm_images .mm-image-pagination').length;
-const has = (id) => !!window.document.querySelector(`#${id}`);
+const $ = (id) => document.getElementById(id);
+const cards = () => document.querySelectorAll('#mm_images .mm-image-card');
+const notes = () => Array.from(document.querySelectorAll('#mm_images .mm-page-note'))
+    .map((n) => n.textContent.trim());
+const separators = () => Array.from(document.querySelectorAll('#mm_images .mm-page-separator'))
+    .map((s) => s.textContent.trim());
+const pagesAsked = (from) => asked.slice(from)
+    .filter((u) => u.includes('/images/gallery-page'))
+    .map((u) => new URL(u, 'http://webui').searchParams.get('page'));
+const loadMore = () => !!$('mm_load_more_btn');
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
-await settle();
-
-check('the tab read the setting',
-      fetched.some((u) => u.includes('/ui-options')), true);
-
+document.dispatchEvent(new window.Event('DOMContentLoaded'));
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
-await waitFor('the grid', () => window.document.querySelectorAll('#mm_grid .model-card').length > 0);
+await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
+let before = asked.length;
 await window.mmSelectModel(0);
-await waitFor('the gallery', () => cards() > 0);
+await waitFor('the gallery', () => cards().length > 0);
 
-check('the details ask for one page of images',
-      new URL(fetched.find((u) => u.includes('/models/details')), 'http://webui')
-          .searchParams.get('image_limit'), String(PAGE));
-check('and a page of images is shown to begin with', cards(), PAGE);
+check('opening a model asks for its details, then page 1 on its own',
+      pagesAsked(before), ['1']);
+check('page 1 is its first 100 stored, less the 10 the NSFW switch hides', cards().length, 90);
+check('with a note saying so, and no separator before it',
+      [notes(), separators()], [['Displaying 90 images for page 1 · 10 hidden due to NSFW filter'], []]);
+check('and Load More below', loadMore(), true);
+check('page buttons are gone', document.querySelectorAll('#mm_images .mm-image-pagination').length, 0);
 
-// The banner keeps apart what is stored, what matches the filters and what is
-// on screen. It used to say "Showing 250 of 253" with 100 on screen.
-const banner = () => (window.document.querySelector('#mm_images .mm-nsfw-warning span')
-    ?.textContent || '').trim();
-const stored = DOWNLOADED + EXPLICIT;
-check('the banner says what is stored, what matches, and how many of those are on screen',
-      banner(), `${stored} images stored · ${DOWNLOADED} match the filters (${PAGE} shown)`
-                + ` · ${EXPLICIT} hidden due to NSFW filter`);
+// A page that cannot be loaded says why above Load More, and changes nothing.
+serverDown = true;
+await window.mmLoadMoreImages();
+serverDown = false;
+check('a page that cannot be loaded says why, above Load More',
+      [(document.querySelector('#mm_images .mm-images-footer')?.textContent || '').includes(
+          'Page 2 could not be loaded: Civitai: overloaded (503)'), cards().length, loadMore()],
+      [true, 90, true]);
 
-// Where each page starts in the continuous list: its number, and the card
-// that follows it.
-const separators = () => Array.from(window.document.querySelectorAll('#mm_images .mm-page-separator'))
-    .map((rule) => [rule.textContent.trim(),
-                    Number((rule.nextElementSibling?.querySelector('img')?.getAttribute('data-src')
-                            || rule.nextElementSibling?.querySelector('img')?.getAttribute('src') || '')
-                        .match(/(\d+)\.jpeg/)?.[1])]);
-check('a single page has no separator', separators(), []);
-check('the banner stays in sight as the gallery scrolls',
-      !!window.document.querySelector('#mm_images .mm-nsfw-warning.filter-banner-sticky'), true);
+const firstCard = cards()[0];
+before = asked.length;
+await window.mmLoadMoreImages();
+await waitFor('page 2', () => cards().length === 180);
+check('Load More asks for the next page', pagesAsked(before), ['2']);
+check('and adds it after a separator, with its own note',
+      [separators(), notes()[1]], [['Page 2'], 'Displaying 90 images for page 2 · 10 hidden due to NSFW filter']);
+check('leaving the cards already drawn as they were, not drawn again',
+      [cards()[0] === firstCard, firstCard.isConnected], [true, true]);
 
-// Where a gallery request asked to start, for the requests made since `from`.
-const pageOffsets = (from) => fetched.slice(from)
-    .filter((u) => u.includes('/model-manager/images/page'))
-    .map((u) => new URL(u, 'http://webui').searchParams.get('offset'));
-const downloadNote = () => (window.document.querySelector('#mm_images .mm-load-more-info')
-    ?.textContent || '').trim();
-const shownIds = () => Array.from(window.document.querySelectorAll('#mm_images .mm-image-card img'))
-    .map((img) => Number((img.getAttribute('data-src') || img.getAttribute('src') || '')
-        .match(/(\d+)\.jpeg/)?.[1]));
+await window.mmLoadMoreImages();
+await waitFor('page 3', () => separators().length === 2);
+check('the next Load More adds page 3, as every one adds a page - filled from Civitai, '
+      + 'as the library held only 50 of it', [separators(), notes()[2], cards().length],
+      [['Page 2', 'Page 3'], 'Displaying 90 images for page 3 · 10 hidden due to NSFW filter', 270]);
 
-if (MODE === 'pages') {
-    check('page controls are offered', pagers() > 0, true);
-    check('and no show-more button', has('mm_show_more_btn'), false);
+await window.mmLoadMoreImages();
+await waitFor('page 4', () => separators().length === 3);
+check('a page the switches empty still has its separator and its note, which says why, '
+      + 'and that Civitai has no more', [separators()[2], notes()[3], cards().length],
+      ['Page 4', 'Displaying 0 images for page 4 · 100 hidden due to NSFW filter · no more images on Civitai', 270]);
+check('so there is no Load More', loadMore(), false);
 
-    let askedBefore = fetched.length;
-    await window.mmNextImagePage();
-    await settle();
-    check('a page turn asks the server for that page', pageOffsets(askedBefore), [String(PAGE)]);
-    check('and replaces the list with it', cards(), PAGE);
-    check('beginning where the first page ended', shownIds()[0], PAGE + 1);
-    check('a page on its own needs no separator', separators(), []);
+scrolls.length = 0;
+before = asked.length;
+await window.mmToggleShowNsfwImages(true);
+await waitFor('the reload', () => cards().length === 100);
+check('changing a switch starts again from page 1', [pagesAsked(before), separators(), notes()],
+      [['1'], [], ['Displaying 100 images for page 1']]);
+check('back at the top of the gallery', scrolls.length > 0, true);
 
-    await window.mmLastImagePage();
-    await settle();
-    check('the last page holds the remainder', cards(), DOWNLOADED - 2 * PAGE);
-
-    // Civitai down first: the click used to look like one that found nothing.
-    let before = cards();
-    civitaiDown = true;
-    await window.mmLoadMoreImages();
-    await settle();
-    civitaiDown = false;
-    check('a download that fails says so beside the button', downloadNote(),
-          'Nothing was downloaded: Request failed: Server error: 503');
-    check('changing nothing else', cards(), before);
-    check('and the button is offered again', has('mm_load_more_btn'), true);
-
-    askedBefore = fetched.length;
-    await window.mmLoadMoreImages();
-    await settle();
-    check('a download reads the page again from the server', pageOffsets(askedBefore).length > 0, true);
-    check('which leaves out the explicit ones it brought, as the switch says',
-          shownIds().filter((id) => id > DOWNLOADED), [DOWNLOADED + 1, DOWNLOADED + 3]);
-    check('and says so beside the button', downloadNote(),
-          '5 more images: 2 shown, 3 hidden by the NSFW filter');
-} else {
-    check('no page controls', pagers(), 0);
-    check('a show-more button is offered instead', has('mm_show_more_btn'), true);
-
-    let askedBefore = fetched.length;
-    await window.mmShowMoreImages();
-    await settle();
-    check('showing more asks the server for the next page', pageOffsets(askedBefore), [String(PAGE)]);
-    check('and adds it to the list rather than replacing it', cards(), PAGE * 2);
-    check('marking where the second page starts, before its first image',
-          separators(), [['Page 2', PAGE + 1]]);
-    check('and the banner counts what is now on screen', banner().includes(`(${PAGE * 2} shown)`), true);
-
-    await window.mmShowMoreImages();
-    await settle();
-    check('and again, up to what is downloaded', cards(), DOWNLOADED);
-    check('each page marked where it starts', separators(),
-          [['Page 2', PAGE + 1], ['Page 3', 2 * PAGE + 1]]);
-    check('at which point there is nothing more to show', has('mm_show_more_btn'), false);
-    check('and the offer becomes one to download more', has('mm_load_more_btn'), true);
-    check('with nothing beside it until a download says what it brought - "253 images '
-          + 'downloaded" read as what was loaded', downloadNote(), '');
-
-    // Civitai down first: the click used to look like one that found nothing.
-    let before = cards();
-    civitaiDown = true;
-    await window.mmLoadMoreImages();
-    await settle();
-    civitaiDown = false;
-    check('a download that fails says so beside the button', downloadNote(),
-          'Nothing was downloaded: Request failed: Server error: 503');
-    check('changing nothing else', cards(), before);
-    check('and the button is offered again', has('mm_load_more_btn'), true);
-
-    askedBefore = fetched.length;
-    await window.mmLoadMoreImages();
-    await settle();
-    check('a download asks the server for what follows the list', pageOffsets(askedBefore),
-          [String(DOWNLOADED)]);
-    check('which leaves out the explicit ones it brought, as the switch says',
-          shownIds().filter((id) => id > DOWNLOADED), [DOWNLOADED + 1, DOWNLOADED + 3]);
-    check('keeping what was already shown', cards(), DOWNLOADED + 2);
-    check('and it says so beside the button: a batch of explicit images used to look like '
-          + 'a click that did nothing', downloadNote(),
-          '5 more images: 2 shown, 3 hidden by the NSFW filter');
-}
-
-console.log(fails.length
-    ? fails.map((f) => 'FAIL ' + f).join('\n')
-    : `All checks passed (${MODE}).`);
-process.exit(fails.length ? 1 : 0);
+done();

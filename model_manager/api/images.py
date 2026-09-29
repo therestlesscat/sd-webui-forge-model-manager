@@ -17,21 +17,11 @@ from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
 )
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
-
-# The most images one gallery page may hold. The pages ask for IMAGE_PAGE_SIZE
-# in javascript/shared/common.mjs; anything larger is cut down to this. Both
-# galleries used to be sent whole and paged in the browser.
-GALLERY_PAGE_SIZE = 100
+from ..gallery import gallery_page_size
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
 # while every one holds only images already stored.
 LOAD_MORE_BATCHES = 5
-
-
-def page_bounds(offset: int, limit: int) -> Tuple[int, int]:
-    """An offset and a limit a page request may use: neither negative, the
-    limit at least one image and at most GALLERY_PAGE_SIZE."""
-    return max(0, offset), min(max(1, limit), GALLERY_PAGE_SIZE)
 
 
 def gallery_switches(hide_nsfw: Optional[bool],
@@ -49,32 +39,90 @@ def gallery_switches(hide_nsfw: Optional[bool],
     return hide_nsfw, hide_promptless
 
 
-def version_gallery(db, version_id: int, hide_nsfw: bool, hide_promptless: bool,
-                    offset: int = 0,
-                    limit: int = GALLERY_PAGE_SIZE) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def civitai_has_more(version: Optional[Dict[str, Any]]) -> bool:
     """
-    One page of a version's stored images, and the state its gallery draws
-    around them: the counts the filter banner states, the page's place, and
-    whether Civitai has more.
+    Whether Civitai may have images of this version not stored yet: a cursor
+    to the next batch, or no sign a sync ever looked - a version never
+    synced, or one a bulk sync stored before it kept the cursor. A sync that
+    reached the end leaves no cursor and its date.
+    """
+    if not version:
+        return False
+    return bool(version.get("next_images_cursor")) or not version.get("images_sync_last_date")
 
-    Every page carries its counts, so a page read after a download or a resync
-    cannot be drawn against counts from before it.
+
+# How many batches a page may fetch from Civitai before showing what it has:
+# a page of 100 needs one at most, a large one a few.
+PAGE_FETCHES = 5
+
+
+def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptless: bool,
+                 fetch: bool = True) -> Dict[str, Any]:
+    """
+    Page `page` of a version's gallery: the images stored at places
+    (page - 1) * size + 1 to page * size, in gallery order, before the
+    switches - which only decide which of them are drawn. A page does not
+    depend on how the images came, nor on the page size they came under:
+    when fewer are stored than the page reaches, the rest are fetched from
+    Civitai first, in its batches of 100, until there are enough or Civitai
+    has no more.
 
     Returns:
-        (the page's images, judged for the browser; images_state)
+        images: the page's images the switches let through, judged;
+        page: its number and size, how many images it holds, how many are
+            shown, what each switch hid, whether more come after it, and
+            the error if fetching failed - what is stored is shown anyway;
+        images_state: the gallery's totals, for the banner.
     """
-    offset, limit = page_bounds(offset, limit)
+    size = gallery_page_size()
+    page = max(1, int(page or 1))
+    version = db.get_version_by_id(version_id)
+    stored = db.count_images_by_version([version_id]).get(version_id, 0)
+    error = None
+    fetches = 0
+    while fetch and stored < page * size and civitai_has_more(version) and fetches < PAGE_FETCHES:
+        fetches += 1
+        try:
+            brought = download_more(db, version)
+        except Exception as e:
+            error = str(e)
+            print(f"[ModelManager] Fetching images for page {page} of version {version_id} failed: {e}")
+            break
+        version = db.get_version_by_id(version_id)
+        stored = db.count_images_by_version([version_id]).get(version_id, 0)
+        # Nothing new ends it: download_more() has already passed over up to
+        # LOAD_MORE_BATCHES batches of stored images to find any.
+        if not brought.get("downloaded_count"):
+            break
+
+    rows = db.get_image_page(version_id, (page - 1) * size, size)
+    shown, counts = filter_images(rows, hide_nsfw, hide_promptless)
+    return {
+        "images": stamp_levels(shown),
+        "page": {
+            "number": page,
+            "size": size,
+            "count": len(rows),
+            "shown": counts["filtered"],
+            "hidden_nsfw": counts["hidden_nsfw"],
+            "hidden_promptless": counts["hidden_promptless"],
+            "more": stored > page * size or civitai_has_more(version),
+            "error": error,
+        },
+        "images_state": gallery_state(db, version_id, hide_nsfw, hide_promptless),
+    }
+
+
+def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
+    """The gallery's totals, as the banner states them, over every stored image."""
     max_level = SFW_MAX if hide_nsfw else None
-    images = db.get_image_page(version_id, offset, limit, max_nsfw_level=max_level,
-                               require_prompt=hide_promptless)
     counts = db.get_image_counts(version_id, max_nsfw_level=max_level,
                                  require_prompt=hide_promptless)
     record = db.get_version_by_id(version_id)
-    return stamp_levels(images), {
+    return {
         "version_id": version_id,
         "next_cursor": record.get("next_images_cursor") if record else None,
         "sync_date": record.get("images_sync_last_date") if record else None,
-        "offset": offset,
         "total_count": counts["total"],
         "filtered_count": counts["filtered"],
         "hidden_count": counts["hidden"],
@@ -93,26 +141,17 @@ def _has_readable_prompt(image: Dict[str, Any]) -> bool:
     return len((meta.get("prompt") or "").strip()) >= MIN_PROMPT_LENGTH
 
 
-def image_list_page(images: List[Dict[str, Any]], hide_nsfw: bool, hide_promptless: bool,
-                    offset: int = 0,
-                    limit: int = GALLERY_PAGE_SIZE) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
+                  hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    version_gallery() for images held in a list rather than in the images
-    table - the Civitai Browser's cache, which has no level column to filter
-    on. A version holds tens of images there, so judging them all per page
-    costs little.
-
-    The counts mean what ImagesOps.get_image_counts() says they mean.
-
-    Returns:
-        (the page's images, judged; the counts)
+    The images the two switches let through, in order, and the counts - as
+    ImagesOps.get_image_counts() means each - over all of them.
     """
-    offset, limit = page_bounds(offset, limit)
     safe = [image_level(img) <= SFW_MAX for img in images]
     readable = [_has_readable_prompt(img) for img in images]
     nsfw_kept = [i for i in range(len(images)) if safe[i] or not hide_nsfw]
     shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
-    counts = {
+    return [images[i] for i in shown], {
         "total": len(images),
         "filtered": len(shown),
         "hidden_nsfw": len(images) - len(nsfw_kept),
@@ -122,8 +161,84 @@ def image_list_page(images: List[Dict[str, Any]], hide_nsfw: bool, hide_promptle
                           if not safe[i] and (readable[i] or not hide_promptless)),
         "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
     }
-    page = [images[i] for i in shown[offset:offset + limit]]
-    return stamp_levels(page), counts
+
+
+
+def download_more(db, version: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Fetch the next batch of a version's images from Civitai, and store those
+    not stored already, on a page of their own after the last.
+
+    Args:
+        version: The version's model_versions row, for its id and cursor.
+
+    Returns:
+        images (the new ones, judged), next_cursor, downloaded_count, and a
+        message when nothing new came.
+    """
+    version_id = version["id"]
+    cursor = version.get("next_images_cursor")
+
+    # Only images not already stored are new. A version whose first
+    # page a bulk sync stored has no cursor - the sync used not to
+    # keep one - so the first batch asked for is the one it already
+    # has: that batch is passed over and the next one asked for. It
+    # used to be stored again under a new page number, and the click
+    # showed nothing new.
+    stored = db.get_image_ids(version_id)
+    client = CivitaiClient.from_settings()
+    try:
+        for _ in range(LOAD_MORE_BATCHES):
+            result = client.get_model_images(
+                version_id=version_id,
+                cursor=cursor,
+                limit=100
+            )
+            new_images = [img for img in result.get("images", [])
+                          if img.get("id") not in stored]
+            next_cursor = result.get("next_cursor")
+            if new_images or not next_cursor:
+                break
+            cursor = next_cursor
+        # /images returns meta: null - fetch generation data separately
+        enrich_images_with_generation_data(client, new_images)
+    finally:
+        client.close()
+
+    if not new_images:
+        # Nothing new: at the end of the gallery, or still among
+        # images already stored after LOAD_MORE_BATCHES batches, in
+        # which case the next click carries on from there.
+        db.update_version_images_state(version_id, next_cursor)
+        return {
+            "images": [],
+            "next_cursor": next_cursor,
+            "downloaded_count": 0,
+            "message": ("Only images already downloaded so far" if next_cursor
+                        else "No more images available"),
+        }
+
+    # A page of its own, after the last one stored: the gallery orders
+    # by page, then by Civitai's position within it. The number used
+    # to come from the image count - reading every image to count
+    # them - and fell back onto the last page's number whenever that
+    # count was not a multiple of 100, interleaving the two batches.
+    page_number = db.get_cached_page_count(version_id) + 1
+
+    # Store images in database
+    db.store_images(version_id, page_number, new_images)
+
+    # Update cursor and sync date
+    db.update_version_images_state(version_id, next_cursor)
+
+    print(f"[ModelManager] Downloaded {len(new_images)} more images for version {version_id} "
+          f"(page {page_number}, has_more: {next_cursor is not None})")
+
+    return {
+        "images": stamp_levels(new_images),
+        "next_cursor": next_cursor,
+        "downloaded_count": len(new_images),
+    }
 
 
 def register(app: FastAPI):
@@ -139,7 +254,7 @@ def register(app: FastAPI):
     @app.post("/model-manager/images/resync")
     def resync_images(version_id: int = Form(default=0)):
         """
-        Replace a version's images with a fresh first batch (100 images).
+        Replace a version's images with a fresh first page, at the page size.
 
         The stored gallery is replaced only once the fetch has worked, and
         the generation data it held is carried over to the fresh copies, so
@@ -167,7 +282,7 @@ def register(app: FastAPI):
             # it first left a model with no images whenever Civitai failed.
             client = CivitaiClient.from_settings()
             try:
-                result = client.get_model_images(version_id, cursor=None, limit=100)
+                result = client.get_model_images(version_id, cursor=None, limit=gallery_page_size())
                 images = result.get("images", [])
                 # /images returns meta: null. Keep the generation data already
                 # stored, then look up the rest - a lookup that fails, or
@@ -236,70 +351,7 @@ def register(app: FastAPI):
                     status_code=404
                 )
 
-            cursor = version.get("next_images_cursor")
-
-            # Only images not already stored are new. A version whose first
-            # page a bulk sync stored has no cursor - the sync used not to
-            # keep one - so the first batch asked for is the one it already
-            # has: that batch is passed over and the next one asked for. It
-            # used to be stored again under a new page number, and the click
-            # showed nothing new.
-            stored = db.get_image_ids(version_id)
-            client = CivitaiClient.from_settings()
-            try:
-                for _ in range(LOAD_MORE_BATCHES):
-                    result = client.get_model_images(
-                        version_id=version_id,
-                        cursor=cursor,
-                        limit=100
-                    )
-                    new_images = [img for img in result.get("images", [])
-                                  if img.get("id") not in stored]
-                    next_cursor = result.get("next_cursor")
-                    if new_images or not next_cursor:
-                        break
-                    cursor = next_cursor
-                # /images returns meta: null - fetch generation data separately
-                enrich_images_with_generation_data(client, new_images)
-            finally:
-                client.close()
-
-            if not new_images:
-                # Nothing new: at the end of the gallery, or still among
-                # images already stored after LOAD_MORE_BATCHES batches, in
-                # which case the next click carries on from there.
-                db.update_version_images_state(version_id, next_cursor)
-                return JSONResponse({
-                    "success": True,
-                    "images": [],
-                    "next_cursor": next_cursor,
-                    "downloaded_count": 0,
-                    "message": ("Only images already downloaded so far" if next_cursor
-                                else "No more images available")
-                })
-
-            # A page of its own, after the last one stored: the gallery orders
-            # by page, then by Civitai's position within it. The number used
-            # to come from the image count - reading every image to count
-            # them - and fell back onto the last page's number whenever that
-            # count was not a multiple of 100, interleaving the two batches.
-            page_number = db.get_cached_page_count(version_id) + 1
-
-            # Store images in database
-            db.store_images(version_id, page_number, new_images)
-
-            # Update cursor and sync date
-            db.update_version_images_state(version_id, next_cursor)
-
-            print(f"[ModelManager] Downloaded {len(new_images)} more images for version {version_id} "
-                  f"(page {page_number}, has_more: {next_cursor is not None})")
-
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(new_images),
-                "next_cursor": next_cursor,
-                "downloaded_count": len(new_images)
-            })
+            return JSONResponse({"success": True, **download_more(db, version)})
 
         except Exception as e:
             import traceback
@@ -310,35 +362,29 @@ def register(app: FastAPI):
                 status_code=500
             )
 
-    @app.get("/model-manager/images/page")
-    async def get_image_page(version_id: int, offset: int = 0,
-                             limit: int = GALLERY_PAGE_SIZE,
-                             hide_nsfw_images: Optional[bool] = None,
-                             hide_promptless_images: Optional[bool] = None):
+    @app.get("/model-manager/images/gallery-page")
+    def get_gallery_page(version_id: int, page: int = 1,
+                         hide_nsfw_images: Optional[bool] = None,
+                         hide_promptless_images: Optional[bool] = None):
         """
-        One page of a version's gallery, through its two switches, with the
-        counts the gallery states. /model-manager/models/details serves the
-        first; this serves the rest, and any page again after a download.
+        Page `page` of a version's gallery, fetching from Civitai what the
+        library lacks to fill it - see gallery_page(). A plain def: it can
+        wait on Civitai.
 
         Args:
             version_id: Civitai version ID.
-            offset: How many of the filtered images come before the page.
-            limit: The most the page may hold, at most GALLERY_PAGE_SIZE.
+            page: Which page, from 1.
             hide_nsfw_images, hide_promptless_images: The switches; the
                 settings decide either one not sent.
-
-        Returns:
-            images, and images_state as the details endpoint gives it.
         """
         try:
             hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
                                                           hide_promptless_images)
-            images, state = version_gallery(get_models_db(), version_id, hide_nsfw,
-                                            hide_promptless, offset, limit)
-            return JSONResponse({"success": True, "images": images, "images_state": state})
+            return JSONResponse({"success": True, **gallery_page(
+                get_models_db(), version_id, page, hide_nsfw, hide_promptless)})
         except Exception as e:
             import traceback
-            print(f"[ModelManager] Get image page error: {e}")
+            print(f"[ModelManager] Gallery page error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e)},

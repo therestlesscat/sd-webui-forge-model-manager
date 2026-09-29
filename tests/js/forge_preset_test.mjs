@@ -9,7 +9,7 @@
 // goes in, since a preset change resets the sampler, steps and modules, and
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
@@ -90,7 +90,7 @@ const IMAGE = { id: 1, url: 'https://example.invalid/1.jpeg', browsingLevel: 1,
             seed: 1, Size: '1024x1024' } };
 let plan = null;
 const planAsked = [];
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     if (href.includes('/run/')) {
         await new Promise((r) => setTimeout(r, forgeDelay));
@@ -117,7 +117,7 @@ globalThis.fetch = async (url) => {
             models: [MODEL] }) };
     }
     return { ok: true, json: async () => ({ success: true }) };
-};
+});
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -266,12 +266,12 @@ document.createElement = (tag, ...rest) => {
     return createElement(tag, ...rest);
 };
 const fetchServer = globalThis.fetch;
-globalThis.fetch = async (url, ...rest) => {
+globalThis.fetch = withGalleryPages(async (url, ...rest) => {
     if (String(url).startsWith('https://example.invalid/')) {
         return { ok: true, blob: async () => new Blob(['jpeg'], { type: 'image/jpeg' }) };
     }
     return fetchServer(url, ...rest);
-};
+});
 const infotext = () => i2iPrompt.querySelector('textarea').value;
 const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
@@ -360,7 +360,7 @@ const library = {
     hashes: { aaaa: { version_id: 11, file_stem: 'add_detail', file_type: 'LORA' },
               bbbb: { version_id: 14, file_stem: 'easynegative', file_type: 'TextualInversion' } },
 };
-globalThis.fetch = async (url, ...rest) => {
+globalThis.fetch = withGalleryPages(async (url, ...rest) => {
     if (String(url).includes('/model-manager/image-resources')) {
         resourcesAsked.push(new URL(String(url), 'http://webui').searchParams);
         return { ok: true, json: async () => ({ success: true, ...structuredClone(library) }) };
@@ -383,7 +383,7 @@ globalThis.fetch = async (url, ...rest) => {
                         dddd: { version_id: null, model_id: null } } }) };
     }
     return fetchBefore(url, ...rest);
-};
+});
 const chipDownloads = [];
 const chipProgress = {};
 

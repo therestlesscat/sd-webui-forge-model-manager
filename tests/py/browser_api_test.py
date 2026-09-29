@@ -476,6 +476,10 @@ check('so does a model looked up by id',
       body['model']['modelVersions'][0]['images'][0].get('mm_level'), 4)
 
 # ----------------------------------------------------------------- the gallery
+# What a gallery's cache does, at pages of 2: Civitai's two images are a whole
+# page, so a page that has them needs nothing more. Pages proper are below.
+shared_opts = sys.modules['modules.shared'].opts
+shared_opts.model_manager_gallery_page_size = 2
 FRESH_VERSION = 90080
 civitai(images={'images': [{'id': 1, 'url': 'u1', 'meta': USABLE},
                            {'id': 2, 'url': 'u2', 'meta': USABLE}],
@@ -557,6 +561,8 @@ status, body = post('/model-manager/civitai/versions/%d/images/load-more' % BARE
                     model_id=90091)
 check('and a failure is a 500', status, 500)
 
+shared_opts.model_manager_gallery_page_size = 100
+
 # --------------------------------------------------------------- cached only
 forget()
 status, body = get('/model-manager/civitai/versions/%d/images/cached' % FRESH_VERSION)
@@ -570,8 +576,10 @@ check('an empty cache is empty, not an error', (status, body['images']), (200, [
 check('with no cursor', body['next_cursor'], None)
 
 # ------------------------------------------------------ a page at a time
-# The gallery used to be sent whole, and filtered and paged in the browser.
-# Now the switches are sent, and one page comes back with the counts.
+# A page is a slice of what is cached, in the order it was cached - 100 by
+# default - before the switches, which only decide which of its images are
+# shown; its counts say what they hid. It used to be 10 fetched at a time,
+# and pages of what passed the switches.
 PAGED_VERSION = 90140
 db.store_browse_images(90141, PAGED_VERSION, [
     {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': 8 if n % 4 == 0 else 1,
@@ -579,8 +587,10 @@ db.store_browse_images(90141, PAGED_VERSION, [
     for n in range(150)])
 forget()
 status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION)
-check('with no switches sent nothing is hidden, and a page is at most 100',
-      (len(body['images']), body['images_state']['filtered']), (100, 150))
+check('page 1 is the first 100 cached, with nothing hidden when no switch is sent',
+      ([i['id'] for i in body['images']], body['page']['count'], body['page']['more']),
+      ([95000 + n for n in range(100)], 100, True))
+check('the banner\'s totals are over everything cached', body['images_state']['filtered'], 150)
 check('the cache is still counted whole', body['cached_count'], 150)
 check('opening it looks up the prompts the cache lacks',
       [c[0] for c in Stub.calls].count('get_generation_data'), 1)
@@ -588,19 +598,50 @@ check('opening it looks up the prompts the cache lacks',
 forget()
 status, body = get('/model-manager/civitai/versions/%d/images' % PAGED_VERSION,
                    hide_nsfw_images='true', hide_promptless_images='true',
-                   offset=50, limit=100, backfill='false')
-kept = [95000 + n for n in range(150) if n % 4 and n % 3]
-check('the switches filter on the server', [i['id'] for i in body['images']], kept[50:150])
-state = body['images_state']
-check('with the counts the banner states',
-      (state['offset'], state['total'], state['filtered'], state['hidden_nsfw'],
-       state['hidden_promptless']),
-      (50, 150, len(kept), 38, 150 - 38 - len(kept)))
+                   page=2, backfill='false')
+rows = range(100, 150)
+kept = [95000 + n for n in rows if n % 4 and n % 3]
+check('page 2 is the rest, through the switches', [i['id'] for i in body['images']], kept)
+check('its note counts what each switch hid, of the images it holds',
+      {k: body['page'][k] for k in ('number', 'count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'more')},
+      {'number': 2, 'count': 50, 'shown': len(kept), 'hidden_nsfw': 13,
+       'hidden_promptless': 50 - 13 - len(kept), 'more': False})
 check('each page judged, as every image the browser is sent is',
       all('mm_level' in i for i in body['images']), True)
-check('and a page turn does not look up the prompts the cache lacks',
+check('and another page does not look up the prompts the cache lacks',
       [c for c in Stub.calls if c[0] == 'get_generation_data'], [])
 
+# A page the cache cannot fill is filled from Civitai first, 100 at a time.
+TOPUP = 90150
+db.store_browse_images(90151, TOPUP, [{'id': 96000 + n, 'url': 't%d' % n, 'meta': USABLE}
+                                      for n in range(30)])
+db.store_browse_cursor(90151, TOPUP, 'after-30')
+civitai(images={'images': [{'id': 96100 + n, 'url': 'u%d' % n, 'meta': USABLE} for n in range(70)],
+                'next_cursor': None})
+status, body = get('/model-manager/civitai/versions/%d/images' % TOPUP, model_id=90151,
+                   backfill='false')
+asked_images = [c for c in Stub.calls if c[0] == 'get_model_images']
+check('a page the cache cannot fill asks Civitai for more, from where it left off',
+      (len(asked_images), asked_images[0][2] if asked_images else None), (1, 'after-30'))
+check('and is whole: the 30 cached, then the 70 that came',
+      [i['id'] for i in body['images']],
+      [96000 + n for n in range(30)] + [96100 + n for n in range(70)])
+check('fetched, with nothing more on Civitai',
+      (body['from_cache'], body['fetched_count'], body['page']['more']), (False, 70, False))
+
+# Civitai sending back what is cached - a stale cursor - is asked once, not
+# until the loop's limit, and what came counts for nothing.
+STALE = 90160
+db.store_browse_images(90161, STALE, [{'id': 97000 + n, 'url': 's%d' % n, 'meta': USABLE}
+                                      for n in range(10)])
+db.store_browse_cursor(90161, STALE, 'stale')
+civitai(images={'images': [{'id': 97000 + n, 'url': 's%d' % n, 'meta': USABLE} for n in range(10)],
+                'next_cursor': 'stale'})
+status, body = get('/model-manager/civitai/versions/%d/images' % STALE, model_id=90161,
+                   backfill='false')
+check('a batch of nothing new ends the filling, after one ask',
+      (len([c for c in Stub.calls if c[0] == 'get_model_images']), body['fetched_count'],
+       body['page']['count']), (1, 0, 10))
 
 # ------------------------------------------------------------------ downloads
 class FakeDownloads:

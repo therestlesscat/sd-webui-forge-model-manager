@@ -136,36 +136,89 @@ export function checker(label = '') {
 
 /**
  * What the Civitai Browser's gallery endpoint answers for these images, as a
- * stub server gives it: the images through the two switches the request
- * names, one page of them, and the counts. The page no longer filters or
- * pages - the server does, in api/images.image_list_page(), which
- * browser_api_test.py holds to the meanings used here. Each image needs the
- * mm_level the server stamps; the prompt floor is MIN_PROMPT_LENGTH.
+ * stub server gives it: page N of them - the Nth slice of 100, before the
+ * switches the request names - its images through those switches, and its
+ * counts, with the totals over all of them for the banner. The page does not
+ * filter; the server does, in api/civitai.py, which browser_api_test.py holds
+ * to the meanings used here. Each image needs the mm_level the server stamps;
+ * the prompt floor is MIN_PROMPT_LENGTH. `more` says whether a page follows
+ * the last of them - Civitai has more.
  */
-export function browserGalleryAnswer(href, images, extra = {}) {
+export function browserGalleryAnswer(href, images, extra = {}, { more = false, size = 100 } = {}) {
     const params = new URL(href, 'http://webui').searchParams;
     const hideNsfw = params.get('hide_nsfw_images') === 'true';
     const hidePromptless = params.get('hide_promptless_images') === 'true';
-    const offset = Number(params.get('offset') || 0);
-    const limit = Number(params.get('limit') || 100);
+    const number = Number(params.get('page') || 1);
     const safe = (img) => typeof img.mm_level === 'number' && img.mm_level <= 3;
     const readable = (img) => ((img.meta || {}).prompt || '').trim().length >= 4;
-    const nsfwKept = images.filter((img) => safe(img) || !hideNsfw);
-    const shown = nsfwKept.filter((img) => readable(img) || !hidePromptless);
+    const count = (list) => {
+        const nsfwKept = list.filter((img) => safe(img) || !hideNsfw);
+        const shown = nsfwKept.filter((img) => readable(img) || !hidePromptless);
+        return {
+            shown,
+            counts: {
+                total: list.length,
+                filtered: shown.length,
+                hidden_nsfw: list.length - nsfwKept.length,
+                hidden_promptless: nsfwKept.length - shown.length,
+                hidden: list.length - shown.length,
+                nsfw_count: list.filter((img) => !safe(img) && (readable(img) || !hidePromptless)).length,
+                promptless_count: nsfwKept.filter((img) => !readable(img)).length,
+            },
+        };
+    };
+    const rows = images.slice((number - 1) * size, number * size);
+    const page = count(rows);
     return {
         success: true,
-        images: shown.slice(offset, offset + limit),
+        images: page.shown,
         next_cursor: null,
-        images_state: {
-            offset,
-            total: images.length,
-            filtered: shown.length,
-            hidden_nsfw: images.length - nsfwKept.length,
-            hidden_promptless: nsfwKept.length - shown.length,
-            hidden: images.length - shown.length,
-            nsfw_count: images.filter((img) => !safe(img) && (readable(img) || !hidePromptless)).length,
-            promptless_count: nsfwKept.filter((img) => !readable(img)).length,
-        },
+        page: { number, size, count: rows.length, shown: page.counts.filtered,
+                hidden_nsfw: page.counts.hidden_nsfw, hidden_promptless: page.counts.hidden_promptless,
+                more: images.length > number * size || more, error: null },
+        images_state: count(images).counts,
         ...extra,
+    };
+}
+
+/**
+ * A stub server that answers the Model Manager's gallery pages from its own
+ * details stub. The details used to carry the gallery's images; they now
+ * carry its totals, and page 1 is asked for after - /model-manager/images/
+ * gallery-page. A suite whose details stub still lists the images, with the
+ * switches it was asked about, wraps its fetch in this: a page request is
+ * put to that stub, with the same switches and the last model's path, and
+ * its images come back as page 1, the only page, its note counting what the
+ * stub's state says was hidden. Paging itself is gallery_test.mjs's.
+ */
+export function withGalleryPages(fetch) {
+    let lastPath = null;
+    return async (url, init) => {
+        const href = String(url);
+        if (href.includes('/model-manager/models/details')) {
+            lastPath = new URL(href, 'http://webui').searchParams.get('path');
+        }
+        if (!href.includes('/model-manager/images/gallery-page')) return fetch(url, init);
+        const asked = new URL(href, 'http://webui').searchParams;
+        const details = new URL('/model-manager/models/details', 'http://webui');
+        if (lastPath !== null) details.searchParams.set('path', lastPath);
+        // So a stub counting the details it was asked for can leave these out.
+        details.searchParams.set('via_page', '1');
+        for (const key of ['hide_nsfw_images', 'hide_promptless_images']) {
+            if (asked.get(key) !== null) details.searchParams.set(key, asked.get(key));
+        }
+        const body = await (await fetch(details.pathname + details.search, init)).json();
+        const model = body.model || {};
+        const state = model.images_state || {};
+        const number = Number(asked.get('page') || 1);
+        const images = number === 1 ? (model.images || []) : [];
+        return { ok: true, json: async () => ({
+            success: true,
+            images,
+            images_state: state,
+            page: { number, size: 100, count: images.length + (state.hidden_nsfw || 0) + (state.hidden_promptless || 0),
+                    shown: images.length, hidden_nsfw: state.hidden_nsfw || 0,
+                    hidden_promptless: state.hidden_promptless || 0, more: false, error: null },
+        }) };
     };
 }

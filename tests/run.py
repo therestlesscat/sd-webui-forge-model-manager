@@ -68,10 +68,7 @@ def have_linkedom():
 
 # A setting read once at import cannot be toggled mid-run, so these suites are
 # run once per value instead. The label says which run it was.
-VARIANTS = {
-    'gallery_test.mjs': [('continuous', {'MM_IMAGE_BROWSING': 'continuous'}),
-                         ('pages', {'MM_IMAGE_BROWSING': 'pages'})],
-}
+VARIANTS = {}
 
 
 # ---------------------------------------------------------------- the map

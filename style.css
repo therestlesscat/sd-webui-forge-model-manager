@@ -1416,6 +1416,14 @@ body.mm-modal-open {
     cursor: pointer;
 }
 
+/* What a page held, under its images: shown, and what each switch hid. */
+.mm-page-note {
+    text-align: center;
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
+    padding: 4px 0;
+}
+
 /* Where a page starts in the continuous image list: a rule either side of
    its number, so Show More reads as moving on to another page. */
 .mm-page-separator {

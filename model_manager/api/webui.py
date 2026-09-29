@@ -70,9 +70,6 @@ def register(app: FastAPI):
     async def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         has_api_key = False
-        # The gallery asks for this before it renders, so it has to survive
-        # the samplers being unreadable - hence its own try, like the key.
-        image_browsing = "continuous"
         # How the Civitai Browser's gallery opens, asked each time a model is;
         # the Model Manager's asks the details endpoint, which reads the same
         # settings.
@@ -90,8 +87,6 @@ def register(app: FastAPI):
             has_api_key = bool(
                 (getattr(shared.opts, 'model_manager_civitai_api_key', '') or '').strip()
             )
-            image_browsing = getattr(
-                shared.opts, 'model_manager_image_browsing', 'continuous')
             gallery_hide_nsfw = bool(getattr(
                 shared.opts, 'model_manager_gallery_hide_nsfw', True))
             hide_promptless_images = bool(getattr(
@@ -113,7 +108,6 @@ def register(app: FastAPI):
                 "samplers": samplers,
                 "schedulers": schedulers,
                 "has_api_key": has_api_key,
-                "image_browsing": image_browsing,
                 "nsfw_detection": nsfw_detection,
                 "gallery_hide_nsfw": gallery_hide_nsfw,
                 "hide_promptless_images": hide_promptless_images,
@@ -127,7 +121,7 @@ def register(app: FastAPI):
             # the banner should not depend on samplers being readable.
             return JSONResponse(
                 {"success": False, "error": str(e), "has_api_key": has_api_key,
-                 "image_browsing": image_browsing, "nsfw_detection": nsfw_detection,
+                 "nsfw_detection": nsfw_detection,
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images},
                 status_code=500

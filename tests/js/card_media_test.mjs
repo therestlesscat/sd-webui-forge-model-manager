@@ -13,7 +13,7 @@
 // under a .mp4 name, so a card asking for the original got 17 MB of GIF,
 // read it as video by its name, could not play it, and stayed blank (model
 // 11718). A copy is a real MP4.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -83,7 +83,7 @@ const GALLERY = [
     { id: 2, url: `${C}/original=true/moving.mp4`, width: 720, height: 1280, type: 'video',
       mm_level: 1, meta: { prompt: 'waves roll in on a beach' } },
 ];
-globalThis.fetch = async (url) => {
+globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/models/details')) {
@@ -96,7 +96,7 @@ globalThis.fetch = async (url) => {
         return reply({ success: true, total: 1, page: 1, page_size: 20, models: [MODEL] });
     }
     return reply({ success: true });
-};
+});
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
