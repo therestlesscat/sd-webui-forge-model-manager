@@ -39,15 +39,19 @@ def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,
     readable = [r["prompt_length"] >= MIN_PROMPT_LENGTH for r in rows]
     nsfw_kept = [i for i in range(len(rows)) if safe[i] or not hide_nsfw]
     shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
+    both = sum(1 for i in range(len(rows))
+               if hide_nsfw and hide_promptless and not safe[i] and not readable[i])
     return [rows[i] for i in shown], {
         "total": len(rows),
         "filtered": len(shown),
-        "hidden_nsfw": len(rows) - len(nsfw_kept),
+        "hidden_nsfw": len(rows) - len(nsfw_kept) - both,
+        "hidden_both": both,
         "hidden_promptless": len(nsfw_kept) - len(shown),
         "hidden": len(rows) - len(shown),
         "nsfw_count": sum(1 for i in range(len(rows))
                           if not safe[i] and (readable[i] or not hide_promptless)),
         "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
+        "promptless_total": sum(1 for r in readable if not r),
     }
 
 
@@ -177,6 +181,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             "shown": page_counts["filtered"],
             "hidden_nsfw": page_counts["hidden_nsfw"],
             "hidden_promptless": page_counts["hidden_promptless"],
+            "hidden_both": page_counts["hidden_both"],
             "more": len(order) > page * size,
             "error": None,
         },

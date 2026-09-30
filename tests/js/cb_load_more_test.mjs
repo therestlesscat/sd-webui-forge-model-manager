@@ -114,6 +114,28 @@ await waitFor('the reload', () => separators().length === 0);
 check('a switch starts again from page 1, asked for afresh', [cards().length, notes(), asked(from)],
       [3, ['Displaying 3 images for page 1'], [['1', '']]]);
 
+// An explicit image with no usable prompt on each page: both filters hide it,
+// and the banner adds up what each page counts apart - what each switch alone
+// hides, what both do, and every unusable prompt on the prompt switch.
+cached.splice(0, cached.length, image(1, 1), { ...image(2, 8), meta: null }, image(3, 1),
+              { ...image(4, 1), meta: null }, { ...image(5, 16), meta: null }, image(6, 8));
+await window.cbToggleShowAllImages(false);
+await waitFor('page 1 again', () => separators().length === 0 && cards().length === 2);
+await window.cbLoadMoreImages();
+await waitFor('page 2', () => separators().length === 1);
+const switchText = (id) => (document.getElementById(id)?.closest('label')?.textContent || '').replace(/\s+/g, ' ').trim();
+check('the banner adds the pages up, counting what both filters hide apart',
+      [sentence(), switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],
+      ['6 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt, '
+       + '2 hidden due to both', 'Show NSFW (1)', 'Show unusable prompts (3)']);
+await window.cbToggleShowAllImages(true);
+await waitFor('page 1 again', () => separators().length === 0);
+await window.cbLoadMoreImages();
+await waitFor('page 2', () => separators().length === 1);
+check('NSFW shown: its number as it was, and the prompt switch\'s as it was',
+      [switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],
+      ['Show NSFW (1)', 'Show unusable prompts (3)']);
+
 // The viewer: a click on an image opens it on the card as it is.
 const viewer = () => document.querySelector('.mm-viewer');
 cards()[0].querySelector('img[data-view-index]').dispatchEvent(new window.Event('click', { bubbles: true }));

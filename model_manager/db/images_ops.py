@@ -248,7 +248,10 @@ class ImagesOps:
             max_nsfw_level: If set, count images with effective_nsfw_level <= this value.
 
         Returns:
-            Dict with 'total' and 'filtered' counts, and 'hidden' (total - filtered).
+            Dict with 'total' and 'filtered' counts, and 'hidden' (total - filtered):
+            'hidden_nsfw' and 'hidden_promptless', what each filter alone hides,
+            and 'hidden_both', what both do - the three adding up to 'hidden';
+            and 'promptless_total', every image with an unusable prompt.
         """
         with self._cursor() as cursor:
             # Total count
@@ -295,14 +298,43 @@ class ImagesOps:
             )
             promptless_count = cursor.fetchone()[0]
 
+            # Every image with an unusable prompt, whatever the NSFW filter
+            # does: the number on the prompt switch, which so stays put
+            # however either switch is set.
+            cursor.execute(
+                "SELECT COUNT(*) FROM images WHERE version_id = ?"
+                + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                (version_id,)
+            )
+            promptless_total = cursor.fetchone()[0]
+
+            # An image both filters hide is counted apart: credited to one of
+            # them, that switch's number changed when the other was flipped -
+            # 51 NSFW hidden, 49 shown once ticked, the other 2 still hidden
+            # for their prompt. So each switch's number is what it alone
+            # hides, and stays put when it is flipped.
+            both = 0
+            if max_nsfw_level is not None and require_prompt:
+                cursor.execute(
+                    # Not kept by the NSFW filter - a missing level included,
+                    # as its "<= ?" hides that too.
+                    "SELECT COUNT(*) FROM images WHERE version_id = ?"
+                    " AND NOT COALESCE(effective_nsfw_level <= ?, 0)"
+                    + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                    (version_id, max_nsfw_level)
+                )
+                both = cursor.fetchone()[0]
+
             return {
                 "total": total,
                 "filtered": filtered,
-                "hidden_nsfw": total - nsfw_kept,
+                "hidden_nsfw": total - nsfw_kept - both,
                 "hidden_promptless": nsfw_kept - filtered,
+                "hidden_both": both,
                 "hidden": total - filtered,
                 "nsfw_count": nsfw_count,
                 "promptless_count": promptless_count,
+                "promptless_total": promptless_total,
             }
 
     def get_image_ids(self, version_id: int) -> Set[int]:

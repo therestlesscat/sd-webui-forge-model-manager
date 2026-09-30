@@ -468,6 +468,39 @@ for label, kwargs, want in (
     check('%s, NSFW and no-prompt count %s' % (label, want),
           (counts['nsfw_count'], counts['promptless_count']), want)
 
+# An image both filters hide (90008: NSFW, no prompt) is counted apart, not
+# credited to either: credited to the NSFW filter, the NSFW switch said 2 while
+# hiding and 1 once ticked - it showed one, the other still hidden for its
+# prompt (#29: 51, then 49). Each switch's number is what it alone hides.
+both_hiding = db.get_image_counts(VERSION, max_nsfw_level=SFW_MAX, require_prompt=True)
+nsfw_shown = db.get_image_counts(VERSION, require_prompt=True)
+prompts_shown = db.get_image_counts(VERSION, max_nsfw_level=SFW_MAX)
+check('both hiding: what each alone hides, and what both do',
+      (both_hiding['hidden_nsfw'], both_hiding['hidden_promptless'], both_hiding['hidden_both']), (1, 4, 1))
+check('which add up to what is hidden',
+      both_hiding['hidden_nsfw'] + both_hiding['hidden_promptless'] + both_hiding['hidden_both'],
+      both_hiding['hidden'])
+check('the NSFW switch\'s number, hiding, is what it shows once ticked',
+      both_hiding['hidden_nsfw'], nsfw_shown['nsfw_count'])
+check('and the prompt switch\'s, likewise',
+      both_hiding['hidden_promptless'], prompts_shown['promptless_count'])
+check('the prompt switch\'s number is every image with an unusable prompt, however they are set',
+      [c['promptless_total'] for c in (both_hiding, nsfw_shown, prompts_shown, db.get_image_counts(VERSION))],
+      [5, 5, 5, 5])
+check('one filter showing, nothing is hidden by both',
+      (nsfw_shown['hidden_both'], prompts_shown['hidden_both']), (0, 0))
+from model_manager.api.images import filter_images                # noqa: E402
+rows = db.get_all_images_for_version(VERSION)
+for label, hide_nsfw, hide_promptless in (('both hiding', True, True), ('NSFW shown', False, True),
+                                          ('prompts shown', True, False), ('both showing', False, False)):
+    stored = db.get_image_counts(VERSION, max_nsfw_level=SFW_MAX if hide_nsfw else None,
+                                 require_prompt=hide_promptless)
+    _, paged = filter_images(rows, hide_nsfw, hide_promptless)
+    keys = ('filtered', 'hidden_nsfw', 'hidden_promptless', 'hidden_both', 'nsfw_count', 'promptless_count',
+            'promptless_total')
+    check('%s: a page counts as the database does' % label,
+          {k: paged[k] for k in keys}, {k: stored[k] for k in keys})
+
 status, body = get('/model-manager/models/details', path=facts['linked_paths'][0],
                    hide_nsfw_images='false', hide_promptless_images='false')
 state = body['model']['images_state']

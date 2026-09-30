@@ -155,12 +155,16 @@ export function browserGalleryAnswer(href, images, extra = {}, { more = false, s
     const count = (list) => {
         const nsfwKept = list.filter((img) => safe(img) || !hideNsfw);
         const shown = nsfwKept.filter((img) => readable(img) || !hidePromptless);
+        // Hidden by both filters: counted apart, in neither's number.
+        const both = hideNsfw && hidePromptless ? list.filter((img) => !safe(img) && !readable(img)).length : 0;
         return {
             shown,
             counts: {
                 total: list.length,
                 filtered: shown.length,
-                hidden_nsfw: list.length - nsfwKept.length,
+                hidden_nsfw: list.length - nsfwKept.length - both,
+                hidden_both: both,
+                promptless_total: list.filter((img) => !readable(img)).length,
                 hidden_promptless: nsfwKept.length - shown.length,
                 hidden: list.length - shown.length,
                 nsfw_count: list.filter((img) => !safe(img) && (readable(img) || !hidePromptless)).length,
@@ -177,7 +181,8 @@ export function browserGalleryAnswer(href, images, extra = {}, { more = false, s
         next_cursor: hasMore ? String(number * size) : null,
         page: { number, size, count: rows.length, shown: page.counts.filtered,
                 hidden_nsfw: page.counts.hidden_nsfw, hidden_promptless: page.counts.hidden_promptless,
-                nsfw_count: page.counts.nsfw_count, promptless_count: page.counts.promptless_count,
+                hidden_both: page.counts.hidden_both, nsfw_count: page.counts.nsfw_count,
+                promptless_count: page.counts.promptless_count, promptless_total: page.counts.promptless_total,
                 more: hasMore, error: null },
         ...extra,
     };

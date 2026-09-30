@@ -559,10 +559,12 @@ status, body = get('/model-manager/civitai/versions/90140/images', page=2, curso
 kept = [95000 + n for n in range(100, 150) if n % 4 and n % 3]
 check('page 2 is the rest, through the switches', [i['id'] for i in body['images']], kept)
 check('its note counts what each switch hid, and each kind it holds, for the banner to add up',
-      {k: body['page'][k] for k in ('number', 'count', 'shown', 'hidden_nsfw',
-                                    'hidden_promptless', 'nsfw_count', 'promptless_count', 'more')},
-      {'number': 2, 'count': 50, 'shown': len(kept), 'hidden_nsfw': 13,
-       'hidden_promptless': 50 - 13 - len(kept), 'nsfw_count': 9,
+      {k: body['page'][k] for k in ('number', 'count', 'shown', 'hidden_nsfw', 'hidden_promptless',
+                                    'hidden_both', 'nsfw_count', 'promptless_count', 'more')},
+      # 13 NSFW, 4 of them without a prompt too: those are hidden by both, so
+      # the NSFW switch says 9 - what ticking it shows.
+      {'number': 2, 'count': 50, 'shown': len(kept), 'hidden_nsfw': 9,
+       'hidden_promptless': 50 - 13 - len(kept), 'hidden_both': 4, 'nsfw_count': 9,
        'promptless_count': 50 - 13 - len(kept), 'more': False})
 
 # Failures: the first request is the whole page; a later one leaves a part.

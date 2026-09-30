@@ -1152,20 +1152,26 @@ export function nsfwModelNote() {
  *     id, onchange (a fixed call, never data), label, reason (for "hidden due
  *     to ..."), showing (ticked), hidden (what it hides now), count (what it
  *     would show once ticked, i.e. its kind among what the other filter lets
- *     through), note (a word on what decides it), and applies (false to leave
+ *     through), total (if given, the number on the switch whatever either
+ *     switch says - the prompt switch's, every image with an unusable
+ *     prompt), note (a word on what decides it), and applies (false to leave
  *     it out altogether).
+ * @param {number} [options.both] - images both switches hide: counted in
+ *     neither's `hidden`, so each switch's number is what it alone hides and
+ *     does not change when it is flipped - and said as a clause of its own.
  */
 export function renderFilterBanner({ matching, total, onScreen, word = 'stored', bannerClass,
-                                     labelClass, switches }) {
+                                     labelClass, switches, both = 0 }) {
     if (!total) return '';
     const active = switches.filter((s) => s.applies !== false);
 
     const clauses = active
         .filter((s) => !s.showing && s.hidden > 0)
         .map((s) => `${s.hidden} hidden due to ${s.reason}`);
+    if (both > 0) clauses.push(`${both} hidden due to both`);
 
     const offered = active
-        .map((s) => ({ ...s, number: s.showing ? s.count : s.hidden }))
+        .map((s) => ({ ...s, number: s.total ?? (s.showing ? s.count : s.hidden) }))
         .filter((s) => s.number > 0 || s.showing);
 
     const counted = `${total} ${total === 1 ? 'image' : 'images'} ${word}`
@@ -1509,8 +1515,8 @@ export function pageSeparator(page) {
 
 /**
  * What a page held, under its images: "Displaying 30 images for page 1 ·
- * 50 hidden due to NSFW filter · 20 hidden due to unusable prompt", the
- * switches' own words for why. The last page says there is no more - `end`,
+ * 50 hidden due to NSFW filter · 20 hidden due to unusable prompt · 2 hidden
+ * due to both", the switches' own words for why. The last page says there is no more - `end`,
  * which a gallery that does not come from Civitai leaves out - and a page
  * Civitai failed to fill says so.
  */
@@ -1519,6 +1525,7 @@ export function pageNoteHtml(page, { end = 'no more images on Civitai' } = {}) {
     const parts = [`Displaying ${shown} ${shown === 1 ? 'image' : 'images'} for page ${page.number}`];
     if (page.hidden_nsfw) parts.push(`${page.hidden_nsfw} hidden due to NSFW filter`);
     if (page.hidden_promptless) parts.push(`${page.hidden_promptless} hidden due to unusable prompt`);
+    if (page.hidden_both) parts.push(`${page.hidden_both} hidden due to both`);
     if (page.error) parts.push(`more could not be fetched from Civitai: ${page.error}`);
     else if (!page.more && end) parts.push(end);
     return `<div class="mm-page-note">${escapeHtml(parts.join(' · '))}</div>`;

@@ -164,9 +164,13 @@ let hidePromptlessInitialised = false;
 // filtering happens there and a hidden image never reaches the page.
 let nsfwImageCount = 0;
 let promptlessImageCount = 0;
-// The images the prompt filter is hiding right now, not counting any the NSFW
-// filter hides first - the other half of the banner's "hidden due to" split.
+// The images the prompt filter alone is hiding right now - the other half of
+// the banner's "hidden due to" split - and those both filters hide, counted in
+// neither, so each switch's number stays put when it is flipped.
 let hiddenPromptlessCount = 0;
+let hiddenByBothCount = 0;
+// Every image with an unusable prompt: the number on the prompt switch.
+let promptlessImageTotal = null;
 // The gallery is a list of pages, each a slice of what is stored, in gallery
 // order, before the switches filter it - see model_manager/gallery.py. Load
 // more adds the next. currentImages holds the images drawn, every page's in
@@ -884,8 +888,10 @@ function applyImagesState(state) {
     filteredImageCount = state.filtered_count || 0;
     hiddenImageCount = state.hidden_nsfw ?? state.hidden_count ?? 0;
     hiddenPromptlessCount = state.hidden_promptless || 0;
+    hiddenByBothCount = state.hidden_both || 0;
     nsfwImageCount = state.nsfw_count || 0;
     promptlessImageCount = state.promptless_count || 0;
+    promptlessImageTotal = state.promptless_total ?? null;
 }
 
 /**
@@ -1980,6 +1986,7 @@ function imagesBannerHtml() {
         onScreen: currentImages.length,
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
+        both: hiddenByBothCount,
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
@@ -1987,7 +1994,7 @@ function imagesBannerHtml() {
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
-              count: promptlessImageCount,
+              count: promptlessImageCount, total: promptlessImageTotal ?? undefined,
               onchange: 'window.mmToggleShowPromptless(this.checked)' },
         ],
     });
@@ -2459,6 +2466,7 @@ function generationsBannerHtml() {
         onScreen: drawnGenerationImages(),
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
+        both: state.hidden_both || 0,
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: state.hidden_nsfw, count: state.nsfw_count,
@@ -2466,7 +2474,7 @@ function generationsBannerHtml() {
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: state.hidden_promptless,
-              count: state.promptless_count,
+              count: state.promptless_count, total: state.promptless_total ?? undefined,
               onchange: 'window.mmToggleShowPromptless(this.checked)' },
         ],
     });

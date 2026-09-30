@@ -106,6 +106,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
             "shown": counts["filtered"],
             "hidden_nsfw": counts["hidden_nsfw"],
             "hidden_promptless": counts["hidden_promptless"],
+            "hidden_both": counts["hidden_both"],
             "more": stored > page * size or civitai_has_more(version),
             "error": error,
         },
@@ -128,8 +129,10 @@ def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -
         "hidden_count": counts["hidden"],
         "hidden_nsfw": counts["hidden_nsfw"],
         "hidden_promptless": counts["hidden_promptless"],
+        "hidden_both": counts["hidden_both"],
         "nsfw_count": counts["nsfw_count"],
         "promptless_count": counts["promptless_count"],
+        "promptless_total": counts["promptless_total"],
         "hide_nsfw_images": hide_nsfw,
         "hide_promptless_images": hide_promptless,
     }
@@ -145,21 +148,26 @@ def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
                   hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     The images the two switches let through, in order, and the counts - as
-    ImagesOps.get_image_counts() means each - over all of them.
+    ImagesOps.get_image_counts() means each - over all of them: what each
+    filter alone hides, and what both do.
     """
     safe = [image_level(img) <= SFW_MAX for img in images]
     readable = [_has_readable_prompt(img) for img in images]
     nsfw_kept = [i for i in range(len(images)) if safe[i] or not hide_nsfw]
     shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
+    both = sum(1 for i in range(len(images))
+               if hide_nsfw and hide_promptless and not safe[i] and not readable[i])
     return [images[i] for i in shown], {
         "total": len(images),
         "filtered": len(shown),
-        "hidden_nsfw": len(images) - len(nsfw_kept),
+        "hidden_nsfw": len(images) - len(nsfw_kept) - both,
+        "hidden_both": both,
         "hidden_promptless": len(nsfw_kept) - len(shown),
         "hidden": len(images) - len(shown),
         "nsfw_count": sum(1 for i in range(len(images))
                           if not safe[i] and (readable[i] or not hide_promptless)),
         "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
+        "promptless_total": sum(1 for r in readable if not r),
     }
 
 
