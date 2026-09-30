@@ -2843,7 +2843,8 @@ body.mm-modal-open {
 /* Notes to the user per release (release_notes.py), at the top of a tab: a
    banner each, coloured by kind - a feature to know of, something to do
    (the banner's own amber), a warning. */
-.mm-note-feature {
+.mm-note-feature,
+.mm-note-intro {
     --mm-banner-accent: var(--primary-500, #3b82f6);
     --mm-banner-tint: rgba(59, 130, 246, 0.08);
 }

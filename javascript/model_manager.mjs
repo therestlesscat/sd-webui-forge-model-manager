@@ -5627,6 +5627,24 @@ function openSyncDialog() {
     refreshSyncEstimate();
 }
 
+/**
+ * The Sync dialog, from elsewhere - a note: with Force sync and its mode
+ * chosen if asked ("unidentified": the files Civitai has not identified
+ * yet). Opened, never started.
+ */
+window.mmOpenSyncDialog = ({ force = null } = {}) => {
+    openSyncDialog();
+    if (!force) return;
+    const scope = document.querySelector('input[name="mm_sync_scope"][value="force"]');
+    const mode = document.getElementById('mm_sync_force_mode');
+    if (mode) mode.value = force;
+    if (scope) {
+        scope.checked = true;
+        scope.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    mode?.dispatchEvent(new Event('change', { bubbles: true }));
+};
+
 function closeSyncDialog() {
     const dialog = document.getElementById('mm_sync_dialog');
     if (dialog) dialog.style.display = 'none';

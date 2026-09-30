@@ -1,5 +1,42 @@
 [
   {
+    "id": "intro-model-manager",
+    "version": "0.41.4",
+    "kind": "intro",
+    "audience": "new",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Getting your models in",
+    "text": "Two steps put the models on your disk here. Scan Disk finds your model files and reads any .civitai.info beside them - quick, and without the internet. Then Sync with Civitai, choosing Force sync → All unidentified: it reads each file Civitai has not identified yet and asks what it is, bringing names, images, trigger words and licences. That takes a while for a big library, and a Civitai API key makes it about ten times faster. After that, a plain sync keeps them up to date.",
+    "actions": [
+      {
+        "id": "scan_disk",
+        "label": "Open Scan Disk"
+      },
+      {
+        "id": "sync_unidentified",
+        "label": "Open Sync"
+      }
+    ]
+  },
+  {
+    "id": "intro-civitai-browser",
+    "version": "0.41.4",
+    "kind": "intro",
+    "audience": "new",
+    "tabs": [
+      "civitai_browser"
+    ],
+    "title": "Find and download models",
+    "text": "Search Civitai by name, type, base model and more. Open a model to see its versions, files and example images; Download saves it in the right folder and adds it to your library. A Civitai API key, in the settings, gives six requests a second instead of one every two seconds, fetches image prompts, and is needed for some downloads.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "connection"
+    }
+  },
+  {
     "id": "shared-database",
     "version": "0.41.0",
     "kind": "warning",

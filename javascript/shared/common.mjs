@@ -204,11 +204,14 @@ if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGe
 const NOTE_ACTIONS = {
     reread_headers: () => window.mmOpenScanDialog?.({ rereadHeaders: true }),
     settings: (action) => window.mmOpenSettings?.({ section: action.section || null }),
+    scan_disk: () => window.mmOpenScanDialog?.(),
+    sync_unidentified: () => window.mmOpenSyncDialog?.({ force: 'unidentified' }),
 };
-const NOTE_ICONS = { feature: 'i', action: '!', warning: '!' };
-// On top: the important ones, then what needs doing, then warnings, then
-// features - each newest first, as the server sends them.
-const NOTE_ORDER = { action: 0, warning: 1, feature: 2 };
+const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };
+// On top: a tab's introduction, for someone new; then the important ones,
+// then what needs doing, then warnings, then features - each newest first,
+// as the server sends them.
+const NOTE_ORDER = { intro: -2, action: 0, warning: 1, feature: 2 };
 // How many edges show under the top note, however many notes there are.
 const NOTE_EDGES = 2;
 const noteTabs = {};        // tab -> { containerId, notes }
@@ -241,7 +244,8 @@ function drawNotes(tab, attempt = 0) {
         if (attempt < API_KEY_BANNER_TRIES) setTimeout(() => drawNotes(tab, attempt + 1), 250);
         return;
     }
-    const rank = (note) => (note.important ? -1 : NOTE_ORDER[note.kind] ?? NOTE_ORDER.feature);
+    const rank = (note) => (note.kind === 'intro' ? NOTE_ORDER.intro
+        : note.important ? -1 : NOTE_ORDER[note.kind] ?? NOTE_ORDER.feature);
     const shown = state.notes.filter((note) => !window.mmNotesDismissed.has(note.id))
         .map((note, at) => ({ note, at }))
         .sort((a, b) => rank(a.note) - rank(b.note) || a.at - b.at)
@@ -270,10 +274,11 @@ function drawNotes(tab, attempt = 0) {
 
 function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
     const kind = NOTE_ICONS[note.kind] ? note.kind : 'feature';
-    const action = note.action && NOTE_ACTIONS[note.action.id]
-        ? `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(note.action.id)}"
-                   data-note-section="${escapeHtml(note.action.section || '')}">`
-          + `${escapeHtml(note.action.label || 'Do it')}</button>` : '';
+    const actions = (note.actions || (note.action ? [note.action] : []))
+        .filter((action) => action && NOTE_ACTIONS[action.id])
+        .map((action) => `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(action.id)}"
+                   data-note-section="${escapeHtml(action.section || '')}">${escapeHtml(action.label || 'Do it')}</button>`)
+        .join('');
     const steps = of > 1 ? `
         <span class="mm-note-steps" data-note-pile="${escapeHtml(tab)}">
             <button type="button" class="mm-note-step" data-note-step="-1" title="Previous note"
@@ -291,7 +296,7 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
                 <span class="mm-banner-note">${escapeHtml(note.text)}</span>
             </span>
             <span class="mm-note-buttons">
-                ${action}
+                ${actions}
                 <button type="button" class="mm-btn secondary mm-btn-small" data-note-dismiss
                         title="Hide this note; the settings window's What's new keeps it">Dismiss</button>
                 ${steps}

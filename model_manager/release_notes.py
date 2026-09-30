@@ -13,11 +13,14 @@ A note is:
     id        stable, never reused: dismissing is kept by it
     version   the release that brought it; a note from a later version than
               this one is not shown
-    kind      "feature", "action" (something to do) or "warning"
-    audience  "everyone", or "update": only for a database that existed
-              before that version - a fresh install has nothing to redo
+    kind      "feature", "action" (something to do), "warning", or "intro": a
+              tab's introduction for someone new, first in its pile
+    audience  "everyone"; "update": only for a database that existed before
+              that version - a fresh install has nothing to redo; or "new":
+              only for one created by that version or later - a first install
     tabs      where it shows: "model_manager", "civitai_browser", "generations"
     title, text
+    actions   optional, several buttons, each as `action`
     action    optional {"id", "label", "section"}: a button that does it - the
               ids are the page's (NOTE_ACTIONS in javascript/shared/common.mjs);
               "settings" opens the settings window at `section`, one of its
@@ -43,10 +46,10 @@ from .version import VERSION
 
 NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "release_notes.json")
 
-KINDS = ("feature", "action", "warning")
-AUDIENCES = ("everyone", "update")
+KINDS = ("feature", "action", "warning", "intro")
+AUDIENCES = ("everyone", "update", "new")
 TABS = ("model_manager", "civitai_browser", "generations")
-ACTIONS = ("reread_headers", "settings")
+ACTIONS = ("reread_headers", "settings", "scan_disk", "sync_unidentified")
 
 
 def _custom_database() -> bool:
@@ -89,14 +92,17 @@ def applies(note: Dict[str, Any], created_by: Optional[str]) -> bool:
     Whether a note is for this install: from this version or before, and -
     if it is for people updating - their database is older than the note.
     A database with no record of what created it is one from before notes
-    were kept, and every note is for it.
+    were kept, and every note is for it - but those for a first install.
     """
     if version_key(note["version"]) > version_key(VERSION):
         return False
     when = note.get("when")
     if when and not (when in CONDITIONS and CONDITIONS[when]()):
         return False
-    if note.get("audience") != "update" or created_by is None:
+    audience = note.get("audience")
+    if audience == "new":
+        return created_by is not None and version_key(created_by) >= version_key(note["version"])
+    if audience != "update" or created_by is None:
         return True
     return version_key(created_by) < version_key(note["version"])
 
