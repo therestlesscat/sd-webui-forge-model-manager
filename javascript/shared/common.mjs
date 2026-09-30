@@ -134,6 +134,35 @@ if (typeof onAfterUiUpdate === 'function') {
     });
 }
 
+// ------------------------------------------------------ loading a gallery
+// A model's images come from Civitai through the server, and take seconds;
+// nothing used to show meanwhile - the old gallery stayed, and a switch
+// changed looked ignored. So, from the moment it starts: a bar at the top of
+// the gallery, over an empty one saying so when a model or version is opened,
+// or over the current images, dimmed and not answering, when a switch changes.
+// Both tabs' galleries.
+
+const LOADING_BAR = '<div class="mm-loading-bar" role="progressbar" aria-label="Loading images"></div>';
+
+/** A gallery about to be replaced: cleared, saying it is loading. */
+export function showGalleryLoading(containerId, text = 'Loading images...') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.classList.remove('mm-gallery-loading');
+    container.innerHTML = `${LOADING_BAR}<div class="mm-images-loading">${escapeHtml(text)}</div>`;
+    container.style.display = 'block';
+}
+
+/** A gallery as it is, while its first page is fetched again: dimmed, its switches off. */
+export function dimGalleryWhileLoading(containerId, on) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.classList.toggle('mm-gallery-loading', on);
+    container.querySelector(':scope > .mm-loading-bar')?.remove();
+    if (on) container.insertAdjacentHTML('afterbegin', LOADING_BAR);
+    container.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.disabled = on; });
+}
+
 // ------------------------------------------------------ saved searches
 // A tab's Save Search: one set of filters, kept in the database (the same in
 // every browser, and in both WebUIs when they share it).

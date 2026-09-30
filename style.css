@@ -1145,6 +1145,39 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+/* Something is being fetched: a thin strip with a segment sliding along it,
+   for as long as it takes - there is no share done to show. Galleries. */
+.mm-loading-bar {
+    position: relative;
+    height: 3px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--border-color-primary, #374151);
+}
+
+.mm-loading-bar::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 30%;
+    background: var(--primary-500, #3b82f6);
+    animation: mm-loading-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes mm-loading-slide {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+}
+
+/* A gallery whose images are being fetched again: shown, but dimmed and not
+   answering, under the bar. */
+.mm-gallery-loading > :not(.mm-loading-bar) {
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 0.15s;
+}
+
 .mm-images-loading,
 .mm-images-empty,
 .mm-images-error {

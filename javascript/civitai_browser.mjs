@@ -22,6 +22,8 @@ const {
     onReady,
     showApiKeyBanner,
     showNotes,
+    showGalleryLoading,
+    dimGalleryWhileLoading,
     savedSearch,
     saveSearch,
     apiCall,
@@ -717,6 +719,9 @@ async function openModel(index, versionIndex = 0) {
     });
 
     renderModelDetails();
+    // At once, before even the settings are asked: the last model's images
+    // stayed up for a second or more, as if the click had done nothing.
+    showImagesLoading();
 
     // The switches start as the settings say - not as the search does:
     // Include NSFW models and Only with usable prompts choose which models
@@ -1005,6 +1010,11 @@ function takeImagesPage(result, { append }) {
     return { page, images };
 }
 
+// While a model's images load: a bar, from the moment it starts
+// (showGalleryLoading, dimGalleryWhileLoading in common.mjs).
+const showImagesLoading = () => showGalleryLoading('cb_images');
+const dimImagesWhileLoading = (on) => dimGalleryWhileLoading('cb_images', on);
+
 // Load images from API (with full metadata)
 async function loadImagesFromVersion() {
     // Which images are safe depends on the NSFW prompt words too.
@@ -1021,10 +1031,7 @@ async function loadImagesFromVersion() {
     isLoadingImages = true;
 
     const container = document.getElementById('cb_images');
-    if (container) {
-        container.innerHTML = '<div class="mm-images-loading">Loading images...</div>';
-        container.style.display = 'block';
-    }
+    showImagesLoading();
 
     try {
         const result = await fetchImagesPage(1);
@@ -1187,15 +1194,28 @@ function refreshImagesChrome() {
 
 /** A switch changed: the gallery again from page 1, at its first image. */
 async function reloadFromFirstPage() {
+    dimImagesWhileLoading(true);
+    let failed = '';
     try {
         const result = await fetchImagesPage(1);
-        if (!result?.success) return;
-        takeImagesPage(result, { append: false });
-        renderImages();
-        await scrollToBrowserImagesTop();
+        if (result === null) return;              // a newer fetch has taken over
+        if (!result.success) {
+            failed = result.error || 'no answer';
+        } else {
+            takeImagesPage(result, { append: false });
+            dimImagesWhileLoading(false);
+            renderImages();
+            await scrollToBrowserImagesTop();
+            return;
+        }
     } catch (e) {
         console.error('[CivitaiBrowser] Load images error:', e);
+        failed = e.message || String(e);
     }
+    // It used to fail without a word, the switch looking ignored.
+    dimImagesWhileLoading(false);
+    document.getElementById('cb_images')?.insertAdjacentHTML('afterbegin',
+        `<div class="mm-images-error">The images could not be loaded again: ${escapeHtml(failed)}</div>`);
 }
 
 // Toggle show all images checkbox. The server filters, so the gallery is
