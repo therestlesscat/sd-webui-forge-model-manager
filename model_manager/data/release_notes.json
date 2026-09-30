@@ -3,7 +3,7 @@
     "id": "intro-model-manager",
     "version": "0.41.4",
     "kind": "intro",
-    "audience": "new",
+    "audience": "everyone",
     "important": true,
     "tabs": [
       "model_manager"
@@ -25,7 +25,7 @@
     "id": "intro-civitai-browser",
     "version": "0.41.4",
     "kind": "intro",
-    "audience": "new",
+    "audience": "everyone",
     "important": true,
     "tabs": [
       "civitai_browser"
