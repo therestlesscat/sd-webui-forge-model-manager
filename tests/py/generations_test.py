@@ -353,6 +353,19 @@ if has_fastapi:
     check('and the banner is told what it hid',
           {k: body['state'][k] for k in ('total', 'filtered', 'hidden_nsfw', 'nsfw_count')},
           {'total': 4, 'filtered': 2, 'hidden_nsfw': 2, 'nsfw_count': 2})
+    # An image both switches hide is counted apart, as in the Civitai gallery
+    # (api_test.py): each switch's number is what it alone hides.
+    from model_manager.api.generations import _filtered                 # noqa: E402
+    rows = [{'level': 1, 'prompt_length': 40}, {'level': 8, 'prompt_length': 40},
+            {'level': 1, 'prompt_length': 0}, {'level': 8, 'prompt_length': 0}]
+    _, both_hiding = _filtered(rows, True, True)
+    _, nsfw_shown = _filtered(rows, False, True)
+    check('your generations: what each switch alone hides, and what both do',
+          [both_hiding[k] for k in ('hidden_nsfw', 'hidden_promptless', 'hidden_both', 'hidden')], [1, 1, 1, 3])
+    check('the NSFW switch\'s number, hiding, is what it shows once ticked',
+          both_hiding['hidden_nsfw'], nsfw_shown['nsfw_count'])
+    check('and the prompt switch\'s every image with an unusable prompt, either way',
+          [both_hiding['promptless_total'], nsfw_shown['promptless_total']], [2, 2])
     check('an image made with a LoRA is in the LoRA\'s gallery too, and only those that used it',
           [i['position'] for i in page(LORA_A, hide_nsfw_images='false')['generations'][0]['images']],
           [0, 1])

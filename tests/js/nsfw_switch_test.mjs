@@ -1,12 +1,17 @@
 // The Model Manager gallery's filter banner: one sentence, two switches.
 //
-//   4 images stored · 1 match the filters (1 shown) · 2 hidden due to NSFW filter, 1 hidden due to unusable prompt
-//                                             [ ] Show NSFW (2)  [ ] Show unusable prompts (1)
+//   4 images stored · 1 match the filters (1 shown) · 1 hidden due to NSFW filter,
+//   1 hidden due to unusable prompt, 1 hidden due to both
+//                                             [ ] Show NSFW (1)  [ ] Show unusable prompts (2)
 //
-// The hidden figures add up with what matches to the total, so an image both
-// filters hide is counted once - by the NSFW filter, which filters first. An
-// unticked switch states the same number as its clause. Once ticked, its
-// clause drops out and the switch says how many of its kind it now shows.
+// The hidden figures add up with what matches to the total, and an image both
+// filters hide is counted once, apart - "due to both" - not credited to either:
+// credited to the NSFW filter, its switch said 2 while hiding and 1 once
+// ticked (#29). An unticked switch states the same number as its clause, which
+// is what it alone hides: once ticked, its clause drops out and the switch says
+// how many of its kind it now shows - the same number. The prompt switch says
+// every image with an unusable prompt, however either switch is set: its
+// clause says how many it alone hides.
 //
 // The switches read "Show ...", ticked to show, as they do everywhere - but the
 // server is still asked whether to *hide* (hide_nsfw_images,
@@ -44,12 +49,15 @@ function answer(hideNsfw, hidePromptless) {
     const nsfwPass = LIBRARY.filter((x) => !hideNsfw || !x.nsfw);
     const promptPass = LIBRARY.filter((x) => !hidePromptless || x.prompt);
     const shown = nsfwPass.filter((x) => promptPass.includes(x));
+    const both = LIBRARY.filter((x) => !nsfwPass.includes(x) && !promptPass.includes(x)).length;
     return {
         shown,
-        hidden_nsfw: LIBRARY.length - nsfwPass.length,
+        hidden_nsfw: LIBRARY.length - nsfwPass.length - both,
         hidden_promptless: nsfwPass.length - shown.length,
+        hidden_both: both,
         nsfw_count: promptPass.filter((x) => x.nsfw).length,
         promptless_count: nsfwPass.filter((x) => !x.prompt).length,
+        promptless_total: LIBRARY.filter((x) => !x.prompt).length,
     };
 }
 
@@ -81,7 +89,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
         if (everyImageLacksAPrompt) {
             return { ok: true, json: async () => ({ success: true, model: { ...MODEL, images: [],
                 images_state: { version_id: 5001, total_count: 2, filtered_count: 0, hidden_nsfw: 0,
-                                hidden_promptless: 2, nsfw_count: 0, promptless_count: 2,
+                                hidden_promptless: 2, nsfw_count: 0, promptless_count: 2, promptless_total: 2,
                                 hide_nsfw_images: hideNsfw, hide_promptless_images: true } } }) };
         }
         const a = answer(hideNsfw, hidePromptless);
@@ -89,6 +97,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
             ...MODEL, images: a.shown.map(toImage),
             images_state: { version_id: 5001, total_count: LIBRARY.length,
                             filtered_count: a.shown.length, hidden_nsfw: a.hidden_nsfw, hidden_promptless: a.hidden_promptless,
+                            hidden_both: a.hidden_both, promptless_total: a.promptless_total,
                             nsfw_count: a.nsfw_count, promptless_count: a.promptless_count,
                             hide_nsfw_images: hideNsfw,
                             hide_promptless_images: hidePromptless } } }) };
@@ -123,9 +132,10 @@ await waitFor('the gallery', () => cards() > 0);
 // ------------------------------------------------------------- both hiding
 check('there is one banner, not one per filter', banners().length, 1);
 check('whose sentence adds up: shown plus each hidden figure is the total', sentence(),
-      '4 images stored · 1 match the filters (1 shown) · 2 hidden due to NSFW filter, 1 hidden due to unusable prompt');
-check('with both switches on its right, each stating its clause\'s number',
-      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (2)', 'Show unusable prompts (1)']);
+      '4 images stored · 1 match the filters (1 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt, '
+      + '1 hidden due to both');
+check('with both switches on its right: NSFW what it alone hides, prompts every unusable one',
+      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (2)']);
 check('the switches sit inside that one banner',
       banners()[0]?.querySelectorAll(`#${NSFW}, #${PROMPT}`).length, 2);
 check('neither ticked while its filter hides', [ticked(NSFW), ticked(PROMPT)], [false, false]);
@@ -140,7 +150,8 @@ await waitFor('the reload', () => cards() === 2);
 check('ticking NSFW asks the server not to hide them', asked, [['false', 'true']]);
 check('its clause drops out, and the NSFW image without a prompt moves to the other',
       sentence(), '4 images stored · 2 match the filters (2 shown) · 2 hidden due to unusable prompt');
-check('the ticked switch says how many NSFW it now shows',
+check('the ticked switch says how many NSFW it now shows - the number it said while hiding - '
+      + 'and the prompt switch has not moved',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (2)']);
 check('and is ticked', ticked(NSFW), true);
 
@@ -155,8 +166,8 @@ await window.mmToggleShowPromptless(true);
 await waitFor('the reload', () => cards() === 2);
 check('ticking the prompt switch asks the server not to hide them', asked, [['true', 'false']]);
 check('its clause drops out', sentence(), '4 images stored · 2 match the filters (2 shown) · 2 hidden due to NSFW filter');
-check('and it says how many it now shows',
-      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (2)', 'Show unusable prompts (1)']);
+check('and it still says every unusable one',
+      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (2)', 'Show unusable prompts (2)']);
 check('ticked', ticked(PROMPT), true);
 
 asked.length = 0;
@@ -175,6 +186,16 @@ check('and the message blames neither filter in particular',
       images().querySelector('.mm-page-note')?.textContent,
       'Displaying 0 images for page 1 · 2 hidden due to unusable prompt · no more images on Civitai');
 check('rather than telling you to untick an NSFW box', images().textContent.includes('Uncheck'), false);
+
+// ------------------------------------------ the note under a page, likewise
+{
+    const { pageNoteHtml } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+    const note = pageNoteHtml({ number: 1, shown: 1, hidden_nsfw: 1, hidden_promptless: 1, hidden_both: 1, more: true });
+    check('a page\'s note says what both filters hid, apart',
+          note.replace(/<[^>]+>/g, ''),
+          'Displaying 1 image for page 1 · 1 hidden due to NSFW filter · 1 hidden due to unusable prompt · '
+          + '1 hidden due to both');
+}
 
 // --------------------------------------- a gallery the filters leave whole
 // It used to have no banner at all, and so nowhere saying what is stored.

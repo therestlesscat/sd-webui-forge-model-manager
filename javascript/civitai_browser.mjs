@@ -986,11 +986,16 @@ async function fetchImagesPage(number) {
 
 /** Every loaded page's counts added up: what the banner states. */
 function addUpPages() {
-    const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'nsfw_count', 'promptless_count'];
+    const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'hidden_both', 'nsfw_count',
+                  'promptless_count', 'promptless_total'];
     const sums = Object.fromEntries(keys.map((key) =>
         [key, imagePages.reduce((sum, page) => sum + (page[key] || 0), 0)]));
     return { total: sums.count, filtered: sums.shown, hidden_nsfw: sums.hidden_nsfw,
-             hidden_promptless: sums.hidden_promptless, nsfw_count: sums.nsfw_count,
+             hidden_promptless: sums.hidden_promptless, hidden_both: sums.hidden_both,
+             nsfw_count: sums.nsfw_count,
+             // Only when every page says it: a page without it would make it short.
+             promptless_total: imagePages.every((page) => typeof page.promptless_total === 'number')
+                 ? sums.promptless_total : undefined,
              promptless_count: sums.promptless_count };
 }
 
@@ -1103,6 +1108,7 @@ function imagesBannerHtml() {
         word: 'loaded',
         bannerClass: 'cb-nsfw-warning',
         labelClass: 'cb-show-all-label',
+        both: counts.hidden_both || 0,
         switches: [
             { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: showAllNsfwImages, hidden: counts.hidden_nsfw || 0,
@@ -1111,7 +1117,7 @@ function imagesBannerHtml() {
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: showPromptlessImages, hidden: counts.hidden_promptless || 0,
-              count: counts.promptless_count || 0,
+              count: counts.promptless_count || 0, total: counts.promptless_total,
               onchange: 'window.cbToggleShowPromptless(this.checked)' },
         ],
     });
