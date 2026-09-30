@@ -3,8 +3,8 @@ Records the images you generate, in txt2img and img2img.
 
 An always-on script with nothing on screen: it only hands Forge's hooks to
 model_manager.generations, where what each hook can see, and why each is
-used, is explained. Setting Settings -> Model Manager -> "record each image
-generated" off stops it.
+used, is explained. The "Your generations" setting off stops it, and hides
+every tab of them (model_manager.generations.generations_enabled).
 """
 from modules import script_callbacks, scripts
 

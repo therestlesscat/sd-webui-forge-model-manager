@@ -880,13 +880,15 @@ export function sortBaseModels(values) {
 }
 
 // ---------------------------------------------------- which judges prompts
-// Settings -> Model Manager -> NSFW detection: a trained model, or the word
+// The settings' NSFW detection: a trained model, or the word
 // list alone. The model is sometimes wrong in ways nobody can point at, so
 // wherever it decides what is hidden, the page says so and where to switch.
 // The word list says nothing: it does exactly what it says.
 
+// Text, not markup: some pages set it as textContent. So it says where the
+// setting is rather than linking to it.
 export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. '
-    + 'Settings \u2192 Model Manager \u2192 NSFW detection switches to a simple word list.';
+    + 'NSFW detection, in the settings (\u2699 at the top right of the tab), switches to a simple word list.';
 
 let nsfwDetection = null;
 let nsfwDetectionAsked = null;

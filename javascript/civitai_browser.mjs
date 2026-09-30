@@ -309,6 +309,13 @@ function sfwOnlyEnabled() {
 // Grey out "Only Show Models with SFW images" while NSFW models are included, saying why,
 // and while it is in force, say above the results what it is doing: its
 // pages come back short, and without this that reads as something broken.
+// Listened for on the page, not on the checkboxes, and redrawn after Gradio
+// redraws the tab: see syncSfwOnlyBanner() in model_manager.mjs.
+document.addEventListener('change', (event) => {
+    if (event.target?.id === 'cb_nsfw' || event.target?.id === 'cb_sfw_only') syncSfwOnlyEnabled();
+});
+if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncSfwOnlyEnabled);
+
 function syncSfwOnlyEnabled() {
     const box = document.getElementById('cb_sfw_only');
     const label = document.getElementById('cb_sfw_only_label');
@@ -1785,8 +1792,6 @@ function init() {
     }
     syncCheckpointTypeEnabled();
 
-    document.getElementById('cb_nsfw')?.addEventListener('change', syncSfwOnlyEnabled);
-    document.getElementById('cb_sfw_only')?.addEventListener('change', syncSfwOnlyEnabled);
     syncSfwOnlyEnabled();
     loadNsfwDetection().then(syncSfwOnlyEnabled);
 

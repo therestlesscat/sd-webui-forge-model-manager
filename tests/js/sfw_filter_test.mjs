@@ -39,7 +39,8 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const $ = (id) => document.getElementById(id);
 const status = () => $('cb_status').textContent;
 const labelText = (id) => $(id).closest('label').textContent.replace(/\s+/g, ' ').trim();
-const toggle = (id, on) => { $(id).checked = on; $(id).dispatchEvent(new window.Event('change')); };
+// A change bubbles, as in a browser: the page listens for it, not the box.
+const toggle = (id, on) => { $(id).checked = on; $(id).dispatchEvent(new window.Event('change', { bubbles: true })); };
 
 async function search() {
     asked.length = 0;
@@ -86,8 +87,11 @@ check('Only Show Models with SFW images explains what it checks and what it cost
 const banner = () => $('cb_sfw_only_banner');
 const bannerShown = () => banner().style.display !== 'none';
 check('with it unticked there is no banner', bannerShown(), false);
+// Gradio redraws a tab by replacing its markup: a listener on the old box was
+// lost with it, and ticking the new one showed no banner.
+$('cb_sfw_only').outerHTML = $('cb_sfw_only').outerHTML;
 toggle('cb_sfw_only', true);
-check('ticking it puts up a banner', bannerShown(), true);
+check('ticking it puts up a banner - the box redrawn by Gradio, as it is', bannerShown(), true);
 check('above the status line, where the short page is reported',
       banner().nextElementSibling === $('cb_status'), true);
 check('saying what the tooltip says, word for word',
@@ -101,8 +105,11 @@ check('with the word list judging, the banner says nothing of a trained model',
       $('cb_sfw_only_banner_model')?.textContent, '');
 check('and where to find the setting that fills every page, and that it is not recommended',
       [settingNote.includes("Fill every page with 'Only Show Models with SFW images'"),
-       settingNote.includes('Settings → Model Manager'), settingNote.includes('not recommended')],
+       settingNote.includes('in the settings, under Advanced'), settingNote.includes('not recommended')],
       [true, true, true]);
+check('with a link that opens the settings window there',
+      $('cb_sfw_only_banner_setting')?.querySelector('.mm-banner-link')?.getAttribute('onclick'),
+      "window.mmOpenSettings && window.mmOpenSettings({ section: 'advanced' }); return false;");
 toggle('cb_sfw_only', false);
 check('unticking it takes the banner down', bannerShown(), false);
 

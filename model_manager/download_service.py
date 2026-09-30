@@ -344,7 +344,9 @@ class DownloadService:
 
                     if status_code == 401:
                         progress.status = "error"
-                        progress.error = "Authentication required. Please add your Civitai API key in Settings > Model Manager."
+                        progress.error = ("Civitai asks for an API key for this download. Add one in the settings "
+                                          "(\u2699 at the top right of the Model Manager or Civitai Browser tab), "
+                                          "under Civitai connection.")
                         return False
                     elif status_code == 403:
                         progress.status = "error"
