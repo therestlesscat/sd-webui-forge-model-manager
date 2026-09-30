@@ -140,11 +140,11 @@ check('one image fills the card\'s image column, as most generations are one',
 check('four share it', cards()[1].querySelector('.mm-generation-preview').className.includes('preview-4'), true);
 
 const firstImage = cards()[0].querySelector('img');
-check('an image opens full size, at this WebUI\'s own address for its record',
-      firstImage.getAttribute('data-open-url'), 'http://localhost:7860/model-manager/generations/images/11/file');
+check('an image opens in the viewer, by its record',
+      firstImage.getAttribute('data-view-generation-image'), '11');
 const missing = cards()[1].querySelectorAll('.mm-generation-tile img')[1];
 check('one whose file is gone says so, and opens nothing',
-      [missing.getAttribute('alt'), missing.hasAttribute('data-open-url')], ['Image unavailable', false]);
+      [missing.getAttribute('alt'), missing.hasAttribute('data-view-generation-image')], ['Image unavailable', false]);
 check('the card says when, how, and how many',
       cards()[1].querySelector('.mm-generation-when').textContent.includes('img2img · 6 images'), true);
 check('with the settings as a Civitai image\'s card shows them',
@@ -171,7 +171,43 @@ await window.mmShowGenerationResources(1);
 const modal = document.querySelector('.mm-resources-modal');
 check('which opens the Resources dialog on them, as a Civitai image\'s does',
       Array.from(modal?.querySelectorAll('.mm-res-name') || []).map((n) => n.textContent.trim()), ['Add Detail v1']);
-modal?.closest('.mm-modal-overlay, .mm-modal, .modal-overlay')?.remove();
+document.querySelectorAll('.mm-modal-overlay').forEach((overlay) => overlay.remove());
+
+// The viewer: a click on an image opens it on the images the cards show, each
+// with its own Send, Resources, Delete and rating.
+const viewer = () => document.querySelector('.mm-viewer');
+cards()[0].querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('a click on an image opens the viewer on it',
+      [!!viewer(), viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src')],
+      [true, 'http://localhost:7860/model-manager/generations/images/11/file']);
+check('with its own Send, Resources and Delete, and its rating row, below it',
+      [Array.from(viewer().querySelectorAll('.mm-viewer-actions > button')).map((b) => b.textContent.trim()),
+       viewer().querySelectorAll('.mm-viewer-actions .mm-rate-chip').length],
+      [['Send to txt2img', 'Resources (1)', 'Delete'], 5]);
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'ArrowRight' }));
+check('→ the next card\'s images', viewer()?.querySelector('.mm-viewer-where')?.textContent, '1 of 6 in this generation');
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
+check('and Esc closes it', viewer(), null);
+// Its Send saves where the gallery was when the viewer opened, for "Previous
+// Position": while it is open the page is held still.
+Object.defineProperty(window, 'scrollY', { value: 1234, configurable: true });
+cards()[0].querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
+Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+localStorage.removeItem('mm_scroll_position');
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'ArrowRight' }));
+const sentId = viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src').match(/images\/(\d+)\//)?.[1];
+viewer().querySelector('[data-gen-send]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('a Send from the viewer saves where the gallery was, and closes it',
+      [localStorage.getItem('mm_scroll_position'), viewer()], ['1234', null]);
+const intoView = [];
+window.HTMLElement.prototype.scrollIntoView = function() { intoView.push(this); };
+window.mmRestoreScrollPosition();
+check('and Previous Position brings back the image sent, not the one the viewer opened on',
+      [sentId !== '11', intoView.map((el) => el.getAttribute('data-view-generation-image'))], [true, [sentId]]);
+Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+await new Promise((resolve) => setTimeout(resolve, 50));
+pasted.txt2img = 0;
+pasted.img2img = 0;
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);

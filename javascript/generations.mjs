@@ -37,6 +37,12 @@ const {
     IMAGE_PLACEHOLDER_SVG,
 } = await import(sharedModule.href);
 
+const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
+viewerModule.search = sharedModule.search;
+const {
+    openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete, dialogShowing,
+} = await import(viewerModule.href);
+
 const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
 settingsModule.search = sharedModule.search;
 await import(settingsModule.href);
@@ -686,188 +692,108 @@ function showModel(path) {
 }
 
 // ------------------------------------------------------------- the viewer
-// An image over the page, as large as it goes, with ← and → through the
-// images the grid shows - a batch's or a group's first four, as on its tile -
-// and on, loading the next part into the grid, past the last. Send and
-// Delete below it; beside it, everything recorded, in a panel that folds away
-// (remembered). The wheel steps too; Esc closes it.
-const VIEWER_PANEL_KEY = 'mm_generations_viewer_panel_closed';
-// The wheel: how far it has to turn for one image, and how soon the next.
-const WHEEL_STEP = 50;
-const WHEEL_PAUSE_MS = 150;
-let viewer = null;       // {tile, image, element, wheel, wheelAt}
+// The shared viewer (shared/viewer.mjs), through the images the grid shows -
+// a batch's or a group's first four, as on its tile - and on, loading the
+// next part into the grid, past the last. Below the image: Send, Delete, ⋯
+// and the rating row; beside it, everything recorded.
 
-/** Open the viewer on image `image` of tile `index`. */
-window.genView = async function(index, image = 0) {
-    if (!tiles[index]) return;
-    if (!viewer) openViewer();
-    showInViewer(index, image);
+/** The grid's images in order, each by its tile and its place on it. */
+function viewerImages() {
+    const list = [];
+    tiles.forEach((tile, t) => (tile.images || []).forEach((image, i) => list.push({ t, i })));
+    return list;
+}
+
+function viewerAt(index) {
+    const place = viewerImages()[index];
+    if (!place) return {};
+    const tile = tiles[place.t];
+    return { t: place.t, tile, image: tile.images[place.i], i: place.i };
+}
+
+const viewerSource = {
+    count: () => viewerImages().length,
+    media: (index) => {
+        const { image } = viewerAt(index);
+        return { url: image?.exists ? new URL(image.url || '', window.location.origin).href : IMAGE_PLACEHOLDER_SVG,
+                 video: false };
+    },
+    buttons: (index) => {
+        const { tile, image } = viewerAt(index);
+        if (!image) return '';
+        const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
+        return `${ratingRowHtml(image, 'window.genRateInViewer(%)')}
+            <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${mode}</button>
+            <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>
+            ${menuFor(image.checkpoint_path).length
+                ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gen-menu title="More">⋯</button>' : ''}`;
+    },
+    details: (index) => {
+        const { tile, image } = viewerAt(index);
+        return image ? infoHtml(tile, image, new URL(image.url || '', window.location.origin).href) : '';
+    },
+    where: (index) => {
+        const { tile, i } = viewerAt(index);
+        if (!tile) return '';
+        const shown = tile.images.length;
+        const count = tile.matching_count || shown;
+        const what = tile.kind === 'group' ? 'this group' : 'this generation';
+        if (count <= 1) return '';
+        return shown < count ? `${i + 1} of the ${shown} shown · ${count} in ${what}` : `${i + 1} of ${count} in ${what}`;
+    },
+    more: () => more,
+    loadMore: async () => {
+        while (loading) await new Promise((resolve) => setTimeout(resolve, 50));
+        await loadNext();
+    },
+    onClick: (event, index) => {
+        const { tile, image } = viewerAt(index);
+        if (!image) return false;
+        if (event.target.closest?.('[data-gen-send]')) {
+            closeViewer();
+            sendImage(tile, image);
+            return true;
+        }
+        if (event.target.closest?.('[data-gen-delete]')) {
+            deleteFromViewer();
+            return true;
+        }
+        const more = event.target.closest?.('[data-gen-menu]');
+        if (more) {
+            openMenu(more, menuFor(image.checkpoint_path));
+            return true;
+        }
+        return false;
+    },
+    onClose: (index) => {
+        closeMenu();
+        const { t } = viewerAt(index);
+        if (t !== undefined) document.querySelector(`#gen_grid .gen-set[data-tile="${t}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    },
 };
 
-function openViewer() {
-    const element = document.createElement('div');
-    element.className = 'gen-viewer' + (readFlag(VIEWER_PANEL_KEY) ? ' gen-viewer-collapsed' : '');
-    element.setAttribute('role', 'dialog');
-    element.innerHTML = `
-        <div class="gen-viewer-stage">
-            <button type="button" class="gen-viewer-step gen-viewer-prev" data-step="-1" title="Previous (←)">‹</button>
-            <div class="gen-viewer-main">
-                <div class="gen-viewer-frame"><img class="gen-viewer-image" alt="Generated image"></div>
-                <div class="gen-viewer-bar">
-                    <span class="gen-viewer-where"></span>
-                    <span class="gen-viewer-rate"></span>
-                    <span class="gen-viewer-actions">
-                        <button type="button" class="mm-btn primary mm-btn-small" data-send></button>
-                        <button type="button" class="mm-btn secondary mm-btn-small" data-delete>Delete</button>
-                        <button type="button" class="mm-btn secondary mm-btn-small" data-menu title="More">⋯</button>
-                    </span>
-                </div>
-            </div>
-            <button type="button" class="gen-viewer-step gen-viewer-next" data-step="1" title="Next (→)">›</button>
-        </div>
-        <aside class="gen-viewer-panel">
-            <button type="button" class="gen-viewer-panel-toggle" data-panel title="Show or hide the details"></button>
-            <div class="gen-viewer-info"></div>
-        </aside>
-        <button type="button" class="gen-viewer-close" data-close title="Close (Esc)">×</button>`;
-    element.addEventListener('click', (event) => {
-        const target = event.target;
-        const step = target.closest?.('[data-step]');
-        if (step) return stepViewer(Number(step.getAttribute('data-step')));
-        if (target.closest?.('[data-close]')) return closeViewer();
-        if (target.closest?.('[data-panel]')) {
-            const closed = element.classList.toggle('gen-viewer-collapsed');
-            writeFlag(VIEWER_PANEL_KEY, closed);
-            return undefined;
-        }
-        if (target.closest?.('[data-send]')) return sendFromViewer();
-        const more = target.closest?.('[data-menu]');
-        if (more) return openMenu(more, viewerMenu());
-        if (target.closest?.('[data-delete]')) return deleteFromViewer();
-        // Around the image - not on it, a button or the details - closes it.
-        if (target.matches?.('.gen-viewer, .gen-viewer-stage, .gen-viewer-main, .gen-viewer-frame, '
-                             + '.gen-viewer-bar, .gen-viewer-where')) return closeViewer();
-        return undefined;
-    });
-    element.addEventListener('wheel', onViewerWheel, { passive: false });
-    document.body.appendChild(element);
-    // The page under it stays where it is: the wheel is the viewer's.
-    document.body.classList.add('mm-modal-open');
-    viewer = { tile: 0, image: 0, element, wheel: 0, wheelAt: 0 };
-}
+/** Open the viewer on image `image` of tile `index`. */
+window.genView = function(index, image = 0) {
+    const at = viewerImages().findIndex((place) => place.t === index && place.i === image);
+    if (at >= 0) openViewer(viewerSource, at);
+};
 
 /**
- * The wheel steps through the images - down on, up back - one at a time
- * however hard it turns: a trackpad sends many small turns, a wheel a few
- * large ones. Over the details it scrolls them, while they have further to go.
- */
-function onViewerWheel(event) {
-    if (!viewer) return;
-    const info = event.target.closest?.('.gen-viewer-info');
-    if (info && info.scrollHeight > info.clientHeight) {
-        const atTop = info.scrollTop <= 0;
-        const atBottom = info.scrollTop + info.clientHeight >= info.scrollHeight - 1;
-        if ((event.deltaY < 0 && !atTop) || (event.deltaY > 0 && !atBottom)) return;
-    }
-    event.preventDefault();
-    const now = Date.now();
-    viewer.wheel += event.deltaY;
-    if (Math.abs(viewer.wheel) < WHEEL_STEP || now - viewer.wheelAt < WHEEL_PAUSE_MS) return;
-    const by = viewer.wheel > 0 ? 1 : -1;
-    viewer.wheel = 0;
-    viewer.wheelAt = now;
-    stepViewer(by);
-}
-
-/**
- * The keys: the viewer's ← → and Esc while it is open; else Esc goes back up
- * a level - while this tab is the one shown, and nothing else is asking.
+ * The keys this tab has besides the viewer's: Esc closes the ⋯ menu, or -
+ * no viewer open - goes back up a level, while this tab is the one shown.
  */
 function onKey(event) {
-    if (document.querySelector('.mm-dialog-backdrop')) return;     // a question is open
+    if (dialogShowing() && !document.querySelector('.gen-menu')) return;     // a question is open
     if (event.key === 'Escape' && closeMenu()) {
         event.preventDefault?.();
+        event.stopImmediatePropagation?.();
         return;
     }
-    if (viewer) {
-        if (event.key === 'ArrowLeft') stepViewer(-1);
-        else if (event.key === 'ArrowRight') stepViewer(1);
-        else if (event.key === 'Escape') closeViewer();
-        else return;
-        event.preventDefault?.();
-        return;
-    }
+    if (viewerIsOpen()) return;
     if (event.key === 'Escape' && levels.length && byId('gen_grid')?.offsetParent !== null) {
         event.preventDefault?.();
         window.genBack();
     }
-}
-
-/** The viewer's menu: the image's own checkpoint - a group's images can have several. */
-function viewerMenu() {
-    const image = viewer && tiles[viewer.tile]?.images?.[viewer.image];
-    return menuFor(image?.checkpoint_path || null);
-}
-
-/** Close the viewer, with the grid showing the tile it was on. */
-function closeViewer() {
-    closeMenu();
-    if (!viewer) return;
-    const tile = viewer.tile;
-    viewer.element.remove();
-    document.body.classList.remove('mm-modal-open');
-    viewer = null;
-    document.querySelector(`#gen_grid .gen-set[data-tile="${tile}"]`)?.scrollIntoView?.({ block: 'nearest' });
-}
-
-function showInViewer(index, image) {
-    const tile = tiles[index];
-    if (!viewer || !tile) return;
-    viewer.tile = index;
-    viewer.image = Math.max(0, Math.min(image, tile.images.length - 1));
-    renderViewer();
-}
-
-/**
- * One image on: the next of the tile's, or the next tile's first - a
- * previous one's last going back. Past the last loaded, the next part is
- * loaded into the grid first.
- */
-async function stepViewer(by) {
-    if (!viewer) return undefined;
-    const next = viewer.image + by;
-    if (next >= 0 && next < tiles[viewer.tile].images.length) return showInViewer(viewer.tile, next);
-    const index = viewer.tile + by;
-    if (index >= tiles.length && more) {
-        while (loading) await new Promise((resolve) => setTimeout(resolve, 50));
-        await loadNext();
-    }
-    if (index < 0 || index >= tiles.length) return undefined;
-    return showInViewer(index, by < 0 ? tiles[index].images.length - 1 : 0);
-}
-
-function renderViewer() {
-    const tile = tiles[viewer.tile];
-    const image = tile?.images?.[viewer.image];
-    const root = viewer.element;
-    if (!tile || !image) return closeViewer();
-    const url = new URL(image.url || '', window.location.origin).href;
-    root.querySelector('.gen-viewer-image').setAttribute('src', image.exists ? url : IMAGE_PLACEHOLDER_SVG);
-    const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
-    root.querySelector('[data-send]').textContent = `Send to ${mode}`;
-    root.querySelector('[data-menu]').hidden = !menuFor(image.checkpoint_path).length;
-    root.querySelector('.gen-viewer-rate').innerHTML = ratingRowHtml(image, 'window.genRateInViewer(%)');
-    const shown = tile.images.length;
-    const count = tile.matching_count || shown;
-    const what = tile.kind === 'group' ? 'this group' : 'this generation';
-    root.querySelector('.gen-viewer-where').textContent = count <= 1 ? ''
-        : shown < count ? `${viewer.image + 1} of the ${shown} shown · ${count} in ${what}`
-            : `${viewer.image + 1} of ${count} in ${what}`;
-    root.querySelector('.gen-viewer-prev').disabled = viewer.tile === 0 && viewer.image === 0;
-    root.querySelector('.gen-viewer-next').disabled = viewer.tile === tiles.length - 1
-        && viewer.image === shown - 1 && !more;
-    root.querySelector('.gen-viewer-info').innerHTML = infoHtml(tile, image, url);
-    return undefined;
 }
 
 /**
@@ -899,7 +825,7 @@ function infoHtml(tile, image, url) {
                 <div class="gen-info-heading">${escapeHtml(key)}</div>
                 <div class="gen-info-value">${escapeHtml(String(value))}</div></div>`).join('')}
         </div>
-        <div class="gen-info-buttons">
+        <div class="mm-dialog-buttons gen-info-buttons">
             ${image.infotext ? `<button type="button" class="mm-btn secondary mm-btn-small"
                 data-copy="${escapeHtml(image.infotext)}">Copy infotext</button>` : ''}
             ${image.exists ? `<a class="mm-btn secondary mm-btn-small" href="${escapeHtml(url)}" target="_blank"
@@ -908,59 +834,23 @@ function infoHtml(tile, image, url) {
 }
 
 /**
- * Rate the image shown. If the NSFW switch now hides it, the viewer moves on
- * to the next - or back, if it was the last - as after a delete.
+ * Rate the image shown. If the NSFW switch now hides it, the viewer shows the
+ * one now in its place - the next - or the last, as after a delete.
  */
 window.genRateInViewer = async function(value) {
-    if (!viewer) return;
-    const index = viewer.tile;
-    const tile = tiles[index];
-    const image = tile?.images?.[viewer.image];
+    const index = viewerIndex();
+    const { t, image } = viewerAt(index);
     if (!image) return;
-    const shown = await rateImage(index, image, value);
-    if (!viewer) return;
-    if (shown) {
-        renderViewer();
-        return;
-    }
-    if (!tiles.length) {
-        closeViewer();
-        return;
-    }
-    if (index >= tiles.length) {
-        showInViewer(tiles.length - 1, tiles[tiles.length - 1].images.length - 1);
-        return;
-    }
-    showInViewer(index, tiles[index] === tile ? viewer.image : 0);
+    await rateImage(t, image, value);
+    if (viewerIndex() === index) showImage(index);
 };
 
-/** Send the image shown - closing the viewer, as the page goes to txt2img or img2img. */
-async function sendFromViewer() {
-    if (!viewer) return;
-    const tile = tiles[viewer.tile];
-    const image = tile.images[viewer.image];
-    closeViewer();
-    await sendImage(tile, image);
-}
-
-/** Delete the image shown, and show the one after it - or before it, if it was the last. */
+/** Delete the image shown, and show the one now in its place - or the last. */
 async function deleteFromViewer() {
-    if (!viewer) return;
-    const index = viewer.tile;
-    const tile = tiles[index];
-    const image = tile.images[viewer.image];
-    if (!image || !await deleteImage(index, image)) return;
-    if (!viewer) return;
-    if (!tiles.length) {
-        closeViewer();
-        return;
-    }
-    if (index >= tiles.length) {
-        showInViewer(tiles.length - 1, tiles[tiles.length - 1].images.length - 1);
-        return;
-    }
-    // Its tile still there, the image now in its place; else the next tile's first.
-    showInViewer(index, tiles[index] === tile ? viewer.image : 0);
+    const index = viewerIndex();
+    const { t, image } = viewerAt(index);
+    if (!image || !await deleteImage(t, image)) return;
+    if (viewerIndex() === index) showImage(index);
 }
 
 // ------------------------------------------------------------- deleting
@@ -977,7 +867,7 @@ window.genDelete = async function(index) {
         return;
     }
     const n = tile.generation.image_count || tile.matching_count || 1;
-    const answer = await askDelete(`Delete this generation of ${n} image${n === 1 ? '' : 's'}?`, n);
+    const answer = await askToDelete(`Delete this generation of ${n} image${n === 1 ? '' : 's'}?`, n);
     if (!answer) return;
     if (await postDelete(`/model-manager/generations/${Number(tile.generation.id)}/delete`, answer)) {
         removeTile(index);
@@ -989,7 +879,7 @@ window.genDelete = async function(index) {
 /** Delete one image, asking first; true once it is gone, from the grid too. */
 async function deleteImage(index, image) {
     if (!image) return false;
-    const answer = await askDelete('Delete this image?', 1);
+    const answer = await askToDelete('Delete this image?', 1);
     if (!answer) return false;
     if (!await postDelete(`/model-manager/generations/images/${Number(image.id)}/delete`, answer)) return false;
     forgetImage(index, image.id);
@@ -1055,54 +945,6 @@ async function refreshTotals() {
     } catch (error) {
         console.warn('[ModelManager] Could not count your generations again:', error);
     }
-}
-
-// ------------------------------------------------------------- dialogs
-/**
- * A window over the page; [data-close] inside it, the backdrop or Escape
- * closes it, and onClose is told.
- */
-function openDialog(html, onClose = () => {}) {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'mm-dialog-backdrop';
-    backdrop.innerHTML = html;
-    const close = () => {
-        if (!backdrop.isConnected) return;
-        backdrop.remove();
-        document.removeEventListener('keydown', onEscape);
-        onClose();
-    };
-    const onEscape = (event) => { if (event.key === 'Escape') close(); };
-    backdrop.addEventListener('click', (event) => {
-        if (event.target === backdrop || event.target.closest?.('[data-close]')) close();
-    });
-    document.addEventListener('keydown', onEscape);
-    document.body.appendChild(backdrop);
-    return { element: backdrop, close };
-}
-
-/** Ask to delete, and whether the image files go too. Resolves to {withFiles}, or null. */
-function askDelete(question, n) {
-    return new Promise((resolve) => {
-        let answer = null;
-        const dialog = openDialog(`
-            <div class="mm-dialog gen-delete">
-                <h3>${escapeHtml(question)}</h3>
-                <label class="gen-delete-files">
-                    <input type="checkbox" data-files>
-                    Also delete the image file${n === 1 ? '' : 's'} from disk
-                </label>
-                <p class="gen-delete-note">Otherwise only the record goes; the file${n === 1 ? ' stays' : 's stay'} where ${n === 1 ? 'it was' : 'they were'} saved.</p>
-                <div class="gen-info-buttons">
-                    <button type="button" class="mm-btn secondary" data-close>Cancel</button>
-                    <button type="button" class="mm-btn danger" data-confirm>Delete</button>
-                </div>
-            </div>`, () => resolve(answer));
-        dialog.element.querySelector('[data-confirm]').addEventListener('click', () => {
-            answer = { withFiles: !!dialog.element.querySelector('[data-files]')?.checked };
-            dialog.close();
-        });
-    });
 }
 
 // ------------------------------------------------------------- the switches

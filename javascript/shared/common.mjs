@@ -372,6 +372,24 @@ export function nsfwBadgeLabel(image, ratingLabel) {
     return image?.mm_level_from_prompt ? 'X · prompt' : ratingLabel;
 }
 
+// The lowest level a Civitai image's card badges: what the work-safe view
+// lets through (PG, PG-13) goes unmarked.
+const NSFW_BADGE_MIN = 4;   // R
+
+/**
+ * The badge on a Civitai image's card, or '' for none: its level as the
+ * server judged it (mm_level), from R up. Both galleries once badged
+ * Civitai's own `nsfw` field, which on most images is a boolean - 64,903 of
+ * one library's 95,810 showed "true", whatever their rating, and the 34,744
+ * with false showed nothing.
+ */
+export function nsfwBadge(image) {
+    const level = nsfwImageLevel(image);
+    if (level < NSFW_BADGE_MIN || level >= NSFW_UNKNOWN) return '';
+    const named = [...RATING_LEVELS, [32, 'Blocked']].filter(([value]) => value <= level).pop();
+    return nsfwBadgeLabel(image, named[1]);
+}
+
 /** Is this image safe for a work-safe view? */
 export function isImageSafe(image) {
     return nsfwImageLevel(image) <= NSFW_SFW_MAX;
@@ -522,6 +540,18 @@ export const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://ww
 export function mediaFallback(original, placeholder = '') {
     return `data-original="${escapeHtml(original || '')}" data-placeholder="${escapeHtml(placeholder)}"`
         + ' onerror="window.mmMediaFallback(this)"';
+}
+
+/**
+ * The shape a gallery image or video holds before it loads, from the size
+ * Civitai gives: the lazy placeholder is a 1x1 GIF, drawn at the card's width
+ * as a square, and a portrait image grew by half its width when it arrived -
+ * moving everything below it, and a scroll to a card on the way stopped short
+ * by a card or two. Nothing, when the size is not known.
+ */
+export function mediaShape(img) {
+    const width = Number(img?.width), height = Number(img?.height);
+    return width > 0 && height > 0 ? `style="aspect-ratio: ${width} / ${height}"` : '';
 }
 
 // The handler itself, on window: the markup is strings, and each tab imports

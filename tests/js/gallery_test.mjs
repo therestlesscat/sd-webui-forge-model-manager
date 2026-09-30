@@ -156,4 +156,55 @@ check('changing a switch starts again from page 1', [pagesAsked(before), separat
       [['1'], [], ['Displaying 100 images for page 1']]);
 check('back at the top of the gallery', scrolls.length > 0, true);
 
+// ---------------------------------------------------------------- the viewer
+// A click on an image opens the shared viewer on the card as it is: its file
+// large, its own buttons below, the rest of its text beside - and → through
+// the gallery, loading its next page past the last card.
+const viewer = () => document.querySelector('.mm-viewer');
+const shown = () => viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src');
+const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+cards()[0].querySelector('img[data-view-index]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('a click on an image opens the viewer on it, at full size, instead of a new tab',
+      [!!viewer(), shown()], [true, 'https://example.invalid/1.jpeg']);
+check('with the card\'s own buttons below it',
+      Array.from(viewer().querySelectorAll('.mm-viewer-actions > *')).map((b) => b.textContent.trim()),
+      Array.from(cards()[0].querySelectorAll('.mm-image-actions > *')).map((b) => b.textContent.trim()));
+check('and the card\'s text beside it, its prompt included',
+      viewer().querySelector('.mm-viewer-info')?.textContent.includes('prompt 1'), true);
+key('ArrowRight'); await settle();
+check('→ is the next card\'s', shown(), 'https://example.invalid/2.jpeg');
+key('Escape');
+// Where the page was when the viewer opened is what "Previous Position" goes
+// back to: while it is open the page is held still, and says what it likes.
+const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
+scrollTo(1234);
+cards()[99].querySelector('img[data-view-index]').dispatchEvent(new window.Event('click', { bubbles: true }));
+scrollTo(0);
+before = asked.length;
+key('ArrowRight');
+await waitFor('the next page', () => shown() === 'https://example.invalid/101.jpeg');
+check('past the last card, the gallery\'s next page is loaded - into the gallery too - and shown',
+      [pagesAsked(before), cards().length, shown()], [['2'], 200, 'https://example.invalid/101.jpeg']);
+// (This DOM does not run inline handlers; the button's own is read instead.)
+const send = viewer().querySelector('.mm-send-btn');
+check('its Send is that card\'s own', send?.getAttribute('onclick'), 'window.mmSendToTxt2img(100)');
+localStorage.removeItem('mm_scroll_position');
+window.mmSendToTxt2img(100).catch(() => {});
+check('which saves where the gallery was when the viewer opened, for Previous Position',
+      localStorage.getItem('mm_scroll_position'), '1234');
+send.dispatchEvent(new window.Event('click', { bubbles: true }));
+check('and closes the viewer, on the way to txt2img', viewer(), null);
+// "Previous Position" brings back the card sent - the one shown last, not the
+// one the viewer opened on - and the saved position only once it is gone.
+const intoView = [];
+window.HTMLElement.prototype.scrollIntoView = function() { intoView.push(this); };
+scrolls.length = 0;
+window.mmRestoreScrollPosition();
+check('Previous Position brings the card sent into view',
+      [intoView.length, intoView[0] === cards()[100], scrolls.length], [1, true, 0]);
+localStorage.setItem('mm_scroll_target', '#mm_images .mm-image-card[data-index="9999"]');
+window.mmRestoreScrollPosition();
+check('or, with that card no longer drawn, the page where it was', [intoView.length, scrolls[0]?.top], [1, 1234]);
+
 done();

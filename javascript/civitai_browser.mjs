@@ -29,7 +29,7 @@ const {
     renderThumbs,
     nsfwImageLevel,
     isImageSafe,
-    nsfwBadgeLabel,
+    nsfwBadge,
     isVideoUrl,
     sortBaseModels,
     cardMediaUrl,
@@ -37,6 +37,7 @@ const {
     sizedMediaUrl,
     videoStillUrl,
     mediaFallback,
+    mediaShape,
     IMAGE_PLACEHOLDER_SVG,
     galleryImageWidth,
     pageSeparator,
@@ -62,6 +63,11 @@ const {
     renderGridPagination,
     renderModelGrid: renderSharedGrid,
 } = await import(sharedModule.href);
+
+// The image viewer every gallery opens, asked for with this script's version.
+const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
+viewerModule.search = sharedModule.search;
+const { openViewer, cardSource } = await import(viewerModule.href);
 
 // The settings window behind the gear in the header, asked for with this
 // script's version as the shared module is.
@@ -1139,6 +1145,7 @@ function renderImages() {
     container.style.display = 'block';
     setupLazyMedia(container);
     updateImagesCount();
+    window.mmLearnResourceHashes?.(currentImages);
 }
 
 /**
@@ -1155,6 +1162,7 @@ function appendImagesPage(page, images) {
     list.insertAdjacentHTML('beforeend', imagesPageHtml(page, images));
     setupLazyMedia(list);
     updateImagesCount();
+    window.mmLearnResourceHashes?.(images);
 }
 
 /** Draw again what sums the gallery up - the banner, the foot - and not the images. */
@@ -1210,7 +1218,7 @@ function renderImageCard(img, index) {
     const prompt = meta.prompt || '';
     const negPrompt = meta.negativePrompt || '';
     const resources = meta.resources || [];
-    const civitaiResources = meta.civitaiResources || [];
+    const resourcesLabel = resourceButtonLabel(img);
 
     // Split sampler if it contains scheduler
     let displaySampler = meta.sampler;
@@ -1306,31 +1314,31 @@ function renderImageCard(img, index) {
         ? `<div class="mm-image-adetailer">ADetailer: ${adetailerParams.join(', ')}</div>`
         : '';
 
-    // NSFW indicator
-    const nsfwLevel = nsfwBadgeLabel(img, img.nsfw || img.nsfwLevel || '');
-    const nsfwClass = nsfwLevel && nsfwLevel !== 'None' && nsfwLevel !== 'Soft'
-        ? 'mm-nsfw-indicator'
-        : '';
+    const nsfwLevel = nsfwBadge(img);
 
     // Render media element (image or video)
     // A copy the size the card draws it, not the upload; a click opens the upload.
     const shown = sizedMediaUrl(src, { cssWidth: galleryWidth, originalWidth: img.width, type: img.type });
+    // A click opens the viewer (shared/viewer.mjs) - on a video, its ⤢, as a
+    // click on the video plays it.
     const mediaHtml = isVideo
         ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoStillUrl(src))}"
-                  class="mm-lazy-media" preload="none" controls loop muted
+                  class="mm-lazy-media" preload="none" controls loop muted ${mediaShape(img)}
                   ${mediaFallback(originalMediaUrl(src))}
                   onclick="event.stopPropagation()"
-                  title="Click to play"></video>`
+                  title="Click to play"></video>
+           <button type="button" class="mm-view-btn" data-view-index="${index}" title="Open in the viewer">⤢</button>`
         : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
-                ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
-                ${src ? `data-open-url="${escapeHtml(originalMediaUrl(src))}"` : ''}
-                title="Click to view full size">`;
+                ${mediaShape(img)} ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
+                ${src ? `data-view-index="${index}"` : ''}
+                title="Click to view">`;
 
     return `
         <div class="mm-image-card" data-index="${index}">
-            <div class="mm-image-left">
+            <div class="mm-image-left" data-viewer-url="${escapeHtml(src ? originalMediaUrl(src) : '')}"
+                 data-viewer-video="${isVideo}">
                 ${mediaHtml}
-                ${nsfwClass ? `<span class="mm-nsfw-badge">${escapeHtml(String(nsfwLevel))}</span>` : ''}
+                ${nsfwLevel ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
             </div>
             <div class="mm-image-right">
                 ${imageIdHtml}
@@ -1348,12 +1356,30 @@ function renderImageCard(img, index) {
                         Show All
                     </button>
                     ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
-                    ${(civitaiResources.length > 0 || resources.length > 0) ? `<button class="mm-btn secondary" onclick="window.cbShowResources(${index})">Resources (${civitaiResources.length + resources.length})</button>` : ''}
+                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" onclick="window.cbShowResources(${index})">${resourcesLabel}</button>` : ''}
                 </div>
             </div>
         </div>
     `;
 }
+
+// A card's image, or a video's ⤢, opens the viewer on the card as it is -
+// its file large, its buttons below, its text beside (shared/viewer.mjs) -
+// from data on it, not an inline handler, as every image here opens.
+const browserCards = () => Array.from(document.querySelectorAll('#cb_images .model-images-list .mm-image-card'));
+document.addEventListener('click', (event) => {
+    const target = event.target.closest?.('#cb_images [data-view-index]');
+    if (!target) return;
+    event.preventDefault();
+    const index = Number(target.getAttribute('data-view-index'));
+    const at = browserCards().findIndex((card) => Number(card.dataset.index) === index);
+    if (at < 0) return;
+    openViewer(cardSource({
+        cards: browserCards,
+        more: () => !!imagePages[imagePages.length - 1]?.more,
+        loadMore: () => loadMoreImages(),
+    }), at);
+});
 
 // Render a single resource (LoRA, VAE, etc)
 
@@ -1402,41 +1428,36 @@ window.cbShowImageMeta = function(index) {
     document.body.appendChild(modal);
 };
 
-// Show resources modal
+// ------------------------------------------------------------ resources
+// The Model Manager's Resources, for these images too: the same dialog, the
+// same lookups, the same Download into the library - so a LoRA an image used
+// can be had without the model it is an example of. The Model Manager's
+// script is on the same page, and offers them on window.
+
+/** The version this gallery shows: its own images do not list it. */
+const galleryVersionId = () => getSelectedVersion()?.id ?? null;
+
+/** What an image's Resources button says, or '' for none. */
+function resourceButtonLabel(img) {
+    const meta = img.meta || {};
+    if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
+    return window.mmResourceButtonLabel?.(img, galleryVersionId()) ?? 'Resources';
+}
+
+/** Relabel the gallery's Resources buttons from what is known now. */
+function updateResourceButtons() {
+    document.querySelectorAll('#cb_images [data-resources-index]').forEach((button) => {
+        const img = currentImages[Number(button.dataset.resourcesIndex)];
+        const label = img ? resourceButtonLabel(img) : '';
+        if (label) button.textContent = label;
+        else button.remove();
+    });
+}
+window.addEventListener('mm-resource-hashes', updateResourceButtons);
+
 window.cbShowResources = function(index) {
     const img = currentImages[index];
-    if (!img) return;
-
-    const meta = img.meta || {};
-    const resources = meta.resources || [];
-    const civitaiResources = meta.civitaiResources || [];
-    const allResources = [...resources, ...civitaiResources];
-
-    const resourcesHtml = allResources.map(r => `
-        <div class="mm-resource-item">
-            <span class="mm-resource-type-label">${escapeHtml(r.type || 'Unknown')}</span>
-            <span class="mm-resource-name-label">${escapeHtml(r.name || 'Unknown')}</span>
-            ${r.weight !== undefined ? `<span class="mm-resource-weight">Weight: ${escapeHtml(String(r.weight))}</span>` : ''}
-            ${r.modelVersionId ? `<a class="mm-btn secondary small" href="https://civitai.com/models/${safeId(r.modelId)}?modelVersionId=${safeId(r.modelVersionId)}" target="_blank">View</a>` : ''}
-        </div>
-    `).join('');
-
-    // Create modal
-    const modal = document.createElement('div');
-    modal.className = 'mm-modal-overlay';
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-    modal.innerHTML = `
-        <div class="mm-modal">
-            <div class="mm-modal-header">
-                <h3>Resources (${allResources.length})</h3>
-                <button class="mm-modal-close" onclick="this.closest('.mm-modal-overlay').remove()">×</button>
-            </div>
-            <div class="mm-modal-body">
-                <div class="mm-resources-list">${resourcesHtml || '<p>No resources found</p>'}</div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
+    if (img) window.mmShowImageResources?.(img, galleryVersionId());
 };
 
 // Start download. The list and its panel are shared with the Model

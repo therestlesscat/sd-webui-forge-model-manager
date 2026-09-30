@@ -1159,6 +1159,8 @@ body.mm-modal-open {
 .mm-image-left video {
     width: 100%;
     height: auto;
+    /* The shape reserved before it loads (mediaShape), should the file's own differ. */
+    object-fit: contain;
     border-radius: 6px;
     cursor: pointer;
     transition: transform 0.2s;
@@ -3397,7 +3399,7 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
-.gen-viewer-rate .mm-rate {
+.mm-viewer-actions .mm-rate {
     width: 260px;
     height: 28px;
 }
@@ -3591,10 +3593,37 @@ textarea.mm-settings-input {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
+/* A gallery video's way into the viewer: a click on the video plays it. */
+.mm-view-btn {
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    z-index: 2;
+    width: 28px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6) !important;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.mm-view-btn:hover {
+    background: rgba(0, 0, 0, 0.85) !important;
+}
+
+.mm-image-left img[data-view-index] {
+    cursor: zoom-in;
+}
+
 /* ------------------------------------------------------------- the viewer
-   An image over the page, as large as it goes; the details beside it, in a
-   panel that folds away to a narrow strip. */
-.gen-viewer {
+   Every gallery's (javascript/shared/viewer.mjs): an image or a video over
+   the page, as large as it goes; the details beside it, in a panel that folds
+   away to a narrow strip. */
+.mm-viewer {
     position: fixed;
     inset: 0;
     z-index: 10000;
@@ -3603,14 +3632,14 @@ textarea.mm-settings-input {
     color: var(--body-text-color, #e5e7eb);
 }
 
-.gen-viewer-stage {
+.mm-viewer-stage {
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
 }
 
-.gen-viewer-main {
+.mm-viewer-main {
     flex: 1;
     min-width: 0;
     height: 100%;
@@ -3619,7 +3648,7 @@ textarea.mm-settings-input {
     padding: 16px 0;
 }
 
-.gen-viewer-frame {
+.mm-viewer-frame {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -3627,14 +3656,14 @@ textarea.mm-settings-input {
     justify-content: center;
 }
 
-.gen-viewer-image {
+.mm-viewer-image {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
     border-radius: 4px;
 }
 
-.gen-viewer-bar {
+.mm-viewer-bar {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3643,21 +3672,26 @@ textarea.mm-settings-input {
     padding-bottom: 12px;
 }
 
-.gen-viewer-where {
+.mm-viewer-where {
     font-size: 0.85em;
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-.gen-viewer-where:empty {
+.mm-viewer-where:empty {
     display: none;
 }
 
-.gen-viewer-actions {
+/* The gallery's own buttons - a Civitai card's five, or your images' rating
+   row and three - wrapping under the image rather than off the window. */
+.mm-viewer-actions {
     display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
     gap: 6px;
 }
 
-.gen-viewer-step {
+.mm-viewer-step {
     flex: 0 0 56px;
     align-self: stretch;
     border: none;
@@ -3668,17 +3702,17 @@ textarea.mm-settings-input {
     opacity: 0.6;
 }
 
-.gen-viewer-step:hover:not(:disabled) {
+.mm-viewer-step:hover:not(:disabled) {
     opacity: 1;
     background: rgba(255, 255, 255, 0.05);
 }
 
-.gen-viewer-step:disabled {
+.mm-viewer-step:disabled {
     opacity: 0.15;
     cursor: default;
 }
 
-.gen-viewer-close {
+.mm-viewer-close {
     position: absolute;
     top: 8px;
     left: 12px;
@@ -3691,11 +3725,11 @@ textarea.mm-settings-input {
     opacity: 0.7;
 }
 
-.gen-viewer-close:hover {
+.mm-viewer-close:hover {
     opacity: 1;
 }
 
-.gen-viewer-panel {
+.mm-viewer-panel {
     position: relative;
     flex: 0 0 360px;
     display: flex;
@@ -3704,7 +3738,7 @@ textarea.mm-settings-input {
     transition: flex-basis 0.15s;
 }
 
-.gen-viewer-panel-toggle {
+.mm-viewer-panel-toggle {
     flex: 0 0 22px;
     border: none;
     background: rgba(255, 255, 255, 0.04);
@@ -3712,15 +3746,15 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
-.gen-viewer-panel-toggle::before {
+.mm-viewer-panel-toggle::before {
     content: '›';
 }
 
-.gen-viewer-panel-toggle:hover {
+.mm-viewer-panel-toggle:hover {
     background: rgba(255, 255, 255, 0.08);
 }
 
-.gen-viewer-info {
+.mm-viewer-info {
     flex: 1;
     min-width: 0;
     overflow-y: auto;
@@ -3731,20 +3765,20 @@ textarea.mm-settings-input {
     gap: 8px;
 }
 
-.gen-viewer.gen-viewer-collapsed .gen-viewer-panel {
+.mm-viewer.mm-viewer-collapsed .mm-viewer-panel {
     flex-basis: 22px;
 }
 
-.gen-viewer.gen-viewer-collapsed .gen-viewer-info {
+.mm-viewer.mm-viewer-collapsed .mm-viewer-info {
     display: none;
 }
 
-.gen-viewer.gen-viewer-collapsed .gen-viewer-panel-toggle::before {
+.mm-viewer.mm-viewer-collapsed .mm-viewer-panel-toggle::before {
     content: '‹';
 }
 
 @media (max-width: 800px) {
-    .gen-viewer-panel {
+    .mm-viewer-panel {
         flex-basis: 260px;
     }
 }
@@ -3782,6 +3816,7 @@ textarea.mm-settings-input {
     word-break: break-word;
 }
 
+.mm-dialog-buttons,
 .gen-info-buttons {
     display: flex;
     justify-content: flex-end;
@@ -3789,14 +3824,14 @@ textarea.mm-settings-input {
     margin-top: 8px;
 }
 
-.gen-delete-files {
+.mm-delete-files {
     display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
 }
 
-.gen-delete-note {
+.mm-delete-note {
     margin: 8px 0 0;
     font-size: 0.85em;
     color: var(--body-text-color-subdued, #9ca3af);

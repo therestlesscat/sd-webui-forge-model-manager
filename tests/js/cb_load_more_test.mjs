@@ -114,4 +114,16 @@ await waitFor('the reload', () => separators().length === 0);
 check('a switch starts again from page 1, asked for afresh', [cards().length, notes(), asked(from)],
       [3, ['Displaying 3 images for page 1'], [['1', '']]]);
 
+// The viewer: a click on an image opens it on the card as it is.
+const viewer = () => document.querySelector('.mm-viewer');
+cards()[0].querySelector('img[data-view-index]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('a click on an image opens the viewer, with the card\'s own buttons below it',
+      [!!viewer(), Array.from(viewer()?.querySelectorAll('.mm-viewer-actions > *') || []).map((b) => b.textContent.trim())],
+      [true, Array.from(cards()[0].querySelectorAll('.mm-image-actions > *')).map((b) => b.textContent.trim())]);
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'ArrowRight' }));
+check('→ the next card\'s image', viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src'),
+      cards()[1].querySelector('.mm-image-left').getAttribute('data-viewer-url'));
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
+check('and Esc closes it', viewer(), null);
+
 done();
