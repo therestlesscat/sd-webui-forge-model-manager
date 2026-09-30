@@ -7,7 +7,7 @@ Used by ModelsDatabase facade - do not import directly.
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from .query import query_models_grouped
 from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable
@@ -253,6 +253,31 @@ class ModelsOps:
                 (1 if bookmarked else 0, model_id)
             )
             return cursor.rowcount > 0
+
+    def set_pin(self, model_id: Optional[int], file_path: Optional[str], pinned: bool) -> bool:
+        """
+        Pin a card, or unpin it: a Civitai model by its id, a file Civitai
+        does not know by its path. Unpinning a model also takes the pins of
+        its files - one pinned before Civitai knew it still pins the card.
+        Returns whether anything was given to pin.
+        """
+        if not model_id and not file_path:
+            return False
+        with self._cursor() as cursor:
+            if not pinned:
+                if model_id:
+                    cursor.execute("""
+                        DELETE FROM pins WHERE model_id = ?
+                           OR file_path IN (SELECT file_path FROM model_versions WHERE model_id = ?)
+                    """, (model_id, model_id))
+                if file_path:
+                    cursor.execute("DELETE FROM pins WHERE file_path = ?", (file_path,))
+                return True
+            cursor.execute(
+                "INSERT OR IGNORE INTO pins (model_id, file_path, pinned_at) VALUES (?, ?, ?)",
+                (model_id or None, None if model_id else file_path,
+                 datetime.now(timezone.utc).isoformat()))
+            return True
 
     # ==================== Model Versions ====================
 

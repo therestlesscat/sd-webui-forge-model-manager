@@ -289,7 +289,10 @@ def query_models_grouped(
     # file_path breaks ties in the sort: rows the sort field cannot tell
     # apart came back in no fixed order, so paging through them could show
     # a model twice and another never.
-    order_by = f"{sort_field} {sort_dir}, file_path"
+    #
+    # Pinned cards come first, in the same sort, and once: the pin is part of
+    # the order, not a second list, so paging cannot repeat or skip one.
+    order_by = f"is_pinned DESC, {sort_field} {sort_dir}, file_path"
     ranked_order_by = order_by.replace("{row}", "ranked")
     order_by = order_by.replace("{row}", "page")
     query = f"""
@@ -316,7 +319,9 @@ def query_models_grouped(
                 m.allow_different_license as cm_allow_different_license,
                 m.supports_generation as cm_supports_generation,
                 m.is_bookmarked as cm_is_bookmarked,
-                m.updated_at as cm_updated_at
+                m.updated_at as cm_updated_at,
+                (EXISTS (SELECT 1 FROM pins WHERE pins.model_id = v.model_id)
+                 OR EXISTS (SELECT 1 FROM pins WHERE pins.file_path = v.file_path)) as file_pinned
             FROM model_versions v
             LEFT JOIN civitai_models m ON v.model_id = m.id
             WHERE {where_clause}
@@ -324,6 +329,11 @@ def query_models_grouped(
         ranked AS (
             SELECT
                 fv.*,
+                -- The card is pinned if its model is, or any file of it:
+                -- one pinned by its path before Civitai knew it still is.
+                MAX(fv.file_pinned) OVER (
+                    PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                ) as is_pinned,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                     ORDER BY fv.published_at DESC NULLS LAST
@@ -445,6 +455,7 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
         "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
         "architecture": row["architecture"] if "architecture" in row.keys() else None,
         "is_bookmarked": bool(row["cm_is_bookmarked"]) if row["cm_is_bookmarked"] else False,
+        "is_pinned": bool(row["is_pinned"]) if "is_pinned" in row.keys() else False,
         "updated_at": row["cm_updated_at"] if "cm_updated_at" in row.keys() else None,
     }
 

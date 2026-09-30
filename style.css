@@ -716,42 +716,44 @@ body.mm-modal-open {
     color: #ce93d8;
 }
 
-/* NSFW level indicators */
-.nsfw-pg13 .model-card-image::after {
-    content: 'PG-13';
+/* NSFW level indicators: top-left, the card's top-right being its pin's. */
+.nsfw-pg13 .model-card-image::after,
+.nsfw-r .model-card-image::after,
+.nsfw-x .model-card-image::after,
+.nsfw-xxx .model-card-image::after {
     position: absolute;
     top: 4px;
-    right: 4px;
-    padding: 2px 6px;
-    background: rgba(255, 152, 0, 0.9);
+    left: 4px;
+    height: 16px;
+    padding: 0 6px;
     color: white;
     font-size: 0.6em;
+    line-height: 16px;
     border-radius: 3px;
+}
+
+.nsfw-pg13 .model-card-image::after {
+    content: 'PG-13';
+    background: rgba(255, 152, 0, 0.9);
 }
 
 .nsfw-r .model-card-image::after {
     content: 'R';
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    padding: 2px 6px;
     background: rgba(244, 67, 54, 0.9);
-    color: white;
-    font-size: 0.6em;
-    border-radius: 3px;
 }
 
 .nsfw-x .model-card-image::after,
 .nsfw-xxx .model-card-image::after {
     content: 'X';
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    padding: 2px 6px;
     background: rgba(183, 28, 28, 0.9);
-    color: white;
-    font-size: 0.6em;
-    border-radius: 3px;
+}
+
+/* The bookmark star shares the corner: under the rating, when there is one. */
+.nsfw-pg13 .mm-bookmark-indicator,
+.nsfw-r .mm-bookmark-indicator,
+.nsfw-x .mm-bookmark-indicator,
+.nsfw-xxx .mm-bookmark-indicator {
+    top: 24px;
 }
 
 /* Details panel - stacked below grid */
@@ -836,9 +838,42 @@ body.mm-modal-open {
     color: #f59e0b;
 }
 
-.mm-bookmark-btn.bookmarked {
+.mm-bookmark-btn.bookmarked,
+.mm-bookmark-btn.pinned {
     color: #f59e0b;
     border-color: #f59e0b;
+}
+
+/* The pin is an emoji, coloured whatever the text colour: unpinned, faded. */
+.mm-pin-toggle:not(.pinned),
+.mm-pin-btn:not(.pinned) {
+    opacity: 0.45;
+}
+
+/* The pin on a card's corner: shown on hover, and always once pinned. */
+.mm-pin-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    padding: 2px 5px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.7) !important;
+    font-size: 0.9em;
+    line-height: 1.2;
+    cursor: pointer;
+    visibility: hidden;
+}
+
+.model-card:hover .mm-pin-btn,
+.mm-pin-btn.pinned {
+    visibility: visible;
+}
+
+.mm-pin-btn:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.85) !important;
 }
 
 /* Bookmark indicator on model cards */

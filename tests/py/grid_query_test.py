@@ -106,6 +106,59 @@ for sort in ('base_model', 'file_modified', 'name', 'downloaded_at', 'image_coun
     check(f'sorted by {sort}, pages of 3 join up into the whole list: none twice, none missing',
           (paged, len(paged)), ([r['file_path'] for r in everything], total))
 
+# ------------------------------------------------------------------ pinning
+# A pinned card comes first whenever it matches the filters, in the grid's
+# own sort, and once; pinning changes the order, never what is shown. A card
+# is a Civitai model, or a file Civitai does not know, pinned by its path.
+paths = lambda rows: [r['file_path'] for r in rows]
+lora = facts['lora_ids'][-1]
+local = facts['local_only_paths'][0]
+before = {(sort, order): query(sort_by=sort, sort_order=order)
+          for sort, order in (('name', 'asc'), ('name', 'desc'), ('file_modified', 'desc'))}
+vae_before = query(model_type='VAE')
+check('pinning a model and a local-only file, the latter by its path in any case',
+      [db.set_pin(lora, None, True), db.set_pin(None, local.upper(), True)], [True, True])
+for (sort, order), (rows, total) in before.items():
+    pinned_rows, pinned_total = query(sort_by=sort, sort_order=order)
+    firsts = [r for r in rows if r['model_id'] == lora or r['file_path'] == local]
+    rest = [r for r in rows if r not in firsts]
+    check(f'sorted by {sort} {order}: the pinned cards first, in that sort, then the rest as before',
+          (paths(pinned_rows), pinned_total), (paths(firsts) + paths(rest), total))
+    check(f'sorted by {sort} {order}: and marked pinned',
+          [r['is_pinned'] for r in pinned_rows[:3]], [True, True, False])
+check('a pinned card the filters leave out stays out',
+      paths(query(model_type='VAE')[0]), paths(vae_before[0]))
+everything, total = query(sort_by='name', sort_order='asc')
+paged, offset = [], 0
+while True:
+    page, _ = query(sort_by='name', sort_order='asc', limit=3, offset=offset)
+    if not page:
+        break
+    paged += paths(page)
+    offset += 3
+check('with pins, pages of 3 still join up: the pinned on page 1, none twice, none missing',
+      (paged, len(paged)), (paths(everything), total))
+
+# A file pinned by its path before Civitai knew it pins its model's card, and
+# unpinning the model takes that pin too.
+checkpoint = facts['checkpoint_ids'][0]
+with db._cursor() as cursor:
+    cursor.execute("SELECT file_path FROM model_versions WHERE model_id = ? ORDER BY file_path DESC LIMIT 1",
+                   (checkpoint,))
+    second_file = cursor.fetchone()[0]
+db.set_pin(None, second_file, True)
+first_three = query(sort_by='name', sort_order='asc')[0][:3]
+check('a file pinned by its path pins its model\'s card',
+      checkpoint in [r['model_id'] for r in first_three], True)
+db.set_pin(checkpoint, None, False)
+check('and unpinning the model unpins it',
+      checkpoint in [r['model_id'] for r in query(sort_by='name', sort_order='asc')[0][:3]], False)
+db.set_pin(lora, None, False)
+db.set_pin(None, local, False)
+check('unpinned, the grid is as it was', paths(query(sort_by='name', sort_order='asc')[0]),
+      paths(before[('name', 'asc')][0]))
+check('nothing to pin is refused', db.set_pin(None, None, True), False)
+
 # ------------------------------------- work that does not grow with images
 # Its query plan looked innocent - the images were read version by version,
 # through an index - and still every image of every matching version was

@@ -1127,8 +1127,9 @@ const CARD_NAME_LENGTH = 30;
  *     back to; none, or an empty src, shows the placeholder.
  * @param {string[]} [card.classes] - added to model-card: owned, nsfw-x, ...
  * @param {Object<string, string|number>} [card.data] - data- attributes.
- * @param {{cls: string, text: string, title?: string}[]} [card.overlays] -
- *     on the image: Owned, No Civitai Data, the bookmark star.
+ * @param {{cls: string, text: string, title?: string, onclick?: string}[]} [card.overlays] -
+ *     on the image: Owned, No Civitai Data, the bookmark star. One with an
+ *     onclick is a button, whose click is its own, not the card's.
  * @param {{cls: string, text: string, title?: string}[]} [card.badges] -
  *     under the name: type, base model, versions.
  * @param {({text: string, title?: string}|{html: string})[]} [card.stats] -
@@ -1152,7 +1153,9 @@ export function renderModelCard({ index, onclick, name, media, classes = [], dat
         <div class="${['model-card', ...classes.filter(Boolean)].join(' ')}" data-index="${Number(index)}"${attributes} onclick="${escapeHtml(onclick)}">
             <div class="model-card-image">
                 ${image}
-                ${overlays.map((o) => `<div class="${escapeHtml(o.cls)}"${title(o)}>${escapeHtml(o.text)}</div>`).join('')}
+                ${overlays.map((o) => (o.onclick
+                    ? `<button type="button" class="${escapeHtml(o.cls)}"${title(o)} onclick="event.stopPropagation(); ${escapeHtml(o.onclick)}">${escapeHtml(o.text)}</button>`
+                    : `<div class="${escapeHtml(o.cls)}"${title(o)}>${escapeHtml(o.text)}</div>`)).join('')}
             </div>
             <div class="model-card-info">
                 <div class="model-card-name" title="${escapeHtml(full)}">${escapeHtml(shown)}</div>

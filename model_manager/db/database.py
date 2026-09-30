@@ -29,7 +29,7 @@ from .generations_ops import GenerationsOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 
 class ModelsDatabase:
@@ -127,6 +127,10 @@ class ModelsDatabase:
     def set_bookmark(self, model_id: int, bookmarked: bool) -> bool:
         """Set bookmark status for a model."""
         return self._models.set_bookmark(model_id, bookmarked)
+
+    def set_pin(self, model_id: Optional[int], file_path: Optional[str], pinned: bool) -> bool:
+        """Pin a card to the front of the grid, or unpin it. See db/models_ops.py."""
+        return self._models.set_pin(model_id, file_path, pinned)
 
     def upsert_version(self, version_data: Dict[str, Any]):
         """Insert or update a model version record."""

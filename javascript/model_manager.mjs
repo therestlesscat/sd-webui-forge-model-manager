@@ -669,6 +669,7 @@ function mmCard(model, index) {
         overlays: [
             ...(model.has_civitai_data ? [] : [{ cls: 'no-data-overlay', text: 'No Civitai Data' }]),
             ...(model.is_bookmarked ? [{ cls: 'mm-bookmark-indicator', text: '★', title: 'Bookmarked' }] : []),
+            pinButton(model, index, 'mm-pin-btn'),
         ],
         badges: [
             { cls: 'type-badge', text: model.model_type || 'Unknown' },
@@ -1208,6 +1209,18 @@ function resetImageState() {
     imagesSyncDate = null;
 }
 
+/**
+ * The pin: a card pinned comes first in the grid whenever it matches the
+ * filters. On the card's corner, and beside the bookmark in its details, as
+ * { cls, text, title, onclick } - an overlay of renderModelCard().
+ */
+function pinButton(model, index, cls) {
+    const pinned = !!model?.is_pinned;
+    return { cls: `${cls}${pinned ? ' pinned' : ''}`, text: '📌', onclick: `window.mmTogglePin(${Number(index)})`,
+             title: pinned ? 'Pinned: first whenever it matches the filters. Click to unpin.'
+                           : 'Pin: show first whenever it matches the filters' };
+}
+
 /** The header's buttons: the same for any version, but deleting needs a file. */
 function renderDetailHeader(model, { deletable = true } = {}) {
     const modelId = model.model_id || model.civitai_model_id;
@@ -1215,6 +1228,10 @@ function renderDetailHeader(model, { deletable = true } = {}) {
     const bookmarkBtn = modelId
         ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
         : '';
+    // The card's pin: the grid's model, whichever version the panel shows.
+    const pin = pinButton(currentModels[selectedModelIndex], selectedModelIndex, 'mm-bookmark-btn mm-pin-toggle');
+    const pinBtn = currentModels[selectedModelIndex]
+        ? `<button class="${pin.cls}" onclick="${pin.onclick}" title="${escapeHtml(pin.title)}">${pin.text}</button>` : '';
 
     // Deleting sits with the other actions on the model, in the header. With
     // several versions, the one shown and all of them are separate choices.
@@ -1230,6 +1247,7 @@ function renderDetailHeader(model, { deletable = true } = {}) {
             <div class="detail-header">
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
+                ${pinBtn}
                 ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
                 ${deleteButtons}
                 <button class="close-details" onclick="window.mmCloseDetails()">×</button>
@@ -1635,6 +1653,45 @@ window.mmForceSyncModel = async function() {
     } finally {
         hideSyncOverlay();
     }
+};
+
+/**
+ * Pin the grid's card `index`, or unpin it: a Civitai model by its id, a file
+ * Civitai does not know by its path. The card stays where it is until the
+ * grid loads again - moving it now would take it from under the pointer.
+ */
+window.mmTogglePin = async function(index) {
+    const model = currentModels[index];
+    if (!model) return;
+    const pinned = !model.is_pinned;
+    const form = new URLSearchParams({ pinned: String(pinned) });
+    if (model.model_id) form.set('model_id', model.model_id);
+    else form.set('file_path', model.file_path);
+    try {
+        const response = await fetch('/model-manager/pin', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
+        const data = await response.json();
+        if (!data.success) {
+            setStatus('Pin failed: ' + (data.error || 'Unknown error'), true);
+            return;
+        }
+    } catch (error) {
+        setStatus('Pin error: ' + error.message, true);
+        return;
+    }
+    model.is_pinned = pinned;
+    const redraw = (button, cls) => {
+        if (!button) return;
+        const fresh = pinButton(model, index, cls);
+        button.className = fresh.cls;
+        button.title = fresh.title;
+    };
+    redraw(document.querySelector(`#mm_grid .model-card[data-index="${Number(index)}"] .mm-pin-btn`), 'mm-pin-btn');
+    if (index === selectedModelIndex) {
+        redraw(document.querySelector('#mm_details .mm-pin-toggle'), 'mm-bookmark-btn mm-pin-toggle');
+    }
+    setStatus(pinned ? 'Pinned: it comes first whenever it matches the filters, from the next load'
+                     : 'Unpinned');
 };
 
 // Toggle bookmark status for a model
