@@ -2582,10 +2582,11 @@ window.mmSendInfotext = async function({ infotext, mode, meta = {}, generationId
     // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
     // the server gives your images a Civitai image's `resources`.
     if (filesAsked) {
-        const { chips } = collectResourceChips(meta, await filesAsked, null);
-        resourceChipSources[tab] = { img: image, gallery: null };
-        showResourceChips(tab, chips);
-        checkMissingChips(tab);
+        const files = await filesAsked;
+        const { chips } = collectResourceChips(meta, files, null);
+        resourceChipSources[tab] = { img: image, gallery: null, files };
+        showResourceChips(tab, arrangeChips(chips, resourceChipSources[tab]));
+        lookUpMissingChips(tab);
     }
     if (tab === 'img2img') {
         showNotice('The settings are in img2img. The image this generation started from '
@@ -4137,11 +4138,22 @@ function giveImg2imgImage(file) {
 const resourceChips = {};
 const resourceChipRows = {};
 const resourceChipSources = {};
+// Per tab, the send whose missing resources Civitai is being asked about:
+// until it answers, the row shows what the library has and says it is
+// looking for the rest.
+const resourceChipsPending = {};
 
 /**
  * What a chip for a resource not in the library says: that it is missing and
  * a click downloads it, or how the download is going. A download is shared
  * with the Resources dialog, by the version id the image names.
+ *
+ * The chip itself shows only its mark and a fill for a download's progress;
+ * the words (`note`) go on the line under the chips, unless `quiet` - a chip
+ * merely missing is said by its mark and the key. A download used to write
+ * its progress on the chip - "missing LoRA, click to download", "queued",
+ * "5%", "37%", "adding to library..." - and each change resized it, moving
+ * the chips after it, and a click meant for one landed on another.
  */
 function missingChipState(chip) {
     const what = chip.kind === 'lora' ? 'LoRA' : 'embedding';
@@ -4150,30 +4162,38 @@ function missingChipState(chip) {
                  title: `${chip.title}: the image names it without a hash or a version, so it cannot be found` };
     }
     const job = chip.versionId ? resourceDownloads[chip.versionId] : chip.lookup;
+    if (chip.notOnCivitai && !job) {
+        return { busy: true, unavailable: true, note: 'not on Civitai',
+                 title: `${chip.title}: Civitai does not have it` };
+    }
     if (job && job.state === 'checking') {
-        return { busy: true, note: 'checking Civitai...', title: `Asking Civitai what ${chip.title} is` };
+        return { busy: true, mark: CHIP_MARKS.busy, note: 'checking Civitai...',
+                 title: `Asking Civitai what ${chip.title} is` };
     }
     if (job && job.state === 'unavailable') {
         return { busy: true, unavailable: true, note: 'not on Civitai',
                  title: `${chip.title}: ${job.error || 'Civitai does not have it'}` };
     }
     if (job && job.state === 'downloading') {
-        return { busy: true, note: job.finishing ? 'adding to library...' : job.percent ? `${job.percent}%` : 'queued',
+        const percent = job.finishing ? 100 : Number(job.percent) || 0;
+        return { busy: true, mark: job.finishing || !percent ? CHIP_MARKS.busy : CHIP_MARKS.download,
+                 progress: percent,
+                 note: job.finishing ? 'adding to library...' : percent ? `downloading, ${job.percent}%` : 'queued',
                  title: `Downloading the missing ${what} ${chip.title}` };
     }
     if (job && job.state === 'installed' && job.substituted) {
-        return { busy: true, note: `got ${job.versionName || 'a newer version'} instead`,
+        return { busy: true, mark: CHIP_MARKS.have, note: `got ${job.versionName || 'a newer version'} instead`,
                  title: `The image's version of ${chip.title} is gone from Civitai; the newest was downloaded` };
     }
     if (job && job.state === 'error') {
-        // Why, on the chip itself - it was only in the tooltip - cut short;
-        // the tooltip keeps all of it.
+        // Why, in words - it was only in the tooltip - cut short; the
+        // tooltip keeps all of it.
         const why = String(job.error || '');
         const short = why.length > CHIP_REASON_LENGTH ? `${why.slice(0, CHIP_REASON_LENGTH)}...` : why;
-        return { busy: false, note: `download failed${short ? `: ${short}` : ''}, click to retry`,
+        return { busy: false, mark: CHIP_MARKS.failed, note: `download failed${short ? `: ${short}` : ''}, click to retry`,
                  title: `${chip.title}: ${why || 'the download failed'}` };
     }
-    return { busy: false, note: `missing ${what}, click to download`,
+    return { busy: false, quiet: true, note: `missing ${what}, click to download`,
              title: `${chip.title} is not in the library: click to download it` };
 }
 
@@ -4215,7 +4235,8 @@ async function downloadChip(chip) {
  * rather than after it.
  */
 async function checkMissingChips(tab) {
-    const waiting = (resourceChips[tab] || []).filter((c) => !c.installed && !c.versionId && c.hash);
+    const waiting = (resourceChips[tab] || [])
+        .filter((c) => !c.installed && !c.versionId && c.hash && !c.notOnCivitai);
     if (!waiting.length) return;
     const settle = (answers) => {
         for (const chip of waiting) {
@@ -4244,13 +4265,79 @@ async function checkMissingChips(tab) {
     redrawResourceChips();
 }
 
+/** A chip's place in its row, kept through a download: its version, else its key. */
+const chipIdentity = (chip) => (chip.versionId ? `version:${chip.versionId}` : chip.key);
+
+/**
+ * A send's chips in the order they stay in: what the library has first, then
+ * what it lacks - so the missing ones, arriving later, never move the rest -
+ * fixed the first time, so a download leaves its chip where it was.
+ */
+function arrangeChips(chips, source) {
+    if (!source.order) {
+        source.order = [...chips.filter((c) => c.installed), ...chips.filter((c) => !c.installed)]
+            .map(chipIdentity);
+    }
+    const place = (chip) => {
+        const at = source.order.indexOf(chipIdentity(chip));
+        return at < 0 ? source.order.length : at;
+    };
+    return [...chips].sort((a, b) => place(a) - place(b));
+}
+
+/**
+ * After a send, ask - without the send waiting - what the missing resources'
+ * files will be called, and draw them once the answer is in: named as a
+ * download names them, so a download renames and resizes nothing. Until then
+ * the row shows the chips the library has, and says it is looking. A later
+ * send, or Clear, drops the answer. With no answer at all the missing chips
+ * are drawn as they were before, by Civitai's titles.
+ */
+async function lookUpMissingChips(tab) {
+    const source = resourceChipSources[tab];
+    const chips = resourceChips[tab] || [];
+    const lacking = chips.filter((c) => !c.installed);
+    if (!source || !lacking.length) return;
+    resourceChipsPending[tab] = source;
+    showResourceChips(tab, chips);
+    const versions = lacking.filter((c) => c.versionId)
+        .map((c) => ({ version_id: c.versionId, model_id: c.modelId || null }));
+    const hashes = [...new Set(lacking.filter((c) => !c.versionId && c.hash).map((c) => c.hash))];
+    let answer = null;
+    try {
+        const response = await fetch('/model-manager/missing-resources', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ versions: JSON.stringify(versions), hashes: hashes.join(',') }) });
+        const data = await response.json();
+        if (data && data.success) answer = data;
+    } catch (error) {
+        console.warn('[ModelManager] Could not ask what the missing resources are:', error);
+    }
+    if (resourceChipSources[tab] !== source || resourceChipsPending[tab] !== source) return;
+    delete resourceChipsPending[tab];
+    if (!resourceChips[tab]) return;                 // cleared meanwhile
+    if (!answer) {
+        showResourceChips(tab, arrangeChips(chips, source));
+        checkMissingChips(tab);
+        return;
+    }
+    source.missing = answer;
+    const { chips: named } = collectResourceChips(source.img.meta, source.files, source.gallery, answer);
+    // A chip known by hash alone now has its version: the order is fixed anew,
+    // the library's chips first as they are shown.
+    source.order = null;
+    showResourceChips(tab, arrangeChips(named, source));
+    // A hash the answer leaves out could not be asked about: asked as before.
+    checkMissingChips(tab);
+}
+
 /** Look each tab's chips up again, after a download. */
 async function refreshResourceChips() {
     for (const [tab, source] of Object.entries(resourceChipSources)) {
-        if (!resourceChips[tab]) continue;
-        const { chips } = collectResourceChips(source.img.meta, await fetchImageFiles(source.img),
-                                               source.gallery);
-        showResourceChips(tab, chips);
+        if (!resourceChips[tab] || resourceChipsPending[tab]) continue;
+        source.files = await fetchImageFiles(source.img);
+        const { chips } = collectResourceChips(source.img.meta, source.files, source.gallery, source.missing);
+        showResourceChips(tab, arrangeChips(chips, source));
         checkMissingChips(tab);
     }
 }
@@ -4292,8 +4379,9 @@ function promptBoxes(tab) {
 const CHIP_REASON_LENGTH = 60;
 
 // Each chip's mark, beside its colour: whether it is here, can be
-// downloaded, or cannot - so it reads without telling the colours apart.
-const CHIP_MARKS = { have: '✓', download: '↓', unavailable: '⊘' };
+// downloaded, or cannot - so it reads without telling the colours apart -
+// and, while a download is under way or has failed, how it is going.
+const CHIP_MARKS = { have: '✓', download: '↓', unavailable: '⊘', busy: '…', failed: '!' };
 
 function showResourceChips(tab, chips) {
     resourceChips[tab] = chips && chips.length ? chips : null;
@@ -4306,7 +4394,9 @@ function showResourceChips(tab, chips) {
     resourceChipRows[tab] = element;
     element.id = `mm_resource_chips_${tab}`;
     element.className = 'mm-resource-chips';
-    element.innerHTML = resourceChips[tab].map((chip, index) => {
+    const pending = !!resourceChipsPending[tab];
+    const chipsHtml = resourceChips[tab].map((chip, index) => {
+        if (pending && !chip.installed) return '';
         const notes = [chip.kind === 'lora' ? `weight ${chip.weight}` : 'embedding',
                        chip.where === 'negative' ? 'negative prompt' : ''].filter(Boolean);
         const missing = chip.installed ? null : missingChipState(chip);
@@ -4315,17 +4405,32 @@ function showResourceChips(tab, chips) {
         // prompt holds it, by filled or outlined (updateResourceChipStates).
         const state = !missing ? 'have' : missing.unavailable ? 'unavailable' : 'download';
         const classes = missing ? (missing.unavailable ? ' missing unavailable' : ' missing') : '';
+        // A download's progress fills the chip, rather than widening it.
+        const progress = missing && missing.progress !== undefined
+            ? ` data-progress style="--mm-chip-progress: ${Math.max(0, Math.min(100, Number(missing.progress)))}%"` : '';
         return `<button type="button" class="mm-resource-chip${classes}" data-state="${state}"
-                        data-chip="${index}" ${missing && missing.busy ? 'disabled' : ''}
+                        data-chip="${index}" ${missing && missing.busy ? 'disabled' : ''}${progress}
                         title="${escapeHtml(title)}">`
-             + `<span class="mm-resource-chip-mark" aria-hidden="true">${CHIP_MARKS[state]}</span>`
+             + `<span class="mm-resource-chip-mark" aria-hidden="true">${missing?.mark || CHIP_MARKS[state]}</span>`
              + `<span class="mm-resource-chip-name">${escapeHtml(chip.name)}</span>`
-             + (missing ? `<span class="mm-resource-chip-note">${escapeHtml(missing.note)}</span>` : '')
              + '</button>';
-    }).join('') + '<button type="button" class="mm-btn secondary mm-btn-small" data-chips-clear>Clear</button>'
+    }).join('');
+    // What each missing chip is doing, in words, on a line of its own under
+    // the chips: it can grow and shrink without moving one of them.
+    const statuses = pending ? '' : resourceChips[tab].map((chip, index) => {
+        const missing = chip.installed ? null : missingChipState(chip);
+        if (!missing || missing.quiet) return '';
+        return `<span class="mm-resource-chip-status" data-status-chip="${index}"
+                      data-state="${missing.unavailable ? 'unavailable' : 'download'}"><b>${escapeHtml(chip.name)}</b>: `
+             + `${escapeHtml(missing.note)}</span>`;
+    }).join('');
+    element.innerHTML = chipsHtml
+        + (pending ? '<span class="mm-resource-chips-loading">Loading missing resources...</span>' : '')
+        + '<button type="button" class="mm-btn secondary mm-btn-small" data-chips-clear>Clear</button>'
+        + (statuses ? `<div class="mm-resource-chips-status">${statuses}</div>` : '')
         + '<div class="mm-resource-chips-key">'
         + `<span data-state="have">${CHIP_MARKS.have} in library</span>`
-        + `<span data-state="download">${CHIP_MARKS.download} can download</span>`
+        + `<span data-state="download">${CHIP_MARKS.download} click to download</span>`
         + `<span data-state="unavailable">${CHIP_MARKS.unavailable} not available</span>`
         + '<span>filled: in the prompt</span>'
         + (resourceChips[tab].some((chip) => chip.installed && chip.byName)
@@ -4338,6 +4443,7 @@ function showResourceChips(tab, chips) {
 
 function onResourceChipClick(tab, event) {
     if (event.target.closest('[data-chips-clear]')) {
+        delete resourceChipsPending[tab];
         showResourceChips(tab, null);
         return;
     }
@@ -4853,7 +4959,8 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
         // The image's LoRAs and embeddings, for the chips; a LoRA its prompt
         // names under another name than the file here is renamed to it.
-        const resources = collectResourceChips(meta, await filesAsked, galleryFile(model));
+        const files = await filesAsked;
+        const resources = collectResourceChips(meta, files, galleryFile(model));
         if (resources.renames.length) {
             const rename = (text) => resources.renames
                 .reduce((out, { from, to }) => renameLoraTags(out, from, to), text);
@@ -4886,9 +4993,9 @@ window.mmSendToTxt2img = async function(imageIndex) {
         if (!pasted) return;
 
         showGenerationTab(tab);
-        resourceChipSources[tab] = { img, gallery: galleryFile(model) };
-        showResourceChips(tab, resources.chips);
-        checkMissingChips(tab);
+        resourceChipSources[tab] = { img, gallery: galleryFile(model), files };
+        showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
+        lookUpMissingChips(tab);
 
         // The start frame goes in once img2img is showing: its canvas sizes
         // the image to itself, and a hidden one has no size.

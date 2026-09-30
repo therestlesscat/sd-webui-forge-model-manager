@@ -2165,10 +2165,6 @@ body.mm-modal-open {
     cursor: pointer;
 }
 
-.mm-resource-chips .mm-resource-chip.missing {
-    max-width: 480px;
-}
-
 .mm-resource-chips .mm-resource-chip[data-state="download"] {
     --mm-chip: var(--mm-chip-download);
 }
@@ -2182,9 +2178,31 @@ body.mm-modal-open {
     color: var(--mm-chip-on);
 }
 
+/* One width for every mark, so a chip keeps its width as its mark changes. */
 .mm-resource-chip-mark {
     flex: none;
+    width: 1em;
     font-weight: 700;
+    text-align: center;
+}
+
+/* A download's progress fills the chip from the left, behind its text: the
+   chip keeps its width while the download runs. */
+.mm-resource-chips .mm-resource-chip[data-progress] {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.mm-resource-chips .mm-resource-chip[data-progress]::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: -1;
+    width: var(--mm-chip-progress, 0%);
+    background: var(--mm-chip);
+    opacity: 0.35;
+    transition: width 0.3s ease;
 }
 
 .mm-resource-chips .mm-resource-chip:disabled {
@@ -2216,13 +2234,26 @@ body.mm-modal-open {
     opacity: 0.8;
 }
 
-/* On a missing chip, what a click does - or how its download is going. */
-.mm-resource-chip-note {
-    flex: none;
-    margin-left: 6px;
-    font-size: 0.85em;
+/* Where the missing chips will be, while Civitai is asked what they are. */
+.mm-resource-chips-loading {
+    font-size: 12px;
+    font-style: italic;
     opacity: 0.8;
 }
+
+/* Under the chips, what each missing one is doing - checking, downloading,
+   failed and why - in words, a line each: this can grow and shrink, as the
+   chips above it must not. */
+.mm-resource-chips-status {
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+}
+
+.mm-resource-chip-status[data-state="download"] { color: var(--mm-chip-download); }
+.mm-resource-chip-status[data-state="unavailable"] { color: var(--mm-chip-unavailable); }
 
 /* A Resources row's download, once asked for: its progress, then Installed,
    or Failed with the reason on hover beside a Download to try again. */
