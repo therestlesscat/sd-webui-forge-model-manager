@@ -56,6 +56,8 @@ check('a minor version\'s heading has its .0 entry',
 published = json.load(open(os.path.join(ROOT, 'version.json'), encoding='utf-8'))
 check('version.json holds this version - what every install is told is out',
       published.get('version'), version.VERSION)
+check('with its build, the newest changelog entry\'s - the notice shows it',
+      published.get('build'), int(entries[0][1]) if entries else None)
 check('and a note, a string, for later', isinstance(published.get('note'), str), True)
 
 # ------------------------------------------------------------------- git, if any

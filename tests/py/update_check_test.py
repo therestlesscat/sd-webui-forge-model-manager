@@ -77,7 +77,7 @@ def on_branch(upstream, local='HEAD'):
     uc._git = git
 
 
-newer = json.dumps({'version': '99.0.0', 'note': 'for later'})
+newer = json.dumps({'version': '99.0.0', 'build': 1234, 'note': 'for later'})
 same = json.dumps({'version': uc.VERSION, 'note': ''})
 
 # ---------------------------------------------------------- which branch
@@ -87,7 +87,7 @@ found = uc.check_once(github({'rc': newer, 'HEAD': same}))
 check('a copy pulling rc asks rc\'s version.json', [asked, found and found['version']],
       [[uc.REPOSITORY + '/raw/rc/version.json'], '99.0.0'])
 check('and the page is told it is newer, with its note',
-      uc.status(), {'current': uc.VERSION, 'latest': '99.0.0', 'newer': True, 'note': 'for later'})
+      uc.status(), {'current': uc.VERSION, 'latest': '99.0.0', 'build': 1234, 'newer': True, 'note': 'for later'})
 
 reset()
 on_branch('origin/my-branch')
@@ -107,6 +107,18 @@ on_branch(None, local='dev')
 uc.check_once(github({'dev': same}))
 check('a branch with no upstream is asked by its own name', asked, [uc.REPOSITORY + '/raw/dev/version.json'])
 
+# ---------------------------------------------------------- the build
+for label, build in (('none', None), ('not a number', '"254"'), ('zero', '0'), ('true', 'true')):
+    reset()
+    body = '{"version": "99.0.0"%s}' % ('' if build is None else ', "build": %s' % build)
+    check(f'a build that is {label}: the version alone, still newer',
+          [uc.check_once(github({'dev': body})) is not None, uc.status()['build'], uc.status()['newer']],
+          [True, None, True])
+reset()
+uc.check_once(github({'dev': json.dumps({'version': uc.VERSION, 'build': 999999})}))
+check('versions are compared without the build: the same version, a later build, is not newer',
+      uc.status()['newer'], False)
+
 # ---------------------------------------------------------- nothing to say
 on_branch('origin/dev')
 for label, body in (('not JSON', 'not json'), ('JSON with no version', '{"note": "x"}'),
@@ -125,7 +137,7 @@ opts.model_manager_check_updates = True
 uc.check_once(github({'dev': newer}))
 opts.model_manager_check_updates = False
 check('and turned off after a check found one, the page is told nothing',
-      uc.status(), {'current': uc.VERSION, 'latest': None, 'newer': False, 'note': ''})
+      uc.status(), {'current': uc.VERSION, 'latest': None, 'build': None, 'newer': False, 'note': ''})
 opts.model_manager_check_updates = True
 
 # ---------------------------------------------------------- the endpoint
