@@ -547,6 +547,7 @@ async function loadModels(page = 1) {
         // No page_size: the server uses the Models per page setting.
         const filters = getFilters();
         filters.page = page;
+        filters.pinned = gridTab === 'pinned';
         const data = await apiCall({ endpoint: '/model-manager/models', params: filters });
 
         if (data.success) {
@@ -570,6 +571,9 @@ async function loadModels(page = 1) {
             totalModels = data.total || 0;
             totalPages = Math.max(1, Math.ceil(totalModels / pageSize));
 
+            gridTabCounts = data.tab_counts || null;
+            gridLoaded = true;
+            updateGridTabs();
             renderModelGrid(data.models);
             updatePaginationStatus();
         } else {
@@ -686,12 +690,42 @@ function mmCard(model, index) {
     });
 }
 
+// ---------------------------------------------------------------- grid tabs
+// The grid's two tabs: the pinned models, and the rest. The page opens on
+// Unpinned; the search and filters apply to both, and each tab says how many
+// match them. A card pinned or unpinned stays where it is until the grid
+// loads again, as pinning always has; the counts follow at once. A tab
+// changes what the loaded grid shows: before Load Models it loads nothing.
+let gridTab = 'others';
+let gridTabCounts = null;
+let gridLoaded = false;
+
+function updateGridTabs() {
+    document.querySelectorAll('#mm_grid_tabs [data-grid-tab]').forEach((tab) => {
+        const which = tab.dataset.gridTab;
+        tab.classList.toggle('active', which === gridTab);
+        tab.setAttribute('aria-selected', String(which === gridTab));
+        const count = tab.querySelector('[data-grid-count]');
+        if (count) count.textContent = gridTabCounts ? `(${Number(gridTabCounts[which] ?? 0).toLocaleString()})` : '';
+    });
+}
+
+document.addEventListener('click', (event) => {
+    const tab = event.target.closest?.('#mm_grid_tabs [data-grid-tab]');
+    if (!tab || tab.dataset.gridTab === gridTab || isLoading) return;
+    gridTab = tab.dataset.gridTab;
+    updateGridTabs();
+    if (gridLoaded) loadModels(1);
+});
+
 // Render model grid
 function renderModelGrid(models) {
     renderSharedGrid({
         gridId: 'mm_grid',
         cards: (models || []).map((model, index) => mmCard(model, index)),
-        empty: 'No models found matching your filters.',
+        empty: gridTab === 'pinned'
+            ? 'No pinned models match your filters. Pin a model with the 📌 on its card to keep it in this tab.'
+            : 'No models found matching your filters.',
         // The library's page count is known: the server gives the total.
         pagination: totalPages > 1 ? renderGridPagination({
             current: currentPage, last: totalPages, hasNext: currentPage < totalPages,
@@ -1680,6 +1714,11 @@ window.mmTogglePin = async function(index) {
         return;
     }
     model.is_pinned = pinned;
+    if (gridTabCounts) {
+        gridTabCounts.pinned += pinned ? 1 : -1;
+        gridTabCounts.others += pinned ? -1 : 1;
+        updateGridTabs();
+    }
     const redraw = (button, cls) => {
         if (!button) return;
         const fresh = pinButton(model, index, cls);
@@ -5080,6 +5119,16 @@ window.mmShowModel = async function(query) {
     setValue('mm_search', query);
 
     await loadModels(1);
+    // The model asked for is in whichever tab holds it: a pinned one is not
+    // in Unpinned.
+    if (!currentModels.length && gridTabCounts) {
+        const other = gridTab === 'pinned' ? 'others' : 'pinned';
+        if (gridTabCounts[other] > 0) {
+            gridTab = other;
+            updateGridTabs();
+            await loadModels(1);
+        }
+    }
 
     // A targeted lookup normally returns exactly one model - open it
     if (currentModels.length === 1) {

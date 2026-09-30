@@ -80,7 +80,7 @@ body.mm-modal-open {
     background: var(--block-background-fill, #1f2937);
     border-radius: 8px;
     padding: 15px;
-    margin-bottom: 15px;
+    margin-bottom: 0;
 }
 
 .filter-row {
@@ -548,13 +548,17 @@ body.mm-modal-open {
 }
 
 /* Status bar */
+/* As wide as the grid's cards and centred as they are, like the tabs under
+   it (balanceGridRows sets the width). */
 .model-manager-status {
-    padding: 10px 15px;
+    max-width: var(--mm-grid-width, none);
+    padding: 10px 0;
     background: var(--block-background-fill, #1f2937);
     border-radius: 6px;
     font-size: 0.9em;
     color: var(--body-text-color-subdued, #9ca3af);
-    margin-bottom: 15px;
+    margin: 0 auto 0;
+    box-sizing: border-box;
 }
 
 .model-manager-status.error {
@@ -1374,7 +1378,7 @@ body.mm-modal-open {
 }
 
 .mm-gallery-tab {
-    margin: 0 !important;
+    margin: 0 10px 0 0 !important;
     padding: 4px 12px;
     background: transparent !important;
     border: none;
@@ -1885,6 +1889,15 @@ body.mm-modal-open {
 /* Version selector section in details panel */
 .mm-version-selector {
     margin-bottom: 15px;
+}
+
+/* Over the Model Manager's grid: Pinned and Unpinned, the gallery's tabs.
+   As wide as the grid's cards, and centred as they are (balanceGridRows sets
+   the width), so the tabs start at the first card's edge. */
+.mm-grid-tabs {
+    max-width: var(--mm-grid-width, none);
+    margin: 8px auto;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
 }
 
 .mm-version-pills {

@@ -339,6 +339,14 @@ def create_ui():
                     Ready. Click 'Load Models' to browse.
                 </div>
 
+                <!-- The grid's tabs: pinned models, and the rest. Filled by model_manager.mjs. -->
+                <div id="mm_grid_tabs" class="mm-gallery-tabs mm-grid-tabs" role="tablist">
+                    <button type="button" class="mm-gallery-tab" data-grid-tab="pinned" role="tab"
+                            title="The models you pinned, with the 📌 on a card">📌 Pinned <span data-grid-count></span></button>
+                    <button type="button" class="mm-gallery-tab active" data-grid-tab="others" role="tab"
+                            title="Every model you have not pinned">Unpinned <span data-grid-count></span></button>
+                </div>
+
                 <!-- Model Grid -->
                 <div id="mm_grid" class="model-grid">
                     <div class="model-grid-empty">Click 'Load Models' to browse your models.</div>

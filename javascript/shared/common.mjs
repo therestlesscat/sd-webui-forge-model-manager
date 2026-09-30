@@ -1065,6 +1065,9 @@ export function balanceGridRows(gridId) {
     const fit = Math.max(1, Math.floor((available + gap) / (cardWidth + gap)));
     const cols = balancedColumns(cards.length, fit);
     inner.style.maxWidth = `${Math.ceil(cols * cardWidth + (cols - 1) * gap)}px`;
+    // For what sits over the grid and should line up with its cards - the
+    // Model Manager's tabs.
+    grid.parentElement?.style.setProperty('--mm-grid-width', inner.style.maxWidth);
 }
 
 // One observer per grid element. Capping the inner list's width does not

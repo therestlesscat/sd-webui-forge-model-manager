@@ -90,7 +90,9 @@ def query_models_grouped(
     allow_derivatives: Optional[str] = None,
     allow_different_license: Optional[str] = None,
     checkpoint_type: Optional[str] = None,
-    sfw_only: bool = False
+    sfw_only: bool = False,
+    pinned: Optional[bool] = None,
+    counts: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Query models grouped by civitai_model_id.
@@ -99,6 +101,10 @@ def query_models_grouped(
     Args:
         preview_least_nsfw: If True, preview is image with lowest NSFW level.
                            If False, preview is most recent image by created_at.
+        pinned: the grid's tabs - True for the pinned cards only, False for
+            the rest, None for all.
+        counts: filled, if given, with how many cards match the filters in
+            each tab: {"pinned": n, "others": m}, whichever tab is asked for.
     """
     conditions = []
     params = []
@@ -260,6 +266,10 @@ def query_models_grouped(
             ) WHERE effective_nsfw_level > ?
         )""")
         outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
+    # Both tabs' counts come from one count, before the tab's own condition.
+    count_where = " AND ".join(outer_conditions)
+    if pinned is not None:
+        outer_conditions.append("is_pinned = 1" if pinned else "is_pinned = 0")
     outer_where = " AND ".join(outer_conditions)
 
     # The card's image. NSFW allowed: the version's cover, else the first
@@ -372,7 +382,9 @@ def query_models_grouped(
                 v.id,
                 v.model_id,
                 v.file_path,
-                v.published_at
+                v.published_at,
+                (EXISTS (SELECT 1 FROM pins WHERE pins.model_id = v.model_id)
+                 OR EXISTS (SELECT 1 FROM pins WHERE pins.file_path = v.file_path)) as file_pinned
             FROM model_versions v
             LEFT JOIN civitai_models m ON v.model_id = m.id
             WHERE {where_clause}
@@ -387,10 +399,13 @@ def query_models_grouped(
                 ) as rn,
                 COUNT(*) OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                ) as local_version_count
+                ) as local_version_count,
+                MAX(fv.file_pinned) OVER (
+                    PARTITION BY COALESCE(fv.model_id, fv.file_path)
+                ) as is_pinned
             FROM filtered_versions fv
         )
-        SELECT COUNT(*) FROM ranked WHERE {outer_where}
+        SELECT COUNT(*), COALESCE(SUM(is_pinned), 0) FROM ranked WHERE {count_where}
     """
 
     # Combine inner params (WHERE clause) with outer params (version count filter)
@@ -399,7 +414,10 @@ def query_models_grouped(
     count_start = time.perf_counter()
     with cursor_factory() as cursor:
         cursor.execute(count_query, all_params)
-        total_count = cursor.fetchone()[0]
+        matching, pinned_count = cursor.fetchone()
+    total_count = matching if pinned is None else pinned_count if pinned else matching - pinned_count
+    if counts is not None:
+        counts.update(pinned=pinned_count, others=matching - pinned_count)
     count_ms = (time.perf_counter() - count_start) * 1000
 
     data_start = time.perf_counter()
