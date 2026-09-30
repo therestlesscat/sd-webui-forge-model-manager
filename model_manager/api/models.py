@@ -27,6 +27,11 @@ from .images import gallery_state, gallery_switches
 # key the rate limit makes each one about two seconds.
 MAX_HASH_LOOKUPS = 20
 
+# What a missing resource's file will be called once downloaded, by version
+# id, as Civitai answered: for this server's life, so sending the same image
+# again does not ask again.
+_MISSING_FILES: dict = {}
+
 
 # The file types a resource can be found by name among: what a chip is for.
 _NAMED_TYPES = {"LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion", None}
@@ -866,6 +871,131 @@ def register(app: FastAPI):
             import traceback
             print(f"[ModelManager] Resolve hashes error: {e}")
             traceback.print_exc()
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.post("/model-manager/missing-resources")
+    def missing_resources(versions: str = Form(default="[]"), hashes: str = Form(default="")):
+        """
+        What the resources an image names, and the library lacks, will be
+        called once downloaded - for the chips under the prompts, which are
+        drawn with that name from the start, so a download does not rename
+        (and resize) one. Asked after a Send, never waited on by it: Civitai
+        can take any time.
+
+        A version's name is its file's, as a download names it: the file
+        DownloadService.pick_file_index() would take, from Civitai's model
+        payload - one request per hundred models (/models?ids), where nearly
+        every resource of Civitai's list carries its model id. A resource the
+        infotext names by hash alone is turned into a version first: from the
+        library, from an earlier lookup, else one request to Civitai each.
+
+        Args:
+            versions: JSON list of {version_id, model_id}; model_id may be null.
+            hashes: comma-separated AutoV2 hashes of resources known by no version.
+
+        Returns:
+            versions: version id -> {file_stem, file_type, model_id, name,
+                version_name}; {gone: true} when Civitai no longer has the
+                model, {version_gone: true, ...} when it has the model but not
+                that version - a download then takes the newest. Absent when
+                Civitai could not be asked.
+            hashes: hash -> version id, or null when Civitai does not know it.
+                Absent when it could not be asked.
+        """
+        from ..download_service import DownloadService
+
+        try:
+            wanted = [item for item in json.loads(versions or "[]") if isinstance(item, dict)]
+            hash_list = []
+            for value in (hashes or "").split(","):
+                value = value.strip().lower()
+                if value and value not in hash_list:
+                    hash_list.append(value)
+
+            db = get_models_db()
+            known = db.hashes_from_local_models(hash_list)
+            known.update({k: v for k, v in db.resolved_hashes(hash_list).items() if k not in known})
+
+            client = None
+
+            def civitai():
+                nonlocal client
+                client = client or CivitaiClient.from_settings()
+                return client
+
+            by_hash = {}
+            try:
+                for value in hash_list:
+                    row = known.get(value)
+                    if row is None:
+                        try:
+                            version = civitai().get_model_by_hash(value)
+                        except Exception as e:
+                            print(f"[ModelManager] Resolve {value} failed: {e}")
+                            continue
+                        db.remember_hash(value, version)
+                        row = {"version_id": (version or {}).get("id"),
+                               "model_id": (version or {}).get("modelId")}
+                    by_hash[value] = row.get("version_id")
+                    if row.get("version_id"):
+                        wanted.append({"version_id": row["version_id"], "model_id": row.get("model_id")})
+
+                model_of = {}
+                for item in wanted:
+                    try:
+                        version_id = int(item.get("version_id") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if version_id:
+                        model_of[version_id] = model_of.get(version_id) or item.get("model_id") or None
+
+                ask = [v for v in model_of if v not in _MISSING_FILES]
+                model_ids = sorted({int(model_of[v]) for v in ask if model_of[v]})
+                models = civitai().get_models_by_ids(model_ids) if model_ids else {}
+                for version_id in ask:
+                    model_id = model_of[version_id]
+                    if model_id:
+                        model = models.get(int(model_id))
+                        if model is None:
+                            _MISSING_FILES[version_id] = {"gone": True}
+                            continue
+                        version = next((v for v in model.get("modelVersions") or []
+                                        if v.get("id") == version_id), None)
+                        model_type, model_name = model.get("type"), model.get("name")
+                    else:
+                        try:
+                            version = civitai().get_model_version(version_id)
+                        except Exception as e:
+                            print(f"[ModelManager] Version {version_id} could not be asked: {e}")
+                            continue
+                        if version is None:
+                            _MISSING_FILES[version_id] = {"gone": True}
+                            continue
+                        model_id = version.get("modelId")
+                        model_type = (version.get("model") or {}).get("type")
+                        model_name = (version.get("model") or {}).get("name")
+                    if version is None:
+                        _MISSING_FILES[version_id] = {"version_gone": True, "model_id": model_id,
+                                                      "name": model_name, "file_type": model_type}
+                        continue
+                    files = version.get("files") or []
+                    chosen = files[DownloadService.pick_file_index(files)] if files else {}
+                    _MISSING_FILES[version_id] = {
+                        "file_stem": os.path.splitext(chosen.get("name") or "")[0] or None,
+                        "file_type": model_type, "model_id": model_id,
+                        "name": model_name, "version_name": version.get("name"),
+                    }
+            finally:
+                if client:
+                    client.close()
+
+            return JSONResponse({
+                "success": True,
+                "versions": {str(v): _MISSING_FILES[v] for v in model_of if v in _MISSING_FILES},
+                "hashes": by_hash,
+            })
+        except Exception as e:
+            print(f"[ModelManager] Missing resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/image-resources")

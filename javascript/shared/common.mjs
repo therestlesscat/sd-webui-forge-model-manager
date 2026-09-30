@@ -879,8 +879,15 @@ export function renameLoraTags(prompt, from, to) {
  * the prompt the image had it in, else the positive one. versionId, modelId
  * and hash are what the image names it by, for downloading one that is not
  * installed; any may be null. renames: [{ from, to }].
+ *
+ * `missing` is what Civitai says of the ones the library lacks
+ * (/model-manager/missing-resources), once it has answered: a missing one is
+ * then named as its file will be once downloaded, so a download does not
+ * rename it, and one the infotext knows only by hash is its version - one
+ * chip with the same version from Civitai's list, not two. A hash Civitai
+ * does not know, or a model it no longer has, is `notOnCivitai`.
  */
-export function collectResourceChips(meta, files, gallery = null) {
+export function collectResourceChips(meta, files, gallery = null, missing = null) {
     const byVersion = (files && files.versions) || {};
     const byHash = (files && files.hashes) || {};
     // Found by the file's name, where no id or hash found it: see
@@ -890,24 +897,46 @@ export function collectResourceChips(meta, files, gallery = null) {
     const renames = [];
 
     const add = ({ file, type, label, weight, versionId, modelId, hash, alias, named = false }) => {
-        const kind = resourceKind((file && file.file_type) || type);
+        let notOnCivitai = false;
+        let future = null;
+        if (!file && missing) {
+            const byHashAnswer = missing.hashes || {};
+            if (!versionId && hash && Object.prototype.hasOwnProperty.call(byHashAnswer, hash)) {
+                versionId = byHashAnswer[hash] || null;
+                notOnCivitai = !versionId;
+            }
+            future = versionId ? (missing.versions || {})[String(versionId)] || null : null;
+            if (future && future.gone) notOnCivitai = true;
+            modelId = modelId || (future && future.model_id) || null;
+        }
+        const kind = resourceKind((file && file.file_type) || type || (future && future.file_type));
         if (!kind) return;
-        const name = file ? file.file_stem : label;
+        const name = file ? file.file_stem : (future && future.file_stem) || label;
         if (!name) return;
-        const key = file ? `file:${name.toLowerCase()}`
+        let key = file ? `file:${name.toLowerCase()}`
             : versionId ? `version:${versionId}` : `name:${name.toLowerCase()}`;
+        // One version is one chip, whichever list found its file and
+        // whichever did not: after a download the infotext's hash may not
+        // lead to the file yet, while Civitai's version id does.
+        const version = versionId || (file && file.version_id) || null;
+        const sameVersion = !chips.has(key) && version
+            && [...chips.values()].find((chip) => chip.versionId === version);
+        if (sameVersion) key = sameVersion.key;
         const known = chips.get(key);
         if (known) {
+            if (file && !known.installed) Object.assign(known, { installed: true, name, byName: named });
             if (file && !named) known.byName = false;
             if (known.weight === null && weight !== undefined && weight !== null) known.weight = weight;
             known.versionId = known.versionId || versionId || (file && file.version_id) || null;
             known.modelId = known.modelId || modelId || null;
             known.hash = known.hash || hash || null;
+            known.notOnCivitai = known.notOnCivitai && notOnCivitai;
         } else {
             chips.set(key, { key, kind, name, weight: weight ?? null, installed: !!file,
                              aliases: new Set(), title: label || name,
                              versionId: versionId || (file && file.version_id) || null,
-                             modelId: modelId || null, hash: hash || null, byName: !!file && named });
+                             modelId: modelId || null, hash: hash || null, byName: !!file && named,
+                             notOnCivitai });
         }
         if (file && alias && alias !== name) {
             chips.get(key).aliases.add(alias);

@@ -460,23 +460,41 @@ const click = (element) => element.dispatchEvent(new window.Event('click', { bub
 check('the image\'s resources are looked up by version id and hash',
       [resourcesAsked[0]?.get('version_ids'), resourcesAsked[0]?.get('hashes')], ['11,99', 'aaaa,bbbb,cccc,dddd']);
 check('its chips sit under the negative prompt', negRow.nextElementSibling?.id, 'mm_resource_chips_txt2img');
-check('one per LoRA and embedding, the gallery\'s own LoRA first',
+// (No answer here on what the missing ones are: see "missing resources" below.)
+await waitFor('the missing chips', () => !row()?.querySelector('.mm-resource-chips-loading'));
+check('one per LoRA and embedding, the gallery\'s own LoRA first, the missing after what the library has',
       Array.from(row().querySelectorAll('.mm-resource-chip-name')).map((b) => b.textContent.trim()),
-      ['flux', 'add_detail', 'Not Here', 'easynegative', 'hash_only', 'private_merge', 'no_hash']);
+      ['flux', 'add_detail', 'easynegative', 'Not Here', 'hash_only', 'private_merge', 'no_hash']);
 check('a LoRA the prompt named otherwise is pasted under the local file\'s name, weight kept',
       [positiveBox.value, positiveBox.value.includes('UploaderName')], ['a cat, <lora:add_detail:0.8>', false]);
 check('what a prompt already holds is lit, the rest not',
       ['flux', 'add_detail', 'easynegative'].map((n) => chip(n).classList.contains('active')),
       [false, true, true]);
-const note = (name) => chip(name)?.querySelector('.mm-resource-chip-note')?.textContent;
-check('one with no file here says it is missing, and that a click downloads it',
-      note('Not Here'), 'missing LoRA, click to download');
+// What a missing chip is doing is said in words on a line under the chips,
+// never on the chip: a download used to rewrite the chip's own text five
+// times, resizing it, and the chips after it moved under the pointer. The
+// chip holds its mark and its name, and nothing else, in every state.
+const note = (name) => {
+    const index = chip(name)?.dataset.chip;
+    const line = row()?.querySelector(`.mm-resource-chips-status [data-status-chip="${index}"]`);
+    return line ? line.textContent.replace(`${name}: `, '') : null;
+};
+const parts = (name) => Array.from(chip(name)?.children || []).map((c) => c.className);
+const onlyMarkAndName = (name) => parts(name).join() === 'mm-resource-chip-mark,mm-resource-chip-name';
+check('one with no file here is marked to download, and says a click does it on hover, not on a line',
+      [look_('Not Here'), chip('Not Here')?.title, note('Not Here')],
+      ['↓', 'Not Here is not in the library: click to download it', null]);
 await waitFor('the hashes to be checked', () => note('private_merge') === 'not on Civitai');
-check('one known by a hash Civitai has: downloadable too', note('hash_only'), 'missing LoRA, click to download');
+check('one known by a hash Civitai has: downloadable too', [look_('hash_only'), note('hash_only')], ['↓', null]);
+check('every chip holds its mark and its name, and nothing else',
+      ['flux', 'Not Here', 'hash_only', 'private_merge', 'no_hash'].every(onlyMarkAndName), true);
 
 // Two things each chip says, told apart: whether it can be used - in the
 // library, missing but downloadable, missing for good - by colour and a mark;
 // whether a prompt holds it, by being filled (.active) rather than outlined.
+function look_(name) {
+    return chip(name)?.querySelector('.mm-resource-chip-mark')?.textContent;
+}
 const look = (name) => [chip(name)?.dataset.state, chip(name)?.querySelector('.mm-resource-chip-mark')?.textContent,
                         chip(name)?.classList.contains('active')];
 check('in the library and in a prompt: ✓, filled', look('add_detail'), ['have', '✓', true]);
@@ -492,7 +510,7 @@ positiveBox.value = positiveBox.value.replace(', <lora:no_hash:0.5>', '');
 positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
 check('and a key says what the colours and filling mean',
       Array.from(row().querySelectorAll('.mm-resource-chips-key > span')).map((s) => s.textContent),
-      ['✓ in library', '↓ can download', '⊘ not available', 'filled: in the prompt']);
+      ['✓ in library', '↓ click to download', '⊘ not available', 'filled: in the prompt']);
 check('one whose hash Civitai has never heard of says so, and offers nothing',
       [note('private_merge'), chip('private_merge').disabled], ['not on Civitai', true]);
 check('nor one the image names with no hash or version at all',
@@ -525,10 +543,12 @@ click(chip('Not Here'));
 await waitFor('the download', () => chipDownloads.length === 1);
 check('a click on a missing chip downloads the version the image names',
       [chipDownloads[0].version_id, chipDownloads[0].newer_if_gone], ['99', 'true']);
-await waitFor('progress', () => chip('Not Here')?.textContent.includes('40%'), 4000);
-check('the chip shows how it is going, and takes no clicks meanwhile',
-      [chip('Not Here').querySelector('.mm-resource-chip-note')?.textContent, chip('Not Here').disabled],
-      ['40%', true]);
+await waitFor('progress', () => note('Not Here')?.includes('40%'), 4000);
+check('how it is going is said under the chips, and the chip takes no clicks meanwhile',
+      [note('Not Here'), chip('Not Here').disabled], ['downloading, 40%', true]);
+check('the chip fills as it goes, keeping its mark, its name and nothing else',
+      [chip('Not Here').getAttribute('style'), look_('Not Here'), onlyMarkAndName('Not Here')],
+      ['--mm-chip-progress: 40%', '↓', true]);
 library.versions[99] = { version_id: 99, file_stem: 'not_here', file_type: 'LORA' };
 chipProgress[99] = { version_id: 99, percent: 100, status: 'complete', synced: true };
 await waitFor('the chips to be looked up again', () => !!chip('not_here'), 5000);
@@ -549,11 +569,12 @@ const warn = console.warn;
 console.warn = (...args) => warned.push(args.join(' '));
 chipProgress[98] = { version_id: 98, status: 'error', file_name: 'hash_only.safetensors',
                      error: 'File already exists: hash_only.safetensors, and Civitai lists no SHA-256 to compare it with' };
-await waitFor('the failure', () => chip('hash_only')?.textContent.includes('download failed'), 60);
+await waitFor('the failure', () => note('hash_only')?.includes('download failed'), 60);
 console.warn = warn;
-check('a failed download says why on the chip, cut short',
-      chip('hash_only')?.querySelector('.mm-resource-chip-note')?.textContent,
-      `download failed: ${'File already exists: hash_only.safetensors, and Civitai lists no SHA-256'.slice(0, 60)}..., click to retry`);
+check('a failed download says why under the chips, cut short, and marks the chip !',
+      [note('hash_only'), look_('hash_only'), onlyMarkAndName('hash_only'), chip('hash_only').disabled],
+      [`download failed: ${'File already exists: hash_only.safetensors, and Civitai lists no SHA-256'.slice(0, 60)}..., click to retry`,
+       '!', true, false]);
 check('all of it in the tooltip', chip('hash_only')?.title.endsWith('lists no SHA-256 to compare it with'), true);
 check('and in the console', warned.some((w) => w.includes('Download of hash_only.safetensors failed: File already exists')), true);
 
@@ -561,6 +582,73 @@ click(row().querySelector('[data-chips-clear]'));
 check('Clear takes the chips away', row(), null);
 check('and leaves the prompts as they were', [positiveBox.value, negativeBox.value],
       ['a cat, <lora:flux:1.1>', 'blurry, easynegative']);
+
+// ------------------------------------------------------- missing resources
+// What the library lacks is asked of Civitai after the send, which does not
+// wait: until the answer, the row shows what the library has and says it is
+// looking. Then the missing chips come after those, named as a download will
+// name their files - so a download renames and moves nothing. A chip the
+// infotext knows only by hash is its version: one chip with Civitai's list.
+let releaseMissing;
+let missingGate = null;
+const missingAsked = [];
+const missingAnswer = {
+    success: true,
+    versions: { 77: { file_stem: 'future_file', file_type: 'LORA', model_id: 76,
+                      name: 'A Very Different Civitai Title', version_name: 'v3' } },
+    hashes: { eeee: 77, ffff: null },
+};
+const fetchChips = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => {
+    if (String(url).includes('/model-manager/missing-resources')) {
+        missingAsked.push(new URLSearchParams(String(rest[0]?.body || '')));
+        await missingGate;
+        return { ok: true, json: async () => structuredClone(missingAnswer) };
+    }
+    return fetchChips(url, ...rest);
+};
+const names = () => Array.from(row()?.querySelectorAll('.mm-resource-chip-name') || []).map((b) => b.textContent.trim());
+const loading = () => row()?.querySelector('.mm-resource-chips-loading')?.textContent;
+IMAGE.meta = {
+    prompt: 'a cat, <lora:uploader_name:0.7>', steps: 20,
+    civitaiResources: [{ type: 'lora', modelVersionId: 11, name: 'Detail Tweaker', weight: 0.8 },
+                       { type: 'lora', modelVersionId: 77, modelId: 76, name: 'A Very Different Civitai Title' }],
+    resources: [{ type: 'lora', name: 'uploader_name', hash: 'eeee', weight: 0.7 },
+                { type: 'lora', name: 'unknown_lora', hash: 'ffff' }],
+};
+missingGate = new Promise((resolve) => { releaseMissing = resolve; });
+await send();
+check('the send does not wait: the library\'s chips are there, and the row says it is looking for the rest',
+      [names(), loading()], [['flux', 'add_detail'], 'Loading missing resources...']);
+check('Civitai is asked about the missing ones: by version and model, and by hash',
+      [JSON.parse(missingAsked.at(-1)?.get('versions') || '[]'), missingAsked.at(-1)?.get('hashes')],
+      [[{ version_id: 77, model_id: 76 }], 'eeee,ffff']);
+releaseMissing();
+await waitFor('the answer', () => !loading());
+check('then the missing come after them, named as a download will name the file, one chip per version',
+      names(), ['flux', 'add_detail', 'future_file', 'unknown_lora']);
+check('with Civitai\'s title on hover', chip('future_file')?.title.includes('A Very Different Civitai Title'), true);
+check('and a hash Civitai does not know is said so, at once',
+      [note('unknown_lora'), look_('unknown_lora')], ['not on Civitai', '⊘']);
+
+// Downloaded: the same name, the same place.
+chipProgress[77] = { version_id: 77, percent: 100, status: 'complete', synced: true };
+library.versions[77] = { version_id: 77, file_stem: 'future_file', file_type: 'LORA' };
+click(chip('future_file'));
+await waitFor('the download to land', () => chip('future_file') && !chip('future_file').classList.contains('missing'), 5000);
+check('once downloaded, the chip keeps its name and its place', names(), ['flux', 'add_detail', 'future_file', 'unknown_lora']);
+delete library.versions[77];
+
+// An answer that comes after the row was cleared, or after another send, is dropped.
+missingGate = new Promise((resolve) => { releaseMissing = resolve; });
+IMAGE.meta.civitaiResources[1] = { type: 'lora', modelVersionId: 78, modelId: 76, name: 'Another' };
+await send();
+check('asked again for the next send', loading(), 'Loading missing resources...');
+click(row().querySelector('[data-chips-clear]'));
+releaseMissing();
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('an answer after Clear draws nothing', row(), null);
+globalThis.fetch = fetchChips;
 
 IMAGE.meta = { prompt: 'a lighthouse', steps: 20 };
 MODEL.model_type = 'Checkpoint';
@@ -643,7 +731,8 @@ await sendGeneration(301, { prompt: 'a lighthouse <lora:add_detail:0.6>', resour
 await waitFor('its chips', () => row() && chip('gone_lora')?.dataset.state === 'download');
 check('a generation sent shows its LoRAs and embeddings as chips, found by their hashes',
       [look('add_detail').slice(0, 2), look('easynegative').slice(0, 2), look('gone_lora').slice(0, 2)],
-      [['have', '✓'], ['have', '✓'], ['download', '↓']]);
+      // gone_lora's hash is hash_only's, whose download failed above: marked so.
+      [['have', '✓'], ['have', '✓'], ['download', '!']]);
 await sendGeneration(302, {});
 check('one that used none leaves none behind from the one before', row(), null);
 generationPlan = null;

@@ -703,5 +703,90 @@ try:
 finally:
     models_api.CivitaiClient = real_client
 
+# --- what the missing resources will be called -------------------------------
+# The chips under the prompts name a missing LoRA as its file will be named
+# once downloaded, so a download does not rename (and resize) it: the file a
+# download takes - Civitai's primary, not the first listed - from one request
+# per hundred models. Asked after a Send, never waited on by it.
+
+class _Missing:
+    asked = []
+    models = {}
+    versions = {}
+    hashes = {}
+    broken = False
+
+    @classmethod
+    def from_settings(cls):
+        return cls()
+
+    def get_models_by_ids(self, ids):
+        if _Missing.broken:
+            raise RuntimeError('Civitai is down')
+        _Missing.asked.append(('models', sorted(ids)))
+        return {i: _Missing.models[i] for i in ids if i in _Missing.models}
+
+    def get_model_version(self, version_id):
+        _Missing.asked.append(('version', version_id))
+        return _Missing.versions.get(version_id)
+
+    def get_model_by_hash(self, value):
+        _Missing.asked.append(('hash', value))
+        return _Missing.hashes.get(value)
+
+    def close(self):
+        pass
+
+
+def _files(*names, primary=None):
+    return [{'name': n, 'primary': n == primary} for n in names]
+
+
+_Missing.models = {
+    700: {'id': 700, 'name': 'A Very Different Title', 'type': 'LORA', 'modelVersions': [
+        {'id': 7001, 'name': 'v1', 'files': _files('big_fp32.safetensors', 'sharp_eyes.safetensors',
+                                                   primary='sharp_eyes.safetensors')}]},
+    701: {'id': 701, 'name': 'Moved On', 'type': 'LORA', 'modelVersions': [{'id': 7012, 'name': 'v2', 'files': []}]},
+}
+_Missing.versions = {7020: {'id': 7020, 'modelId': 702, 'name': 'v1', 'model': {'name': 'No Id Given', 'type': 'TextualInversion'},
+                            'files': _files('bad_hands.pt')}}
+_Missing.hashes = {'abcdef0123': {'id': 7001, 'modelId': 700, 'name': 'v1', 'model': {'name': 'A Very Different Title'}}}
+models_api.CivitaiClient = _Missing
+models_api._MISSING_FILES.clear()
+try:
+    code, body = post('/model-manager/missing-resources',
+                      versions=json.dumps([{'version_id': 7001, 'model_id': 700},
+                                           {'version_id': 7011, 'model_id': 701},
+                                           {'version_id': 7099, 'model_id': 799},
+                                           {'version_id': 7020, 'model_id': None}]),
+                      hashes='ABCDEF0123,0000000000')
+    got = body.get('versions', {})
+    check('a missing version is named as a download names it: its primary file, not the first listed',
+          got.get('7001'), {'file_stem': 'sharp_eyes', 'file_type': 'LORA', 'model_id': 700,
+                            'name': 'A Very Different Title', 'version_name': 'v1'})
+    check('a version its model no longer lists is said so, the model named',
+          (got.get('7011') or {}).get('version_gone'), True)
+    check('and a model Civitai no longer has, so', got.get('7099'), {'gone': True})
+    check('one with no model id is asked for alone',
+          (got.get('7020') or {}).get('file_stem'), 'bad_hands')
+    check('a hash becomes its version, and one Civitai does not know, null',
+          body.get('hashes'), {'abcdef0123': 7001, '0000000000': None})
+    check('every model in one request - the hash\'s version among them - and one per unknown',
+          sorted(a for a in _Missing.asked if a[0] != 'hash'),
+          [('models', [700, 701, 799]), ('version', 7020)])
+    _Missing.asked = []
+    code, body = post('/model-manager/missing-resources',
+                      versions=json.dumps([{'version_id': 7001, 'model_id': 700}]), hashes='abcdef0123')
+    check('asked again, answered from what was learned: the hash remembered, the name kept',
+          (_Missing.asked, body.get('versions', {}).get('7001', {}).get('file_stem'), body.get('hashes')),
+          ([], 'sharp_eyes', {'abcdef0123': 7001}))
+    _Missing.broken = True
+    code, body = post('/model-manager/missing-resources',
+                      versions=json.dumps([{'version_id': 7555, 'model_id': 755}]))
+    check('Civitai failing is an error, for the page to fall back', (code, body.get('success')), (500, False))
+finally:
+    models_api.CivitaiClient = real_client
+    models_api._MISSING_FILES.clear()
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
