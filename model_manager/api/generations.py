@@ -318,6 +318,8 @@ def _lora_names(loras: Any) -> List[str]:
 GROUPINGS = {
     "prompt_written": ("Prompt, as written", lambda r: _one_line(r.get("typed_prompt"))),
     "prompt": ("Prompt, as generated", lambda r: _one_line(r.get("image_prompt"))),
+    # The checkpoint's, as the library holds it - the Model Manager's Base Model filter's.
+    "base_model": ("Base model", lambda r: r.get("base_model") or ""),
     "model": ("Model", lambda r: os.path.splitext(os.path.basename(r.get("checkpoint_path") or ""))[0]),
     "loras": ("LoRA combination", lambda r: ", ".join(_lora_names(r.get("loras")))),
     "size": ("Size", lambda r: f"{r.get('width')}×{r.get('height')}" if r.get("width") else ""),

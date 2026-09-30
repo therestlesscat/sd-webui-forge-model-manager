@@ -153,8 +153,10 @@ class GenerationsOps:
         and grouping need and nothing more: its generation, its place in it,
         its level - the user's rating when set, else the prompt's - how long
         its prompt is, when its generation was made, and what the Generations
-        tab groups by: its own prompt and the one typed, its checkpoint, its
-        LoRAs and its size. Newest generation first.
+        tab groups by: its own prompt and the one typed, its checkpoint and
+        the checkpoint's base model - the library's, as the Model Manager's
+        Base Model filter reads it - its LoRAs and its size. Newest
+        generation first.
         """
         if files is not None and not files:
             return []
@@ -176,7 +178,19 @@ class GenerationsOps:
                 {where}
                 ORDER BY g.created_at DESC, g.id DESC, gi.position
             """, args)
-            return [dict(r) for r in cursor.fetchall()]
+            rows = [dict(r) for r in cursor.fetchall()]
+            # Each checkpoint's base model, once per checkpoint: Forge and the
+            # library can spell its path in two cases (library_spelling()), and
+            # a comparison that ignores case cannot use the index.
+            bases: Dict[str, Optional[str]] = {}
+            for path in {r["checkpoint_path"] for r in rows if r["checkpoint_path"]}:
+                cursor.execute("SELECT base_model FROM model_versions WHERE file_path = ? COLLATE NOCASE "
+                               "AND COALESCE(base_model, '') <> '' LIMIT 1", (path,))
+                found = cursor.fetchone()
+                bases[path] = found[0] if found else None
+            for row in rows:
+                row["base_model"] = bases.get(row["checkpoint_path"])
+            return rows
 
     def count_generations(self, files: Optional[List[str]]) -> int:
         """How many generations used any of these files - or at all, for None."""

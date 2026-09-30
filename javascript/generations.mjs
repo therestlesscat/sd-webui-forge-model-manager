@@ -62,8 +62,8 @@ const LOAD_AHEAD_PX = 800;
 const MAX_SPAN = 4;
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
 const GROUP_NAMES = {
-    prompt_written: 'Prompt, as written', prompt: 'Prompt, as generated', model: 'Model',
-    loras: 'LoRA combination', size: 'Size', day: 'Day',
+    prompt_written: 'Prompt, as written', prompt: 'Prompt, as generated', base_model: 'Base model',
+    model: 'Model', loras: 'LoRA combination', size: 'Size', day: 'Day',
 };
 
 /**
@@ -169,13 +169,17 @@ document.addEventListener('mouseover', (event) => {
 
 // What a section's groups are, counted in its header: "5 prompts".
 const GROUP_PLURALS = {
-    prompt_written: ['prompt', 'prompts'], prompt: ['prompt', 'prompts'], model: ['model', 'models'],
+    prompt_written: ['prompt', 'prompts'], prompt: ['prompt', 'prompts'],
+    base_model: ['base model', 'base models'], model: ['model', 'models'],
     loras: ['LoRA combination', 'LoRA combinations'], size: ['size', 'sizes'], day: ['day', 'days'],
 };
 
-/** What a group whose value is empty is called: no LoRAs, or none. */
+/**
+ * What a group whose value is empty is called: no LoRAs; a checkpoint the
+ * library has no base model for, Unknown; else none.
+ */
 function emptyGroupValue(by) {
-    return by === 'loras' ? 'No LoRAs' : 'None';
+    return by === 'loras' ? 'No LoRAs' : by === 'base_model' ? 'Unknown' : 'None';
 }
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
