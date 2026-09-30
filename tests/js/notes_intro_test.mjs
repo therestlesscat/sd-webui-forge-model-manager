@@ -1,0 +1,63 @@
+// A tab's introduction, for a first install (release_notes.py: kind "intro",
+// audience "new"): on top of the tab's pile, with a button for each step. The
+// Model Manager's opens Scan Disk, and the Sync dialog set to Force sync on
+// the files Civitai has not identified - opened, never started.
+import { ROOT, checker, mountTab } from './harness.mjs';
+
+const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+const { check, waitFor, done } = checker();
+
+const NOTES = [
+    { id: 'pinned-tabs', version: '0.40.13', kind: 'feature', audience: 'everyone', tabs: ['model_manager'],
+      title: 'Pin the models you come back to', text: 'Pinned ones get a tab.' },
+    { id: 'generations', version: '0.40.0', kind: 'feature', important: true, audience: 'everyone',
+      tabs: ['model_manager'], title: 'Every image you generate', text: 'Read this.' },
+    { id: 'intro-model-manager', version: '0.41.4', kind: 'intro', audience: 'new', tabs: ['model_manager'],
+      title: 'Getting your models in', text: 'Scan Disk, then Sync.',
+      actions: [{ id: 'scan_disk', label: 'Open Scan Disk' }, { id: 'sync_unidentified', label: 'Open Sync' }] },
+];
+const posted = [];
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    const reply = (body) => ({ ok: true, json: async () => body });
+    if (init.method === 'POST') posted.push(href);
+    if (href.includes('/model-manager/notes')) return reply({ success: true, notes: NOTES });
+    if (href.includes('/sync/estimate')) {
+        return reply({ success: true, all: { models: 1, requests: 1, seconds: 1 }, total: 2, identified: 1,
+                       unidentified: 1, asked_not_found: 0, never_asked: 1 });
+    }
+    return reply({ success: true });
+};
+
+await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+document.dispatchEvent(new window.Event('DOMContentLoaded'));
+
+const top = () => document.querySelector('#mm_notes [data-note]');
+const click = (element) => element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the notes', () => top(), 6000);
+
+check('the introduction is on top, ahead of even an important note, marked as information',
+      [top().dataset.note, top().className, top().querySelector('.mm-banner-icon')?.textContent,
+       document.querySelector('#mm_notes .mm-note-count')?.textContent],
+      ['intro-model-manager', 'mm-banner mm-note mm-note-intro', 'i', '1 of 3']);
+check('with a button for each step, and Dismiss',
+      Array.from(top().querySelectorAll('.mm-btn')).map((b) => b.textContent.trim()),
+      ['Open Scan Disk', 'Open Sync', 'Dismiss']);
+
+click(top().querySelector('[data-note-action="scan_disk"]'));
+check('Open Scan Disk opens it as it is - not re-reading every header',
+      [document.getElementById('mm_scan_dialog')?.style.display, document.getElementById('mm_scan_reread')?.checked],
+      ['flex', false]);
+click(document.getElementById('mm_scan_dialog_cancel'));
+
+click(top().querySelector('[data-note-action="sync_unidentified"]'));
+check('Open Sync opens the sync dialog set to Force sync, on the files Civitai has not identified',
+      [document.getElementById('mm_sync_dialog')?.style.display,
+       document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
+       document.getElementById('mm_sync_force_mode')?.value],
+      ['flex', 'force', 'unidentified']);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('and starts nothing: that is still the reader\'s click',
+      posted.filter((u) => u.includes('/sync') || u.includes('/scan')), []);
+
+done();

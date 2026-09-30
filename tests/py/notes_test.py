@@ -66,8 +66,9 @@ for note in shipped:
           all(old in {n['id'] for n in shipped}
               and rn.version_key(next(n for n in shipped if n['id'] == old)['version']) <= rn.version_key(note['version'])
               for old in note.get('replaces') or []))
-    check(f'{where}: an action there is, if any',
-          not note.get('action') or (note['action'].get('id') in rn.ACTIONS and bool(note['action'].get('label'))))
+    for action in (note.get('actions') or []) + ([note['action']] if note.get('action') else []):
+        check(f'{where}: an action there is, with a label',
+              action.get('id') in rn.ACTIONS and bool(action.get('label')))
     check(f'{where}: from this version or before - a later one would never show',
           rn.version_key(note['version']) <= rn.version_key(VERSION))
 common = open(os.path.join(ROOT, 'javascript', 'shared', 'common.mjs'), encoding='utf-8').read()
@@ -100,6 +101,8 @@ NOTES = [
      'tabs': ['generations'], 'title': 'Scan again', 'text': 't'},
     {'id': 'rescan-first', 'version': '0.36.0', 'kind': 'action', 'audience': 'update',
      'tabs': ['generations', 'civitai_browser'], 'title': 'Scan', 'text': 't'},
+    {'id': 'intro', 'version': '0.36.0', 'kind': 'intro', 'audience': 'new',
+     'tabs': ['model_manager'], 'title': 'Welcome', 'text': 't'},
 ]
 db, facts = fixtures.build(WORK)          # which empties WORK first
 dbmod._db_instance = db
@@ -110,8 +113,8 @@ rn.NOTES_FILE = path
 ids = lambda notes: [n['id'] for n in notes]
 
 check('a database made now says which version made it', db.get_info(rn.CREATED_BY), VERSION)
-check('a fresh install sees what is for everyone, not what is for people updating - newest first',
-      ids(rn.notes_for(db, 'model_manager')), ['feature-old'])
+check('a fresh install sees what is for everyone and its introductions, not what is for people updating',
+      ids(rn.notes_for(db, 'model_manager')), ['intro', 'feature-old'])
 check('each tab its own', ids(rn.notes_for(db, 'civitai_browser')), ['browser-only'])
 check('and never a note from a later version', 'future' in ids(rn.notes_for(db)), False)
 
@@ -125,10 +128,13 @@ shared.opts.model_manager_database_path = ''
 
 with db._cursor() as cursor:
     cursor.execute("DELETE FROM schema_info WHERE key = ?", (rn.CREATED_BY,))
-check('a database from before notes were kept sees them all, newest first',
+check('a database from before notes were kept sees them all, newest first - but no introduction',
       ids(rn.notes_for(db, 'model_manager')), ['action-new', 'feature-old', 'action-old'])
+db.set_info(rn.CREATED_BY, '0.36.0')
+check('one made by the version that brought an introduction sees it', 'intro' in ids(rn.notes_for(db, 'model_manager')),
+      True)
 db.set_info(rn.CREATED_BY, '0.35.0')
-check('one made by an older version, the notes for updating newer than it',
+check('one made by an older version, the notes for updating newer than it - and no introduction, not new',
       ids(rn.notes_for(db, 'model_manager')), ['action-new', 'feature-old'])
 
 check('a note a later one replaces leaves the tabs - every tab it was in',
