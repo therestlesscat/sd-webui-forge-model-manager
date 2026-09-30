@@ -104,5 +104,11 @@ await waitFor('page two', () => listed.length === 2);
 check('the next page asks for page 2 with no size of its own',
       [listed[1].get('page'), listed[1].has('page_size')], ['2', false]);
 check('and comes out balanced for the current width', rows(), '3 + 3 + 3 + 1');
+// The tabs over the grid take its cards' width, centred as they are, so they
+// start at the first card's edge rather than the page's.
+const cap = document.querySelector('#mm_grid .model-grid-inner')?.style.maxWidth;
+check('the grid\'s width is given to what sits over it - the Pinned / Unpinned tabs',
+      [document.getElementById('mm_grid').parentElement.style.getPropertyValue('--mm-grid-width'), cap],
+      [`${roomFor(3)}px`, `${roomFor(3)}px`]);
 
 done();

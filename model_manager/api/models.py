@@ -129,6 +129,9 @@ def register(app: FastAPI):
         checkpoint_type: str = "",
         # Only models with no image in the library above PG-13
         sfw_only: bool = False,
+        # The grid's tabs: True the pinned cards, False the rest, None all.
+        # The response says how many each tab holds under these filters.
+        pinned: Optional[bool] = None,
         # Return only the file paths the filters select, with no paging. The
         # sync dialog uses it to turn "these results" into a scope; it reuses
         # this endpoint so the filters cannot be parsed one way here and
@@ -223,6 +226,7 @@ def register(app: FastAPI):
             # Query database with grouped query
             db = get_models_db()
             query_start = time.perf_counter()
+            tab_counts = {}
             models, total_count = db.query_models_grouped(
                 search=search if search else None,
                 model_type=type if type and type != "All" else None,
@@ -241,7 +245,9 @@ def register(app: FastAPI):
                 limit=1000000 if paths_only else page_size,
                 offset=0 if paths_only else offset,
                 preview_least_nsfw=preview_least_nsfw,
-                sfw_only=sfw_only
+                sfw_only=sfw_only,
+                pinned=None if paths_only else pinned,
+                counts=tab_counts,
             )
 
             if paths_only:
@@ -271,6 +277,7 @@ def register(app: FastAPI):
                 "card_width": card_width,
                 "card_height": card_height,
                 "has_more": offset + len(models) < total_count,
+                "tab_counts": tab_counts,
                 "preview_least_nsfw_setting": preview_least_nsfw_setting,
             })
             total_ms = (time.perf_counter() - request_start) * 1000

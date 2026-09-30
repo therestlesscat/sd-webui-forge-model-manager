@@ -139,6 +139,24 @@ while True:
 check('with pins, pages of 3 still join up: the pinned on page 1, none twice, none missing',
       (paged, len(paged)), (paths(everything), total))
 
+# The grid's tabs: the pinned cards, and the rest - each in the grid's sort,
+# each paging on its own, and both counted under the filters.
+counts = {}
+everything_rows, everything_total = query(sort_by='name', sort_order='asc', counts=counts)
+pinned_rows, pinned_total = query(sort_by='name', sort_order='asc', pinned=True)
+other_rows, other_total = query(sort_by='name', sort_order='asc', pinned=False)
+check('the Pinned tab holds the pinned cards, and only them',
+      (paths(pinned_rows), pinned_total), (paths(everything_rows[:2]), 2))
+check('Others the rest, in the same sort', (paths(other_rows), other_total),
+      (paths(everything_rows[2:]), everything_total - 2))
+check('and both tabs are counted, whichever is asked for', counts,
+      {'pinned': 2, 'others': everything_total - 2})
+page, _ = query(sort_by='name', sort_order='asc', pinned=False, limit=3, offset=3)
+check('Others pages on its own', paths(page), paths(other_rows[3:6]))
+counts = {}
+query(model_type='VAE', pinned=True, counts=counts)
+check('the counts follow the filters', counts, {'pinned': 0, 'others': len(vae_before[0])})
+
 # A file pinned by its path before Civitai knew it pins its model's card, and
 # unpinning the model takes that pin too.
 checkpoint = facts['checkpoint_ids'][0]

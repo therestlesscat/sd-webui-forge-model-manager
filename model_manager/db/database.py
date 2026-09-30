@@ -244,9 +244,11 @@ class ModelsDatabase:
         limit: int = 50,
         offset: int = 0,
         preview_least_nsfw: bool = True,
-        sfw_only: bool = False
+        sfw_only: bool = False,
+        pinned: Optional[bool] = None,
+        counts: Optional[Dict[str, int]] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Query models grouped by civitai_model_id."""
+        """Query models grouped by civitai_model_id. See db/query.py."""
         return self._models.query_models_grouped(
             search=search,
             model_type=model_type,
@@ -265,7 +267,9 @@ class ModelsDatabase:
             limit=limit,
             offset=offset,
             preview_least_nsfw=preview_least_nsfw,
-            sfw_only=sfw_only
+            sfw_only=sfw_only,
+            pinned=pinned,
+            counts=counts,
         )
 
     def count_images_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:
