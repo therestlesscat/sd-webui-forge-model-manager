@@ -186,6 +186,21 @@ def _recording() -> bool:
         return False
 
 
+def generations_enabled() -> bool:
+    """
+    Whether "Your generations" is on - one switch for all of it: off, nothing
+    is recorded (_recording), the Generations tab is not created at the next
+    start, and the page hides it and each model's "Your generations" at once.
+    What was recorded is kept either way. For the UI, a setting that cannot
+    be read is on, as by default.
+    """
+    try:
+        from modules import shared
+        return bool(getattr(shared.opts, RECORD_GENERATIONS, True))
+    except Exception:
+        return True
+
+
 def _text(value: Any) -> Optional[str]:
     if isinstance(value, list):
         value = value[0] if value else None

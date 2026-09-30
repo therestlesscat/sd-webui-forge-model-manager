@@ -21,6 +21,7 @@ const {
     onReady,
     showApiKeyBanner,
     showNotes,
+    generationsEnabled,
     apiCall,
     escapeHtml,
     safeId,
@@ -1999,7 +2000,7 @@ function imagesHeaderHtml(countText = '') {
         <div class="mm-images-header">
             <div class="mm-gallery-tabs" role="tablist">
                 ${tab('civitai', 'Civitai images')}
-                ${tab('generations', 'Your generations' + ` (${generationsCount})`)}
+                ${generationsEnabled() ? tab('generations', 'Your generations' + ` (${generationsCount})`) : ''}
             </div>
             <div class="mm-images-header-right">
                 ${refresh}
@@ -2031,6 +2032,18 @@ window.mmShowGalleryTab = async function(tab) {
     }
     renderModelImages(currentImages);
 };
+
+// "Your generations" turned off or on: the gallery's tab goes or comes back at
+// once - off while it shows, to the Civitai images.
+window.addEventListener('mm-generations-enabled', (event) => {
+    if (!document.querySelector('#mm_images .mm-images-header')) return;
+    if (!event.detail.enabled && galleryTab === 'generations') {
+        window.mmShowGalleryTab('civitai');
+        return;
+    }
+    if (galleryTab === 'generations') renderGenerations();
+    else renderModelImages(currentImages);
+});
 
 // "Rate" on your generations: a row of NSFW levels on each card and on each
 // image "Show images" shows. Not remembered.

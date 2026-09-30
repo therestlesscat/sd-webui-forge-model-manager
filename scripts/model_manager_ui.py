@@ -12,6 +12,7 @@ import sys
 
 from modules import script_callbacks
 
+from model_manager.generations import generations_enabled
 from model_manager.ui import (
     create_civitai_browser_ui,
     create_generations_ui,
@@ -21,8 +22,11 @@ from model_manager.ui import (
 
 
 def create_all_tabs():
-    """Create all Model Manager tabs: Generations first, before the Model Manager."""
-    tabs = [(create_generations_ui(), "Generations", "generations_tab")]
+    """
+    Create all Model Manager tabs: Generations first, before the Model
+    Manager - unless "Your generations" is off, when it is not created at all.
+    """
+    tabs = [(create_generations_ui(), "Generations", "generations_tab")] if generations_enabled() else []
     tabs += create_ui()
     civitai_tab = create_civitai_browser_ui()
     tabs.append((civitai_tab, "Civitai Browser", "civitai_browser_tab"))
