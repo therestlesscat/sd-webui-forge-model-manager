@@ -24,6 +24,8 @@ const {
     generationsEnabled,
     savedSearch,
     saveSearch,
+    showGalleryLoading,
+    dimGalleryWhileLoading,
     apiCall,
     escapeHtml,
     safeId,
@@ -760,6 +762,9 @@ window.mmSelectModel = async function(index) {
     // while this model is open - as in the Civitai Browser.
     hideNsfwImagesInitialized = false;
     hidePromptlessInitialised = false;
+    // At once: the last model's gallery stayed up while this one's versions
+    // and details were asked for, as if the click had done nothing.
+    showGalleryLoading('mm_images');
 
     // Reset version state
     currentVersions = [];
@@ -852,10 +857,13 @@ async function loadVersionDetails(filePath) {
 
             updateImagesCountCell();
             await loadGalleryPage(1);
+        } else {
+            sayGalleryFailed(data.error || 'the model\'s details did not come');
         }
     } catch (error) {
         console.error('[ModelManager] Failed to load model details:', error);
         updateImagesCountCell();  // Update even on error to show "None"
+        sayGalleryFailed(error.message);
     }
 }
 
@@ -900,6 +908,7 @@ async function loadGalleryPage(number, { append = false } = {}) {
         if (!data.success) {
             console.error('[ModelManager] Failed to load images:', data.error);
             if (append) pageRequestError = `Page ${number} could not be loaded: ${data.error || 'no answer'}`;
+            else sayGalleryFailed(data.error || 'no answer');
             return false;
         }
         pageRequestError = '';
@@ -920,7 +929,35 @@ async function loadGalleryPage(number, { append = false } = {}) {
     } catch (error) {
         console.error('[ModelManager] Failed to load images:', error);
         if (append) pageRequestError = `Page ${number} could not be loaded: ${error.message}`;
+        else sayGalleryFailed(error.message);
         return false;
+    }
+}
+
+/** A first page that did not come: said in the gallery - it used to be the console's alone. */
+function sayGalleryFailed(why) {
+    dimGalleryWhileLoading('mm_images', false);
+    const container = document.getElementById('mm_images');
+    container?.querySelector(':scope > .mm-loading-bar')?.remove();
+    container?.querySelector(':scope > .mm-images-loading')?.remove();
+    container?.insertAdjacentHTML('afterbegin',
+        `<div class="mm-images-error">The images could not be loaded: ${escapeHtml(why)}</div>`);
+}
+
+/**
+ * A gallery switch changed: the version's details and first page again,
+ * the images meanwhile dimmed under the bar - it used to show nothing until
+ * they came.
+ */
+async function reloadGalleryForSwitch() {
+    if (!currentModelPath) return;
+    dimGalleryWhileLoading('mm_images', true);
+    try {
+        await loadVersionDetails(currentModelPath);
+        await scrollToModelImagesTop();
+        if (galleryTab === 'generations') await loadGenerationsPage(1);
+    } finally {
+        dimGalleryWhileLoading('mm_images', false);
     }
 }
 
@@ -932,11 +969,7 @@ async function loadGalleryPage(number, { append = false } = {}) {
 window.mmToggleShowPromptless = async function(showPromptless) {
     hidePromptlessImages = !showPromptless;
     hidePromptlessInitialised = true;
-    if (currentModelPath) {
-        await loadVersionDetails(currentModelPath);
-        await scrollToModelImagesTop();
-        if (galleryTab === 'generations') await loadGenerationsPage(1);
-    }
+    await reloadGalleryForSwitch();
 };
 
 // The gallery's NSFW switch. It reads "Show NSFW", as every other NSFW switch
@@ -946,11 +979,7 @@ window.mmToggleShowPromptless = async function(showPromptless) {
 window.mmToggleShowNsfwImages = async function(showNsfw) {
     hideNsfwImages = !showNsfw;
     hideNsfwImagesInitialized = true;
-    if (currentModelPath) {
-        await loadVersionDetails(currentModelPath);
-        await scrollToModelImagesTop();
-        if (galleryTab === 'generations') await loadGenerationsPage(1);
-    }
+    await reloadGalleryForSwitch();
 };
 
 // Update the images count cell in the Information table
@@ -986,7 +1015,8 @@ window.mmSelectVersion = async function(versionIndex) {
     // Update version-specific info in details panel
     updateVersionInfo(version);
 
-    // Load details for new version
+    // Load details for new version - its gallery saying so meanwhile.
+    if (document.getElementById('mm_images')?.style.display !== 'none') showGalleryLoading('mm_images');
     await loadVersionDetails(version.file_path);
 };
 
