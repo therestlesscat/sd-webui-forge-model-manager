@@ -4563,6 +4563,21 @@ function splitSamplerScheduler(samplerString) {
     return { sampler: matchedSampler, scheduler: null };
 }
 
+/**
+ * A prompt without the double quotes around the whole of it. Some tools
+ * write the prompt to Civitai as a quoted string, and pasted as it is, a
+ * model reading prompts as instructions took it all as one quotation: a
+ * Krea 2 model drew noise from 35 such prompts. Only a pair around the
+ * whole, with no other quote inside - '"a" and "b"' is two quotations.
+ * Of 84,677 prompts in one library, 60 were wrapped; 56 of them so.
+ */
+function unquotePrompt(text) {
+    const trimmed = String(text ?? '').trim();
+    const inner = trimmed.slice(1, -1);
+    return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"') && !inner.includes('"')
+        ? inner.trim() : text;
+}
+
 // Build infotext string from image metadata (A1111 format)
 function buildInfotext(meta, { denoisingStrength = null } = {}) {
     if (!meta) return '';
@@ -4570,13 +4585,15 @@ function buildInfotext(meta, { denoisingStrength = null } = {}) {
     let infotext = '';
 
     // Prompt
-    if (meta.prompt) {
-        infotext += meta.prompt;
+    const prompt = unquotePrompt(meta.prompt);
+    if (prompt) {
+        infotext += prompt;
     }
 
     // Negative prompt
-    if (meta.negativePrompt) {
-        infotext += '\nNegative prompt: ' + meta.negativePrompt;
+    const negativePrompt = unquotePrompt(meta.negativePrompt);
+    if (negativePrompt) {
+        infotext += '\nNegative prompt: ' + negativePrompt;
     }
 
     // Split sampler if it contains scheduler

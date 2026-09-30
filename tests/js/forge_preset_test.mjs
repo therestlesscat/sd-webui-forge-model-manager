@@ -704,4 +704,29 @@ check('a preset the original Forge does not have is left alone',
       ['xl', ['sd', 'xl', 'flux', 'all'], false]);
 check('and the send goes on without it', events.includes('paste'), true);
 
+// ------------------------------------------------ a prompt wrapped in quotes
+// Some tools give Civitai the prompt as a quoted string. Pasted as it is, a
+// model reading prompts as instructions took the whole as one quotation and
+// drew noise; the quotes around the whole go, and only those.
+// (This DOM's textarea gives back only the first line; the infotext the
+// paste writes - the one with a Steps line - is kept.)
+let written = '';
+Object.defineProperty(document.querySelector('#txt2img_prompt textarea'), 'value', {
+    set: (text) => { if (String(text).includes('\nSteps:')) written = text; },
+    get: () => written, configurable: true });
+const sendPrompts = async (prompt, negativePrompt) => {
+    IMAGE.meta = { prompt, negativePrompt, steps: 20 };
+    written = '';
+    await send();
+    return written.split('\n').filter((line) => !line.startsWith('Steps:'));
+};
+check('a prompt and a negative prompt quoted whole are sent without the quotes',
+      await sendPrompts(' "a lighthouse at dusk, (fog:1.2)" ', '"blurry"'),
+      ['a lighthouse at dusk, (fog:1.2)', 'Negative prompt: blurry']);
+check('a prompt with quotes of its own inside keeps every one',
+      await sendPrompts('"a sign" reading "open"', 'text'),
+      ['"a sign" reading "open"', 'Negative prompt: text']);
+check('as does one quoted only in part',
+      await sendPrompts('a sign reading "open"', ''), ['a sign reading "open"']);
+
 done();
