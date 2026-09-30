@@ -10,7 +10,12 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
 
 const listed = [];
-globalThis.fetch = async (url) => {
+const saved = [];            // what Save Search sent: it is kept in the database
+globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes('/model-manager/saved-search') && init.method === 'POST') {
+        saved.push(JSON.parse(init.body));
+        return { ok: true, json: async () => ({ success: true }) };
+    }
     const href = String(url);
     if (href.includes('/model-manager/models?') || href.endsWith('/model-manager/models')) {
         listed.push(new URL(href, 'http://webui').searchParams);
@@ -47,7 +52,7 @@ $('mm_sfw_only').checked = true;
 check('ticked, it is', (await load()).get('sfw_only'), 'true');
 
 $('mm_save_search_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
-check('a saved search keeps it',
-      JSON.parse(window.localStorage.getItem('mm_saved_filters') || '{}').sfw_only, true);
+await waitFor('the save', () => saved.length > 0);
+check('a saved search keeps it', [saved[0].tab, saved[0].filters.sfw_only], ['model_manager', true]);
 
 done();

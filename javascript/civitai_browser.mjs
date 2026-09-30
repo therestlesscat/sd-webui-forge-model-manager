@@ -22,6 +22,8 @@ const {
     onReady,
     showApiKeyBanner,
     showNotes,
+    savedSearch,
+    saveSearch,
     apiCall,
     escapeHtml,
     safeId,
@@ -1795,6 +1797,19 @@ function init() {
     syncSfwOnlyEnabled();
     loadNsfwDetection().then(syncSfwOnlyEnabled);
 
+    const saveBtn = document.getElementById('cb_save_search_btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveCbSearch();
+        });
+        saveBtn.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            clearCbSearch();
+        });
+    }
+    prepareSavedSearch();
+
     // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
@@ -1834,8 +1849,113 @@ function init() {
     console.log('[CivitaiBrowser] Ready');
 }
 
+// ------------------------------------------------------------- Save Search
+// One saved search, in the database (savedSearch in common.mjs): its filters
+// fill the bar, and it runs the first time this tab is shown - not when the
+// page loads, when every tab loads at once, which would ask Civitai whether
+// or not the tab is ever looked at. A search of the reader's own, or one the
+// Model Manager's "Show in Civitai Browser" brings, comes first and it stands
+// aside.
+let savedSearchDone = false;
+
+/** The filters as the bar shows them, as Save Search keeps them - the boxes, not what is sent. */
+function currentSearch() {
+    const value = (id) => document.getElementById(id)?.value || '';
+    const ticked = (id) => document.getElementById(id)?.checked || false;
+    return {
+        query: value('cb_search'), types: value('cb_type'), checkpoint_type: value('cb_checkpoint_type'),
+        base_models: value('cb_base_model'), sort: value('cb_sort'), period: value('cb_period'),
+        nsfw: ticked('cb_nsfw'), tag: selectedTag, require_prompt: ticked('cb_require_prompt'),
+        sfw_only: ticked('cb_sfw_only'), min_size: value('cb_min_size'), max_size: value('cb_max_size'),
+    };
+}
+
+function applySearch(filters) {
+    const set = (id, key) => {
+        const element = document.getElementById(id);
+        if (element && Object.prototype.hasOwnProperty.call(filters, key)) element.value = filters[key] ?? '';
+    };
+    const tick = (id, key) => {
+        const element = document.getElementById(id);
+        if (element && Object.prototype.hasOwnProperty.call(filters, key)) element.checked = Boolean(filters[key]);
+    };
+    set('cb_search', 'query');
+    set('cb_type', 'types');
+    set('cb_checkpoint_type', 'checkpoint_type');
+    set('cb_base_model', 'base_models');
+    set('cb_sort', 'sort');
+    set('cb_period', 'period');
+    tick('cb_nsfw', 'nsfw');
+    tick('cb_require_prompt', 'require_prompt');
+    tick('cb_sfw_only', 'sfw_only');
+    set('cb_min_size', 'min_size');
+    set('cb_max_size', 'max_size');
+    if (Object.prototype.hasOwnProperty.call(filters, 'tag')) selectTag(filters.tag || '');
+    syncCheckpointTypeEnabled();
+    syncSfwOnlyEnabled();
+}
+
+function flashSaveSearch(text) {
+    const btn = document.getElementById('cb_save_search_btn');
+    if (!btn) return;
+    btn.textContent = text;
+    setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+}
+
+async function saveCbSearch() {
+    commitTypedTag();
+    if (!await saveSearch('civitai_browser', currentSearch())) {
+        updateStatus('Could not save the search: the server did not keep it.');
+        return;
+    }
+    flashSaveSearch('✓ Saved');
+}
+
+async function clearCbSearch() {
+    if (!await saveSearch('civitai_browser', null)) {
+        updateStatus('Could not clear the saved search: the server did not answer.');
+        return;
+    }
+    flashSaveSearch('✗ Cleared');
+}
+
+function browserTabButton() {
+    const root = typeof gradioApp === 'function' ? gradioApp() : document;
+    return Array.from(root.querySelectorAll('#tabs button')).find((b) => b.textContent.trim() === 'Civitai Browser');
+}
+
+function runSavedSearch() {
+    if (savedSearchDone) return;
+    savedSearchDone = true;
+    if (window.cbSkipSavedSearch) return;        // Show in Civitai Browser brings its own
+    window.cbSearch();
+}
+
+/**
+ * Fill the bar from the saved search - once Civitai's lists are in, or a
+ * type or base model not in the page's first list would not take - and run
+ * it when the tab is first shown.
+ */
+async function prepareSavedSearch() {
+    const filters = await savedSearch('civitai_browser');
+    if (!filters || savedSearchDone) return;
+    await loadEnums();
+    if (savedSearchDone) return;
+    applySearch(filters);
+    const button = browserTabButton();
+    if (button && (button.classList.contains('selected') || button.getAttribute('aria-selected') === 'true')) {
+        runSavedSearch();
+        return;
+    }
+    document.addEventListener('click', (event) => {
+        const tab = event.target.closest?.('#tabs button');
+        if (tab && tab.textContent.trim() === 'Civitai Browser') runSavedSearch();
+    });
+}
+
 // Expose functions to window for inline handlers
 window.cbSearch = function() {
+    savedSearchDone = true;          // the reader's own search: the saved one stands aside
     initTagInput();
     loadEnums();
     commitTypedTag();

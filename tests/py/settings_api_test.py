@@ -306,5 +306,32 @@ check('a placeholder a download would not fill is named',
       example('{basemodel}/{modelName}')['unknown'], ['{basemodel}'])
 check('an empty template files a model straight in its type\'s folder', example('')['subfolder'], '')
 
+# ------------------------------------------------------------ saved searches
+# Each tab's Save Search: one set of filters, kept in the database, so it is
+# the same in every browser and in both WebUIs sharing the database.
+def saved(tab):
+    return client.get('/model-manager/saved-search', params={'tab': tab}).json()
+
+
+def keep(body):
+    return client.post('/model-manager/saved-search', json=body)
+
+
+check('with none saved, a tab has none', saved('civitai_browser'), {'success': True, 'filters': None})
+FILTERS = {'query': 'lighthouse', 'types': 'LORA', 'nsfw': False, 'min_size': '0.1'}
+check('a tab\'s search is saved', keep({'tab': 'civitai_browser', 'filters': FILTERS}).json()['success'], True)
+check('and read back as it was', saved('civitai_browser')['filters'], FILTERS)
+check('each tab its own', saved('model_manager')['filters'], None)
+check('kept in the database, not in the page', json.loads(db.get_info('saved_search:civitai_browser')), FILTERS)
+check('forgotten with null', [keep({'tab': 'civitai_browser', 'filters': None}).json()['success'],
+                              saved('civitai_browser')['filters'], db.get_info('saved_search:civitai_browser')],
+      [True, None, None])
+check('a tab there is not, refused', [keep({'tab': 'settings', 'filters': {}}).status_code,
+                                      client.get('/model-manager/saved-search', params={'tab': 'x'}).status_code],
+      [400, 400])
+check('as are filters that are not an object, and a store passed off as one',
+      [keep({'tab': 'model_manager', 'filters': ['a']}).status_code,
+       keep({'tab': 'model_manager', 'filters': {'x': 'y' * 30000}}).status_code], [400, 400])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

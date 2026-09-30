@@ -261,8 +261,48 @@ def test_key(typed: Optional[str] = None) -> Dict[str, Any]:
     return {"success": True, "result": "works", "username": username, "which": which}
 
 
+# A tab's saved search - its filters, as the tab reads and fills them - kept
+# in the database: the same in every browser, and in both WebUIs when they
+# share it. The tabs' Save Search buttons; one each.
+SAVED_SEARCH_TABS = ("model_manager", "civitai_browser")
+_SAVED_SEARCH_LIMIT = 20000       # characters: a set of filters, not a store
+
+
+def _saved_search_key(tab: str) -> str:
+    return f"saved_search:{tab}"
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
+    @app.get("/model-manager/saved-search")
+    def get_saved_search(tab: str = ""):
+        """A tab's saved search: `filters`, or null when none is saved."""
+        if tab not in SAVED_SEARCH_TABS:
+            return JSONResponse({"success": False, "error": f"no saved search for {tab!r}"}, status_code=400)
+        from ..db import get_models_db
+        raw = get_models_db().get_info(_saved_search_key(tab))
+        try:
+            filters = json.loads(raw) if raw else None
+        except ValueError:
+            filters = None
+        return JSONResponse({"success": True, "filters": filters if isinstance(filters, dict) else None})
+
+    @app.post("/model-manager/saved-search")
+    def set_saved_search(body: Dict[str, Any] = Body(...)):
+        """Save a tab's search - {tab, filters} - or forget it, with filters null."""
+        tab = body.get("tab")
+        filters = body.get("filters")
+        if tab not in SAVED_SEARCH_TABS:
+            return JSONResponse({"success": False, "error": f"no saved search for {tab!r}"}, status_code=400)
+        if filters is not None and not isinstance(filters, dict):
+            return JSONResponse({"success": False, "error": "filters must be an object, or null"}, status_code=400)
+        value = json.dumps(filters) if filters is not None else None
+        if value is not None and len(value) > _SAVED_SEARCH_LIMIT:
+            return JSONResponse({"success": False, "error": "too large for a saved search"}, status_code=400)
+        from ..db import get_models_db
+        get_models_db().set_info(_saved_search_key(tab), value)
+        return JSONResponse({"success": True})
+
     @app.get("/model-manager/settings")
     async def get_settings():
         """Every Model Manager setting: its value, default, label and bounds."""
