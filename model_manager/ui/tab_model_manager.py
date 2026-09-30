@@ -41,7 +41,7 @@ def create_ui():
                         <strong>No Civitai API key.</strong>
                         Requests are limited to 0.5 per second instead of 6, image prompts
                         cannot be fetched at all, and some models refuse to download.
-                        Set one in <strong>Settings &rarr; Model Manager &rarr; Civitai API Key</strong>.
+                        <a href="#" class="mm-banner-link" onclick="window.mmOpenSettings && window.mmOpenSettings({ section: 'connection' }); return false;">Set one in the settings</a>, under Civitai connection.
                     </span>
                 </div>
 

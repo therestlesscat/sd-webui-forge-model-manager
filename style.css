@@ -2976,6 +2976,14 @@ body.mm-modal-open {
     margin-top: 4px;
 }
 
+/* A banner's way to what it is about: "Set one in the settings". */
+.mm-banner-link {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
 .mm-banner-note:empty {
     display: none;
 }

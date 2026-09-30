@@ -180,7 +180,8 @@ await send();
 const notices = Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent);
 check('a file the settings name that Forge does not list is said, by name, in the same notice',
       [notices.length, notices[0]?.includes('Qwen2.5-VL 7B'),
-       notices[0]?.includes('qwen_2.5_vl_7b_q4.gguf'), notices[0]?.includes('Settings')],
+       notices[0]?.includes('qwen_2.5_vl_7b_q4.gguf'),
+       notices[0]?.includes('The settings (\u2699 at the top right of the tab, under "Send to txt2img')],
       [1, true, true, true]);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 

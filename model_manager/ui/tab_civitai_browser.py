@@ -40,7 +40,7 @@ def create_civitai_browser_ui():
                         Searches are limited to 0.5 requests per second instead of 6,
                         image prompts cannot be fetched at all, and some models refuse
                         to download.
-                        Set one in <strong>Settings &rarr; Model Manager &rarr; Civitai API Key</strong>.
+                        <a href="#" class="mm-banner-link" onclick="window.mmOpenSettings && window.mmOpenSettings({ section: 'connection' }); return false;">Set one in the settings</a>, under Civitai connection.
                     </span>
                 </div>
 
@@ -189,9 +189,9 @@ def create_civitai_browser_ui():
                     <span><strong>Only Show Models with SFW images is on.</strong>
                         <span id="cb_sfw_only_banner_text"></span>
                         <span id="cb_sfw_only_banner_setting">To fill every page anyway, turn on
-                            <strong>Settings &rarr; Model Manager &rarr; Civitai Browser: Fill every
-                            page with 'Only Show Models with SFW images'</strong> - not recommended: one page can
-                            take hundreds of requests and several minutes.</span>
+                            <strong>Fill every page with 'Only Show Models with SFW images'</strong>
+                            <a href="#" class="mm-banner-link" onclick="window.mmOpenSettings && window.mmOpenSettings({ section: 'advanced' }); return false;">in the settings</a>, under Advanced - not recommended:
+                            one page can take hundreds of requests and several minutes.</span>
                         <span id="cb_sfw_only_banner_model" class="mm-banner-note"></span></span>
                 </div>
 

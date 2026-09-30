@@ -4046,9 +4046,9 @@ async function applyPlannedModules(plan, vaeName) {
                       + 'Add it to Forge\'s VAE or text_encoder folder, or select it in "VAE / Text Encoder".');
     }
     if (plan.not_found && plan.not_found.length) {
-        problems.push(`Settings -> Model Manager names ${plan.not_found.join(', ')} for ${plan.preset} `
-                      + 'models, but Forge does not list it: check the name, or put the file in Forge\'s '
-                      + 'VAE or text_encoder folder.');
+        problems.push(`The settings (\u2699 at the top right of the tab, under "Send to txt2img: text encoders `
+                      + `and VAE") name ${plan.not_found.join(', ')} for ${plan.preset} models, but Forge does not `
+                      + 'list it: check the name, or put the file in Forge\'s VAE or text_encoder folder.');
     }
     if (plan.vae_not_found) {
         console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
@@ -6076,6 +6076,15 @@ function selectBaseModel(value) {
  * While "Only Show Models with SFW images" is ticked and a trained model
  * judges prompts, say so above the results. The word list needs no note.
  */
+// Listened for on the page, not on the checkbox: the tab's markup may not be
+// there yet when init() runs, and Gradio replaces it when it redraws - a
+// listener on the element was lost, and ticking the box showed no banner.
+// For the same redraw, which resets inline styles, it is shown again after.
+document.addEventListener('change', (event) => {
+    if (event.target?.id === 'mm_sfw_only') syncSfwOnlyBanner();
+});
+if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncSfwOnlyBanner);
+
 function syncSfwOnlyBanner() {
     const banner = document.getElementById('mm_sfw_only_banner');
     const note = document.getElementById('mm_sfw_only_banner_model');
@@ -6152,7 +6161,6 @@ function clearSearchFilters() {
 function init() {
     console.log('[ModelManager] Initializing...');
     bindElements();
-    document.getElementById('mm_sfw_only')?.addEventListener('change', syncSfwOnlyBanner);
     loadNsfwDetection().then(syncSfwOnlyBanner);
 
 }

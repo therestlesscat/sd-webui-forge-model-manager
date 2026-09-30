@@ -50,11 +50,19 @@ $('mm_sfw_only').checked = true;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 check('   ticked, a banner says a trained model decides, and where to switch',
       [$('mm_sfw_only_banner').style.display,
-       $('mm_sfw_only_banner').textContent.includes('Settings \u2192 Model Manager \u2192 NSFW detection')],
+       $('mm_sfw_only_banner').textContent.includes('NSFW detection, in the settings (\u2699 at the top right of the tab)')],
       ['flex', true]);
 $('mm_sfw_only').checked = false;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 check('   and it goes when the box is unticked', $('mm_sfw_only_banner').style.display, 'none');
+// Gradio redraws a tab by replacing its markup: a listener on the old box was
+// lost with it, and ticking the new one showed no banner.
+$('mm_sfw_only').outerHTML = $('mm_sfw_only').outerHTML;
+$('mm_sfw_only').checked = true;
+$('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
+check('   the box redrawn by Gradio, ticking it still puts the banner up', $('mm_sfw_only_banner').style.display, 'flex');
+$('mm_sfw_only').checked = false;
+$('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

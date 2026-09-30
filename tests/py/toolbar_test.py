@@ -179,8 +179,9 @@ check('no dialog control is left unwired', unused, [])
 # --- the missing-key banner -------------------------------------------------
 banner = block(UI, '<div id="mm_api_key_warning"')
 check('the banner starts hidden', 'style="display: none;"' in banner)
-check('it names the setting exactly',
-      'Settings &rarr; Model Manager &rarr; Civitai API Key' in banner)
+OPENS_CONNECTION = "window.mmOpenSettings({ section: 'connection' })"
+check('it opens the settings window where the key is set, not the WebUI\'s Settings page',
+      [OPENS_CONNECTION in banner, 'Civitai connection' in banner, 'Settings &rarr;' in banner], [True, True, False])
 check('and says why it matters', 'No Civitai API key' in banner)
 check('it sits above the filters',
       UI.index('mm_api_key_warning') < UI.index('model-manager-filters'))
@@ -361,8 +362,8 @@ COMMON = io.open(os.path.join(ROOT, 'javascript/shared/common.mjs'), encoding='u
 
 cb_banner = block(CB_UI, '<div id="cb_api_key_warning"')
 check('the browser has the banner too', 'style="display: none;"' in cb_banner)
-check('naming the same setting',
-      'Settings &rarr; Model Manager &rarr; Civitai API Key' in cb_banner)
+check('opening the same section',
+      [OPENS_CONNECTION in cb_banner, 'Settings &rarr;' in cb_banner], [True, False])
 check('and it shares the styling', 'class="mm-banner"' in cb_banner)
 check('the browser script shows it',
       "showApiKeyBanner('cb_api_key_warning')" in CB_JS)
