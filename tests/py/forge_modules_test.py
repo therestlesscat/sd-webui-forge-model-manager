@@ -228,6 +228,23 @@ check('a VAE not installed is said, and nothing is its target',
 body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
 check('and an image that names none has nothing to hold', body['target'], [])
 
+# A checkpoint that carries its own text encoders and VAE - an all-in-one
+# Flux.1 or Krea 2 - gets none of them selected, and the page is told which
+# it brings, to say so: an empty control read as a send that had failed.
+body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+check('a checkpoint without them brings nothing', body['bundled'], [])
+db.set_architecture(flux_path, 'flux', 'Flux', True, True, '9999', file_type='Checkpoint')
+body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+check('an all-in-one Flux.1 brings its text encoders and VAE, and none is selected',
+      (body['bundled'], body['select'], body['target']), (['clip_l', 't5xxl', 'vae_ae'], [], []))
+db.set_architecture(flux_path, 'flux', 'Flux', True, False, '9999', file_type='Checkpoint')
+body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+check('one with its text encoders alone gets only the VAE',
+      (body['bundled'], body['select']), (['clip_l', 't5xxl'], ['ae.safetensors']))
+body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
+check('and SD or SDXL, which always bring their own, are not said to', body['bundled'], [])
+db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
+
 labels = ['sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', 'ae.safetensors']
 check('a VAE name is matched as the file, the file less its extension, or the start of one',
       [fm.match_vae(n, labels) for n in ('ae.safetensors', 'SDXL_VAE', 'vae-ft-mse-840000', 'nope', '')],
