@@ -9,8 +9,9 @@ import json
 import threading
 import time
 import requests
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from collections import deque
+from typing import Optional, Dict, Any, List, Tuple
+from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 
 from .civitai import paid_access_info
@@ -20,6 +21,15 @@ from .hashing import HashResult
 # What a download is written as until it is whole and verified: never a
 # model file extension, so no scan takes it for a model.
 PARTIAL = ".partial"
+
+# The speed is the bytes of the last RATE_WINDOW seconds, so a slow chunk or
+# a burst does not make it jump; nothing is said of it before a second's worth,
+# and nothing arriving for the whole window is "stalled", not 0 B/s.
+RATE_WINDOW = 5.0
+RATE_SAMPLE_EVERY = 0.5
+RATE_FIRST = 1.0
+# Bound once: what the speed is measured by, whatever later replaces `time`.
+_clock = time.monotonic
 
 
 @dataclass
@@ -41,6 +51,55 @@ class DownloadProgress:
     sync_error: Optional[str] = None
     # The file's SHA-256, computed as it was written.
     sha256: Optional[str] = None
+    # (_clock(), downloaded_bytes) now and then, for the speed; and
+    # when the bytes last grew. Measured here, where every chunk is seen: the
+    # page sees only its polls, a second or more apart.
+    _samples: deque = field(default_factory=deque, repr=False)
+    _last_growth: Optional[float] = field(default=None, repr=False)
+
+    def record(self, now: Optional[float] = None) -> None:
+        """Note the bytes so far, for the speed: after every chunk, cheaply."""
+        now = _clock() if now is None else now
+        samples = self._samples
+        if samples and self.downloaded_bytes > samples[-1][1]:
+            self._last_growth = now
+        elif not samples:
+            self._last_growth = now
+        if not samples or now - samples[-1][0] >= RATE_SAMPLE_EVERY:
+            samples.append((now, self.downloaded_bytes))
+        # One sample at or before the window's start is kept, as its baseline.
+        while len(samples) > 1 and samples[1][0] <= now - RATE_WINDOW:
+            samples.popleft()
+
+    def restart_rate(self) -> None:
+        """A new attempt starts from nothing: the speed is measured afresh."""
+        self._samples.clear()
+        self._last_growth = None
+
+    def rate(self, now: Optional[float] = None) -> Tuple[Optional[float], Optional[float], bool]:
+        """
+        (bytes a second, seconds left, stalled) while downloading; the first
+        two None when there is not yet a second's worth to go on, or no total.
+        """
+        if self.status != "downloading" or not self._samples:
+            return None, None, False
+        now = _clock() if now is None else now
+        if self._last_growth is not None and now - self._last_growth >= RATE_WINDOW:
+            return None, None, True
+        base_time, base_bytes = self._samples[0]
+        for sample in self._samples:
+            if sample[0] <= now - RATE_WINDOW:
+                base_time, base_bytes = sample
+            else:
+                break
+        elapsed = now - base_time
+        if elapsed < RATE_FIRST:
+            return None, None, False
+        speed = (self.downloaded_bytes - base_bytes) / elapsed
+        if speed <= 0:
+            return None, None, False
+        left = (self.total_bytes - self.downloaded_bytes) / speed if self.total_bytes else None
+        return speed, (max(0.0, left) if left is not None else None), False
 
     @property
     def percent(self) -> float:
@@ -53,7 +112,11 @@ class DownloadProgress:
         return self.status in ("complete", "error", "cancelled")
 
     def to_dict(self) -> Dict[str, Any]:
+        speed, left, stalled = self.rate()
         return {
+            "speed_bps": round(speed) if speed else None,
+            "eta_seconds": round(left) if left is not None else None,
+            "stalled": stalled,
             "version_id": self.version_id,
             "file_name": self.file_name,
             "total_bytes": self.total_bytes,
@@ -270,6 +333,11 @@ class DownloadService:
                     chunk_size = 1024 * 1024
 
                     downloaded = 0
+                    # A retry starts from nothing: its bytes, and its speed,
+                    # measured from now - so no data at all is stalled too.
+                    progress.downloaded_bytes = 0
+                    progress.restart_rate()
+                    progress.record()
                     # Hashed as it arrives, where the network is the limit:
                     # afterwards, reading a 7 GB file again to hash it took
                     # 10 s, all of it spent waiting for the download to finish.
@@ -308,6 +376,7 @@ class DownloadService:
                                     hasher.update(chunk)
                                     downloaded += len(chunk)
                                     progress.downloaded_bytes = downloaded
+                                    progress.record()
                                     if pbar:
                                         pbar.update(len(chunk))
 
