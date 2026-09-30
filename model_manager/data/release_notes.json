@@ -1,0 +1,93 @@
+[
+  {
+    "id": "shared-database",
+    "version": "0.41.0",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. An older copy does not know the changes: it would keep reading and writing the database the old way, without the fixes since. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings"
+    }
+  },
+  {
+    "id": "pinned-tabs",
+    "version": "0.40.13",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Pin the models you come back to",
+    "text": "The 📌 on a model's card, or beside the ★ in its details, pins it: it moves to the Pinned tab above the grid, and the rest stay in Unpinned. The search and filters apply to both tabs."
+  },
+  {
+    "id": "reread-headers",
+    "version": "0.40.11",
+    "kind": "action",
+    "audience": "update",
+    "important": true,
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Some LoRA files were given the wrong type: run Scan Disk once to fix them",
+    "text": "Before 0.40.11, a LoRA saved in diffusers' naming style was recorded as a Checkpoint. It showed under Checkpoint in the Type filter, and its chip under the prompt disappeared as soon as it finished downloading. New files are read correctly now, but files already in your library keep the type they were given. To fix them, run Scan Disk once with “Re-evaluate file headers” ticked - it reads only each file's header, so it is quick.",
+    "action": {
+      "id": "reread_headers",
+      "label": "Open Scan Disk"
+    }
+  },
+  {
+    "id": "image-viewer",
+    "version": "0.40.7",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "model_manager",
+      "civitai_browser"
+    ],
+    "title": "View an image as large as the window",
+    "text": "Click an image in a model's gallery to open it in the viewer. ← → or the mouse wheel step through the gallery and on into its next page; the image's own buttons are below it, and its prompt and settings beside it."
+  },
+  {
+    "id": "rate-own-images",
+    "version": "0.40.3",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "generations",
+      "model_manager"
+    ],
+    "title": "Rate your own images' NSFW level",
+    "text": "Your images have no Civitai rating, so their level is guessed from the prompt, and the guess can be wrong either way. Tick Rate - in the Generations tab, or above a model's Your generations - and click a level under an image to set it yourself; click it again to go back to the guess. Your rating wins over the prompt's, and an image it hides leaves at once."
+  },
+  {
+    "id": "group-generations",
+    "version": "0.40.1",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "generations"
+    ],
+    "title": "Group your generations",
+    "text": "Group by gathers images that share a prompt, a model, a set of LoRAs, a size or a day, whatever generation they came from. A group or a batch opens in a grid of its own, with Back to return where you were. The ⋯ menu on a tile has Show model in Model Manager, which opens the checkpoint an image was made with."
+  },
+  {
+    "id": "generations-tab",
+    "version": "0.40.0",
+    "kind": "feature",
+    "audience": "everyone",
+    "important": true,
+    "tabs": [
+      "generations"
+    ],
+    "title": "Every image you generate, in one place",
+    "text": "This tab keeps the images you generate, newest first, whatever model made them. Click one to view it large. Send puts it back in txt2img or img2img set up as it was made - its preset, checkpoint, text encoders and VAE - which pasting its infotext alone does not do."
+  }
+]

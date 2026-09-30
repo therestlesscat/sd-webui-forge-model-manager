@@ -34,6 +34,7 @@ const {
     nsfwModelNote,
     galleryDefaults,
     ratingRowHtml,
+    showNotes,
     IMAGE_PLACEHOLDER_SVG,
 } = await import(sharedModule.href);
 
@@ -1005,6 +1006,7 @@ onReady(async () => {
         console.warn('[ModelManager] The Generations tab never appeared; not loading it');
         return;
     }
+    showNotes('generations', 'gen_notes');
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;
     // "Rate" starts off, whatever the browser kept ticked from before.

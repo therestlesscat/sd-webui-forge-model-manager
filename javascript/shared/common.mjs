@@ -134,6 +134,155 @@ if (typeof onAfterUiUpdate === 'function') {
     });
 }
 
+// ------------------------------------------------------ notes to the user
+// Per release, what is new and what to do after updating
+// (model_manager/release_notes.py): at the top of each tab, a pile - one
+// note in full, the edges of the rest showing under it, stepped through with
+// its arrows, or spread into rows with a click on the edges. Each note is
+// dismissed once for every browser using the database.
+
+// What a note's button does, by the id its note names.
+const NOTE_ACTIONS = {
+    reread_headers: () => window.mmOpenScanDialog?.({ rereadHeaders: true }),
+    settings: () => window.mmOpenSettings?.(),
+};
+const NOTE_ICONS = { feature: 'i', action: '!', warning: '!' };
+// On top: the important ones, then what needs doing, then warnings, then
+// features - each newest first, as the server sends them.
+const NOTE_ORDER = { action: 0, warning: 1, feature: 2 };
+// How many edges show under the top note, however many notes there are.
+const NOTE_EDGES = 2;
+const noteTabs = {};        // tab -> { containerId, notes }
+
+/**
+ * Show a tab's notes in its container, once the server has said which -
+ * the markup and the answer in whichever order they come - and again after
+ * Gradio redraws the page, which empties the container.
+ */
+export function showNotes(tab, containerId) {
+    if (!noteTabs[tab]) {
+        noteTabs[tab] = { containerId, notes: null };
+        // The page-wide click handler redraws a tab's pile through this: the
+        // tab's copy of this module is the one that holds its notes.
+        window.mmNoteRedraw[tab] = () => drawNotes(tab);
+        fetch(`/model-manager/notes?tab=${encodeURIComponent(tab)}`)
+            .then((response) => response.json())
+            .then((data) => { noteTabs[tab].notes = (data && data.success && data.notes) || []; })
+            .catch(() => { noteTabs[tab].notes = []; })
+            .then(() => drawNotes(tab));
+    }
+    drawNotes(tab);
+}
+
+function drawNotes(tab, attempt = 0) {
+    const state = noteTabs[tab];
+    if (!state || !state.notes) return;
+    const box = document.getElementById(state.containerId);
+    if (!box) {
+        if (attempt < API_KEY_BANNER_TRIES) setTimeout(() => drawNotes(tab, attempt + 1), 250);
+        return;
+    }
+    const rank = (note) => (note.important ? -1 : NOTE_ORDER[note.kind] ?? NOTE_ORDER.feature);
+    const shown = state.notes.filter((note) => !window.mmNotesDismissed.has(note.id))
+        .map((note, at) => ({ note, at }))
+        .sort((a, b) => rank(a.note) - rank(b.note) || a.at - b.at)
+        .map(({ note }) => note);
+    const pile = (window.mmNotePiles[tab] ||= { index: 0, spread: false });
+    pile.index = Math.max(0, Math.min(pile.index, shown.length - 1));
+    if (!shown.length) {
+        box.innerHTML = '';
+        return;
+    }
+    if (pile.spread || shown.length === 1) {
+        box.innerHTML = shown.map((note) => noteHtml(note)).join('')
+            + (shown.length > 1 ? `<button type="button" class="mm-note-gather" data-note-pile="${escapeHtml(tab)}"
+                                          data-note-spread="false">Pile them up</button>` : '');
+        return;
+    }
+    const edges = Math.min(NOTE_EDGES, shown.length - 1);
+    box.innerHTML = `
+        <div class="mm-note-pile" data-note-pile="${escapeHtml(tab)}">
+            ${noteHtml(shown[pile.index], { at: pile.index + 1, of: shown.length, tab })}
+            ${Array.from({ length: edges }, (_, i) => `
+                <button type="button" class="mm-note-edge mm-note-edge-${i + 1}" data-note-spread="true"
+                        title="Show all ${shown.length} notes" aria-label="Show all ${shown.length} notes"></button>`).join('')}
+        </div>`;
+}
+
+function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
+    const kind = NOTE_ICONS[note.kind] ? note.kind : 'feature';
+    const action = note.action && NOTE_ACTIONS[note.action.id]
+        ? `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(note.action.id)}">`
+          + `${escapeHtml(note.action.label || 'Do it')}</button>` : '';
+    const steps = of > 1 ? `
+        <span class="mm-note-steps" data-note-pile="${escapeHtml(tab)}">
+            <button type="button" class="mm-note-step" data-note-step="-1" title="Previous note"
+                    ${at <= 1 ? 'disabled' : ''}>&lsaquo;</button>
+            <span class="mm-note-count">${at} of ${of}</span>
+            <button type="button" class="mm-note-step" data-note-step="1" title="Next note"
+                    ${at >= of ? 'disabled' : ''}>&rsaquo;</button>
+        </span>` : '';
+    return `
+        <div class="mm-banner mm-note mm-note-${kind}" data-note="${escapeHtml(note.id)}">
+            <span class="mm-banner-icon">${NOTE_ICONS[kind]}</span>
+            <span class="mm-note-body">
+                <strong>${note.important ? '[Important] ' : ''}${escapeHtml(note.title)}</strong>
+                <span class="mm-note-version">${escapeHtml(note.version)}</span>
+                <span class="mm-banner-note">${escapeHtml(note.text)}</span>
+            </span>
+            <span class="mm-note-buttons">
+                ${action}
+                <button type="button" class="mm-btn secondary mm-btn-small" data-note-dismiss
+                        title="Hide this note; the settings window's What's new keeps it">Dismiss</button>
+                ${steps}
+            </span>
+        </div>`;
+}
+
+// Once for the page, not once per copy of this module: a click would
+// otherwise dismiss a note once for every tab.
+if (typeof window !== 'undefined' && !window.mmNotesDismissed) {
+    window.mmNotesDismissed = new Set();
+    window.mmNotePiles = {};        // tab -> { index, spread }
+    window.mmNoteRedraw = {};       // tab -> redraw its pile
+    const redrawAll = () => Object.values(window.mmNoteRedraw).forEach((redraw) => redraw());
+    document.addEventListener?.('click', (event) => {
+        const target = event.target;
+        const pileTab = target.closest?.('[data-note-pile]')?.dataset.notePile;
+        const pile = pileTab && (window.mmNotePiles[pileTab] ||= { index: 0, spread: false });
+        if (pile && target.closest('[data-note-step]')) {
+            pile.index += Number(target.closest('[data-note-step]').dataset.noteStep);
+            window.mmNoteRedraw[pileTab]?.();
+            return;
+        }
+        if (pile && target.closest('[data-note-spread]')) {
+            pile.spread = target.closest('[data-note-spread]').dataset.noteSpread === 'true';
+            window.mmNoteRedraw[pileTab]?.();
+            return;
+        }
+        const note = target.closest?.('[data-note]');
+        if (!note) return;
+        if (target.closest('[data-note-action]')) {
+            NOTE_ACTIONS[target.closest('[data-note-action]').dataset.noteAction]?.();
+            return;
+        }
+        if (!target.closest('[data-note-dismiss]')) return;
+        const id = note.dataset.note;
+        window.mmNotesDismissed.add(id);
+        redrawAll();                // the next note comes up; in other tabs too
+        fetch('/model-manager/notes/dismiss', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ id }) })
+            .catch((error) => console.warn('[ModelManager] Could not dismiss the note:', error));
+    });
+}
+if (typeof onAfterUiUpdate === 'function') {
+    onAfterUiUpdate(() => Object.keys(noteTabs).forEach((tab) => {
+        const box = document.getElementById(noteTabs[tab].containerId);
+        if (box && !box.children.length) drawNotes(tab);
+    }));
+}
+
 // Shared across both tabs - only one tab renders images at a time
 export let lazyMediaObserver = null;
 

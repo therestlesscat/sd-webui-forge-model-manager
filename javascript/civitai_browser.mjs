@@ -21,6 +21,7 @@ sharedModule.search = new URL(import.meta.url).search;
 const {
     onReady,
     showApiKeyBanner,
+    showNotes,
     apiCall,
     escapeHtml,
     safeId,
@@ -1762,6 +1763,7 @@ function init() {
     // Same warning as the Model Manager tab; the shared helper waits for the
     // answer and the markup in whichever order they turn up.
     showApiKeyBanner('cb_api_key_warning');
+    showNotes('civitai_browser', 'cb_notes');
 
     if (isInitialized) {
         console.log('[CivitaiBrowser] Already initialized, skipping');

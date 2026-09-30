@@ -101,8 +101,18 @@ const libraryModel = (id) => ({ id, name: `M${id}`, display_name: `Model ${id}`,
                                 file_path: `C:/m/${id}.safetensors`, has_civitai_data: true });
 let settingsAsked = 0;
 
+// Notes to the user, as the server lists them for "What's new": newest first.
+const NOTES = [
+    { id: 'b', version: '0.40.13', kind: 'feature', title: 'Pin the models you come back to',
+      text: 'Pinned ones have a tab of their own.', dismissed: false },
+    { id: 'a', version: '0.40.11', kind: 'action', title: 'Run Scan Disk once',
+      text: 'With Re-evaluate file headers ticked.', dismissed: true },
+];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/model-manager/notes')) {
+        return { ok: true, json: async () => ({ success: true, notes: NOTES }) };
+    }
     if (href.includes('/model-manager/settings/nsfw-levels')) {
         const state = restampStates.length > 1 ? restampStates.shift() : restampStates[0];
         return { ok: true, json: async () => ({ success: true, ...state }) };
@@ -201,10 +211,21 @@ check('asking the server, each time it opens', settingsAsked, 1);
 
 const titles = Array.from(document.querySelectorAll('.mm-settings-section > summary')).map((s) => s.textContent);
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
-check('grouped into sections, in order, with a setting no section names under Other', titles, [
+check('grouped into sections, in order, with a setting no section names under Other - What\'s new first',
+      titles, ["What's new",
     'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'NSFW detection',
     'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
-check('the text encoders collapsed', document.querySelectorAll('.mm-settings-section')[5].hasAttribute('open'), false);
+check('the text encoders collapsed', document.querySelectorAll('.mm-settings-section')[6].hasAttribute('open'), false);
+
+// "What's new": every note that applies, dismissed ones too, by version -
+// where a note dismissed in a tab can be read again. Collapsed.
+const whatsNew = () => $('[data-whats-new]');
+await waitFor('the notes', () => $('#mm_settings_notes')?.querySelector('[data-settings-note]'));
+check('What\'s new lists the notes by version, newest first, dismissed ones too, collapsed',
+      [whatsNew().hasAttribute('open'),
+       Array.from($('#mm_settings_notes').querySelectorAll('.mm-settings-notes-version')).map((v) => v.textContent),
+       Array.from($('#mm_settings_notes').querySelectorAll('[data-settings-note] strong')).map((t) => t.textContent)],
+      [false, ['0.40.13', '0.40.11'], ['Pin the models you come back to', 'Run Scan Disk once']]);
 check('with a short label', field('model_manager_page_size').querySelector('.mm-settings-label').textContent,
       'Models per page');
 
@@ -286,6 +307,7 @@ field('model_manager_card_size').querySelector('[data-w="160"]').click();
 
 // --------------------------------------------------------------- search
 type($('#mm_settings_search'), 'thumbnail');
+check('What\'s new is not a setting: a search leaves it out', whatsNew().hidden, true);
 check('searching shows only what matches',
       ORDER.filter(shown), ['model_manager_preview_least_nsfw']);
 type($('#mm_settings_search'), '');

@@ -45,6 +45,9 @@ def create_ui():
                     </span>
                 </div>
 
+                <!-- Notes to the user per release: filled by shared/common.mjs -->
+                <div id="mm_notes" class="mm-notes"></div>
+
                 <!-- Filter bar. The controls most searches use are on
                      one row; the rest are behind Advanced, collapsed,
                      so the grid starts higher up the page. -->

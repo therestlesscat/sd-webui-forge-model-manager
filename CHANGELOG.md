@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.41 - Notes to you, per release
+
+*30 September 2026*
+
+The tabs now say what is new, and what to do after an update: a note at the top of the tab it concerns - a feature worth knowing, something to do once (with a button that does it), or a warning - dismissed with one click, for every browser using the database. A fresh install sees only what is for everyone; an update also sees what it needs to do. The settings window's new "What's new" keeps every note, dismissed or not.
+
+- **0.41.0** (build 242) - Notes to you, per release, at the top of each tab: a pile, one note in full and the edges of the rest under it, stepped through with its arrows or spread into rows; [Important] ones first, then what to do, warnings and features. A later note can replace an earlier one that asked the same. All of them stay under "What's new" in the settings window. The first ones: run Scan Disk once with "Re-evaluate file headers"; update the extension in your other WebUI when the two share a database (shown only when a database file is set); the Generations tab, grouping it, rating your own images, pinning, and the image viewer. The Generations tab's tiles are 4px apart.
+
 ## 0.40 - Generations
 
 *29 September 2026*

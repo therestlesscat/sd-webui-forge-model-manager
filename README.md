@@ -12,6 +12,13 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.41 - Notes to you, per release.** The tabs say what is new, and what to do after an
+update, in a note at the top of the tab it concerns: a feature worth knowing, something to
+do once - with a button that does it, such as opening Scan Disk with the right box ticked -
+or a warning. One click dismisses a note for every browser using the database; the
+settings window's "What's new" keeps them all. A fresh install sees only what is for
+everyone.
+
 **0.40 - Generations.** A new tab, before the Model Manager, with every image you have
 generated, newest first, whatever model made it. Each generation is a tile - a batch shows
 its first four images and how many there are, and opens out in place - and the grid loads

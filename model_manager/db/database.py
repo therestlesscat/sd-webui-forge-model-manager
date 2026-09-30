@@ -103,6 +103,26 @@ class ModelsDatabase:
             if current_version < SCHEMA_VERSION:
                 run_migrations(cursor, current_version, SCHEMA_VERSION,
                                self.db_path, self.db_dir)
+            if current_version == 0:
+                # A database made now, by this version: notes for people
+                # updating from before it do not apply (release_notes.py).
+                from ..version import VERSION
+                cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
+                               (VERSION,))
+
+    # ==================== Notes to the user ====================
+
+    def get_info(self, key: str) -> Optional[str]:
+        """A value kept beside the schema version, in schema_info; None if unset."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT value FROM schema_info WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def set_info(self, key: str, value: str) -> None:
+        """Keep a value beside the schema version, in schema_info."""
+        with self._cursor() as cursor:
+            cursor.execute("INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)", (key, value))
 
     # ==================== Models & versions ====================
 
