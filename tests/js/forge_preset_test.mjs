@@ -184,6 +184,28 @@ check('a file the settings name that Forge does not list is said, by name, in th
       [1, true, true, true]);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
+// ------------------------------------ a checkpoint that brings its own
+// An all-in-one checkpoint carries its text encoders and VAE, and gets none
+// selected - Forge uses the checkpoint's. Said, as information: an empty
+// "VAE / Text Encoder" read as a send that had failed.
+const notices_ = () => Array.from(document.querySelectorAll('.mm-notice'));
+plan = { success: true, preset: 'flux', manage_modules: true, source: 'file', select: [], target: [],
+         missing: [], bundled: ['clip_l', 't5xxl', 'vae_ae'] };
+await send();
+check('a checkpoint that brings its own: nothing selected, and a notice saying so, as information',
+      [selected(), notices_().map((n) => [n.className, n.textContent])],
+      [[], [['mm-notice mm-notice-info', 'This checkpoint brings its own CLIP-L, T5-XXL and Flux VAE (ae): '
+             + 'nothing is selected in "VAE / Text Encoder", and Forge uses the checkpoint\'s.']]]);
+notices_().forEach((n) => n.remove());
+plan = { ...plan, bundled: ['clip_l', 't5xxl'], select: [], target: [], missing: ['vae_ae'] };
+await send();
+check('with a problem too, one notice says both - the problem first',
+      notices_().map((n) => [n.className, n.textContent]),
+      [['mm-notice', 'This flux model also needs Flux VAE (ae), which is not installed. Add it to Forge\'s VAE '
+        + 'or text_encoder folder, or select it in "VAE / Text Encoder". This checkpoint brings its own CLIP-L '
+        + 'and T5-XXL: nothing is selected in "VAE / Text Encoder", and Forge uses the checkpoint\'s.']]);
+notices_().forEach((n) => n.remove());
+
 // ---------------------------------------------------------- an SDXL model
 plan = { success: true, preset: 'xl', manage_modules: false, select: [], missing: [], target: [] };
 await send();

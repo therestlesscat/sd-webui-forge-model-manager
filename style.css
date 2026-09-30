@@ -2840,6 +2840,10 @@ body.mm-modal-open {
 
 /* A short message from Send to txt2img, over whatever tab is showing - say,
    that a model needs a text encoder that is not installed. */
+.mm-notice-info {
+    --mm-notice-accent: var(--primary-500, #3b82f6);
+}
+
 .mm-notice {
     position: fixed;
     right: 16px;
@@ -2848,7 +2852,7 @@ body.mm-modal-open {
     max-width: 420px;
     padding: 10px 14px;
     border: 1px solid var(--border-color-primary, #374151);
-    border-left: 3px solid #f59e0b;
+    border-left: 3px solid var(--mm-notice-accent, #f59e0b);
     border-radius: 8px;
     /* Not --block-background-fill: Forge Neo sets that to transparent, and
        the notice sits over whatever the page has there - the Settings page's

@@ -44,11 +44,14 @@ def register(app: FastAPI):
             VAE / Text Encoder control should hold once the image is sent -
             `select` for a model whose modules are managed, else the image's
             own VAE as Forge lists it, or nothing; vae_not_found: the image's
-            VAE, when it names one this install does not have.
+            VAE, when it names one this install does not have. bundled: the
+            kinds the model needs that the checkpoint carries itself, and so
+            are not selected - for the page to say so, as an empty control
+            otherwise reads as a send that failed.
         """
         from ..db import get_models_db
-        from ..forge_modules import (classify_file, installed_modules, match_vae, pick,
-                                     preferred_modules, saved_modules)
+        from ..forge_modules import (CLASS_FOR_PRESET, NEEDS, classify_file, installed_modules,
+                                     match_vae, pick, preferred_modules, saved_modules)
         from ..send_plan import SendModel, plan_model
 
         try:
@@ -64,7 +67,7 @@ def register(app: FastAPI):
                   "source": source, "video": found.video,
                   "manage_modules": preset not in (None, "sd", "xl"),
                   "select": [], "missing": [], "needed": [], "not_found": [],
-                  "target": [], "vae_not_found": None}
+                  "target": [], "vae_not_found": None, "bundled": []}
         installed = installed_modules()
         if not answer["manage_modules"]:
             # SD and SDXL bring their own: the image's VAE, if it names one
@@ -73,6 +76,12 @@ def register(app: FastAPI):
             answer["vae_not_found"] = vae.strip() if vae.strip() and not named else None
             return JSONResponse(answer)
 
+        # What the checkpoint brings itself, of what its model needs: seen to
+        # work with nothing selected for Krea 2 (Qwen3-VL 4B) and Flux.1
+        # (CLIP-L, T5-XXL, ae) all-in-one checkpoints in Forge Neo 2.29.1.
+        encoders, vae_kind = NEEDS.get(model_class or CLASS_FOR_PRESET.get(preset or "") or "", ((), None))
+        answer["bundled"] = ((list(encoders) if bundled_te else [])
+                             + ([vae_kind] if vae_kind and bundled_vae else []))
         modules = {label: classify_file(path) for label, path in installed.items()}
         answer.update(pick(model_class, preset, bundled_te, bundled_vae,
                            modules, saved_modules(preset), preferred_modules(preset)))

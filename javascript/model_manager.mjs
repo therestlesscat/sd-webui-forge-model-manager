@@ -4000,7 +4000,19 @@ async function applyPlannedModules(plan, vaeName) {
     if (plan.vae_not_found) {
         console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
     }
-    if (problems.length) showNotice(problems.join(' '));
+    // A checkpoint that carries its own text encoders or VAE gets none of
+    // those selected - Forge uses the checkpoint's - and says so: an empty
+    // "VAE / Text Encoder" read as a send that had failed.
+    let bundled = '';
+    if (plan.bundled && plan.bundled.length) {
+        const names = listNames(plan.bundled.map((kind) => MODULE_KIND_NAMES[kind] || kind));
+        bundled = target.length
+            ? `This checkpoint brings its own ${names}: only what it lacks is selected in "VAE / Text Encoder".`
+            : `This checkpoint brings its own ${names}: nothing is selected in "VAE / Text Encoder", `
+              + 'and Forge uses the checkpoint\'s.';
+    }
+    if (problems.length) showNotice([...problems, bundled].filter(Boolean).join(' '));
+    else if (bundled) showNotice(bundled, { info: true });
 }
 
 /**
@@ -4021,13 +4033,22 @@ async function applyRecordedModules(plan) {
 }
 
 /** A short message in the corner of the page, gone after a while. */
-function showNotice(text) {
+/**
+ * A notice in the corner, for twelve seconds. `info` is something to know
+ * rather than something wrong: drawn and logged as such.
+ */
+function showNotice(text, { info = false } = {}) {
     const notice = document.createElement('div');
-    notice.className = 'mm-notice';
+    notice.className = info ? 'mm-notice mm-notice-info' : 'mm-notice';
     notice.textContent = text;
     document.body.appendChild(notice);
     setTimeout(() => notice.remove(), 12000);
-    console.warn('[ModelManager]', text);
+    (info ? console.log : console.warn)('[ModelManager]', text);
+}
+
+/** "a", "a and b", "a, b and c". */
+function listNames(names) {
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
 }
 
 /**
