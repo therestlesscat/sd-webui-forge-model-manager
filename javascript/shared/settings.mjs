@@ -45,19 +45,28 @@ const MODULES_PREFIX = 'model_manager_modules_';
  * The sections, in order. A setting the server has that no section names is
  * shown under "Other", so a new setting is never missing from the window.
  */
+// Every section starts collapsed; opened from a tab's gear, the ones that tab
+// uses are open (`tabs`), and a note's button opens the one it is about, by
+// its id (`section` in model_manager/data/release_notes.json).
 const SECTIONS = [
-    { title: 'Civitai connection', keys: [K.apiKey, K.rate] },
-    { title: 'Model Manager', keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
-    { title: 'Civitai Browser', keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
-    { title: 'Image gallery', keys: [K.galleryNsfw, K.promptless, K.pageSize] },
-    { title: 'Your generations', keys: [K.recordGenerations] },
-    { title: 'NSFW detection', keys: [K.detection, K.percent, K.words] },
-    { title: 'Sync and storage', keys: [K.threads, K.database] },
-    { title: 'Send to txt2img: text encoders and VAE', collapsed: true, prefix: MODULES_PREFIX,
+    { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
+      keys: [K.apiKey, K.rate] },
+    { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'],
+      keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
+    { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'],
+      keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
+    { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser'],
+      keys: [K.galleryNsfw, K.promptless, K.pageSize] },
+    { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
+      keys: [K.recordGenerations] },
+    { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations'],
+      keys: [K.detection, K.percent, K.words] },
+    { id: 'storage', title: 'Sync and storage', tabs: ['model_manager'], keys: [K.threads, K.database] },
+    { id: 'modules', title: 'Send to txt2img: text encoders and VAE', tabs: [], prefix: MODULES_PREFIX,
       intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
              + 'instead. A file chosen for one model is filled in for the others that use it, '
              + 'where nothing is chosen yet.' },
-    { title: 'Advanced', collapsed: true, keys: [K.fillPage] },
+    { id: 'advanced', title: 'Advanced', tabs: ['civitai_browser'], keys: [K.fillPage] },
 ];
 
 /** Shorter labels than the Settings page's, which have to say which tab. */
@@ -131,6 +140,7 @@ function parseCardSize(text) {
 
 function createSettings() {
     let meta = null;         // the server's answer: settings, order, extras
+    let openedFor = {};      // the tab, or the one section, open() was asked for
     let draft = {};          // what the window holds, by key
     let secretTyped = null;  // a key typed into the window; null = unchanged
     let errors = {};
@@ -174,7 +184,7 @@ function createSettings() {
             return { ...section, keys };
         });
         const rest = meta.order.filter((k) => !placed.has(k));
-        if (rest.length) sections.push({ title: 'Other', keys: rest });
+        if (rest.length) sections.push({ id: 'other', title: 'Other', tabs: [], keys: rest });
         return sections.filter((s) => s.keys.length);
     }
 
@@ -220,8 +230,10 @@ function createSettings() {
 
     function renderBody() {
         const body = root.querySelector('#mm_settings_body');
+        const shown = (section) => (openedFor.section ? section.id === openedFor.section
+            : (section.tabs || []).includes(openedFor.tab));
         body.innerHTML = whatsNewSection() + sectionsWithKeys().map((section) => `
-            <details class="mm-settings-section" ${section.collapsed ? '' : 'open'}>
+            <details class="mm-settings-section" data-section="${esc(section.id)}" ${shown(section) ? 'open' : ''}>
                 <summary class="mm-dialog-heading">${esc(section.title)}</summary>
                 ${section.intro && modules ? `<div class="mm-settings-help">${esc(section.intro)}</div>` : ''}
                 <div class="mm-settings-fields">
@@ -230,6 +242,7 @@ function createSettings() {
             </details>`).join('');
         refresh();
         loadWhatsNew();
+        if (openedFor.section) body.querySelector(`[data-section="${openedFor.section}"]`)?.scrollIntoView?.({ block: 'start' });
     }
 
     // "What's new": every note to the user that applies here, dismissed or
@@ -842,7 +855,15 @@ function createSettings() {
         errors = {};
     }
 
-    async function open() {
+    /**
+     * @param {{tab?: string, section?: string}} [options] - tab: the tab
+     *     whose gear it is ("model_manager", "civitai_browser",
+     *     "generations"), whose sections are opened; section: one section's
+     *     id, the only one opened, scrolled to - a note's button. Neither:
+     *     every section collapsed.
+     */
+    async function open({ tab = null, section = null } = {}) {
+        openedFor = { tab, section };
         if (!root) build();
         root.style.display = 'flex';
         document.body.classList.add('mm-modal-open');
@@ -1142,6 +1163,6 @@ export function settingsWindow() {
     return window.mmSettingsWindow;
 }
 
-window.mmOpenSettings ||= () => settingsWindow().open();
+window.mmOpenSettings ||= (options) => settingsWindow().open(options);
 restampNotice();
 followSettingsPage();

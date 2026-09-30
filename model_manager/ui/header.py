@@ -27,8 +27,10 @@ def version_link() -> str:
             f'rel="noopener" title="{html.escape(title)}">v{html.escape(str(found["version"]))}</a>')
 
 
-# The gear that opens the settings window, which every tab shares.
-SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings()"
+# The gear that opens the settings window, which every tab shares. It says
+# which tab it is in (TAB, filled by header_actions), so the window opens with
+# that tab's sections open.
+SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings({ tab: 'TAB' })"
         title="Model Manager settings" aria-label="Model Manager settings">
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -38,6 +40,10 @@ SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" onclick="wind
 </button>"""
 
 
-def header_actions() -> str:
-    """The version and the settings gear, together at the right of a header."""
-    return f'<span class="mm-header-actions">{version_link()}{SETTINGS_BUTTON}</span>'
+def header_actions(tab: str) -> str:
+    """
+    The version and the settings gear, together at the right of a header.
+    `tab`: "model_manager", "civitai_browser" or "generations".
+    """
+    gear = SETTINGS_BUTTON.replace("'TAB'", f"'{html.escape(tab)}'")
+    return f'<span class="mm-header-actions">{version_link()}{gear}</span>'

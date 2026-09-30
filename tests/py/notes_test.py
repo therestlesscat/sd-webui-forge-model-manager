@@ -74,6 +74,12 @@ common = open(os.path.join(ROOT, 'javascript', 'shared', 'common.mjs'), encoding
 block = re.search(r'const NOTE_ACTIONS = \{(.*?)\n\};', common, re.S).group(1)
 check('the page knows every action a note can name, and no other',
       sorted(re.findall(r'^\s+(\w+):', block, re.M)), sorted(rn.ACTIONS))
+settings_js = open(os.path.join(ROOT, 'javascript', 'shared', 'settings.mjs'), encoding='utf-8').read()
+section_ids = set(re.findall(r"\{ id: '(\w+)', title:", settings_js))
+check('the settings window\'s sections have ids', len(section_ids) >= 8)
+for note in shipped:
+    section = (note.get('action') or {}).get('section')
+    check(f'{note["id"]}: opens a section the settings window has, if any', not section or section in section_ids)
 
 # ------------------------------------------------------ who sees which notes
 path = os.path.join(WORK, 'notes.json')

@@ -59,6 +59,6 @@ def create_generations_ui():
                 <!-- Scrolled near, it loads the next part -->
                 <div id="gen_sentinel" class="gen-sentinel"></div>
             </div>
-        """.replace("<!-- actions -->", header_actions()), elem_id="generations_container")
+        """.replace("<!-- actions -->", header_actions("generations")), elem_id="generations_container")
 
     return generations_tab

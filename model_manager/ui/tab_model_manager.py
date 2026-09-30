@@ -23,7 +23,7 @@ def create_ui():
                     <!-- The settings window: one, shared with the Civitai Browser -->
                     <span class="mm-header-actions">
                     <!-- version -->
-                    <button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings()"
+                    <button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings({ tab: 'model_manager' })"
                             title="Model Manager settings" aria-label="Model Manager settings">
                         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
