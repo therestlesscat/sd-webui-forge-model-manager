@@ -51,6 +51,20 @@ body.mm-modal-open {
     text-decoration: underline !important;
 }
 
+/* Beside the version when a newer one is out: "v0.42.0 available". */
+.mm-update {
+    color: var(--primary-400, #60a5fa) !important;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+
+.mm-update:hover {
+    text-decoration: underline !important;
+}
+
 /* An icon, not a labelled button: square, no fill until hovered. Gradio's
    preflight resets a button's background and margin inside gr.HTML at a
    specificity one class cannot beat, hence !important on those two. */

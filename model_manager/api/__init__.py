@@ -10,7 +10,7 @@ Everything the browser can ask for, grouped by what it is asking about:
   civitai.py      searching and downloading from Civitai
   webui.py        what Forge itself knows, such as samplers
   settings.py     the settings window: the settings, and saving them
-  notes.py        notes to the user per release, and dismissing them
+  notes.py        notes to the user per release, and dismissing them; a newer version
   annotations.py  marking a Civitai result with what we know locally
   prompts.py      deciding whether a model has usable prompts
 
@@ -44,6 +44,9 @@ def on_app_started(demo, app):
     # Stored image levels, redone if the NSFW prompt words changed.
     from ..prompt_levels import start_in_background
     start_in_background()
+    # Whether a newer version is out: now, then every 12 hours.
+    from .. import update_check
+    update_check.start_in_background()
 
 
 print("[ModelManager] Registering on_app_started callback...")

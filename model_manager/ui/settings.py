@@ -12,6 +12,7 @@ from modules import shared
 
 from ..gallery import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import RECORD_GENERATIONS
+from ..update_check import SETTING as CHECK_UPDATES, check_soon
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
                              SETTING_PREFIX, preset_classes, preset_files)
 
@@ -302,6 +303,20 @@ def on_ui_settings():
                "background when this changes.")
     )
 
+    shared.opts.add_option(
+        CHECK_UPDATES,
+        shared.OptionInfo(
+            default=True,
+            label="Check for a new version",
+            component=gr.Checkbox,
+            onchange=_check_updates_changed,
+            section=section,
+        ).info("On: after the WebUI starts, and every 12 hours, the extension reads the "
+               "version.json file on its GitHub repository - the version it holds, nothing "
+               "else - and each tab's header says when a newer one is out. Off: GitHub is "
+               "never asked.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "
@@ -347,6 +362,12 @@ def carry_over_gallery_nsfw(data):
     if GALLERY_HIDE_NSFW in data:
         return None
     return bool(data.get("model_manager_preview_least_nsfw", True))
+
+
+def _check_updates_changed():
+    # Turned on, check now rather than in up to 12 hours; off, the next
+    # check asks nothing.
+    check_soon()
 
 
 def _prompt_words_changed():

@@ -1,6 +1,7 @@
 """
 Notes to the user, per release (model_manager/release_notes.py): the ones a tab shows, all
-of them for the settings window's "What's new", and dismissing one.
+of them for the settings window's "What's new", and dismissing one. And whether a newer
+version is out (model_manager/update_check.py), for the tabs' headers.
 """
 from typing import Optional
 
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..release_notes import dismiss, notes_for
+from ..update_check import status as update_status
 
 
 def register(app: FastAPI):
@@ -35,3 +37,8 @@ def register(app: FastAPI):
         except Exception as e:
             print(f"[ModelManager] Could not dismiss note {id}: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    @app.get("/model-manager/update")
+    def get_update():
+        """The version out, as last read from GitHub, and whether it is newer than this one."""
+        return JSONResponse({"success": True, **update_status()})

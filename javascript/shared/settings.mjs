@@ -38,6 +38,7 @@ const K = {
     words: 'model_manager_nsfw_prompt_words',
     threads: 'model_manager_hash_threads',
     database: 'model_manager_database_path',
+    checkUpdates: 'model_manager_check_updates',
 };
 const MODULES_PREFIX = 'model_manager_modules_';
 
@@ -66,6 +67,7 @@ const SECTIONS = [
       intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
              + 'instead. A file chosen for one model is filled in for the others that use it, '
              + 'where nothing is chosen yet.' },
+    { id: 'updates', title: 'Updates', tabs: [], keys: [K.checkUpdates] },
     { id: 'advanced', title: 'Advanced', tabs: ['civitai_browser'], keys: [K.fillPage] },
 ];
 
@@ -90,6 +92,7 @@ const LABELS = {
     [K.words]: 'Extra prompt words',
     [K.threads]: 'Hashing threads',
     [K.database]: 'Database file',
+    [K.checkUpdates]: 'Check for a new version',
 };
 
 /**
