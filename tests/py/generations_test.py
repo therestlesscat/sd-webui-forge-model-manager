@@ -468,6 +468,16 @@ if has_fastapi:
     check('by model, the checkpoint by its name',
           os.path.splitext(os.path.basename(CHECKPOINT))[0].lower() in {k.lower() for k in groups('model')}, True)
     check('by day, the day each was made', all(len(k) == 10 for k in groups('day')), True)
+    # By base model: the checkpoint's, as the library holds it - what the
+    # Model Manager's Base Model filter reads (#35).
+    library_base = db._get_connection().execute(
+        'SELECT base_model FROM model_versions WHERE file_path = ? COLLATE NOCASE',
+        (db.get_generation(generation_id)['checkpoint_path'],)
+    ).fetchone()
+    check('by base model, the checkpoint\'s in the library',
+          [library_base and library_base[0], sum(t['matching_count'] for k, t in groups('base_model').items()
+                                                 if library_base and k == library_base[0]) > 0],
+          ['SDXL 1.0', True])
 
     inside = browse(group='prompt', in_group=fox['group']['id'], hide_nsfw_images='false')
     check('a group opens onto its generations, each a tile of the images it has there',

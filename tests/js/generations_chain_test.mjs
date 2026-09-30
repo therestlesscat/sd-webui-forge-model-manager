@@ -48,6 +48,9 @@ globalThis.fetch = async (url) => {
                          group(23, 'a cat', 'prompt_written', 1, MODEL_TWO)];
             }
         }
+        if (q('group') === 'base_model' && !q('in_group')) {
+            tiles = [group(31, 'Illustrious', 'base_model', 2), group(32, '', 'base_model', 1)];
+        }
         if (q('generation')) tiles = IMAGES;
         return reply({ success: true, tiles, more: false,
                        state: { total: 4, filtered: 4, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: true,
@@ -79,15 +82,16 @@ const texts = (els) => Array.from(els).map((e) => e.textContent.replace('▸', '
 check('Group by shows what it groups by, its list closed', [$('gen_group_by').textContent, list().hidden],
       ['Nothing', true]);
 click($('gen_group_by'));
-check('a click opens it: Nothing, and the six groupings',
+check('a click opens it: Nothing, and the seven groupings',
       [list().hidden, texts(list().querySelectorAll(':scope > button, .gen-group-item > button'))],
-      [false, ['Nothing', 'Prompt, as written', 'Prompt, as generated', 'Model', 'LoRA combination', 'Size', 'Day']]);
+      [false, ['Nothing', 'Prompt, as written', 'Prompt, as generated', 'Base model', 'Model', 'LoRA combination',
+               'Size', 'Day']]);
 check('no "then by" list open yet', Array.from(list().querySelectorAll('.gen-group-sub')).some((s) => !s.hidden), false);
 item('model').dispatchEvent(new window.Event('mouseover', { bubbles: true }));
 check('over a grouping, its "then by" list opens beside it: any other grouping',
       [item('model').querySelector('.gen-group-sub').hidden,
        texts(item('model').querySelectorAll('.gen-group-sub button'))],
-      [false, ['Prompt, as written', 'Prompt, as generated', 'LoRA combination', 'Size', 'Day']]);
+      [false, ['Prompt, as written', 'Prompt, as generated', 'Base model', 'LoRA combination', 'Size', 'Day']]);
 item('day').dispatchEvent(new window.Event('mouseover', { bubbles: true }));
 check('over another, its list instead', [item('day').querySelector('.gen-group-sub').hidden,
       item('model').querySelector('.gen-group-sub').hidden], [false, true]);
@@ -139,6 +143,12 @@ await window.genBack();
 await window.genBack();
 check('Back, twice, is the sections again, Select hidden',
       [heads().length, names(), selectHidden()], [2, ['a fox', 'None', 'a cat'], true]);
+
+// By base model (#35): the checkpoint's, as the library holds it; one the
+// library has none for is Unknown.
+await window.genSetGroupBy('base_model');
+await waitFor('the base models', () => names().includes('Illustrious'));
+check('by base model, a checkpoint the library has none for is Unknown', names(), ['Illustrious', 'Unknown']);
 
 await window.genSetGroupBy('model>nonsense');
 await waitFor('ungrouped', () => last()[0] === '');
