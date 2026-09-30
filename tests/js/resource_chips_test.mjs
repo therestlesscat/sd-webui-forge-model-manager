@@ -127,4 +127,50 @@ check('a file one entry finds by name and another by hash is one chip, found by 
 check('and with no file by name, still missing', collectResourceChips(GHIBLI, { versions: {}, hashes: {} })
     .chips.find((c) => c.name === 'Ghibli_v6')?.installed, false);
 
+// ------------------------------------------- one LoRA, named twice (#30)
+// Image 84731975: Civitai's list names the LoRA by version, the infotext by
+// its file's name, with its weight - and its hash is in `hashes`, keyed
+// "LORA:" in capitals, as 5,561 keys in one library were (and 35 "EMBED:").
+// The hash was looked for under "lora:" only, so the LoRA came out twice: a
+// chip to download, and one with "no hash recorded".
+const MESO = {
+    civitaiResources: [{ type: 'LORA', name: 'MesoAmerican Outfit (Aztec/Mayan) [Illustrious]', modelId: 443711,
+                         modelVersionId: 1904077, modelVersionName: 'Illustrious' }],
+    resources: [{ type: 'lora', name: 'MesoamericaOutfit_IXL', weight: 0.8 }, { type: 'embed', name: 'an12' }],
+    hashes: { 'LORA:MesoamericaOutfit_IXL': '06200f1e9e', 'EMBED:an12': '1c6c72d33a' },
+};
+const MESO_FUTURE = { file_stem: 'MesoamericaOutfit_IXL', file_type: 'LORA', model_id: 443711 };
+check('a hash keyed in capitals is found, for a LoRA and an embedding',
+      resourceNames(MESO), [{ name: 'MesoamericaOutfit_IXL', hash: '06200f1e9e' }, { name: 'an12', hash: '1c6c72d33a' }]);
+const byHashToo = collectResourceChips(MESO, { versions: {}, hashes: {} },
+    null, { hashes: { '06200f1e9e': 1904077 }, versions: { 1904077: MESO_FUTURE } }).chips.filter((c) => c.kind === 'lora');
+check('so Civitai finds its version, and the LoRA is one chip, with the infotext\'s weight',
+      byHashToo.map((c) => [c.name, c.versionId, c.weight, c.installed]), [['MesoamericaOutfit_IXL', 1904077, 0.8, false]]);
+
+// No hash anywhere: the name alone. The file Civitai says the other chip's
+// version is has exactly this name - the name Forge's <lora:name> loads - so
+// it is the same LoRA: one chip, keeping the infotext's weight.
+const NO_HASH = { ...MESO, hashes: {} };
+const missingAnswer = { hashes: {}, versions: { 1904077: MESO_FUTURE } };
+const byName2 = collectResourceChips(NO_HASH, { versions: {}, hashes: {} }, null, missingAnswer)
+    .chips.filter((c) => c.kind === 'lora');
+check('with no hash, a chip named as the file Civitai gives another\'s version is that chip',
+      byName2.map((c) => [c.name, c.versionId, c.weight, c.hash]), [['MesoamericaOutfit_IXL', 1904077, 0.8, null]]);
+check('ignoring case, as Forge\'s lookup of a name does', collectResourceChips(
+      { ...NO_HASH, resources: [{ type: 'lora', name: 'mesoamericaoutfit_ixl', weight: 0.8 }] },
+      { versions: {}, hashes: {} }, null, missingAnswer).chips.filter((c) => c.kind === 'lora').length, 1);
+check('before Civitai has said what its file is called, there is nothing to match yet',
+      collectResourceChips(NO_HASH, { versions: {}, hashes: {} }).chips.filter((c) => c.kind === 'lora').length, 2);
+const installedMeso = collectResourceChips(NO_HASH,
+    { versions: { 1904077: { version_id: 1904077, file_stem: 'MesoamericaOutfit_IXL', file_type: 'LORA' } }, hashes: {} })
+    .chips.filter((c) => c.kind === 'lora');
+check('the same with the file installed: one chip, the installed one',
+      installedMeso.map((c) => [c.name, c.installed, c.weight]), [['MesoamericaOutfit_IXL', true, 0.8]]);
+check('a name shared by a LoRA and an embedding is two things, and two chips', collectResourceChips(
+      { ...NO_HASH, resources: [{ type: 'embed', name: 'MesoamericaOutfit_IXL' }] },
+      { versions: {}, hashes: {} }, null, missingAnswer).chips.map((c) => c.kind).sort(), ['embedding', 'lora']);
+check('and a chip the image names by hash is never merged by name', collectResourceChips(
+      { ...NO_HASH, resources: [{ type: 'lora', name: 'MesoamericaOutfit_IXL', hash: 'ffff0000aa' }] },
+      { versions: {}, hashes: {} }, null, missingAnswer).chips.filter((c) => c.kind === 'lora').length, 2);
+
 done();
