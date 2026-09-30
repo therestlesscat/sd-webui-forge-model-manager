@@ -3402,6 +3402,16 @@ textarea.mm-settings-input {
     height: 28px;
 }
 
+/* A group's bottom row: what it holds, where a tile has its buttons - so it
+   is as tall as every other tile. */
+.gen-actions.gen-group-facts {
+    align-items: center;
+    justify-content: center;
+    height: 26px;
+    font-size: 0.8em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
 /* In this tab, an image's NSFW badge is at its top-left: ⋯ has the top-right. */
 .gen-media .mm-nsfw-badge {
     right: auto;
