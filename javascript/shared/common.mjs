@@ -1895,6 +1895,33 @@ export function refreshWebUiModelList() {
     }
 }
 
+/**
+ * How fast a download is going, and how long it has left, as the server
+ * measured them (DownloadProgress.rate): "12.4 MB/s · about 5 min left", or
+ * "stalled" - never "0 B/s" - and nothing while there is nothing to say yet.
+ */
+/** Bytes a second as a person reads them: "12.4 MB", "800 KB" - one decimal, none when it is 0. */
+function formatSpeed(bytes) {
+    const [unit, size] = [['GB', 1073741824], ['MB', 1048576], ['KB', 1024]].find(([, s]) => bytes >= s)
+        || ['B', 1];
+    return `${(bytes / size).toFixed(1).replace(/\.0$/, '')} ${unit}`;
+}
+
+export function downloadRateText(dl) {
+    if (dl.status !== 'downloading') return '';
+    if (dl.stalled) return 'stalled';
+    if (!dl.speed_bps) return '';
+    const parts = [`${formatSpeed(dl.speed_bps)}/s`];
+    const left = dl.eta_seconds;
+    if (typeof left === 'number') {
+        const minutes = Math.ceil(left / 60);        // rounded up: "about 1 min" is never late
+        if (left < 60) parts.push('less than a minute left');
+        else if (minutes < 60) parts.push(`about ${minutes} min left`);
+        else parts.push(`about ${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''} left`);
+    }
+    return parts.join(' · ');
+}
+
 const DOWNLOAD_STATUS_TEXT = {
     downloading: 'Downloading', pending: 'Queued', finishing: 'Adding to library',
     complete: 'Complete', error: 'Error', cancelled: 'Cancelled',
@@ -1927,6 +1954,7 @@ function renderDownloadItem(dl, prefix) {
             <div class="${p}-download-info">
                 <span class="${p}-download-percent">
                     ${status === 'downloading' ? `${percent}% - ${downloaded} / ${total}` : ''}
+                    ${downloadRateText(dl) ? ` · ${escapeHtml(downloadRateText(dl))}` : ''}
                     ${status === 'pending' ? 'Waiting...' : ''}
                     ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                     ${status === 'complete' ? `${total}` : ''}

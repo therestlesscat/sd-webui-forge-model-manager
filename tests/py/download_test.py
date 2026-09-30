@@ -64,9 +64,44 @@ for status, complete in (('pending', False), ('downloading', False), ('finishing
 
 p = DownloadProgress(version_id=7, file_name='f.safetensors')
 check('the dict carries what the UI polls for',
-      sorted(p.to_dict()), ['downloaded_bytes', 'error', 'file_name', 'file_path',
-                            'percent', 'status', 'sync_error', 'synced',
+      sorted(p.to_dict()), ['downloaded_bytes', 'error', 'eta_seconds', 'file_name', 'file_path',
+                            'percent', 'speed_bps', 'stalled', 'status', 'sync_error', 'synced',
                             'total_bytes', 'version_id'])
+
+# ------------------------------------------------------ how fast, how long (#36)
+# Measured where every chunk is seen, over the last 5 seconds, so it does not
+# jump with each chunk; nothing said before a second's worth, and nothing for
+# 5 seconds is "stalled", not 0 B/s. The clock is the caller's here.
+MB = 1024 * 1024
+p = DownloadProgress(version_id=8, total_bytes=100 * MB, status='downloading')
+p.record(now=0.0)
+check('before a second\'s worth, no speed yet', p.rate(now=0.5), (None, None, False))
+for t in range(1, 21):                       # 10 MB/s for 2 s, a chunk each 0.1 s
+    p.downloaded_bytes = t * MB
+    p.record(now=t / 10)
+speed, left, stalled = p.rate(now=2.0)
+check('a steady 10 MB/s reads as that, with the time left from it',
+      [round(speed / MB, 1), round(left), stalled], [10.0, 8, False])
+for t in range(21, 71):                      # then 2 MB/s for 25 s: a chunk each 0.5 s
+    p.downloaded_bytes = 20 * MB + (t - 20) * MB
+    p.record(now=2.0 + (t - 20) * 0.5)
+check('after a slowdown, the last 5 seconds decide - not the start',
+      round(p.rate(now=27.0)[0] / MB, 1), 2.0)
+real_clock, ds._clock = ds._clock, (lambda: 27.0)
+sent = p.to_dict()
+ds._clock = real_clock
+check('and the page is sent it, in whole bytes a second and seconds',
+      [sent['speed_bps'], sent['eta_seconds'], sent['stalled']], [2 * MB, round(30 * MB / (2 * MB)), False])
+check('nothing for 5 seconds is stalled: no speed, no time left', p.rate(now=32.5), (None, None, True))
+p.restart_rate()
+p.downloaded_bytes = 0
+p.record(now=40.0)
+check('a retry starts the measure afresh', p.rate(now=40.5), (None, None, False))
+check('and no data at all for 5 seconds is stalled too', p.rate(now=45.0), (None, None, True))
+for status in ('pending', 'finishing', 'complete', 'error', 'cancelled'):
+    p.status = status
+    check(f'{status}: no speed at all', p.rate(now=40.5), (None, None, False))
+
 
 # ------------------------------------------------------------ which file to take
 FILES = [{'id': 11, 'name': 'full.safetensors'},
