@@ -605,39 +605,6 @@ def register(app: FastAPI):
             print(f"[ModelManager] Rate images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
-    @app.post("/model-manager/generations/group/delete")
-    def delete_generation_group(group: str = Form(...), in_group: str = Form(...),
-                                hide_nsfw_images: bool = Form(default=True),
-                                delete_files: bool = Form(default=False)):
-        """
-        Delete a group of the Generations tab: the images of it the grid shows
-        - through the NSFW switch, so an image it hides, and the tile does not
-        count, stays - each as one image is, a generation going with its last.
-
-        Returns:
-            deleted: how many images; deleted_files and failed, as
-            delete_generation; generations_deleted: the ids that went.
-        """
-        try:
-            db = get_models_db()
-            if group not in GROUPINGS:
-                return JSONResponse({"success": False, "error": "Not a grouping"}, status_code=400)
-            shown, _ = _scoped(db, hide_nsfw_images, group, in_group)
-            paths, gone = [], []
-            for row in shown:
-                own, generation_gone = db.delete_generation_image(row["id"])
-                paths += own
-                if generation_gone is not None:
-                    gone.append(generation_gone)
-            deleted, failed = _delete_files(paths) if delete_files else ([], [])
-            print(f"[ModelManager] Deleted a group of {len(shown)} generated images"
-                  + (f" and {len(deleted)} of their files" if delete_files else ""))
-            return JSONResponse({"success": True, "deleted": len(shown), "deleted_files": len(deleted),
-                                 "failed": failed, "generations_deleted": gone})
-        except Exception as e:
-            print(f"[ModelManager] Delete group error: {e}")
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
     @app.post("/model-manager/generations/{generation_id}/delete")
     def delete_generation(generation_id: int, delete_files: bool = Form(default=False)):
         """

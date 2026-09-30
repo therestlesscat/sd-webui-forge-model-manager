@@ -328,16 +328,22 @@ function tileHtml(tile, index) {
 
     const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
                      tile.kind === 'group' && 'gen-grouping'].filter(Boolean).join(' ');
-    const remove = `<button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${index})">Delete</button>`;
+    // A group is a way in, not something to act on: its images are of any
+    // prompt and settings - Send would send one image as if it stood for them
+    // all, and Delete would take many at once. Its row says what it holds.
+    const actions = tile.kind === 'group'
+        ? `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}`
+          + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
+        : `<div class="gen-actions">
+                <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
+                        onclick="window.genSend(${index})">${mode}</button>
+                <button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${index})">Delete</button>
+            </div>`;
     return `
         <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
             <div class="gen-media">${media}</div>
             ${rateRow}
-            <div class="gen-actions">
-                <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
-                        onclick="window.genSend(${index})">${mode}</button>
-                ${remove}
-            </div>
+            ${actions}
         </div>`;
 }
 
@@ -487,10 +493,10 @@ function renderBanner() {
 }
 
 // ------------------------------------------------------------- the tiles' actions
-/** Send a tile's image - a folded one's first - back to the tab it was made in. */
+/** Send a tile's image - a batch's first - back to the tab it was made in. Not a group's. */
 window.genSend = async function(index) {
     const tile = tiles[index];
-    if (!tile?.images?.[0]) return;
+    if (!tile?.images?.[0] || tile.kind === 'group') return;
     await sendImage(tile, tile.images[0]);
 };
 
@@ -959,16 +965,13 @@ async function deleteFromViewer() {
 
 // ------------------------------------------------------------- deleting
 /**
- * Delete a tile: one image, a batch - every image of it - or a group - every
- * image of it the grid shows - asking first, and whether the files go too.
+ * Delete a tile: one image, or a batch - every image of it - asking first,
+ * and whether the files go too. A group is not deleted from here: its images
+ * are of any number of generations.
  */
 window.genDelete = async function(index) {
     const tile = tiles[index];
-    if (!tile) return;
-    if (tile.kind === 'group') {
-        await deleteGroup(index);
-        return;
-    }
+    if (!tile || tile.kind === 'group') return;
     if (tile.matching_count <= 1 || tile.kind === 'image') {
         await deleteImage(index, tile.images[0]);
         return;
@@ -982,27 +985,6 @@ window.genDelete = async function(index) {
         await refreshTotals();
     }
 };
-
-/**
- * Delete a group: its images the grid shows, each as one image is - a
- * generation going with its last, and the files only when asked.
- */
-async function deleteGroup(index) {
-    const tile = tiles[index];
-    const n = tile.matching_count || 1;
-    const k = tile.group.generations || 1;
-    const answer = await askDelete(
-        `Delete these ${n} image${n === 1 ? '' : 's'}, from ${k} generation${k === 1 ? '' : 's'}?`, n);
-    if (!answer) return;
-    const done = await postDelete('/model-manager/generations/group/delete', answer, {
-        group: groupBy, in_group: tile.group.id, hide_nsfw_images: hideNsfw,
-    });
-    if (done) {
-        removeTile(index);
-        markAboveChanged();
-        await refreshTotals();
-    }
-}
 
 /** Delete one image, asking first; true once it is gone, from the grid too. */
 async function deleteImage(index, image) {

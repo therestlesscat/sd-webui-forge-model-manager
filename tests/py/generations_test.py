@@ -537,17 +537,12 @@ if has_fastapi:
     rate(generation=generation_id, level='', hide_nsfw_images='false')
     check('and a batch\'s ratings clear together', user_levels(), [None] * 4)
 
-    # A group deleted: its images the grid shows, each as one image is.
-    unloraed = groups('loras')['']
-    body = client.post('/model-manager/generations/group/delete', data={
-        'group': 'loras', 'in_group': unloraed['group']['id'], 'hide_nsfw_images': 'false'}).json()
-    check('a group is deleted: its images, and nothing else',
-          (body['success'], body['deleted'], '' in groups('loras'), len(db.get_generation(generation_id)['images'])),
-          (True, 1, False, 4))
-    check('a generation going with its last image', body['generations_deleted'], [single])
-    single = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False)
-    check('a grouping that is not one is refused',
-          client.post('/model-manager/generations/group/delete', data={'group': 'x', 'in_group': 'y'}).status_code, 400)
+    # A group is not deleted whole: its images are of any number of generations.
+    before_group = groups('loras')['']['matching_count']
+    refused = client.post('/model-manager/generations/group/delete', data={
+        'group': 'loras', 'in_group': groups('loras')['']['group']['id']})
+    check('there is no deleting a group: it is refused, and nothing goes',
+          (refused.status_code != 200, groups('loras')['']['matching_count']), (True, before_group))
 
     opts.model_manager_gallery_page_size = 1
     parts = [browse(page=n, hide_nsfw_images='false') for n in (1, 2)]

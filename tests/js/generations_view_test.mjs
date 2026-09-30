@@ -116,16 +116,6 @@ globalThis.fetch = async (url, init = {}) => {
         shown.forEach(apply);
         return reply({ success: true, rated: shown.length });
     }
-    if (href.includes('/generations/group/delete')) {
-        const form = new URLSearchParams(String(init.body));
-        posted.push(['/generations/group/delete', String(init.body)]);
-        const hide = form.get('hide_nsfw_images') !== 'false';
-        for (const g of generations) {
-            g.images = g.images.filter((i) => sizeOf(i) !== form.get('in_group') || (hide && i.mm_level > 3));
-        }
-        generations = generations.filter((g) => g.images.length);
-        return reply({ success: true, deleted: 1, deleted_files: 0, failed: [] });
-    }
     const deleteImage = href.match(/\/generations\/images\/(\d+)\/delete/);
     const deleteGeneration = href.match(/\/generations\/(\d+)\/delete/);
     if (deleteImage || deleteGeneration) {
@@ -408,9 +398,9 @@ check('"Group by" is remembered in this browser, and asked for',
       [window.localStorage.getItem('mm_generations_group_by'), lastAsked().get('group')], ['size', 'size']);
 check('a tile per group, saying what it is', [tileIds(), tileEls().map((t) => t.querySelector('.gen-group-name')?.textContent)],
       [['3G', '2G'], ['832×1216', '1216×832']]);
-check('a group has Send and Delete too',
-      Array.from(tileEls()[0].querySelectorAll('.gen-actions button')).map((b) => b.textContent.trim()),
-      ['txt2img', 'Delete']);
+check('a group has neither Send nor Delete - misleading, and too much at once - but says what it holds',
+      [tileEls()[0].querySelectorAll('.gen-actions button').length,
+       tileEls()[0].querySelector('.gen-group-facts')?.textContent.trim()], [0, '2 images · 1 generation']);
 await window.genOpen(0);
 check('a group opens onto its generations', [lastAsked().get('in_group'), tileIds()], ['832×1216', ['3g']]);
 check('its header naming the group', pathText().includes('Size: 832×1216'), true);
@@ -421,19 +411,8 @@ check('the way here all in its header', pathText().includes('Generations › Siz
 await window.genBack();
 await window.genBack();
 check('Back, and Back, to the groups', tileIds(), ['3G', '2G']);
-const groupDelete = window.genDelete(1);
-await waitFor('the question', () => dialog());
-check('deleting a group asks first, saying how many images, from how many generations',
-      dialog().querySelector('h3')?.textContent, 'Delete these 1 image, from 1 generation?');
-click(dialog().querySelector('[data-confirm]'));
-await groupDelete;
-check('and deletes the images of it the grid shows, the grouping and the filter sent with it',
-      [posted.at(-1)[0], Object.fromEntries(new URLSearchParams(posted.at(-1)[1]))],
-      ['/generations/group/delete', { group: 'size', in_group: '1216×832', hide_nsfw_images: 'true',
-                                      delete_files: 'false' }]);
-check('its tile gone', tileIds(), ['3G']);
 await window.genSetGroupBy('');
-check('and grouped by nothing, a tile per generation again', tileIds(), ['3g']);
+check('and grouped by nothing, a tile per generation again', tileIds(), ['3g', '2']);
 
 // ---------------------------------------------------------------- the switches
 
@@ -441,8 +420,6 @@ await window.genShowNsfw(true);
 check('the NSFW switch starts again from the first part, showing NSFW',
       [lastAsked().get('page'), lastAsked().get('hide_nsfw_images'), tileEls()[0].querySelector('.gen-count')?.textContent],
       ['1', 'false', '×3']);   // 33 and 34 deleted above, 32 hidden until now
-generations.push({ generation: { id: 2, mode: 'img2img', created_at: '2026-09-28T19:00:00', image_count: 1 },
-                   images: [{ ...img(21, 2, 0), width: 1216, height: 832 }] });
 const before = asked.length;
 await window.genRefresh();
 check('Refresh loads it again from the first part', [asked.length > before, lastAsked().get('page')], [true, '1']);
