@@ -27,7 +27,8 @@ const card = parse(renderModelCard({
     media: { src: 'https://example.invalid/a.jpeg', video: false },
     classes: ['has-civitai', '', 'nsfw-x'],
     data: { 'model-id': 77 },
-    overlays: [{ cls: 'mm-bookmark-indicator', text: '★', title: 'Bookmarked' }],
+    overlays: [{ cls: 'mm-bookmark-indicator', text: '★', title: 'Bookmarked' },
+               { cls: 'mm-pin-btn', text: '📌', title: 'Pin', onclick: 'window.mmTogglePin(3)' }],
     badges: [{ cls: 'type-badge', text: 'LORA' }, { cls: 'versions-badge', text: 'v2', title: '2 local versions' }],
     stats: [{ text: '1.2 GB' }, { html: '<span class="thumbs">+5</span>' }, { text: '↓ 3K', title: 'Downloads' }],
 }));
@@ -44,6 +45,10 @@ check('its image, lazily, falling back to the placeholder',
 check('overlays on the image',
       Array.from(card.querySelectorAll('.model-card-image > div')).map((o) => [o.className, o.textContent, o.getAttribute('title')]),
       [['mm-bookmark-indicator', '★', 'Bookmarked']]);
+const pin = card.querySelector('.model-card-image > button');
+check('one with a click is a button, whose click is not the card\'s',
+      [pin?.className, pin?.textContent, pin?.getAttribute('type'), pin?.getAttribute('onclick')],
+      ['mm-pin-btn', '📌', 'button', 'event.stopPropagation(); window.mmTogglePin(3)']);
 check('badges under the name',
       Array.from(card.querySelectorAll('.model-card-meta .badge')).map((b) => [b.className, b.textContent, b.getAttribute('title')]),
       [['badge type-badge', 'LORA', null], ['badge versions-badge', 'v2', '2 local versions']]);

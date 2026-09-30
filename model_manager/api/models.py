@@ -703,6 +703,26 @@ def register(app: FastAPI):
                 status_code=500
             )
 
+    @app.post("/model-manager/pin")
+    async def set_pin(
+        pinned: bool = Form(...),
+        model_id: Optional[int] = Form(None),
+        file_path: Optional[str] = Form(None),
+    ):
+        """
+        Pin a card to the front of the grid, or unpin it: a Civitai model by
+        its id, a file Civitai does not know by its path. A pinned card comes
+        first whenever it matches the filters; what is shown does not change.
+        """
+        try:
+            if not get_models_db().set_pin(model_id, file_path, pinned):
+                return JSONResponse({"success": False, "error": "Nothing to pin: no model id or file path"},
+                                    status_code=400)
+            return JSONResponse({"success": True, "is_pinned": pinned})
+        except Exception as e:
+            print(f"[ModelManager] Pin error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.post("/model-manager/bookmark")
     async def toggle_bookmark(
         model_id: int = Form(...),

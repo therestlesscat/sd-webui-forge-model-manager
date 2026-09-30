@@ -1228,6 +1228,26 @@ def _migrate_to_v28(cursor):
     print("[ModelManager] Migration to v28 complete")
 
 
+def _migrate_to_v29(cursor):
+    """
+    Pins: a card the grid puts first whenever it matches the filters. A card
+    is a Civitai model, or a file Civitai does not know, so a pin names one
+    or the other. Kept apart from both tables, as a bookmark would be lost
+    with its model's row: a pin is the person's, and holds while a file is
+    gone and back.
+    """
+    print("[ModelManager] Migrating to v29: pins...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pins (
+            model_id INTEGER UNIQUE,
+            file_path TEXT UNIQUE COLLATE NOCASE,
+            pinned_at TEXT NOT NULL,
+            CHECK ((model_id IS NULL) <> (file_path IS NULL))
+        )
+    """)
+    print("[ModelManager] Migration to v29 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1314,6 +1334,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 28:
         _migrate_to_v28(cursor)
+
+    if from_version < 29:
+        _migrate_to_v29(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
