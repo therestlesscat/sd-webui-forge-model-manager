@@ -32,6 +32,7 @@ const {
     sizedMediaUrl,
     videoStillUrl,
     mediaFallback,
+    mediaShape,
     IMAGE_PLACEHOLDER_SVG,
     galleryImageWidth,
     pageSeparator,
@@ -49,6 +50,7 @@ const {
     renderFilterBanner,
     balanceGridRows,
     nsfwBadgeLabel,
+    nsfwBadge,
     paidAccessLabel,
     isPaid,
     primaryFileIndex,
@@ -67,6 +69,13 @@ const {
     renderGridPagination,
     renderModelGrid: renderSharedGrid,
 } = await import(sharedModule.href);
+
+// The image viewer every gallery opens, asked for with this script's version.
+const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
+viewerModule.search = sharedModule.search;
+const {
+    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll,
+} = await import(viewerModule.href);
 
 // The settings window behind the gear in the header, asked for with this
 // script's version as the shared module is.
@@ -2235,11 +2244,162 @@ function generationImageHtml(img) {
     const image = img.exists
         ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
                 ${mediaFallback('', IMAGE_PLACEHOLDER_SVG)}
-                data-open-url="${escapeHtml(url)}" title="Click to open full size">`
+                data-view-generation-image="${Number(img.id)}" title="Click to view">`
         : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
                 title="Image unavailable: its file is no longer where it was saved">`;
     return `<div class="mm-generation-tile">${image}${badge}</div>`;
 }
+
+// ------------------------------------------------------------- the viewer
+// A card's image opens the shared viewer (shared/viewer.mjs). On the Civitai
+// images, it shows the card's own buttons and text (cardSource); on your
+// generations, the images the cards show, each with its own Send, Resources,
+// Delete and rating.
+
+/** The Civitai images' cards, in the order drawn. */
+function civitaiCards() {
+    return Array.from(document.querySelectorAll('#mm_images .model-images-list .mm-image-card:not(.mm-generation-card)'));
+}
+
+function viewCivitaiImage(index) {
+    const cards = civitaiCards();
+    const at = cards.findIndex((card) => Number(card.dataset.index) === index);
+    if (at < 0) return;
+    openViewer(cardSource({
+        cards: civitaiCards,
+        more: () => !!imagePages[imagePages.length - 1]?.more,
+        loadMore: () => window.mmLoadMoreImages(),
+    }), at);
+}
+
+/** Your generations' images the cards show, in order: a card's four, or all once "Show images". */
+function generationViewerImages() {
+    return generationCards.flatMap((card) => (card.all || card.images || []).map((image) => ({ card, image })));
+}
+
+const generationViewerSource = {
+    count: () => generationViewerImages().length,
+    media: (index) => {
+        const { image } = generationViewerImages()[index] || {};
+        return { url: image?.exists ? new URL(image.url, window.location.origin).href : IMAGE_PLACEHOLDER_SVG,
+                 video: false };
+    },
+    buttons: (index) => {
+        const { card, image } = generationViewerImages()[index] || {};
+        if (!image) return '';
+        const label = resourceButtonLabel({ meta: image.meta || {} });
+        return `${ratingRowHtml(image, 'window.mmRateInViewer(%)')}
+            <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
+            ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
+            <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>`;
+    },
+    details: (index) => {
+        const { card, image } = generationViewerImages()[index] || {};
+        if (!image) return '';
+        const when = card.created_at
+            ? new Date(card.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+        const url = new URL(image.url, window.location.origin).href;
+        return `<div class="mm-generation-when">${escapeHtml([when, card.mode].filter(Boolean).join(' · '))}</div>
+            ${imageTextHtml(image)}
+            <div class="mm-dialog-buttons">
+                ${image.infotext ? `<button type="button" class="mm-btn secondary mm-btn-small"
+                    data-copy="${escapeHtml(image.infotext)}">Copy infotext</button>` : ''}
+                ${image.exists ? `<a class="mm-btn secondary mm-btn-small" href="${escapeHtml(url)}" target="_blank"
+                    rel="noopener">Open full size</a>` : ''}
+            </div>`;
+    },
+    where: (index) => {
+        const { card, image } = generationViewerImages()[index] || {};
+        if (!card) return '';
+        const shown = (card.all || card.images || []);
+        const count = card.matching_count || shown.length;
+        const at = shown.indexOf(image) + 1;
+        if (count <= 1) return '';
+        return shown.length < count ? `${at} of the ${shown.length} shown · ${count} in this generation`
+            : `${at} of ${count} in this generation`;
+    },
+    more: () => !!generationPages[generationPages.length - 1]?.more,
+    loadMore: () => window.mmShowMoreGenerations(),
+    onClick: (event, index) => {
+        const { card, image } = generationViewerImages()[index] || {};
+        if (!image) return false;
+        if (event.target.closest?.('[data-gen-send]')) {
+            rememberScrollPosition(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
+            closeViewer();
+            window.mmSendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id });
+            return true;
+        }
+        if (event.target.closest?.('[data-gen-resources]')) {
+            showImageResources(image);
+            return true;
+        }
+        if (event.target.closest?.('[data-gen-delete]')) {
+            deleteGenerationImage(card, image);
+            return true;
+        }
+        return false;
+    },
+};
+
+function viewGenerationImage(imageId) {
+    const at = generationViewerImages().findIndex(({ image }) => Number(image.id) === imageId);
+    if (at >= 0) openViewer(generationViewerSource, at);
+}
+
+/** Rate the image the viewer shows; one the switches now hide leaves, and the next shows in its place. */
+window.mmRateInViewer = async function(value) {
+    const index = viewerIndex();
+    const { card, image } = generationViewerImages()[index] || {};
+    if (!image) return;
+    await window.mmRateGeneration(card.id, value, image.id);
+    if (viewerIndex() === index) showImage(index);
+};
+
+/** Delete one image of a generation, from the viewer: asked first, and whether its file goes too. */
+async function deleteGenerationImage(card, image) {
+    const index = viewerIndex();
+    const answer = await askToDelete('Delete this image?', 1);
+    if (!answer) return;
+    try {
+        const response = await fetch(`/model-manager/generations/images/${Number(image.id)}/delete`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `delete_files=${answer.withFiles}`,
+        });
+        const data = await response.json();
+        if (!data.success) {
+            setStatus('Delete failed: ' + (data.error || 'unknown error'), true);
+            return;
+        }
+    } catch (error) {
+        setStatus('Delete failed: ' + error.message, true);
+        return;
+    }
+    for (const key of ['images', 'all']) {
+        if (card[key]) card[key] = card[key].filter((i) => Number(i.id) !== Number(image.id));
+    }
+    card.matching_count = Math.max(0, (card.matching_count || 1) - 1);
+    card.image_count = Math.max(0, (card.image_count || 1) - 1);
+    if (!(card.all || card.images || []).length) removeGenerationCard(card.id);
+    else redrawGenerationCard(card.id);
+    await refreshGenerationTotals();
+    if (viewerIndex() === index) showImage(index);
+}
+
+// A card's image, or a video's ⤢, opens the viewer: from data on it, not an
+// inline handler, as every image here opens.
+document.addEventListener('click', (event) => {
+    const civitai = event.target.closest?.('#mm_images [data-view-index]');
+    if (civitai) {
+        event.preventDefault();
+        viewCivitaiImage(Number(civitai.getAttribute('data-view-index')));
+        return;
+    }
+    const own = event.target.closest?.('#mm_images [data-view-generation-image]');
+    if (own) {
+        event.preventDefault();
+        viewGenerationImage(Number(own.getAttribute('data-view-generation-image')));
+    }
+});
 
 /** A card for one generation: its images on the left, its settings on the right. */
 function renderGenerationCard(card, index) {
@@ -2312,9 +2472,7 @@ window.mmSendGeneration = async function(id) {
         console.error('[ModelManager] No infotext to send for generation', card?.id);
         return;
     }
-    const scrollPos = window.scrollY || document.documentElement.scrollTop || 0;
-    localStorage.setItem('mm_scroll_position', scrollPos.toString());
-    updateScrollRestoreButton();
+    rememberScrollPosition(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
     if (await window.mmSendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
@@ -2570,32 +2728,32 @@ function renderImageCard(img, index) {
     // The Resources button's label
     const resourcesLabel = resourceButtonLabel(img);
 
-    // NSFW indicator
-    const nsfwLevel = nsfwBadgeLabel(img, img.nsfw || 'Unknown');
-    const nsfwClass = nsfwLevel !== 'PG' && nsfwLevel !== 'Unknown' && nsfwLevel !== 'None'
-        ? 'mm-nsfw-indicator'
-        : '';
+    const nsfwLevel = nsfwBadge(img);
 
     // Detect video
     const isVideo = isVideoUrl({ url: src, type: img.type });
     // A copy the size the card draws it, not the upload; a click opens the upload.
     const shown = sizedMediaUrl(src, { cssWidth: galleryWidth, originalWidth: img.width, type: img.type });
+    // A click opens the viewer (shared/viewer.mjs) - on a video, its ⤢, as a
+    // click on the video plays it.
     const mediaHtml = isVideo
         ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoStillUrl(src))}"
-                  class="mm-lazy-media" preload="none" controls loop muted
+                  class="mm-lazy-media" preload="none" controls loop muted ${mediaShape(img)}
                   ${mediaFallback(originalMediaUrl(src))}
                   onclick="event.stopPropagation()"
-                  title="Click to play"></video>`
+                  title="Click to play"></video>
+           <button type="button" class="mm-view-btn" data-view-index="${index}" title="Open in the viewer">⤢</button>`
         : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
-                ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
-                ${src ? `data-open-url="${escapeHtml(originalMediaUrl(src))}"` : ''}
-                title="Click to view full size">`;
+                ${mediaShape(img)} ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
+                ${src ? `data-view-index="${index}"` : ''}
+                title="Click to view">`;
 
     return `
         <div class="mm-image-card" data-index="${index}">
-            <div class="mm-image-left">
+            <div class="mm-image-left" data-viewer-url="${escapeHtml(src ? originalMediaUrl(src) : '')}"
+                 data-viewer-video="${isVideo}">
                 ${mediaHtml}
-                ${nsfwClass ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
+                ${nsfwLevel ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
             </div>
             <div class="mm-image-right">
                 ${imageIdHtml}
@@ -2754,9 +2912,10 @@ async function resolveResourceHashes(hashes, onRound) {
  * never on name similarity, which does not survive contact with real data:
  * "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix".
  *
- * Anything naming the version whose gallery this is gets dropped. An image is
- * an example *of* that model, so listing it says nothing - and it is a quarter
- * of all the rows in this library.
+ * Anything naming the version whose gallery this is (`exclude`) gets dropped.
+ * An image is an example *of* that model, so listing it says nothing - and it
+ * is a quarter of all the rows in this library. The Civitai Browser names its
+ * own, the version it shows.
  *
  * `finished` says whether every hash has had its answer. Until then a hash
  * with no answer yet is still being looked up, and is left out rather than
@@ -2766,7 +2925,7 @@ async function resolveResourceHashes(hashes, onRound) {
  * and the rest - a filename with no hash, a hash Civitai does not know, or one
  * that could not be checked. Those are shown as they are rather than guessed at.
  */
-function mergeImageResources(img, resolved, finished) {
+function mergeImageResources(img, resolved, finished, exclude = currentVersionId) {
     const meta = img.meta || {};
     const civitai = meta.civitaiResources || [];
     const legacy = meta.resources || [];
@@ -2774,7 +2933,7 @@ function mergeImageResources(img, resolved, finished) {
     const byVersion = new Map();
     for (const resource of civitai) {
         const versionId = resource.modelVersionId;
-        if (!versionId || versionId === currentVersionId) continue;
+        if (!versionId || versionId === exclude) continue;
         if (byVersion.has(versionId)) continue;
         byVersion.set(versionId, {
             versionId,
@@ -2793,7 +2952,7 @@ function mergeImageResources(img, resolved, finished) {
         const match = answered ? resolved[hash] : null;
 
         if (match && match.version_id) {
-            if (match.version_id === currentVersionId) continue;
+            if (match.version_id === exclude) continue;
             if (byVersion.has(match.version_id)) continue;   // Civitai named it already
             byVersion.set(match.version_id, {
                 versionId: match.version_id,
@@ -2855,13 +3014,13 @@ function imageResourceHashes(img) {
  * floor: "Resources (2+)", or just "Resources" with none known yet. Opening
  * the panel looks them up, and the button becomes exact.
  */
-function resourceButtonLabel(img) {
+function resourceButtonLabel(img, exclude = currentVersionId) {
     const meta = img.meta || {};
     if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
 
     const pending = imageResourceHashes(img)
         .some(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
-    const { known, unknown } = mergeImageResources(img, knownHashes, false);
+    const { known, unknown } = mergeImageResources(img, knownHashes, false, exclude);
     const count = known.length + unknown.length;
 
     if (pending) return count ? `Resources (${count}+)` : 'Resources';
@@ -2882,6 +3041,8 @@ function updateResourceButtons() {
         if (label) button.textContent = label;
         else button.remove();
     });
+    // The Civitai Browser's buttons, which it relabels itself.
+    window.dispatchEvent(new Event('mm-resource-hashes'));
 }
 
 /**
@@ -2889,8 +3050,7 @@ function updateResourceButtons() {
  * request, and relabel the buttons with it. Nothing is asked of Civitai:
  * that happens only when a panel is opened.
  */
-async function refreshResourceButtons() {
-    const images = [...currentImages, ...generationCards.map(generationResourcesImage)];
+async function refreshResourceButtons(images = [...currentImages, ...generationCards.map(generationResourcesImage)]) {
     const unknown = [...new Set(images.flatMap(imageResourceHashes))]
         .filter(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
     if (!unknown.length) return;
@@ -2942,8 +3102,18 @@ function generationResourcesImage(card) {
     return { meta: { resources } };
 }
 
+/**
+ * The Civitai Browser's images have the same Resources as the Model Manager's:
+ * the same dialog, its lookups and its Download into the library - a LoRA an
+ * image used, without the model it is an example of. `exclude` is the version
+ * that gallery shows.
+ */
+window.mmShowImageResources = (img, exclude) => showImageResources(img, exclude ?? null);
+window.mmResourceButtonLabel = (img, exclude) => resourceButtonLabel(img, exclude ?? null);
+window.mmLearnResourceHashes = (images) => refreshResourceButtons(images);
+
 /** The Resources dialog for an image - a Civitai image, or one of your own. */
-async function showImageResources(img) {
+async function showImageResources(img, exclude = currentVersionId) {
     if (!img || !img.meta) return;
 
     const civitai = img.meta.civitaiResources || [];
@@ -2957,7 +3127,7 @@ async function showImageResources(img) {
     // Up straight away, with whatever needs no lookup, because an uncached
     // hash takes a moment and a dialog that opens late reads as a dead button.
     const hashes = imageResourceHashes(img);
-    const first = mergeImageResources(img, knownHashes, !hashes.length);
+    const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
     renderResourcesModal(first, hashes.length);
     checkInstalledResources(first.known);
     if (!hashes.length) return;
@@ -2965,13 +3135,13 @@ async function showImageResources(img) {
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
         Object.assign(knownHashes, partial);
         updateResourceButtons();
-        if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false), remaining);
+        if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false, exclude), remaining);
     });
     Object.assign(knownHashes, resolved);
     updateResourceButtons();
 
     if (stillWanted()) {
-        const merged = mergeImageResources(img, resolved, true);
+        const merged = mergeImageResources(img, resolved, true, exclude);
         renderResourcesModal(merged, 0);
         checkInstalledResources(merged.known);
     }
@@ -4534,10 +4704,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
     }
 
     // Save current scroll position before navigating away
-    const scrollPos = window.scrollY || document.documentElement.scrollTop;
-    localStorage.setItem('mm_scroll_position', scrollPos.toString());
-    updateScrollRestoreButton();
-    console.log('[ModelManager] Saved scroll position:', scrollPos);
+    rememberScrollPosition(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
 
     const meta = img.meta;
     const model = currentModels[selectedModelIndex];
@@ -5468,12 +5635,29 @@ function formatCommercialUse(value) {
 }
 
 
+/**
+ * Remember what was sent, for "Previous Position", before a Send takes the
+ * page to txt2img or img2img: `target`, a selector for the image or card sent,
+ * which the button brings back into view - from the viewer, the image shown
+ * last, not the one it opened on. And where the page was, for when that is no
+ * longer drawn: where it was when the viewer opened, if it is open, as the
+ * page is held still while it is.
+ */
+function rememberScrollPosition(target) {
+    const pos = viewerPageScroll() ?? (window.scrollY || document.documentElement.scrollTop || 0);
+    localStorage.setItem('mm_scroll_position', String(pos));
+    if (target) localStorage.setItem('mm_scroll_target', target);
+    else localStorage.removeItem('mm_scroll_target');
+    updateScrollRestoreButton();
+    console.log('[ModelManager] Saved scroll position:', pos, target || '');
+}
+
 // Scroll position restore functionality
 function updateScrollRestoreButton() {
     const savedPos = localStorage.getItem('mm_scroll_position');
     let btn = document.getElementById('mm_scroll_restore_btn');
 
-    if (savedPos && parseInt(savedPos) > 0) {
+    if ((savedPos && parseInt(savedPos) > 0) || localStorage.getItem('mm_scroll_target')) {
         // Create button if it doesn't exist
         if (!btn) {
             const buttonsRow = document.querySelector('.filter-buttons-row');
@@ -5487,6 +5671,7 @@ function updateScrollRestoreButton() {
                 btn.oncontextmenu = function(e) {
                     e.preventDefault();
                     localStorage.removeItem('mm_scroll_position');
+                    localStorage.removeItem('mm_scroll_target');
                     btn.style.display = 'none';
                     console.log('[ModelManager] Cleared scroll position');
                 };
@@ -5508,6 +5693,16 @@ function updateScrollRestoreButton() {
 }
 
 window.mmRestoreScrollPosition = function() {
+    const target = localStorage.getItem('mm_scroll_target');
+    let sent = null;
+    try {
+        sent = target ? document.querySelector(target) : null;
+    } catch (e) { /* not a selector: the position instead */ }
+    if (sent) {
+        sent.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        console.log('[ModelManager] Restored to the image sent');
+        return;
+    }
     const savedPos = localStorage.getItem('mm_scroll_position');
     if (savedPos) {
         const pos = parseInt(savedPos);

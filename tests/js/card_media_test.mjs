@@ -79,9 +79,9 @@ const MODEL = {
 // Its gallery: an image uploaded 1024 wide, and a video.
 const GALLERY = [
     { id: 1, url: `${C}/original=true/still.jpeg`, width: 1024, height: 1536, type: 'image',
-      mm_level: 1, meta: { prompt: 'a lighthouse by the sea' } },
+      nsfw: true, mm_level: 1, meta: { prompt: 'a lighthouse by the sea' } },
     { id: 2, url: `${C}/original=true/moving.mp4`, width: 720, height: 1280, type: 'video',
-      mm_level: 1, meta: { prompt: 'waves roll in on a beach' } },
+      nsfw: false, mm_level: 4, meta: { prompt: 'waves roll in on a beach' } },
 ];
 globalThis.fetch = withGalleryPages(async (url) => {
     const href = String(url);
@@ -114,13 +114,31 @@ check('falling back to the upload',
 await window.mmSelectModel(0);
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-image-card'));
 const galleryImage = document.querySelector('#mm_images .mm-image-card img');
-check('a gallery image loads the copy its card draws, and opens the upload',
-      [galleryImage?.getAttribute('data-src'), galleryImage?.getAttribute('data-open-url'),
-       galleryImage?.getAttribute('data-original')],
-      [`${C}/width=320/still.jpeg`, `${C}/original=true/still.jpeg`, `${C}/original=true/still.jpeg`]);
+check('a gallery image loads the copy its card draws, and the viewer shows the upload',
+      [galleryImage?.getAttribute('data-src'),
+       galleryImage?.closest('.mm-image-left')?.getAttribute('data-viewer-url'),
+       galleryImage?.getAttribute('data-original'), galleryImage?.hasAttribute('data-view-index')],
+      [`${C}/width=320/still.jpeg`, `${C}/original=true/still.jpeg`, `${C}/original=true/still.jpeg`, true]);
 const galleryVideo = document.querySelector('#mm_images .mm-image-card video');
 check('a gallery video plays a copy, showing its still until played',
       [galleryVideo?.getAttribute('data-src'), galleryVideo?.getAttribute('data-poster')],
       [`${C}/width=320/moving.mp4`, `${C}/anim=false/moving.mp4`]);
+// Loaded lazily, from a 1x1 placeholder: without its shape each started
+// square, grew when it loaded, and a scroll to a card below stopped short.
+check('each holds its own shape before it loads, from the size Civitai gives',
+      [galleryImage?.style?.aspectRatio || galleryImage?.getAttribute('style'),
+       galleryVideo?.style?.aspectRatio || galleryVideo?.getAttribute('style')],
+      ['1024 / 1536', '720 / 1280']);
+check('and none it does not know', [shared.mediaShape({ width: 1024 }), shared.mediaShape(null)], ['', '']);
+
+// The badge is the level the server judged, from R up - never Civitai's own
+// `nsfw`, a boolean on most images, which the badge once printed as "true".
+const badges = () => Array.from(document.querySelectorAll('#mm_images .mm-image-card'))
+    .map((c) => c.querySelector('.mm-nsfw-badge')?.textContent.trim() ?? '');
+check('a card badges its level from R up, whatever Civitai\'s nsfw flag says', badges(), ['', 'R']);
+check('each level named, the prompt\'s said as such, and nothing below R or unknown',
+      [1, 2, 4, 8, 16, 32, 64].map((mm_level) => shared.nsfwBadge({ mm_level, nsfw: true }))
+          .concat(shared.nsfwBadge({ mm_level: 8, mm_level_from_prompt: true }), shared.nsfwBadge({ nsfw: true })),
+      ['', '', 'R', 'X', 'XXX', 'Blocked', '', 'X · prompt', '']);
 
 done();

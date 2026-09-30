@@ -141,7 +141,7 @@ check('but not its handler', links.every((a) => !a.hasAttribute('onclick')), tru
 check('and opens somewhere else, without a way back', links.every((a) => a.getAttribute('rel') === 'noopener noreferrer'), true);
 
 // --- opening an image -------------------------------------------------------------
-const media = document.querySelector('.mm-image-card img[data-open-url]');
+const media = document.querySelector('.mm-image-card img[data-view-index]');
 check('an image opens from data, not from a handler', !!media && !media.hasAttribute('onclick'), true);
 
 done();

@@ -144,6 +144,11 @@ const sentinel = document.getElementById('gen_sentinel');
 sentinel.getBoundingClientRect = () => ({ top: endTop });
 window.innerHeight = 900;
 
+// All three tabs are one page, and the Model Manager keeps its sync and scan
+// dialogs in its markup, hidden: the keys took them for open questions, and
+// did nothing. One is here too.
+document.body.insertAdjacentHTML('beforeend', '<div class="mm-dialog-backdrop" style="display: none;"></div>');
+
 // Gradio draws the tab's markup after the page is ready, and the script runs
 // before it: the first load found no grid to draw into, and the tab stayed
 // empty until Refresh. So the markup comes late here too.
@@ -163,7 +168,9 @@ const tileIds = () => tileEls().map((t) => `${t.getAttribute('data-generation')}
     + `${t.classList.contains('gen-grouping') ? 'G' : t.classList.contains('gen-group') ? 'g' : ''}`);
 const pathText = () => (document.getElementById('gen_path')?.textContent || '').replace(/\s+/g, ' ').trim();
 const click = (el) => el.dispatchEvent(new window.Event('click', { bubbles: true }));
-const dialog = () => document.querySelector('.mm-dialog-backdrop');
+// The question showing - not the hidden dialog put in the page above.
+const dialog = () => Array.from(document.querySelectorAll('.mm-dialog-backdrop'))
+    .filter((d) => d.style.display !== 'none').pop() || null;
 const lastAsked = () => asked.at(-1);
 
 await waitFor('the first part', () => tileEls().length === 2);
@@ -240,32 +247,32 @@ check('and the item shows the checkpoint\'s own file there', [shownFiles, menuEl
 // An image over the page, ← and → through every image in the grid's order -
 // a folded batch's too - and past the last loaded, the next part, into the
 // grid as well. Send and Delete below it; its details beside it.
-const viewer = () => document.querySelector('.gen-viewer');
-const shownId = () => viewer()?.querySelector('.gen-viewer-image')?.getAttribute('src')?.match(/images\/(\d+)\//)?.[1];
+const viewer = () => document.querySelector('.mm-viewer');
+const shownId = () => viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src')?.match(/images\/(\d+)\//)?.[1];
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 await window.genView(0, 0);
 check('the viewer steps through the images a batch\'s tile shows, saying where it is in the batch',
-      [shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent], ['31', '1 of 4 in this generation']);
+      [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent], ['31', '1 of 4 in this generation']);
 check('with its details beside it: its prompts and what was recorded, and a way to the file',
       [viewer()?.querySelector('.gen-info-prompt')?.textContent, viewer()?.textContent.includes('anima.safetensors'),
        viewer()?.textContent.includes('Seed'), !!viewer()?.querySelector('a[href$="/images/31/file"]')],
       ['prompt 31', true, true, true]);
-check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.gen-viewer-actions button'))
+check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.mm-viewer-actions > button'))
       .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
-click(viewer().querySelector('[data-menu]'));
+click(viewer().querySelector('[data-gen-menu]'));
 click(menuEl().querySelector('button'));
 check('⋯ in the viewer shows the image\'s own checkpoint, closing the viewer',
       [shownFiles.at(-1), viewer()], [ANIMA, null]);
 await window.genView(0, 0);
-check('nothing before the first', viewer().querySelector('.gen-viewer-prev').disabled, true);
+check('nothing before the first', viewer().querySelector('.mm-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();
 check('→ steps through them', shownId(), '33');
 for (let i = 0; i < 3; i++) { key('ArrowRight'); await settle(); }
-check('then on to the next generation', [shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent],
+check('then on to the next generation', [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent],
       ['21', '']);
-check('with no ⋯ for an image with no checkpoint recorded', viewer().querySelector('[data-menu]').hidden, true);
+check('with no ⋯ for an image with no checkpoint recorded', viewer().querySelector('[data-gen-menu]'), null);
 key('ArrowLeft'); await settle();
 check('← back to the batch\'s last image', shownId(), '35');
 key('ArrowRight'); await settle();
@@ -275,9 +282,9 @@ check('past the last loaded, the next part is loaded - into the grid too', [show
       ['11', ['3g', '2', '1g']]);
 key('ArrowRight'); await settle();
 key('ArrowRight'); await settle();
-check('and at the very end, nothing after', [shownId(), viewer().querySelector('.gen-viewer-next').disabled],
+check('and at the very end, nothing after', [shownId(), viewer().querySelector('.mm-viewer-next').disabled],
       ['13', true]);
-const wheel = (deltaY, on = viewer().querySelector('.gen-viewer-image')) => {
+const wheel = (deltaY, on = viewer().querySelector('.mm-viewer-image')) => {
     const event = Object.assign(new window.Event('wheel', { bubbles: true, cancelable: true }), { deltaY });
     on.dispatchEvent(event);
     return event.defaultPrevented;
@@ -293,21 +300,21 @@ wheel(120); await settle();
 check('turned down, on an image', shownId(), '13');
 click(viewer().querySelector('[data-panel]'));
 check('the details fold away, and that is remembered',
-      [viewer().classList.contains('gen-viewer-collapsed'),
-       window.localStorage.getItem('mm_generations_viewer_panel_closed')], [true, 'true']);
-click(viewer().querySelector('.gen-viewer-image'));
-click(viewer().querySelector('.gen-viewer-info'));
+      [viewer().classList.contains('mm-viewer-collapsed'),
+       window.localStorage.getItem('mm_viewer_panel_closed')], [true, 'true']);
+click(viewer().querySelector('.mm-viewer-image'));
+click(viewer().querySelector('.mm-viewer-info'));
 check('a click on the image or its details leaves it open', !!viewer(), true);
-click(viewer().querySelector('.gen-viewer-frame'));
+click(viewer().querySelector('.mm-viewer-frame'));
 check('a click around the image closes it', viewer(), null);
 await window.genView(2, 2);
 key('Escape');
 check('Esc closes it, and gives the page its scrolling back',
       [viewer(), document.body.classList.contains('mm-modal-open')], [null, false]);
 await window.genView(1, 0);
-check('and it opens again with its details folded, as left', viewer()?.classList.contains('gen-viewer-collapsed'), true);
+check('and it opens again with its details folded, as left', viewer()?.classList.contains('mm-viewer-collapsed'), true);
 click(viewer().querySelector('[data-panel]'));
-click(viewer().querySelector('[data-send]'));
+click(viewer().querySelector('[data-gen-send]'));
 await settle();
 check('Send from the viewer sends that image, and closes it',
       [sent.at(-1)?.infotext.startsWith('prompt 21'), sent.at(-1)?.mode, viewer()], [true, 'img2img', null]);
@@ -380,13 +387,13 @@ check('and its tile goes', tileIds(), ['3g', '2']);
 
 // Delete from the viewer: that image, and the viewer moves on to the next.
 await window.genView(0, 1);
-const viewDelete = (async () => { click(viewer().querySelector('[data-delete]')); })();
+const viewDelete = (async () => { click(viewer().querySelector('[data-gen-delete]')); })();
 await waitFor('the question', () => dialog());
 click(dialog().querySelector('[data-confirm]'));
 await viewDelete;
 await waitFor('the next image', () => shownId() === '35');
 check('Delete in the viewer deletes the image shown, and shows the one after it',
-      [posted.at(-1)[0], shownId(), viewer()?.querySelector('.gen-viewer-where')?.textContent],
+      [posted.at(-1)[0], shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent],
       ['/generations/images/34/delete', '35', '2 of 2 in this generation']);
 key('Escape');
 
