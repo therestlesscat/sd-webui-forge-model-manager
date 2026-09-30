@@ -220,7 +220,7 @@ function createSettings() {
 
     function renderBody() {
         const body = root.querySelector('#mm_settings_body');
-        body.innerHTML = sectionsWithKeys().map((section) => `
+        body.innerHTML = whatsNewSection() + sectionsWithKeys().map((section) => `
             <details class="mm-settings-section" ${section.collapsed ? '' : 'open'}>
                 <summary class="mm-dialog-heading">${esc(section.title)}</summary>
                 ${section.intro && modules ? `<div class="mm-settings-help">${esc(section.intro)}</div>` : ''}
@@ -229,6 +229,41 @@ function createSettings() {
                 </div>
             </details>`).join('');
         refresh();
+        loadWhatsNew();
+    }
+
+    // "What's new": every note to the user that applies here, dismissed or
+    // not, newest first (model_manager/release_notes.py) - where a note
+    // dismissed in a tab can be read again. Not a setting: the search leaves
+    // it out.
+    function whatsNewSection() {
+        return `
+            <details class="mm-settings-section" data-whats-new>
+                <summary class="mm-dialog-heading">What's new</summary>
+                <div class="mm-settings-fields" id="mm_settings_notes">Loading...</div>
+            </details>`;
+    }
+
+    async function loadWhatsNew() {
+        let notes = null;
+        try {
+            const data = await (await fetch('/model-manager/notes')).json();
+            if (data && data.success) notes = data.notes || [];
+        } catch (e) { /* said below */ }
+        const box = root.querySelector('#mm_settings_notes');
+        if (!box) return;
+        if (!notes) {
+            box.textContent = 'The notes could not be read.';
+            return;
+        }
+        const versions = [...new Set(notes.map((n) => n.version))];
+        box.innerHTML = versions.map((version) => `
+            <div class="mm-settings-notes-version">${esc(version)}</div>
+            ${notes.filter((n) => n.version === version).map((n) => `
+                <div class="mm-settings-note" data-settings-note="${esc(n.id)}">
+                    <strong>${n.important ? '[Important] ' : ''}${esc(n.title)}</strong>
+                    <div class="mm-settings-help">${esc(n.text)}</div>
+                </div>`).join('')}`).join('') || 'Nothing yet.';
     }
 
     function renderField(key) {
@@ -637,6 +672,10 @@ function createSettings() {
     function applyVisibility() {
         const query = (root.querySelector('#mm_settings_search').value || '').trim().toLowerCase();
         root.querySelectorAll('.mm-settings-section').forEach((section) => {
+            if (section.hasAttribute('data-whats-new')) {
+                section.hidden = Boolean(query);
+                return;
+            }
             let any = false;
             section.querySelectorAll('.mm-settings-field').forEach((field) => {
                 const rule = SHOWN_WHEN[field.dataset.key];

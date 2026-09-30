@@ -2819,9 +2819,9 @@ body.mm-modal-open {
     margin: 0 0 12px;
     padding: 10px 14px;
     border: 1px solid var(--border-color-primary, #374151);
-    border-left: 3px solid #f59e0b;
+    border-left: 3px solid var(--mm-banner-accent, #f59e0b);
     border-radius: 8px;
-    background: rgba(245, 158, 11, 0.08);
+    background: var(--mm-banner-tint, rgba(245, 158, 11, 0.08));
     font-size: 13px;
     line-height: 1.5;
 }
@@ -2832,12 +2832,141 @@ body.mm-modal-open {
     height: 18px;
     margin-top: 1px;
     border-radius: 50%;
-    background: #f59e0b;
+    background: var(--mm-banner-accent, #f59e0b);
     color: #1f2937;
     font-weight: 700;
     font-size: 12px;
     text-align: center;
     line-height: 18px;
+}
+
+/* Notes to the user per release (release_notes.py), at the top of a tab: a
+   banner each, coloured by kind - a feature to know of, something to do
+   (the banner's own amber), a warning. */
+.mm-note-feature {
+    --mm-banner-accent: var(--primary-500, #3b82f6);
+    --mm-banner-tint: rgba(59, 130, 246, 0.08);
+}
+
+.mm-note-warning {
+    --mm-banner-accent: #ef4444;
+    --mm-banner-tint: rgba(239, 68, 68, 0.08);
+}
+
+/* The notes as a pile: the top one in full, the edges of up to two more
+   under it, narrower each - a click on them spreads the pile into rows. */
+.mm-note-pile {
+    margin: 0 0 12px;
+}
+
+.mm-note-pile > .mm-note {
+    position: relative;
+    z-index: 1;
+    margin: 0;
+}
+
+/* A button does not stretch to its container as a div does: with width
+   auto it shrank to nothing, a stub in the pile's bottom-left corner. So the
+   width is said, the note's less 10px each side - 20px for the second. */
+.mm-note-edge {
+    display: block;
+    box-sizing: border-box;
+    width: calc(100% - 20px);
+    height: 6px;
+    margin: 0 auto !important;
+    padding: 0;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    background: var(--block-background-fill, #1f2937) !important;
+    cursor: pointer;
+}
+
+.mm-note-edge-2 {
+    width: calc(100% - 40px);
+    opacity: 0.7;
+}
+
+.mm-note-edge:hover {
+    border-color: var(--mm-banner-accent, #f59e0b);
+}
+
+/* ‹ 2 of 5 › beside a pile's top note. */
+.mm-note-steps {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+    font-size: 12px;
+    color: var(--body-text-color-subdued, #9ca3af);
+    white-space: nowrap;
+}
+
+.mm-note-step {
+    margin: 0 !important;
+    padding: 0 6px;
+    border: none;
+    background: transparent !important;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.mm-note-step:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Under the notes spread into rows: back into a pile. */
+.mm-note-gather {
+    display: block;
+    margin: -6px 0 12px auto !important;
+    padding: 0;
+    border: none;
+    background: transparent !important;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* The Generations tab's toolbar sits right under its notes, and the grid
+   under its banner. */
+#gen_notes,
+#gen_banner {
+    margin-bottom: 15px;
+}
+
+.mm-note-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.mm-note-version {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-note-buttons {
+    flex: none;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+/* The settings window's "What's new": the notes, by version. */
+.mm-settings-notes-version {
+    margin-top: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-settings-note + .mm-settings-note,
+.mm-settings-notes-version + .mm-settings-note {
+    margin-top: 4px;
 }
 
 /* A banner's second line: what decides the filter it describes. Empty, it
@@ -3321,7 +3450,7 @@ textarea.mm-settings-input {
     padding: 10px;
     --gen-column-width: var(--mm-card-image-width);
     --gen-image-height: 300px;
-    --gen-gap: 0px;
+    --gen-gap: 4px;
     --gen-tile-padding: 4px;
     --gen-tile-border: 2px;
 }

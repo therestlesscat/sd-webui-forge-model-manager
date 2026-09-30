@@ -21,6 +21,9 @@ def create_generations_ui():
                     <!-- actions -->
                 </div>
 
+                <!-- Notes to the user per release: filled by shared/common.mjs -->
+                <div id="gen_notes" class="mm-notes"></div>
+
                 <div class="gen-toolbar">
                     <label class="gen-view-switch" title="Gather images that share something, whatever generation they are of">
                         Group by

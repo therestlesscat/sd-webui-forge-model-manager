@@ -40,9 +40,10 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
 | `storage.py` | reading and writing `.civitai.info` |
+| `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
-| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py` |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
+| `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order |
 
 ## What the pieces assume about each other
@@ -239,6 +240,19 @@ Then, in the same commit:
    it gives the user.
 3. `README.md`, for a minor or major version only: its "What's new" keeps the
    latest few features, a short paragraph each.
+4. `model_manager/data/release_notes.json`, when a user needs to know or do
+   something: a note, shown at the top of the tab it concerns (see
+   `model_manager/release_notes.py`). A feature worth finding is
+   `"audience": "everyone"`; something to do after updating - Scan Disk once,
+   update the other copy before a migration - is `"update"`, which a fresh
+   install skips. A note that concerns some installs only names a condition
+   (`"when"`, one of `CONDITIONS` - `custom_database` for two WebUIs sharing
+   one database), so everyone else is not told it. What everyone should read
+   is `"important": true` - first in the pile, headed [Important]. A note
+   asking again for what an earlier one asked - Scan Disk once more - names
+   it in `"replaces"`, so it is asked once. A button, if one helps,
+   names an action the page knows (`NOTE_ACTIONS` in
+   `javascript/shared/common.mjs`). Most releases need none.
 
 After committing, tag it `vMAJOR.MINOR.PATCH`. Tags, like commits, are pushed
 only by the owner.

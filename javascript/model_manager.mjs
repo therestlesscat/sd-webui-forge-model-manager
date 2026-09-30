@@ -20,6 +20,7 @@ sharedModule.search = new URL(import.meta.url).search;
 const {
     onReady,
     showApiKeyBanner,
+    showNotes,
     apiCall,
     escapeHtml,
     safeId,
@@ -5728,6 +5729,13 @@ function openScanDialog() {
     dialog.style.display = 'flex';
 }
 
+/** Scan Disk's dialog, from elsewhere - a note: "Re-evaluate file headers" ticked if asked. */
+window.mmOpenScanDialog = ({ rereadHeaders = false } = {}) => {
+    openScanDialog();
+    const reread = document.getElementById('mm_scan_reread');
+    if (reread) reread.checked = rereadHeaders;
+};
+
 function closeScanDialog() {
     const dialog = document.getElementById('mm_scan_dialog');
     if (dialog) dialog.style.display = 'none';
@@ -6173,6 +6181,7 @@ function bindElements() {
     // Both tabs carry this; the shared helper waits for the answer
     // and the markup, in whichever order they turn up.
     showApiKeyBanner('mm_api_key_warning');
+    showNotes('model_manager', 'mm_notes');
 
     // Trained/Merge only applies to checkpoints, so it follows the Type
     // control rather than sitting there looking usable.

@@ -10,6 +10,7 @@ Everything the browser can ask for, grouped by what it is asking about:
   civitai.py      searching and downloading from Civitai
   webui.py        what Forge itself knows, such as samplers
   settings.py     the settings window: the settings, and saving them
+  notes.py        notes to the user per release, and dismissing them
   annotations.py  marking a Civitai result with what we know locally
   prompts.py      deciding whether a model has usable prompts
 
@@ -19,7 +20,7 @@ so adding an endpoint means editing one file rather than scrolling one.
 from fastapi import FastAPI
 from modules import script_callbacks
 
-from . import civitai, generations, images, jobs, models, settings, webui
+from . import civitai, generations, images, jobs, models, notes, settings, webui
 
 print("[ModelManager API] === api package loading ===")
 
@@ -33,6 +34,7 @@ def setup_api(app: FastAPI):
     civitai.register(app)
     webui.register(app)
     settings.register(app)
+    notes.register(app)
     print("[ModelManager] API endpoints registered")
 
 
