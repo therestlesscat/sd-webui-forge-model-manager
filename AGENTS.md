@@ -40,6 +40,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
 | `storage.py` | reading and writing `.civitai.info` |
+| `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
@@ -232,7 +233,11 @@ is the commit's place in the history and is never written down; the rest is.
 
 Then, in the same commit:
 
-1. `VERSION` in `model_manager/version.py`.
+1. `VERSION` in `model_manager/version.py`, and the same in `version.json` at
+   the root: installs read that file from GitHub to learn a newer version is
+   out (`model_manager/update_check.py`), so it has to say the version the
+   branch now holds. Its `note` is kept for later and shown nowhere yet.
+   `tests/py/version_test.py` fails when the two differ.
 2. `CHANGELOG.md`: a line under the latest minor version's heading, newest
    first - `- **0.20.3** (build 203) - What changed.` - where the build is
    the commit's count once committed (`git rev-list --count HEAD`, plus one).

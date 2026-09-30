@@ -1,10 +1,12 @@
 """
-The version, the changelog and the tags agree.
+The version, the changelog, version.json and the tags agree.
 
 VERSION in model_manager/version.py is written by hand, a line in
-CHANGELOG.md with it, and a tag after the commit - three places, so each
+CHANGELOG.md with it, the same in version.json - which installs read to learn
+a newer version is out - and a tag after the commit: four places, so each
 check here is one that a forgotten step fails. See "Versions" in AGENTS.md.
 """
+import json
 import os
 import re
 import subprocess
@@ -49,6 +51,12 @@ check('each version under the heading of its minor version',
           for v, _ in entries), True)
 check('a minor version\'s heading has its .0 entry',
       sorted(h + '.0' for h in headings) == sorted(v for v, _ in entries if v.endswith('.0')), True)
+
+# ----------------------------------------------------------------- version.json
+published = json.load(open(os.path.join(ROOT, 'version.json'), encoding='utf-8'))
+check('version.json holds this version - what every install is told is out',
+      published.get('version'), version.VERSION)
+check('and a note, a string, for later', isinstance(published.get('note'), str), True)
 
 # ------------------------------------------------------------------- git, if any
 def git(*args):

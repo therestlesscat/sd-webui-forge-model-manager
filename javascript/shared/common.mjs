@@ -301,6 +301,60 @@ if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGe
     if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(applyGenerationsEnabled);
 }
 
+// ------------------------------------------------------ a newer version
+// Beside the version in every tab's header, "v0.42.0 available", when the
+// server's check (update_check.py) found one - linking where the version
+// does, to the changelog. Asked once a page and hourly after, since the
+// server checks only every 12 hours; again when the setting changes. Gradio
+// redraws the headers, so it is put back after each update.
+
+const UPDATE_SETTING = 'model_manager_check_updates';
+const UPDATE_HELP = 'To update: Extensions -> Check for updates, then Apply and restart UI.';
+
+function showUpdate() {
+    const found = window.mmUpdate;
+    document.querySelectorAll('.mm-header-actions').forEach((actions) => {
+        const version = actions.querySelector('.mm-version');
+        let notice = actions.querySelector('.mm-update');
+        if (!found?.newer || !version) {
+            notice?.remove();
+            return;
+        }
+        if (!notice) {
+            notice = document.createElement('a');
+            notice.className = 'mm-update';
+            notice.target = '_blank';
+            notice.rel = 'noopener';
+            version.after(notice);
+        }
+        notice.href = version.getAttribute('href') || '';
+        notice.textContent = `v${found.latest} available`;
+        notice.title = `Model Manager ${found.latest} is out; this is ${found.current}. ${UPDATE_HELP} `
+            + 'Click for the changelog.';
+    });
+}
+
+function askForUpdate() {
+    return fetch('/model-manager/update')
+        .then((response) => response.json())
+        .then((data) => { window.mmUpdate = data && data.success ? data : null; })
+        .catch(() => { window.mmUpdate = null; })
+        .then(showUpdate);
+}
+
+if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmUpdateWatched) {
+    window.mmUpdateWatched = true;
+    askForUpdate();
+    setInterval(askForUpdate, 60 * 60 * 1000);
+    // Turned on, the server checks at once: ask again once it has had a moment.
+    const changed = (keys) => {
+        if (keys.includes(UPDATE_SETTING)) [0, 5000].forEach((wait) => setTimeout(askForUpdate, wait));
+    };
+    window.addEventListener?.('mm-settings-saved', (event) => changed(event.detail?.changed || []));
+    window.addEventListener?.('mm-settings-page-applied', (event) => changed(event.detail?.changed || []));
+    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(showUpdate);
+}
+
 // ------------------------------------------------------ notes to the user
 // Per release, what is new and what to do after updating
 // (model_manager/release_notes.py): at the top of each tab, a pile - one
