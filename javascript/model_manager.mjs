@@ -26,6 +26,10 @@ const {
     saveSearch,
     showGalleryLoading,
     dimGalleryWhileLoading,
+    selectBarHtml,
+    bulkDeleteQuestion,
+    deleteManyGenerations,
+    bulkDeleteReport,
     apiCall,
     escapeHtml,
     safeId,
@@ -2025,6 +2029,12 @@ function imagesHeaderHtml(countText = '') {
         ? `<label class="mm-rate-switch" title="Rate each image's NSFW level: a row of levels on every card">
                <input type="checkbox" id="mm_rate_generations" ${rateGenerations ? 'checked' : ''}
                       onchange="window.mmSetRatingGenerations(this.checked)"> Rate</label>
+           <label class="mm-rate-switch" title="Tick generations, then delete them all at once. A tick is the whole generation">
+               <input type="checkbox" id="mm_select_generations" ${selectingGenerations ? 'checked' : ''}
+                      onchange="window.mmSetSelectingGenerations(this.checked)"> Select</label>
+           ${selectingGenerations ? `<span class="mm-select-bar">${selectBarHtml(pickedSummary().images, {
+               all: 'window.mmSelectAllGenerations()', clear: 'window.mmClearGenerationPicks()',
+               delete: 'window.mmDeletePickedGenerations()' })}</span>` : ''}
            <button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
                    title="Show images generated since this was drawn">Refresh</button>`
         : '';
@@ -2046,6 +2056,7 @@ function imagesHeaderHtml(countText = '') {
 
 /** Forget the open model's generations: another model, or version, is opening. */
 function resetGenerations() {
+    clearPickedGenerations();
     galleryTab = 'civitai';
     generationsCount = 0;
     generationCards = [];
@@ -2086,7 +2097,112 @@ let rateGenerations = false;
 
 window.mmSetRatingGenerations = function(checked) {
     rateGenerations = !!checked;
+    if (rateGenerations) selectingGenerations = false;
+    clearPickedGenerations();
     renderGenerations();
+};
+
+// "Select" on your generations, as in the Generations tab: a tick on each
+// card - its generation whole, as its Delete - and one Delete for all. The
+// ticks by generation id, the last for shift-click. Not remembered.
+let selectingGenerations = false;
+const pickedGenerations = new Set();
+let lastPickedCard = -1;
+
+function clearPickedGenerations() {
+    pickedGenerations.clear();
+    lastPickedCard = -1;
+}
+
+function pickedSummary() {
+    const out = { images: 0, hidden: 0, ids: [] };
+    for (const card of generationCards) {
+        if (!pickedGenerations.has(card.id)) continue;
+        const all = card.image_count || card.matching_count || 1;
+        out.images += all;
+        out.hidden += Math.max(0, all - (card.matching_count || all));
+        out.ids.push(card.id);
+    }
+    return out;
+}
+
+function updateGenerationSelectBar() {
+    const bar = document.querySelector('#mm_images .mm-select-bar');
+    if (!bar) return;
+    bar.innerHTML = selectBarHtml(pickedSummary().images, { all: 'window.mmSelectAllGenerations()',
+        clear: 'window.mmClearGenerationPicks()', delete: 'window.mmDeletePickedGenerations()' });
+}
+
+function showGenerationTicks() {
+    document.querySelectorAll('#mm_images [data-mm-pick]').forEach((box) => {
+        box.checked = pickedGenerations.has(Number(box.dataset.mmPick));
+    });
+    updateGenerationSelectBar();
+}
+
+window.mmSetSelectingGenerations = function(checked) {
+    selectingGenerations = !!checked;
+    if (selectingGenerations) rateGenerations = false;
+    clearPickedGenerations();
+    renderGenerations();
+};
+
+document.addEventListener('click', (event) => {
+    const box = event.target.closest?.('#mm_images [data-mm-pick]');
+    if (!box) return;
+    const index = generationCards.findIndex((card) => card.id === Number(box.dataset.mmPick));
+    if (index < 0) return;
+    const range = event.shiftKey && lastPickedCard >= 0
+        ? [Math.min(lastPickedCard, index), Math.max(lastPickedCard, index)] : [index, index];
+    for (let i = range[0]; i <= range[1]; i++) {
+        if (box.checked) pickedGenerations.add(generationCards[i].id);
+        else pickedGenerations.delete(generationCards[i].id);
+    }
+    lastPickedCard = index;
+    showGenerationTicks();
+});
+
+// Selecting, a click on a card's images ticks the card rather than opening
+// the viewer - caught on the way down, before the image's own click.
+document.addEventListener('click', (event) => {
+    if (!selectingGenerations) return;
+    const card = event.target.closest?.('#mm_images .mm-generation-card');
+    if (!card || event.target.closest('[data-mm-pick]')) return;
+    if (!event.target.closest('.mm-image-left, [data-view-generation-image]')) return;
+    const box = card.querySelector('[data-mm-pick]');
+    if (!box) return;
+    event.stopPropagation();
+    event.preventDefault();
+    box.checked = !box.checked;
+    box.dispatchEvent(Object.assign(new Event('click', { bubbles: true }), { shiftKey: event.shiftKey }));
+}, true);
+
+window.mmSelectAllGenerations = function() {
+    generationCards.forEach((card) => pickedGenerations.add(card.id));
+    showGenerationTicks();
+};
+
+window.mmClearGenerationPicks = function() {
+    clearPickedGenerations();
+    showGenerationTicks();
+};
+
+window.mmDeletePickedGenerations = async function() {
+    const picked = pickedSummary();
+    if (!picked.images) return;
+    const answer = await askToDelete(bulkDeleteQuestion(picked.images, picked.ids.length, picked.hidden),
+                                     picked.images);
+    if (!answer) return;
+    const data = await deleteManyGenerations({ generationIds: picked.ids, withFiles: answer.withFiles });
+    if (!data.success) {
+        setStatus('Delete failed: ' + (data.error || 'no answer'), true);
+        return;
+    }
+    picked.ids.forEach((id) => removeGenerationCard(id));
+    clearPickedGenerations();
+    await refreshGenerationTotals();
+    renderGenerations();
+    setStatus(bulkDeleteReport(data, answer.withFiles), (data.failed || []).length > 0);
 };
 
 /**
@@ -2540,7 +2656,8 @@ document.addEventListener('click', (event) => {
         return;
     }
     const own = event.target.closest?.('#mm_images [data-view-generation-image]');
-    if (own) {
+    // Selecting, a click ticks the card instead (the listener beside Select).
+    if (own && !selectingGenerations) {
         event.preventDefault();
         viewGenerationImage(Number(own.getAttribute('data-view-generation-image')));
     }
@@ -2564,6 +2681,8 @@ function renderGenerationCard(card, index) {
     return `
         <div class="mm-image-card mm-generation-card" data-generation="${card.id}">
             <div class="mm-image-left">
+                ${selectingGenerations ? `<label class="mm-select-tick" title="Select">
+                    <input type="checkbox" data-mm-pick="${Number(card.id)}" ${pickedGenerations.has(card.id) ? 'checked' : ''}></label>` : ''}
                 <div class="mm-generation-preview mm-generation-preview-${Math.min(preview.length, 4)}">
                     ${preview.map(generationImageHtml).join('')}
                 </div>

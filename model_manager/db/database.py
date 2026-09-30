@@ -423,6 +423,10 @@ class ModelsDatabase:
         db/generations_ops.py."""
         return self._generations.delete_image(image_id)
 
+    def count_generation_images(self, generation_id: int) -> int:
+        """How many image records a generation has, hidden ones too; see db/generations_ops.py."""
+        return self._generations.count_images(generation_id)
+
     def delete_generation(self, generation_id: int) -> List[str]:
         """Remove a generation's rows; returns its images' paths no other record names.
         Files are not touched."""

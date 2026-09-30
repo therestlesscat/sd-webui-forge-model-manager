@@ -24,6 +24,9 @@ def create_generations_ui():
                 <!-- Notes to the user per release: filled by shared/common.mjs -->
                 <div id="gen_notes" class="mm-notes"></div>
 
+                <!-- Held at the top while the grid scrolls, as the other
+                     tabs' banners are: the switches, Back, the banner. -->
+                <div class="gen-sticky-head">
                 <div class="gen-toolbar">
                     <label class="gen-view-switch" title="Gather images that share something, whatever generation they are of">
                         Group by
@@ -45,6 +48,11 @@ def create_generations_ui():
                         <input type="checkbox" id="gen_rate" onchange="window.genSetRating(this.checked)">
                         Rate
                     </label>
+                    <label class="gen-view-switch" title="Tick batches and images, then delete them all at once. A batch's tick is the whole generation">
+                        <input type="checkbox" id="gen_select" onchange="window.genSetSelecting(this.checked)">
+                        Select
+                    </label>
+                    <span id="gen_select_bar" class="mm-select-bar" hidden></span>
                     <span class="gen-toolbar-fill"></span>
                     <button type="button" class="mm-btn secondary" id="gen_refresh_btn"
                             onclick="window.genRefresh()">Refresh</button>
@@ -54,6 +62,7 @@ def create_generations_ui():
                 <div id="gen_path"></div>
                 <!-- The banner: what is stored, and the NSFW switch -->
                 <div id="gen_banner"></div>
+                </div>
                 <div id="gen_grid" class="gen-grid"></div>
                 <div id="gen_status" class="gen-status"></div>
                 <!-- Scrolled near, it loads the next part -->

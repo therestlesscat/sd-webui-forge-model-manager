@@ -163,6 +163,59 @@ export function dimGalleryWhileLoading(containerId, on) {
     container.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.disabled = on; });
 }
 
+// ------------------------------------------------------ selecting to delete
+// "Select", beside "Rate", where your generations are shown (the Generations
+// tab, a model's Your generations): a tick on each batch and image, and one
+// Delete for all of them - asked once. A batch's tick is the whole
+// generation, as its own Delete: every image, those the NSFW filter hides
+// too, which the question counts.
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * The bar Select shows: how many images, Select all loaded, Clear, Delete.
+ * `calls` names the window functions each button runs.
+ */
+export function selectBarHtml(images, calls) {
+    return `<span class="mm-select-count">${plural(images, 'image')} selected</span>
+        <button type="button" class="mm-btn secondary mm-btn-small" onclick="${calls.all}">Select all loaded</button>
+        <button type="button" class="mm-btn secondary mm-btn-small" onclick="${calls.clear}"
+                ${images ? '' : 'disabled'}>Clear</button>
+        <button type="button" class="mm-btn danger mm-btn-small" onclick="${calls.delete}"
+                ${images ? '' : 'disabled'}>Delete...</button>`;
+}
+
+/** What the one Delete asks: "Delete 37 images of 12 generations? (3 of them hidden by the NSFW filter)". */
+export function bulkDeleteQuestion(images, generations, hidden = 0) {
+    return `Delete ${plural(images, 'image')} of ${plural(generations, 'generation')}?`
+        + (hidden ? ` (${hidden} of them hidden by the NSFW filter)` : '');
+}
+
+/**
+ * Delete these generations whole and these images, in one request; the
+ * server's answer ({success, images, deleted_files, failed}), or
+ * {success: false, error}.
+ */
+export async function deleteManyGenerations({ generationIds = [], imageIds = [], withFiles = false }) {
+    try {
+        const response = await fetch('/model-manager/generations/delete-many', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ generation_ids: generationIds.join(','), image_ids: imageIds.join(','),
+                                        delete_files: String(Boolean(withFiles)) }) });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+/** What a finished Delete says. */
+export function bulkDeleteReport(data, withFiles) {
+    const failed = (data.failed || []).length;
+    return `Deleted ${plural(data.images || 0, 'image')}`
+        + (withFiles ? ` and ${plural(data.deleted_files || 0, 'file')}` : '; the image files are still on disk')
+        + (failed ? `; ${failed} file${failed === 1 ? '' : 's'} could not be deleted` : '');
+}
+
 // ------------------------------------------------------ saved searches
 // A tab's Save Search: one set of filters, kept in the database (the same in
 // every browser, and in both WebUIs when they share it).

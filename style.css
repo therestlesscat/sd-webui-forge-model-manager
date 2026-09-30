@@ -1589,18 +1589,30 @@ body.mm-modal-open {
    the gallery scrolls under it, so its counts and switches are always in
    reach. The banner's tint, laid over the page's own background: the tint
    alone lets the cards show through. */
-.filter-banner-sticky {
+/* The Generations tab's head - Group by and the switches, Back, the banner -
+   the same way, as one: the banner alone cannot stick there, its own box
+   being no taller than it. */
+.filter-banner-sticky,
+.gen-sticky-head {
     position: sticky;
     /* A little air above it once stuck, rather than pressed to the edge. */
     top: 2px;
     z-index: 5;
+}
+
+.filter-banner-sticky {
     background: linear-gradient(var(--banner-tint), var(--banner-tint)),
                 var(--background-fill-primary, #0b0f19);
 }
 
+.gen-sticky-head {
+    background: var(--background-fill-primary, #0b0f19);
+}
+
 /* That air, blurred: the cards passing through it are softened rather than
    seen sharp above the banner. Only as wide as the banner, and only above it. */
-.filter-banner-sticky::before {
+.filter-banner-sticky::before,
+.gen-sticky-head::before {
     content: '';
     position: absolute;
     left: 0;
@@ -3503,6 +3515,7 @@ textarea.mm-settings-input {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 12px;
+    padding-top: 8px;
 }
 
 .gen-toolbar-fill {
@@ -3651,6 +3664,44 @@ textarea.mm-settings-input {
     align-items: center;
     gap: 6px;
     cursor: pointer;
+}
+
+/* "Select" on your generations: a tick in the bottom-left corner of each
+   batch and image - the top-left is the NSFW badge's, the bottom-right the
+   date's - and the bar with the count and one Delete. Both tabs. */
+.mm-select-tick {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    z-index: 2;
+    display: flex;
+    padding: 3px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+}
+
+.mm-select-tick input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+}
+
+.mm-select-bar {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.mm-select-bar[hidden] {
+    display: none;
+}
+
+.mm-select-count {
+    font-size: 0.9em;
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 .mm-viewer-actions .mm-rate {

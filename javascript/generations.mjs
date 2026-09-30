@@ -35,6 +35,10 @@ const {
     galleryDefaults,
     ratingRowHtml,
     showNotes,
+    selectBarHtml,
+    bulkDeleteQuestion,
+    deleteManyGenerations,
+    bulkDeleteReport,
     IMAGE_PLACEHOLDER_SVG,
 } = await import(sharedModule.href);
 
@@ -63,6 +67,13 @@ const GROUP_NAMES = {
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
 let rating = false;      // "Rate": a row of levels under every image - not remembered
+// "Select": a tick on every batch and image, and one Delete for all. The
+// ticks, by what they pick (tileKey) - places move as tiles go - and the
+// last one ticked, for shift-click. Not remembered, and cleared on any
+// change of level.
+let selecting = false;
+const selected = new Set();
+let lastPicked = -1;
 let groupBy = readSetting(GROUP_BY_KEY, '');
 let hideNsfw = true;
 // The level shown: its tiles, as loaded, and where it is. The levels above it
@@ -103,6 +114,7 @@ const byId = (id) => document.getElementById(id);
 /** This level again from its first part: a switch, Refresh, or opening. */
 async function reload() {
     closeViewer();
+    clearSelection();
     tiles = [];
     part = 0;
     more = true;
@@ -188,6 +200,9 @@ function watchEnd() {
  * Back.
  */
 window.genOpen = async function(index) {
+    // Selecting, a batch's click ticks it (the listener beside Select); a group still opens.
+    if (selecting && tileKey(tiles[index])) return;
+    clearSelection();
     const tile = tiles[index];
     if (!tile) return;
     levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false });
@@ -209,6 +224,7 @@ window.genOpen = async function(index) {
  * inside - and then as far as it had been, so the place is the same.
  */
 window.genBack = async function() {
+    clearSelection();
     if (!levels.length) return;
     closeViewer();
     request += 1;
@@ -257,6 +273,7 @@ function formatWhen(when, style = 'short') {
  * level is - its whole prompt, if it is one, how many images, and when.
  */
 function renderPath() {
+    showSelectSwitch();
     const path = byId('gen_path');
     if (!path) return;
     if (!levels.length) {
@@ -315,6 +332,15 @@ function tileHtml(tile, index) {
         }
     } else {
         media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${imageHtml(image)}</div>`;
+    }
+
+    // Select's tick: a batch or an image, never a group - open it, and pick inside.
+    // Its click has to reach the page's listener, which counts it: nothing
+    // stops it here, and the tile's own click does nothing while selecting.
+    const key = tileKey(tile);
+    if (selecting && key) {
+        media += `<label class="mm-select-tick" title="Select">
+                      <input type="checkbox" data-gen-pick="${index}" ${selected.has(key) ? 'checked' : ''}></label>`;
     }
 
     // More, behind ⋯ - while there is anything to offer.
@@ -623,7 +649,166 @@ async function reloadKeepingPlace() {
 
 window.genSetRating = function(checked) {
     rating = !!checked;
+    if (rating && selecting) setSelecting(false);
     redrawAll();
+};
+
+// ------------------------------------------------------------- selecting
+/**
+ * What a tile's tick picks: a batch the whole generation, as its Delete - g:
+ * - and an image, or a batch of one shown, that image - i:. A group nothing.
+ */
+function tileKey(tile) {
+    if (!tile || tile.kind === 'group') return null;
+    if (tile.kind === 'image' || (tile.matching_count || 0) <= 1) {
+        return tile.images?.[0] ? `i:${tile.images[0].id}` : null;
+    }
+    return tile.generation?.id ? `g:${tile.generation.id}` : null;
+}
+
+/** What the ticks come to: images (hidden ones too), generations, and the ids to send. */
+function selection() {
+    const out = { images: 0, hidden: 0, generations: new Set(), generationIds: [], imageIds: [] };
+    for (const tile of tiles) {
+        const key = tileKey(tile);
+        if (!key || !selected.has(key)) continue;
+        const id = Number(key.slice(2));
+        if (key.startsWith('g:')) {
+            const all = tile.generation.image_count || tile.matching_count || 1;
+            out.images += all;
+            out.hidden += Math.max(0, all - (tile.matching_count || 0));
+            out.generationIds.push(id);
+        } else {
+            out.images += 1;
+            out.imageIds.push(id);
+        }
+        if (tile.generation?.id) out.generations.add(tile.generation.id);
+    }
+    return out;
+}
+
+function updateSelectBar() {
+    const bar = byId('gen_select_bar');
+    if (!bar) return;
+    bar.hidden = !selecting;
+    bar.innerHTML = selecting ? selectBarHtml(selection().images, { all: 'window.genSelectAll()',
+        clear: 'window.genSelectClear()', delete: 'window.genDeleteSelected()' }) : '';
+}
+
+/** The ticks drawn as the selection is: after a range or Select all. */
+function showTicks() {
+    document.querySelectorAll('#gen_grid [data-gen-pick]').forEach((box) => {
+        box.checked = selected.has(tileKey(tiles[Number(box.dataset.genPick)]));
+    });
+    updateSelectBar();
+}
+
+function clearSelection() {
+    selected.clear();
+    lastPicked = -1;
+    updateSelectBar();
+}
+
+/**
+ * Select only where there is something to tick: grouped, the top level is all
+ * groups, which have none - so its switch is hidden there, and turned off
+ * coming back to it; opening a group brings it back.
+ */
+function showSelectSwitch() {
+    const label = byId('gen_select')?.closest('label');
+    if (!label) return;
+    const onlyGroups = Boolean(groupBy) && !levels.length;
+    label.hidden = onlyGroups;
+    if (onlyGroups && selecting) setSelecting(false);
+}
+
+function setSelecting(on) {
+    selecting = on;
+    const box = byId('gen_select');
+    if (box) box.checked = on;
+    clearSelection();
+}
+
+window.genSetSelecting = function(checked) {
+    setSelecting(!!checked);
+    if (selecting && rating) {
+        rating = false;
+        const rate = byId('gen_rate');
+        if (rate) rate.checked = false;
+    }
+    redrawAll();
+};
+
+/**
+ * Tick tile `index`, or untick it - or with shift every tile from the last
+ * one ticked, as this one now is.
+ */
+function pickTile(index, on, shift) {
+    const range = shift && lastPicked >= 0 ? [Math.min(lastPicked, index), Math.max(lastPicked, index)]
+        : [index, index];
+    for (let i = range[0]; i <= range[1]; i++) {
+        const key = tileKey(tiles[i]);
+        if (!key) continue;
+        if (on) selected.add(key);
+        else selected.delete(key);
+    }
+    lastPicked = index;
+    showTicks();
+}
+
+document.addEventListener('click', (event) => {
+    const box = event.target.closest?.('[data-gen-pick]');
+    if (!box) return;
+    pickTile(Number(box.dataset.genPick), box.checked, event.shiftKey);
+});
+
+// Selecting, a click anywhere on a tile's image ticks it - it neither opens
+// the viewer nor, on a batch, the batch. Caught on the way down, before the
+// image's own click; a group, which has no tick, still opens, and ⋯ is ⋯.
+document.addEventListener('click', (event) => {
+    if (!selecting) return;
+    const media = event.target.closest?.('#gen_grid .gen-media');
+    if (!media || event.target.closest('[data-gen-pick], .gen-menu-btn, .gen-menu')) return;
+    const index = Number(media.closest('.gen-set')?.dataset.tile);
+    const key = tileKey(tiles[index]);
+    if (!key) return;
+    event.stopPropagation();
+    event.preventDefault();
+    pickTile(index, !selected.has(key), event.shiftKey);
+}, true);
+
+window.genSelectAll = function() {
+    for (const tile of tiles) {
+        const key = tileKey(tile);
+        if (key) selected.add(key);
+    }
+    showTicks();
+};
+
+window.genSelectClear = function() {
+    clearSelection();
+    showTicks();
+};
+
+/** The one Delete: asked once, with how many and the files option. */
+window.genDeleteSelected = async function() {
+    const picked = selection();
+    if (!picked.images) return;
+    const answer = await askToDelete(bulkDeleteQuestion(picked.images, picked.generations.size, picked.hidden),
+                                     picked.images);
+    if (!answer) return;
+    const data = await deleteManyGenerations({ generationIds: picked.generationIds, imageIds: picked.imageIds,
+                                               withFiles: answer.withFiles });
+    if (!data.success) {
+        setStatus(`Delete failed: ${data.error || 'no answer'}`);
+        return;
+    }
+    tiles = tiles.filter((tile) => !selected.has(tileKey(tile)));
+    clearSelection();
+    redrawAll();
+    markAboveChanged();
+    await refreshTotals();
+    setStatus(tiles.length ? bulkDeleteReport(data, answer.withFiles) : emptyText());
 };
 
 // ------------------------------------------------------------- the ⋯ menu
@@ -775,6 +960,7 @@ const viewerSource = {
 
 /** Open the viewer on image `image` of tile `index`. */
 window.genView = function(index, image = 0) {
+    if (selecting && tileKey(tiles[index])) return;          // a click ticks it instead
     const at = viewerImages().findIndex((place) => place.t === index && place.i === image);
     if (at >= 0) openViewer(viewerSource, at);
 };
@@ -1012,6 +1198,8 @@ onReady(async () => {
     // "Rate" starts off, whatever the browser kept ticked from before.
     const rate = byId('gen_rate');
     if (rate) rate.checked = false;
+    const select = byId('gen_select');
+    if (select) select.checked = false;
     const group = byId('gen_group_by');
     if (group) group.value = groupBy;
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
