@@ -578,6 +578,33 @@ if has_fastapi:
           None)
     db.delete_generation(single)
 
+    # Select's one Delete: generations whole and single images, in one
+    # request, by the single deletes' rules - records always, files only when
+    # asked, and only files no other record names.
+    three = generate(Processing(n_iter=1, batch_size=3), PROMPTS[:3], [[]], extra_saves=False)
+    two = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    other = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
+    three_paths = [i['path'] for i in db.get_generation(three)['images']]
+    two_first, two_second = db.get_generation(two)['images']
+    body = client.post('/model-manager/generations/delete-many', data={
+        'generation_ids': str(three), 'image_ids': str(two_first['id'])}).json()
+    check('a generation whole and an image alone, in one request: every record named, the rest kept',
+          (body['success'], body['images'], db.get_generation(three),
+           [i['id'] for i in db.get_generation(two)['images']], len(db.get_generation(other)['images'])),
+          (True, 4, None, [two_second['id']], 2))
+    check('and the files kept, unless asked', all(os.path.isfile(p) for p in three_paths + [two_first['path']]),
+          True)
+    other_first = db.get_generation(other)['images'][0]
+    body = client.post('/model-manager/generations/delete-many', data={
+        'generation_ids': f'{other},{two}', 'image_ids': str(other_first['id']),
+        'delete_files': 'true'}).json()
+    check('an image of a generation also named is counted once, and the files go when asked',
+          (body['images'], body['deleted_files'], db.get_generation(other), db.get_generation(two),
+           os.path.isfile(other_first['path']), os.path.isfile(two_second['path'])),
+          (3, 3, None, None, False, False))
+    body = client.post('/model-manager/generations/delete-many', data={'generation_ids': '999999'}).json()
+    check('ids nobody recorded delete nothing, and fail nothing', (body['success'], body['images']), (True, 0))
+
     # Sending one back: Forge set up as it was made with, from its record -
     # the checkpoint's preset, the name Forge lists it under, exactly the
     # modules it loaded. Neo ignores an infotext's checkpoint and modules by

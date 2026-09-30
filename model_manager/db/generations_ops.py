@@ -221,6 +221,12 @@ class GenerationsOps:
             row = cursor.fetchone()
             return row[0] if row else None
 
+    def count_images(self, generation_id: int) -> int:
+        """How many image records a generation has - hidden ones too."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM generation_images WHERE generation_id = ?", (generation_id,))
+            return cursor.fetchone()[0]
+
     def delete_generation(self, generation_id: int) -> List[str]:
         """
         Remove a generation's rows from all three tables.

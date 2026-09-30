@@ -483,4 +483,16 @@ check('an image rated R there, with NSFW hidden, leaves, and the viewer goes on 
       [rated.at(-1).image_id, tileIds()], ['1', ['3g']]);
 key('Escape');
 
+// The head - Group by and the switches, Back, the banner - is held at the top
+// while the grid scrolls, as the other tabs' banners are: one block, under
+// the rule they share. The banner alone could not stick: its own box is no
+// taller than it.
+const head = document.querySelector('.gen-sticky-head');
+const css = readFileSync(`${ROOT}/style.css`, 'utf8');
+check('the switches, Back and the banner are one block, the grid outside it',
+      [!!head?.querySelector('#gen_group_by'), !!head?.querySelector('#gen_path'), !!head?.querySelector('#gen_banner'),
+       head?.contains(document.getElementById('gen_grid'))], [true, true, true, false]);
+check('held at the top by the rule the other tabs\' banners use',
+      /\.filter-banner-sticky,\s*\.gen-sticky-head\s*\{[^}]*position:\s*sticky/.test(css), true);
+
 done();

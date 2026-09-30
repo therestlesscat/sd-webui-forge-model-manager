@@ -605,6 +605,48 @@ def register(app: FastAPI):
             print(f"[ModelManager] Rate images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.post("/model-manager/generations/delete-many")
+    def delete_many(generation_ids: str = Form(default=""), image_ids: str = Form(default=""),
+                    delete_files: bool = Form(default=False)):
+        """
+        Select's one Delete: these generations whole - every image, as a
+        batch's own Delete - and these images, with delete_files their files.
+        Each as the single deletes do it: a file only if no other record names
+        it. The images first, as one may be of a generation also chosen.
+
+        Returns:
+            images: how many image records went; deleted_files, failed (as
+            delete_generation); and missing: ids already gone.
+        """
+        def ids(text):
+            return list(dict.fromkeys(int(v) for v in (text or "").split(",") if v.strip().isdigit()))
+
+        try:
+            db = get_models_db()
+            paths, missing, images = [], [], 0
+            for image_id in ids(image_ids):
+                try:
+                    found, _ = db.delete_generation_image(image_id)
+                    paths += found
+                    images += 1
+                except Exception as e:
+                    missing.append({"image": image_id, "error": str(e)})
+            for generation_id in ids(generation_ids):
+                try:
+                    count = db.count_generation_images(generation_id)
+                    paths += db.delete_generation(generation_id)
+                    images += count
+                except Exception as e:
+                    missing.append({"generation": generation_id, "error": str(e)})
+            deleted, failed = _delete_files(list(dict.fromkeys(paths))) if delete_files else ([], [])
+            print(f"[ModelManager] Deleted {images} generated image record(s)"
+                  + (f" and {len(deleted)} file(s)" if delete_files else ""))
+            return JSONResponse({"success": True, "images": images, "deleted_files": len(deleted),
+                                 "failed": failed, "missing": missing})
+        except Exception as e:
+            print(f"[ModelManager] Delete generations error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.post("/model-manager/generations/{generation_id}/delete")
     def delete_generation(generation_id: int, delete_files: bool = Form(default=False)):
         """
