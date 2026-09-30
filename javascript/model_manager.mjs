@@ -72,6 +72,7 @@ const {
     formatDay,
     loadNsfwDetection,
     nsfwModelNote,
+    setText,
     refreshUiOptions,
     applyCardSize: sharedApplyCardSize,
     TIMING,
@@ -6287,7 +6288,7 @@ function syncSfwOnlyBanner() {
     const note = document.getElementById('mm_sfw_only_banner_model');
     if (!banner || !note) return;
     const text = nsfwModelNote();
-    note.textContent = text;
+    setText(note, text);
     banner.style.display = text && document.getElementById('mm_sfw_only')?.checked ? 'flex' : 'none';
 }
 

@@ -12,6 +12,13 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.42 - Grouping in two levels.** The Generations tab's Group by is a menu, and groups
+by two things at once: a model, then the prompts used with it; a day, then the models; any
+two of prompt, model, LoRA combination, size and day. A click on a grouping groups by it;
+its "then by" list, beside it on hover, adds the second. The grid is then in sections - a
+header row for each model, say, with its prompts' groups under it - and a group opens
+straight onto its batches.
+
 **0.41 - Notes to you, per release.** The tabs say what is new, and what to do after an
 update, in a note at the top of the tab it concerns: a feature worth knowing, something to
 do once - with a button that does it, such as opening Scan Disk with the right box ticked -

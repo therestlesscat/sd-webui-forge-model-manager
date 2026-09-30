@@ -488,6 +488,42 @@ if has_fastapi:
     check('an unknown grouping groups nothing', {t['kind'] for t in browse(group='nonsense')['tiles']},
           {'generation'})
 
+    # Grouped twice, "LoRA combination, then Prompt": the top level is the
+    # prompts' groups, in sections by LoRA set - each tile says its section -
+    # and a prompt's group opens straight onto its batches.
+    top = browse(group='loras>prompt', hide_nsfw_images='false')['tiles']
+    by_section = {}
+    for t in top:
+        by_section.setdefault(t['section']['value'], []).append(t)
+    check('grouped twice, the top level is the second grouping\'s groups, each in a section of the first',
+          [{t['kind'] for t in top}, {t['group']['by'] for t in top}, {t['section']['by'] for t in top},
+           set(by_section) >= {'a', 'b'}],
+          [{'group'}, {'prompt'}, {'loras'}, True])
+    check('a section\'s groups are one run of tiles, not scattered',
+          [t['section']['value'] for t in top],
+          [v for v in dict.fromkeys(t['section']['value'] for t in top) for _ in by_section[v]])
+    with_a = by_section['a']
+    check('a section counts its images and groups, and its groups add up to the LoRA set\'s',
+          [with_a[0]['section']['count'], with_a[0]['section']['groups'], sum(t['matching_count'] for t in with_a),
+           {t['group']['value'] for t in with_a} <= set(PROMPTS)],
+          [groups('loras')['a']['matching_count'], len(with_a), groups('loras')['a']['matching_count'], True])
+    fox_with_a = next(t for t in with_a if t['group']['value'] == PROMPTS[0])
+    batches = browse(group='loras>prompt', in_group=fox_with_a['section']['id'],
+                     in_subgroup=fox_with_a['group']['id'], hide_nsfw_images='false')
+    check('a group opens onto its batches, of the images in it and its section',
+          [{t['kind'] for t in batches['tiles']}, sum(t['matching_count'] for t in batches['tiles']),
+           batches['scope']['grouping'], [v['value'] for v in batches['scope']['values']]],
+          [{'generation'}, fox_with_a['matching_count'], 'LoRA combination › Prompt, as generated', ['a', PROMPTS[0]]])
+    one_batch = batches['tiles'][0]['generation']['id']
+    inner = browse(group='loras>prompt', in_group=fox_with_a['section']['id'], in_subgroup=fox_with_a['group']['id'],
+                   generation=one_batch, hide_nsfw_images='false')
+    check('a batch opened there shows its images in both groups',
+          [{t['kind'] for t in inner['tiles']}, len(inner['tiles'])],
+          [{'image'}, batches['tiles'][0]['matching_count']])
+    check('three groupings, or one unknown in a pair, group nothing',
+          [{t['kind'] for t in browse(group='loras>prompt>day')['tiles']},
+           {t['kind'] for t in browse(group='loras>nonsense')['tiles']}], [{'generation'}, {'generation'}])
+
     # Each tile says its checkpoint, for "Show model in Model Manager" - a
     # group only if every image of it had the same one - and each image its own.
     recorded = db.get_generation(generation_id)['checkpoint_path']

@@ -32,6 +32,7 @@ const {
     renderFilterBanner,
     nsfwBadgeLabel,
     nsfwModelNote,
+    setText,
     galleryDefaults,
     ratingRowHtml,
     showNotes,
@@ -65,6 +66,118 @@ const GROUP_NAMES = {
     loras: 'LoRA combination', size: 'Size', day: 'Day',
 };
 
+/**
+ * What a Group by value groups by, in order: one grouping, or two joined by
+ * ">" ("model>prompt_written"), a group of the first opening onto groups of
+ * the second. Anything else is no grouping - grouping_chain() on the server.
+ */
+function groupChain(value) {
+    const keys = String(value || '').split('>');
+    return keys.length <= 2 && keys.every((key) => GROUP_NAMES[key]) ? keys : [];
+}
+
+// ------------------------------------------------------------- Group by
+// A menu rather than a list: the groupings - a click groups by one - and
+// beside each, on hover, what to group its groups by then: any other. Built
+// here, from GROUP_NAMES, into the tab's empty list, each time it opens.
+
+function groupLabel(value) {
+    const chain = groupChain(value);
+    return chain.length ? chain.map((key) => GROUP_NAMES[key]).join(' › ') : 'Nothing';
+}
+
+function groupMenuHtml() {
+    const keys = Object.keys(GROUP_NAMES);
+    const chain = groupChain(groupBy);
+    const pick = (value, text) => `<button type="button" data-group-pick="${escapeHtml(value)}"
+        class="${value === groupBy ? 'gen-group-chosen' : ''}">${escapeHtml(text)}</button>`;
+    return pick('', 'Nothing') + keys.map((first) => `
+        <div class="gen-group-item" data-group-first="${first}">
+            <button type="button" data-group-pick="${first}" class="${chain[0] === first ? 'gen-group-chosen' : ''}"
+                    aria-haspopup="true">${escapeHtml(GROUP_NAMES[first])}<span>▸</span></button>
+            <div class="gen-group-sub gen-menu-panel" hidden>
+                <div class="gen-group-sub-title">then by</div>
+                ${keys.filter((key) => key !== first).map((key) => pick(`${first}>${key}`, GROUP_NAMES[key])).join('')}
+            </div>
+        </div>`).join('');
+}
+
+/**
+ * The button says the grouping, after Gradio redraws the tab too - and writes
+ * nothing when it already does: this runs after every update. The list is
+ * drawn when the menu opens, marking the choice then.
+ */
+function showGroupChoice() {
+    setText(byId('gen_group_by'), groupLabel(groupBy));
+}
+
+function groupList() {
+    return document.querySelector('#generations_app .gen-group-list');
+}
+
+/** The "then by" list of one grouping open, any other closed. */
+function openGroupItem(item) {
+    groupList()?.querySelectorAll('.gen-group-item').forEach((other) => {
+        const open = other === item;
+        other.classList.toggle('gen-group-open', open);
+        const sub = other.querySelector('.gen-group-sub');
+        if (sub) sub.hidden = !open;
+    });
+}
+
+function closeGroupMenu() {
+    const list = groupList();
+    if (!list || list.hidden) return false;
+    list.hidden = true;
+    byId('gen_group_by')?.setAttribute('aria-expanded', 'false');
+    return true;
+}
+
+document.addEventListener('click', (event) => {
+    const target = event.target;
+    const list = groupList();
+    if (!list) return;
+    if (target.closest?.('#gen_group_by')) {
+        if (!closeGroupMenu()) {
+            list.innerHTML = groupMenuHtml();
+            list.hidden = false;
+            byId('gen_group_by')?.setAttribute('aria-expanded', 'true');
+            // The chosen grouping's "then by" list open, to change the second.
+            openGroupItem(list.querySelector('.gen-group-item > .gen-group-chosen')?.parentElement || null);
+        }
+        return;
+    }
+    if (list.hidden) return;
+    const pick = target.closest?.('[data-group-pick]');
+    if (pick && list.contains(pick)) {
+        closeGroupMenu();
+        window.genSetGroupBy(pick.dataset.groupPick);
+        return;
+    }
+    const item = target.closest?.('.gen-group-item');
+    if (item && list.contains(item)) {
+        openGroupItem(item);
+        return;
+    }
+    if (!target.closest?.('.gen-group-menu')) closeGroupMenu();
+});
+
+document.addEventListener('mouseover', (event) => {
+    const item = event.target.closest?.('.gen-group-item');
+    if (item && groupList()?.contains(item) && !item.classList.contains('gen-group-open')) openGroupItem(item);
+});
+
+// What a section's groups are, counted in its header: "5 prompts".
+const GROUP_PLURALS = {
+    prompt_written: ['prompt', 'prompts'], prompt: ['prompt', 'prompts'], model: ['model', 'models'],
+    loras: ['LoRA combination', 'LoRA combinations'], size: ['size', 'sizes'], day: ['day', 'days'],
+};
+
+/** What a group whose value is empty is called: no LoRAs, or none. */
+function emptyGroupValue(by) {
+    return by === 'loras' ? 'No LoRAs' : 'None';
+}
+
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
 let rating = false;      // "Rate": a row of levels under every image - not remembered
 // "Select": a tick on every batch and image, and one Delete for all. The
@@ -74,7 +187,7 @@ let rating = false;      // "Rate": a row of levels under every image - not reme
 let selecting = false;
 const selected = new Set();
 let lastPicked = -1;
-let groupBy = readSetting(GROUP_BY_KEY, '');
+let groupBy = groupChain(readSetting(GROUP_BY_KEY, '')).length ? readSetting(GROUP_BY_KEY, '') : '';
 let hideNsfw = true;
 // The level shown: its tiles, as loaded, and where it is. The levels above it
 // are kept whole in `levels`, so Back draws them again as they were left.
@@ -83,7 +196,7 @@ let state = null;        // the totals, for the banner
 let scope = null;        // what the level is, for its header
 let part = 0;            // the last part loaded
 let more = true;
-let at = {};             // what the level is inside: {in_group, generation}
+let at = {};             // what the level is inside: {in_group, in_subgroup, generation}
 let title = '';          // what the path calls it
 const levels = [];       // the levels above, each as it was left
 let loading = false;
@@ -135,7 +248,7 @@ async function loadNext() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
-            in_group: at.in_group, generation: at.generation,
+            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -207,10 +320,18 @@ window.genOpen = async function(index) {
     if (!tile) return;
     levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false });
     if (tile.kind === 'group') {
-        at = { in_group: tile.group.id };
-        title = groupTitle(tile.group.value);
+        // Grouped twice, a group of the first grouping opens onto groups of
+        // the second, and one of those onto its batches.
+        // In a section, straight to the group's batches: it is inside the section.
+        if (tile.section) {
+            at = { in_group: tile.section.id, in_subgroup: tile.group.id };
+            title = `${groupTitle(tile.section.value, tile.section.by)} › ${groupTitle(tile.group.value, tile.group.by)}`;
+        } else {
+            at = at.in_group ? { in_group: at.in_group, in_subgroup: tile.group.id } : { in_group: tile.group.id };
+            title = groupTitle(tile.group.value, tile.group.by);
+        }
     } else {
-        at = { in_group: at.in_group, generation: tile.generation.id };
+        at = { in_group: at.in_group, in_subgroup: at.in_subgroup, generation: tile.generation.id };
         title = `${formatWhen(tile.generation.created_at)} · ${tile.matching_count} images`;
     }
     scope = null;
@@ -258,10 +379,9 @@ function topOfTab() {
     return typeof top === 'number' ? Math.max(0, top + currentScroll()) : 0;
 }
 
-function groupTitle(value) {
-    const name = GROUP_NAMES[groupBy] || 'Group';
-    const shown = value || (groupBy === 'loras' ? 'No LoRAs' : 'None');
-    return `${name}: ${shown}`;
+/** "Model: xyz" - `by`, what the group's images share; the first grouping if not said. */
+function groupTitle(value, by = groupChain(groupBy)[0]) {
+    return `${GROUP_NAMES[by] || 'Group'}: ${value || emptyGroupValue(by)}`;
 }
 
 function formatWhen(when, style = 'short') {
@@ -327,8 +447,9 @@ function tileHtml(tile, index) {
             </div>
             <span class="gen-count">×${tile.matching_count}</span>`;
         if (tile.kind === 'group') {
-            media += `<span class="gen-group-name" title="${escapeHtml(groupTitle(tile.group.value))}">`
-                + `${escapeHtml(tile.group.value || (groupBy === 'loras' ? 'No LoRAs' : 'None'))}</span>`;
+            const by = tile.group.by || groupChain(groupBy)[0];
+            media += `<span class="gen-group-name" title="${escapeHtml(groupTitle(tile.group.value, by))}">`
+                + `${escapeHtml(tile.group.value || emptyGroupValue(by))}</span>`;
         }
     } else {
         media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${imageHtml(image)}</div>`;
@@ -458,14 +579,32 @@ function imageHtml(img) {
     return `<div class="mm-generation-tile">${image}${badge}</div>`;
 }
 
-/** A tile's place in the grid: a wrapper the grid does not see, so it can be redrawn alone. */
+/**
+ * A tile's place in the grid: a wrapper the grid does not see, so it can be
+ * redrawn alone. Grouped twice, the first tile of a section carries the
+ * section's header, a row across the grid.
+ */
 function setHtml(index) {
-    return `<div class="gen-set" data-tile="${index}">${tileHtml(tiles[index], index)}</div>`;
+    const tile = tiles[index];
+    const section = tile.section;
+    const head = section && (index === 0 || tiles[index - 1].section?.id !== section.id)
+        ? sectionHeadHtml(section, tile.group?.by) : '';
+    return `<div class="gen-set" data-tile="${index}">${head}${tileHtml(tile, index)}</div>`;
+}
+
+function sectionHeadHtml(section, by) {
+    const [one, many] = GROUP_PLURALS[by] || ['group', 'groups'];
+    const facts = [`${section.groups} ${section.groups === 1 ? one : many}`,
+                   `${section.count} image${section.count === 1 ? '' : 's'}`];
+    return `<div class="gen-section-head"><span class="gen-section-name">${escapeHtml(groupTitle(section.value, section.by))}</span>`
+        + `<span class="gen-section-facts">${escapeHtml(facts.join(' · '))}</span></div>`;
 }
 
 function appendTiles(from) {
     const grid = byId('gen_grid');
     if (!grid) return;
+    // In sections, no tile is packed into a hole above its section's header.
+    grid.classList.toggle('gen-sectioned', tiles.some((t) => t.section));
     grid.insertAdjacentHTML('beforeend', tiles.slice(from).map((_, i) => setHtml(from + i)).join(''));
     setupLazyMedia(grid);
     layout();
@@ -560,7 +699,8 @@ window.genRate = async function(index, value) {
         return;
     }
     const level = tile.user_level === value ? '' : value;
-    const scope = { group: groupBy, in_group: at.in_group, generation: tile.generation.id };
+    const scope = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup,
+                    generation: tile.generation.id };
     if (await postRating({ ...scope, level })) {
         markAboveChanged();
         await reloadKeepingPlace();
@@ -711,13 +851,20 @@ function clearSelection() {
 
 /**
  * Select only where there is something to tick: grouped, the top level is all
- * groups, which have none - so its switch is hidden there, and turned off
- * coming back to it; opening a group brings it back.
+ * groups, which have none - and grouped twice, so is the level a group opens
+ * onto. So its switch is hidden there, and turned off coming back to it;
+ * opening a group down to its batches brings it back.
  */
+function levelIsGroups() {
+    const chain = groupChain(groupBy);
+    if (!chain.length || at.generation) return false;
+    return !at.in_group || (chain.length === 2 && !at.in_subgroup);
+}
+
 function showSelectSwitch() {
     const label = byId('gen_select')?.closest('label');
     if (!label) return;
-    const onlyGroups = Boolean(groupBy) && !levels.length;
+    const onlyGroups = levelIsGroups();
     label.hidden = onlyGroups;
     if (onlyGroups && selecting) setSelecting(false);
 }
@@ -971,7 +1118,7 @@ window.genView = function(index, image = 0) {
  */
 function onKey(event) {
     if (dialogShowing() && !document.querySelector('.gen-menu')) return;     // a question is open
-    if (event.key === 'Escape' && closeMenu()) {
+    if (event.key === 'Escape' && (closeGroupMenu() || closeMenu())) {
         event.preventDefault?.();
         event.stopImmediatePropagation?.();
         return;
@@ -1121,7 +1268,8 @@ function removeTile(index) {
 async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
-            page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group, generation: at.generation,
+            page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group,
+            in_subgroup: at.in_subgroup, generation: at.generation,
         } });
         if (data.success) {
             state = data.state;
@@ -1145,8 +1293,9 @@ window.genSetPreserveOrder = function(checked) {
 
 /** Group by something else, or nothing: the tab starts again from its top level. */
 window.genSetGroupBy = function(value) {
-    groupBy = GROUP_NAMES[value] ? value : '';
+    groupBy = groupChain(value).length ? value : '';
     writeFlag(GROUP_BY_KEY, groupBy);
+    showGroupChoice();
     levels.length = 0;
     at = {};
     title = '';
@@ -1200,8 +1349,7 @@ onReady(async () => {
     if (rate) rate.checked = false;
     const select = byId('gen_select');
     if (select) select.checked = false;
-    const group = byId('gen_group_by');
-    if (group) group.value = groupBy;
+    showGroupChoice();
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
     try {
         hideNsfw = (await galleryDefaults()).hideNsfw;
@@ -1210,6 +1358,9 @@ onReady(async () => {
     document.addEventListener('keydown', onKey);
     // Hidden, nothing could be measured: measure again once it is shown.
     window.addEventListener('resize', layout);
-    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(layout);
+    if (typeof onAfterUiUpdate === 'function') {
+        onAfterUiUpdate(layout);
+        onAfterUiUpdate(showGroupChoice);
+    }
     await reload();
 });

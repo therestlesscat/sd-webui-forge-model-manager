@@ -325,29 +325,43 @@ GROUPINGS = {
 }
 
 
+def grouping_chain(group: str) -> List[str]:
+    """
+    What `group` groups by, in order: one grouping ("model"), or two
+    ("model>prompt_written") - a group of the first opens onto groups of the
+    second. Anything else, or more than two, is no grouping at all.
+    """
+    keys = [k for k in str(group or "").split(">")]
+    return keys if 1 <= len(keys) <= 2 and all(k in GROUPINGS for k in keys) else []
+
+
 def group_id(value: str) -> str:
     """A group's id in a request: its value can be a prompt of any length."""
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
 
 
 def _scoped(db, hide_nsfw: bool, group: str = "", in_group: str = "",
-            generation: Optional[int] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+            generation: Optional[int] = None,
+            in_subgroup: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    The images a level of the Generations tab holds - inside a group, a
-    generation, or both - that the NSFW switch lets through, and the counts
-    over them all.
+    The images a level of the Generations tab holds - inside a group, one of
+    its groups when grouped twice, a generation, or these together - that the
+    NSFW switch lets through, and the counts over them all.
     """
-    grouping = GROUPINGS.get(group)
+    chain = grouping_chain(group)
     rows = db.generation_gallery_images(None)
-    if grouping and in_group:
-        rows = [r for r in rows if group_id(grouping[1](r)) == in_group]
+    for key, opened in zip(chain, (in_group, in_subgroup)):
+        if opened:
+            value_of = GROUPINGS[key][1]
+            rows = [r for r in rows if group_id(value_of(r)) == opened]
     if generation is not None:
         rows = [r for r in rows if r["generation_id"] == generation]
     return _filtered(rows, hide_nsfw, False)
 
 
 def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
-                in_group: str = "", generation: Optional[int] = None) -> Dict[str, Any]:
+                in_group: str = "", generation: Optional[int] = None,
+                in_subgroup: str = "") -> Dict[str, Any]:
     """
     Part `page` of a level of the Generations tab, newest first. The top level
     is a tile per generation - its first images and how many it has - or, with
@@ -355,6 +369,11 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     are of. A level inside one, `in_group` (a group_id) or `generation`, is
     what that holds: a group's generations, and a generation's images, each a
     tile - so a group opens onto its batches, and a batch onto its images.
+    Grouped twice ("model>prompt_written", grouping_chain()), the top level
+    is the second grouping's groups in sections of the first - each tile
+    carries its `section`, the page heads each with a row - so a prompt under
+    its model is one click from its batches: `in_group` the section,
+    `in_subgroup` the group. `in_group` alone is a section's groups.
 
     The tab scrolls rather than pages, so there is no page note to count what
     the NSFW switch hid on each: images are filtered first and the parts cut
@@ -370,18 +389,41 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     """
     size = gallery_page_size()
     page = max(1, int(page or 1))
-    grouping = GROUPINGS.get(group)
-    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation)
+    chain = grouping_chain(group)
+    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation, in_subgroup)
+
+    # The grouping this level's groups are by, if it is a level of groups:
+    # the first at the top - or, grouped twice, the second, in sections of the
+    # first - and the second inside a group of the first.
+    by = None
+    sectioned = generation is None and len(chain) == 2 and not in_group
+    if generation is None:
+        if sectioned:
+            by = chain[1]
+        elif chain and not in_group:
+            by = chain[0]
+        elif len(chain) == 2 and in_group and not in_subgroup:
+            by = chain[1]
 
     units: Dict[Any, List[Dict[str, Any]]] = {}
+    sections: Dict[str, List[Dict[str, Any]]] = {}
     if generation is not None:
         kind = "image"
         for row in shown:
             units[row["id"]] = [row]
-    elif grouping and not in_group:
+    elif sectioned:
+        # Sections newest first, and in each its groups newest first: a
+        # section's groups are one run of tiles, whatever part they fall in.
         kind = "group"
         for row in shown:
-            units.setdefault(grouping[1](row), []).append(row)
+            sections.setdefault(GROUPINGS[chain[0]][1](row), []).append(row)
+        for section, rows in sections.items():
+            for row in rows:
+                units.setdefault((section, GROUPINGS[by][1](row)), []).append(row)
+    elif by:
+        kind = "group"
+        for row in shown:
+            units.setdefault(GROUPINGS[by][1](row), []).append(row)
     else:
         kind = "generation"
         for row in shown:
@@ -409,17 +451,26 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
             **shared_levels(units[key]),
         }
         if kind == "group":
-            tile["group"] = {"id": group_id(key), "value": key, "latest": first.get("created_at"),
+            value = key[1] if sectioned else key
+            tile["group"] = {"id": group_id(value), "value": value, "by": by, "latest": first.get("created_at"),
                              "generations": len({r["generation_id"] for r in units[key]})}
+            if sectioned:
+                rows = sections[key[0]]
+                tile["section"] = {"id": group_id(key[0]), "value": key[0], "by": chain[0], "count": len(rows),
+                                   "groups": len({GROUPINGS[by][1](r) for r in rows})}
         tiles.append(tile)
 
     scope = {"count": len(shown),
              "first": shown[-1]["created_at"] if shown else None,
              "last": shown[0]["created_at"] if shown else None}
-    if grouping:
-        scope["grouping"] = grouping[0]
-        if in_group and shown:
-            scope["value"] = grouping[1](shown[0])
+    if chain:
+        scope["grouping"] = " › ".join(GROUPINGS[k][0] for k in chain)
+        # What each group opened is: [{"by", "name", "value"}], outermost first.
+        opened = [(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g]
+        if opened and shown:
+            scope["values"] = [{"by": k, "name": GROUPINGS[k][0], "value": GROUPINGS[k][1](shown[0])}
+                               for k, _ in opened]
+            scope["value"] = scope["values"][-1]["value"]
     if generation is not None:
         generation_row = db.get_generations([generation]).get(generation) or {}
         scope["generation"] = {k: generation_row.get(k) for k in TILE_FIELDS}
@@ -443,20 +494,22 @@ def register(app: FastAPI):
     @app.get("/model-manager/generations/browse")
     async def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
                               group: str = "", in_group: str = "",
-                              generation: Optional[int] = None):
+                              generation: Optional[int] = None, in_subgroup: str = ""):
         """
         Part `page` of a level of the Generations tab, through the NSFW switch
         - the setting decides it when not sent. See browse_page().
 
         Args:
-            group: what images are grouped by (GROUPINGS), or none.
+            group: what images are grouped by (GROUPINGS), or two of them
+                joined by ">" (grouping_chain()), or none.
             in_group: the group opened, by its id.
+            in_subgroup: grouped twice, the group opened inside that one.
             generation: the generation opened.
         """
         try:
             hide_nsfw, _ = gallery_switches(hide_nsfw_images, False)
             return JSONResponse({"success": True, **browse_page(
-                get_models_db(), hide_nsfw, page, group, in_group, generation)})
+                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup)})
         except Exception as e:
             import traceback
             print(f"[ModelManager] Generations page error: {e}")
@@ -559,6 +612,7 @@ def register(app: FastAPI):
     @app.post("/model-manager/generations/rate")
     def rate_generated_images(level: str = Form(default=""), image_id: Optional[int] = Form(default=None),
                               group: str = Form(default=""), in_group: str = Form(default=""),
+                              in_subgroup: str = Form(default=""),
                               generation: Optional[int] = Form(default=None), path: str = Form(default=""),
                               hide_nsfw_images: bool = Form(default=True),
                               hide_promptless_images: bool = Form(default=False)):
@@ -570,7 +624,7 @@ def register(app: FastAPI):
         - `path` and `generation`: a model's "Your generations" card - its
           images that gallery shows, through both its switches;
         - `generation`: a batch of the Generations tab - within the group
-          `in_group`, if opened from one - its images the tab shows, through
+          `in_group` (and `in_subgroup`), if opened from one - its images the tab shows, through
           the NSFW switch.
 
         Only what the page showed is rated: an image a switch hid, nobody saw.
@@ -594,7 +648,8 @@ def register(app: FastAPI):
                         if r["generation_id"] == generation]
                 ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, hide_promptless_images)[0]]
             elif generation is not None:
-                ids = [r["id"] for r in _scoped(db, hide_nsfw_images, group, in_group, generation)[0]]
+                ids = [r["id"] for r in _scoped(db, hide_nsfw_images, group, in_group, generation,
+                                                in_subgroup)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
             rated = db.set_generation_image_levels(ids, chosen)

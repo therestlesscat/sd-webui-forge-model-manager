@@ -62,6 +62,8 @@ const {
     formatDay: formatDate,
     loadNsfwDetection,
     nsfwModelNote,
+    setText,
+    setTitle,
     galleryDefaults,
     refreshUiOptions,
     renderModelCard,
@@ -329,18 +331,18 @@ function syncSfwOnlyEnabled() {
     const applies = !(document.getElementById('cb_nsfw')?.checked || false);
     box.disabled = !applies;
     label.classList.toggle('cb-filter-disabled', !applies);
-    label.title = applies
+    setTitle(label, applies
         ? label.dataset.title
-        : 'Only applies while Include NSFW models is unticked. ' + label.dataset.title;
+        : 'Only applies while Include NSFW models is unticked. ' + label.dataset.title);
 
     const banner = document.getElementById('cb_sfw_only_banner');
     const text = document.getElementById('cb_sfw_only_banner_text');
     if (banner && text) {
-        text.textContent = label.dataset.title;
+        setText(text, label.dataset.title);
         banner.style.display = sfwOnlyEnabled() ? 'flex' : 'none';
     }
     const note = document.getElementById('cb_sfw_only_banner_model');
-    if (note) note.textContent = nsfwModelNote();
+    setText(note, nsfwModelNote());
 }
 
 // Is the prompt filter currently on?

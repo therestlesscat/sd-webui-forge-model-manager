@@ -3571,9 +3571,40 @@ textarea.mm-settings-input {
     align-items: start;
 }
 
-/* "Preserve order": every tile one column, so nothing fills in out of order. */
-.gen-grid.gen-ordered {
+/* "Preserve order": every tile one column, so nothing fills in out of order.
+   In sections, likewise, so no tile is packed above its section's header. */
+.gen-grid.gen-ordered,
+.gen-grid.gen-sectioned {
     grid-auto-flow: row;
+}
+
+/* Grouped twice: a section's header, a row across the grid above its groups. */
+.gen-section-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 4px 2px;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+}
+
+.gen-grid > .gen-set:first-child > .gen-section-head {
+    margin-top: 0;
+}
+
+.gen-section-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.gen-section-facts {
+    flex: none;
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 .gen-grid.gen-ordered .gen-tile.gen-wide {
@@ -3779,7 +3810,9 @@ textarea.mm-settings-input {
     background: rgba(0, 0, 0, 0.85) !important;
 }
 
-.gen-menu {
+/* A menu's panel: the ⋯ menu, and Group by's list and its "then by" lists. */
+.gen-menu,
+.gen-menu-panel {
     position: fixed;
     z-index: 10002;
     min-width: 200px;
@@ -3792,7 +3825,8 @@ textarea.mm-settings-input {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
-.gen-menu button {
+.gen-menu button,
+.gen-menu-panel button {
     padding: 8px 12px;
     border: none;
     border-radius: 6px;
@@ -3803,7 +3837,77 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
-.gen-menu button:hover {
+.gen-menu button:hover,
+.gen-menu-panel button:hover {
+    background: rgba(127, 127, 127, 0.18) !important;
+}
+
+/* Group by: a button showing the grouping, opening its list below it; each
+   grouping's "then by" list opens beside it, on hover or a click. */
+/* The list is placed from the button, not from "Group by" before it. */
+.gen-group-anchor {
+    position: relative;
+    display: inline-block;
+}
+
+.gen-group-button {
+    padding: 5px !important;
+    margin: 0 !important;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    /* Not --input-background-fill: this theme leaves it white under .dark. */
+    background: var(--background-fill-primary, #1f2937) !important;
+    color: var(--body-text-color, #e5e7eb);
+    cursor: pointer;
+}
+
+.gen-group-button::after {
+    content: " ▾";
+    opacity: 0.7;
+}
+
+.gen-group-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+}
+
+.gen-group-list[hidden],
+.gen-group-sub[hidden] {
+    display: none;
+}
+
+.gen-group-item {
+    position: relative;
+}
+
+.gen-group-item > button {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+}
+
+.gen-group-sub {
+    position: absolute;
+    top: -5px;
+    left: 100%;
+    z-index: 21;
+}
+
+.gen-group-sub-title {
+    padding: 4px 12px;
+    font-size: 0.8em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* What is chosen: its grouping, and in its list what it is then by. */
+.gen-menu-panel button.gen-group-chosen::before {
+    content: "● ";
+}
+
+.gen-group-item.gen-group-open > button {
     background: rgba(127, 127, 127, 0.18) !important;
 }
 
