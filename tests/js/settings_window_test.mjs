@@ -183,10 +183,12 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 // -------------------------------------------------------------- the gear
-for (const tab of ['tab_model_manager.py', 'tab_civitai_browser.py']) {
-    const markup = readFileSync(`${ROOT}/model_manager/ui/${tab}`, 'utf8');
-    check(`${tab} has the gear, opening the one window`,
-          /class="mm-settings-btn"[^>]*onclick="window\.mmOpenSettings/.test(markup), true);
+for (const [file, tab] of [['tab_model_manager.py', 'model_manager'], ['tab_civitai_browser.py', 'civitai_browser'],
+                           ['header.py', 'TAB']]) {
+    const markup = readFileSync(`${ROOT}/model_manager/ui/${file}`, 'utf8');
+    check(`${file} has the gear, opening the one window, saying which tab it is in`,
+          new RegExp(`class="mm-settings-btn"[^>]*onclick="window\\.mmOpenSettings && window\\.mmOpenSettings\\(\\{ tab: '${tab}' \\}\\)"`)
+              .test(markup), true);
 }
 check('the gear is in the header', Boolean(document.querySelector('.model-manager-header .mm-settings-btn')), true);
 
@@ -557,5 +559,37 @@ restampNotice().watch();
 await waitFor('saving', () => noticeText() === 'Saving the new levels...', 20);
 check('once every image is judged, it says the levels are being saved', noticeText(), 'Saving the new levels...');
 await waitFor('done after saving', () => noticeText()?.startsWith('Done: 3'), 40);
+
+// ------------------------------------------------- which sections are open
+// Every section starts collapsed. Opened from a tab's gear, the ones that tab
+// uses are open; from a note's button, only the one it is about, scrolled to.
+const openSections = () => Array.from(document.querySelectorAll('.mm-settings-section[open]'))
+    .map((s) => s.dataset.section);
+const present = () => Array.from(document.querySelectorAll('.mm-settings-section[data-section]'))
+    .map((s) => s.dataset.section);
+const reopen = async (options) => {
+    confirmAnswer = true;
+    $('[data-act="cancel"]').click();
+    await window.mmOpenSettings(options);
+};
+await reopen();
+check('opened with nothing named, every section is collapsed', openSections(), []);
+const TAB_SECTIONS = {
+    model_manager: ['connection', 'model_manager', 'gallery', 'generations', 'nsfw', 'storage'],
+    civitai_browser: ['connection', 'civitai_browser', 'gallery', 'nsfw', 'advanced'],
+    generations: ['generations', 'nsfw'],
+};
+for (const [tab, sections] of Object.entries(TAB_SECTIONS)) {
+    await reopen({ tab });
+    check(`from the ${tab} tab's gear, its sections are open, the rest collapsed`,
+          openSections(), present().filter((id) => sections.includes(id)));
+}
+check('What\'s new and the text encoder table never open from a gear',
+      [$('[data-whats-new]').hasAttribute('open'), openSections().includes('modules')], [false, false]);
+const scrolled = [];
+window.HTMLElement.prototype.scrollIntoView = function() { scrolled.push(this.dataset.section); };
+await reopen({ section: 'nsfw' });
+check('from a note\'s button, only the section it is about, scrolled to', [openSections(), scrolled],
+      [['nsfw'], ['nsfw']]);
 
 done();

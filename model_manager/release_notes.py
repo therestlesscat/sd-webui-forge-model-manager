@@ -18,8 +18,10 @@ A note is:
               before that version - a fresh install has nothing to redo
     tabs      where it shows: "model_manager", "civitai_browser", "generations"
     title, text
-    action    optional {"id", "label"}: a button that does it - the ids are
-              the page's (NOTE_ACTIONS in javascript/shared/common.mjs)
+    action    optional {"id", "label", "section"}: a button that does it - the
+              ids are the page's (NOTE_ACTIONS in javascript/shared/common.mjs);
+              "settings" opens the settings window at `section`, one of its
+              sections' ids (SECTIONS in javascript/shared/settings.mjs)
     when      optional: a condition of this install the note is only for, of
               CONDITIONS - "custom_database", the database file set in the
               settings, which two WebUIs sharing one database need

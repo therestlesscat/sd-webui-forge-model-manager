@@ -199,10 +199,11 @@ if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGe
 // its arrows, or spread into rows with a click on the edges. Each note is
 // dismissed once for every browser using the database.
 
-// What a note's button does, by the id its note names.
+// What a note's button does, by the id its note names - with the action, for
+// the settings section it is about.
 const NOTE_ACTIONS = {
     reread_headers: () => window.mmOpenScanDialog?.({ rereadHeaders: true }),
-    settings: () => window.mmOpenSettings?.(),
+    settings: (action) => window.mmOpenSettings?.({ section: action.section || null }),
 };
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!' };
 // On top: the important ones, then what needs doing, then warnings, then
@@ -270,7 +271,8 @@ function drawNotes(tab, attempt = 0) {
 function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
     const kind = NOTE_ICONS[note.kind] ? note.kind : 'feature';
     const action = note.action && NOTE_ACTIONS[note.action.id]
-        ? `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(note.action.id)}">`
+        ? `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(note.action.id)}"
+                   data-note-section="${escapeHtml(note.action.section || '')}">`
           + `${escapeHtml(note.action.label || 'Do it')}</button>` : '';
     const steps = of > 1 ? `
         <span class="mm-note-steps" data-note-pile="${escapeHtml(tab)}">
@@ -320,8 +322,9 @@ if (typeof window !== 'undefined' && !window.mmNotesDismissed) {
         }
         const note = target.closest?.('[data-note]');
         if (!note) return;
-        if (target.closest('[data-note-action]')) {
-            NOTE_ACTIONS[target.closest('[data-note-action]').dataset.noteAction]?.();
+        const button = target.closest('[data-note-action]');
+        if (button) {
+            NOTE_ACTIONS[button.dataset.noteAction]?.({ section: button.dataset.noteSection });
             return;
         }
         if (!target.closest('[data-note-dismiss]')) return;

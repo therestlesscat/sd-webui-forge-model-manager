@@ -13,7 +13,8 @@
     "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. An older copy does not know the changes: it would keep reading and writing the database the old way, without the fixes since. If you use this extension in one WebUI only, there is nothing to do.",
     "action": {
       "id": "settings",
-      "label": "Open settings"
+      "label": "Open settings",
+      "section": "storage"
     }
   },
   {
@@ -91,7 +92,8 @@
     "text": "This tab keeps the images you generate, newest first, whatever model made them. Click one to view it large. Send puts it back in txt2img or img2img set up as it was made - its preset, checkpoint, text encoders and VAE - which pasting its infotext alone does not do. Don't want your images recorded? Turn off Your generations in the settings: recording stops, and this tab and each model's Your generations go. What was recorded is kept, and comes back if you turn it on again.",
     "action": {
       "id": "settings",
-      "label": "Open settings"
+      "label": "Open settings",
+      "section": "generations"
     }
   }
 ]
