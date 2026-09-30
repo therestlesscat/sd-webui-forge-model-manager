@@ -233,6 +233,48 @@ with db._cursor() as cursor:
           [row[2] for row in cursor.fetchall()],
           ['version_id', 'page', 'position', 'id', 'effective_nsfw_level'])
 
+# ------------------------------------------ which version a card shows (#25)
+# The newest published; two with one date - Deep Negative's V1 75T and V1 64T,
+# to the millisecond - went to whichever SQLite returned, so a cover could
+# change between loads. A tie goes as Civitai orders versions (`index` in
+# civitai_models.versions, whose first a model's page shows), then the higher
+# version id: always the same one.
+import json                                              # noqa: E402
+with db._cursor() as cursor:
+    cursor.execute("SELECT model_id, published_at, MIN(id), MAX(id) FROM model_versions "
+                   "WHERE model_id IS NOT NULL GROUP BY model_id, published_at HAVING COUNT(DISTINCT id) = 2 LIMIT 1")
+    model_id, published, low, high = cursor.fetchone()
+
+
+def card_version():
+    return next(r['id'] for r in query()[0] if r['model_id'] == model_id)
+
+
+def civitai_order(*ids):
+    with db._cursor() as cursor:
+        cursor.execute("UPDATE civitai_models SET versions = ? WHERE id = ?",
+                       (json.dumps([{'id': v, 'index': i} for i, v in enumerate(ids)]), model_id))
+
+
+civitai_order()
+with db._cursor() as cursor:
+    cursor.execute("UPDATE civitai_models SET versions = NULL WHERE id = ?", (model_id,))
+check('two versions of one date, Civitai\'s order unknown: the higher id, every time',
+      [card_version() for _ in range(3)], [high] * 3)
+civitai_order(low, high)
+check('Civitai lists the other first: that one, as Civitai\'s page shows it', card_version(), low)
+civitai_order(high, low)
+check('and the other way round', card_version(), high)
+with db._cursor() as cursor:
+    cursor.execute("UPDATE model_versions SET published_at = '2099-01-01T00:00:00Z' WHERE id = ?", (low,))
+check('the date still comes first: a newer version is shown, wherever Civitai lists it', card_version(), low)
+with db._cursor() as cursor:
+    cursor.execute("UPDATE model_versions SET published_at = NULL WHERE id IN (?, ?)", (low, high))
+civitai_order(low, high)
+check('two with no date at all tie too, and go as Civitai lists them', card_version(), low)
+with db._cursor() as cursor:
+    cursor.execute("UPDATE model_versions SET published_at = ? WHERE id IN (?, ?)", (published, low, high))
+
 from model_manager.db.migrations import run_migrations   # noqa: E402
 bare = sqlite3.connect(':memory:')
 cur = bare.cursor()

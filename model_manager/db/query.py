@@ -71,6 +71,28 @@ def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
     return None
 
 
+# Of a model's local versions, the card shows the newest published. Two can
+# share the date to the millisecond (Deep Negative's V1 75T and V1 64T), and
+# SQLite then returned either, so a card's cover could change between loads
+# (#25). Ties go as Civitai orders versions - the creator's order, `index` in
+# civitai_models.versions, whose first a model's page and card show - then by
+# version id and file, so the choice is always the same. The index is read
+# from the JSON only for a version another of its model shares the date with
+# - no date at all included, which is a tie too - found through
+# idx_version_model_published: read for every version it cost
+# 13.6 ms a query, and counting ties with a window 25 ms, in a 1,161-version
+# library.
+SHOWN_ORDER = """fv.published_at DESC NULLS LAST,
+                             CASE WHEN EXISTS (SELECT 1 FROM model_versions tie
+                                               WHERE tie.model_id = fv.model_id
+                                               AND tie.published_at IS fv.published_at AND tie.id <> fv.id)
+                             THEN (SELECT COALESCE(json_extract(j.value, '$.index'), CAST(j.key AS INTEGER))
+                                   FROM civitai_models cm2, json_each(cm2.versions) j
+                                   WHERE cm2.id = fv.model_id AND json_extract(j.value, '$.id') = fv.id)
+                             END ASC NULLS LAST,
+                             fv.id DESC, fv.file_path"""
+
+
 def query_models_grouped(
     cursor_factory: Callable,
     search: Optional[str] = None,
@@ -346,7 +368,7 @@ def query_models_grouped(
                 ) as is_pinned,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                    ORDER BY fv.published_at DESC NULLS LAST
+                    ORDER BY {SHOWN_ORDER}
                 ) as rn,
                 COUNT(*) OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
@@ -395,7 +417,7 @@ def query_models_grouped(
                 fv.file_path,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                    ORDER BY fv.published_at DESC NULLS LAST
+                    ORDER BY {SHOWN_ORDER}
                 ) as rn,
                 COUNT(*) OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)

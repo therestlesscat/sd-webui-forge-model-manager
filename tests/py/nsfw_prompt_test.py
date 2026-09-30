@@ -120,6 +120,10 @@ check('a change of words restamps what is stored', (changed >= 1, stored(9101)),
 with db._cursor() as cursor:
     cursor.execute("SELECT safe_cover_url FROM model_versions WHERE file_path = ?", (path,))
     check('a safe cover no longer safe is cleared', cursor.fetchone()[0], '')
+# The card shows its model's newest version: this one, made so - the fixture's
+# two share a date, which a tie decides (grid_query_test.py).
+with db._cursor() as cursor:
+    cursor.execute("UPDATE model_versions SET published_at = '2026-06-01T00:00:00Z' WHERE id = ?", (version,))
 rows, _ = db.query_models_grouped(limit=500)
 preview = next(r for r in rows if r['id'] == version)['preview_url']
 check('and the grid shows the version\'s first image still safe', preview,
