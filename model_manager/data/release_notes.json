@@ -4,6 +4,7 @@
     "version": "0.41.4",
     "kind": "intro",
     "audience": "new",
+    "important": true,
     "tabs": [
       "model_manager"
     ],
@@ -25,6 +26,7 @@
     "version": "0.41.4",
     "kind": "intro",
     "audience": "new",
+    "important": true,
     "tabs": [
       "civitai_browser"
     ],
