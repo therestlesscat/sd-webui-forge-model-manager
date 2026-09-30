@@ -22,6 +22,8 @@ const {
     showApiKeyBanner,
     showNotes,
     generationsEnabled,
+    savedSearch,
+    saveSearch,
     apiCall,
     escapeHtml,
     safeId,
@@ -543,8 +545,9 @@ async function loadModels(page = 1) {
 
     try {
         // The preview checkbox's default has to be in place before the
-        // first load reads it.
+        // first load reads it, and the saved search's filters.
         await ensureFilterDefaults();
+        await savedFiltersReady;
 
         // No page_size: the server uses the Models per page setting.
         const filters = getFilters();
@@ -699,6 +702,8 @@ function mmCard(model, index) {
 // loads again, as pinning always has; the counts follow at once. A tab
 // changes what the loaded grid shows: before Load Models it loads nothing.
 let gridTab = 'others';
+// Filled from the saved search, once bindElements() has asked for it.
+let savedFiltersReady = Promise.resolve(false);
 let gridTabCounts = null;
 let gridLoaded = false;
 
@@ -5207,6 +5212,8 @@ window.mmShowInCivitaiBrowser = function() {
         .find(b => b.textContent.trim() === 'Civitai Browser');
 
     if (tabButton) {
+        // A search of its own is coming: the tab's saved search stands aside.
+        window.cbSkipSavedSearch = true;
         tabButton.click();
     } else {
         console.warn('[ModelManager] Could not find the Civitai Browser tab button');
@@ -6009,8 +6016,14 @@ window.mmRestoreScrollPosition = function() {
     }
 };
 
-// Save/Load search filters functionality
-function saveSearchFilters() {
+// Save Search: one set of filters, in the database (savedSearch in
+// common.mjs) - it was in this browser's storage, and is moved from there the
+// first time. It fills the filters when the tab opens; Load Models, which
+// waits for it, loads them.
+const LEGACY_SAVED_FILTERS = 'mm_saved_filters';
+
+/** The filters as the bar shows them, as Save Search keeps them. */
+function currentSearchFilters() {
     const filters = {
         search: document.getElementById('mm_search')?.value || '',
         type: document.getElementById('mm_type')?.value || '',
@@ -6033,16 +6046,25 @@ function saveSearchFilters() {
     nsfwCheckboxes.forEach(cb => {
         if (cb.checked) filters.nsfw_levels.push(cb.value);
     });
+    return filters;
+}
 
-    localStorage.setItem('mm_saved_filters', JSON.stringify(filters));
-    console.log('[ModelManager] Saved search filters:', filters);
-
-    // Update button to show saved state
+/** Say on the Save Search button what happened, for a moment. */
+function flashSaveSearch(text) {
     const btn = document.getElementById('mm_save_search_btn');
-    if (btn) {
-        btn.textContent = '✓ Saved';
-        setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+    if (!btn) return;
+    btn.textContent = text;
+    setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+}
+
+async function saveSearchFilters() {
+    const filters = currentSearchFilters();
+    if (!await saveSearch('model_manager', filters)) {
+        setStatus('Could not save the search: the server did not keep it.', true);
+        return;
     }
+    console.log('[ModelManager] Saved search filters:', filters);
+    flashSaveSearch('✓ Saved');
 }
 
 // The Base Model filter lists what this library holds, asked of the server.
@@ -6112,12 +6134,38 @@ function syncSfwOnlyBanner() {
     banner.style.display = text && document.getElementById('mm_sfw_only')?.checked ? 'flex' : 'none';
 }
 
-function loadSearchFilters() {
-    const saved = localStorage.getItem('mm_saved_filters');
-    if (!saved) return false;
-
+/**
+ * Fill the filters from the saved search, if there is one. One kept in this
+ * browser, from before it was in the database, is moved there first.
+ */
+async function loadSearchFilters() {
+    let filters = await savedSearch('model_manager');
+    let legacy = null;
     try {
-        const filters = JSON.parse(saved);
+        legacy = localStorage.getItem(LEGACY_SAVED_FILTERS);
+    } catch (e) { /* storage blocked: nothing to move */ }
+    if (!filters && legacy) {
+        try {
+            filters = JSON.parse(legacy);
+        } catch (e) {
+            filters = null;
+        }
+        if (filters && await saveSearch('model_manager', filters)) {
+            console.log('[ModelManager] Moved the saved search from this browser to the database');
+        }
+    }
+    if (legacy) {
+        try {
+            localStorage.removeItem(LEGACY_SAVED_FILTERS);
+        } catch (e) { /* as above */ }
+    }
+    if (!filters) return false;
+    return applySearchFilters(filters);
+}
+
+/** Fill the filter bar from a saved search. */
+function applySearchFilters(filters) {
+    try {
 
         if (Object.prototype.hasOwnProperty.call(filters, 'search')) document.getElementById('mm_search').value = filters.search;
         if (Object.prototype.hasOwnProperty.call(filters, 'type')) document.getElementById('mm_type').value = filters.type;
@@ -6164,15 +6212,13 @@ function loadSearchFilters() {
     }
 }
 
-function clearSearchFilters() {
-    localStorage.removeItem('mm_saved_filters');
-    console.log('[ModelManager] Cleared saved filters');
-
-    const btn = document.getElementById('mm_save_search_btn');
-    if (btn) {
-        btn.textContent = '✗ Cleared';
-        setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+async function clearSearchFilters() {
+    if (!await saveSearch('model_manager', null)) {
+        setStatus('Could not clear the saved search: the server did not answer.', true);
+        return;
     }
+    console.log('[ModelManager] Cleared saved filters');
+    flashSaveSearch('✗ Cleared');
 }
 
 // Initialize with retry logic for Gradio-rendered content
@@ -6366,8 +6412,8 @@ function bindElements() {
 
     console.log('[ModelManager] Ready - click handlers bound');
 
-    // Load saved filters if available
-    loadSearchFilters();
+    // Load saved filters if available - Load Models waits for them.
+    savedFiltersReady = loadSearchFilters().catch(() => false);
     loadBaseModelOptions();
 
     // Check for saved scroll position and show restore button

@@ -134,6 +134,33 @@ if (typeof onAfterUiUpdate === 'function') {
     });
 }
 
+// ------------------------------------------------------ saved searches
+// A tab's Save Search: one set of filters, kept in the database (the same in
+// every browser, and in both WebUIs when they share it).
+
+/** A tab's saved filters, or null: none saved, or the server not answering. */
+export async function savedSearch(tab) {
+    try {
+        const data = await (await fetch(`/model-manager/saved-search?tab=${encodeURIComponent(tab)}`,
+                                        { cache: 'no-store' })).json();
+        return data && data.success ? data.filters : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Save a tab's filters, or forget them with null. Whether the server kept it. */
+export async function saveSearch(tab, filters) {
+    try {
+        const data = await (await fetch('/model-manager/saved-search', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tab, filters }) })).json();
+        return Boolean(data && data.success);
+    } catch (e) {
+        return false;
+    }
+}
+
 // ------------------------------------------------------ your generations
 // "Your generations" off: nothing is recorded, and every tab of them goes -
 // at once, without a restart: the Generations tab's button is hidden (from

@@ -177,6 +177,8 @@ def create_civitai_browser_ui():
                     </details>
                     <!-- The same row the Model Manager puts its actions on. -->
                     <div class="filter-buttons-row">
+                        <button type="button" id="cb_save_search_btn" class="mm-btn secondary"
+                                title="Save these filters as the search this tab opens with. Right-click to clear it.">Save Search</button>
                         <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()">Search</button>
                     </div>
                 </div>

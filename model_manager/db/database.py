@@ -119,10 +119,13 @@ class ModelsDatabase:
             row = cursor.fetchone()
             return row[0] if row else None
 
-    def set_info(self, key: str, value: str) -> None:
-        """Keep a value beside the schema version, in schema_info."""
+    def set_info(self, key: str, value: Optional[str]) -> None:
+        """Keep a value beside the schema version, in schema_info; None forgets it."""
         with self._cursor() as cursor:
-            cursor.execute("INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)", (key, value))
+            if value is None:
+                cursor.execute("DELETE FROM schema_info WHERE key = ?", (key,))
+            else:
+                cursor.execute("INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)", (key, value))
 
     # ==================== Models & versions ====================
 

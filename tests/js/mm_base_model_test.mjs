@@ -15,8 +15,19 @@ const LIBRARY = ['Wan Video 14B t2v', 'Other', 'Anima', 'SDXL 1.0'];
 let answerFilters;
 const filtersAsked = new Promise((resolve) => { answerFilters = resolve; });
 const listed = [];
-globalThis.fetch = async (url) => {
+const saves = [];
+// The saved search is in the database; this one was left in the browser by
+// an earlier version, and is moved there on the way.
+let savedOnServer = null;
+globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
+    if (href.includes('/model-manager/saved-search')) {
+        if (init.method === 'POST') {
+            saves.push(JSON.parse(init.body));
+            savedOnServer = saves.at(-1).filters;
+        }
+        return { ok: true, json: async () => ({ success: true, filters: savedOnServer }) };
+    }
     if (href.includes('/model-manager/filters')) {
         await filtersAsked;   // held back until the saved search is restored
         return { ok: true, json: async () => ({ success: true, base_models: LIBRARY }) };
@@ -35,9 +46,13 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const $ = (id) => document.getElementById(id);
 const options = () => [...$('mm_base_model').options].map((o) => o.value);
 
+await waitFor('the saved search', () => $('mm_base_model').value === 'Wan Video 14B t2v');
 check('the markup names no base model of its own', options(), ['', 'Wan Video 14B t2v']);
 check('a saved search is restored before the list arrives',
       $('mm_base_model').value, 'Wan Video 14B t2v');
+check('one this browser kept, from before, is moved to the database, and from the browser',
+      [saves.map((s) => [s.tab, s.filters.base_model]), window.localStorage.getItem('mm_saved_filters')],
+      [[['model_manager', 'Wan Video 14B t2v']], null]);
 
 answerFilters();
 await waitFor('the library\'s base models', () => options().length > 2);
