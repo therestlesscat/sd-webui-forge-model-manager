@@ -365,10 +365,11 @@ function drawNotes(tab, attempt = 0) {
         box.innerHTML = '';
         return;
     }
-    if (pile.spread || shown.length === 1) {
+    // A note alone is still a pile, "1 of 1": its arrows stay, off.
+    if (pile.spread && shown.length > 1) {
         box.innerHTML = shown.map((note) => noteHtml(note)).join('')
-            + (shown.length > 1 ? `<button type="button" class="mm-note-gather" data-note-pile="${escapeHtml(tab)}"
-                                          data-note-spread="false">Pile them up</button>` : '');
+            + `<button type="button" class="mm-note-gather" data-note-pile="${escapeHtml(tab)}"
+                       data-note-spread="false">Pile them up</button>`;
         return;
     }
     const edges = Math.min(NOTE_EDGES, shown.length - 1);
@@ -388,14 +389,19 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
         .map((action) => `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(action.id)}"
                    data-note-section="${escapeHtml(action.section || '')}">${escapeHtml(action.label || 'Do it')}</button>`)
         .join('');
-    const steps = of > 1 ? `
-        <span class="mm-note-steps" data-note-pile="${escapeHtml(tab)}">
+    // The arrows are always there - "1 of 1" on the last note, and their room
+    // kept empty in the spread rows - and both they and Dismiss a set width
+    // (style.css): so Dismiss stays where it was as the pile is stepped
+    // through or dismissed. The arrows' is as wide as the count needs - "3 of
+    // 12" two digits a side.
+    const steps = of > 0 ? `
+        <span class="mm-note-steps" data-note-pile="${escapeHtml(tab)}" style="--mm-note-digits: ${String(of).length}">
             <button type="button" class="mm-note-step" data-note-step="-1" title="Previous note"
                     ${at <= 1 ? 'disabled' : ''}>&lsaquo;</button>
             <span class="mm-note-count">${at} of ${of}</span>
             <button type="button" class="mm-note-step" data-note-step="1" title="Next note"
                     ${at >= of ? 'disabled' : ''}>&rsaquo;</button>
-        </span>` : '';
+        </span>` : '<span class="mm-note-steps mm-note-steps-none" aria-hidden="true"></span>';
     return `
         <div class="mm-banner mm-note mm-note-${kind}" data-note="${escapeHtml(note.id)}">
             <span class="mm-banner-icon">${NOTE_ICONS[kind]}</span>
@@ -406,7 +412,7 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
             </span>
             <span class="mm-note-buttons">
                 ${actions}
-                <button type="button" class="mm-btn secondary mm-btn-small" data-note-dismiss
+                <button type="button" class="mm-btn secondary mm-btn-small mm-note-dismiss" data-note-dismiss
                         title="Hide this note; the settings window's What's new keeps it">Dismiss</button>
                 ${steps}
             </span>

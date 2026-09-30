@@ -6,6 +6,7 @@
 // next one up and which the server keeps for every browser. The Model
 // Manager's "Run Scan Disk once" note opens Scan Disk with "Re-evaluate file
 // headers" ticked.
+import { readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
@@ -66,6 +67,8 @@ check('coloured by its kind, with its mark, its title and version',
       ['mm-banner mm-note mm-note-action', '!', 'Run Scan Disk once', '0.40.11']);
 check('its text as text, never markup', [top().querySelector('.mm-banner-note b'),
       top().querySelector('.mm-banner-note')?.textContent], [null, 'Tick <b>Re-evaluate file headers</b>.']);
+check('the arrows\' room as a pile of 4 needs: one digit a side',
+      panel().querySelector('.mm-note-steps')?.getAttribute('style'), '--mm-note-digits: 1');
 check('its button, Dismiss, and the arrows',
       [Array.from(top().querySelectorAll('.mm-btn')).map((b) => b.textContent.trim()), steps()],
       [['Open Scan Disk', 'Dismiss'], [false, false]]);
@@ -94,6 +97,9 @@ check('a click on the edges spreads the pile into rows, with a way back',
       [notes().map((n) => n.dataset.note), edges(), !!panel().querySelector('[data-note-step]'),
        panel().querySelector('.mm-note-gather')?.textContent.trim()],
       [['generations-tab', 'reread-headers', 'database', 'pinned-tabs'], 0, false, 'Pile them up']);
+check('each row keeping the arrows\' room, empty, so its Dismiss is where the pile\'s was',
+      notes().map((n) => Array.from(n.querySelector('.mm-note-buttons').children).slice(-2).map((c) => c.className)),
+      Array(4).fill(['mm-btn secondary mm-btn-small mm-note-dismiss', 'mm-note-steps mm-note-steps-none']));
 click(panel().querySelector('.mm-note-gather'));
 check('which piles them up again, where it was', [notes().length, count()], [1, '2 of 4']);
 
@@ -108,9 +114,21 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 click(panel().querySelector('[data-note-step="-1"]'));
 click(top().querySelector('[data-note-dismiss]'));
 await new Promise((resolve) => setTimeout(resolve, 50));
-check('the last note left is a note alone: no arrows, no edges',
-      [notes().map((n) => n.dataset.note), !!panel().querySelector('[data-note-step]'), edges()],
-      [['pinned-tabs'], false, 0]);
+// The arrows stay, off, so Dismiss does not jump right by their width as
+// the last-but-one note goes.
+check('the last note left is still a pile, "1 of 1": its arrows there and off, no edges',
+      [notes().map((n) => n.dataset.note), count(), steps(), edges()],
+      [['pinned-tabs'], '1 of 1', [true, true], 0]);
+{
+    // No layout here: the widths that hold Dismiss still are the stylesheet's.
+    const css = readFileSync(`${ROOT}/style.css`, 'utf8');
+    const rule = (selector) => css.match(new RegExp(`(^|\\n)${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`))?.[2] || '';
+    check('the arrows as wide as the count\'s digits, and Dismiss, each a set width - digits all one width',
+          [/(^|[^-])width: calc\([^;]*var\(--mm-note-digits, 1\)/.test(rule('.mm-note-steps')),
+           /(^|[^-])width: \d+px/.test(rule('.mm-note-step')),
+           /(^|[^-])width: \d+px/.test(rule('.mm-note-dismiss')), /tabular-nums/.test(rule('.mm-note-count'))],
+          [true, true, true, true]);
+}
 
 // Gradio redraws a tab's markup wholesale, emptying the panel: the notes are
 // drawn again - without the ones dismissed.
