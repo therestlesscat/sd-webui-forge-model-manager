@@ -75,7 +75,7 @@ const LABELS = {
     [K.galleryNsfw]: 'Hide explicit images by default',
     [K.promptless]: 'Hide images with no prompt by default',
     [K.pageSize]: 'Images per page',
-    [K.recordGenerations]: 'Record the images you generate',
+    [K.recordGenerations]: 'Your generations: record the images you generate, and show them',
     [K.detection]: 'What finds explicit images Civitai rates PG or PG-13',
     [K.percent]: 'Trained model: share of PG/PG-13 prompts to treat as X (%)',
     [K.words]: 'Extra prompt words',
@@ -1122,9 +1122,12 @@ function followSettingsPage() {
             finished = true;
             clearTimeout(timer);
             observer?.disconnect();
-            if (changedOnSettingsPage(result.textContent).some((key) => NSFW_KEYS.includes(key))) {
+            const changed = changedOnSettingsPage(result.textContent);
+            if (changed.some((key) => NSFW_KEYS.includes(key))) {
                 restampNotice().watch();
             }
+            // For what else follows a setting - "Your generations" hides its tabs.
+            window.dispatchEvent(new CustomEvent('mm-settings-page-applied', { detail: { changed } }));
         }
         if (typeof MutationObserver === 'function') {
             observer = new MutationObserver(read);

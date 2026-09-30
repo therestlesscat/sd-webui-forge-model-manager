@@ -123,13 +123,14 @@ def on_ui_settings():
         RECORD_GENERATIONS,
         shared.OptionInfo(
             default=True,
-            label="Your generations: record each image generated",
+            label="Your generations",
             component=gr.Checkbox,
             section=section,
-        ).info("Every txt2img and img2img result that is saved to disk is recorded with "
-               "all its settings, and shown in the gallery of each model it used. Only "
-               "images generated while this is on are recorded; turning it off keeps "
-               "what was recorded.")
+        ).info("On: every txt2img and img2img result saved to disk is recorded with all its "
+               "settings, and shown in the Generations tab and the gallery of each model it "
+               "used. Off: nothing is recorded, and the Generations tab and each model's Your "
+               "generations are hidden at once; from the next start the Generations tab is not "
+               "created at all. What was recorded is kept, and comes back when this is on again.")
     )
 
     shared.opts.add_option(

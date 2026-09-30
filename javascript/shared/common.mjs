@@ -134,6 +134,64 @@ if (typeof onAfterUiUpdate === 'function') {
     });
 }
 
+// ------------------------------------------------------ your generations
+// "Your generations" off: nothing is recorded, and every tab of them goes -
+// at once, without a restart: the Generations tab's button is hidden (from
+// the next start the tab is not created at all), and each model's gallery
+// shows only its Civitai images. What was recorded is kept. Known from
+// ui-options, and again when the setting is saved, in the settings window or
+// on the Settings page. Once for the page, on window: each tab has its copy
+// of this module.
+
+/** Whether your generations are shown: false only once the server said so. */
+export function generationsEnabled() {
+    return window.mmGenerationsEnabled !== false;
+}
+
+function tabButton(label) {
+    const root = typeof gradioApp === 'function' ? gradioApp() : document;
+    return Array.from(root.querySelectorAll('#tabs button')).find((b) => b.textContent.trim() === label) || null;
+}
+
+function applyGenerationsEnabled() {
+    const button = tabButton('Generations');
+    if (!button) return;
+    const off = !generationsEnabled();
+    button.style.display = off ? 'none' : '';
+    // Off while its tab shows: to the Model Manager, rather than a tab whose button is gone.
+    if (off && (button.classList.contains('selected') || button.getAttribute('aria-selected') === 'true')) {
+        tabButton('Model Manager')?.click();
+    }
+}
+
+/** Take a new answer: hide or show, and tell the tabs (the gallery listens). */
+export function setGenerationsEnabled(enabled) {
+    const changed = window.mmGenerationsEnabled !== undefined && window.mmGenerationsEnabled !== enabled;
+    window.mmGenerationsEnabled = enabled;
+    applyGenerationsEnabled();
+    if (changed) window.dispatchEvent(new CustomEvent('mm-generations-enabled', { detail: { enabled } }));
+}
+
+if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGenerationsWatched) {
+    window.mmGenerationsWatched = true;
+    uiOptions().then((data) => {
+        if (data && typeof data.generations_enabled === 'boolean') setGenerationsEnabled(data.generations_enabled);
+    });
+    // Saved in the settings window: its answer says the setting's new value.
+    window.addEventListener?.('mm-settings-saved', (event) => {
+        const value = event.detail?.settings?.model_manager_record_generations?.value;
+        if (typeof value === 'boolean') setGenerationsEnabled(value);
+    });
+    // Applied on the Settings page: which keys changed is known, not their values.
+    window.addEventListener?.('mm-settings-page-applied', (event) => {
+        if (!(event.detail?.changed || []).includes('model_manager_record_generations')) return;
+        fetchUiOptions().then((data) => {
+            if (data && typeof data.generations_enabled === 'boolean') setGenerationsEnabled(data.generations_enabled);
+        });
+    });
+    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(applyGenerationsEnabled);
+}
+
 // ------------------------------------------------------ notes to the user
 // Per release, what is new and what to do after updating
 // (model_manager/release_notes.py): at the top of each tab, a pile - one

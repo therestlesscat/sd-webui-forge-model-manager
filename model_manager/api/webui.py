@@ -107,6 +107,9 @@ def register(app: FastAPI):
         # settings.
         gallery_hide_nsfw = True
         hide_promptless_images = True
+        # "Your generations": off, nothing is recorded and every tab of them is
+        # hidden (generations_enabled in generations.py).
+        generations_on = True
         # Which judges prompts, as in force: "model" only when the trained
         # model is chosen and on. The pages say so when it is.
         try:
@@ -123,6 +126,8 @@ def register(app: FastAPI):
                 shared.opts, 'model_manager_gallery_hide_nsfw', True))
             hide_promptless_images = bool(getattr(
                 shared.opts, 'model_manager_hide_promptless_images', True))
+            from ..generations import generations_enabled
+            generations_on = generations_enabled()
         except Exception:
             pass
 
@@ -143,6 +148,7 @@ def register(app: FastAPI):
                 "nsfw_detection": nsfw_detection,
                 "gallery_hide_nsfw": gallery_hide_nsfw,
                 "hide_promptless_images": hide_promptless_images,
+                "generations_enabled": generations_on,
             })
 
         except Exception as e:
@@ -155,6 +161,7 @@ def register(app: FastAPI):
                 {"success": False, "error": str(e), "has_api_key": has_api_key,
                  "nsfw_detection": nsfw_detection,
                  "gallery_hide_nsfw": gallery_hide_nsfw,
-                 "hide_promptless_images": hide_promptless_images},
+                 "hide_promptless_images": hide_promptless_images,
+                 "generations_enabled": generations_on},
                 status_code=500
             )
