@@ -5652,6 +5652,9 @@ function openScanDialog() {
         startScan();     // no dialog in the page: do the thing rather than nothing
         return;
     }
+    // Every scan starts as the usual one: reading every header is asked for each time.
+    const reread = document.getElementById('mm_scan_reread');
+    if (reread) reread.checked = false;
     dialog.style.display = 'flex';
 }
 
@@ -5660,7 +5663,11 @@ function closeScanDialog() {
     if (dialog) dialog.style.display = 'none';
 }
 
-async function startScan() {
+/**
+ * @param {{rereadHeaders?: boolean}} options - rereadHeaders: read what every
+ *     file is from its header again, not only new or changed files.
+ */
+async function startScan({ rereadHeaders = false } = {}) {
     if (isScanning || isSyncing) return;
 
     isScanning = true;
@@ -5670,7 +5677,8 @@ async function startScan() {
     try {
         const response = await fetch('/model-manager/scan', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reread_headers: rereadHeaders }),
         });
 
         const data = await response.json();
@@ -6190,8 +6198,9 @@ function bindElements() {
         const scanStart = document.getElementById('mm_scan_dialog_start');
         if (scanStart) {
             scanStart.addEventListener('click', () => {
+                const rereadHeaders = !!document.getElementById('mm_scan_reread')?.checked;
                 closeScanDialog();
-                startScan();
+                startScan({ rereadHeaders });
             });
         }
     }

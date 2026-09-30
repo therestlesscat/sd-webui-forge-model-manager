@@ -165,6 +165,11 @@ globalThis.fetch = async (url, init = {}) => {
             not_found: 0, current_model: '', error_messages: [], is_complete: true,
         } }) };
     }
+    if (href.includes('/scan/progress')) {
+        // Completed too, so a second scan can be started from the dialog.
+        return { ok: true, json: async () => ({ success: true, progress: {
+            total: 1, processed: 1, current_file: '', error_count: 0, is_complete: true } }) };
+    }
     if (href.includes('/sync/estimate')) {
         lastEstimateQuery = new URL(href).searchParams;
         return { ok: true, json: async () => ESTIMATE };
@@ -489,6 +494,23 @@ await settle();
 check('Scan closes it', $('mm_scan_dialog').style.display, 'none');
 check('and starts the scan', posts.length, 1);
 check('against the scan endpoint', posts[0].url, '/model-manager/scan');
+check('reading headers only for new or changed files', JSON.parse(posts[0].body || '{}'),
+      { reread_headers: false });
+check('unless asked to read them all again, which the dialog offers, unticked',
+      [$('mm_scan_dialog').textContent.includes('Re-evaluate file headers'), $('mm_scan_reread').checked],
+      [true, false]);
+for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
+click('mm_refresh_btn');
+await settle();
+$('mm_scan_reread').checked = true;
+click('mm_scan_dialog_start');
+await settle();
+check('ticked, the scan reads every file\'s header again', JSON.parse(posts[1]?.body || '{}'),
+      { reread_headers: true });
+for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
+click('mm_refresh_btn');
+await settle();
+check('and the next time the dialog opens, it is unticked again', $('mm_scan_reread').checked, false);
 
 console.log(fails.length ? fails.map((f) => 'FAIL ' + f).join('\n') : 'All dialog checks passed.');
 process.exit(fails.length ? 1 : 0);

@@ -9,7 +9,7 @@ scan and one sync at a time, and every endpoint here reads or writes that fact.
 """
 import threading
 from typing import Optional
-from fastapi import FastAPI, Form
+from fastapi import Body, FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..scan_service import ScanService, ScanProgress
@@ -262,15 +262,20 @@ def register(app: FastAPI):
         })
 
     @app.post("/model-manager/scan")
-    async def start_scan():
+    async def start_scan(options: Optional[dict] = Body(default=None)):
         """
         Start scanning model directories to populate the database.
 
         Scans all model directories, reads metadata files, and stores
         computed metadata in SQLite for fast querying.
 
+        options.reread_headers: read what every file is from its header
+        again, not only new or changed files - after an update that
+        recognises more kinds of file.
+
         Returns immediately. Poll /model-manager/scan/progress for status.
         """
+        reread_headers = bool((options or {}).get("reread_headers"))
         global _active_scan, _scan_thread, _scan_progress
 
         # Check if scan already running
@@ -286,7 +291,7 @@ def register(app: FastAPI):
         def run_scan():
             global _scan_progress
             try:
-                _scan_progress = _active_scan.scan_models()
+                _scan_progress = _active_scan.scan_models(reread_headers=reread_headers)
             except Exception as e:
                 import traceback
                 print(f"[ModelManager] Scan error: {e}")

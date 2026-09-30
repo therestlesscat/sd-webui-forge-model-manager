@@ -336,7 +336,8 @@ class ScanService:
         self,
         directories: Optional[List[str]] = None,
         max_workers: int = 4,
-        callback: Optional[Callable[[ScanProgress], None]] = None
+        callback: Optional[Callable[[ScanProgress], None]] = None,
+        reread_headers: bool = False,
     ) -> ScanProgress:
         """
         Scan model directories and populate the database.
@@ -385,11 +386,12 @@ class ScanService:
                     self._progress.errors.append(f"{os.path.basename(path)}: {e}")
                 return None
             # What the file's own contents say it is - read here, on the
-            # worker, and only for files new or changed since last time.
-            # Never a reason to fail the scan.
+            # worker, and only for files new or changed since last time,
+            # unless every header is to be read again. Never a reason to
+            # fail the scan.
             architecture = None
             try:
-                modified = needs_check(db, path)
+                modified = needs_check(db, path, force=reread_headers)
                 if modified is not None:
                     architecture = (identify(path), modified)
             except Exception as e:

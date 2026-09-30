@@ -93,6 +93,17 @@ check('a 1x1 convolution does not make it one',
 check('Hadamard weights are LoHa, and still carry the context width',
       what({f'{SD1_K}.hada_w1_a': (320, 32), f'{SD1_K}.hada_w1_b': (32, 768),
             f'{SD1_K}.hada_w2_a': (320, 32), f'{SD1_K}.hada_w2_b': (32, 768)}), ('LoHa', 'sd'))
+# A diffusers "attention processor" LoRA: its UNet's own block names, and
+# weights called to_k_lora.down.weight - which Forge Neo's loader reads, and
+# this read as a Checkpoint by the block names, until it knew the style.
+PROC = 'down_blocks.1.attentions.0.transformer_blocks.0.attn2.processor'
+check('a LoRA stored in diffusers\' attention-processor style is a LoRA, and says SDXL',
+      what({f'{PROC}.to_k_lora.down.weight': (4, 2048), f'{PROC}.to_k_lora.up.weight': (640, 4),
+            f'{PROC}.to_q_lora.down.weight': (4, 640), f'{PROC}.to_q_lora.up.weight': (640, 4)}),
+      ('LORA', 'xl'))
+check('as is one in diffusers\' lora_linear_layer style',
+      what({f'{PROC}.to_k.lora_linear_layer.down.weight': (4, 2048),
+            f'{PROC}.to_k.lora_linear_layer.up.weight': (640, 4)})[0], 'LORA')
 check('Kronecker weights are LoKr',
       what({f'{SDXL_K}.lokr_w1': (8, 8), f'{SDXL_K}.lokr_w2': (80, 256)})[0], 'LoKr')
 check('a magnitude term is DoRA', what({**lora([SDXL_K], 2048, 640), f'{SDXL_K}.dora_scale': (1, 2048)}),
