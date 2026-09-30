@@ -296,6 +296,13 @@ def create_ui():
                             <li>Updates names and sizes from disk</li>
                             <li>Does not contact Civitai, and does not hash anything</li>
                         </ul>
+                        <div class="mm-dialog-section">
+                            <label class="mm-dialog-option" title="A scan reads what each file is - Checkpoint, LoRA, VAE, text encoder... - from the file's header, but only for files new or changed since the last scan. This reads every file's header again: after an update that recognises more kinds of file, or if a file shows as the wrong type. Headers only, so it adds little time.">
+                                <input type="checkbox" id="mm_scan_reread">
+                                <span>Re-evaluate file headers</span>
+                            </label>
+                            <div class="mm-dialog-note">Reads again what every file is (Checkpoint, LoRA, VAE...), not only new or changed ones.</div>
+                        </div>
                         <div class="mm-dialog-actions">
                             <button id="mm_scan_dialog_cancel" class="mm-btn secondary">Cancel</button>
                             <button id="mm_scan_dialog_start" class="mm-btn primary">Scan</button>

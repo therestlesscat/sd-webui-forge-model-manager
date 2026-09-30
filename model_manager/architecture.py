@@ -392,18 +392,22 @@ def file_modified(path: str) -> Optional[str]:
         return None
 
 
-def needs_check(db, path: str) -> Optional[str]:
+def needs_check(db, path: str, force: bool = False) -> Optional[str]:
     """
     The file's modified time if its architecture should be read, else None.
 
     A file already read at this modified time is skipped - including one
     Forge did not recognise, which is stored as None so it is not read again
     until it changes. A file with no row yet is read: its row is about to be
-    written.
+    written. `force` reads it anyway: Scan Disk's "Re-evaluate file headers",
+    after an update that tells more kinds of file apart - a LoRA stored in
+    diffusers' style was read as a Checkpoint, and would have stayed one.
     """
     modified = file_modified(path)
     if modified is None:
         return None
+    if force:
+        return modified
     row = db.get_version(path)
     if row and row.get("architecture_checked") == modified:
         return None

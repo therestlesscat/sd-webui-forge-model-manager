@@ -254,5 +254,16 @@ finally:
         else:
             sys.modules[name] = module
 
+# ------------------------------------------------ Scan Disk: read it again
+# A file is read once per modified time; "Re-evaluate file headers" reads it
+# anyway - after an update that tells more kinds of file apart, a file read
+# before it would otherwise keep its old type until it changed on disk.
+read_path = facts['linked_paths'][0]
+modified = arch.file_modified(read_path)
+arch.store_architecture(db, read_path, None, modified)
+check('a file already read at its modified time is not read again',
+      arch.needs_check(db, read_path), None)
+check('unless every header is to be read again', arch.needs_check(db, read_path, force=True), modified)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

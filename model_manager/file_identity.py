@@ -44,8 +44,17 @@ FILE_TYPES = ("Checkpoint", "LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Fu
 _CONTEXT = {768: "sd", 2048: "xl"}
 _CONTEXT_NAMES = {768: "SD 1.x", 1024: "SD 2.x", 2048: "SDXL"}
 
-# Weight names a LoRA-family file stores beside, or instead of, the layer.
-_ADAPTER = re.compile(r"(lora_(up|down|A|B|mid)|hada_w|lokr_w|dora_scale|\.alpha$|\.diff(_b)?$)")
+# Weight names a LoRA-family file stores beside, or instead of, the layer:
+# those Forge Neo's LoRA loader reads (modules_forge/packages/comfy/lora.py
+# and weight_adapter/), which is what makes a file one Forge can use. The
+# diffusers styles among them - "to_k_lora.down.weight", "lora.down.weight",
+# "lora_linear_layer.down.weight" - were missed, and an SDXL LoRA stored so
+# was read as a Checkpoint by its UNet's block names. Two of the loader's
+# are left out, as names an ordinary model's layers could have: GLoRA's
+# a1/a2/b1/b2.weight, and OFT's rescale (its oft_blocks is enough).
+_ADAPTER = re.compile(r"(lora_(up|down|A|B|mid)|[._]lora\.(up|down)\.weight$|lora_linear_layer\.(up|down)"
+                      r"|hada_[wt]|lokr_[wt]|dora_scale|oft_blocks|\.alpha$|\.diff(_b)?$"
+                      r"|\.[wb]_norm$|\.set_weight$)")
 
 # A whole model's own prefixes - a checkpoint Forge's detector did not take.
 _WHOLE_MODEL = ("model.diffusion_model.", "first_stage_model.", "conditioner.",
@@ -214,7 +223,8 @@ def _flux(flat, width) -> Tuple[Optional[str], str]:
 
 def _sd_family(flat, has) -> Tuple[Optional[str], str]:
     """SD 1.x, SD 2.x or SDXL: the cross-attention's context width decides."""
-    context = next((s[-1] for n, s in flat.items() if re.search(r"attn2_to_[kv]", n)
+    # diffusers' attention-processor LoRAs name it attn2.processor.to_k.
+    context = next((s[-1] for n, s in flat.items() if re.search(r"attn2_(processor_)?to_[kv]", n)
                     and s and s[-1] in _CONTEXT_NAMES), None)
     if context:
         return _CONTEXT.get(context), f"cross-attention context {context} wide ({_CONTEXT_NAMES[context]})"

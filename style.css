@@ -3897,7 +3897,9 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
-.mm-delete-note {
+/* A line under a dialog's option saying what it does. */
+.mm-delete-note,
+.mm-dialog-note {
     margin: 8px 0 0;
     font-size: 0.85em;
     color: var(--body-text-color-subdued, #9ca3af);
