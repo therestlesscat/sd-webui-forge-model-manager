@@ -1355,6 +1355,20 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
               weight: r.weight, alias: r.name, hash: hash || null });
     }
 
+    // A chip the infotext names by name alone - no hash, no version, no file -
+    // is the same resource as another chip of its kind whose file has that
+    // name, ignoring case: the file installed, or the one Civitai says the
+    // other's version is. Forge's <lora:name> is the file's name, so the two
+    // are one; merged, the chip keeps the weight only the infotext gave.
+    for (const chip of [...chips.values()]) {
+        if (chip.installed || chip.hash || chip.versionId) continue;
+        const same = [...chips.values()].find((other) => other !== chip && other.kind === chip.kind
+            && (other.installed || other.versionId) && other.name.toLowerCase() === chip.name.toLowerCase());
+        if (!same) continue;
+        if (same.weight === null) same.weight = chip.weight;
+        chips.delete(chip.key);
+    }
+
     let negative = (meta && meta.negativePrompt) || '';
     for (const { from, to } of renames) negative = renameLoraTags(negative, from, to);
     const result = [...chips.values()].map(({ aliases, ...chip }) => {
@@ -1369,15 +1383,18 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
 /**
  * A resource's hash from the image's `hashes`, where its own entry has none:
  * Forge writes {"lora:Ghibli_v6": "58549cc3d3"} there and leaves the
- * resources list without them.
+ * resources list without them. Some write the kind in capitals - "LORA:",
+ * "EMBED:", 5,561 and 35 keys in one library - so its case is ignored; the
+ * name after it has to match as written.
  */
 function resourceHash(meta, resource) {
     const hashes = (meta && meta.hashes) || {};
     const kind = resourceKind(resource.type);
     const prefixes = kind === 'lora' ? ['lora', 'lyco'] : kind === 'embedding' ? ['embed'] : [];
-    for (const prefix of prefixes) {
-        const hash = hashes[`${prefix}:${resource.name}`];
-        if (hash) return hash;
+    for (const [key, hash] of Object.entries(hashes)) {
+        const at = key.indexOf(':');
+        if (hash && at > 0 && key.slice(at + 1) === resource.name
+            && prefixes.includes(key.slice(0, at).toLowerCase())) return hash;
     }
     return '';
 }
