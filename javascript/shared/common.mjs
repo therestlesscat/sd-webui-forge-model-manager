@@ -328,8 +328,10 @@ function showUpdate() {
             version.after(notice);
         }
         notice.href = version.getAttribute('href') || '';
-        notice.textContent = `v${found.latest} available`;
-        notice.title = `Model Manager ${found.latest} is out; this is ${found.current}. ${UPDATE_HELP} `
+        // With its build, as the version beside it has this copy's.
+        const latest = found.build ? `${found.latest}.${found.build}` : found.latest;
+        notice.textContent = `v${latest} available`;
+        notice.title = `Model Manager ${latest} is out; this is ${found.current}. ${UPDATE_HELP} `
             + 'Click for the changelog.';
     });
 }

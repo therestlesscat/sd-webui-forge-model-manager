@@ -9,8 +9,11 @@ branch. Once after the WebUI starts, then every 12 hours, and at once when
 "Check for a new version" is turned on; while it is off, GitHub is asked
 nothing. Offline, or on any failure, nothing is said beyond one line.
 
-version.json holds {"version": "0.41.11", "note": ""}. The note is for later:
-kept, not shown.
+version.json holds {"version": "0.41.12", "build": 254, "note": ""}: the
+version, and the build of the commit that made it - as the header shows this
+copy's, "v0.41.11.253" - written down with the version, as the changelog's
+line is. Versions are compared without it. The note is for later: kept, not
+shown.
 """
 import json
 import threading
@@ -27,7 +30,7 @@ THREAD_NAME = "model-manager-update-check"
 _MAX_BYTES = 64 * 1024
 
 _lock = threading.Lock()
-_latest: Dict[str, object] = {"version": None, "note": "", "ref": None}
+_latest: Dict[str, object] = {"version": None, "build": None, "note": "", "ref": None}
 
 
 def parse_version(text) -> Optional[Tuple[int, ...]]:
@@ -76,8 +79,10 @@ def fetch(ref: str, opener: Callable = urllib.request.urlopen) -> Dict[str, obje
         data = json.loads(response.read(_MAX_BYTES).decode("utf-8"))
     if not isinstance(data, dict) or parse_version(data.get("version")) is None:
         raise ValueError("version.json holds no version")
-    note = data.get("note")
-    return {"version": str(data["version"]).strip(), "note": note if isinstance(note, str) else ""}
+    note, build = data.get("note"), data.get("build")
+    return {"version": str(data["version"]).strip(),
+            "build": build if isinstance(build, int) and not isinstance(build, bool) and build > 0 else None,
+            "note": note if isinstance(note, str) else ""}
 
 
 def check_once(opener: Callable = urllib.request.urlopen) -> Optional[Dict[str, object]]:
@@ -111,6 +116,7 @@ def status() -> Dict[str, object]:
     return {
         "current": VERSION,
         "latest": latest["version"] if on else None,
+        "build": latest["build"] if on else None,
         "newer": on and is_newer(latest["version"]),
         "note": latest["note"] if on else "",
     }

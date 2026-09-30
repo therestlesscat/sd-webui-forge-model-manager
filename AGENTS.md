@@ -236,8 +236,10 @@ Then, in the same commit:
 1. `VERSION` in `model_manager/version.py`, and the same in `version.json` at
    the root: installs read that file from GitHub to learn a newer version is
    out (`model_manager/update_check.py`), so it has to say the version the
-   branch now holds. Its `note` is kept for later and shown nowhere yet.
-   `tests/py/version_test.py` fails when the two differ.
+   branch now holds - and its `build`, the same number as the changelog line
+   below, which the header's notice shows. Its `note` is kept for later and
+   shown nowhere yet. `tests/py/version_test.py` fails when any of them
+   differ.
 2. `CHANGELOG.md`: a line under the latest minor version's heading, newest
    first - `- **0.20.3** (build 203) - What changed.` - where the build is
    the commit's count once committed (`git rev-list --count HEAD`, plus one).

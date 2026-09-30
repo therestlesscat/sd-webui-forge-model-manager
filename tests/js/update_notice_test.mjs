@@ -12,7 +12,7 @@ const HEADER = `<span class="mm-header-actions"><a class="mm-version" href="http
     target="_blank" rel="noopener">v0.41.11</a><button class="mm-settings-btn"></button></span>`;
 document.querySelector('.gen-header').insertAdjacentHTML('beforeend', HEADER);
 
-let update = { success: true, current: '0.41.11', latest: '0.42.0', newer: true, note: '' };
+let update = { success: true, current: '0.41.11', latest: '0.42.0', build: 260, newer: true, note: '' };
 let asked = 0;
 const redraws = [];
 globalThis.onAfterUiUpdate = (callback) => redraws.push(callback);
@@ -34,7 +34,7 @@ await waitFor('the notice', () => notice());
 check('beside the version, the version out, linking where the version does - the changelog',
       [notice().previousElementSibling?.className, notice().textContent, notice().getAttribute('href'),
        notice().target],
-      ['mm-version', 'v0.42.0 available', 'https://example.test/CHANGELOG.md', '_blank']);
+      ['mm-version', 'v0.42.0.260 available', 'https://example.test/CHANGELOG.md', '_blank']);
 check('its tooltip says how to update', /Extensions -> Check for updates/.test(notice().title), true);
 check('asked once for the page, however many tabs', asked, 1);
 
@@ -43,6 +43,13 @@ document.querySelector('.gen-header .mm-header-actions').outerHTML = HEADER;
 check('a redraw takes it away', notice(), null);
 redraws.forEach((callback) => callback());
 check('and after the redraw it is back, once', document.querySelectorAll('.gen-header .mm-update').length, 1);
+
+// A version.json from before the build was written down: the version alone.
+update = { success: true, current: '0.41.11', latest: '0.42.0', build: null, newer: true, note: '' };
+window.dispatchEvent(new window.CustomEvent('mm-settings-saved',
+    { detail: { changed: ['model_manager_check_updates'], settings: {} } }));
+await waitFor('the version alone', () => notice()?.textContent === 'v0.42.0 available');
+check('without a build, the version alone', notice().textContent, 'v0.42.0 available');
 
 // Turned off in the settings window: the server says nothing is newer.
 update = { success: true, current: '0.41.11', latest: null, newer: false, note: '' };
