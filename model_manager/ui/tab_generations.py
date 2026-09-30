@@ -28,18 +28,17 @@ def create_generations_ui():
                      tabs' banners are: the switches, Back, the banner. -->
                 <div class="gen-sticky-head">
                 <div class="gen-toolbar">
-                    <label class="gen-view-switch" title="Gather images that share something, whatever generation they are of">
+                    <!-- Group by: a menu, each grouping with a "then by" list beside
+                         it, filled by generations.mjs -->
+                    <span class="gen-view-switch gen-group-menu" title="Gather images that share something, whatever generation they are of">
                         Group by
-                        <select id="gen_group_by" onchange="window.genSetGroupBy(this.value)">
-                            <option value="">Nothing</option>
-                            <option value="prompt_written">Prompt, as written</option>
-                            <option value="prompt">Prompt, as generated</option>
-                            <option value="model">Model</option>
-                            <option value="loras">LoRA combination</option>
-                            <option value="size">Size</option>
-                            <option value="day">Day</option>
-                        </select>
-                    </label>
+                        <!-- The list opens under the button, from its left edge -->
+                        <span class="gen-group-anchor">
+                            <button type="button" id="gen_group_by" class="gen-group-button"
+                                    aria-haspopup="true" aria-expanded="false">Nothing</button>
+                            <div class="gen-group-list gen-menu-panel" hidden></div>
+                        </span>
+                    </span>
                     <label class="gen-view-switch" title="Every tile the same size, strictly newest first: wide images are cropped to a single column rather than a later tile filling in beside them">
                         <input type="checkbox" id="gen_preserve_order" onchange="window.genSetPreserveOrder(this.checked)">
                         Preserve order

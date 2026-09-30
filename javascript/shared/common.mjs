@@ -327,12 +327,13 @@ function showUpdate() {
             notice.rel = 'noopener';
             version.after(notice);
         }
-        notice.href = version.getAttribute('href') || '';
+        const href = version.getAttribute('href') || '';
+        if (notice.getAttribute('href') !== href) notice.href = href;
         // With its build, as the version beside it has this copy's.
         const latest = found.build ? `${found.latest}.${found.build}` : found.latest;
-        notice.textContent = `v${latest} available`;
-        notice.title = `Model Manager ${latest} is out; this is ${found.current}. ${UPDATE_HELP} `
-            + 'Click for the changelog.';
+        setText(notice, `v${latest} available`);
+        setTitle(notice, `Model Manager ${latest} is out; this is ${found.current}. ${UPDATE_HELP} `
+            + 'Click for the changelog.');
     });
 }
 
@@ -558,6 +559,21 @@ export async function apiCall({ endpoint, params = {} }) {
  * data-open-url below.
  */
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/**
+ * Put text in an element, or a title on it, only if it differs. An
+ * onAfterUiUpdate callback runs 250 ms after any change to the page, so one
+ * that writes the same text again changes the page, and schedules itself
+ * again - forever, four times a second, and every extension's callbacks with
+ * it (quiet_updates_test.mjs).
+ */
+export function setText(element, text) {
+    if (element && element.textContent !== text) element.textContent = text;
+}
+
+export function setTitle(element, title) {
+    if (element && element.title !== title) element.title = title;
+}
 
 export function escapeHtml(text) {
     if (!text) return '';

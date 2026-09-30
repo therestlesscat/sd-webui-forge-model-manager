@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.42 - Grouping in two levels
+
+*30 September 2026*
+
+The Generations tab groups by two things at once - a model, then the prompts used with it; a day, then the models - from a Group by menu that opens each grouping's "then by" list beside it. The first grouping is a header row across the grid, the second its groups under it, and a group opens straight onto its batches.
+
+- **0.42.0** (build 257) - Group by two things in the Generations tab. Group by is a menu: a click on a grouping groups by it; its "then by" list, on hover, adds a second, any of the other five. Grouped twice, the grid is in sections - a header row per group of the first, with how many groups and images it holds, and the second's groups under it - and a group opens onto its batches, Back one level at a time; Select is hidden among groups. Also: four of the extension's after-update callbacks rewrote their text every time - the Group by button, the new-version notice and both SFW banners - and each rewrite made the WebUI run every callback again, four times a second, without end. They now write only what changed.
+
 ## 0.41 - Notes to you, per release
 
 *30 September 2026*
