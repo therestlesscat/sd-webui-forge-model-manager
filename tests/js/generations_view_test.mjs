@@ -25,11 +25,23 @@ const img = (id, generation, position, level = 1) => ({
     url: `/model-manager/generations/images/${id}/file`, exists: true,
     mm_level: level, mm_level_from_prompt: level > 1, user_level: null, prompt_level: level,
 });
-// Newest first: G3 of five (one X), G2 of one, G1 of three.
+// The files a menu names, as the server's file_ref() gives them (#42): by
+// version and model; a path only for a file Civitai does not know.
+const ANIMA_PATH = 'C:/models/Stable-diffusion/anima.safetensors';
+const ANIMA = { path: ANIMA_PATH, name: 'anima', in_library: true, version_id: 701, model_id: 70, model_name: 'Anima' };
+const ANIMA_UNKNOWN = { ...ANIMA, version_id: null, model_id: null, model_name: null };
+const DETAIL = { path: 'C:/models/Lora/detail.safetensors', name: 'detail', in_library: true, version_id: 801,
+                 model_id: 80, model_name: 'Detail' };
+const GONE = { path: 'C:/models/Lora/gone.safetensors', name: 'gone', in_library: false, version_id: null,
+               model_id: null, model_name: null };
+// Newest first: G3 of five (one X), G2 of one, G1 of three. Image 31's own
+// checkpoint is one Civitai does not know.
 let generations = [
     { generation: { id: 3, mode: 'txt2img', created_at: '2026-09-28T20:00:00', image_count: 5,
-                    checkpoint_path: 'C:/models/Stable-diffusion/anima.safetensors' },
-      images: [img(31, 3, 0), img(32, 3, 1, 8), img(33, 3, 2), img(34, 3, 3), img(35, 3, 4)] },
+                    checkpoint_path: ANIMA_PATH },
+      checkpoint: ANIMA, loras: [DETAIL, GONE],
+      images: [{ ...img(31, 3, 0), checkpoint: ANIMA_UNKNOWN }, img(32, 3, 1, 8), img(33, 3, 2), img(34, 3, 3),
+               img(35, 3, 4)] },
     { generation: { id: 2, mode: 'img2img', created_at: '2026-09-28T19:00:00', image_count: 1 },
       images: [{ ...img(21, 2, 0), width: 1216, height: 832 }] },
     { generation: { id: 1, mode: 'txt2img', created_at: '2026-09-28T18:00:00', image_count: 3 },
@@ -61,9 +73,13 @@ function browse(params) {
     }
     const tiles = [...units.entries()].map(([unit, rs]) => ({
         kind, generation: rs[0].g.generation, matching_count: rs.length,
-        images: rs.slice(0, 4).map((r) => ({ ...r.i, checkpoint_path: r.g.generation.checkpoint_path })),
+        images: rs.slice(0, 4).map((r) => ({ ...r.i, checkpoint_path: r.g.generation.checkpoint_path,
+                                             checkpoint: r.i.checkpoint || r.g.checkpoint || null,
+                                             loras: r.g.loras || [] })),
         checkpoint_path: new Set(rs.map((r) => r.g.generation.checkpoint_path)).size === 1
             ? rs[0].g.generation.checkpoint_path : null,
+        checkpoint: new Set(rs.map((r) => r.g.generation.checkpoint_path)).size === 1 ? rs[0].g.checkpoint || null : null,
+        loras: rs[0].g.loras || [],
         level: new Set(rs.map((r) => r.i.mm_level)).size === 1 ? rs[0].i.mm_level : null,
         user_level: new Set(rs.map((r) => r.i.user_level)).size === 1 ? rs[0].i.user_level : null,
         ...(kind === 'group' ? { group: { id: unit, value: unit, latest: rs[0].g.generation.created_at,
@@ -136,6 +152,10 @@ const sent = [];
 window.mmSendInfotext = (what) => { sent.push(what); return true; };
 const shownFiles = [];
 window.mmShowFile = (path) => { shownFiles.push(path); };
+const shownVersions = [];
+window.mmShowVersion = (id) => { shownVersions.push(id); };
+const civitaiAsked = [];
+window.mmOpenInCivitaiBrowser = (query) => { civitaiAsked.push(query); };
 
 // This DOM has no layout: the end of the grid is put where the test says,
 // far below the window until it is scrolled to.
@@ -228,20 +248,31 @@ check('the banner counts what is stored, and what the NSFW switch hides',
 // Manager, when its images share one checkpoint.
 const menuEl = () => document.querySelector('.gen-menu');
 const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
-const ANIMA = 'C:/models/Stable-diffusion/anima.safetensors';
 check('a tile whose images share a checkpoint has ⋯; one with no checkpoint recorded has none',
       tileEls().map((t) => !!t.querySelector('.gen-menu-btn')), [true, false]);
 check('its NSFW badge moved to the left, out of ⋯\'s way: the tab\'s stylesheet says so',
       /\.gen-media \.mm-nsfw-badge \{[^}]*left: 6px/.test(readFileSync(`${ROOT}/style.css`, 'utf8')), true);
 window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
-check('⋯ opens a menu, its first item the model in the Model Manager',
-      Array.from(menuEl()?.querySelectorAll('button') || []).map((b) => b.textContent.trim()),
-      ['Show model in Model Manager']);
+const items = () => Array.from(menuEl()?.querySelectorAll('button') || []).map((b) => [b.textContent.trim(), b.disabled]);
+check('⋯ opens a menu: the model in the Model Manager and the Civitai Browser, then each LoRA - '
+      + 'one the library no longer has greyed',
+      items(), [['Show model in Model Manager', false], ['Show model in Civitai Browser', false],
+                ['Show LoRA detail in Model Manager', false], ['Show LoRA gone in Model Manager', true]]);
+check('the greyed one says why', menuEl().querySelectorAll('button')[3].getAttribute('title'),
+      'gone is not in the library: deleted, moved, or never scanned');
+click(menuEl().querySelectorAll('button')[3]);
+check('and does nothing', [menuEl() !== null, shownVersions, shownFiles], [true, [], []]);
 key('Escape');
 check('Esc closes it', menuEl(), null);
 window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
 click(menuEl().querySelector('button'));
-check('and the item shows the checkpoint\'s own file there', [shownFiles, menuEl()], [[ANIMA], null]);
+check('the model is asked for by its version, not its file', [shownVersions, shownFiles, menuEl()], [[701], [], null]);
+window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+click(menuEl().querySelectorAll('button')[1]);
+check('and in the Civitai Browser by its model and version', civitaiAsked, ['model:70 version:701']);
+window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+click(menuEl().querySelectorAll('button')[2]);
+check('a LoRA by its own version', shownVersions, [701, 801]);
 
 // ---------------------------------------------------------------- the viewer
 // An image over the page, ← and → through every image in the grid's order -
@@ -263,8 +294,8 @@ check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorA
       .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
 click(viewer().querySelector('[data-gen-menu]'));
 click(menuEl().querySelector('button'));
-check('⋯ in the viewer shows the image\'s own checkpoint, closing the viewer',
-      [shownFiles.at(-1), viewer()], [ANIMA, null]);
+check('⋯ in the viewer shows the image\'s own checkpoint - one Civitai does not know, by its file - closing the viewer',
+      [shownFiles.at(-1), viewer()], [ANIMA_PATH, null]);
 await window.genView(0, 0);
 check('nothing before the first', viewer().querySelector('.mm-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();

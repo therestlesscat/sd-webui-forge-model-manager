@@ -55,6 +55,25 @@ class GenerationsOps:
     def __init__(self, cursor_factory: Callable):
         self._cursor = cursor_factory
 
+    def library_files(self, paths: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        What the library knows of each of these files, by the path as given:
+        {version_id, model_id, model_name} - the ids None for a file Civitai
+        does not know - and nothing for a path the library does not hold.
+        Once per path, ignoring case, as library_spelling() does.
+        """
+        found: Dict[str, Dict[str, Any]] = {}
+        with self._cursor() as cursor:
+            for path in {p for p in paths if p}:
+                cursor.execute(
+                    "SELECT v.id, v.model_id, m.name FROM model_versions v "
+                    "LEFT JOIN civitai_models m ON m.id = v.model_id "
+                    "WHERE v.file_path = ? COLLATE NOCASE LIMIT 1", (path,))
+                row = cursor.fetchone()
+                if row:
+                    found[path] = {"version_id": row[0], "model_id": row[1], "model_name": row[2]}
+        return found
+
     def library_spelling(self, paths: Iterable[str]) -> Dict[str, str]:
         """
         Each path as model_versions spells it, for the files it holds.

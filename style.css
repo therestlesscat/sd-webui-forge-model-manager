@@ -3842,6 +3842,13 @@ textarea.mm-settings-input {
     background: rgba(127, 127, 127, 0.18) !important;
 }
 
+/* An item that cannot be followed - a model no longer in the library - says why on hover. */
+.gen-menu button:disabled {
+    opacity: 0.5;
+    cursor: default;
+    background: transparent !important;
+}
+
 /* Group by: a button showing the grouping, opening its list below it; each
    grouping's "then by" list opens beside it, on hover or a click. */
 /* The list is placed from the button, not from "Group by" before it. */

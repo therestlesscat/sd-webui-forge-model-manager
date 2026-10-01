@@ -99,6 +99,31 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return resources
 
 
+def _lora_paths(row: Dict[str, Any]) -> List[str]:
+    """The files of the LoRAs an image used, as its row records them."""
+    try:
+        loras = json.loads(row.get("loras") or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [l["path"] for l in loras if isinstance(l, dict) and l.get("path")]
+
+
+def file_ref(path: Optional[str], known: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    A model file as the page's menus name it: by version and model where
+    Civitai knows it, so another tab is asked for those, not a path - the
+    path is kept only for a file it does not know, which has nothing else.
+    `in_library` is False for a file the library no longer has.
+    """
+    if not path:
+        return None
+    entry = known.get(path)
+    return {"path": path, "name": os.path.splitext(os.path.basename(path))[0],
+            "in_library": entry is not None,
+            "version_id": (entry or {}).get("version_id"), "model_id": (entry or {}).get("model_id"),
+            "model_name": (entry or {}).get("model_name")}
+
+
 def _image(row: Dict[str, Any]) -> Dict[str, Any]:
     """An image as the page draws one: its generation data as a Civitai
     image's meta, its level stamped as every image the page gets is."""
@@ -434,6 +459,14 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     part = order[(page - 1) * size:page * size]
 
     previews = {key: units[key][:PREVIEW_IMAGES] for key in part}
+    # The files the menus name - each checkpoint and LoRA these tiles used -
+    # looked up in the library once each.
+    known = db.generation_library_files(
+        {r.get("checkpoint_path") for key in part for r in units[key]}
+        | {p for key in part for r in units[key] for p in _lora_paths(r)})
+
+    def loras_of(rows):
+        return [file_ref(p, known) for p in dict.fromkeys(p for r in rows for p in _lora_paths(r))]
     images = db.get_generation_images([r["id"] for rs in previews.values() for r in rs])
     generations = db.get_generations(list(dict.fromkeys(r["generation_id"] for rs in previews.values()
                                                         for r in rs)))
@@ -446,10 +479,14 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
         tile = {
             "kind": kind,
             "generation": {k: generation_row.get(k) for k in TILE_FIELDS},
-            "images": [{**_image(images[r["id"]]), "checkpoint_path": r.get("checkpoint_path")}
+            "images": [{**_image(images[r["id"]]), "checkpoint_path": r.get("checkpoint_path"),
+                        "checkpoint": file_ref(r.get("checkpoint_path"), known), "loras": loras_of([r])}
                        for r in previews[key] if r["id"] in images],
             "matching_count": len(units[key]),
             "checkpoint_path": next(iter(checkpoints)) if len(checkpoints) == 1 else None,
+            # For its ⋯ menu: the checkpoint, if its images share one, and every LoRA they used.
+            "checkpoint": file_ref(next(iter(checkpoints)), known) if len(checkpoints) == 1 else None,
+            "loras": loras_of(units[key]),
             **shared_levels(units[key]),
         }
         if kind == "group":

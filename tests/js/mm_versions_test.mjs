@@ -202,6 +202,11 @@ check('   (v1 shown first, so the file has to be found)', active(), ['v1 ✓']);
 await window.mmShowFile('C:/models/v3.safetensors');
 check('10. a file shown from another tab is looked up by its exact path, and its own version opened',
       [searched.at(-1), active(), detailsAsked.at(-1)], ['path:C:/models/v3.safetensors', ['v3 ✓'], 'C:/models/v3.safetensors']);
+// By its version, as the Generations tab now asks (#42): no path passed about.
+await click(pill('v1'));
+await window.mmShowVersion(503);
+check('11. a version shown from another tab is looked up by its id, and opened',
+      [searched.at(-1), active()], ['version:503', ['v3 ✓']]);
 globalThis.fetch = realFetch;
 
 // -------------------------------------------------- nothing recorded yet
