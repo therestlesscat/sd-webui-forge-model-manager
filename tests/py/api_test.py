@@ -79,6 +79,14 @@ check('filtering by type', body.get('total'), fixtures.CHECKPOINTS)
 code, body = get('/model-manager/models', type='LORA')
 check('and by another type', body.get('total'), fixtures.LORAS)
 
+# By file size, in GB (#40): every fixture file is a few bytes.
+code, body = get('/model-manager/models', min_size_gb='1')
+check('a file size range reaches the query: from 1 GB, nothing here', body.get('total'), 0)
+code, body = get('/model-manager/models', max_size_gb='1')
+check('up to 1 GB, everything', body.get('total'), fixtures.MODELS + fixtures.LOCAL_ONLY)
+code, body = get('/model-manager/models', min_size_gb='abc', max_size_gb='-2')
+check('and what is not a size is no filter', body.get('total'), fixtures.MODELS + fixtures.LOCAL_ONLY)
+
 code, body = get('/model-manager/models', checkpoint_type='Trained')
 check('by trained checkpoints', body.get('total'), fixtures.TRAINED)
 code, body = get('/model-manager/models', checkpoint_type='Merge')

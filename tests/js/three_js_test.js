@@ -93,7 +93,7 @@ check('isPaid true for both',
       isPaid({ paid_access: { permanent: true } }) && isPaid({ paid_access: { permanent: false, ends_at: 'x' } }));
 
 // --- getFilters: checkpoint_type only for checkpoints ------------------------
-sandbox.sizeBound = lift('sizeBound');     // getFilters reads the size boxes through it
+// getFilters reads the size boxes through sizeBound, which common.mjs, loaded above, has.
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 const getFilters = lift('getFilters');
 const group = makeGroup();

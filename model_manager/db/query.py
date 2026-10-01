@@ -103,6 +103,8 @@ def query_models_grouped(
     has_civitai: Optional[bool] = None,
     is_bookmarked: Optional[bool] = None,
     min_versions: Optional[int] = None,
+    min_size_gb: Optional[float] = None,
+    max_size_gb: Optional[float] = None,
     sort_by: str = "file_modified",
     sort_order: str = "desc",
     limit: int = 50,
@@ -127,9 +129,20 @@ def query_models_grouped(
             the rest, None for all.
         counts: filled, if given, with how many cards match the filters in
             each tab: {"pinned": n, "others": m}, whichever tab is asked for.
+        min_size_gb, max_size_gb: the file's size, in GB of 1024^3 bytes as
+            the page shows sizes; either end may be left open. A model shows
+            if any of its local files is in range, with the newest that is -
+            as with every filter on a version.
     """
     conditions = []
     params = []
+
+    # The library knows every file's size: exact, and paged as any filter.
+    # (The Civitai Browser cannot ask Civitai for this, and checks results.)
+    for bound, op in ((min_size_gb, ">="), (max_size_gb, "<=")):
+        if bound is not None and bound > 0:
+            conditions.append(f"v.file_size {op} ?")
+            params.append(int(bound * 1024 ** 3))
 
     # Build WHERE conditions for versions
     if search:

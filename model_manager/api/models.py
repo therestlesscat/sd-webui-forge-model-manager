@@ -120,6 +120,9 @@ def register(app: FastAPI):
         has_civitai: str = "",
         is_bookmarked: Optional[bool] = None,  # None = all, True = bookmarked only
         min_versions: str = "",  # Minimum number of local versions
+        # The file's size, in GB (1024^3 bytes); either may be left empty
+        min_size_gb: str = "",
+        max_size_gb: str = "",
         preview_least_nsfw: Optional[bool] = None,  # None = use setting, True/False = override
         commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
         # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
@@ -218,6 +221,13 @@ def register(app: FastAPI):
                 except ValueError:
                     pass
 
+            def size_bound(value: str) -> Optional[float]:
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    return None
+                return number if number > 0 else None
+
             # Get preview setting - use parameter if provided, otherwise use setting
             if preview_least_nsfw is None:
                 preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
@@ -236,6 +246,8 @@ def register(app: FastAPI):
                 has_civitai=True if has_civitai == "Yes" else (False if has_civitai == "No" else None),
                 is_bookmarked=is_bookmarked,
                 min_versions=min_versions_int,
+                min_size_gb=size_bound(min_size_gb),
+                max_size_gb=size_bound(max_size_gb),
                 commercial_use=commercial_use if commercial_use else None,
                 allow_derivatives=allow_derivatives or None,
                 allow_different_license=allow_different_license or None,

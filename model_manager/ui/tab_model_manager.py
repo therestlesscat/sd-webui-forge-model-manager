@@ -172,6 +172,14 @@ def create_ui():
                                 <label>Min Versions</label>
                                 <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">
                             </div>
+                            <div class="filter-group filter-group-compact" title="The model file's size. A model shows if any of its local files is in range, with the newest that is. Either end can be left empty.">
+                                <label>File Size (GB)</label>
+                                <div class="filter-range">
+                                    <input type="number" id="mm_min_size" min="0" step="0.1" placeholder="Min">
+                                    <span>-</span>
+                                    <input type="number" id="mm_max_size" min="0" step="0.1" placeholder="Max">
+                                </div>
+                            </div>
                         </div>
                         <div class="filter-row">
                             <div class="filter-group">

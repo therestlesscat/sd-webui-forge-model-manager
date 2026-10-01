@@ -275,6 +275,31 @@ check('two with no date at all tie too, and go as Civitai lists them', card_vers
 with db._cursor() as cursor:
     cursor.execute("UPDATE model_versions SET published_at = ? WHERE id IN (?, ?)", (published, low, high))
 
+# ----------------------------------------------------- by file size (#40)
+# In GB of 1024^3 bytes, either end open. A model shows if any of its local
+# files is in range, with the newest that is - as with every version filter.
+GB = 1024 ** 3
+with db._cursor() as cursor:
+    cursor.execute("UPDATE model_versions SET file_size = ? WHERE id = ?", (2 * GB, low))
+    cursor.execute("UPDATE model_versions SET file_size = ? WHERE id = ?", (6 * GB, high))
+
+
+def sized(**kw):
+    rows = query(**kw)[0]
+    # (A file the library knows only by its path has no version id.)
+    return [r['id'] for r in sorted(rows, key=lambda r: r['file_path'])], \
+        {r['id'] for r in rows if r['model_id'] == model_id}
+
+
+check('from 5 GB: only the 6 GB file\'s card - every fixture file is tiny',
+      sized(min_size_gb=5), ([high], {high}))
+check('up to 3 GB: the model shows by its 2 GB file, the newest in range',
+      [model_id in {r['model_id'] for r in query(max_size_gb=3)[0]}, sized(max_size_gb=3)[1]], [True, {low}])
+check('both in range: the one shown without the filter', sized(min_size_gb=1, max_size_gb=10)[1], {card_version()})
+check('none in range: no card', sized(min_size_gb=7), ([], set()))
+check('the count agrees with the page', query(min_size_gb=1, max_size_gb=10)[1], 1)
+check('half a GB is half a GB', sized(min_size_gb=1.5, max_size_gb=2.5)[0], [low])
+
 from model_manager.db.migrations import run_migrations   # noqa: E402
 bare = sqlite3.connect(':memory:')
 cur = bare.cursor()

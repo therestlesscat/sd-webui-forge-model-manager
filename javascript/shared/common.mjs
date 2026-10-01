@@ -1900,6 +1900,16 @@ export function refreshWebUiModelList() {
  * measured them (DownloadProgress.rate): "12.4 MB/s · about 5 min left", or
  * "stalled" - never "0 B/s" - and nothing while there is nothing to say yet.
  */
+/**
+ * A file size box's value in GB, or '' when it is empty or not a positive
+ * number - which apiCall and the stream both leave out of the request. Both
+ * tabs' File Size filters.
+ */
+export function sizeBound(id) {
+    const value = parseFloat(document.getElementById(id)?.value);
+    return Number.isFinite(value) && value > 0 ? value : '';
+}
+
 /** Bytes a second as a person reads them: "12.4 MB", "800 KB" - one decimal, none when it is 0. */
 function formatSpeed(bytes) {
     const [unit, size] = [['GB', 1073741824], ['MB', 1048576], ['KB', 1024]].find(([, s]) => bytes >= s)
