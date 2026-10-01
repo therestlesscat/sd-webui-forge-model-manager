@@ -60,6 +60,26 @@ export function dialogShowing() {
         .some((element) => element.isConnected && !element.hidden && element.style.display !== 'none');
 }
 
+/**
+ * Close this element on Escape, and only it: the key is taken before any
+ * other listener sees it, so one Escape closes one thing. The tabs used to
+ * listen on the page and close the first modal on it, whichever tab had
+ * made it - and the Civitai Browser its open model as well.
+ */
+export function closeOnEscape(element, close) {
+    const onEscape = (event) => {
+        if (!element.isConnected) {
+            document.removeEventListener('keydown', onEscape, true);
+            return;
+        }
+        if (event.key !== 'Escape') return;
+        event.stopPropagation();
+        document.removeEventListener('keydown', onEscape, true);
+        close();
+    };
+    document.addEventListener('keydown', onEscape, true);
+}
+
 /** Whether a viewer is open - any tab's. */
 export function viewerIsOpen() {
     return !!document.querySelector('.mm-viewer');

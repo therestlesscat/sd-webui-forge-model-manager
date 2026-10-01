@@ -97,6 +97,7 @@ const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
 viewerModule.search = sharedModule.search;
 const {
     openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll,
+    closeOnEscape,
 } = await import(viewerModule.href);
 
 // The settings window behind the gear in the header, asked for with this
@@ -3112,7 +3113,7 @@ window.mmShowImageMeta = function(imageIndex) {
 
     // Create modal
     const modalHtml = `
-        <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
+        <div class="mm-modal-overlay" id="mm_meta_modal" onclick="window.mmCloseMetaModal(event)">
             <div class="mm-modal" onclick="event.stopPropagation()">
                 <div class="mm-modal-header">
                     <h3>Image Metadata</h3>
@@ -3129,20 +3130,23 @@ window.mmShowImageMeta = function(imageIndex) {
         </div>
     `;
 
-    // Remove existing modal if any
-    const existingModal = document.querySelector('.mm-modal-overlay');
-    if (existingModal) existingModal.remove();
+    openMetaModal(modalHtml);
+};
 
-    // Add modal to body and lock scroll
+/** Show this tab's modal - the metadata or the Resources - in place of the last; Esc closes it. */
+function openMetaModal(modalHtml) {
+    document.getElementById('mm_meta_modal')?.remove();
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     document.body.classList.add('mm-modal-open');
-};
+    const modal = document.getElementById('mm_meta_modal');
+    closeOnEscape(modal, () => window.mmCloseMetaModal());
+}
 
 // Close metadata modal
 window.mmCloseMetaModal = function(event) {
     // If called with event, only close if clicking overlay (not modal content)
     if (event && event.target !== event.currentTarget) return;
-    const modal = document.querySelector('.mm-modal-overlay');
+    const modal = document.getElementById('mm_meta_modal');
     if (modal) {
         modal.remove();
         document.body.classList.remove('mm-modal-open');
@@ -3470,7 +3474,7 @@ function renderResourcesModal(resources, pending = 0) {
         : '';
 
     const modalHtml = `
-        <div class="mm-modal-overlay" onclick="window.mmCloseMetaModal(event)">
+        <div class="mm-modal-overlay" id="mm_meta_modal" onclick="window.mmCloseMetaModal(event)">
             <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
                 <div class="mm-modal-header">
                     <h3>Resources</h3>
@@ -3494,11 +3498,7 @@ function renderResourcesModal(resources, pending = 0) {
         </div>
     `;
 
-    const existingModal = document.querySelector('.mm-modal-overlay');
-    if (existingModal) existingModal.remove();
-
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    document.body.classList.add('mm-modal-open');
+    openMetaModal(modalHtml);
 }
 
 // ------------------------------------------- downloading from the dialog
@@ -3634,13 +3634,6 @@ function pollResourceDownloads() {
         redrawResourceChips();
     }, TIMING.poll);
 }
-
-// Close modal on Escape key
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        window.mmCloseMetaModal();
-    }
-});
 
 // Load the next page, filled from Civitai first if the library cannot fill it.
 window.mmLoadMoreImages = async function() {

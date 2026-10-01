@@ -207,4 +207,19 @@ localStorage.setItem('mm_scroll_target', '#mm_images .mm-image-card[data-index="
 window.mmRestoreScrollPosition();
 check('or, with that card no longer drawn, the page where it was', [intoView.length, scrolls[0]?.top], [1, 1234]);
 
+// Escape closes this tab's own modal, not another tab's (#83): all three tabs
+// are one page, and the first .mm-modal-overlay on it was closed - opening one
+// removed it too - whichever tab had made it.
+const foreign = document.createElement('div');
+foreign.className = 'mm-modal-overlay';
+foreign.id = 'another_tabs_modal';
+document.body.prepend(foreign);
+const own = () => Array.from(document.querySelectorAll('.mm-modal-overlay')).filter((m) => m.id !== 'another_tabs_modal');
+window.mmShowImageMeta(0);
+check('the metadata modal opens, leaving another tab\'s in place',
+      [own().length, !!document.getElementById('another_tabs_modal')], [1, true]);
+key('Escape');
+check('and Esc closes it, and only it', [own().length, !!document.getElementById('another_tabs_modal')], [0, true]);
+foreign.remove();
+
 done();

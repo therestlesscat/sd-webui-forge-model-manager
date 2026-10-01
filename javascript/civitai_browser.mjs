@@ -85,7 +85,7 @@ const {
 // The image viewer every gallery opens, asked for with this script's version.
 const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
 viewerModule.search = sharedModule.search;
-const { openViewer, cardSource } = await import(viewerModule.href);
+const { openViewer, cardSource, closeOnEscape, dialogShowing, viewerIsOpen } = await import(viewerModule.href);
 
 // The settings window behind the gear in the header, asked for with this
 // script's version as the shared module is.
@@ -1452,8 +1452,10 @@ window.cbShowImageMeta = function(index) {
     const metaStr = JSON.stringify(meta, null, 2);
 
     // Create modal
+    document.getElementById('cb_meta_modal')?.remove();
     const modal = document.createElement('div');
     modal.className = 'mm-modal-overlay';
+    modal.id = 'cb_meta_modal';
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
     modal.innerHTML = `
         <div class="mm-modal">
@@ -1470,6 +1472,7 @@ window.cbShowImageMeta = function(index) {
         </div>
     `;
     document.body.appendChild(modal);
+    closeOnEscape(modal, () => modal.remove());
 };
 
 // ------------------------------------------------------------ resources
@@ -1864,20 +1867,19 @@ function init() {
     // Stop retrying after 10 seconds
     setTimeout(() => clearInterval(initRetry), 10000);
 
+    // Esc closes the tag suggestions, then the open model - this tab's, while
+    // it is the one showing and nothing is open over it. A dialog or a viewer
+    // closes itself (closeOnEscape); this used to close the first modal on
+    // the page whatever tab it was, and the open model with any Escape.
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            // Close tag dropdown first
+        if (e.key !== 'Escape' || dialogShowing() || viewerIsOpen()) return;
+        if (document.getElementById('cb_grid')?.offsetParent === null) return;
+        if (tagSuggestions.length) {
             tagSuggestions = [];
             renderTagDropdown();
-
-            // Close any open modals
-            const modal = document.querySelector('.mm-modal-overlay');
-            if (modal) {
-                modal.remove();
-            } else {
-                closeDetails();
-            }
+            return;
         }
+        closeDetails();
     });
 
     console.log('[CivitaiBrowser] Ready');
