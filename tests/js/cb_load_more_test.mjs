@@ -147,5 +147,7 @@ check('→ the next card\'s image', viewer()?.querySelector('.mm-viewer-image')?
       cards()[1].querySelector('.mm-image-left').getAttribute('data-viewer-url'));
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
 check('and Esc closes it', viewer(), null);
+check('only it: the model\'s details stay open behind it (#83)',
+      document.getElementById('cb_details').style.display !== 'none', true);
 
 done();
