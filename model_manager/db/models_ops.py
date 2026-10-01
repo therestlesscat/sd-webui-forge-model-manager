@@ -337,8 +337,12 @@ class ModelsOps:
                     base_model = COALESCE(excluded.base_model, model_versions.base_model),
                     published_at = COALESCE(excluded.published_at, model_versions.published_at),
                     created_at = COALESCE(excluded.created_at, model_versions.created_at),
-                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, 64),
-                                          model_versions.nsfw_level),
+                    -- A file with no Civitai data comes in as PG, to be
+                    -- visible when new; that is no reading of the level.
+                    nsfw_level = CASE WHEN excluded.has_civitai_data = 0
+                                      THEN model_versions.nsfw_level
+                                      ELSE COALESCE(NULLIF(excluded.nsfw_level, 64),
+                                                    model_versions.nsfw_level) END,
                     trained_words = COALESCE(NULLIF(excluded.trained_words, '[]'),
                                              model_versions.trained_words),
                     description = COALESCE(excluded.description, model_versions.description),

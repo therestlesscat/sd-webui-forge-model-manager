@@ -262,6 +262,28 @@ check('a bookmarked one keeps its model row, not the images of a file that is go
 check('and every other model still has its row',
       all(db.get_civitai_model(i) for i in facts['lora_ids'] + facts['checkpoint_ids']), True)
 
+# --------------------------------------------- a scan that knows nothing new
+# A scan with no level to read keeps the one a sync stored. It used to write
+# PG over it: a synced X version whose sidecar went missing, or whose sidecar
+# listed no versions, became PG, and showed under a PG filter.
+X = 16
+synced = os.path.join(models_dir, 'Lora', 'synced_x.safetensors')
+io.open(synced, 'wb').write(b'\0' * 64)
+db.upsert_version({'file_path': synced, 'file_name': 'synced_x.safetensors', 'file_extension': '.safetensors',
+                   'id': 81001, 'has_civitai_data': True, 'nsfw_level': X})
+scan.scan_models(directories=[models_dir])
+check('a synced version rescanned with no sidecar keeps its level', db.get_version(synced)['nsfw_level'], X)
+
+fixtures.sidecar(synced, {"id": 81000, "name": "No Versions", "type": "LORA", "modelVersions": []})
+scan.scan_models(directories=[models_dir])
+check('and with a sidecar that lists no versions', db.get_version(synced)['nsfw_level'], X)
+
+new_bare = os.path.join(models_dir, 'Lora', 'never_seen.safetensors')
+io.open(new_bare, 'wb').write(b'\0' * 64)
+scan.scan_models(directories=[models_dir])
+check('a file the library has never seen, with no sidecar, is still stored as PG - visible',
+      db.get_version(new_bare)['nsfw_level'], 1)
+
 # ------------------------------------------------------------------ cancelling
 scan.cancel()
 check('cancelling is remembered', scan._cancel_requested, True)
