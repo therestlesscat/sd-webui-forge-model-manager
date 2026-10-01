@@ -284,6 +284,38 @@ scan.scan_models(directories=[models_dir])
 check('a file the library has never seen, with no sidecar, is still stored as PG - visible',
       db.get_version(new_bare)['nsfw_level'], 1)
 
+# ------------------------------------------------- every folder a download uses
+# Downloads are filed into ESRGAN, ControlNet, Poses, Wildcards and more; the
+# scan walked only Stable-diffusion, Lora and VAE, and its diff forgot each
+# downloaded upscaler as a file gone from disk.
+from modules import paths as _paths                       # noqa: E402
+_paths.models_path = models_dir
+for name in ('ESRGAN', 'ControlNet', 'Wildcards'):
+    os.makedirs(os.path.join(models_dir, name), exist_ok=True)
+walked = [os.path.normcase(d) for d in scan._get_model_directories()]
+check('the scan walks every folder a download files into',
+      [os.path.normcase(os.path.join(models_dir, n)) in walked for n in ('ESRGAN', 'ControlNet', 'Wildcards')],
+      [True, True, True])
+
+upscaler = os.path.join(models_dir, 'ESRGAN', '4x_upscaler.pth')
+io.open(upscaler, 'wb').write(b'\0' * 64)
+scan.scan_models()
+check('an upscaler in its folder is in the library after a full scan', upscaler in db.get_all_version_paths(), True)
+
+# A wildcard pack is a .zip, no model file a walk looks for; a folder template
+# can point a download anywhere. A row whose file is still there stays.
+pack = os.path.join(models_dir, 'Wildcards', 'pack.zip')
+io.open(pack, 'wb').write(b'zip')
+db.upsert_version({'file_path': pack, 'file_name': 'pack.zip', 'file_extension': '.zip',
+                   'has_civitai_data': False, 'nsfw_level': 1})
+scan.scan_models(directories=[models_dir])
+check('a downloaded file a walk does not look for keeps its row while it is on disk',
+      pack in db.get_all_version_paths(), True)
+os.remove(pack)
+scan.scan_models(directories=[models_dir])
+check('and loses it once the file is gone', pack in db.get_all_version_paths(), False)
+_paths.models_path = ''
+
 # ------------------------------------------------------------------ cancelling
 scan.cancel()
 check('cancelling is remembered', scan._cancel_requested, True)

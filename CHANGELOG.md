@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 A review of how the extension's parts depend on each other, worked through one finding at a time. It found bugs that lose or misstate what your library knows, and code written twice that had begun to disagree; each version below fixes one. Most of the rest is out of sight: a rule kept in one place instead of several, so the next fix lands once.
 
+- **0.44.1** (build 269) - The library looks in every folder a download files into. Upscalers, ControlNets, hypernetworks, motion modules, poses, wildcards and Other were downloaded into folders Scan Disk never walked, so the next full scan or sync forgot each one as a file gone from disk; they are walked now, and the models already in them join the library at the next scan. A scan or sync forgets a file only once it is really not on disk - a wildcard pack's .zip, or a file your folder template put elsewhere, keeps its place. An upscaler download honours --esrgan-models-path, and a ControlNet Forge Neo's --controlnet-dirs.
 - **0.44.0** (build 268) - Scan Disk no longer lowers a version's NSFW level to PG. A file whose `.civitai.info` was missing or unreadable, or listed no versions, was stored as PG over the level a sync had written, so an X model showed under a PG filter. A scan with nothing to say about the level now keeps the stored one; a file the library has never seen, with nothing beside it, is still PG, so it shows under any level filter.
 
 ## 0.43 - Downloads you control

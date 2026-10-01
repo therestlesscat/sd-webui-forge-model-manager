@@ -104,8 +104,12 @@ check('a walk that finds everything removes nothing',
       svc._forget_missing_files(everything), 0)
 
 kept = [p for p in everything if p not in newcomers]
+check('a walk that misses three files still on disk removes none - it did not look everywhere',
+      svc._forget_missing_files(kept), 0)
+for path in newcomers:
+    os.remove(path)
 removed = svc._forget_missing_files(kept)
-check('a walk that misses three files removes three', removed, 3)
+check('once they are gone from disk, it removes three', removed, 3)
 check('and they are gone', rows() & set(newcomers), set())
 
 # A walk that found nothing means a bad directory setting or an unmounted
