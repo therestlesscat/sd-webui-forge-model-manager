@@ -75,6 +75,10 @@ VARIANTS = {}
 # Which of the extension's files each suite uses: recorded by every run of
 # everything, read by --changed. Per machine, so under tests/work.
 MAP = os.path.join(HERE, 'work', 'test_map.json')
+# Each failing suite's whole output, from the last run. The console shows a
+# tail, and a trimmed view of it can lose even the name: a failure once went
+# by as "1 failed", and which suite it was could not be recovered.
+FAILURES = os.path.join(HERE, 'work', 'last_failures.log')
 TRACE = os.path.join(HERE, 'work', 'trace')
 
 # Files every suite of a kind depends on: a change to one needs them all.
@@ -285,6 +289,13 @@ def main(argv):
                 print('  FAIL  %-44s %5.1fs' % (label, took))
 
     print()
+    os.makedirs(os.path.dirname(FAILURES), exist_ok=True)
+    with open(FAILURES, 'w', encoding='utf-8') as log:
+        log.write('%s - %d failed\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), len(failures)))
+        for label, result in failures:
+            log.write('\n%s\n%s\n%s\n' % ('=' * 72, label, result.stdout or ''))
+            if (result.stderr or '').strip():
+                log.write('--- stderr\n%s\n' % result.stderr)
     for label, result in failures:
         print('=' * 72)
         print(label)
@@ -305,9 +316,11 @@ def main(argv):
         print('Recorded which files each of %d suites uses, for --changed.' % len(recorded))
 
     passed = len(runs) - len(failures)
-    print('%d passed, %d failed, %d skipped in %.1fs (%d at a time; slowest: %s %.1fs)'
+    print('%d passed, %d failed, %d skipped in %.1fs (%d at a time; slowest: %s %.1fs)%s'
           % (passed, len(failures), len(skips), time.time() - started, jobs,
-             max(timings)[1].split()[-1] if timings else '-', max(timings)[0] if timings else 0))
+             max(timings)[1].split()[-1] if timings else '-', max(timings)[0] if timings else 0,
+             ' - failed: %s (whole output in %s)' % (', '.join(label.split()[-1] for label, _ in failures),
+                                                     relative(FAILURES)) if failures else ''))
     return 1 if failures else 0
 
 
