@@ -213,6 +213,12 @@ def create_civitai_browser_ui():
                         <h4>Downloads</h4>
                         <div class="cb-downloads-header-end">
                             <span class="cb-downloads-summary" id="cb_downloads_summary"></span>
+                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_pause_all"
+                                    title="Pause every download, running or waiting" style="display: none;"
+                                    onclick="window.mmDownloadControl('pause_all', 0)">Pause all</button>
+                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_resume_all"
+                                    title="Resume every paused download, in order" style="display: none;"
+                                    onclick="window.mmDownloadControl('resume_all', 0)">Resume all</button>
                             <button class="mm-btn mm-btn-small secondary" id="cb_downloads_dismiss_all"
                                     title="Take every finished download off the list" style="display: none;"
                                     onclick="window.mmDismissFinishedDownloads()">Dismiss all</button>

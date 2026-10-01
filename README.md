@@ -12,6 +12,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.43 - Downloads you control.** A download can be paused and resumed, carrying on from
+where it stopped - after a WebUI restart, or a crash, too - and the queue can be steered:
+start a waiting download now, move it up or down, cancel it before it starts, or pause and
+resume everything at once. The downloads list keeps its order whatever each download is
+doing; only you move a row.
+
 **0.42 - Grouping in two levels.** The Generations tab's Group by is a menu, and groups
 by two things at once: a model, then the prompts used with it; a day, then the models; any
 two of prompt, model, LoRA combination, size and day. A click on a grouping groups by it;

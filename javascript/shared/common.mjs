@@ -1790,7 +1790,7 @@ export function describeFile(file) {
 // disabled for: one click, one download.
 const DOWNLOAD_BUTTON_BUSY = {
     starting: 'Starting...', pending: 'Queued', downloading: 'Downloading...',
-    finishing: 'Adding to library...', complete: 'Downloaded',
+    finishing: 'Adding to library...', complete: 'Downloaded', paused: 'Paused',
 };
 
 /** A Download button's label and whether it is disabled, from its version's download. */
@@ -1924,8 +1924,21 @@ export function downloadRateText(dl) {
 
 const DOWNLOAD_STATUS_TEXT = {
     downloading: 'Downloading', pending: 'Queued', finishing: 'Adding to library',
-    complete: 'Complete', error: 'Error', cancelled: 'Cancelled',
+    complete: 'Complete', error: 'Error', cancelled: 'Cancelled', paused: 'Paused',
 };
+
+/** 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th, 21st. */
+function ordinal(n) {
+    const tens = n % 100;
+    const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+    return `${n}${suffix}`;
+}
+
+/** A small button in a download's row, calling window.mmDownloadControl. */
+function downloadControl(action, versionId, label, title, { disabled = false, kind = 'secondary' } = {}) {
+    return `<button class="mm-btn mm-btn-small ${kind}" title="${escapeHtml(title)}" ${disabled ? 'disabled' : ''}
+                    onclick="window.mmDownloadControl('${action}', ${safeId(versionId)})">${label}</button>`;
+}
 
 /** One download, as a panel shows it. Classes are the tab's own: `<prefix>-download-*`. */
 function renderDownloadItem(dl, prefix) {
@@ -1935,8 +1948,20 @@ function renderDownloadItem(dl, prefix) {
     const total = formatBytes(dl.total_bytes || 0);
     // finishing: on disk, being added to the library. Not complete until
     // it is, so that Complete and "Show in MM" arrive together.
-    const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing';
-    const showCancel = status === 'downloading' || status === 'pending';
+    const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing'
+        || status === 'paused';
+    const showCancel = status === 'downloading' || status === 'pending' || status === 'paused';
+    const id = dl.version_id;
+    // Running: Pause. Waiting: Start now, and up or down the queue. Paused: Resume.
+    const controls = status === 'downloading'
+        ? downloadControl('pause', id, 'Pause', 'Pause: keeps what has arrived, and lets the next in the queue start')
+        : status === 'pending'
+            ? downloadControl('start_now', id, 'Start now', 'Start it now, beside those running')
+              + downloadControl('up', id, '↑', 'Move up the queue', { disabled: dl.queue_position === 1 })
+              + downloadControl('down', id, '↓', 'Move down the queue', { disabled: !!dl.last_in_queue })
+            : status === 'paused'
+                ? downloadControl('resume', id, 'Resume', 'Carry on from where it stopped', { kind: 'primary' })
+                : '';
     const showDismiss = status === 'complete' || status === 'error' || status === 'cancelled';
     const p = prefix;
 
@@ -1955,13 +1980,16 @@ function renderDownloadItem(dl, prefix) {
                 <span class="${p}-download-percent">
                     ${status === 'downloading' ? `${percent}% - ${downloaded} / ${total}` : ''}
                     ${downloadRateText(dl) ? ` · ${escapeHtml(downloadRateText(dl))}` : ''}
-                    ${status === 'pending' ? 'Waiting...' : ''}
+                    ${status === 'downloading' && dl.started_over ? ' · started over: the server would not resume' : ''}
+                    ${status === 'pending' ? (dl.queue_position ? `Waiting - ${ordinal(dl.queue_position)} in the queue` : 'Waiting...') : ''}
+                    ${status === 'paused' ? `Paused - ${downloaded} / ${total}` : ''}
                     ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                     ${status === 'complete' ? `${total}` : ''}
                     ${status === 'error' ? escapeHtml(dl.error || 'Download failed') : ''}
                     ${status === 'cancelled' ? 'Download cancelled' : ''}
                 </span>
                 <div class="${p}-download-actions">
+                    ${controls}
                     ${showCancel ? `
                         <button class="mm-btn mm-btn-small danger" onclick="window.mmCancelDownload(${safeId(dl.version_id)})">Cancel</button>
                     ` : ''}
@@ -1976,6 +2004,10 @@ function renderDownloadItem(dl, prefix) {
 
 function createDownloads() {
     const items = {};          // version id -> the server's progress
+    // The list's order, as the server keeps it: the order downloads were
+    // added in, which ↑/↓ change - never their state, so no row moves when
+    // one is paused or resumed. (An object's number keys come out sorted.)
+    let sequence = [];
     const panels = new Set();  // tab prefixes with a panel on the page
     const completed = [];      // callbacks, each given a download once it is in the library
     const batchDone = [];      // callbacks, once nothing is left running
@@ -2000,16 +2032,18 @@ function createDownloads() {
     }
 
     function render() {
-        const downloads = Object.values(items);
-        // Downloading first, then queued, then whatever has finished.
-        const order = { downloading: 0, finishing: 0, pending: 1, complete: 2, error: 3, cancelled: 4 };
-        downloads.sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5));
+        const listed = sequence.filter((id) => items[id]);
+        const downloads = [...listed, ...Object.keys(items).map(Number).filter((id) => !listed.includes(id))]
+            .map((id) => items[id]);
+        const lastPlace = Math.max(0, ...downloads.map((d) => d.queue_position || 0));
+        downloads.forEach((d) => { d.last_in_queue = d.status === 'pending' && d.queue_position === lastPlace; });
 
         const active = downloads.filter(d => d.status === 'downloading' || d.status === 'finishing').length;
         const queued = downloads.filter(d => d.status === 'pending').length;
+        const paused = downloads.filter(d => d.status === 'paused').length;
         const done = downloads.filter(finished).length;
         const summary = [active && `${active} downloading`, queued && `${queued} pending`,
-                         done && `${done} finished`].filter(Boolean).join(', ')
+                         paused && `${paused} paused`, done && `${done} finished`].filter(Boolean).join(', ')
             || `${downloads.length} total`;
 
         renderButtons();
@@ -2018,8 +2052,12 @@ function createDownloads() {
             const list = document.getElementById(`${prefix}_download_list`);
             const summaryEl = document.getElementById(`${prefix}_downloads_summary`);
             const dismissAll = document.getElementById(`${prefix}_downloads_dismiss_all`);
+            const pauseAll = document.getElementById(`${prefix}_downloads_pause_all`);
+            const resumeAll = document.getElementById(`${prefix}_downloads_resume_all`);
             if (panel) panel.style.display = downloads.length ? 'block' : 'none';
             if (dismissAll) dismissAll.style.display = done ? '' : 'none';
+            if (pauseAll) pauseAll.style.display = active + queued ? '' : 'none';
+            if (resumeAll) resumeAll.style.display = paused ? '' : 'none';
             if (!list) continue;
             if (summaryEl) summaryEl.textContent = summary;
             list.innerHTML = downloads.map(dl => renderDownloadItem(dl, prefix)).join('');
@@ -2035,6 +2073,7 @@ function createDownloads() {
             for (const id of Object.keys(items)) {
                 if (!listed.has(items[id].version_id)) delete items[id];
             }
+            sequence = result.downloads.map((dl) => dl.version_id);
             for (const dl of result.downloads) {
                 if (dismissed.has(dl.version_id)) {
                     if (finished(dl)) continue;
@@ -2083,6 +2122,7 @@ function createDownloads() {
             if (!progress || progress.version_id == null) return;
             dismissed.delete(progress.version_id);
             items[progress.version_id] = progress;
+            if (!sequence.includes(progress.version_id)) sequence.push(progress.version_id);
             render();
             if (!poll) poll = setInterval(tick, TIMING.poll);
         },
@@ -2113,11 +2153,41 @@ function createDownloads() {
         status: (versionId) => (starting.has(Number(versionId)) ? 'starting'
             : items[versionId]?.status),
 
+        /**
+         * Steer the downloads (pause, resume, start_now, up, down, pause_all,
+         * resume_all): the server's answer is the list afresh, and one that
+         * starts something running polls again.
+         */
+        control: async function control(action, versionId = 0) {
+            try {
+                const form = new FormData();
+                form.append('action', action);
+                form.append('version_id', versionId);
+                const response = await fetch('/model-manager/civitai/download/control', { method: 'POST', body: form });
+                const result = await response.json();
+                if (result.success && result.downloads) {
+                    sequence = result.downloads.map((d) => d.version_id);
+                    for (const dl of result.downloads) {
+                        if (!dismissed.has(dl.version_id) || !finished(dl)) items[dl.version_id] = dl;
+                    }
+                    render();
+                    if (!poll && Object.values(items).some(running)) poll = setInterval(tick, TIMING.poll);
+                }
+                return result;
+            } catch (e) {
+                console.error('[ModelManager] Download control error:', e);
+                return { success: false, error: String(e) };
+            }
+        },
+
         cancel: async function cancel(versionId) {
             try {
                 const form = new FormData();
                 form.append('version_id', versionId);
                 await fetch('/model-manager/civitai/download/cancel', { method: 'POST', body: form });
+                // A waiting or paused one is cancelled at once, and nothing
+                // may be polling to show it: the list is asked for now.
+                await tick();
             } catch (e) {
                 console.error('[ModelManager] Cancel error:', e);
             }
@@ -2150,7 +2220,35 @@ function createDownloads() {
         get: (versionId) => items[versionId],
     };
 
+    // The list as the server has it, once, when the page loads: after a
+    // restart its paused downloads are there to resume - and in a page opened
+    // while downloads run, they are followed. It used to be asked for only
+    // once a download was started in this page, so neither was ever shown.
+    if (typeof fetch === 'function') {
+        tick().then(() => {
+            if (!poll && Object.values(items).some(running)) poll = setInterval(tick, TIMING.poll);
+        });
+    }
+
+    // The tabs' panels are drawn by Gradio after this runs, and redrawn
+    // empty whenever it re-renders them: with downloads to show and a panel
+    // empty, they are drawn again. A paused download is not running, so no
+    // poll comes to draw it - after a restart the panel stayed hidden. Once a
+    // panel holds its rows nothing is written, so this cannot set off the
+    // next update itself (quiet_updates_test.mjs).
+    if (typeof onAfterUiUpdate === 'function') {
+        onAfterUiUpdate(() => {
+            if (!Object.keys(items).length) return;
+            const empty = [...panels].some((prefix) => {
+                const list = document.getElementById(`${prefix}_download_list`);
+                return list && !list.children.length;
+            });
+            if (empty) render();
+        });
+    }
+
     window.mmCancelDownload = (versionId) => store.cancel(versionId);
+    window.mmDownloadControl = (action, versionId) => store.control(action, versionId);
     window.mmDismissDownload = (versionId) => store.dismiss(versionId);
     window.mmDismissFinishedDownloads = () => store.dismissFinished();
     return store;
