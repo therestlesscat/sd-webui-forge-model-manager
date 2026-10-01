@@ -12,6 +12,7 @@ from modules import shared
 
 from ..gallery import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import RECORD_GENERATIONS
+from .. import prompt_levels
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
                              SETTING_PREFIX, preset_classes, preset_files)
@@ -372,8 +373,7 @@ def _check_updates_changed():
 
 def _prompt_words_changed():
     """Judge stored images again with the new words, in the background."""
-    from ..prompt_levels import start_in_background
-    start_in_background()
+    prompt_levels.start_in_background()
 
 
 # Forge Neo's list of every module file, and the source of the links in
