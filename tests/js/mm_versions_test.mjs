@@ -24,11 +24,13 @@ const FILES = [
     { id: 9031, name: 'v3_fp32.safetensors', sizeKB: 4096, type: 'Model', metadata: { size: 'full', fp: 'fp32' } },
     { id: 9032, name: 'v3_fp16.safetensors', sizeKB: 2048, type: 'Model', primary: true, metadata: { size: 'pruned', fp: 'fp16' } },
 ];
+// v2 is paid; whether the API key's account bought it is the server's to say (#43).
+let v2Owned = false;
 const listed = () => [
     { id: 503, name: 'v3', baseModel: 'SDXL 1.0', publishedAt: '2026-03-01T12:00:00.000Z', trainedWords: ['third'],
       files: FILES, local: localVersions.some((v) => v.id === 503), paid_access: null },
     { id: 502, name: 'v2', baseModel: 'SDXL 1.0', publishedAt: '2026-02-01', files: [FILES[1]],
-      local: false, paid_access: { permanent: true, ends_at: null } },
+      local: false, paid_access: { permanent: true, ends_at: null, owned: v2Owned } },
     { id: 501, name: 'v1', baseModel: 'SDXL 1.0', publishedAt: '2026-01-01', files: [], local: true, paid_access: null },
 ];
 let localVersions = [local(501, 'v1')];
@@ -131,6 +133,11 @@ await click(pill('v2'));
 check('5. a paid version says so, and offers no Download',
       [row('Access'), !!button(), details().querySelector('.detail-actions button[disabled]')?.textContent],
       ['Paid', false, 'Paid']);
+const paidLabel = () => details().querySelector('.detail-actions button[disabled]');
+const viewOnCivitai = () => details().querySelector('.detail-actions a[href*="civitai.com/models/"]');
+check('   saying why - the account has not bought it - with View on Civitai beside it',
+      [/has not bought it/.test(paidLabel()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('href')],
+      [true, 'https://civitai.com/models/4001?modelVersionId=502']);
 
 check('   Show in Civitai Browser is the table\'s first row, not in the header, and sends this version',
       await showInBrowser(), { query: 'model:4001 version:502', buttons: 1, inHeader: false,
@@ -208,6 +215,16 @@ await window.mmShowVersion(503);
 check('11. a version shown from another tab is looked up by its id, and opened',
       [searched.at(-1), active()], ['version:503', ['v3 ✓']]);
 globalThis.fetch = realFetch;
+
+// ------------------------------------------------- a paid version, bought
+// The account bought it: a Download like any other's, saying so.
+v2Owned = true;
+await window.mmSelectModel(0);
+await click(pill('v2'));
+check('12. a paid version the account bought has a Download, saying so, and no Paid label',
+      [button()?.getAttribute('onclick'), /bought it/.test(button()?.getAttribute('title') || ''), !!paidLabel()],
+      ['window.mmDownload(4001, 502, 9032)', true, false]);
+v2Owned = false;
 
 // -------------------------------------------------- nothing recorded yet
 civitaiVersions = () => [];

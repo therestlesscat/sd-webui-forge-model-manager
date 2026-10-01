@@ -69,7 +69,7 @@ for status, complete in (('pending', False), ('downloading', False), ('finishing
 p = DownloadProgress(version_id=7, file_name='f.safetensors')
 check('the dict carries what the UI polls for',
       sorted(p.to_dict()), ['downloaded_bytes', 'error', 'eta_seconds', 'file_name', 'file_path',
-                            'percent', 'speed_bps', 'stalled', 'started_over', 'status', 'sync_error', 'synced',
+                            'page_url', 'percent', 'speed_bps', 'stalled', 'started_over', 'status', 'sync_error', 'synced',
                             'total_bytes', 'version_id'])
 
 # ------------------------------------------------------ how fast, how long (#36)
@@ -487,18 +487,47 @@ shutil.rmtree(os.path.join(CKPT_DIR, 'SDXL_1.0'))
 opts.model_manager_civitai_folder_template = ''
 
 # --------------------------------------------------------------- refused early
+# A paid version (#43) downloads when the API key's account bought it - which
+# only Civitai's permissions check says (civitai/ownership.py, faked here).
 civitai_says()
 paid = service.download_version(502, CHECKPOINT,
                                 version(paidAccess={'permanent': True}))
-check('a permanently paid version is refused', paid.status, 'error')
-check('telling the user to buy it', 'buy it there first' in (paid.error or ''), True)
+check('with no API key, a paid version is refused, saying a key is what lets a bought one download',
+      [paid.status, 'With an API key set' in (paid.error or '')], ['error', True])
+check('and where it is on Civitai', paid.page_url, 'https://civitai.com/models/42?modelVersionId=502')
 
+opts.model_manager_civitai_api_key = 'test-key'
+asked_owned = []
+real_owned = ds.owned_versions
+def owned_says(answer):
+    def owned(ids):
+        asked_owned.append(list(ids))
+        return answer
+    ds.owned_versions = owned
+owned_says({503: False})
 early = service.download_version(503, CHECKPOINT,
                                  version(earlyAccessDeadline='2026-12-01T00:00:00Z'))
-check('and an early-access one is refused with its date',
-      '2026-12-01T00:00:00Z' in (early.error or ''), True)
+check('with a key, one the account has not bought is refused, with its date, before downloading',
+      ['2026-12-01T00:00:00Z' in (early.error or ''), 'has not bought it' in (early.error or ''), asked_owned],
+      [True, True, [[503]]])
+check('neither of them asked Civitai for the file', len(FakeSession.asked), 0)
 
-check('neither of them asked Civitai for anything', len(FakeSession.asked), 0)
+owned_says({509: True})
+civitai_says(FakeResponse([b'bought weights']))
+bought = service.download_version(509, CHECKPOINT, version(id=509, paidAccess={'permanent': True}))
+check('one the account bought downloads like any other', [bought.status, len(FakeSession.asked)], ['complete', 1])
+os.remove(bought.file_path)
+os.remove(os.path.splitext(bought.file_path)[0] + '.civitai.info')
+
+owned_says(None)
+civitai_says(FakeResponse(error=http_error(403, '{"error":"Early Access","message":"This asset is in Early Access."}')))
+unknown = service.download_version(513, CHECKPOINT, version(id=513, paidAccess={'permanent': True}))
+check('one Civitai could not say of is tried; refused, Civitai\'s own reason is said, and its page given',
+      [unknown.status, unknown.error, unknown.page_url],
+      ['error', 'Civitai refused the download: This asset is in Early Access.',
+       'https://civitai.com/models/42?modelVersionId=513'])
+ds.owned_versions = real_owned
+opts.model_manager_civitai_api_key = ''
 
 empty = service.download_version(504, CHECKPOINT, version(files=[]))
 check('a version with no files is an error', empty.error, 'No files available for download')

@@ -339,6 +339,20 @@ class CivitaiClient:
         """
         return self._request("GET", "/me")
 
+    def check_permissions(self, version_ids: List[int], user_id: int) -> Dict[int, bool]:
+        """
+        Whether this account may use each of these versions - Civitai's
+        permissions check, the one place that says a paid version has been
+        bought (the version itself reads the same to everyone). Its default
+        permission, Generate; it accepts no Download.
+
+        Returns:
+            {version id: allowed}, for those it answered.
+        """
+        answer = self._request("GET", "/permissions/check", params={
+            "entityIds": ",".join(str(int(v)) for v in version_ids), "userId": int(user_id)})
+        return {int(k): bool(v) for k, v in (answer or {}).items() if str(k).isdigit()}
+
     def get_model_by_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
         """
         Get model version by file hash.

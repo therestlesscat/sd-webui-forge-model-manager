@@ -1805,7 +1805,9 @@ function downloadButtonState(versionId) {
  * `prefix` is the tab's: the button is `<prefix>_download_btn` and calls
  * window.<prefix>Download(modelId, versionId, fileId), the picker calls
  * window.<prefix>SelectFile(index). A paid version answers the download URL
- * with 401/403 until it is bought on Civitai, so it is not offered. While
+ * with 401/403 until it is bought on Civitai, so it is offered only when
+ * Civitai says the API key's account bought it (`paid_access.owned`, see
+ * civitai/ownership.py); otherwise its label, saying why. While
  * the version is downloading - from the click until it is in the library - the
  * button says so and takes no clicks: a second click started it again.
  */
@@ -1817,12 +1819,19 @@ export function renderDownloadControls({ prefix, modelId, version, fileIndex, ow
     let button = '';
     if (owned) {
         button = `<button class="mm-btn secondary" disabled>Already Owned</button>`;
-    } else if (paidLabel) {
-        button = `<button class="mm-btn secondary" disabled `
-            + `title="Buy it on Civitai first">${escapeHtml(paidLabel)}</button>`;
+    } else if (paidLabel && version?.paid_access?.owned !== true) {
+        const why = version?.paid_access?.owned === false
+            ? 'Civitai says your account has not bought it. Just bought it? Its API takes some minutes to know: '
+              + 'open this version again shortly'
+            : apiKeyMissing
+                ? 'Set a Civitai API key in the settings: a version you have bought then downloads here'
+                : 'Civitai could not say whether your account has bought it';
+        // Its page is the panel's View on Civitai, beside this.
+        button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
         const state = downloadButtonState(version?.id);
-        button = `<button class="mm-btn primary" id="${prefix}_download_btn" `
+        const bought = paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
+        button = `<button class="mm-btn primary" id="${prefix}_download_btn"${bought} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
             + `onclick="window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">`
             + `${state.label}</button>`;
@@ -1996,6 +2005,9 @@ function renderDownloadItem(dl, prefix) {
                     ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                     ${status === 'complete' ? `${total}` : ''}
                     ${status === 'error' ? escapeHtml(dl.error || 'Download failed') : ''}
+                    ${status === 'error' && dl.page_url
+                        ? ` <a class="mm-download-page-link" href="${escapeHtml(dl.page_url)}" target="_blank" rel="noopener">Open on Civitai</a>`
+                        : ''}
                     ${status === 'cancelled' ? 'Download cancelled' : ''}
                 </span>
                 <div class="${p}-download-actions">
