@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.43 - Downloads you control
+
+*1 October 2026*
+
+Downloads can be paused and resumed - carrying on from where they stopped, after a restart or a crash too - and the queue can be steered: a waiting download started now, moved up or down, or cancelled before it starts, and everything paused or resumed at once. The list keeps one order, which only you change.
+
+- **0.43.0** (build 261) - Pause, resume and order downloads. A running download can be paused: it keeps what has arrived and lets the next in the queue start; Resume asks Civitai for the rest only, its hash carried on, and checks the finished file as before. Paused downloads, and one running when the WebUI stopped, are there after a restart, to resume. A waiting download can be started now (beside the two running), moved up or down, or cancelled; Pause all and Resume all are in the panel's header. Rows keep their place whatever their state; the first waiting from the top starts when a place frees up. Civitai's storage now and then sends the whole file for a resume, so it is asked again, up to three times, before starting over.
+
 ## 0.42 - Grouping in two levels
 
 *30 September 2026*

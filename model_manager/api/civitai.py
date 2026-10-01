@@ -689,6 +689,37 @@ def register(app: FastAPI):
                 status_code=500
             )
 
+    @app.post("/model-manager/civitai/download/control")
+    async def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
+        """
+        Steer the downloads: `pause` or `resume` one, `start_now` a waiting
+        one (over the limit), move one `up` or `down` the queue, or
+        `pause_all` / `resume_all`. Cancel is /download/cancel.
+
+        Returns:
+            done: whether it applied (a download already finished, say, is
+            not paused); downloads: every download, as the poll gives them.
+        """
+        try:
+            from ..download_service import get_download_service
+            service = get_download_service()
+            one = {"pause": service.pause, "resume": service.resume, "start_now": service.start_now,
+                   "up": lambda v: service.move(v, -1), "down": lambda v: service.move(v, 1)}
+            if action in one:
+                done = bool(one[action](version_id))
+            elif action == "pause_all":
+                service.pause_all()
+                done = True
+            elif action == "resume_all":
+                service.resume_all()
+                done = True
+            else:
+                return JSONResponse({"success": False, "error": f"Unknown action: {action}"}, status_code=400)
+            return JSONResponse({"success": True, "done": done, "downloads": service.get_all_progress()})
+        except Exception as e:
+            print(f"[ModelManager] Download control error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.post("/model-manager/civitai/download/dismiss")
     async def civitai_dismiss_download(version_id: int = Form(default=0)):
         """

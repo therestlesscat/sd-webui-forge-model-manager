@@ -1,6 +1,16 @@
 """
 Download service for Civitai Browser.
 Handles downloading models from Civitai with progress tracking and parallel downloads.
+
+The queue is the service's own. Downloads are listed in one order - the one
+they were added in, which ↑/↓ change - and a state never moves one: up to
+`max_concurrent` run, and when a place frees up, the first waiting one from
+the top starts. A waiting download can be started at once (over the limit),
+moved up or down, or cancelled before it starts. A running one can be
+paused: it keeps its .partial, gives up its place, and resumes with an HTTP
+Range request from where it stopped. What is running or paused is kept in the
+database (schema_info, under a key for this install), so after a restart -
+or a crash - it is there again, paused, to be resumed.
 """
 import hashlib
 import os
@@ -12,7 +22,6 @@ import requests
 from collections import deque
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
-from concurrent.futures import ThreadPoolExecutor
 
 from .civitai import paid_access_info
 from .hashing import HashResult
@@ -28,8 +37,17 @@ PARTIAL = ".partial"
 RATE_WINDOW = 5.0
 RATE_SAMPLE_EVERY = 0.5
 RATE_FIRST = 1.0
+# How many times a resume asks for the rest before it takes the whole file.
+RANGE_TRIES = 3
+
 # Bound once: what the speed is measured by, whatever later replaces `time`.
 _clock = time.monotonic
+
+# Where this install keeps its downloads that can be resumed: one key per
+# copy of the extension, so a WebUI sharing the database never takes up
+# another's (their models folders differ).
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESUMABLE_KEY = "downloads:" + hashlib.sha1(os.path.normcase(_ROOT).encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass
@@ -51,6 +69,9 @@ class DownloadProgress:
     sync_error: Optional[str] = None
     # The file's SHA-256, computed as it was written.
     sha256: Optional[str] = None
+    # A resume the server answered with the whole file, not the rest of it:
+    # the download started over.
+    started_over: bool = False
     # (_clock(), downloaded_bytes) now and then, for the speed; and
     # when the bytes last grew. Measured here, where every chunk is seen: the
     # page sees only its polls, a second or more apart.
@@ -109,6 +130,7 @@ class DownloadProgress:
 
     @property
     def is_complete(self) -> bool:
+        # paused is not: it is waiting to be resumed.
         return self.status in ("complete", "error", "cancelled")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -117,6 +139,7 @@ class DownloadProgress:
             "speed_bps": round(speed) if speed else None,
             "eta_seconds": round(left) if left is not None else None,
             "stalled": stalled,
+            "started_over": self.started_over,
             "version_id": self.version_id,
             "file_name": self.file_name,
             "total_bytes": self.total_bytes,
@@ -140,6 +163,9 @@ class DownloadService:
     - Folder template processing
     - Automatic metadata file creation
     """
+
+    # (get, set) for what can be resumed, instead of the database's.
+    store = None
 
     # Map Civitai model types to WebUI folder names
     MODEL_TYPE_FOLDERS = {
@@ -166,9 +192,21 @@ class DownloadService:
             max_concurrent: Maximum concurrent downloads.
         """
         self.max_concurrent = max_concurrent
+        # Every download, in the list's order: the order they were added in,
+        # which move() changes. The page shows them so, whatever their state.
         self._active_downloads: Dict[int, DownloadProgress] = {}
-        self._executor: Optional[ThreadPoolExecutor] = None
+        # What each download needs to run: model_data, version_data (None
+        # after a restart, until fetched again), file_index, file_id,
+        # model_id, and partial_path once it has one.
+        self._jobs: Dict[int, Dict[str, Any]] = {}
+        self._running: set = set()
+        self._threads: List[threading.Thread] = []
         self._cancel_flags: Dict[int, bool] = {}
+        self._pause_flags: Dict[int, bool] = {}
+        # (get, set) of the stored value: the database's, unless one is set
+        # on the class - as the tests do, so none of them opens a database.
+        self._store = DownloadService.store
+        self._stored_any = False
         self._tqdm_positions: Dict[int, int] = {}  # version_id -> tqdm position
         self._lock = threading.Lock()
 
@@ -189,19 +227,254 @@ class DownloadService:
             self._tqdm_positions.pop(version_id, None)
 
     def cancel(self, version_id: int):
-        """Request cancellation of a download."""
+        """
+        Cancel a download: a running one stops at its next chunk; a waiting
+        one never starts; a paused one is dropped, its .partial with it.
+        """
+        partial = None
         with self._lock:
             self._cancel_flags[version_id] = True
+            progress = self._active_downloads.get(version_id)
+            if progress and progress.status in ("pending", "paused") and version_id not in self._running:
+                partial = (self._jobs.get(version_id) or {}).pop("partial_path", None)
+                progress.status = "cancelled"
+                progress.error = "Download cancelled"
+        if partial and os.path.exists(partial):
+            os.remove(partial)
+        if partial:
+            self._save()
 
     def cancel_all(self):
         """Cancel all active downloads."""
         with self._lock:
-            for version_id in self._active_downloads:
-                self._cancel_flags[version_id] = True
+            ids = list(self._active_downloads)
+        for version_id in ids:
+            self.cancel(version_id)
 
     def _is_cancelled(self, version_id: int) -> bool:
         with self._lock:
             return self._cancel_flags.get(version_id, False)
+
+    def _is_paused(self, version_id: int) -> bool:
+        with self._lock:
+            return self._pause_flags.get(version_id, False)
+
+    # ------------------------------------------------------------ the queue
+    def _waiting(self) -> List[int]:
+        """The waiting downloads, top first: pending, and not yet started. Under the lock."""
+        return [v for v, p in self._active_downloads.items() if p.status == "pending" and v not in self._running]
+
+    def _pump(self) -> None:
+        """Start waiting downloads, from the top, while fewer than the limit run."""
+        starting = []
+        with self._lock:
+            for version_id in self._waiting():
+                if len(self._running) >= self.max_concurrent:
+                    break
+                self._running.add(version_id)
+                starting.append(version_id)
+        for version_id in starting:
+            self._start_thread(version_id)
+
+    def _start_thread(self, version_id: int) -> None:
+        thread = threading.Thread(target=self._run, args=(version_id,), daemon=True,
+                                  name=f"model-manager-download-{version_id}")
+        self._threads.append(thread)
+        thread.start()
+
+    def _run(self, version_id: int) -> None:
+        """One download, on its own thread; then the next in the queue."""
+        try:
+            job = self._jobs.get(version_id) or {}
+            if job.get("version_data") is None:
+                self._fetch_job(version_id, job)
+            if job.get("version_data") is None:
+                return
+            self.download_version(version_id, job["model_data"], job["version_data"],
+                                  job.get("file_index"), job.get("file_id"),
+                                  resume=job.pop("resume", False))
+        except Exception as e:
+            progress = self._active_downloads.get(version_id)
+            if progress:
+                progress.status = "error"
+                progress.error = f"Download error: {e}"
+            print(f"[ModelManager] Download of version {version_id} failed: {e}")
+        finally:
+            with self._lock:
+                self._running.discard(version_id)
+            self._pump()
+
+    def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
+        """A download remembered across a restart knows its ids only: ask Civitai again."""
+        progress = self._active_downloads.get(version_id)
+        try:
+            from .civitai import CivitaiClient
+            client = CivitaiClient.from_settings()
+            try:
+                model_data = client.get_model(job.get("model_id")) if job.get("model_id") else None
+            finally:
+                client.close()
+            version_data = next((v for v in (model_data or {}).get("modelVersions", [])
+                                 if v.get("id") == version_id), None)
+            if not version_data:
+                raise ValueError("Civitai no longer lists this version")
+            job.update(model_data=model_data, version_data=version_data)
+        except Exception as e:
+            if progress:
+                progress.status = "error"
+                progress.error = f"Could not resume: {e}"
+
+    def start_now(self, version_id: int) -> bool:
+        """A waiting download, started at once - over the limit, which only paces the queue."""
+        with self._lock:
+            if version_id not in self._waiting():
+                return False
+            self._running.add(version_id)
+        self._start_thread(version_id)
+        return True
+
+    def move(self, version_id: int, by: int) -> bool:
+        """
+        A waiting download, up (-1) or down (+1) the queue: it changes places
+        in the list with the nearest waiting one that way, so its place in
+        the queue always changes by one, whatever runs between them.
+        """
+        with self._lock:
+            waiting = self._waiting()
+            if version_id not in waiting:
+                return False
+            at = waiting.index(version_id) + by
+            if not 0 <= at < len(waiting):
+                return False
+            other = waiting[at]
+            order = list(self._active_downloads)
+            i, j = order.index(version_id), order.index(other)
+            order[i], order[j] = order[j], order[i]
+            self._active_downloads = {v: self._active_downloads[v] for v in order}
+            return True
+
+    def pause(self, version_id: int) -> bool:
+        """
+        Pause a download. A running one stops at its next chunk, keeps its
+        .partial and gives up its place; a waiting one leaves the queue.
+        """
+        with self._lock:
+            progress = self._active_downloads.get(version_id)
+            if not progress:
+                return False
+            if progress.status == "downloading":
+                self._pause_flags[version_id] = True
+                return True
+            if progress.status == "pending" and version_id not in self._running:
+                progress.status = "paused"
+                return True
+            return False
+
+    def resume(self, version_id: int) -> bool:
+        """
+        A paused download, waiting again where it is in the list: running at
+        once if there is room - a free place means nothing else is waiting.
+        """
+        with self._lock:
+            resumed = self._requeue([version_id])
+        self._pump()
+        return bool(resumed)
+
+    def _requeue(self, version_ids: List[int]) -> List[int]:
+        """These paused downloads, pending again, where they are in the list. Under the lock."""
+        resumed = []
+        for version_id in version_ids:
+            progress = self._active_downloads.get(version_id)
+            if not progress or progress.status != "paused":
+                continue
+            progress.status = "pending"
+            progress.error = None
+            self._pause_flags[version_id] = False
+            self._jobs.setdefault(version_id, {})["resume"] = True
+            resumed.append(version_id)
+        return resumed
+
+    def pause_all(self) -> None:
+        """Every running download paused, and every waiting one held, so none starts in their place."""
+        with self._lock:
+            waiting = [v for v, p in self._active_downloads.items() if p.status == "pending"]
+            running = [v for v, p in self._active_downloads.items() if p.status == "downloading"]
+        for version_id in waiting + running:
+            self.pause(version_id)
+
+    def resume_all(self) -> None:
+        """
+        Every paused download, the top ones running first - all made waiting,
+        then started: resumed one by one, each started as it came, and the
+        last listed ran first.
+        """
+        with self._lock:
+            self._requeue([v for v, p in self._active_downloads.items() if p.status == "paused"])
+        self._pump()
+
+    def wait(self, timeout: float = 10.0) -> None:
+        """Until every download thread has ended: for tests."""
+        deadline = _clock() + timeout
+        while _clock() < deadline:
+            alive = [t for t in list(self._threads) if t.is_alive()]
+            if not alive:
+                return
+            alive[0].join(timeout=max(0.0, deadline - _clock()))
+
+    # ------------------------------------------------------ across restarts
+    def _stored(self):
+        if self._store is None:
+            from .db import get_models_db
+            db = get_models_db()
+            self._store = (lambda: db.get_info(RESUMABLE_KEY), lambda value: db.set_info(RESUMABLE_KEY, value))
+        return self._store
+
+    def _save(self) -> None:
+        """What can be resumed after a restart: every download with a .partial, running or paused."""
+        with self._lock:
+            entries = []
+            for version_id, progress in self._active_downloads.items():
+                job = self._jobs.get(version_id) or {}
+                if job.get("partial_path") and progress.status in ("downloading", "paused", "pending"):
+                    entries.append({"version_id": version_id, "model_id": job.get("model_id"),
+                                    "file_id": job.get("file_id"), "file_index": job.get("file_index"),
+                                    "file_name": progress.file_name, "partial_path": job["partial_path"],
+                                    "total_bytes": progress.total_bytes})
+        # Nothing to keep, and nothing kept before: the database is not touched.
+        if not entries and not self._stored_any:
+            return
+        try:
+            self._stored()[1](json.dumps(entries) if entries else None)
+            self._stored_any = bool(entries)
+        except Exception as e:
+            print(f"[ModelManager] Could not keep the downloads to resume: {e}")
+
+    def restore(self) -> None:
+        """
+        After a restart, the downloads that were running or paused, paused -
+        a running one included: its thread died with the WebUI, its .partial
+        did not. One whose .partial is gone is forgotten.
+        """
+        try:
+            entries = json.loads(self._stored()[0]() or "[]")
+        except Exception as e:
+            print(f"[ModelManager] Could not read the downloads to resume: {e}")
+            return
+        self._stored_any = bool(entries)
+        with self._lock:
+            for entry in entries:
+                partial = entry.get("partial_path")
+                version_id = entry.get("version_id")
+                if not partial or version_id is None or not os.path.exists(partial):
+                    continue
+                self._active_downloads[version_id] = DownloadProgress(
+                    version_id=version_id, file_name=entry.get("file_name") or "",
+                    total_bytes=entry.get("total_bytes") or 0,
+                    downloaded_bytes=os.path.getsize(partial), status="paused")
+                self._jobs[version_id] = {"model_id": entry.get("model_id"), "file_id": entry.get("file_id"),
+                                          "file_index": entry.get("file_index"), "model_data": None,
+                                          "version_data": None, "partial_path": partial}
+        self._save()
 
     def get_progress(self, version_id: int) -> Optional[DownloadProgress]:
         """Get progress for a specific download."""
@@ -209,9 +482,19 @@ class DownloadService:
             return self._active_downloads.get(version_id)
 
     def get_all_progress(self) -> List[Dict[str, Any]]:
-        """Get progress for all active downloads."""
+        """
+        Every download, in the list's order: a waiting one with its place in
+        the queue, from 1.
+        """
         with self._lock:
-            return [p.to_dict() for p in self._active_downloads.values()]
+            waiting = self._waiting()
+            out = []
+            for version_id, progress in self._active_downloads.items():
+                entry = progress.to_dict()
+                if version_id in waiting:
+                    entry["queue_position"] = waiting.index(version_id) + 1
+                out.append(entry)
+            return out
 
     def dismiss(self, version_id: Optional[int] = None) -> List[int]:
         """
@@ -304,9 +587,17 @@ class DownloadService:
         url: str,
         target_path: str,
         headers: Dict[str, str],
-        progress: DownloadProgress
+        progress: DownloadProgress,
+        resume_from: int = 0
     ) -> bool:
-        """Download file using requests with tqdm progress bar."""
+        """
+        Download file using requests with tqdm progress bar - from
+        `resume_from` bytes in, when resuming: the rest is asked for with a
+        Range request and added to the file. A server that sends the whole
+        file instead is taken from the start. A pause stops at the next chunk
+        and keeps the file (status "paused"); False is returned, as for any
+        download that did not finish.
+        """
         try:
             from tqdm import tqdm
         except ImportError:
@@ -322,31 +613,58 @@ class DownloadService:
         try:
             for attempt in range(max_retries):
                 try:
+                    # Only the first attempt resumes: a retry starts over, as before.
+                    offset = resume_from if attempt == 0 and os.path.exists(target_path) else 0
+                    asked = dict(headers)
+                    if offset:
+                        asked["Range"] = f"bytes={offset}-"
                     session = requests.Session()
-                    response = session.get(url, headers=headers, stream=True, timeout=60)
-                    response.raise_for_status()
+                    # Civitai's storage now and then sends the whole file
+                    # for a range - with an API key, 1 of 8 resumes in one
+                    # measurement - and a fresh request, through a fresh
+                    # redirect, is answered: asked again before starting over.
+                    tries = RANGE_TRIES if offset else 1
+                    for tried in range(1, tries + 1):
+                        response = session.get(url, headers=asked, stream=True, timeout=60)
+                        response.raise_for_status()
+                        if not offset or getattr(response, "status_code", 200) == 206 or tried == tries:
+                            break
+                        print(f"[ModelManager] The server sent the whole of {file_name}, not the rest: asking again")
+                        if hasattr(response, "close"):
+                            response.close()
+                    if offset and getattr(response, "status_code", 200) != 206:
+                        print(f"[ModelManager] The server sent the whole file, not the rest: starting {file_name} over")
+                        offset = 0
+                        progress.started_over = True
 
-                    total_size = int(response.headers.get('content-length', 0))
+                    length = int(response.headers.get('content-length', 0))
+                    total_size = length + offset if length else 0
                     progress.total_bytes = total_size
 
                     # Use 1MB chunks for better performance
                     chunk_size = 1024 * 1024
 
-                    downloaded = 0
+                    downloaded = offset
                     # A retry starts from nothing: its bytes, and its speed,
                     # measured from now - so no data at all is stalled too.
-                    progress.downloaded_bytes = 0
+                    progress.downloaded_bytes = offset
                     progress.restart_rate()
                     progress.record()
                     # Hashed as it arrives, where the network is the limit:
                     # afterwards, reading a 7 GB file again to hash it took
                     # 10 s, all of it spent waiting for the download to finish.
+                    # Resumed, what is already there is read once to begin with.
                     hasher = hashlib.sha256()
+                    if offset:
+                        with open(target_path, 'rb') as done_part:
+                            for block in iter(lambda: done_part.read(4 * 1024 * 1024), b''):
+                                hasher.update(block)
 
                     # Create tqdm progress bar for terminal (stacked)
                     if tqdm and total_size > 0:
                         pbar = tqdm(
                             total=total_size,
+                            initial=offset,
                             unit='B',
                             unit_scale=True,
                             unit_divisor=1024,
@@ -359,8 +677,14 @@ class DownloadService:
                         pbar = None
 
                     try:
-                        with open(target_path, 'wb') as f:
+                        with open(target_path, 'ab' if offset else 'wb') as f:
                             for chunk in response.iter_content(chunk_size=chunk_size):
+                                if self._is_paused(progress.version_id):
+                                    # Kept, to be resumed from: nothing removed.
+                                    if pbar:
+                                        pbar.close()
+                                    progress.status = "paused"
+                                    return False
                                 if self._is_cancelled(progress.version_id):
                                     if pbar:
                                         pbar.close()
@@ -494,18 +818,31 @@ class DownloadService:
         model_data: Dict[str, Any],
         version_data: Dict[str, Any],
         file_index: Optional[int] = None,
-        file_id: Optional[int] = None
+        file_id: Optional[int] = None,
+        resume: bool = False
     ) -> DownloadProgress:
-        """Download a model version from Civitai."""
+        """
+        Download a model version from Civitai - with `resume`, carrying on
+        from its .partial where there is one.
+        """
         from modules import shared
 
-        progress = DownloadProgress(version_id=version_id)
-        progress.status = "downloading"
         partial_path = None
-
         with self._lock:
-            self._active_downloads[version_id] = progress
+            # The progress the queue made, or a paused one being resumed, is
+            # the one the page follows; anything else starts afresh.
+            progress = self._active_downloads.get(version_id)
+            if progress is None or progress.status not in ("pending", "paused"):
+                progress = DownloadProgress(version_id=version_id)
+                self._active_downloads[version_id] = progress
+            progress.status = "downloading"
+            progress.error = None
             self._cancel_flags[version_id] = False
+            self._pause_flags[version_id] = False
+            job = self._jobs.setdefault(version_id, {})
+            job.setdefault("model_id", (model_data or {}).get("id"))
+            job.setdefault("file_index", file_index)
+            job.setdefault("file_id", file_id)
 
         try:
             # Refuse a version that has to be bought before creating anything:
@@ -598,9 +935,17 @@ class DownloadService:
             # name - one a scan would take for the model - and whatever the
             # download deletes is only ever its own .partial.
             partial_path = target_path + PARTIAL
-            success = self._download_file(download_url, partial_path, headers, progress)
+            resume_from = os.path.getsize(partial_path) if resume and os.path.exists(partial_path) else 0
+            # Kept in the database while it runs, so a restart - or a crash -
+            # leaves it paused, to be resumed, rather than a stray .partial.
+            job["partial_path"] = partial_path
+            self._save()
+            success = self._download_file(download_url, partial_path, headers, progress, resume_from)
 
             if not success:
+                if progress.status == "paused":
+                    partial_path = None          # kept, to resume from
+                    self._save()
                 return progress
 
             if expected and progress.sha256 != expected:
@@ -650,6 +995,12 @@ class DownloadService:
         finally:
             with self._lock:
                 self._cancel_flags.pop(version_id, None)
+                self._pause_flags.pop(version_id, None)
+                ended = progress.status in ("complete", "error", "cancelled")
+                if ended:
+                    self._jobs.get(version_id, {}).pop("partial_path", None)
+            if ended:
+                self._save()
             # Every way a download fails sets the reason on its progress, for
             # the page; most never said it here too.
             if progress.status == "error":
@@ -693,20 +1044,14 @@ class DownloadService:
         )
 
         with self._lock:
+            # A new download goes to the end of the list - one asked for again too.
+            self._active_downloads.pop(version_id, None)
             self._active_downloads[version_id] = progress
-
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(max_workers=self.max_concurrent)
-
-        self._executor.submit(
-            self.download_version,
-            version_id,
-            model_data,
-            version_data,
-            file_index,
-            file_id
-        )
-
+            self._cancel_flags[version_id] = False
+            self._jobs[version_id] = {"model_data": model_data, "version_data": version_data,
+                                      "file_index": file_index, "file_id": file_id,
+                                      "model_id": (model_data or {}).get("id")}
+        self._pump()
         return progress
 
     def _sync_downloaded_file(self, file_path: str, progress: Optional[DownloadProgress] = None,
@@ -742,11 +1087,20 @@ class DownloadService:
             print(f"[ModelManager] Failed to sync downloaded file: {e}")
 
     def shutdown(self):
-        """Shutdown the executor and cancel pending downloads."""
-        self.cancel_all()
-        if self._executor:
-            self._executor.shutdown(wait=False)
-            self._executor = None
+        """
+        Stop: running downloads are paused, not cancelled - their .partial is
+        kept, and the next start offers them to resume - and waiting ones
+        are dropped.
+        """
+        with self._lock:
+            waiting = self._waiting()
+            running = [v for v, p in self._active_downloads.items() if p.status == "downloading"]
+        for version_id in waiting:
+            progress = self._active_downloads.get(version_id)
+            if progress:
+                progress.status = "cancelled"
+        for version_id in running:
+            self.pause(version_id)
 
 
 # Global download service instance
@@ -758,4 +1112,6 @@ def get_download_service() -> DownloadService:
     global _download_service
     if _download_service is None:
         _download_service = DownloadService(max_concurrent=2)
+        # What was running or paused when the WebUI last stopped, paused.
+        _download_service.restore()
     return _download_service

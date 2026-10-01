@@ -53,7 +53,8 @@ globalThis.fetch = async (url, init = {}) => {
         for (const hash of hashes) if (hash in RESOLVED) resolved[hash] = RESOLVED[hash];
         return reply({ success: true, resolved, deferred: [] });
     }
-    if (href.includes('/model-manager/civitai/download')) {
+    // The download itself - not its progress, which the page asks for at load.
+    if (href.endsWith('/model-manager/civitai/download')) {
         downloads.push(Object.fromEntries(new URLSearchParams(String(init.body || ''))));
         return reply({ success: true, version_id: 6001, version_name: 'v1' });
     }

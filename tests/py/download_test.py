@@ -44,6 +44,10 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 
 
+# What can be resumed is kept here, never in a database (DownloadService.store).
+kept = {'value': None}
+DownloadService.store = (lambda: kept['value'], lambda value: kept.__setitem__('value', value))
+
 # Retries sleep for three seconds each; the test does not need to.
 ds.time = types.SimpleNamespace(sleep=lambda seconds: None)
 
@@ -65,7 +69,7 @@ for status, complete in (('pending', False), ('downloading', False), ('finishing
 p = DownloadProgress(version_id=7, file_name='f.safetensors')
 check('the dict carries what the UI polls for',
       sorted(p.to_dict()), ['downloaded_bytes', 'error', 'eta_seconds', 'file_name', 'file_path',
-                            'percent', 'speed_bps', 'stalled', 'status', 'sync_error', 'synced',
+                            'percent', 'speed_bps', 'stalled', 'started_over', 'status', 'sync_error', 'synced',
                             'total_bytes', 'version_id'])
 
 # ------------------------------------------------------ how fast, how long (#36)
@@ -210,19 +214,27 @@ service._cancel_flags = {}
 
 # --------------------------------------------------------------- a fake Civitai
 class FakeResponse:
-    def __init__(self, chunks=(), total=None, error=None):
+    """A reply: its chunks - a callable among them runs between two, say to pause - and its status."""
+    def __init__(self, chunks=(), total=None, error=None, status_code=200):
         self.chunks = list(chunks)
         self.error = error
-        size = total if total is not None else sum(len(c) for c in self.chunks)
+        self.status_code = status_code
+        size = total if total is not None else sum(len(c) for c in self.chunks if not callable(c))
         self.headers = {'content-length': str(size)}
 
     def raise_for_status(self):
         if self.error:
             raise self.error
 
+    def close(self):
+        self.closed = True
+
     def iter_content(self, chunk_size=None):
         for chunk in self.chunks:
-            yield chunk
+            if callable(chunk):
+                chunk()
+            else:
+                yield chunk
 
 
 class FakeSession:
@@ -525,37 +537,113 @@ check('and without one, no header at all',
 os.remove(anonymous.file_path)
 os.remove(os.path.splitext(anonymous.file_path)[0] + '.civitai.info')
 
-# ------------------------------------------------------------------ the queue
+# ------------------------------------------------------------------ the queue (#37)
+# The service's own: up to max_concurrent running, the rest waiting in order.
+# A waiting one can be started at once - over the limit, which only paces the
+# queue - moved up or down, paused, or cancelled before it starts.
+import threading                                         # noqa: E402
 queued = []
+gates = {}
 
 
 class Queueing(DownloadService):
+    """Each download runs until its gate opens."""
     def download_version(self, version_id, model_data, version_data,
-                         file_index=None, file_id=None):
-        queued.append((version_id, file_index, file_id))
-        return DownloadProgress(version_id=version_id, status='complete')
+                         file_index=None, file_id=None, resume=False):
+        queued.append((version_id, file_index, file_id, resume))
+        progress = self._active_downloads[version_id]
+        progress.status = 'downloading'
+        gates.setdefault(version_id, threading.Event()).wait(5)
+        # As the chunk loop does: asked to pause, it stops paused.
+        progress.status = 'paused' if self._is_paused(version_id) else 'complete'
+        return progress
 
 
-queue = Queueing(max_concurrent=1)
+def release(*ids):
+    for version_id in ids:
+        gates.setdefault(version_id, threading.Event()).set()
+
+
+def settle():
+    time.sleep(0.05)
+
+
+def states(q):
+    return {p['version_id']: (p['status'], p.get('queue_position')) for p in q.get_all_progress()}
+
+
+queue = Queueing(max_concurrent=2)
 handle = queue.queue_download(600, CHECKPOINT, version(id=600), file_id=1)
-check('the queued download is named before it starts',
-      handle.file_name, 'model.safetensors')
-check('and is visible to the poller straight away',
-      queue.get_progress(600) is handle, True)
+check('the queued download is named before it starts', handle.file_name, 'model.safetensors')
+check('and is visible to the poller straight away', queue.get_progress(600) is handle, True)
 nameless = queue.queue_download(601, CHECKPOINT, version(id=601, files=[]))
 check('a version with no files is still queued', nameless.file_name, 'Unknown')
-queue._executor.shutdown(wait=True)
-check('the work reached the executor', queued, [(600, None, 1), (601, None, None)])
-queue._executor = None
-
 queue.queue_download(602, CHECKPOINT, version(id=602))
-check('a second executor is made when the first is gone',
-      queue._executor is not None, True)
+queue.queue_download(603, CHECKPOINT, version(id=603))
+settle()
+check('two run, the rest wait, each with its place', states(queue),
+      {600: ('downloading', None), 601: ('downloading', None), 602: ('pending', 1), 603: ('pending', 2)})
+order = lambda q: [p['version_id'] for p in q.get_all_progress()]         # noqa: E731
+check('moved up, a waiting one changes places, in the list too',
+      [queue.move(603, -1), states(queue)[603], states(queue)[602], order(queue)],
+      [True, ('pending', 1), ('pending', 2), [600, 601, 603, 602]])
+check('not past the top', queue.move(603, -1), False)
+check('a running one is not in the queue to move', queue.move(600, 1), False)
+check('started now, it runs at once, over the limit - and keeps its row',
+      [queue.start_now(602), settle(), states(queue)[602], order(queue)],
+      [True, None, ('downloading', None), [600, 601, 603, 602]])
+queue.cancel(603)
+check('a waiting one cancelled never starts, and keeps its row until dismissed',
+      [states(queue)[603], queue._waiting(), order(queue)], [('cancelled', None), [], [600, 601, 603, 602]])
+queue.queue_download(604, CHECKPOINT, version(id=604))
+queue.queue_download(605, CHECKPOINT, version(id=605))
+check('paused while waiting, it is not waiting, and keeps its row',
+      [queue.pause(605), states(queue)[605], queue._waiting(), order(queue)[-2:]],
+      [True, ('paused', None), [604], [604, 605]])
+check('resumed, it waits where its row is - behind one above it, not at the front',
+      [queue.resume(605), states(queue)[604], states(queue)[605], order(queue)[-2:]],
+      [True, ('pending', 1), ('pending', 2), [604, 605]])
+release(600, 601, 602)
+for _ in range(100):
+    if states(queue)[605][0] == 'downloading':
+        break
+    settle()
+check('when places free up, they start from the top - the resumed one told it is resuming',
+      [states(queue)[604], states(queue)[605], queued[-1][0], [q[3] for q in queued if q[0] == 605]],
+      [('downloading', None), ('downloading', None), 605, [True]])
+release(605)
+release(604)
+queue.wait()
+check('each ran with its own file', sorted(q[:3] for q in queued),
+      [(600, None, 1), (601, None, None), (602, None, None), (604, None, None), (605, None, None)])
+
+# Pause all holds the waiting ones too, so none starts in the places it frees.
+queue.queue_download(610, CHECKPOINT, version(id=610))
+queue.queue_download(611, CHECKPOINT, version(id=611))
+queue.queue_download(612, CHECKPOINT, version(id=612))
+settle()
+queue.pause_all()
+check('Pause all: the running ones asked to pause, the waiting one paused',
+      [queue._is_paused(610), queue._is_paused(611), states(queue)[612]], [True, True, ('paused', None)])
+release(610, 611)
+queue.wait()
+gates.update({610: threading.Event(), 611: threading.Event()})     # to run again, until let go
+queue.resume_all()
+settle()
+check('Resume all: the top two run, the third waits - and no row moved',
+      [states(queue)[610][0], states(queue)[611][0], states(queue)[612]], ['downloading', 'downloading', ('pending', 1)])
+release(610, 611, 612)
+queue.wait()
+
+queue.queue_download(620, CHECKPOINT, version(id=620))
+queue.queue_download(621, CHECKPOINT, version(id=621))
+queue.queue_download(622, CHECKPOINT, version(id=622))
+settle()
 queue.shutdown()
-check('shutting down drops the executor', queue._executor, None)
-check('and cancels what was in flight', queue._is_cancelled(600), True)
-queue.shutdown()
-check('shutting down twice is harmless', queue._executor, None)
+check('shutting down pauses what runs - kept to resume - and drops what waits',
+      [queue._is_paused(620), queue._is_paused(621), states(queue)[622][0]], [True, True, 'cancelled'])
+release(620, 621)
+queue.wait()
 
 
 # ------------------------------------------------- syncing what was downloaded
@@ -678,6 +766,82 @@ check('a download whose SHA-256 is not Civitai\'s leaves nothing: no file, no .p
       [wrong.status, os.path.exists(os.path.join(CKPT_DIR, name % 523)),
        os.path.exists(os.path.join(CKPT_DIR, name % 523) + '.partial')], ['error', False, False])
 service._download_file = real_download_file
+
+# ---------------------------------------------------- pause and resume (#38)
+# Paused, a download keeps its .partial and is kept in the database (here,
+# `kept`) to be resumed after a restart. Resumed, the rest is asked for with a
+# Range request - Civitai answers 206 - and added to the file, the hash
+# continued from what was there. A server that sends the whole file instead
+# is taken from the start.
+FULL = b'first part|second part|third part'
+FULL_SHA = hashlib.sha256(FULL).hexdigest().upper()
+
+
+def pause_it(version_id):
+    return lambda: service._pause_flags.__setitem__(version_id, True)
+
+
+kept['value'] = None
+civitai_says(FakeResponse([FULL[:11], pause_it(530), FULL[11:]], total=len(FULL)))
+paused = service.download_version(530, CHECKPOINT, hashed(530, FULL_SHA))
+partial = os.path.join(CKPT_DIR, 'hashed_530.safetensors.partial')
+saved = json.loads(kept['value'] or '[]')
+check('paused mid-download, it stops, says so, and keeps what it had',
+      [paused.status, io.open(partial, 'rb').read(), os.path.exists(partial[:-len('.partial')])],
+      ['paused', FULL[:11], False])
+check('kept to resume after a restart: which version, model and file, and where its .partial is',
+      [(e['version_id'], e['model_id'], e['partial_path'], e['total_bytes']) for e in saved],
+      [(530, 42, partial, len(FULL))])
+civitai_says(FakeResponse([FULL[11:]], status_code=206))
+resumed = service.download_version(530, CHECKPOINT, hashed(530, FULL_SHA), resume=True)
+check('resumed, only the rest is asked for', FakeSession.asked[0][1].get('Range'), 'bytes=11-')
+check('and added on: the whole file, its hash Civitai\'s, complete',
+      [resumed.status, io.open(resumed.file_path, 'rb').read(), resumed.sha256, resumed.started_over],
+      ['complete', FULL, FULL_SHA, False])
+check('and no longer kept to resume', kept['value'], None)
+check('the progress the page followed is the same one throughout', resumed is paused, True)
+
+# Civitai's storage now and then ignores the range - with an API key, 1 of 8
+# resumes in one measurement - and a fresh request is answered: asked again,
+# up to three times, before starting over.
+civitai_says(FakeResponse([FULL[:11], pause_it(532), FULL[11:]], total=len(FULL)))
+service.download_version(532, CHECKPOINT, hashed(532, FULL_SHA))
+ignored = FakeResponse([FULL], status_code=200)
+civitai_says(ignored, FakeResponse([FULL[11:]], status_code=206))
+again = service.download_version(532, CHECKPOINT, hashed(532, FULL_SHA), resume=True)
+check('a whole file once, then the rest: asked again for the rest, and resumed - not started over',
+      [[a[1].get('Range') for a in FakeSession.asked], getattr(ignored, 'closed', False), again.started_over,
+       io.open(again.file_path, 'rb').read()], [['bytes=11-', 'bytes=11-'], True, False, FULL])
+
+civitai_says(FakeResponse([FULL[:11], pause_it(531), FULL[11:]], total=len(FULL)))
+service.download_version(531, CHECKPOINT, hashed(531, FULL_SHA))
+civitai_says(*[FakeResponse([FULL], status_code=200) for _ in range(3)])
+over = service.download_version(531, CHECKPOINT, hashed(531, FULL_SHA), resume=True)
+check('a server that sends the whole file every time: taken from the start, and said so',
+      [len(FakeSession.asked), over.status, io.open(over.file_path, 'rb').read(), over.started_over],
+      [3, 'complete', FULL, True])
+
+# After a restart: what was kept comes back paused - one that was running
+# when the WebUI stopped too - and one whose .partial is gone is forgotten.
+left = os.path.join(CKPT_DIR, 'left_behind.safetensors.partial')
+io.open(left, 'wb').write(b'12345')
+kept['value'] = json.dumps([
+    {'version_id': 540, 'model_id': 42, 'file_id': 9, 'file_index': None, 'file_name': 'left_behind.safetensors',
+     'partial_path': left, 'total_bytes': 50},
+    {'version_id': 541, 'model_id': 42, 'file_id': 9, 'file_index': None, 'file_name': 'gone.safetensors',
+     'partial_path': os.path.join(CKPT_DIR, 'gone.safetensors.partial'), 'total_bytes': 50}])
+restarted = DownloadService(max_concurrent=2)
+restarted.restore()
+check('after a restart, a kept download is back, paused, as far as its .partial got',
+      [(p['version_id'], p['status'], p['downloaded_bytes'], p['total_bytes']) for p in restarted.get_all_progress()],
+      [(540, 'paused', 5, 50)])
+check('and one whose .partial is gone is forgotten', [e['version_id'] for e in json.loads(kept['value'])], [540])
+check('it knows its ids only, to fetch from Civitai when resumed',
+      {k: restarted._jobs[540].get(k) for k in ('model_id', 'file_id', 'version_data')},
+      {'model_id': 42, 'file_id': 9, 'version_data': None})
+restarted.cancel(540)
+check('cancelled while paused, it goes, its .partial with it',
+      [restarted.get_progress(540).status, os.path.exists(left), kept['value']], ['cancelled', False, None])
 
 leftovers = [os.path.join(root, f) for root, _, files in os.walk(MODELS) for f in files if f.endswith('.partial')]
 check('after every download here, failed ones included, no .partial is left anywhere', leftovers, [])
