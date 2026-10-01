@@ -196,10 +196,17 @@ check('and one it shares with our own list is used when we have no value',
 os.remove(CM_INFO)
 
 # ------------------------------------------------------- syncing one model
+# An identified file is skipped while its sidecar is there, as a sync writes
+# one. Without it, the file is synced again, which writes it back (#97).
+fixtures.sidecar(LINKED, {'id': 1})
 sync, client = service()
 result = sync.sync_model(LINKED)
 check('a model already identified is skipped', result.skipped, True)
 check('without asking Civitai anything', client.asked, [])
+os.remove(os.path.splitext(LINKED)[0] + '.civitai.info')
+sync, client = service()
+result = sync.sync_model(LINKED)
+check('but not when its sidecar has gone: it is synced again, to write it back', result.skipped, False)
 
 sync, client = service()
 db.set_lookup_failed(LOCAL_ONLY)
@@ -420,9 +427,13 @@ check('and finishes', progress.is_complete, True)
 check('without walking the disk, so nothing is added',
       (progress.added, progress.removed), (0, 0))
 
+for path in facts['linked_paths'][:3]:
+    fixtures.sidecar(path, {'id': 1})
 sync, client = service()
 progress = sync.sync_all(model_paths=facts['linked_paths'][:3], max_workers=2)
 check('files already identified are skipped when not forcing', progress.skipped, 3)
+for path in facts['linked_paths'][:3]:
+    os.remove(os.path.splitext(path)[0] + '.civitai.info')
 
 sync, client = service()
 progress = sync.sync_all(model_paths=all_paths, targets='unidentified', max_workers=2)

@@ -355,7 +355,10 @@ class ModelsOps:
                     file_hashes = COALESCE(excluded.file_hashes, model_versions.file_hashes),
                     file_modified = excluded.file_modified,
                     file_extension = excluded.file_extension,
-                    has_civitai_data = excluded.has_civitai_data,
+                    -- Identified stays identified: a scan that finds no
+                    -- sidecar has not learned the file is unknown to Civitai.
+                    has_civitai_data = MAX(excluded.has_civitai_data,
+                                           COALESCE(model_versions.has_civitai_data, 0)),
                     scanned_at = excluded.scanned_at,
                     -- NULL is "this source cannot say" (a stripped showcase
                     -- has no reliable cover); '' is "has none", and is kept.
