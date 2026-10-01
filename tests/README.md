@@ -10,7 +10,9 @@ python tests/py/hash_test.py        any suite, on its own, always
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`: about twenty seconds for all of them.
+`tests/work/`: about twenty seconds for all of them. A failing suite's tail is
+printed after the list, its name in the last line, and its whole output kept
+in `tests/work/last_failures.log` until the next run.
 
 **--changed** compares the working tree with the last commit and runs the
 suites that use a changed file, a changed suite itself, and the static checks.
