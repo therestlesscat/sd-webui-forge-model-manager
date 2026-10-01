@@ -1248,6 +1248,24 @@ def _migrate_to_v29(cursor):
     print("[ModelManager] Migration to v29 complete")
 
 
+def _migrate_to_v30(cursor):
+    """
+    An index for looking a file up by its path, case aside. Windows ignores
+    the case of a path and SQL does not: a walk spelling a stored file another
+    way made a second row for it, so a path is now looked up case-blind before
+    it is stored (models_ops._stored_spelling), as the generations' already
+    were (library_spelling). Without the index, each of those scanned the table.
+
+    Only an index: a copy of the extension at v29 sharing the database runs
+    as before, and leaves it alone.
+    """
+    print("[ModelManager] Migrating to v30: finding a file by its path, case aside...")
+    if cursor.execute("PRAGMA table_info(model_versions)").fetchall():
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_path_nocase "
+                       "ON model_versions(file_path COLLATE NOCASE)")
+    print("[ModelManager] Migration to v30 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1337,6 +1355,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 29:
         _migrate_to_v29(cursor)
+
+    if from_version < 30:
+        _migrate_to_v30(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

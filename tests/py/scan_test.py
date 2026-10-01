@@ -286,6 +286,27 @@ scan.scan_models(directories=[models_dir])
 check('a file the library has never seen, with no sidecar, is still stored as PG - visible',
       db.get_version(new_bare)['nsfw_level'], 1)
 
+# ---------------------------------------------- one file, spelt two ways (#99)
+# file_path is unique as SQL compares it - case and all - and Windows is not:
+# a walk spelling a stored file in other case made a second row for it.
+if os.path.normcase('A') == os.path.normcase('a'):
+    spelt = os.path.join(models_dir, 'Lora', 'Spelt_Once.safetensors')
+    io.open(spelt, 'wb').write(b'\0' * 64)
+    db.upsert_version({'file_path': spelt, 'file_name': 'Spelt_Once.safetensors',
+                       'file_extension': '.safetensors', 'id': 82001, 'has_civitai_data': True})
+    other = os.path.join(os.path.dirname(spelt), 'SPELT_ONCE.safetensors')
+    db.upsert_version({'file_path': other, 'file_name': 'SPELT_ONCE.safetensors',
+                       'file_extension': '.safetensors', 'has_civitai_data': False})
+    rows = [p for p in db.get_all_version_paths() if p.lower() == spelt.lower()]
+    check('a file stored, then met spelt in other case, is still one row, in its first spelling',
+          rows, [spelt])
+    check('and the second meeting landed on it', db.get_version(spelt)['id'], 82001)
+    with db._cursor() as cursor:
+        plan = ' '.join(str(row[-1]) for row in cursor.execute(
+            "EXPLAIN QUERY PLAN SELECT file_path FROM model_versions WHERE file_path = ? COLLATE NOCASE",
+            (spelt,)).fetchall())
+    check('looked up through an index, not a scan of every row', 'idx_version_path_nocase' in plan, True)
+
 # ------------------------------------------------- every folder a download uses
 # Downloads are filed into ESRGAN, ControlNet, Poses, Wildcards and more; the
 # scan walked only Stable-diffusion, Lora and VAE, and its diff forgot each

@@ -13,6 +13,21 @@ from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable
 from contextlib import contextmanager
 
+# Whether the disk ignores case, as Windows does. file_path is unique as SQL
+# compares it, case and all, so a walk spelling a stored file another way
+# made a second row for it (#99). Where case matters, two spellings are two
+# files and are left apart.
+_CASE_BLIND = os.path.normcase("A") == os.path.normcase("a")
+
+
+def _stored_spelling(cursor, path: Optional[str]) -> Optional[str]:
+    """The path as the library already spells this file, if it holds it; else the path."""
+    if not path or not _CASE_BLIND:
+        return path
+    row = cursor.execute("SELECT file_path FROM model_versions WHERE file_path = ? COLLATE NOCASE "
+                         "ORDER BY file_path = ? DESC LIMIT 1", (path, path)).fetchone()
+    return row[0] if row else path
+
 
 def _json_or_none(value):
     """A JSON column, or NULL when there is nothing to say."""
@@ -311,6 +326,11 @@ class ModelsOps:
         this call).
         """
         with self._cursor() as cursor:
+            # The row the library already has for this file, however it is spelt.
+            file_path = _stored_spelling(cursor, version_data.get("file_path"))
+            file_name = (os.path.basename(file_path) if file_path != version_data.get("file_path")
+                         else version_data.get("file_name"))
+
             # Handle file_hashes - can be dict or already JSON string
             file_hashes = version_data.get("file_hashes")
             if isinstance(file_hashes, dict):
@@ -376,8 +396,8 @@ class ModelsOps:
                 version_data.get("description"),
                 version_data.get("stats_download_count", 0),
                 version_data.get("stats_thumbs_up", 0),
-                version_data.get("file_path"),
-                version_data.get("file_name"),
+                file_path,
+                file_name,
                 version_data.get("file_size"),
                 file_hashes,
                 version_data.get("file_modified"),
@@ -568,7 +588,7 @@ class ModelsOps:
                 ) VALUES (?, ?, ?, ?, ?, 0, 1, ?)
                 ON CONFLICT(file_path) DO NOTHING
             """, [
-                (r.get("file_path"), r.get("file_name"), r.get("file_extension"),
+                (_stored_spelling(cursor, r.get("file_path")), r.get("file_name"), r.get("file_extension"),
                  r.get("file_size"), r.get("file_modified"), now)
                 for r in rows if r.get("file_path")
             ])
