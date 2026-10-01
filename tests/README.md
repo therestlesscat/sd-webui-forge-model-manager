@@ -10,7 +10,7 @@ python tests/py/hash_test.py        any suite, on its own, always
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`: about ten seconds for all of them.
+`tests/work/`: about twenty seconds for all of them.
 
 **--changed** compares the working tree with the last commit and runs the
 suites that use a changed file, a changed suite itself, and the static checks.
@@ -60,7 +60,29 @@ filter that found two models until the library grew. **Assert what the code
 does, not what a library happens to contain.**
 
 Everything goes in through the real `ModelsDatabase`, so a fixture exercises
-the migrations on the way and cannot drift from the schema.
+the migrations on the way and cannot drift from the schema. Nothing else opens
+a database: a service that saves through `get_models_db()` is given a store of
+the test's own (`DownloadService.store`), so no suite can reach a real
+`models.db`.
+
+## What a browser suite cannot see
+
+`harness.mjs` gives a tab its markup and the WebUI's globals in linkedom, which
+is close to a browser and not one:
+
+- **No inline handlers run.** An `onclick="..."` is never called - a suite
+  reads the attribute, or adds the handler itself where the handler is what is
+  being tested (`runInline` in the select suites: a label's
+  `stopPropagation()` once kept every click from the page).
+- **No layout.** Widths and positions are 0; a suite checks the stylesheet's
+  rule instead.
+- **The markup is read from the tab's `.py`**, as written: markup Python adds
+  with `.replace()` is not there.
+- **The markup is there before the script runs.** In the WebUI, Gradio draws
+  it after; a suite that matters for that removes the container, loads the
+  page, then puts it back (`download_controls_test.mjs`).
+- **`onAfterUiUpdate` does nothing** unless the suite collects the callbacks
+  and runs them (`quiet_updates_test.mjs`).
 
 ## What is here
 
