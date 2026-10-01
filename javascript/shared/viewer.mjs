@@ -163,8 +163,12 @@ function render() {
     const { source, index, element } = current;
     const media = source.media(index) || {};
     const frame = element.querySelector('.mm-viewer-frame');
+    // A video may be played from a copy the size the frame shows it (the
+    // source's videoUrl): the frame is measured first, as it is now.
+    const playUrl = media.video && source.videoUrl
+        ? source.videoUrl(media, { width: frame.clientWidth, height: frame.clientHeight }) : media.url;
     frame.innerHTML = media.video
-        ? `<video class="mm-viewer-image" src="${escapeAttr(media.url)}" controls autoplay muted loop playsinline></video>`
+        ? `<video class="mm-viewer-image" src="${escapeAttr(playUrl)}" controls autoplay muted loop playsinline></video>`
         : `<img class="mm-viewer-image" src="${escapeAttr(media.url)}" alt="Image">`;
     element.querySelector('.mm-viewer-actions').innerHTML = source.buttons(index) || '';
     element.querySelector('.mm-viewer-where').textContent = source.where?.(index) || '';
@@ -244,16 +248,22 @@ function onKey(event) {
  * @param {() => Element[]} options.cards - the gallery's cards, in order
  * @param {() => boolean} options.more - whether another page can be loaded
  * @param {() => Promise} options.loadMore - loads it, drawing its cards
+ * @param {Function} [options.videoUrl] - (url, {width, height}, box) => what
+ *     a video plays: viewerVideoUrl in common.mjs, which this cannot import
  */
-export function cardSource({ cards, more, loadMore }) {
+export function cardSource({ cards, more, loadMore, videoUrl }) {
     const card = (index) => cards()[index];
     return {
         count: () => cards().length,
         media: (index) => {
             const column = card(index)?.querySelector('.mm-image-left');
             return { url: column?.getAttribute('data-viewer-url') || '',
-                     video: column?.getAttribute('data-viewer-video') === 'true' };
+                     video: column?.getAttribute('data-viewer-video') === 'true',
+                     width: Number(column?.getAttribute('data-viewer-width')) || 0,
+                     height: Number(column?.getAttribute('data-viewer-height')) || 0 };
         },
+        // What a video plays, from its media and the frame's size; its url when not given.
+        videoUrl: videoUrl ? (media, box) => videoUrl(media.url, media, box) : null,
         buttons: (index) => card(index)?.querySelector('.mm-image-actions')?.innerHTML || '',
         details: (index) => {
             const text = card(index)?.querySelector('.mm-image-right')?.cloneNode(true);

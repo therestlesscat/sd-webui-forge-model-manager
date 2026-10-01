@@ -40,7 +40,8 @@ const {
     cardMediaUrl,
     originalMediaUrl,
     sizedMediaUrl,
-    videoStillUrl,
+    videoPosterUrl,
+    viewerVideoUrl,
     mediaFallback,
     mediaShape,
     IMAGE_PLACEHOLDER_SVG,
@@ -1354,7 +1355,7 @@ function renderImageCard(img, index) {
     // A click opens the viewer (shared/viewer.mjs) - on a video, its ⤢, as a
     // click on the video plays it.
     const mediaHtml = isVideo
-        ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoStillUrl(src))}"
+        ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoPosterUrl(src))}"
                   class="mm-lazy-media" preload="none" controls loop muted ${mediaShape(img)}
                   ${mediaFallback(originalMediaUrl(src))}
                   onclick="event.stopPropagation()"
@@ -1368,7 +1369,8 @@ function renderImageCard(img, index) {
     return `
         <div class="mm-image-card" data-index="${index}">
             <div class="mm-image-left" data-viewer-url="${escapeHtml(src ? originalMediaUrl(src) : '')}"
-                 data-viewer-video="${isVideo}">
+                 data-viewer-video="${isVideo}" data-viewer-width="${Number(img.width) || ''}"
+                 data-viewer-height="${Number(img.height) || ''}">
                 ${mediaHtml}
                 ${nsfwLevel ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
             </div>
@@ -1410,6 +1412,7 @@ document.addEventListener('click', (event) => {
         cards: browserCards,
         more: () => !!imagePages[imagePages.length - 1]?.more,
         loadMore: () => loadMoreImages(),
+        videoUrl: viewerVideoUrl,
     }), at);
 });
 
