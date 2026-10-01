@@ -30,6 +30,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
+| `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, and when a walk may forget a row |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
@@ -125,7 +126,11 @@ several needs an order that cannot tie.
 scope. *By diff*: these rows name files a walk never found — sound only when
 the walk covered the whole disk, so it runs before any target filter, never
 with an explicit path list, and never when the walk came back empty (that is an
-unmounted drive, not an emptied library).
+unmounted drive, not an emptied library). And only for a file that is not on
+disk (`model_dirs.gone_from_disk`): a walk looks for model files in the
+library's folders, and a download can land elsewhere - a wildcard's `.zip`, a
+folder template pointing outside. Every folder a download files into is one
+the library walks; both come from one table in `model_dirs.py`.
 
 **Civitai's model type is not the file's role.** A checkpoint model can ship a
 VAE as one of its versions, and that file inherits "Checkpoint"; text encoders

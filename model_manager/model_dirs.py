@@ -1,0 +1,142 @@
+"""
+Where models live: the folders a scan walks and a download files into.
+
+One table, because it used to be two. The scan knew the command-line options
+and walked Stable-diffusion, Lora and VAE; the downloader filed upscalers,
+ControlNets, poses and the rest into folders the scan never walked, so a full
+scan forgot each one as a file gone from disk.
+
+Every folder a download can write to is one the library walks.
+"""
+import os
+from typing import List, Optional
+
+
+class Folder:
+    """
+    One kind of model's place on disk.
+
+    `default` is the folder under the WebUI's models path, or None when the
+    option itself carries the default (embeddings: both WebUIs give
+    --embeddings-dir one, and the original Forge's is not under models).
+    `options` are the command-line options naming it - Forge's singular,
+    holding one path (--ckpt-dir), and Forge Neo's repeatable plural, holding
+    a list (--ckpt-dirs). `download` is False for a folder walked but never
+    filed into: no Civitai type is a text encoder.
+    """
+
+    def __init__(self, default: Optional[str], options=(), download: bool = True):
+        self.default = default
+        self.options = tuple(options)
+        self.download = download
+
+
+FOLDERS = {
+    "Checkpoint": Folder("Stable-diffusion", ("ckpt_dir", "ckpt_dirs")),
+    "LORA": Folder("Lora", ("lora_dir", "lora_dirs")),
+    "VAE": Folder("VAE", ("vae_dir", "vae_dirs")),
+    "TextEncoder": Folder("text_encoder", ("text_encoder_dir", "text_encoder_dirs"), download=False),
+    "TextualInversion": Folder(None, ("embeddings_dir",)),
+    "Hypernetwork": Folder("hypernetworks", ("hypernetwork_dir",)),
+    "Controlnet": Folder("ControlNet", ("controlnet_dir", "controlnet_dirs")),
+    "Upscaler": Folder("ESRGAN", ("esrgan_models_path",)),
+    "MotionModule": Folder("MotionModule"),
+    "Poses": Folder("Poses"),
+    "Wildcards": Folder("Wildcards"),
+    "Other": Folder("Other"),
+}
+
+#: Civitai types filed with another's files.
+SAME_FOLDER_AS = {"LoCon": "LORA", "DoRA": "LORA"}
+
+
+def option_dirs(cmd_opts, *option_names) -> List[str]:
+    """
+    The paths these command-line options hold, in order: a single path
+    (Forge) or a list (Neo), skipping options the running WebUI does not
+    define. Not checked for existence.
+    """
+    found = []
+    for name in option_names:
+        value = getattr(cmd_opts, name, None)
+        if not value:
+            continue
+        if isinstance(value, (list, tuple)):
+            found.extend(str(v) for v in value if v)
+        else:
+            found.append(str(value))
+    return found
+
+
+def _host():
+    """The WebUI's command-line options and models path; empty outside it."""
+    try:
+        from modules import paths, shared
+        return getattr(shared, "cmd_opts", None), getattr(paths, "models_path", "") or ""
+    except ImportError:
+        return None, ""
+
+
+def download_dir(model_type: str, cmd_opts=None, models_path: Optional[str] = None) -> str:
+    """
+    The folder a download of this Civitai type is filed under: the first
+    directory an option names that exists, else the type's folder under the
+    models path. An unknown type goes to Other.
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = _host()
+    models_path = models_path or ""
+    model_type = SAME_FOLDER_AS.get(model_type, model_type)
+    folder = FOLDERS.get(model_type)
+    if folder is None or not folder.download:
+        folder = FOLDERS["Other"]
+
+    named = option_dirs(cmd_opts, *folder.options)
+    for directory in named:
+        if os.path.isdir(directory):
+            return directory
+    if folder.default is not None:
+        return os.path.join(models_path, folder.default)
+    # The option carries the default; it may not have been created yet.
+    return named[0] if named else os.path.join(models_path, "embeddings")
+
+
+def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
+    """
+    Every folder the library walks, as absolute paths: each one an option
+    names, and each kind's folder under the models path. Missing folders and
+    duplicates (case-insensitively on Windows) are left out.
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = _host()
+
+    directories = []
+    for folder in FOLDERS.values():
+        directories.extend(option_dirs(cmd_opts, *folder.options))
+    if models_path:
+        directories.extend(os.path.join(models_path, folder.default)
+                           for folder in FOLDERS.values() if folder.default)
+
+    seen = set()
+    result = []
+    for directory in directories:
+        path = os.path.abspath(str(directory))
+        key = os.path.normcase(path)
+        if key in seen or not os.path.isdir(path):
+            continue
+        seen.add(key)
+        result.append(path)
+    return result
+
+
+def gone_from_disk(stored_paths, found_paths) -> List[str]:
+    """
+    The stored paths a walk did not find and that are not on disk.
+
+    A path the walk missed is not evidence on its own: the walk only looks
+    for model files, in the library's folders, and a download can land
+    elsewhere - a wildcard's .zip, a folder template pointing outside. Only
+    a file that is really not there is gone.
+    """
+    found = set(found_paths)
+    return [p for p in stored_paths if p and p not in found and not os.path.exists(p)]

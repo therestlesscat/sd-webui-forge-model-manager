@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
+from .model_dirs import gone_from_disk, library_dirs
 from .nsfw import (
     PG, UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -25,52 +26,6 @@ from .storage import read_civitai_info
 # NSFW level bitmask values (from Civitai API)
 # NSFW severity order for comparison (higher index = more severe)
 NSFW_SEVERITY = ["PG", "PG-13", "R", "X", "XXX", "Unknown"]
-
-
-# Command-line options that point at model directories, per model type.
-#
-# Forge uses singular options holding one path (--ckpt-dir). Forge Neo renamed
-# them to repeatable plural options holding a list (--ckpt-dirs), and added
-# --text-encoder-dirs. Both names are checked so the extension works on either.
-MODEL_DIR_OPTIONS = {
-    "Checkpoint": ("ckpt_dir", "ckpt_dirs"),
-    "LORA": ("lora_dir", "lora_dirs"),
-    "VAE": ("vae_dir", "vae_dirs", "text_encoder_dirs"),
-    "Hypernetwork": ("hypernetwork_dir",),
-    "Controlnet": ("controlnet_dir",),
-    # Both WebUIs define it, with a default, as the folder the downloader
-    # files embeddings in. Left out, a scan never saw them - and forgot every
-    # one a download had added, as a file gone from disk.
-    "TextualInversion": ("embeddings_dir",),
-}
-
-
-def collect_cmd_dirs(cmd_opts, *option_names) -> List[str]:
-    """
-    Read directory paths from command-line options.
-
-    Handles both a single path (Forge) and a list of paths (Neo), and skips
-    options the running WebUI does not define.
-
-    Args:
-        cmd_opts: The WebUI's parsed command-line options.
-        option_names: Attribute names to read, in priority order.
-
-    Returns:
-        List of directory paths (may be empty; not checked for existence).
-    """
-    found = []
-
-    for name in option_names:
-        value = getattr(cmd_opts, name, None)
-        if not value:
-            continue
-        if isinstance(value, (list, tuple)):
-            found.extend(str(v) for v in value if v)
-        else:
-            found.append(str(value))
-
-    return found
 
 
 @dataclass
@@ -449,8 +404,7 @@ class ScanService:
         # sidecar failed to read lost its row though it was still there.
         # A cancelled scan forgets nothing: it has not looked everywhere.
         if not self._cancel_requested:
-            existing_paths = set(db.get_all_version_paths())
-            removed_paths = existing_paths - set(model_files)
+            removed_paths = gone_from_disk(db.get_all_version_paths(), model_files)
             for path in removed_paths:
                 db.delete_version(path)
 
@@ -478,43 +432,8 @@ class ScanService:
         return self._progress
 
     def _get_model_directories(self) -> List[str]:
-        """Get model directories from WebUI settings."""
-        directories = []
-
-        try:
-            from modules import shared
-
-            if hasattr(shared, 'cmd_opts'):
-                cmd = shared.cmd_opts
-                for names in MODEL_DIR_OPTIONS.values():
-                    directories.extend(collect_cmd_dirs(cmd, *names))
-
-            # Default paths
-            if hasattr(shared, 'models_path'):
-                models_path = shared.models_path
-                directories.extend([
-                    os.path.join(models_path, "Stable-diffusion"),
-                    os.path.join(models_path, "Lora"),
-                    os.path.join(models_path, "VAE"),
-                ])
-
-        except ImportError:
-            pass
-
-        # Drop duplicates (case-insensitively on Windows) and missing dirs
-        seen = set()
-        result = []
-        for directory in directories:
-            if not directory:
-                continue
-            path = os.path.abspath(str(directory))
-            key = os.path.normcase(path)
-            if key in seen or not os.path.isdir(path):
-                continue
-            seen.add(key)
-            result.append(path)
-
-        return result
+        """Every folder the library walks - see model_dirs."""
+        return library_dirs()
 
     def cancel(self):
         """Cancel the scan operation."""

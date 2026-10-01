@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from .civitai import paid_access_info
 from .civitai.ownership import owned_versions
 from .hashing import HashResult
+from .model_dirs import download_dir
 
 
 # What a download is written as until it is whole and verified: never a
@@ -170,23 +171,6 @@ class DownloadService:
 
     # (get, set) for what can be resumed, instead of the database's.
     store = None
-
-    # Map Civitai model types to WebUI folder names
-    MODEL_TYPE_FOLDERS = {
-        "Checkpoint": "Stable-diffusion",
-        "LORA": "Lora",
-        "LoCon": "Lora",
-        "DoRA": "Lora",
-        "TextualInversion": None,  # Special case: embeddings folder
-        "Hypernetwork": "hypernetworks",
-        "VAE": "VAE",
-        "Controlnet": "ControlNet",
-        "Upscaler": "ESRGAN",
-        "MotionModule": "MotionModule",
-        "Poses": "Poses",
-        "Wildcards": "Wildcards",
-        "Other": "Other",
-    }
 
     def __init__(self, max_concurrent: int = 2):
         """
@@ -517,38 +501,9 @@ class DownloadService:
                 del self._active_downloads[vid]
         return gone
 
-    def get_model_type_folder(self, model_type: str) -> Optional[str]:
-        """Get WebUI folder name for a model type."""
-        return self.MODEL_TYPE_FOLDERS.get(model_type, "Other")
-
     def get_base_path(self, model_type: str) -> str:
-        """Get full base path for a model type."""
-        from modules import shared, paths
-
-        cmd_opts = shared.cmd_opts
-        folder_name = self.get_model_type_folder(model_type)
-
-        # Special case: TextualInversion goes to embeddings folder
-        if model_type == "TextualInversion" or folder_name is None:
-            return getattr(cmd_opts, 'embeddings_dir', os.path.join(paths.models_path, 'embeddings'))
-
-        # Check for command-line overrides. Forge and Neo name these options
-        # differently, so look up both - see MODEL_DIR_OPTIONS.
-        from .scan_service import MODEL_DIR_OPTIONS, collect_cmd_dirs
-
-        lookup_type = "LORA" if model_type in ("LORA", "LoCon", "DoRA") else model_type
-        option_names = MODEL_DIR_OPTIONS.get(lookup_type)
-
-        if option_names:
-            # text encoders are scanned alongside VAEs but are not a download
-            # target, so never resolve a download path to that directory
-            option_names = tuple(n for n in option_names if n != "text_encoder_dirs")
-            for directory in collect_cmd_dirs(cmd_opts, *option_names):
-                if os.path.isdir(directory):
-                    return directory
-
-        # Default: models/<folder_name>
-        return os.path.join(paths.models_path, folder_name)
+        """The folder a download of this Civitai type is filed under - see model_dirs."""
+        return download_dir(model_type)
 
     def apply_folder_template(
         self,

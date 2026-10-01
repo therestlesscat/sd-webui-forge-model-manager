@@ -22,6 +22,7 @@ from .civitai import (
     keep_generation_data,
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
+from .model_dirs import gone_from_disk, library_dirs
 from .storage import write_civitai_info
 from .architecture import record_architecture
 from .nsfw import UNKNOWN, version_covers
@@ -398,8 +399,7 @@ class SyncService:
             print("[ModelManager] Walk found no model files; leaving the database alone")
             return 0
 
-        found = set(found_paths)
-        gone = [p for p in db.get_all_version_paths() if p and p not in found]
+        gone = gone_from_disk(db.get_all_version_paths(), found_paths)
         for path in gone:
             db.delete_version(path)
         if gone:
@@ -617,8 +617,7 @@ class SyncService:
         if walked:
             from .scan_service import ScanService
             scan_svc = ScanService()
-            directories = scan_svc._get_model_directories()
-            model_paths = scan_svc.find_model_files(directories)
+            model_paths = scan_svc.find_model_files(library_dirs())
 
         # Both of these rest on having seen the whole disk, so they run before
         # `targets` narrows the list: the complete set is the evidence, not

@@ -148,10 +148,8 @@ check('an absurd name is cut to something a filesystem will take',
       len(long_name), 100)
 
 # ------------------------------------------------------------- where it lands
-check('a known type has a folder', service.get_model_type_folder('LORA'), 'Lora')
-check('an unknown type goes to Other', service.get_model_type_folder('Nonsense'), 'Other')
-check('embeddings are the special case',
-      service.get_model_type_folder('TextualInversion'), None)
+check('a known type has a folder', service.get_base_path('LORA'), os.path.join(MODELS, 'Lora'))
+check('an unknown type goes to Other', service.get_base_path('Nonsense'), os.path.join(MODELS, 'Other'))
 
 check('embeddings land under the models path',
       service.get_base_path('TextualInversion'),
@@ -183,6 +181,20 @@ cmd_opts.lora_dirs = [LORA_DIR]
 check('the LoRA variants share one directory',
       (service.get_base_path('LoCon'), service.get_base_path('DoRA')),
       (LORA_DIR, LORA_DIR))
+
+# The WebUIs name these folders too; a download used to ignore both options.
+UPSCALERS = os.path.join(WORK, 'upscalers')
+CONTROLNETS = os.path.join(WORK, 'controlnets')
+os.makedirs(UPSCALERS)
+os.makedirs(CONTROLNETS)
+cmd_opts.esrgan_models_path = UPSCALERS
+cmd_opts.controlnet_dirs = [CONTROLNETS]
+check('an upscaler goes where --esrgan-models-path says',
+      service.get_base_path('Upscaler'), UPSCALERS)
+check('a ControlNet where Neo\'s --controlnet-dirs says',
+      service.get_base_path('Controlnet'), CONTROLNETS)
+cmd_opts.esrgan_models_path = None
+cmd_opts.controlnet_dirs = None
 
 # ------------------------------------------------------------ the progress bars
 first = service._allocate_tqdm_position(1)
