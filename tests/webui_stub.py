@@ -1,9 +1,9 @@
 """
 Enough of the WebUI for the extension to import.
 
-`model_manager.api` registers a callback with `modules.script_callbacks` at
-import time, and most of the extension reads settings off `modules.shared.opts`
-- neither of which exists outside Forge. Installing these before the first
+The extension's entry scripts register callbacks with
+`modules.script_callbacks`, and most of the extension reads settings off
+`modules.shared.opts` - neither of which exists outside Forge. Installing these before the first
 import lets the endpoints be exercised without launching anything.
 
 Call `install()` first thing, before importing anything from `model_manager`.

@@ -16,13 +16,14 @@ Everything the browser can ask for, grouped by what it is asking about:
 
 Each module exposes register(app) and owns whatever state its endpoints need,
 so adding an endpoint means editing one file rather than scrolling one.
+
+on_app_started is registered by scripts/model_manager_ui.py, each time Forge
+runs it - not here, at import, which happens once a process.
 """
 from fastapi import FastAPI
-from modules import script_callbacks
 
 from . import civitai, generations, images, jobs, models, notes, settings, webui
-
-print("[ModelManager API] === api package loading ===")
+from .. import prompt_levels, update_check
 
 
 def setup_api(app: FastAPI):
@@ -39,16 +40,8 @@ def setup_api(app: FastAPI):
 
 
 def on_app_started(demo, app):
-    print(f"[ModelManager] on_app_started called with app: {app}")
     setup_api(app)
     # Stored image levels, redone if the NSFW prompt words changed.
-    from ..prompt_levels import start_in_background
-    start_in_background()
+    prompt_levels.start_in_background()
     # Whether a newer version is out: now, then every 12 hours.
-    from .. import update_check
     update_check.start_in_background()
-
-
-print("[ModelManager] Registering on_app_started callback...")
-script_callbacks.on_app_started(on_app_started)
-print("[ModelManager] on_app_started callback registered")

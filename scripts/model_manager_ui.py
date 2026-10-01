@@ -5,13 +5,16 @@ Forge loads every scripts/*.py, so this file exists to register the callbacks
 and nothing else. The markup lives in model_manager/ui/, the endpoints in
 model_manager/api/.
 
-The module cache is cleared first because Forge can rebuild the UI without
-restarting the process, and a stale module would keep serving the old code.
+Every callback is registered here, each time Forge runs this file: Settings ->
+Reload UI clears them all and runs the scripts again, in the same process,
+with the extension already imported. It used to delete the extension's modules
+and import the API afresh, to pick up edited code - after the recording script
+and the settings had imported theirs, so two copies ran side by side. A
+change to the code needs a restart, as the scripts and the stylesheet do.
 """
-import sys
-
 from modules import script_callbacks
 
+from model_manager import api
 from model_manager.generations import generations_enabled
 from model_manager.ui import (
     create_civitai_browser_ui,
@@ -19,6 +22,7 @@ from model_manager.ui import (
     create_ui,
     on_ui_settings,
 )
+from model_manager.version import describe
 
 
 def create_all_tabs():
@@ -35,21 +39,6 @@ def create_all_tabs():
 
 script_callbacks.on_ui_settings(on_ui_settings)
 script_callbacks.on_ui_tabs(create_all_tabs)
+script_callbacks.on_app_started(api.on_app_started)
 
-# Importing the api package registers its own on_app_started callback.
-print("[ModelManager] Importing API module...")
-try:
-    import importlib
-    # Forge can rebuild the UI without restarting, so drop anything cached.
-    for name in [k for k in sys.modules if k.startswith('model_manager')]:
-        del sys.modules[name]
-    from model_manager import api
-    print(f"[ModelManager] API module imported from: {api.__file__}")
-    from model_manager.version import describe
-    print(f"[ModelManager] Version {describe()['version']}")
-except Exception as e:
-    print(f"[ModelManager] ERROR importing API module: {e}")
-    import traceback
-    traceback.print_exc()
-
-print("[ModelManager] Extension loaded")
+print(f"[ModelManager] Version {describe()['version']} loaded")

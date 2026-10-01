@@ -35,7 +35,6 @@ file per iteration and says only where the last went.
 A failure here is printed and swallowed: recording must never cost a
 generation.
 """
-# Nothing from the extension is imported at the top; see _write().
 import dataclasses
 import enum
 import importlib.util
@@ -44,6 +43,9 @@ import sys
 import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from .db import get_models_db
+from .nsfw import generated_level
 
 # Whether generations are recorded at all; registered in ui/settings.py.
 RECORD_GENERATIONS = "model_manager_record_generations"
@@ -464,13 +466,6 @@ def _at(values: Any, index: int) -> Any:
 # ----------------------------------------------------------------- writing
 
 def _write(p, processed, generation: _Generation) -> int:
-    # Imported here, not at the top: scripts/model_manager_generations.py
-    # imports this module before model_manager_ui.py clears the extension's
-    # modules and imports them afresh, and a copy imported at the top would
-    # judge with the prompt words it started with, and open a database of
-    # its own.
-    from .db import get_models_db
-    from .nsfw import generated_level
     db = get_models_db()
 
     batch_size = int(getattr(p, "batch_size", 1) or 1)
