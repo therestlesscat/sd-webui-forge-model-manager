@@ -90,13 +90,15 @@ sidecar the first time the panel asks.
 
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/common.mjs` polls once and draws into each tab's panel. It
-lives on `window`: each tab imports the shared module under its own `?mtime`,
-so module state would be two copies. The list's order is the server's - the
-order downloads were added in, which ↑/↓ change - and a state never moves a
-row; the page keeps that order apart (`sequence`), as an object's number keys
-come out sorted. It asks for the list when the page loads, and draws it again
-once Gradio has drawn the panel: a paused download polls nothing, and the
-panel used to stay hidden after a restart.
+lives on `window`: each tab used to import the shared module under its own
+`?mtime`, so module state would have been one copy per tab (it is one since
+0.44.6, when the server's answer arrives; #93 makes it module state). The
+list's order is the server's - the order downloads were added in, which ↑/↓
+change - and a state never moves a row; the page keeps that order apart
+(`sequence`), as an object's number keys come out sorted. It asks for the list
+when the page loads, and draws it again once Gradio has drawn the panel: a
+paused download polls nothing, and the panel used to stay hidden after a
+restart.
 
 **The download queue is the service's own.** `DownloadService` runs up to two,
 and when a place frees up starts the first waiting one from the top; Start now
@@ -155,10 +157,16 @@ because that would mean the assumption no longer holds.
 - `style.css` is found by name and concatenated with every other extension's.
 - Both are stamped with the file's mtime **once, at startup**, so a change
   needs a WebUI restart to reach the browser — not just a page reload.
-- Nothing versions `javascript/shared/`. The tab scripts therefore import it
-  with their own `?mtime` propagated from `import.meta.url`; a plain import
-  resolves to a URL that never changes, browsers cache it forever, and a newly
-  exported name becomes a link error that kills the entire tab.
+- Nothing in the WebUI versions `javascript/shared/`, and Gradio's file route
+  sends no `Cache-Control`, so a browser may keep a copy without asking. A
+  plain import resolves to a URL that never changes, and a newly exported name
+  becomes a link error that kills the entire tab. The tabs used their own
+  `?mtime` - which stayed the same when only a shared file changed (15 of 60
+  releases that touched shared/). They now ask `/model-manager/asset-version`
+  for the newest mtime among the shared files, once a page (`window.
+  mmSharedVersion`), and import every shared module with it: one URL, so each
+  shared module also **runs once**, not once per tab. Without an answer, the
+  tab's own version, as before.
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.

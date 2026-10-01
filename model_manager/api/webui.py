@@ -6,13 +6,46 @@ from Civitai, and the browser needs them to match an image's generation
 parameters to something it can actually select. Whether a Civitai API key has
 been set is the same kind of question - it is a WebUI setting - and it rides
 along here rather than costing a second request at startup.
+
+And what version of the page's own shared scripts the WebUI is serving,
+which it does not say itself.
 """
+import os
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+
+SHARED_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                              "javascript", "shared")
+
+
+def shared_version() -> str:
+    """
+    The newest modification time among javascript/shared/, as the version
+    every tab asks for those modules with.
+
+    The WebUI stamps only the scripts it lists, javascript/*.mjs, each with
+    its own mtime; the tabs used theirs for the shared modules too. A release
+    that changed only a shared file left every URL as it was, and Gradio's
+    file route sends no Cache-Control, so a browser could keep the copy it
+    held. One version for all three also loads each shared module once.
+    """
+    newest = 0.0
+    for root, _, files in os.walk(SHARED_SCRIPTS):
+        for name in files:
+            if name.endswith((".mjs", ".js")):
+                newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+    return str(int(newest))
 
 
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
+    @app.get("/model-manager/asset-version")
+    def asset_version():
+        """The version the tabs import javascript/shared/ with; never cached."""
+        return JSONResponse({"success": True, "version": shared_version()},
+                            headers={"Cache-Control": "no-store"})
+
     @app.get("/model-manager/forge-modules")
     def forge_modules_for(file_path: str = "", base_model: str = "",
                           version_ids: str = "", hashes: str = "", model_name: str = "",
