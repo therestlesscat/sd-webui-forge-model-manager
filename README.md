@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.44 - Sounder foundations.** A review of how the extension's parts depend on each other,
+worked through one finding at a time: bugs that lose or misstate what your library knows,
+fixed one by one - the first, Scan Disk lowering a version's NSFW level to PG when its
+sidecar was missing - and code written twice brought to one place, so the tabs stop
+disagreeing about the same image or model.
+
 **0.43 - Downloads you control.** A download can be paused and resumed, carrying on from
 where it stopped - after a WebUI restart, or a crash, too - and the queue can be steered:
 start a waiting download now, move it up or down, cancel it before it starts, or pause and

@@ -16,7 +16,7 @@ from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
 from .nsfw import (
-    UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
+    PG, UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
     version_covers,
 )
 from .storage import read_civitai_info
@@ -165,7 +165,9 @@ class ScanService:
             "file_name": file_name,
             "file_extension": file_ext,
             "has_civitai_data": False,
-            "nsfw_level": 1,  # Default to PG
+            # Unknown until the sidecar says otherwise, so a sidecar silent
+            # on the level does not bring a PG in over the one stored.
+            "nsfw_level": UNKNOWN,
         }
 
         # File stats
@@ -186,6 +188,10 @@ class ScanService:
             civitai_model = self._extract_civitai_metadata(civitai_data, version_data, model_path)
         else:
             version_data["base_model"] = None
+            # PG keeps a file Civitai does not know visible under a level
+            # filter. upsert_version() writes it only into a new row: a row
+            # a sync rated keeps its level.
+            version_data["nsfw_level"] = PG
 
         return civitai_model, version_data
 

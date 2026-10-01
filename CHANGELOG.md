@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.44 - Sounder foundations
+
+*1 October 2026*
+
+A review of how the extension's parts depend on each other, worked through one finding at a time. It found bugs that lose or misstate what your library knows, and code written twice that had begun to disagree; each version below fixes one. Most of the rest is out of sight: a rule kept in one place instead of several, so the next fix lands once.
+
+- **0.44.0** (build 268) - Scan Disk no longer lowers a version's NSFW level to PG. A file whose `.civitai.info` was missing or unreadable, or listed no versions, was stored as PG over the level a sync had written, so an X model showed under a PG filter. A scan with nothing to say about the level now keeps the stored one; a file the library has never seen, with nothing beside it, is still PG, so it shows under any level filter.
+
 ## 0.43 - Downloads you control
 
 *1 October 2026*
