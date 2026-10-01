@@ -159,6 +159,14 @@ class ModelsDatabase:
         """Insert or update a model version record."""
         self._models.upsert_version(version_data)
 
+    def files_with_types(self) -> List[Dict[str, Any]]:
+        """Every file a header has been read for. See ModelsOps.files_with_types()."""
+        return self._models.files_with_types()
+
+    def move_version(self, old_path: str, new_path: str) -> None:
+        """A file moved on disk; its row follows. See ModelsOps.move_version()."""
+        self._models.move_version(old_path, new_path)
+
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         self._models.delete_version(file_path)

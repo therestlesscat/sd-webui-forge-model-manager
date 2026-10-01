@@ -69,7 +69,7 @@ for status, complete in (('pending', False), ('downloading', False), ('finishing
 p = DownloadProgress(version_id=7, file_name='f.safetensors')
 check('the dict carries what the UI polls for',
       sorted(p.to_dict()), ['downloaded_bytes', 'error', 'eta_seconds', 'file_name', 'file_path',
-                            'page_url', 'percent', 'speed_bps', 'stalled', 'started_over', 'status', 'sync_error', 'synced',
+                            'filed', 'page_url', 'percent', 'speed_bps', 'stalled', 'started_over', 'status', 'sync_error', 'synced',
                             'total_bytes', 'version_id'])
 
 # ------------------------------------------------------ how fast, how long (#36)
@@ -904,6 +904,69 @@ check('cancelled while paused, it goes, its .partial with it',
 
 leftovers = [os.path.join(root, f) for root, _, files in os.walk(MODELS) for f in files if f.endswith('.partial')]
 check('after every download here, failed ones included, no .partial is left anywhere', leftovers, [])
+
+# ------------------------------------------------- filed by what it is (#54)
+# The folder is chosen before the file exists, from Civitai's type - the
+# uploader's: a VAE shared as a "Checkpoint" landed in Stable-diffusion, where
+# Forge offers it as a checkpoint. Read once it has arrived, it goes where a
+# VAE goes. The header is stood in for: the bytes here are no model.
+import model_manager.file_identity as file_identity      # noqa: E402
+from model_manager.architecture import Architecture      # noqa: E402
+real_identify = file_identity.identify
+file_identity.identify = lambda path, *a, **k: Architecture(None, None, False, False, 'VAE', 'the test')
+VAE_DIR = os.path.join(MODELS, 'VAE')
+in_vae = os.path.join(VAE_DIR, 'model.safetensors')
+in_ckpt = os.path.join(CKPT_DIR, 'model.safetensors')
+
+
+def clear():
+    for path in (in_vae, in_ckpt):
+        for p in [path] + [os.path.splitext(path)[0] + '.civitai.info']:
+            if os.path.exists(p):
+                os.remove(p)
+
+
+clear()
+civitai_says(FakeResponse([b'weights']))
+filed = service.download_version(530, CHECKPOINT, version(id=530))
+check('a VAE listed under a Checkpoint model is filed in VAE',
+      (filed.status, filed.file_path, os.path.exists(in_vae), os.path.exists(in_ckpt)),
+      ('complete', in_vae, True, False))
+check('with its .civitai.info beside it', os.path.exists(os.path.splitext(in_vae)[0] + '.civitai.info'), True)
+check('added to the library where it is', synced[-1], in_vae)
+check('and the download says where it went, and why', (getattr(filed, 'filed', None) or '').startswith('Filed in'), True)
+
+# The same file already in its folder: this copy - made moments ago - goes,
+# and the one there is the one the library adds.
+clear()
+os.makedirs(VAE_DIR, exist_ok=True)
+io.open(in_vae, 'wb').write(b'weights')
+civitai_says(FakeResponse([b'weights']))
+twin = service.download_version(531, CHECKPOINT, version(id=531))
+check('the same file already in VAE: this copy goes, that one is added',
+      (twin.status, twin.file_path, os.path.exists(in_ckpt), open(in_vae, 'rb').read()),
+      ('complete', in_vae, False, b'weights'))
+check('saying so', (getattr(twin, 'filed', None) or '').startswith('Already in'), True)
+
+# A different file of that name: nothing is written over; this one stays
+# where it landed, and says why.
+clear()
+io.open(in_vae, 'wb').write(b'someone else')
+civitai_says(FakeResponse([b'weights']))
+namesake = service.download_version(532, CHECKPOINT, version(id=532))
+check('a different file of that name in VAE: left alone, and the download stays where it landed',
+      (namesake.status, namesake.file_path, open(in_vae, 'rb').read()),
+      ('complete', in_ckpt, b'someone else'))
+check('saying why', (getattr(namesake, 'filed', None) or '').startswith('Left in'), True)
+
+# What the file cannot say about itself keeps Civitai's folder.
+clear()
+file_identity.identify = lambda path, *a, **k: Architecture(None, None, False, False, 'Unknown', '')
+civitai_says(FakeResponse([b'weights']))
+unread = service.download_version(533, CHECKPOINT, version(id=533))
+check('a file of unknown type stays in Civitai\'s folder', (unread.file_path, getattr(unread, 'filed', None)), (in_ckpt, None))
+clear()
+file_identity.identify = real_identify
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

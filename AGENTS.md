@@ -30,7 +30,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
-| `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, and when a walk may forget a row |
+| `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, when a walk may forget a row, and where a file of each type belongs |
 | `jobs.py` | the long jobs - a sync, a scan - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is |
@@ -141,7 +141,13 @@ arrive as "LORA", and a file Civitai does not know has no type at all. So the
 file is asked: `file_identity.py` reads its tensor names and shapes, and the
 Type filter uses that, falling back to Civitai's type only for a file no scan
 has read yet. The folder was once used as a guess; removing it exposed two
-bugs it had been hiding.
+bugs it had been hiding. A download's folder is chosen before the file exists,
+so from Civitai's type; once it has arrived its header is read, and a file of
+another type is moved to that type's folder (`_file_by_what_it_is`) - never
+over a file. Files already in another type's folder are listed in Scan Disk's
+dialog and moved only when its own box is ticked - never by a note's button,
+which ticks "Re-evaluate file headers" - with their row, pin and generations
+(`move_version`).
 
 **`checkpointType` is inferred, not read.** Civitai accepts it as a filter and
 returns it on neither the model nor the version. `get_checkpoint_types()` asks

@@ -2042,6 +2042,7 @@ function renderDownloadItem(dl, prefix) {
                     ${status === 'paused' ? `Paused - ${downloaded} / ${total}` : ''}
                     ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                     ${status === 'complete' ? `${total}` : ''}
+                    ${status === 'complete' && dl.filed ? ` · ${escapeHtml(dl.filed)}` : ''}
                     ${status === 'error' ? escapeHtml(dl.error || 'Download failed') : ''}
                     ${status === 'error' && dl.page_url
                         ? ` <a class="mm-download-page-link" href="${escapeHtml(dl.page_url)}" target="_blank" rel="noopener">Open on Civitai</a>`

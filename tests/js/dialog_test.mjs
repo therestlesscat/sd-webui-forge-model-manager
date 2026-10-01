@@ -147,6 +147,14 @@ const ESTIMATE = {
 // instead, once each way.
 const hasApiKey = process.env.MM_HAS_KEY === '1';
 
+// Two files in another type's folder, one of whose names is taken in its own.
+const MISPLACED = [
+    { path: 'C:/models/Stable-diffusion/ae.safetensors', to: 'C:/models/VAE/ae.safetensors',
+      file_type: 'VAE', identified_by: 'Flux VAE', clash: null },
+    { path: 'C:/models/Lora/neg.pt', to: 'C:/models/embeddings/neg.pt',
+      file_type: 'TextualInversion', identified_by: '', clash: 'same' },
+];
+
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     if (href.includes('/model-manager/ui-options')) {
@@ -164,6 +172,9 @@ globalThis.fetch = async (url, init = {}) => {
             total: 1, processed: 1, synced: 1, skipped: 0, errors: 0,
             not_found: 0, current_model: '', error_messages: [], is_complete: true,
         } }) };
+    }
+    if (href.includes('/scan/misplaced')) {
+        return { ok: true, json: async () => ({ success: true, files: MISPLACED }) };
     }
     if (href.includes('/scan/progress')) {
         // Completed too, so a second scan can be started from the dialog.
@@ -496,8 +507,8 @@ await settle();
 check('Scan closes it', $('mm_scan_dialog').style.display, 'none');
 check('and starts the scan', posts.length, 1);
 check('against the scan endpoint', posts[0].url, '/model-manager/scan');
-check('reading headers only for new or changed files', JSON.parse(posts[0].body || '{}'),
-      { reread_headers: false });
+check('reading headers only for new or changed files, moving nothing', JSON.parse(posts[0].body || '{}'),
+      { reread_headers: false, move_misplaced: false });
 check('unless asked to read them all again, which the dialog offers, unticked',
       [$('mm_scan_dialog').textContent.includes('Re-evaluate file headers'), $('mm_scan_reread').checked],
       [true, false]);
@@ -508,11 +519,40 @@ $('mm_scan_reread').checked = true;
 click('mm_scan_dialog_start');
 await settle();
 check('ticked, the scan reads every file\'s header again', JSON.parse(posts[1]?.body || '{}'),
-      { reread_headers: true });
+      { reread_headers: true, move_misplaced: false });
 for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
 click('mm_refresh_btn');
 await settle();
 check('and the next time the dialog opens, it is unticked again', $('mm_scan_reread').checked, false);
+
+// Moving files into their type's folder (#54): said before it is ticked,
+// never ticked for anyone.
+check('the dialog says how many files are in another type\'s folder, and that one will stay',
+      [$('mm_scan_move_note').textContent.startsWith('2 files are in a folder for another type'),
+       $('mm_scan_move_note').textContent.includes('1 will stay where it is')], [true, true]);
+check('it lists them, each with where it goes and why',
+      Array.from($('mm_scan_misplaced_list').querySelectorAll('li')).map((li) => li.textContent.replace(/\s+/g, ' ').trim()),
+      ['C:/models/Stable-diffusion/ae.safetensors → C:/models/VAE/ae.safetensors (VAE: Flux VAE)',
+       'C:/models/Lora/neg.pt → C:/models/embeddings/neg.pt (TextualInversion) - stays: the same file is already there']);
+check('its box can be ticked, and is not', [$('mm_scan_move').disabled, $('mm_scan_move').checked], [false, false]);
+$('mm_scan_move').checked = true;
+click('mm_scan_dialog_start');
+await settle();
+check('ticked, the scan moves them', JSON.parse(posts[2]?.body || '{}'),
+      { reread_headers: false, move_misplaced: true });
+for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
+window.mmOpenScanDialog({ rereadHeaders: true });
+await settle();
+check('a note\'s button ticks "Re-evaluate file headers", never the move',
+      [$('mm_scan_reread').checked, $('mm_scan_move').checked], [true, false]);
+click('mm_scan_dialog_cancel');
+MISPLACED.length = 0;
+click('mm_refresh_btn');
+await settle();
+check('with nothing to move, it says so, and the box cannot be ticked',
+      [$('mm_scan_move_note').textContent, $('mm_scan_move').disabled],
+      ['No file is in a folder for another type.', true]);
+click('mm_scan_dialog_cancel');
 
 console.log(fails.length ? fails.map((f) => 'FAIL ' + f).join('\n') : 'All dialog checks passed.');
 process.exit(fails.length ? 1 : 0);

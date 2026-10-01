@@ -5959,10 +5959,61 @@ function openScanDialog() {
         startScan();     // no dialog in the page: do the thing rather than nothing
         return;
     }
-    // Every scan starts as the usual one: reading every header is asked for each time.
+    // Every scan starts as the usual one: reading every header, or moving
+    // files, is asked for each time.
     const reread = document.getElementById('mm_scan_reread');
     if (reread) reread.checked = false;
+    const move = document.getElementById('mm_scan_move');
+    if (move) move.checked = false;
     dialog.style.display = 'flex';
+    showMisplaced();
+}
+
+/**
+ * Which files Scan Disk would move into their type's folder, before anyone
+ * ticks the box: the count, why each would move, and the ones that will stay
+ * because their name is taken there. Its box is never ticked for anyone - a
+ * note's button ticks "Re-evaluate file headers", and must not move files.
+ */
+async function showMisplaced() {
+    const move = document.getElementById('mm_scan_move');
+    const note = document.getElementById('mm_scan_move_note');
+    const details = document.getElementById('mm_scan_misplaced');
+    const list = document.getElementById('mm_scan_misplaced_list');
+    if (!move || !note) return;
+    move.disabled = true;
+    if (details) details.hidden = true;
+    let files = [];
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/scan/misplaced' });
+        files = data.success ? data.files || [] : null;
+    } catch (e) {
+        files = null;
+    }
+    if (files === null) {
+        setText(note, 'Could not tell which files are in another type\'s folder.');
+        return;
+    }
+    if (!files.length) {
+        setText(note, 'No file is in a folder for another type.');
+        return;
+    }
+    const staying = files.filter((f) => f.clash).length;
+    setText(note, `${files.length} file${files.length === 1 ? ' is' : 's are'} in a folder for another type - `
+        + 'a VAE in Stable-diffusion, say, where Forge offers it as a checkpoint. Ticked, each is moved '
+        + 'with its .civitai.info and preview into its type\'s folder; its place in the library, its pin '
+        + 'and its generations go with it.'
+        + (staying ? ` ${staying} will stay where ${staying === 1 ? 'it is' : 'they are'}: `
+            + 'a file of that name is already in the folder.' : ''));
+    const clashText = { same: 'the same file is already there', different: 'a different file of that name is already there',
+                        exists: 'a file of that name is already there' };
+    if (list) {
+        list.innerHTML = files.map((f) => `<li>${escapeHtml(f.path)} → ${escapeHtml(f.to)}
+            <span class="mm-scan-misplaced-why">(${escapeHtml(f.file_type)}${f.identified_by ? ': ' + escapeHtml(f.identified_by) : ''})${
+            f.clash ? ' - stays: ' + clashText[f.clash] : ''}</span></li>`).join('');
+    }
+    if (details) details.hidden = false;
+    move.disabled = false;
 }
 
 /** Scan Disk's dialog, from elsewhere - a note: "Re-evaluate file headers" ticked if asked. */
@@ -5978,10 +6029,12 @@ function closeScanDialog() {
 }
 
 /**
- * @param {{rereadHeaders?: boolean}} options - rereadHeaders: read what every
- *     file is from its header again, not only new or changed files.
+ * @param {{rereadHeaders?: boolean, moveMisplaced?: boolean}} options -
+ *     rereadHeaders: read what every file is from its header again, not only
+ *     new or changed files. moveMisplaced: move files in another type's
+ *     folder into their own.
  */
-async function startScan({ rereadHeaders = false } = {}) {
+async function startScan({ rereadHeaders = false, moveMisplaced = false } = {}) {
     if (isScanning || isSyncing) return;
 
     isScanning = true;
@@ -5992,7 +6045,7 @@ async function startScan({ rereadHeaders = false } = {}) {
         const response = await fetch('/model-manager/scan', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reread_headers: rereadHeaders }),
+            body: JSON.stringify({ reread_headers: rereadHeaders, move_misplaced: moveMisplaced }),
         });
 
         const data = await response.json();
@@ -6043,7 +6096,9 @@ async function pollScanProgress() {
 
                 // Show final status
                 const errorInfo = p.error_count > 0 ? ` (${p.error_count} errors)` : '';
-                setStatus(`Scan complete: ${p.processed} models indexed${errorInfo}`);
+                const moveInfo = (p.moved ? `, ${p.moved} moved into their type's folder` : '')
+                    + (p.not_moved ? `, ${p.not_moved} left where ${p.not_moved === 1 ? 'it was' : 'they were'} (a file of that name is already there)` : '');
+                setStatus(`Scan complete: ${p.processed} models indexed${moveInfo}${errorInfo}`);
                 loadBaseModelOptions();
 
                 // Reload models to show updated data
@@ -6566,8 +6621,9 @@ function bindElements() {
         if (scanStart) {
             scanStart.addEventListener('click', () => {
                 const rereadHeaders = !!document.getElementById('mm_scan_reread')?.checked;
+                const moveMisplaced = !!document.getElementById('mm_scan_move')?.checked;
                 closeScanDialog();
-                startScan({ rereadHeaders });
+                startScan({ rereadHeaders, moveMisplaced });
             });
         }
     }

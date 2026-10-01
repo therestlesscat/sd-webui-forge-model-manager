@@ -314,6 +314,17 @@ def create_ui():
                             </label>
                             <div class="mm-dialog-note">Reads again what every file is (Checkpoint, LoRA, VAE...), not only new or changed ones.</div>
                         </div>
+                        <div class="mm-dialog-section">
+                            <label class="mm-dialog-option">
+                                <input type="checkbox" id="mm_scan_move" disabled>
+                                <span>Move files into their type's folder</span>
+                            </label>
+                            <div class="mm-dialog-note" id="mm_scan_move_note"></div>
+                            <details class="mm-scan-misplaced" id="mm_scan_misplaced" hidden>
+                                <summary>Show which</summary>
+                                <ul id="mm_scan_misplaced_list"></ul>
+                            </details>
+                        </div>
                         <div class="mm-dialog-actions">
                             <button id="mm_scan_dialog_cancel" class="mm-btn secondary">Cancel</button>
                             <button id="mm_scan_dialog_start" class="mm-btn primary">Scan</button>
