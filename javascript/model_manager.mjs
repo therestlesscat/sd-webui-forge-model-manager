@@ -5336,16 +5336,34 @@ window.mmShowModel = async function(query) {
  */
 window.mmShowFile = async function(path) {
     if (!path) return;
+    await showModelManagerTab();
+    await window.mmShowModel(`path:${path}`);
+    const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
+    if (wanted >= 0) await window.mmSelectVersion(wanted);
+};
+
+/**
+ * Show one version here, from another tab, by its id - this tab, its model,
+ * and that version. What the Generations tab asks for: a path was passed
+ * about before, and printed back as "path:F:\..." when nothing was found.
+ */
+window.mmShowVersion = async function(versionId) {
+    const id = Number(versionId);
+    if (!id) return;
+    await showModelManagerTab();
+    await window.mmShowModel(`version:${id}`);
+    const wanted = currentVersions.findIndex((v) => Number(v.id) === id);
+    if (wanted >= 0) await window.mmSelectVersion(wanted);
+};
+
+async function showModelManagerTab() {
     const root = (typeof gradioApp === 'function') ? gradioApp() : document;
     const tabButton = Array.from(root.querySelectorAll('#tabs button'))
         .find((b) => b.textContent.trim() === 'Model Manager');
     tabButton?.click();
     // The grid sizes itself from the viewport: let the tab show first.
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await window.mmShowModel(`path:${path}`);
-    const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
-    if (wanted >= 0) await window.mmSelectVersion(wanted);
-};
+}
 
 // Open this model over in the Civitai Browser tab. The mirror of
 // cbShowInModelManager() there, down to the tab lookup.
@@ -5370,7 +5388,11 @@ function civitaiBrowserQuery() {
 }
 
 window.mmShowInCivitaiBrowser = function() {
-    const query = civitaiBrowserQuery();
+    window.mmOpenInCivitaiBrowser(civitaiBrowserQuery());
+};
+
+/** "model:<id> version:<id>" in the Civitai Browser tab - from here, or from the Generations tab. */
+window.mmOpenInCivitaiBrowser = function(query) {
     if (!query) return;
     if (typeof window.cbShowModel !== 'function') {
         setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);

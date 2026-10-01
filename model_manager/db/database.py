@@ -381,6 +381,10 @@ class ModelsDatabase:
 
     # ==================== Your generations (delegated) ====================
 
+    def generation_library_files(self, paths) -> Dict[str, Dict[str, Any]]:
+        """What the library knows of these files, by path. See db/generations_ops.py."""
+        return self._generations.library_files(paths)
+
     def library_spelling(self, paths) -> Dict[str, str]:
         """Each path as model_versions spells it. See db/generations_ops.py."""
         return self._generations.library_spelling(paths)

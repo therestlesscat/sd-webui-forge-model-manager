@@ -966,15 +966,35 @@ window.genDeleteSelected = async function() {
 // More that can be done with a tile or the image in the viewer, in a menu
 // under its ⋯ - which is not drawn when there is nothing in it.
 
-/** What a tile's menu offers: its checkpoint, if its images share one. */
+/** What a tile's menu offers: its checkpoint, if its images share one, and the LoRAs they used. */
 function tileMenu(tile) {
-    return menuFor(tile.checkpoint_path);
+    return menuFor(tile);
 }
 
-function menuFor(checkpoint) {
+/**
+ * The menu for a tile or an image: its checkpoint in the Model Manager and
+ * the Civitai Browser, and each LoRA in the Model Manager - by version, as
+ * the server names them (file_ref): a path only for a file Civitai does not
+ * know. One the library no longer holds is offered greyed, saying so,
+ * rather than as a search that finds nothing.
+ */
+function menuFor(subject) {
     const items = [];
-    if (checkpoint) items.push({ label: 'Show model in Model Manager', run: () => showModel(checkpoint) });
+    const checkpoint = subject?.checkpoint;
+    if (checkpoint) {
+        items.push(showItem('Show model in Model Manager', checkpoint));
+        if (checkpoint.model_id) {
+            items.push({ label: 'Show model in Civitai Browser', run: () => showOnCivitai(checkpoint) });
+        }
+    }
+    for (const lora of subject?.loras || []) items.push(showItem(`Show LoRA ${lora.name} in Model Manager`, lora));
     return items;
+}
+
+function showItem(label, file) {
+    return file.in_library
+        ? { label, run: () => showModel(file) }
+        : { label, disabled: true, title: `${file.name} is not in the library: deleted, moved, or never scanned` };
 }
 
 window.genMenu = function(index, button) {
@@ -991,11 +1011,12 @@ function openMenu(anchor, items) {
     const element = document.createElement('div');
     element.className = 'gen-menu';
     element.setAttribute('role', 'menu');
-    element.innerHTML = items.map((item, i) => `<button type="button" role="menuitem" data-item="${i}">`
+    element.innerHTML = items.map((item, i) => `<button type="button" role="menuitem" data-item="${i}"`
+        + `${item.disabled ? ' disabled' : ''}${item.title ? ` title="${escapeHtml(item.title)}"` : ''}>`
         + `${escapeHtml(item.label)}</button>`).join('');
     element.addEventListener('click', (event) => {
         const chosen = event.target.closest?.('[data-item]');
-        if (!chosen) return;
+        if (!chosen || chosen.disabled) return;
         closeMenu();
         items[Number(chosen.getAttribute('data-item'))].run();
     });
@@ -1018,14 +1039,27 @@ function closeMenu() {
     return true;
 }
 
-/** This model, in the Model Manager tab: the file's own version. */
-function showModel(path) {
+/** This model, in the Model Manager tab: by its version, or by its file where Civitai does not know it. */
+function showModel(file) {
     closeViewer();
-    if (typeof window.mmShowFile !== 'function') {
+    const byVersion = Boolean(file.version_id);
+    const open = byVersion ? window.mmShowVersion : window.mmShowFile;
+    if (typeof open !== 'function') {
         setStatus('The Model Manager tab has not started yet: open it once and try again.');
         return;
     }
-    window.mmShowFile(path);
+    open(byVersion ? file.version_id : file.path);
+}
+
+/** Its model and version in the Civitai Browser tab. */
+function showOnCivitai(file) {
+    closeViewer();
+    if (typeof window.mmOpenInCivitaiBrowser !== 'function') {
+        setStatus('The Model Manager tab has not started yet: open it once and try again.');
+        return;
+    }
+    window.mmOpenInCivitaiBrowser(file.version_id ? `model:${file.model_id} version:${file.version_id}`
+        : `model:${file.model_id}`);
 }
 
 // ------------------------------------------------------------- the viewer
@@ -1062,7 +1096,7 @@ const viewerSource = {
         return `${ratingRowHtml(image, 'window.genRateInViewer(%)')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${mode}</button>
             <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>
-            ${menuFor(image.checkpoint_path).length
+            ${menuFor(image).length
                 ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gen-menu title="More">⋯</button>' : ''}`;
     },
     details: (index) => {
@@ -1097,7 +1131,7 @@ const viewerSource = {
         }
         const more = event.target.closest?.('[data-gen-menu]');
         if (more) {
-            openMenu(more, menuFor(image.checkpoint_path));
+            openMenu(more, menuFor(image));
             return true;
         }
         return false;

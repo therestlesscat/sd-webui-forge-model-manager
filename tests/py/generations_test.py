@@ -540,6 +540,21 @@ if has_fastapi:
     tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
     check('a generation\'s tile names its checkpoint, and so does each image',
           (tile['checkpoint_path'], {i['checkpoint_path'] for i in tile['images']}), (recorded, {recorded}))
+    # For the menus, by version and model (#42): another tab is asked for
+    # those, not for a path. A LoRA the library does not hold says so.
+    library = db.get_version(CHECKPOINT)
+    check('its checkpoint by version and model, as the library knows it',
+          {k: tile['checkpoint'][k] for k in ('version_id', 'model_id', 'in_library')},
+          {'version_id': library['id'], 'model_id': library['model_id'], 'in_library': True})
+    loras = {l['name']: l for l in tile['loras']}
+    lora_a = db.get_version(LORA_A)
+    check('and each LoRA its images used: one the library has by version, one it has not, not in the library',
+          [(loras[os.path.splitext(os.path.basename(LORA_A))[0]]['version_id'],
+            loras[os.path.splitext(os.path.basename(LORA_A))[0]]['in_library']),
+           (loras['not_in_library']['version_id'], loras['not_in_library']['in_library'])],
+          [(lora_a['id'], True), (None, False)])
+    check('each image too, with its own LoRAs only',
+          [len(i['loras']) for i in tile['images']], [len(i['meta']['resources']) for i in tile['images']])
     real_info = shared.sd_model.sd_checkpoint_info
     shared.sd_model = types.SimpleNamespace(sd_checkpoint_info=types.SimpleNamespace(
         filename=facts['linked_paths'][2], sha256='def456'))
