@@ -152,7 +152,7 @@ class ModelsOps:
                 model_data.get("id"),
                 model_data.get("name"),
                 model_data.get("description"),
-                model_data.get("type", "Checkpoint"),
+                model_data.get("type"),
                 1 if model_data.get("nsfw") else 0,
                 model_data.get("nsfw_level", UNKNOWN),
                 # json.dumps(None) is the string "null", which COALESCE
