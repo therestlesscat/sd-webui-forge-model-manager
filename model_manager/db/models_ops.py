@@ -457,6 +457,30 @@ class ModelsOps:
                     changed += 1
         return changed
 
+    def files_with_types(self) -> List[Dict[str, Any]]:
+        """Every file a header has been read for: its path, what it is, what said so, its hashes."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path, file_type, identified_by, file_hashes FROM model_versions "
+                           "WHERE file_type IS NOT NULL AND file_type <> 'Unknown' AND file_path IS NOT NULL")
+            return [{"file_path": r["file_path"], "file_type": r["file_type"],
+                     "identified_by": r["identified_by"],
+                     "file_hashes": json.loads(r["file_hashes"]) if r["file_hashes"] else None}
+                    for r in cursor.fetchall()]
+
+    def move_version(self, old_path: str, new_path: str) -> None:
+        """
+        A file moved on disk: its row, its pin and the generations that used
+        it follow, in one transaction. A scan would otherwise take the old
+        path for a file gone and the new for a new one - losing when it was
+        downloaded, its pin, and its generations' link to it.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE model_versions SET file_path = ?, file_name = ? WHERE file_path = ?",
+                           (new_path, os.path.basename(new_path), old_path))
+            cursor.execute("UPDATE pins SET file_path = ? WHERE file_path = ?", (new_path, old_path))
+            cursor.execute("UPDATE generation_files SET file_path = ? WHERE file_path = ?",
+                           (new_path, old_path))
+
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         with self._cursor() as cursor:

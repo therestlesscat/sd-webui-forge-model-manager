@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..jobs import jobs
-from ..scan_service import ScanService
+from ..scan_service import ScanService, misplaced_files
 from ..sync_service import (
     SyncService,
     estimate_metadata_sync,
@@ -195,13 +195,27 @@ def register(app: FastAPI):
         again, not only new or changed files - after an update that
         recognises more kinds of file.
 
+        options.move_misplaced: move each file sitting in another type's
+        folder into its own (see /model-manager/scan/misplaced). Only ever
+        asked for by its own box in the dialog, never by a note's button.
+
         Returns immediately. Poll /model-manager/scan/progress for status.
         """
         reread_headers = bool((options or {}).get("reread_headers"))
+        move_misplaced = bool((options or {}).get("move_misplaced"))
 
         return _start("scan", ScanService,
-                      lambda scan: scan.scan_models(reread_headers=reread_headers),
+                      lambda scan: scan.scan_models(reread_headers=reread_headers,
+                                                    move_misplaced=move_misplaced),
                       "Scan started")
+
+    @app.get("/model-manager/scan/misplaced")
+    def get_misplaced():
+        """The files in another type's folder, for Scan Disk's dialog to show before it moves any."""
+        try:
+            return JSONResponse({"success": True, "files": misplaced_files(get_models_db())})
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/scan/progress")
     async def get_scan_progress():

@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
-from .model_dirs import gone_from_disk, library_dirs
+from .model_dirs import gone_from_disk, library_dirs, proper_place, relocate
 from .nsfw import (
     PG, UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -28,6 +28,33 @@ from .storage import read_civitai_info
 NSFW_SEVERITY = ["PG", "PG-13", "R", "X", "XXX", "Unknown"]
 
 
+def _sha256(hashes) -> str:
+    return str((hashes or {}).get("sha256") or "").upper() if isinstance(hashes, dict) else ""
+
+
+def misplaced_files(db) -> List[Dict[str, Any]]:
+    """
+    Every file in the library sitting in a folder for another type - a VAE
+    in Stable-diffusion, where Forge offers it as a checkpoint - with where
+    it belongs, what its header says and what said so, and whether a file
+    of its name is already there: "same" (the library holds both, with one
+    SHA-256), "different" (two SHA-256s), or "exists" (a file it cannot
+    compare). Files whose type is Unknown are never among them.
+    """
+    found = []
+    for row in db.files_with_types():
+        to = proper_place(row["file_path"], row["file_type"])
+        if not to:
+            continue
+        clash = None
+        if os.path.exists(to):
+            mine, theirs = _sha256(row["file_hashes"]), _sha256((db.get_version(to) or {}).get("file_hashes"))
+            clash = ("same" if mine == theirs else "different") if mine and theirs else "exists"
+        found.append({"path": row["file_path"], "to": to, "file_type": row["file_type"],
+                      "identified_by": row["identified_by"], "clash": clash})
+    return found
+
+
 @dataclass
 class ScanProgress:
     """Progress tracking for scan operation."""
@@ -36,6 +63,10 @@ class ScanProgress:
     current_file: str = ""
     is_complete: bool = False
     errors: List[str] = field(default_factory=list)
+    moved: int = 0
+    # Files left where they are, though another type's: something of that
+    # name is already in their own folder.
+    not_moved: List[str] = field(default_factory=list)
 
     def fail(self, message: str):
         """Finished by an error."""
@@ -49,6 +80,8 @@ class ScanProgress:
             "current_file": self.current_file,
             "is_complete": self.is_complete,
             "error_count": len(self.errors),
+            "moved": self.moved,
+            "not_moved": len(self.not_moved),
         }
 
 
@@ -304,6 +337,7 @@ class ScanService:
         max_workers: int = 4,
         callback: Optional[Callable[[ScanProgress], None]] = None,
         reread_headers: bool = False,
+        move_misplaced: bool = False,
     ) -> ScanProgress:
         """
         Scan model directories and populate the database.
@@ -403,6 +437,12 @@ class ScanService:
                 if callback:
                     callback(self._progress)
 
+        # Files in another type's folder go to their own, when asked: never
+        # unasked, never over a file, and with their row, pin and
+        # generations. Before the diff, which then finds them where they are.
+        if move_misplaced and not self._cancel_requested:
+            self._move_misplaced(db)
+
         # Forget files that are gone from disk - and only those. It used to
         # forget every file this pass had not stored, so a cancelled scan
         # dropped all the files it had not reached yet, and a file whose
@@ -435,6 +475,21 @@ class ScanService:
               f"{stats['total_civitai_models']} unique models)")
 
         return self._progress
+
+    def _move_misplaced(self, db) -> None:
+        for item in misplaced_files(db):
+            path, to = item["path"], item["to"]
+            try:
+                if item["clash"] or not relocate(path, to):
+                    self._progress.not_moved.append(path)
+                    print(f"[ModelManager] Not moved: {path} - {to} is already there")
+                    continue
+                db.move_version(path, to)
+                self._progress.moved += 1
+                print(f"[ModelManager] Moved, as a {item['file_type']}: {path} -> {to}")
+            except Exception as e:
+                self._progress.errors.append(f"{os.path.basename(path)}: could not move it: {e}")
+                print(f"[ModelManager] Could not move {path}: {e}")
 
     def _get_model_directories(self) -> List[str]:
         """Every folder the library walks - see model_dirs."""

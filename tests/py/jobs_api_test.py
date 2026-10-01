@@ -336,13 +336,18 @@ finished()
 check('a scan starts', (status, body['success']), (200, True))
 check('and says so', body['message'], 'Scan started')
 check('it is the scan that runs', Job.asked[0][0], 'scan_models')
-check('reading headers only for new or changed files', Job.asked[0][1], {'reread_headers': False})
+check('reading headers only for new or changed files, and moving nothing', Job.asked[0][1],
+      {'reread_headers': False, 'move_misplaced': False})
 
 reset()
 r = client.post('/model-manager/scan', json={'reread_headers': True})
 finished()
 check('"Re-evaluate file headers" is passed to the scan', (r.status_code, Job.asked[0][1]),
-      (200, {'reread_headers': True}))
+      (200, {'reread_headers': True, 'move_misplaced': False}))
+r = client.post('/model-manager/scan', json={'move_misplaced': True})
+finished()
+check('"Move files into their type\'s folder" is passed to the scan', Job.asked[-1][1],
+      {'reread_headers': False, 'move_misplaced': True})
 
 status, body = get('/model-manager/scan/progress')
 check('its progress is readable', body['progress'] is not None, True)

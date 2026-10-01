@@ -4286,3 +4286,21 @@ textarea.mm-settings-input {
     font-size: 0.85em;
     color: var(--body-text-color-subdued, #9ca3af);
 }
+
+/* Scan Disk: the files its "Move files into their type's folder" would move. */
+.mm-scan-misplaced {
+    margin: 6px 0 0;
+    font-size: 0.85em;
+}
+
+.mm-scan-misplaced ul {
+    max-height: 12em;
+    overflow: auto;
+    margin: 6px 0 0;
+    padding-left: 1.2em;
+    word-break: break-all;
+}
+
+.mm-scan-misplaced-why {
+    color: var(--body-text-color-subdued, #9ca3af);
+}

@@ -386,7 +386,9 @@ check('it has a Cancel and a Scan',
 check('it says what it adds and removes',
       scan_dialog.count('<li>'), 4)
 check('and that Civitai is not involved', 'Does not contact Civitai' in scan_dialog)
-check('it stays short', len(re.sub(r'<[^>]+>', ' ', scan_dialog).split()) < 60)
+# Two options now - reading every header again, and moving files into their
+# type's folder, whose note the script writes - and still a confirmation.
+check('it stays short', len(re.sub(r'<[^>]+>', ' ', scan_dialog).split()) < 70)
 for control in ('mm_scan_dialog', 'mm_scan_dialog_cancel', 'mm_scan_dialog_start'):
     check('JS drives %s' % control, control in JS)
 

@@ -15,6 +15,7 @@ or a crash - it is there again, paused, to be resumed.
 import hashlib
 import os
 import re
+import shutil
 import json
 import threading
 import time
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
 from .hashing import HashResult
-from .model_dirs import download_dir
+from .model_dirs import download_dir, proper_place
 
 
 # What a download is written as until it is whole and verified: never a
@@ -76,6 +77,9 @@ class DownloadProgress:
     started_over: bool = False
     # The version's page on Civitai: where to go when Civitai refuses it.
     page_url: Optional[str] = None
+    # Where the file went, when not where Civitai's type would put it: the
+    # file, read once it arrived, is another type (see _file_by_what_it_is).
+    filed: Optional[str] = None
     # (_clock(), downloaded_bytes) now and then, for the speed; and
     # when the bytes last grew. Measured here, where every chunk is seen: the
     # page sees only its polls, a second or more apart.
@@ -145,6 +149,7 @@ class DownloadProgress:
             "stalled": stalled,
             "started_over": self.started_over,
             "page_url": self.page_url,
+            "filed": self.filed,
             "version_id": self.version_id,
             "file_name": self.file_name,
             "total_bytes": self.total_bytes,
@@ -500,6 +505,46 @@ class DownloadService:
             for vid in gone:
                 del self._active_downloads[vid]
         return gone
+
+    @staticmethod
+    def _file_by_what_it_is(path: str, progress: DownloadProgress) -> str:
+        """
+        Where a finished download belongs, by what the file is.
+
+        The folder was chosen before the file existed, from Civitai's type,
+        which is the uploader's: a VAE or a text encoder shared as a
+        "Checkpoint" landed in Stable-diffusion, where Forge offers it as a
+        checkpoint. Its header says what it is; a file of another type goes
+        to that type's folder, keeping its subfolders. Never over a file:
+        the same file already there is kept and this copy - made moments
+        ago - removed; a different one leaves this where it landed.
+
+        Returns where the file is now.
+        """
+        try:
+            from .file_identity import identify
+            file_type = identify(path).file_type
+        except Exception as e:
+            print(f"[ModelManager] Could not read what {os.path.basename(path)} is: {e}")
+            return path
+        to = proper_place(path, file_type)
+        if not to:
+            return path
+        if os.path.exists(to):
+            from .hashing import file_sha256
+            mine = progress.sha256 or file_sha256(path) or ""
+            if mine and (file_sha256(to) or "").upper() == mine.upper():
+                os.remove(path)
+                progress.filed = f"Already in {os.path.dirname(to)}, where a {file_type} goes"
+                return to
+            progress.filed = (f"Left in {os.path.dirname(path)}: it is a {file_type}, and "
+                              f"{os.path.dirname(to)} has a different file named {os.path.basename(to)}")
+            return path
+        os.makedirs(os.path.dirname(to), exist_ok=True)
+        shutil.move(path, to)
+        progress.filed = f"Filed in {os.path.dirname(to)}: the file is a {file_type}"
+        print(f"[ModelManager] {progress.filed}")
+        return to
 
     def get_base_path(self, model_type: str) -> str:
         """The folder a download of this Civitai type is filed under - see model_dirs."""
@@ -942,6 +987,7 @@ class DownloadService:
                 return progress
             os.rename(partial_path, target_path)
             partial_path = None
+            target_path = self._file_by_what_it_is(target_path, progress)
 
             # Create .civitai.info file
             info_path = os.path.splitext(target_path)[0] + ".civitai.info"
