@@ -30,7 +30,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
-| `download_service.py` | fetching a model and filing it |
+| `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
@@ -89,7 +89,36 @@ sidecar the first time the panel asks.
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/common.mjs` polls once and draws into each tab's panel. It
 lives on `window`: each tab imports the shared module under its own `?mtime`,
-so module state would be two copies.
+so module state would be two copies. The list's order is the server's - the
+order downloads were added in, which ↑/↓ change - and a state never moves a
+row; the page keeps that order apart (`sequence`), as an object's number keys
+come out sorted. It asks for the list when the page loads, and draws it again
+once Gradio has drawn the panel: a paused download polls nothing, and the
+panel used to stay hidden after a restart.
+
+**The download queue is the service's own.** `DownloadService` runs up to two,
+and when a place frees up starts the first waiting one from the top; Start now
+runs one over the limit. Pause keeps the `.partial` and frees the place;
+Resume asks Civitai's download address again (its storage link is signed and
+expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
+there, and checks the finished file as ever. What is running or paused is kept
+in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
+or a crash leaves it paused, and a WebUI sharing the database never takes it
+up.
+
+**A gallery switch's number holds when it is flipped.** An image both the NSFW
+and the prompt filter hide is counted apart (`hidden_both`), not credited to
+either: credited to NSFW, "Show NSFW" said 51 while hiding and 49 once ticked.
+The NSFW switch says what it alone hides; the prompt switch every image with an
+unusable prompt (`promptless_total`). The database's counts, a page's, the
+Civitai Browser's and your generations' are kept to the same meanings.
+
+**A card shows one version, chosen in one fixed order:** newest published, then
+Civitai's own order (`index` in `civitai_models.versions`, whose first its page
+shows), then version id and file (`SHOWN_ORDER` in `db/query.py`). Versions
+share a date to the millisecond, or have none; without the tie-break SQLite
+returned either, and a cover changed between loads. Anything that picks one of
+several needs an order that cannot tie.
 
 **Deleting rows needs evidence.** Two kinds, and they are not equally safe.
 *Direct*: this file was about to be refreshed and is not there — sound in any
@@ -127,6 +156,16 @@ because that would mean the assumption no longer holds.
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
+- **Gradio draws the tabs after the scripts have run.** A module's top level
+  finds none of its tab's markup; something drawn from there - an answer that
+  comes back at load - is drawn again once the container is there, from
+  `onAfterUiUpdate` (the downloads panel, the notes).
+- **`onAfterUiUpdate` runs 250 ms after any change to the page**
+  (`scheduleAfterUiUpdateCallbacks` in the WebUI's `script.js`). A callback
+  that writes even the same text again changes the page and schedules itself:
+  four of ours did, and every extension's callbacks ran four times a second,
+  without end. Write only what differs - `setText` / `setTitle` in
+  `common.mjs` - and `quiet_updates_test.mjs` finds any that does not.
 
 ## Two WebUIs: everything has to work in both
 
@@ -296,6 +335,11 @@ real time once.
   lists, prompts, sample data. Put the raw data in a git-ignored file under
   `tests/work/` for the person to open.
 - **After two wrong guesses, ask** for a console line, a screenshot, a number.
+- **A proposal needs an explicit yes.** "Go ahead?" answered by moving on to
+  something else is not one; an implementation started on that was undone.
+- **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
+  made from the local `dev`, which held commits not yet pushed, and had to be
+  put back.
 
 ### Proving a change
 
@@ -315,6 +359,24 @@ real time once.
   was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
   by timing each part of the query, not by reading it.
 - **Check what a timed call returned**, not only how long it took.
+- **The test DOM is not the WebUI.** linkedom runs no inline handlers: a tick's
+  `onclick="event.stopPropagation()"` kept every click from the page's
+  listener, and the suite never saw it - it now runs that handler itself. It
+  has no layout. The harness reads a tab's markup straight from its `.py`, so
+  markup a `.replace()` adds is not there (build it in the page). And the
+  markup is there before the script, where in the WebUI it comes after: a
+  test passed while the real panel never showed. When a suite passes and the
+  page does not, look for what the suite set up that the WebUI does not.
+- **A test passes for the wrong reason when something else rescues it.** The
+  downloads test had a running download, whose poll redrew the panel; the
+  bug was a panel of paused downloads only, which nothing polls.
+- **No test reaches a database.** A service that saves through
+  `get_models_db()` takes a store the test can set
+  (`DownloadService.store`), and saves nothing when there is nothing to keep.
+- **Gate what is costly on the case that needs it.** The tie-break read
+  Civitai's order from JSON: for every version, +13.6 ms a grid query;
+  counting ties with a window, +25 ms; asked only where an indexed `EXISTS`
+  finds a tie, +3 ms. Time each part.
 
 ### The data
 
@@ -331,6 +393,16 @@ real time once.
   scores (each image by a model that never saw its post) showed the real behaviour, and
   leaving the ones they flag out of the final training fixed it - 669 raised. Measure a
   model on its own training data before believing a number it gives there.
+- **Civitai's storage now and then ignores a byte range.** With an API key, 1
+  of 8 resumes got the whole file (`200`) where the rest was asked for; asked
+  again, through a fresh redirect, it answers `206`. A resume asks up to three
+  times before starting over.
+- **Images key their hashes in either case.** `hashes` holds `"lora:name"` and
+  `"LORA:name"` (5,561 of one library's keys, and 35 `"EMBED:"`); reading the
+  first only lost those hashes, and a LoRA came out as two chips.
+- **Forge and the library spell one path two ways** - case, which Windows
+  ignores and SQL does not. Compare paths with `COLLATE NOCASE`
+  (`library_spelling`), never `=`.
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.
@@ -357,13 +429,28 @@ real time once.
 - Run the tests with the WebUI's own Python - it has FastAPI and torch - and
   Windows `node.exe` for the browser suites.
 
+## Branches
+
+- **`main`** is the default branch: what "Install from URL" clones, where a
+  commit's "Fixes #N" closes the issue, and whose `version.json` installs of
+  `main` read for a new version.
+- **`dev`** is where the work is committed, and what every install from
+  before `main` existed follows - Forge updates a copy from its own branch
+  (`origin/<branch>`), so they stay on `dev`.
+- **`rc`** is for trying a release before it goes out; it is pushed first.
+- **Whenever `main` is updated, `dev` is updated at the same time, to the
+  same commit** - one push, never one without the other:
+  `git push origin dev dev:main`. A release on `main` alone leaves every
+  `dev` install behind and told of nothing; on `dev` alone, new installs
+  miss it and its issues stay open.
+
 ## Before you push
 
 ```
 python tests/run.py --all
 ```
 
-Forty-three Python suites, thirty-four browser suites and the static checks,
-run side by side: about ten seconds. While working, `--changed` runs only the
+Forty-seven Python suites, fifty-eight browser suites and the static checks,
+run side by side: about twenty seconds. While working, `--changed` runs only the
 suites the uncommitted changes need. See `tests/README.md` for what they
 cover, how the choice is made, and how to add one.
