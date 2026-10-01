@@ -381,6 +381,17 @@ check('a walk that found nothing deletes nothing',
       sync._forget_missing_files([]), 0)
 check('and the library is still there', len(db.get_all_version_paths()) > 0, True)
 
+# Windows spells one path many ways, and a walk need not spell a file as the
+# row does - another WebUI sharing the database, a folder option typed
+# differently. The diff matched spellings exactly, and dropped a file still
+# on disk (#52). Only on a case-insensitive disk is the other spelling the
+# same file.
+if os.path.normcase('A') == os.path.normcase('a'):
+    walked_spelling = STRAY.upper()
+    found_except_stray = [p for p in db.get_all_version_paths() if p != STRAY] + [walked_spelling]
+    check('a row the walk spelt in other case is kept - the file is there',
+          (sync._forget_missing_files(found_except_stray), db.get_version(STRAY) is not None), (0, True))
+
 os.remove(STRAY)
 everything = [p for p in db.get_all_version_paths() if os.path.exists(p)]
 removed = sync._forget_missing_files(everything)
