@@ -897,6 +897,44 @@ export function videoStillUrl(url) {
 }
 
 /**
+ * What the viewer plays for a Civitai video: a copy no wider than the video -
+ * Civitai would enlarge it - nor than the viewer shows it, on this screen.
+ * The original upload often keeps its index at the end of the file, so the
+ * browser fetched the end, then the start, before a frame - about three of
+ * Civitai's ~0.6 s answers; every copy keeps it at the start, and was 45-93%
+ * of the original's size. Not Civitai's (your own generations): as it is.
+ *
+ * @param {string} url - the video's address
+ * @param {{width?: number, height?: number}} video - its size, as Civitai gives it
+ * @param {{width?: number, height?: number}} box - the viewer's frame, in CSS pixels
+ */
+export function viewerVideoUrl(url, video = {}, box = {}) {
+    if (!url || !url.includes('image.civitai.com')) return url || '';
+    const own = Number(video.width) || 0;
+    const aspect = own && Number(video.height) ? own / Number(video.height) : 0;
+    // As wide as it is drawn: the frame's width, or its height at the video's shape.
+    const drawn = box.width
+        ? Math.min(box.width, aspect && box.height ? box.height * aspect : box.width) : 0;
+    const wanted = drawn ? screenPixels(drawn) : own || CIVITAI_WIDTHS[CIVITAI_WIDTHS.length - 1];
+    // A width Civitai already serves - but never past the video's own.
+    let width = civitaiWidth(wanted);
+    if (own && width > own) width = own;
+    return url.replace(CIVITAI_OPTIONS, `/width=${Math.round(width)}/$1`);
+}
+
+/**
+ * A video card's poster: its still, through the server's check - which
+ * redirects to it when it is an image, and answers 404 when Civitai serves
+ * the whole video in its place (a 32 MB MP4 for 1 video in 80), so the
+ * browser does not download that for a preview it cannot draw. The browser
+ * remembers each answer (/model-manager/video-still, api/images.py).
+ */
+export function videoPosterUrl(url) {
+    const still = videoStillUrl(url);
+    return still ? `/model-manager/video-still?url=${encodeURIComponent(still)}` : '';
+}
+
+/**
  * How wide a gallery card's image is drawn, in CSS pixels, when it cannot be
  * measured: style.css's --mm-card-image-width on a wide window.
  */

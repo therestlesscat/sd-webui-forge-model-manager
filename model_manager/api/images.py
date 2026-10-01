@@ -6,8 +6,11 @@ images from Civitai. Kept apart from models.py because a gallery is paged and
 refreshed on its own schedule, and its endpoints are about pictures rather
 than about the model they belong to.
 """
+from urllib.parse import urlparse
+
+import requests
 from fastapi import FastAPI, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -112,6 +115,34 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
         },
         "images_state": gallery_state(db, version_id, hide_nsfw, hide_promptless),
     }
+
+
+STILL_HOST = "image.civitai.com"
+STILL_IMAGE_SECONDS = 7 * 24 * 3600
+STILL_NONE_SECONDS = 24 * 3600
+
+
+def still_answer(url: str, head=requests.head):
+    """
+    The response for /model-manager/video-still: a cached redirect to `url`
+    if Civitai serves an image there, a cached 404 if it serves anything
+    else. Only Civitai's image server's addresses are followed - nothing else
+    is asked for, or redirected to. Civitai not answering, it is redirected
+    to all the same, uncached: the check is a guard, not a gate.
+    """
+    parsed = urlparse(url or "")
+    if parsed.scheme != "https" or parsed.hostname != STILL_HOST:
+        return Response(status_code=400)
+    try:
+        reply = head(url, allow_redirects=True, timeout=15)
+        kind = (reply.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    except Exception as e:
+        print(f"[ModelManager] Could not check a video's still: {e}")
+        return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
+    if reply.status_code < 400 and kind.startswith("image/"):
+        return RedirectResponse(url, status_code=302,
+                                headers={"Cache-Control": f"private, max-age={STILL_IMAGE_SECONDS}"})
+    return Response(status_code=404, headers={"Cache-Control": f"private, max-age={STILL_NONE_SECONDS}"})
 
 
 def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
@@ -398,6 +429,21 @@ def register(app: FastAPI):
                 {"success": False, "error": str(e)},
                 status_code=500
             )
+
+    @app.get("/model-manager/video-still")
+    def video_still(url: str = ""):
+        """
+        A video card's still, checked: a redirect to Civitai's still when it
+        is an image, a 404 when it is not. Civitai's still of a video
+        (`anim=false`) is now and then the whole original instead - a 32 MB
+        MP4 for 1 video in 80 - which the browser downloaded in full as the
+        poster, and could not draw. Only the headers are asked for here; the
+        browser fetches the image from Civitai as before. The answer is
+        remembered by the browser (Cache-Control): a week for an image, a day
+        for none, so a still Civitai makes later is picked up. A plain def:
+        it waits on Civitai.
+        """
+        return still_answer(url)
 
     @app.get("/model-manager/images/cached")
     async def get_cached_images(version_id: int):

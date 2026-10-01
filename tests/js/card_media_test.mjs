@@ -120,9 +120,9 @@ check('a gallery image loads the copy its card draws, and the viewer shows the u
        galleryImage?.getAttribute('data-original'), galleryImage?.hasAttribute('data-view-index')],
       [`${C}/width=320/still.jpeg`, `${C}/original=true/still.jpeg`, `${C}/original=true/still.jpeg`, true]);
 const galleryVideo = document.querySelector('#mm_images .mm-image-card video');
-check('a gallery video plays a copy, showing its still until played',
+check('a gallery video plays a copy, showing its still until played - through the server\'s check that it is one',
       [galleryVideo?.getAttribute('data-src'), galleryVideo?.getAttribute('data-poster')],
-      [`${C}/width=320/moving.mp4`, `${C}/anim=false/moving.mp4`]);
+      [`${C}/width=320/moving.mp4`, `/model-manager/video-still?url=${encodeURIComponent(`${C}/anim=false/moving.mp4`)}`]);
 // Loaded lazily, from a 1x1 placeholder: without its shape each started
 // square, grew when it loaded, and a scroll to a card below stopped short.
 check('each holds its own shape before it loads, from the size Civitai gives',
@@ -130,6 +130,36 @@ check('each holds its own shape before it loads, from the size Civitai gives',
        galleryVideo?.style?.aspectRatio || galleryVideo?.getAttribute('style')],
       ['1024 / 1536', '720 / 1280']);
 check('and none it does not know', [shared.mediaShape({ width: 1024 }), shared.mediaShape(null)], ['', '']);
+
+// ------------------------------------------------------- the viewer's video
+// The viewer plays a copy, not the upload: an upload often keeps its index at
+// the end of the file - about three of Civitai's answers before a frame - and
+// every copy keeps it at the start. As wide as the frame shows it on this
+// screen, at one of Civitai's widths, never past the video's own.
+const { viewerVideoUrl } = shared;
+const UP = `${C}/original=true/moving.mp4`;
+const V = { width: 960, height: 1440 };
+check('a frame narrower than the video: a copy that wide, at the next of Civitai\'s widths',
+      viewerVideoUrl(UP, V, { width: 500, height: 2000 }), `${C}/width=512/moving.mp4`);
+check('a short frame: as wide as the video is drawn at its height',
+      viewerVideoUrl(UP, V, { width: 2000, height: 600 }), `${C}/width=450/moving.mp4`);
+check('a frame wider than the video: the video\'s own width - never enlarged',
+      viewerVideoUrl(UP, V, { width: 3000, height: 3000 }), `${C}/width=960/moving.mp4`);
+window.devicePixelRatio = 2;
+check('twice the pixels on a 2x screen', viewerVideoUrl(UP, V, { width: 300, height: 2000 }), `${C}/width=800/moving.mp4`);
+window.devicePixelRatio = 1;
+check('nothing measured: the video\'s own width', viewerVideoUrl(UP, V, {}), `${C}/width=960/moving.mp4`);
+check('your own generation, not Civitai\'s: as it is',
+      viewerVideoUrl('/model-manager/generations/images/7/file', V, { width: 500 }), '/model-manager/generations/images/7/file');
+
+galleryVideo.closest('.mm-image-card').querySelector('[data-view-index]')
+    .dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the viewer', () => document.querySelector('.mm-viewer video'));
+check('the viewer plays the gallery video from a copy, the upload kept as the card\'s own',
+      [document.querySelector('.mm-viewer video')?.getAttribute('src'),
+       galleryVideo.closest('.mm-image-left').getAttribute('data-viewer-url')],
+      [`${C}/width=720/moving.mp4`, UP]);
+document.querySelector('.mm-viewer [data-close]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
 
 // The badge is the level the server judged, from R up - never Civitai's own
 // `nsfw`, a boolean on most images, which the badge once printed as "true".
