@@ -237,11 +237,10 @@ def test_key(typed: Optional[str] = None) -> Dict[str, Any]:
         "refused", "unreachable" (with why), or "none" - no key to test.
         which: "typed" or "saved".
     """
-    from modules import shared
-    from ..civitai import CivitaiAPIError, CivitaiAuthError, CivitaiClient
+    from ..civitai import CivitaiAPIError, CivitaiAuthError, CivitaiClient, api_key_from_settings
 
     which = "typed" if typed is not None else "saved"
-    key = (typed if typed is not None else str(getattr(shared.opts, SECRET, "") or "")).strip()
+    key = typed.strip() if typed is not None else (api_key_from_settings() or "")
     if not key:
         return {"success": True, "result": "none", "which": which}
 

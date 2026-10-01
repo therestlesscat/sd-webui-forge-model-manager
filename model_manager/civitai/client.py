@@ -109,6 +109,40 @@ class TokenBucketRateLimiter:
             return (1.0 - self.tokens) / self.tokens_per_second
 
 
+# One bucket per rate, shared by every client at that rate. Each client used
+# to make its own, full: a sync, each download and every search paced itself
+# alone, and together they went past the rate set.
+_limiters: Dict[Tuple[float, int], TokenBucketRateLimiter] = {}
+_limiters_lock = threading.Lock()
+
+
+def shared_limiter(rate: float, burst: int, label: str) -> TokenBucketRateLimiter:
+    """The bucket every client at this rate draws from, made on first use."""
+    with _limiters_lock:
+        limiter = _limiters.get((rate, burst))
+        if limiter is None:
+            limiter = _limiters[(rate, burst)] = TokenBucketRateLimiter(rate, burst)
+            print(f"[ModelManager] Civitai requests {label}: {rate:g} req/s")
+        return limiter
+
+
+def api_key_from_settings() -> Optional[str]:
+    """
+    The Civitai API key the settings hold, trimmed, or None.
+
+    The one place it is read. Civitai's API takes a key pasted with a space
+    or a newline around it; the download header, which read it separately,
+    sent it as pasted.
+    """
+    try:
+        from modules import shared
+        key = str(getattr(shared.opts, 'model_manager_civitai_api_key', '') or '').strip()
+    except Exception as e:
+        print(f"[ModelManager] Error reading API key from settings: {e}")
+        return None
+    return key or None
+
+
 class CivitaiClient:
     """
     Civitai API client with rate limiting and retry logic.
@@ -172,33 +206,19 @@ class CivitaiClient:
         self.session = requests.Session()
         self.session.headers["User-Agent"] = "SD-WebUI-Forge-Model-Manager/1.0"
 
-        # Set up rate limiter based on auth status
         if api_key:
             rate = float(requests_per_second or self.AUTH_RATE)
             rate = max(0.5, min(rate, 10.0))
-            burst = max(int(rate * 2), 5)
-            self.rate_limiter = TokenBucketRateLimiter(rate, burst)
+            self.rate_limiter = shared_limiter(rate, max(int(rate * 2), 5), "with an API key")
             self.session.headers["Authorization"] = f"Bearer {api_key}"
-            print(f"[ModelManager] Civitai client initialized with API key ({rate:g} req/s)")
         else:
-            self.rate_limiter = TokenBucketRateLimiter(self.UNAUTH_RATE, self.UNAUTH_BURST)
-            print("[ModelManager] Civitai client initialized without API key (lower rate limits)")
+            self.rate_limiter = shared_limiter(self.UNAUTH_RATE, self.UNAUTH_BURST,
+                                               "without an API key")
 
     @classmethod
     def from_settings(cls) -> "CivitaiClient":
         """Create client using API key from WebUI settings."""
-        try:
-            from modules import shared
-            api_key = getattr(shared.opts, 'model_manager_civitai_api_key', '') or None
-            print(f"[ModelManager] Read API key from settings: {'***' + api_key[-4:] if api_key and len(api_key) > 4 else ('(empty)' if not api_key else '(short)')}")
-            if api_key:
-                api_key = api_key.strip()
-                if not api_key:
-                    api_key = None
-        except Exception as e:
-            print(f"[ModelManager] Error reading API key from settings: {e}")
-            api_key = None
-
+        api_key = api_key_from_settings()
         rate = None
         try:
             from modules import shared

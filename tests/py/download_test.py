@@ -570,6 +570,24 @@ check('the key is sent as a bearer token',
 os.remove(authorised.file_path)
 os.remove(os.path.splitext(authorised.file_path)[0] + '.civitai.info')
 
+# A key pasted with a space or a newline worked for the API, which trims it,
+# and went into the download's header as pasted.
+opts.model_manager_civitai_api_key = '  secret-key \n'
+civitai_says(FakeResponse([b'weights']))
+padded = service.download_version(510, CHECKPOINT, version(id=510))
+check('a key pasted with spaces around it is sent trimmed',
+      FakeSession.asked[0][1].get('Authorization'), 'Bearer secret-key')
+os.remove(padded.file_path)
+os.remove(os.path.splitext(padded.file_path)[0] + '.civitai.info')
+
+opts.model_manager_civitai_api_key = '   '
+civitai_says(FakeResponse([b'weights']))
+blank = service.download_version(511, CHECKPOINT, version(id=511))
+check('and a key of spaces alone is no key',
+      'Authorization' in FakeSession.asked[0][1], False)
+os.remove(blank.file_path)
+os.remove(os.path.splitext(blank.file_path)[0] + '.civitai.info')
+
 opts.model_manager_civitai_api_key = ''
 civitai_says(FakeResponse([b'weights']))
 anonymous = service.download_version(509, CHECKPOINT, version(id=509))

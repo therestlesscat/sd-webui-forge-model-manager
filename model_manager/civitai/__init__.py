@@ -16,6 +16,7 @@ from .client import (
     CivitaiNotFoundError,
     CivitaiRateLimitError,
     TokenBucketRateLimiter,
+    api_key_from_settings,
 )
 from .licensing import paid_access_info
 from .prompt_filter import (
@@ -33,7 +34,7 @@ from .size_filter import primary_file_size_kb, size_range_check
 
 __all__ = [
     "CivitaiAPIError", "CivitaiAuthError", "CivitaiClient", "CivitaiNotFoundError",
-    "CivitaiRateLimitError", "TokenBucketRateLimiter",
+    "CivitaiRateLimitError", "TokenBucketRateLimiter", "api_key_from_settings",
     "paid_access_info",
     "apply_generation_data", "decode_filter_token", "encode_filter_token",
     "enrich_images_with_generation_data", "generation_ids_needing_lookup",

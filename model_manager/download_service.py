@@ -23,7 +23,7 @@ from collections import deque
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 
-from .civitai import paid_access_info
+from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
 from .hashing import HashResult
 from .model_dirs import download_dir
@@ -820,8 +820,7 @@ class DownloadService:
             # retries on it. Unknown - Civitai not asked - it is tried.
             paid = paid_access_info(version_data)
             if paid:
-                from modules import shared as _shared
-                if not getattr(_shared.opts, 'model_manager_civitai_api_key', ''):
+                if not api_key_from_settings():
                     progress.status = "error"
                     progress.error = ("This version is paid on Civitai. With an API key set (the settings, "
                                       "Civitai connection), a version you have bought downloads here.")
@@ -898,7 +897,7 @@ class DownloadService:
                     else f"File already exists: {file_name}, and Civitai lists no SHA-256 to compare it with")
                 return progress
 
-            api_key = getattr(shared.opts, 'model_manager_civitai_api_key', '')
+            api_key = api_key_from_settings()
 
             headers = {"User-Agent": "SD-WebUI-Forge-Model-Manager/1.0"}
             if api_key:
