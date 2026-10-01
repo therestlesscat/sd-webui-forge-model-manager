@@ -273,6 +273,8 @@ db.upsert_version({'file_path': synced, 'file_name': 'synced_x.safetensors', 'fi
                    'id': 81001, 'has_civitai_data': True, 'nsfw_level': X})
 scan.scan_models(directories=[models_dir])
 check('a synced version rescanned with no sidecar keeps its level', db.get_version(synced)['nsfw_level'], X)
+check('and stays identified - the library still knows it on Civitai (#97)',
+      db.get_version(synced)['has_civitai_data'], True)
 
 fixtures.sidecar(synced, {"id": 81000, "name": "No Versions", "type": "LORA", "modelVersions": []})
 scan.scan_models(directories=[models_dir])

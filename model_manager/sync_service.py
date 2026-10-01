@@ -23,7 +23,7 @@ from .civitai import (
 )
 from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
 from .model_dirs import gone_from_disk, library_dirs
-from .storage import write_civitai_info
+from .storage import get_metadata_paths, write_civitai_info
 from .architecture import record_architecture
 from .nsfw import UNKNOWN, version_covers
 from .db import get_models_db
@@ -229,7 +229,10 @@ class SyncService:
         if not force:
             db = get_models_db()
             existing = db.get_version(model_path)
-            if existing and existing.get("has_civitai_data"):
+            # Identified, and its sidecar there to say so. A sidecar that has
+            # gone is written back by syncing the file again.
+            if existing and existing.get("has_civitai_data") and os.path.exists(
+                    get_metadata_paths(model_path)[0]):
                 print(f"[ModelManager] Skipping {model_name} (already synced)")
                 result.skipped = True
                 return result
