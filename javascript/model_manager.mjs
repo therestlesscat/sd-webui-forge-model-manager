@@ -5267,8 +5267,10 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
 // Close details panel
 // Jump straight to one model, e.g. from the Civitai Browser.
-// Every filter is relaxed first - an active NSFW or type filter would
-// otherwise hide the very model the caller asked to show.
+// Every filter is relaxed first - an active NSFW, type or SFW-only filter
+// would otherwise hide the very model the caller asked to show. SFW only was
+// once left on, and a generation's model with one explicit image was "not
+// found", its file in the library.
 window.mmShowModel = async function(query) {
     const setValue = (id, value) => {
         const el = document.getElementById(id);
@@ -5294,6 +5296,10 @@ window.mmShowModel = async function(query) {
     setChecked('#mm_commercial_panel input[type="checkbox"][value]', true);
     updateCommercialDisplay();
 
+    const sfwOnly = document.getElementById('mm_sfw_only');
+    if (sfwOnly) sfwOnly.checked = false;
+    syncSfwOnlyBanner();
+
     setValue('mm_checkpoint_type', '');
     setValue('mm_allow_derivatives', '');
     setValue('mm_allow_different_license', '');
@@ -5316,7 +5322,9 @@ window.mmShowModel = async function(query) {
     if (currentModels.length === 1) {
         await window.mmSelectModel(0);
     } else if (currentModels.length === 0) {
-        setStatus(`Nothing found for "${query}". It may not be downloaded, or the database needs a refresh.`, true);
+        // A file looked up by its path is named by its file name.
+        const what = query.startsWith('path:') ? query.slice(5).split(/[\\/]/).pop() : query;
+        setStatus(`Nothing found for "${what}". It may not be downloaded, or the database needs a refresh.`, true);
     }
 };
 
