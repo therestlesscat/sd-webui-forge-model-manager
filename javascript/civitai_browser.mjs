@@ -12,11 +12,20 @@
 // was missing from the copy the browser held - which is a link error, so the
 // whole tab script stopped running until someone happened to force a reload.
 //
-// import.meta.url carries this script's own version, so the shared module is
-// asked for with the same one. A dynamic import is the only way to build that
-// URL at runtime, which is why this is not a plain import statement.
+// So the shared modules are asked for with a version of their own, the newest
+// mtime among them, which the server is asked for: this script's version, as
+// they used to take, stayed the same when only a shared file changed, and
+// Gradio's file route sends no Cache-Control, so a browser could keep the
+// copy it held. All three tabs share the one answer, so each shared module is
+// one URL and runs once, not once per tab. Without an answer, this script's
+// own version, as before. A dynamic import is the only way to build that URL
+// at runtime, which is why this is not a plain import statement.
+window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-store' })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
+    .catch(() => null);
 const sharedModule = new URL('./shared/common.mjs', import.meta.url);
-sharedModule.search = new URL(import.meta.url).search;
+sharedModule.search = (await window.mmSharedVersion) || new URL(import.meta.url).search;
 
 const {
     onReady,

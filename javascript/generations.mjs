@@ -18,10 +18,14 @@
  * script, loaded with this.
  */
 
-// The shared module, asked for with this script's own version: see the top of
-// civitai_browser.mjs for why this is not a plain import.
+// The shared modules, asked for with the version the server gives them: see
+// the top of civitai_browser.mjs for why, and why this is not a plain import.
+window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-store' })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
+    .catch(() => null);
 const sharedModule = new URL('./shared/common.mjs', import.meta.url);
-sharedModule.search = new URL(import.meta.url).search;
+sharedModule.search = (await window.mmSharedVersion) || new URL(import.meta.url).search;
 
 const {
     onReady,
