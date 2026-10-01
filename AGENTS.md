@@ -31,6 +31,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, and when a walk may forget a row |
+| `jobs.py` | the long jobs - a sync, a scan - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
