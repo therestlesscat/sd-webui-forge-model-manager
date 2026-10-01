@@ -178,6 +178,21 @@ check('and the slower anonymous rate',
 anonymous.close()
 webui_stub.install()
 
+# One budget for everything that asks Civitai. Each client made its own
+# bucket, full, so a sync, a download and the browser each paced themselves
+# alone and together went past the rate set.
+webui_stub.install(model_manager_civitai_api_key='k',
+                   model_manager_civitai_requests_per_second=4)
+first, second = CivitaiClient.from_settings(), CivitaiClient.from_settings()
+check('two clients draw from one bucket', first.rate_limiter is second.rate_limiter, True)
+webui_stub.install(model_manager_civitai_api_key='k',
+                   model_manager_civitai_requests_per_second=5)
+other_rate = CivitaiClient.from_settings()
+check('a client at another rate has its own', other_rate.rate_limiter is first.rate_limiter, False)
+for c in (first, second, other_rate):
+    c.close()
+webui_stub.install()
+
 # a rate outside what the API will take is brought back into range
 webui_stub.install(model_manager_civitai_api_key='k',
                    model_manager_civitai_requests_per_second=999)
@@ -239,6 +254,8 @@ for body, want in (({'error': OVERLOADED}, 'Civitai: %s (503)' % OVERLOADED),
                    (None, 'Server error: 503')):
     client = CivitaiClient()
     client.RETRY_BACKOFF_BASE = 0.001
+    # Not about pacing: the anonymous rate is shared, and 12 asks wait it out.
+    client.rate_limiter = TokenBucketRateLimiter(1000.0, 100)
     asked = []
     client.session.request = lambda method, url, **kw: asked.append(url) or Answer(503, body)
     try:
