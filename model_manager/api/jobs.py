@@ -3,33 +3,45 @@ Work that takes long enough to need watching.
 
 Scanning the disk, syncing with Civitai, refreshing metadata - each starts on
 a background thread and reports progress until it finishes or is cancelled.
-
-The module-level state below is why these live together: there is at most one
-scan and one sync at a time, and every endpoint here reads or writes that fact.
+Which job runs, and how far along it is, is model_manager.jobs': a full sync
+and a metadata sync are both the "sync", one at a time, beside one "scan".
 """
-import threading
 from typing import Optional
 from fastapi import Body, FastAPI, Form
 from fastapi.responses import JSONResponse
 
-from ..scan_service import ScanService, ScanProgress
 from ..db import get_models_db
+from ..jobs import jobs
+from ..scan_service import ScanService
 from ..sync_service import (
     SyncService,
-    SyncProgress,
     estimate_metadata_sync,
     sync_window_counts,
     window_cutoff,
 )
 
-# There is one scan and one sync at a time; these say which, and how far along.
-_active_sync: Optional[SyncService] = None
-_sync_thread: Optional[threading.Thread] = None
-_sync_progress: Optional[SyncProgress] = None
+#: What progress and cancel answer before a job of the kind has run.
+NOT_STARTED = {"sync": "No sync in progress", "scan": "No scan in progress"}
 
-_active_scan: Optional[ScanService] = None
-_scan_thread: Optional[threading.Thread] = None
-_scan_progress: Optional[ScanProgress] = None
+
+def _start(kind: str, make, run, started: str) -> JSONResponse:
+    if not jobs.start(kind, make, run):
+        return JSONResponse({"success": False, "error": f"{kind.capitalize()} already in progress"},
+                            status_code=409)
+    return JSONResponse({"success": True, "message": started})
+
+
+def _progress(kind: str) -> JSONResponse:
+    progress = jobs.progress(kind)
+    if progress is None:
+        return JSONResponse({"success": True, "progress": None, "message": NOT_STARTED[kind]})
+    return JSONResponse({"success": True, "progress": progress.to_dict()})
+
+
+def _cancel(kind: str) -> JSONResponse:
+    if not jobs.cancel(kind):
+        return JSONResponse({"success": False, "error": NOT_STARTED[kind]})
+    return JSONResponse({"success": True, "message": "Cancel requested"})
 
 
 def register(app: FastAPI):
@@ -52,8 +64,6 @@ def register(app: FastAPI):
 
         Returns immediately. Poll /model-manager/sync/progress for status.
         """
-        global _active_sync, _sync_thread, _sync_progress
-
         # Parse force as boolean (form data sends strings)
         target_set = targets if targets in ("all", "identified", "unidentified") else "all"
         # Choosing a set is itself a request to re-read them, so it forces.
@@ -61,43 +71,14 @@ def register(app: FastAPI):
                       or target_set != "all")
         print(f"[ModelManager] Sync requested: targets={target_set} force={force_bool}")
 
-        # Check if sync already running
-        if _sync_thread is not None and _sync_thread.is_alive():
-            return JSONResponse(
-                {"success": False, "error": "Sync already in progress"},
-                status_code=409
-            )
-
-        # Parse paths
         model_paths = None
         if paths:
             model_paths = [p.strip() for p in paths.split(",") if p.strip()]
 
-        # Create sync service and start in background
-        _active_sync = SyncService()
-
-        def run_sync():
-            global _sync_progress
-            try:
-                _sync_progress = _active_sync.sync_all(
-                    model_paths=model_paths,
-                    force=force_bool,
-                    targets=target_set
-                )
-            except Exception as e:
-                import traceback
-                print(f"[ModelManager] Sync error: {e}")
-                traceback.print_exc()
-                _sync_progress = SyncProgress(is_complete=True)
-                _sync_progress.error_messages.append(str(e))
-
-        _sync_thread = threading.Thread(target=run_sync, daemon=True)
-        _sync_thread.start()
-
-        return JSONResponse({
-            "success": True,
-            "message": "Sync started"
-        })
+        return _start("sync", SyncService,
+                      lambda sync: sync.sync_all(model_paths=model_paths, force=force_bool,
+                                                 targets=target_set),
+                      "Sync started")
 
     @app.post("/model-manager/sync/metadata")
     async def start_metadata_sync(
@@ -129,49 +110,22 @@ def register(app: FastAPI):
         Shares the progress and cancel endpoints with the full sync. Returns
         immediately; poll /model-manager/sync/progress.
         """
-        global _active_sync, _sync_thread, _sync_progress
-
         with_images = str(include_images).lower() in ('true', '1', 'yes')
         with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
         synced_before = window_cutoff(stale_days) if stale_days > 0 else None
         downloaded_after = window_cutoff(downloaded_days) if downloaded_days > 0 else None
 
-        if _sync_thread is not None and _sync_thread.is_alive():
-            return JSONResponse(
-                {"success": False, "error": "Sync already in progress"},
-                status_code=409
-            )
-
         model_paths = None
         if paths:
             model_paths = [p.strip() for p in paths.split(",") if p.strip()]
 
-        _active_sync = SyncService()
-
-        def run_metadata_sync():
-            global _sync_progress
-            try:
-                _sync_progress = _active_sync.sync_metadata(
-                    model_paths=model_paths,
-                    include_images=with_images,
-                    include_prompts=with_prompts,
-                    synced_before=synced_before,
-                    downloaded_after=downloaded_after
-                )
-            except Exception as e:
-                import traceback
-                print(f"[ModelManager] Metadata sync error: {e}")
-                traceback.print_exc()
-                _sync_progress = SyncProgress(is_complete=True)
-                _sync_progress.error_messages.append(str(e))
-
-        _sync_thread = threading.Thread(target=run_metadata_sync, daemon=True)
-        _sync_thread.start()
-
-        return JSONResponse({
-            "success": True,
-            "message": "Metadata sync started" + (" (with images)" if with_images else "")
-        })
+        return _start("sync", SyncService,
+                      lambda sync: sync.sync_metadata(model_paths=model_paths,
+                                                      include_images=with_images,
+                                                      include_prompts=with_prompts,
+                                                      synced_before=synced_before,
+                                                      downloaded_after=downloaded_after),
+                      "Metadata sync started" + (" (with images)" if with_images else ""))
 
     @app.get("/model-manager/sync/estimate")
     async def get_sync_estimate(
@@ -222,44 +176,12 @@ def register(app: FastAPI):
     @app.get("/model-manager/sync/progress")
     async def get_sync_progress():
         """Get current sync progress."""
-        global _active_sync, _sync_progress
-
-        # If no sync has been started
-        if _active_sync is None and _sync_progress is None:
-            return JSONResponse({
-                "success": True,
-                "progress": None,
-                "message": "No sync in progress"
-            })
-
-        # Get live progress from service if available
-        if _active_sync is not None:
-            progress = _active_sync.progress
-        else:
-            progress = _sync_progress
-
-        return JSONResponse({
-            "success": True,
-            "progress": progress.to_dict() if progress else None
-        })
+        return _progress("sync")
 
     @app.post("/model-manager/sync/cancel")
     async def cancel_sync():
         """Cancel active sync operation."""
-        global _active_sync
-
-        if _active_sync is None:
-            return JSONResponse({
-                "success": False,
-                "error": "No sync in progress"
-            })
-
-        _active_sync.cancel()
-
-        return JSONResponse({
-            "success": True,
-            "message": "Cancel requested"
-        })
+        return _cancel("sync")
 
     @app.post("/model-manager/scan")
     async def start_scan(options: Optional[dict] = Body(default=None)):
@@ -276,75 +198,17 @@ def register(app: FastAPI):
         Returns immediately. Poll /model-manager/scan/progress for status.
         """
         reread_headers = bool((options or {}).get("reread_headers"))
-        global _active_scan, _scan_thread, _scan_progress
 
-        # Check if scan already running
-        if _scan_thread is not None and _scan_thread.is_alive():
-            return JSONResponse(
-                {"success": False, "error": "Scan already in progress"},
-                status_code=409
-            )
-
-        # Create scan service and start in background
-        _active_scan = ScanService()
-
-        def run_scan():
-            global _scan_progress
-            try:
-                _scan_progress = _active_scan.scan_models(reread_headers=reread_headers)
-            except Exception as e:
-                import traceback
-                print(f"[ModelManager] Scan error: {e}")
-                traceback.print_exc()
-                _scan_progress = ScanProgress(is_complete=True)
-                _scan_progress.errors.append(str(e))
-
-        _scan_thread = threading.Thread(target=run_scan, daemon=True)
-        _scan_thread.start()
-
-        return JSONResponse({
-            "success": True,
-            "message": "Scan started"
-        })
+        return _start("scan", ScanService,
+                      lambda scan: scan.scan_models(reread_headers=reread_headers),
+                      "Scan started")
 
     @app.get("/model-manager/scan/progress")
     async def get_scan_progress():
         """Get current scan progress."""
-        global _active_scan, _scan_progress
-
-        # If no scan has been started
-        if _active_scan is None and _scan_progress is None:
-            return JSONResponse({
-                "success": True,
-                "progress": None,
-                "message": "No scan in progress"
-            })
-
-        # Get live progress from service if available
-        if _active_scan is not None:
-            progress = _active_scan.progress
-        else:
-            progress = _scan_progress
-
-        return JSONResponse({
-            "success": True,
-            "progress": progress.to_dict() if progress else None
-        })
+        return _progress("scan")
 
     @app.post("/model-manager/scan/cancel")
     async def cancel_scan():
         """Cancel active scan operation."""
-        global _active_scan
-
-        if _active_scan is None:
-            return JSONResponse({
-                "success": False,
-                "error": "No scan in progress"
-            })
-
-        _active_scan.cancel()
-
-        return JSONResponse({
-            "success": True,
-            "message": "Cancel requested"
-        })
+        return _cancel("scan")

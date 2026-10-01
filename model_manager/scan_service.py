@@ -37,6 +37,11 @@ class ScanProgress:
     is_complete: bool = False
     errors: List[str] = field(default_factory=list)
 
+    def fail(self, message: str):
+        """Finished by an error."""
+        self.errors.append(message)
+        self.is_complete = True
+
     def to_dict(self) -> dict:
         return {
             "total": self.total,

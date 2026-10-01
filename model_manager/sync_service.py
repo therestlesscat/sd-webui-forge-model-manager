@@ -58,6 +58,12 @@ class SyncProgress:
     error_messages: List[str] = field(default_factory=list)
     is_complete: bool = False
 
+    def fail(self, message: str):
+        """Finished by an error: counted, so the page shows the message."""
+        self.errors += 1
+        self.error_messages.append(message)
+        self.is_complete = True
+
     def to_dict(self) -> dict:
         return asdict(self)
 

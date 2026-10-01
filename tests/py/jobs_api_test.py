@@ -2,9 +2,9 @@
 Starting, watching and cancelling the long jobs.
 
 A scan or a sync runs on a background thread, and there is at most one of each
-- so the interesting behaviour is in the module-level state: what a second
-request gets while the first is still running, what progress says before
-anything has been started, and what a job that raises leaves behind.
+(model_manager.jobs) - so the interesting behaviour is what a second request
+gets while the first is still running, what progress says before anything has
+been started, and what a job that raises leaves behind.
 
 The services themselves are stubbed and made to block on an event, so "already
 in progress" is tested deterministically rather than by racing a real sync.
@@ -38,6 +38,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.api.jobs as jobs                    # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
+from model_manager.jobs import jobs as registry          # noqa: E402
 from model_manager.scan_service import ScanProgress      # noqa: E402
 from model_manager.sync_service import SyncProgress      # noqa: E402
 
@@ -73,6 +74,7 @@ class Job:
 
     hold = None          # an Event to wait on, so the job stays "running"
     raises = None
+    processed = 0
     asked = []
 
     def __init__(self):
@@ -83,8 +85,10 @@ class Job:
         Job.asked.append((name, kwargs))
         if Job.hold is not None:
             Job.hold.wait(5)
+        self.progress.processed = Job.processed
         if Job.raises is not None:
             raise Job.raises
+        self.progress.is_complete = True     # as a service's own run does
         return self.progress
 
     def sync_all(self, **kwargs):
@@ -110,22 +114,19 @@ jobs.SyncService = Job
 jobs.ScanService = Scan
 
 
-def reset(hold=False, raises=None):
+def reset(hold=False, raises=None, processed=0):
     """Forget any job, and say how the next one should behave."""
-    for name in ('_active_sync', '_sync_thread', '_sync_progress',
-                 '_active_scan', '_scan_thread', '_scan_progress'):
-        setattr(jobs, name, None)
+    registry.reset()
     Job.asked = []
     Job.raises = raises
+    Job.processed = processed
     Job.hold = threading.Event() if hold else None
     return Job.hold
 
 
 def finished():
     """Wait for whichever job is running to end."""
-    for thread in (jobs._sync_thread, jobs._scan_thread):
-        if thread is not None:
-            thread.join(5)
+    registry.join(5)
 
 
 # ------------------------------------------------------- nothing started yet
@@ -201,7 +202,7 @@ check('progress comes from the running service', body['progress'] is not None, T
 
 status, body = post('/model-manager/sync/cancel')
 check('cancelling reaches it', (status, body['success']), (200, True))
-check('and it was asked to stop', jobs._active_sync.cancelled, True)
+check('and it was asked to stop', registry.service('sync').cancelled, True)
 hold.set()
 finished()
 
@@ -210,15 +211,16 @@ check('and once it has finished, another can start', status, 200)
 finished()
 
 # ------------------------------------------------------- a sync that blows up
-# The progress endpoint prefers the live service's own record, so what the
-# thread leaves behind is checked directly - that is the fallback the UI reads
-# once the service is gone.
-reset(raises=RuntimeError('sync exploded'))
+# Asked of the endpoint, as the page asks it. The error used to go into a
+# record the endpoint never read: the page showed the sync running for ever.
+reset(raises=RuntimeError('sync exploded'), processed=3)
 post('/model-manager/sync')
 finished()
-check('a sync that raises still finishes', jobs._sync_progress.is_complete, True)
-check('carrying the error where the UI will see it',
-      jobs._sync_progress.error_messages, ['sync exploded'])
+p = get('/model-manager/sync/progress')[1]['progress']
+check('a sync that raises is reported finished', p['is_complete'], True)
+check('carrying the error where the page shows it - a count, and the message',
+      (p['errors'], p['error_messages']), (1, ['sync exploded']))
+check('and what it had done before', p['processed'], 3)
 
 # ------------------------------------------------------------ a metadata sync
 reset()
@@ -266,8 +268,9 @@ finished()
 reset(raises=RuntimeError('metadata exploded'))
 post('/model-manager/sync/metadata')
 finished()
+p = get('/model-manager/sync/progress')[1]['progress']
 check('one that raises reports the error',
-      jobs._sync_progress.error_messages, ['metadata exploded'])
+      (p['is_complete'], p['error_messages']), (True, ['metadata exploded']))
 
 # ----------------------------------------------------------------- the estimate
 reset()
@@ -351,29 +354,26 @@ check('a second scan is refused while one runs', status, 409)
 check('saying which', body['error'], 'Scan already in progress')
 status, body = post('/model-manager/scan/cancel')
 check('cancelling reaches it', body['success'], True)
-check('and it was asked to stop', jobs._active_scan.cancelled, True)
+check('and it was asked to stop', registry.service('scan').cancelled, True)
 hold.set()
 finished()
 
 reset(raises=RuntimeError('scan exploded'))
 post('/model-manager/scan')
 finished()
-check('a scan that raises still finishes', jobs._scan_progress.is_complete, True)
-# The scan keeps what went wrong, but only the count reaches the UI - the
-# message goes to the log. A sync sends the messages themselves.
-check('carrying what went wrong', jobs._scan_progress.errors, ['scan exploded'])
-check('of which the UI is told only the number',
-      jobs._scan_progress.to_dict()['error_count'], 1)
+p = get('/model-manager/scan/progress')[1]['progress']
+# Only the count reaches the page - the message goes to the log. A sync sends
+# the messages themselves.
+check('a scan that raises is reported finished, with one error',
+      (p['is_complete'], p['error_count']), (True, 1))
 
-# Progress after the service has been forgotten falls back to the last record.
+# A finished job stays reportable: the page's last poll reads it.
 reset()
-jobs._scan_progress = ScanProgress(is_complete=True)
+post('/model-manager/scan')
+finished()
 status, body = get('/model-manager/scan/progress')
-check('the last scan is still reportable once the service is gone',
-      body['progress']['is_complete'], True)
-jobs._sync_progress = SyncProgress(is_complete=True)
-status, body = get('/model-manager/sync/progress')
-check('and so is the last sync', body['progress']['is_complete'], True)
+check('the last scan is still reportable once it has finished',
+      body['progress']['is_complete'] if body['progress'] else None, True)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
