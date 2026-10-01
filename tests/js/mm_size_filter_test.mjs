@@ -57,8 +57,19 @@ $('mm_save_search_btn').dispatchEvent(new window.Event('click', { bubbles: true 
 await waitFor('the save', () => saves.length > 0);
 check('Save Search keeps it', [saves.at(-1).filters.min_size, saves.at(-1).filters.max_size], ['2', '6.5']);
 
-window.mmShowModel('some model');
+// "Only Show Models with SFW images" too: it was left on, and Show model in
+// Model Manager, from a generation, found "nothing" for a model with an
+// explicit image, though its file was in the library.
+$('mm_sfw_only').checked = true;
+const before = listed.length;
+window.mmShowModel('path:C:\\models\\some model.safetensors');
 check('jumping to a model loosens it, with every other filter', [$('mm_min_size').value, $('mm_max_size').value],
       ['', '']);
+check('SFW only included', $('mm_sfw_only').checked, false);
+await waitFor('the lookup', () => listed.length > before);
+check('and the lookup asks for no SFW filter', listed.at(-1).has('sfw_only'), false);
+await waitFor('the answer', () => /Nothing found/.test($('mm_status')?.textContent || ''));
+check('found nowhere, it names the file, not the query it was looked up by',
+      $('mm_status').textContent.includes('"some model.safetensors"'), true);
 
 done();
