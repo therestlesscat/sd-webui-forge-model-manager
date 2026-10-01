@@ -490,6 +490,9 @@ def register(app: FastAPI):
                 {**v, "local": v["id"] in local_ids, "paid_access": paid_access_info(v)}
                 for v in listed or []
             ]
+            # A paid one the key's account bought can be downloaded.
+            from ..civitai.ownership import mark_owned
+            mark_owned(v for v in civitai_versions if not v["local"])
 
             return JSONResponse({
                 "success": True,

@@ -24,6 +24,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 
 from .civitai import paid_access_info
+from .civitai.ownership import owned_versions
 from .hashing import HashResult
 
 
@@ -72,6 +73,8 @@ class DownloadProgress:
     # A resume the server answered with the whole file, not the rest of it:
     # the download started over.
     started_over: bool = False
+    # The version's page on Civitai: where to go when Civitai refuses it.
+    page_url: Optional[str] = None
     # (_clock(), downloaded_bytes) now and then, for the speed; and
     # when the bytes last grew. Measured here, where every chunk is seen: the
     # page sees only its polls, a second or more apart.
@@ -140,6 +143,7 @@ class DownloadProgress:
             "eta_seconds": round(left) if left is not None else None,
             "stalled": stalled,
             "started_over": self.started_over,
+            "page_url": self.page_url,
             "version_id": self.version_id,
             "file_name": self.file_name,
             "total_bytes": self.total_bytes,
@@ -742,8 +746,15 @@ class DownloadService:
                                           "under Civitai connection.")
                         return False
                     elif status_code == 403:
+                        # Civitai says why, in JSON - "Early Access", say.
+                        reason = ""
+                        try:
+                            reason = (json.loads(response_body) or {}).get("message") or ""
+                        except (ValueError, AttributeError):
+                            pass
                         progress.status = "error"
-                        progress.error = "Access denied. This model may require special permissions or a valid API key."
+                        progress.error = (f"Civitai refused the download: {reason}" if reason else
+                                          "Access denied. This model may require special permissions or a valid API key.")
                         return False
                     else:
                         if attempt < max_retries - 1:
@@ -845,19 +856,30 @@ class DownloadService:
             job.setdefault("file_id", file_id)
 
         try:
-            # Refuse a version that has to be bought before creating anything:
-            # its download URL answers 401/403 without a purchase, and
-            # _download_file would burn three retries on a bare HTTP error.
+            model_id = (model_data or {}).get("id")
+            if model_id:
+                progress.page_url = f"https://civitai.com/models/{model_id}?modelVersionId={version_id}"
+            # A paid version downloads when the API key's account bought it.
+            # One it did not is refused before anything is created: its
+            # download answers 403, and _download_file would burn three
+            # retries on it. Unknown - Civitai not asked - it is tried.
             paid = paid_access_info(version_data)
             if paid:
-                progress.status = "error"
-                progress.error = (
-                    "This version is permanently paid on Civitai - buy it there first"
-                    if paid["permanent"] else
-                    f"This version is in early access until {paid['ends_at']} - "
-                    "buy it on Civitai or wait for it to go free"
-                )
-                return progress
+                from modules import shared as _shared
+                if not getattr(_shared.opts, 'model_manager_civitai_api_key', ''):
+                    progress.status = "error"
+                    progress.error = ("This version is paid on Civitai. With an API key set (the settings, "
+                                      "Civitai connection), a version you have bought downloads here.")
+                    return progress
+                bought = (owned_versions([version_id]) or {}).get(version_id)
+                if bought is False:
+                    progress.status = "error"
+                    progress.error = (
+                        ("This version is paid on Civitai" if paid["permanent"] else
+                         f"This version is in early access until {paid['ends_at']}")
+                        + ", and Civitai says your account has not bought it. Just bought it? Civitai's API "
+                        "takes some minutes to know: try again shortly. Otherwise, buy it on its page.")
+                    return progress
 
             model_type = model_data.get("type", "Other")
             base_path = self.get_base_path(model_type)

@@ -16,13 +16,17 @@ def annotate_paid_access(models: List[Dict[str, Any]]):
     Mark which versions Civitai charges Buzz for, in place.
 
     Adds `paid_access` to each version: None when it is free, otherwise
-    {'permanent': bool, 'ends_at': str|None}. Downloading a paid version
+    {'permanent': bool, 'ends_at': str|None, 'owned': bool|None} - owned
+    when the API key's account bought it (civitai/ownership.py). Downloading a paid version
     without buying it fails with 401/403, so the browser needs to say so
     before the user clicks.
     """
+    from ..civitai.ownership import mark_owned
     for model in models:
         for version in model.get("modelVersions", []) or []:
             version["paid_access"] = paid_access_info(version)
+    # Which of them the key's account bought, asked once for them all.
+    mark_owned(v for model in models for v in model.get("modelVersions", []) or [])
 
 
 def annotate_image_levels(models: List[Dict[str, Any]]):

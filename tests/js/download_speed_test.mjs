@@ -16,7 +16,10 @@ const download = (id, extra) => ({ version_id: id, file_name: `v${id}.safetensor
 const server = [download(1, { speed_bps: 12.4 * MB, eta_seconds: 300, stalled: false }),
                 download(2, { speed_bps: null, eta_seconds: null, stalled: true }),
                 download(3, { speed_bps: null, eta_seconds: null, stalled: false }),
-                download(4, { status: 'pending', speed_bps: null, eta_seconds: null, stalled: false })];
+                download(4, { status: 'pending', speed_bps: null, eta_seconds: null, stalled: false }),
+                // Refused by Civitai (#43): its reason, and the version's page.
+                download(5, { status: 'error', error: 'Civitai refused the download: This asset is in Early Access.',
+                              page_url: 'https://civitai.com/models/9?modelVersionId=5' })];
 globalThis.fetch = async (url) => {
     const reply = (body) => ({ ok: true, json: async () => body });
     if (String(url).includes('/civitai/download/progress')) return reply({ success: true, downloads: structuredClone(server) });
@@ -42,11 +45,17 @@ window.mmDownloads.track(server[0]);
 const line = (id) => Array.from(document.querySelectorAll('#mm_download_list .mm-download-item'))
     .find((item) => item.textContent.includes(`v${id}.safetensors`))
     ?.querySelector('.mm-download-percent')?.textContent.replace(/\s+/g, ' ').trim();
-await waitFor('the list', () => [1, 2, 3, 4].every((id) => line(id) !== undefined));
+await waitFor('the list', () => [1, 2, 3, 4, 5].every((id) => line(id) !== undefined));
 check('the panel says it after how far it has got',
       line(1), '42.1% - 2.70 GB / 6.50 GB · 12.4 MB/s · about 5 min left');
 check('a stalled one says so', line(2), '42.1% - 2.70 GB / 6.50 GB · stalled');
 check('one not measured yet, just how far', line(3), '42.1% - 2.70 GB / 6.50 GB');
 check('a queued one, waiting', line(4), 'Waiting...');
+const refused = Array.from(document.querySelectorAll('#mm_download_list .mm-download-item'))
+    .find((item) => item.textContent.includes('v5.safetensors'));
+check('one Civitai refused says why, with a way to its page there',
+      [line(5), refused?.querySelector('.mm-download-percent a')?.getAttribute('href')],
+      ['Civitai refused the download: This asset is in Early Access. Open on Civitai',
+       'https://civitai.com/models/9?modelVersionId=5']);
 
 done();

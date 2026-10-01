@@ -443,7 +443,8 @@ civitai(model=remote(90040, 90041, paidAccess={'permanent': True}))
 status, body = get('/model-manager/civitai/models/90040')
 check('a paid version is flagged before the user clicks download',
       body['model']['modelVersions'][0]['paid_access'], {'permanent': True,
-                                                         'ends_at': None})
+                                                         'ends_at': None, 'owned': None})
+# (owned: whether the API key's account bought it - None here, with no key: ownership_test.py)
 
 civitai(model={'id': 90050, 'name': 'No versions'})
 status, body = get('/model-manager/civitai/models/90050')
@@ -832,9 +833,9 @@ deadline = [{'id': 1, 'modelVersions': [
 annotate_paid_access(deadline)
 paid = [v['paid_access'] for v in deadline[0]['modelVersions']]
 check('a bare deadline is early access', paid[0],
-      {'permanent': False, 'ends_at': '2026-11-01T00:00:00Z'})
+      {'permanent': False, 'ends_at': '2026-11-01T00:00:00Z', 'owned': None})
 check('so is one inside paidAccess', paid[1],
-      {'permanent': False, 'ends_at': '2026-12-01T00:00:00Z'})
+      {'permanent': False, 'ends_at': '2026-12-01T00:00:00Z', 'owned': None})
 check('and a version with neither is free', paid[2], None)
 check('a model with no versions is left alone',
       annotate_paid_access([{'id': 1}]), None)

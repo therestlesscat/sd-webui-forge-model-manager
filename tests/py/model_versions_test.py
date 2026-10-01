@@ -172,7 +172,7 @@ if FastAPI:
     check('10. with nothing held, the sidecar is read once and kept',
           ([v['id'] for v in listed], ids(lv['model_id'])), ([lv['id'], 880001], [lv['id'], 880001]))
     check('    paid_access is worked out as the Civitai Browser does',
-          [v['paid_access'] for v in listed], [None, {'permanent': True, 'ends_at': None}])
+          [v['paid_access'] for v in listed], [None, {'permanent': True, 'ends_at': None, 'owned': None}])
     check('    and says it did not come from Civitai', answer.get('versions_synced_at'), None)
     check('11. Civitai was never asked', asked, [])
 
