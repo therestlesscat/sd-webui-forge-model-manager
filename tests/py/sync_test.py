@@ -722,5 +722,25 @@ check('progress reports what the bar needs',
       ['added', 'current_model', 'error_messages', 'errors', 'is_complete',
        'not_found', 'processed', 'removed', 'skipped', 'synced', 'total'])
 
+# ------------------------------------------------------- a payload with no type
+# A sync stored a model whose payload had no type as a Checkpoint: a type it
+# made up, which the no-clobber rule took for a real one - a LORA already
+# known became a Checkpoint. No type is Unknown, which keeps what is stored.
+TYPED = os.path.join(facts['models_dir'], 'Lora', 'typed_lora.safetensors')
+io.open(TYPED, 'wb').write(b'typed')
+db.upsert_civitai_model({'id': 90100, 'name': 'Known LoRA', 'type': 'LORA'}, from_civitai=True)
+untyped = model_payload(90100, [90101])
+del untyped['type']
+SyncService(client=None)._update_database(TYPED, untyped, HashResult.from_stored({}))
+check('a payload with no type leaves a known type alone', db.get_civitai_model(90100)['type'], 'LORA')
+
+FRESH_FILE = os.path.join(facts['models_dir'], 'Lora', 'fresh_untyped.safetensors')
+io.open(FRESH_FILE, 'wb').write(b'fresh')
+fresh = model_payload(90200, [90201])
+del fresh['type']
+SyncService(client=None)._update_database(FRESH_FILE, fresh, HashResult.from_stored({}))
+check('and a new model with no type is Unknown, not a Checkpoint',
+      db.get_civitai_model(90200)['type'], 'Unknown')
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

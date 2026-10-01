@@ -477,7 +477,9 @@ class SyncService:
                     "id": model_id,
                     "name": civitai_data.get("name", ""),
                     "description": civitai_data.get("description"),
-                    "type": civitai_data.get("type", "Checkpoint"),
+                    # None, not a guess: upsert_civitai_model() stores
+                    # it as Unknown, which keeps a type already known.
+                    "type": civitai_data.get("type"),
                     "nsfw": civitai_data.get("nsfw", False),
                     "nsfw_level": civitai_data.get("nsfwLevel", UNKNOWN),
                     "tags": civitai_data.get("tags", []),
