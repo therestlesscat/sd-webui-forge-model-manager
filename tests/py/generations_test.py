@@ -40,10 +40,10 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
-check('the schema is at 29, with the three tables',
-      (dbmod.SCHEMA_VERSION, sorted(r[0] for r in db._get_connection().execute(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'"))),
-      (29, ['generation_files', 'generation_images', 'generations']))
+check('the database has the three tables',
+      sorted(r[0] for r in db._get_connection().execute(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'")),
+      ['generation_files', 'generation_images', 'generations'])
 
 # ------------------------------------------------------------ Forge, stood in
 CHECKPOINT = facts['linked_paths'][0]

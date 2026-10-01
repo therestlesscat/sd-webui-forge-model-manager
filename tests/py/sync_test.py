@@ -381,6 +381,8 @@ row = db.get_version(STRAY)
 check('with its size from disk', row['file_size'], 5)
 check('and its name', row['file_name'], 'stray.safetensors')
 check('recording it again changes nothing', sync._record_found_files([STRAY]), 0)
+if os.path.normcase('A') == os.path.normcase('a'):
+    check('nor recording it spelt in other case (#99)', sync._record_found_files([STRAY.upper()]), 0)
 check('and a path that is not there is still recorded, at zero bytes',
       sync._record_found_files([os.path.join(WORK, 'imaginary.safetensors')]), 1)
 

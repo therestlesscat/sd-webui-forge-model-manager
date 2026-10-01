@@ -29,7 +29,7 @@ from .generations_ops import GenerationsOps
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 
 class ModelsDatabase:
