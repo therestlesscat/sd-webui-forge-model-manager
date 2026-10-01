@@ -63,6 +63,7 @@ const {
     loadNsfwDetection,
     nsfwModelNote,
     setText,
+    sizeBound,
     setTitle,
     galleryDefaults,
     refreshUiOptions,
@@ -263,13 +264,6 @@ function getFilters() {
         min_size_gb: sizeBound('cb_min_size'),
         max_size_gb: sizeBound('cb_max_size'),
     };
-}
-
-// A size box's value in GB, or '' when it is empty or not a positive number -
-// which apiCall and the stream both leave out of the request.
-function sizeBound(id) {
-    const value = parseFloat(document.getElementById(id)?.value);
-    return Number.isFinite(value) && value > 0 ? value : '';
 }
 
 /**

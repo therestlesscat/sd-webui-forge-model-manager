@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Downloads can be paused and resumed - carrying on from where they stopped, after a restart or a crash too - and the queue can be steered: a waiting download started now, moved up or down, or cancelled before it starts, and everything paused or resumed at once. The list keeps one order, which only you change.
 
+- **0.43.1** (build 262) - A File Size filter in the Model Manager's Advanced filters: a range in GB, either end open. A model shows if any of its local files is in range, with the newest that is; it is kept with Save Search. The library knows every file's size, so unlike the Civitai Browser's it is exact and paged like any filter.
 - **0.43.0** (build 261) - Pause, resume and order downloads. A running download can be paused: it keeps what has arrived and lets the next in the queue start; Resume asks Civitai for the rest only, its hash carried on, and checks the finished file as before. Paused downloads, and one running when the WebUI stopped, are there after a restart, to resume. A waiting download can be started now (beside the two running), moved up or down, or cancelled; Pause all and Resume all are in the panel's header. Rows keep their place whatever their state; the first waiting from the top starts when a place frees up. Civitai's storage now and then sends the whole file for a resume, so it is asked again, up to three times, before starting over.
 
 ## 0.42 - Grouping in two levels

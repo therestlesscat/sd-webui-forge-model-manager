@@ -73,6 +73,7 @@ const {
     loadNsfwDetection,
     nsfwModelNote,
     setText,
+    sizeBound,
     refreshUiOptions,
     applyCardSize: sharedApplyCardSize,
     TIMING,
@@ -407,6 +408,8 @@ function getFilters() {
         has_civitai: document.getElementById('mm_civitai')?.value || '',
         ...bookmarkedFilter,
         min_versions: document.getElementById('mm_min_versions')?.value || '',
+        min_size_gb: sizeBound('mm_min_size'),
+        max_size_gb: sizeBound('mm_max_size'),
         ...previewLeastNsfwFilter,
         ...checkpointTypeFilter,
         ...commercialFilter,
@@ -5280,6 +5283,8 @@ window.mmShowModel = async function(query) {
     setValue('mm_base_model', '');
     setValue('mm_is_bookmarked', '');
     setValue('mm_min_versions', '');
+    setValue('mm_min_size', '');
+    setValue('mm_max_size', '');
 
     setChecked('#mm_nsfw_panel input[type="checkbox"][value]', true);
     const useMax = document.getElementById('mm_nsfw_use_max');
@@ -6189,6 +6194,8 @@ function currentSearchFilters() {
         civitai: document.getElementById('mm_civitai')?.value || '',
         is_bookmarked: document.getElementById('mm_is_bookmarked')?.value || '',
         min_versions: document.getElementById('mm_min_versions')?.value || '',
+        min_size: document.getElementById('mm_min_size')?.value || '',
+        max_size: document.getElementById('mm_max_size')?.value || '',
         sort_by: document.getElementById('mm_sort_by')?.value || 'name',
         sort_order: document.getElementById('mm_sort_order')?.value || 'asc',
         allow_derivatives: document.getElementById('mm_allow_derivatives')?.value || '',
@@ -6331,6 +6338,9 @@ function applySearchFilters(filters) {
         if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
         if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
         if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
+        for (const [key, id] of [['min_size', 'mm_min_size'], ['max_size', 'mm_max_size']]) {
+            if (Object.prototype.hasOwnProperty.call(filters, key)) document.getElementById(id).value = filters[key];
+        }
         if (Object.prototype.hasOwnProperty.call(filters, 'sort_by')) document.getElementById('mm_sort_by').value = filters.sort_by;
         if (Object.prototype.hasOwnProperty.call(filters, 'sort_order')) document.getElementById('mm_sort_order').value = filters.sort_order;
         if (Object.prototype.hasOwnProperty.call(filters, 'allow_derivatives')) document.getElementById('mm_allow_derivatives').value = filters.allow_derivatives;
