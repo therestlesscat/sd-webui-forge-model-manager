@@ -10,7 +10,7 @@ const path = require('path');
 
 const SHARED = path.resolve(__dirname, '..', '..', 'javascript', 'shared');
 const ORDER = ['core', 'calls', 'tabs', 'ui_options', 'nsfw', 'media', 'grid', 'gallery', 'filters', 'your_generations',
-               'update_notice', 'notes', 'chips', 'wan', 'downloads'];
+               'update_notice', 'notes', 'chips', 'wan', 'downloads', 'resources'];
 
 module.exports = function sharedScript() {
     return ORDER.map((name) => fs.readFileSync(path.join(SHARED, `${name}.mjs`), 'utf8')

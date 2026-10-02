@@ -306,6 +306,7 @@ function createDownloads() {
     const panels = new Set();  // tab prefixes with a panel on the page
     const completed = [];      // callbacks, each given a download once it is in the library
     const batchDone = [];      // callbacks, once nothing is left running
+    const changed = [];        // callbacks, after each look at the list - the Resources dialog's
     // Dismissed here, and asked of the server to forget. A poll already on its
     // way can still carry one; it is not taken back unless it starts again.
     const dismissed = new Set();
@@ -387,6 +388,7 @@ function createDownloads() {
                 }
             }
             render();
+            told();
 
             if (!Object.values(items).some(running)) {
                 clearInterval(poll);
@@ -406,11 +408,21 @@ function createDownloads() {
         }
     }
 
+    function told() {
+        for (const callback of changed) {
+            try { callback(); } catch (e) { console.error('[ModelManager] Download callback:', e); }
+        }
+    }
+
     const store = {
         /** Draw the list in this tab's panel: `<prefix>_downloads` and the ids inside it. */
         addPanel: (prefix) => { panels.add(prefix); render(); },
         onComplete: (callback) => { completed.push(callback); },
         onBatchDone: (callback) => { batchDone.push(callback); },
+        /** Called after each look at the list, and when one is added to it. */
+        onChange: (callback) => { changed.push(callback); },
+        /** A version's download as the server last said, or undefined. */
+        progress: (versionId) => items[versionId],
 
         /** Follow a download the server has accepted. */
         track: (progress) => {
@@ -419,11 +431,16 @@ function createDownloads() {
             items[progress.version_id] = progress;
             if (!sequence.includes(progress.version_id)) sequence.push(progress.version_id);
             render();
+            told();
             if (!poll) poll = setInterval(tick, TIMING.poll);
         },
 
-        /** Ask for a version, and follow it. Returns the server's answer. */
-        start: async function start(modelId, versionId, fileId) {
+        /**
+         * Ask for a version, and follow it. Returns the server's answer, with
+         * its HTTP status. `newerIfGone`: the model's newest version if this
+         * one is gone from Civitai - what the Resources dialog asks for.
+         */
+        start: async function start(modelId, versionId, fileId, { newerIfGone = false } = {}) {
             if (downloadButtonState(versionId).disabled) return { success: false, error: 'Already downloading' };
             starting.add(Number(versionId));
             renderButtons();
@@ -433,11 +450,12 @@ function createDownloads() {
                 form.append('version_id', versionId);
                 // Omitted when unknown, which leaves the backend on the primary.
                 if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
+                if (newerIfGone) form.append('newer_if_gone', 'true');
                 const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
                 const result = await response.json();
                 starting.delete(Number(versionId));
                 if (result.success && result.progress) store.track(result.progress);
-                return result;
+                return { ...result, status: response.status };
             } finally {
                 starting.delete(Number(versionId));
                 renderButtons();

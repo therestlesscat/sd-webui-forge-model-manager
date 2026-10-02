@@ -346,3 +346,29 @@ export function askToDelete(question, n = 1) {
         document.body.appendChild(backdrop);
     });
 }
+
+/**
+ * Show a modal - an image's metadata, or its Resources - in place of the
+ * last. Esc, its ×, or a click on the overlay around it closes it: wired
+ * here, so the markup names no global - the tab's own and resources.mjs
+ * both draw one.
+ */
+export function openMetaModal(modalHtml) {
+    document.getElementById('mm_meta_modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    document.body.classList.add('mm-modal-open');
+    const modal = document.getElementById('mm_meta_modal');
+    if (!modal) return;
+    closeOnEscape(modal, closeMetaModal);
+    modal.addEventListener('click', (event) => { if (event.target === modal) closeMetaModal(); });
+    modal.querySelector('.mm-modal-close')?.addEventListener('click', closeMetaModal);
+}
+
+// Close metadata modal
+function closeMetaModal() {
+    const modal = document.getElementById('mm_meta_modal');
+    if (modal) {
+        modal.remove();
+        document.body.classList.remove('mm-modal-open');
+    }
+}

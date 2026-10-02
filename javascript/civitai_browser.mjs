@@ -33,7 +33,8 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
-    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs',
+    'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -63,6 +64,9 @@ const { renderResource } = await shared('chips.mjs');
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
+const {
+    showImageResources, resourceButtonLabel: resourcesLabel, learnResourceHashes,
+} = await shared('resources.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -1154,7 +1158,7 @@ function renderImages() {
     container.style.display = 'block';
     setupLazyMedia(container);
     updateImagesCount();
-    call('modelManager.learnResourceHashes', currentImages);
+    learnResourceHashes(currentImages);
 }
 
 /**
@@ -1171,7 +1175,7 @@ function appendImagesPage(page, images) {
     list.insertAdjacentHTML('beforeend', imagesPageHtml(page, images));
     setupLazyMedia(list);
     updateImagesCount();
-    call('modelManager.learnResourceHashes', images);
+    learnResourceHashes(images);
 }
 
 /** Draw again what sums the gallery up - the banner, the foot - and not the images. */
@@ -1453,9 +1457,8 @@ window.cbShowImageMeta = function(index) {
 
 // ------------------------------------------------------------ resources
 // The Model Manager's Resources, for these images too: the same dialog, the
-// same lookups, the same Download into the library - so a LoRA an image used
-// can be had without the model it is an example of. The Model Manager's
-// script is on the same page, and offers them on window.
+// same lookups, the same Download into the library (resources.mjs) - so a
+// LoRA an image used can be had without the model it is an example of.
 
 /** The version this gallery shows: its own images do not list it. */
 const galleryVersionId = () => getSelectedVersion()?.id ?? null;
@@ -1464,7 +1467,7 @@ const galleryVersionId = () => getSelectedVersion()?.id ?? null;
 function resourceButtonLabel(img) {
     const meta = img.meta || {};
     if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
-    return call('modelManager.resourceButtonLabel', img, galleryVersionId()) ?? 'Resources';
+    return resourcesLabel(img, galleryVersionId());
 }
 
 /** Relabel the gallery's Resources buttons from what is known now. */
@@ -1480,7 +1483,7 @@ window.addEventListener('mm-resource-hashes', updateResourceButtons);
 
 window.cbShowResources = function(index) {
     const img = currentImages[index];
-    if (img) call('modelManager.showImageResources', img, galleryVersionId());
+    if (img) showImageResources(img, galleryVersionId());
 };
 
 // Start download. The list and its panel are shared with the Model

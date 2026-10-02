@@ -444,12 +444,14 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
         return { ok: true, json: async () => ({ success: true, ...structuredClone(library) }) };
     }
     const href = String(url);
+    // The downloads list asks after every download at once; a chip's follows it there.
     if (href.includes('/model-manager/civitai/download/progress')) {
-        const id = Number(new URL(href, 'http://webui').searchParams.get('version_id'));
-        return { ok: true, json: async () => ({ success: true, progress: chipProgress[id] || null }) };
+        return { ok: true, json: async () => ({ success: true, downloads: structuredClone(Object.values(chipProgress)) }) };
     }
     if (href.includes('/model-manager/civitai/download')) {
-        const form = new URLSearchParams(String(rest[0]?.body || ''));
+        // As every download is asked for (downloads().start): a form.
+        const body = rest[0]?.body;
+        const form = body instanceof FormData ? body : new URLSearchParams(String(body || ''));
         chipDownloads.push(Object.fromEntries(form));
         const id = Number(form.get('version_id'));
         return { ok: true, json: async () => ({ success: true, version_id: id, version_name: 'v1',

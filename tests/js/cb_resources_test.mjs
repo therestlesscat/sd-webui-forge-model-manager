@@ -40,6 +40,8 @@ const RESOLVED = {
     cccccccccc: { version_id: 7001, model_id: 700, name: 'VAE ft MSE', version_name: '840000', model_type: 'VAE' },
 };
 const downloads = [];
+const MANAGER_MODEL = { id: 1, model_id: 600, version_id: 6001, name: 'Sea Spray', model_type: 'LORA',
+                        file_path: 'C:/models/Lora/sea_spray.safetensors' };
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -55,8 +57,24 @@ globalThis.fetch = async (url, init = {}) => {
     }
     // The download itself - not its progress, which the page asks for at load.
     if (href.endsWith('/model-manager/civitai/download')) {
-        downloads.push(Object.fromEntries(new URLSearchParams(String(init.body || ''))));
+        // As every download is asked for (downloads().start): a form.
+        downloads.push(Object.fromEntries(init.body instanceof FormData ? init.body
+            : new URLSearchParams(String(init.body || ''))));
         return reply({ success: true, version_id: 6001, version_name: 'v1' });
+    }
+    // The Model Manager, showing the LoRA's own model: its version is 6001.
+    if (href.includes('/model-manager/models/versions')) {
+        return reply({ success: true, versions: [MANAGER_MODEL], civitai_versions: [] });
+    }
+    if (href.includes('/model-manager/models/details')) {
+        return reply({ success: true, model: { civitai_version: { id: 6001 }, images: [],
+                                               images_state: { version_id: 6001 } } });
+    }
+    if (href.includes('/model-manager/models')) {
+        return reply({ success: true, total: 1, page: 1, page_size: 20, models: [MANAGER_MODEL] });
+    }
+    if (href.includes('/model-manager/images/gallery-page')) {
+        return reply({ success: true, images: [], images_state: { version_id: 6001 } });
     }
     if (href.includes('/images')) return reply(browserGalleryAnswer(href, [IMAGE]));
     if (href.includes('/model-manager/civitai/models')) {
@@ -91,11 +109,19 @@ await waitFor('the button relabelled', () => button()?.textContent.trim() === 'R
 check('the button counts each resource once, and not the model the gallery shows',
       button()?.textContent.trim(), 'Resources (2)');
 
+// The Model Manager showing the LoRA's own model, whose version its gallery
+// leaves out of its Resources. The browser's leaves out its own gallery's
+// version, and only that: it once fell back to the Model Manager's (#90).
+$('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Model Manager\'s grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
+await window.mmSelectModel(0);
+
 // (This DOM does not run inline handlers; the button's own is read, and run.)
 check('its button opens the image\'s resources', button()?.getAttribute('onclick'), 'window.cbShowResources(0)');
 window.cbShowResources(0);
 await waitFor('the dialog', () => rows().length === 2);
-check('it opens the Model Manager\'s Resources dialog: the same table, the same rows',
+check('it opens the Model Manager\'s Resources dialog: the same table, the same rows - the LoRA among them, '
+      + 'though the Model Manager shows its model',
       [!!panel()?.querySelector('table.mm-resources-table'), rows()],
       [true, [['LORA', 'Sea Spray'], ['VAE', 'VAE ft MSE']]]);
 

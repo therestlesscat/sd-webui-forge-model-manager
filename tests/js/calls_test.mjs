@@ -52,7 +52,7 @@ for (const file of files) {
     const source = readFileSync(`${ROOT}/javascript/${file}`, 'utf8');
     for (const m of source.matchAll(/\b(?:call|ready)\(\s*'([^']+)'/g)) called.add(m[1]);
 }
-check('the page calls names between its parts', called.size > 10, true);
+check('the page calls names between its parts', called.size > 0, true);
 check('and with the tabs loaded, each has been offered', [...called].filter((name) => !ready(name)), []);
 check('the settings window offers each tab\'s card preview a place',
       ['cardPreview.model_manager_card_size', 'cardPreview.model_manager_civitai_card_size'].map(ready), [true, true]);

@@ -33,7 +33,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs',
     'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs',
-    'downloads.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+    'downloads.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -58,16 +58,14 @@ const {
     mediaShape, IMAGE_PLACEHOLDER_SVG, galleryImageWidth, setupLazyMedia,
 } = await shared('media.mjs');
 const { nsfwBadgeLabel, nsfwBadge } = await shared('nsfw.mjs');
-const {
-    renderResource, resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownloads,
-    redrawResourceChips, refreshResourceChips,
-} = await shared('chips.mjs');
+const { renderResource } = await shared('chips.mjs');
 const {
     selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport, ratingRowHtml,
 } = await shared('your_generations.mjs');
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
+const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
 const { sendInfotext, sendTab, splitSamplerScheduler, sendGalleryImage } = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
@@ -75,7 +73,7 @@ await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
 const {
-    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll, closeOnEscape,
+    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll, openMetaModal,
 } = await shared('viewer.mjs');
 
 // The settings window behind the gear in the header.
@@ -2532,7 +2530,7 @@ const generationViewerSource = {
     buttons: (index) => {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return '';
-        const label = resourceButtonLabel({ meta: image.meta || {} });
+        const label = resourceButtonLabel({ meta: image.meta || {} }, currentVersionId);
         return `${ratingRowHtml(image, 'window.mmRateInViewer(%)')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
@@ -2575,7 +2573,7 @@ const generationViewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
-            showImageResources(image);
+            showImageResources(image, currentVersionId);
             return true;
         }
         if (event.target.closest?.('[data-gen-delete]')) {
@@ -2661,7 +2659,7 @@ function renderGenerationCard(card, index) {
         : `${count} ${count === 1 ? 'image' : 'images'}`;
     const preview = (card.images || []);
     const moreThanShown = card.matching_count > preview.length;
-    const resourcesLabel = resourceButtonLabel(generationResourcesImage(card));
+    const resourcesLabel = resourceButtonLabel(generationResourcesImage(card), currentVersionId);
     return `
         <div class="mm-image-card mm-generation-card" data-generation="${card.id}">
             <div class="mm-image-left">
@@ -2901,7 +2899,7 @@ function renderImageCard(img, index) {
         : '';
 
     // The Resources button's label
-    const resourcesLabel = resourceButtonLabel(img);
+    const resourcesLabel = resourceButtonLabel(img, currentVersionId);
 
     const nsfwLevel = nsfwBadge(img);
 
@@ -2997,11 +2995,11 @@ window.mmShowImageMeta = function(imageIndex) {
 
     // Create modal
     const modalHtml = `
-        <div class="mm-modal-overlay" id="mm_meta_modal" onclick="window.mmCloseMetaModal(event)">
+        <div class="mm-modal-overlay" id="mm_meta_modal">
             <div class="mm-modal" onclick="event.stopPropagation()">
                 <div class="mm-modal-header">
                     <h3>Image Metadata</h3>
-                    <button class="mm-modal-close" onclick="window.mmCloseMetaModal()">&times;</button>
+                    <button class="mm-modal-close">&times;</button>
                 </div>
                 <div class="mm-modal-body">
                     <table class="mm-meta-table">
@@ -3017,185 +3015,36 @@ window.mmShowImageMeta = function(imageIndex) {
     openMetaModal(modalHtml);
 };
 
-/** Show this tab's modal - the metadata or the Resources - in place of the last; Esc closes it. */
-function openMetaModal(modalHtml) {
-    document.getElementById('mm_meta_modal')?.remove();
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    document.body.classList.add('mm-modal-open');
-    const modal = document.getElementById('mm_meta_modal');
-    closeOnEscape(modal, () => window.mmCloseMetaModal());
-}
-
-// Close metadata modal
-window.mmCloseMetaModal = function(event) {
-    // If called with event, only close if clicking overlay (not modal content)
-    if (event && event.target !== event.currentTarget) return;
-    const modal = document.getElementById('mm_meta_modal');
-    if (modal) {
-        modal.remove();
-        document.body.classList.remove('mm-modal-open');
-    }
-};
-
-/**
- * Gather an image's resources into one list, without guessing.
- *
- * The generation data names them twice. Civitai's own list carries
- * modelVersionId; the legacy infotext list carries an AutoV2 hash and the
- * filename whoever generated the image had on disk. The two share no key, so
- * the hashes are resolved into version ids and the lists merged on that -
- * never on name similarity, which does not survive contact with real data:
- * "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix".
- *
- * Anything naming the version whose gallery this is (`exclude`) gets dropped.
- * An image is an example *of* that model, so listing it says nothing - and it
- * is a quarter of all the rows in this library. The Civitai Browser names its
- * own, the version it shows.
- *
- * `finished` says whether every hash has had its answer. Until then a hash
- * with no answer yet is still being looked up, and is left out rather than
- * listed as unknown.
- *
- * Returns { known, unknown }: resources with a Civitai version behind them,
- * and the rest - a filename with no hash, a hash Civitai does not know, or one
- * that could not be checked. Those are shown as they are rather than guessed at.
- */
-function mergeImageResources(img, resolved, finished, exclude = currentVersionId) {
-    const meta = img.meta || {};
-    const civitai = meta.civitaiResources || [];
-    const legacy = meta.resources || [];
-
-    const byVersion = new Map();
-    for (const resource of civitai) {
-        const versionId = resource.modelVersionId;
-        if (!versionId || versionId === exclude) continue;
-        if (byVersion.has(versionId)) continue;
-        byVersion.set(versionId, {
-            versionId,
-            modelId: resource.modelId || null,
-            type: resource.type || 'Unknown',
-            name: resource.name || 'Unknown',
-            versionName: resource.modelVersionName || '',
-        });
-    }
-
-    const unknown = [];
-    const seenUnknown = new Set();
-    for (const resource of legacy) {
-        const hash = (resource.hash || '').toLowerCase();
-        const answered = hash && Object.prototype.hasOwnProperty.call(resolved, hash);
-        const match = answered ? resolved[hash] : null;
-
-        if (match && match.version_id) {
-            if (match.version_id === exclude) continue;
-            if (byVersion.has(match.version_id)) continue;   // Civitai named it already
-            byVersion.set(match.version_id, {
-                versionId: match.version_id,
-                modelId: match.model_id || null,
-                type: match.model_type || resource.type || 'Unknown',
-                name: match.name || resource.name || 'Unknown',
-                versionName: match.version_name || '',
-            });
-            continue;
-        }
-
-        // Asked about, but its answer has not come back yet.
-        if (hash && !answered && !finished) continue;
-
-        // No hash, or Civitai has never heard of it, or the lookup failed.
-        // Nothing more can be done with these, so they are shown rather than
-        // dropped - deduplicated only where they are exactly the same thing.
-        const key = hash || ((resource.type || '') + ':' + (resource.name || ''));
-        if (seenUnknown.has(key)) continue;
-        seenUnknown.add(key);
-        unknown.push({
-            type: resource.type || 'Unknown',
-            name: resource.name || 'Unknown',
-            reason: !hash ? 'no hash recorded'
-                : answered ? 'not on Civitai'
-                : 'could not be checked',
-        });
-    }
-
-    return { known: [...byVersion.values()], unknown };
-}
-
-// Which resources panel is current. A slow one - many hashes, no API key -
-// must not paint over one opened after it, and it now repaints each round.
-let resourcesRequest = 0;
-
-/**
- * What an image's Resources button says, or '' for no button.
- *
- * The count is the panel's own - mergeImageResources() over the hashes
- * answered so far - so the button and the list it opens agree: duplicates
- * counted once, the model this gallery belongs to not at all. It used to add
- * the two lists up raw, and said 5 over a panel of 2, or appeared over an
- * empty one.
- *
- * A hash nobody has looked up yet may turn out to be another resource, a
- * duplicate, or this model, so while any is outstanding the count is a
- * floor: "Resources (2+)", or just "Resources" with none known yet. Opening
- * the panel looks them up, and the button becomes exact.
- */
-function resourceButtonLabel(img, exclude = currentVersionId) {
-    const meta = img.meta || {};
-    if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
-
-    const pending = imageResourceHashes(img)
-        .some(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
-    const { known, unknown } = mergeImageResources(img, knownHashes, false, exclude);
-    const count = known.length + unknown.length;
-
-    if (pending) return count ? `Resources (${count}+)` : 'Resources';
-    return count ? `Resources (${count})` : '';
-}
-
 /** Relabel the gallery's Resources buttons from what is known now - your generations' too. */
 function updateResourceButtons() {
     document.querySelectorAll('#mm_images [data-resources-index]').forEach((button) => {
         const img = currentImages[Number(button.dataset.resourcesIndex)];
-        const label = img ? resourceButtonLabel(img) : '';
+        const label = img ? resourceButtonLabel(img, currentVersionId) : '';
         if (label) button.textContent = label;
         else button.remove();
     });
     document.querySelectorAll('#mm_images [data-resources-generation]').forEach((button) => {
         const { card } = drawnGeneration(Number(button.dataset.resourcesGeneration));
-        const label = card ? resourceButtonLabel(generationResourcesImage(card)) : '';
+        const label = card ? resourceButtonLabel(generationResourcesImage(card), currentVersionId) : '';
         if (label) button.textContent = label;
         else button.remove();
     });
-    // The Civitai Browser's buttons, which it relabels itself.
-    window.dispatchEvent(new Event('mm-resource-hashes'));
 }
+// New hash answers (resources.mjs): the Civitai Browser relabels its own.
+window.addEventListener('mm-resource-hashes', updateResourceButtons);
 
 /**
- * Learn what the server already knows about the gallery's hashes, in one
- * request, and relabel the buttons with it. Nothing is asked of Civitai:
- * that happens only when a panel is opened.
+ * Learn what the server already knows about the gallery's hashes - its
+ * images', and your generations' - and relabel the buttons with it
+ * (learnResourceHashes in resources.mjs).
  */
-async function refreshResourceButtons(images = [...currentImages, ...generationCards.map(generationResourcesImage)]) {
-    const unknown = [...new Set(images.flatMap(imageResourceHashes))]
-        .filter(hash => !Object.prototype.hasOwnProperty.call(knownHashes, hash));
-    if (!unknown.length) return;
-    try {
-        const response = await fetch('/model-manager/resolve-hashes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'hashes=' + encodeURIComponent(unknown.join(',')) + '&local_only=true',
-        });
-        const data = await response.json();
-        if (!data.success) return;
-        Object.assign(knownHashes, data.resolved || {});
-        updateResourceButtons();
-    } catch (e) {
-        console.warn('[ModelManager] Could not read known resource hashes:', e);
-    }
+function refreshResourceButtons(images = [...currentImages, ...generationCards.map(generationResourcesImage)]) {
+    return learnResourceHashes(images);
 }
 
 // Show the resources behind an image, resolved and merged
 window.mmShowResources = function(imageIndex) {
-    return showImageResources(currentImages[imageIndex]);
+    return showImageResources(currentImages[imageIndex], currentVersionId);
 };
 
 /**
@@ -3204,7 +3053,7 @@ window.mmShowResources = function(imageIndex) {
  */
 window.mmShowGenerationResources = function(id) {
     const { card } = drawnGeneration(id);
-    return card ? showImageResources(generationResourcesImage(card)) : undefined;
+    return card ? showImageResources(generationResourcesImage(card), currentVersionId) : undefined;
 };
 
 /**
@@ -3224,244 +3073,6 @@ function generationResourcesImage(card) {
         }
     }
     return { meta: { resources } };
-}
-
-/**
- * The Civitai Browser's images have the same Resources as the Model Manager's:
- * the same dialog, its lookups and its Download into the library - a LoRA an
- * image used, without the model it is an example of. `exclude` is the version
- * that gallery shows.
- */
-provide('modelManager.showImageResources', (img, exclude) => showImageResources(img, exclude ?? null));
-provide('modelManager.resourceButtonLabel', (img, exclude) => resourceButtonLabel(img, exclude ?? null));
-provide('modelManager.learnResourceHashes', (images) => refreshResourceButtons(images));
-
-/** The Resources dialog for an image - a Civitai image, or one of your own. */
-async function showImageResources(img, exclude = currentVersionId) {
-    if (!img || !img.meta) return;
-
-    const civitai = img.meta.civitaiResources || [];
-    const legacy = img.meta.resources || [];
-    if (civitai.length === 0 && legacy.length === 0) return;
-
-    const request = ++resourcesRequest;
-    const stillWanted = () => request === resourcesRequest
-        && !!document.querySelector('.mm-resources-modal');
-
-    // Up straight away, with whatever needs no lookup, because an uncached
-    // hash takes a moment and a dialog that opens late reads as a dead button.
-    const hashes = imageResourceHashes(img);
-    const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
-    renderResourcesModal(first, hashes.length);
-    checkInstalledResources(first.known);
-    if (!hashes.length) return;
-
-    const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
-        Object.assign(knownHashes, partial);
-        updateResourceButtons();
-        if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false, exclude), remaining);
-    });
-    Object.assign(knownHashes, resolved);
-    updateResourceButtons();
-
-    if (stillWanted()) {
-        const merged = mergeImageResources(img, resolved, true, exclude);
-        renderResourcesModal(merged, 0);
-        checkInstalledResources(merged.known);
-    }
-};
-
-function renderResourcesModal(resources, pending = 0) {
-    const rows = resources.known.map(resource => `
-            <tr>
-                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
-                <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
-                    ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
-                <td class="mm-res-actions">
-                    <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${safeId(resource.versionId)}" target="_blank">View</a>
-                    <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
-                </td>
-            </tr>
-        `).join('');
-
-    // Still asking: say how many are left rather than claim there is nothing.
-    const stillLooking = pending > 0
-        ? `<tr><td colspan="3" class="mm-res-loading">Looking up ${pending} more on Civitai...</td></tr>`
-        : '';
-
-    const nothingKnown = pending === 0 && resources.known.length === 0
-        ? '<tr><td colspan="3" class="mm-res-loading">Nothing here has a Civitai model behind it.</td></tr>'
-        : '';
-
-    const unknownRows = resources.unknown.length
-        ? '<tr><td colspan="3" class="mm-res-group">Named in the generation data, but not found on Civitai</td></tr>'
-          + resources.unknown.map(resource => `
-            <tr class="mm-res-unresolved">
-                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
-                <td class="mm-res-name">${escapeHtml(resource.name)}</td>
-                <td class="mm-res-actions"><span class="mm-res-no-hash">${escapeHtml(resource.reason)}</span></td>
-            </tr>
-        `).join('')
-        : '';
-
-    const modalHtml = `
-        <div class="mm-modal-overlay" id="mm_meta_modal" onclick="window.mmCloseMetaModal(event)">
-            <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
-                <div class="mm-modal-header">
-                    <h3>Resources</h3>
-                    <button class="mm-modal-close" onclick="window.mmCloseMetaModal()">&times;</button>
-                </div>
-                <div class="mm-modal-body">
-                    <table class="mm-resources-table">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Name</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows}${stillLooking}${nothingKnown}${unknownRows}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    `;
-
-    openMetaModal(modalHtml);
-}
-
-// ------------------------------------------- downloading from the dialog
-// The dialog's Download used to be a link to Civitai's download URL: the
-// right version, but saved wherever the browser saves things, and unknown to
-// the library. It now downloads as the Civitai Browser does - into the folder
-// for its type, and into the library - the version the image names, or the
-// model's newest if that version is gone from Civitai.
-
-// Version ids of the dialog's resources that are in the library.
-const installedResourceVersions = new Set();
-let resourceDownloadPoll = null;
-
-function resourceDownloadCell(resource) {
-    const id = resource.versionId;
-    const job = resourceDownloads[id];
-    if (installedResourceVersions.has(id) && !job) {
-        return '<span class="mm-res-state installed">Installed</span>';
-    }
-    if (job && job.state === 'installed') {
-        const which = job.substituted ? ` ${escapeHtml(job.versionName || '')} (the image's is gone)` : '';
-        return `<span class="mm-res-state installed">Installed${which}</span>`;
-    }
-    if (job && job.state === 'downloading') {
-        const shown = job.finishing ? 'Adding to library...' : job.percent ? `${job.percent}%` : 'Queued';
-        return `<span class="mm-res-state">${shown}</span>`;
-    }
-    if (job && job.state === 'unavailable') {
-        return `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Not on Civitai</span>`;
-    }
-    const retry = job && job.state === 'error'
-        ? `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Failed</span> ` : '';
-    const modelId = resource.modelId || (job && job.modelId);
-    return `${retry}<button type="button" class="mm-btn primary mm-btn-small"
-        onclick="window.mmDownloadResource(${safeId(id)}, ${modelId ? safeId(modelId) : 'null'})">Download</button>`;
-}
-
-/** Redraw one row's download cell, if the dialog is showing it. */
-function redrawResourceDownload(versionId, resource) {
-    const cell = document.querySelector(`.mm-resources-modal [data-res-download="${versionId}"]`);
-    if (cell) cell.innerHTML = resourceDownloadCell(resource || { versionId, modelId: null });
-}
-
-/** Mark which of the dialog's versions the library holds, and redraw them. */
-async function checkInstalledResources(resources) {
-    const ids = resources.map((r) => r.versionId).filter(Boolean);
-    if (!ids.length) return;
-    try {
-        const data = await apiCall({ endpoint: '/model-manager/image-resources',
-                                     params: { version_ids: ids.join(',') } });
-        for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
-    } catch (error) {
-        console.warn('[ModelManager] Could not check which resources are installed:', error);
-    }
-    for (const resource of resources) redrawResourceDownload(resource.versionId, resource);
-}
-
-window.mmDownloadResource = async function(versionId, modelId) {
-    resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId };
-    redrawResourceDownload(versionId, { versionId, modelId });
-    redrawResourceChips();
-    const form = new URLSearchParams({ version_id: versionId, newer_if_gone: 'true' });
-    if (modelId) form.set('model_id', modelId);
-    let data;
-    let status = 0;
-    try {
-        const response = await fetch('/model-manager/civitai/download', {
-            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form });
-        status = response.status;
-        data = await response.json();
-    } catch (error) {
-        data = { success: false, error: String(error) };
-    }
-    const job = resourceDownloads[versionId];
-    if (!data || !data.success) {
-        // Not found is for good - the version and its model are gone - and
-        // is said as such, with nothing to retry; anything else can be.
-        Object.assign(job, { state: status === 404 ? 'unavailable' : 'error',
-                             error: (data && data.error) || 'Download failed' });
-        console.warn(`[ModelManager] Download of version ${versionId} refused: ${job.error}`);
-    } else {
-        Object.assign(job, { target: data.version_id, versionName: data.version_name,
-                             substituted: !!data.substituted });
-        // In the downloads panel too, with every other download.
-        if (data.progress) downloads().track(data.progress);
-        if (data.already_installed) finishResourceDownload(versionId);
-        else pollResourceDownloads();
-    }
-    redrawResourceDownload(versionId, { versionId, modelId });
-    redrawResourceChips();
-};
-provide('modelManager.downloadResource', window.mmDownloadResource);
-
-function finishResourceDownload(versionId) {
-    resourceDownloads[versionId].state = 'installed';
-    installedResourceVersions.add(versionId);
-    refreshResourceChips();
-}
-
-/** Follow the dialog's downloads until each is in the library, or failed. */
-function pollResourceDownloads() {
-    if (resourceDownloadPoll) return;
-    resourceDownloadPoll = setInterval(async () => {
-        const active = Object.entries(resourceDownloads).filter(([, job]) => job.state === 'downloading');
-        if (!active.length) {
-            clearInterval(resourceDownloadPoll);
-            resourceDownloadPoll = null;
-            return;
-        }
-        for (const [id, job] of active) {
-            let progress = null;
-            try {
-                const data = await apiCall({ endpoint: '/model-manager/civitai/download/progress',
-                                             params: { version_id: job.target } });
-                progress = data && data.progress;
-            } catch (error) {
-                continue;
-            }
-            if (!progress) continue;
-            job.percent = Math.floor(progress.percent || 0);
-            job.finishing = progress.status === 'finishing';
-            // Complete is on disk; synced is in the library, which is what a
-            // chip or a send looks at.
-            if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
-            else if (progress.status === 'error' || progress.status === 'cancelled') {
-                Object.assign(job, { state: 'error', error: progress.error || progress.status });
-                console.warn(`[ModelManager] Download of ${progress.file_name || `version ${id}`} failed: ${job.error}`);
-            }
-            redrawResourceDownload(Number(id));
-        }
-        redrawResourceChips();
-    }, TIMING.poll);
 }
 
 // Load the next page, filled from Civitai first if the library cannot fill it.
