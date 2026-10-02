@@ -463,20 +463,25 @@ def query_models_grouped(
     # Combine inner params (WHERE clause) with outer params (version count filter)
     all_params = params + outer_params
 
-    count_start = time.perf_counter()
+    # The count and the page read one snapshot. Read apart, a sync, a scan or
+    # the other WebUI writing between them left the total and the page
+    # disagreeing - a card missing or shown twice across pages. With WAL a
+    # reader blocks no writer; the snapshot is held for the two statements.
     with cursor_factory() as cursor:
+        if not cursor.connection.in_transaction:
+            cursor.execute("BEGIN")
+        count_start = time.perf_counter()
         cursor.execute(count_query, all_params)
         matching, pinned_count = cursor.fetchone()
+        count_ms = (time.perf_counter() - count_start) * 1000
+
+        data_start = time.perf_counter()
+        cursor.execute(query, all_params + [grid.limit, grid.offset])
+        rows = cursor.fetchall()
+        data_ms = (time.perf_counter() - data_start) * 1000
     total_count = matching if grid.pinned is None else pinned_count if grid.pinned else matching - pinned_count
     if counts is not None:
         counts.update(pinned=pinned_count, others=matching - pinned_count)
-    count_ms = (time.perf_counter() - count_start) * 1000
-
-    data_start = time.perf_counter()
-    with cursor_factory() as cursor:
-        cursor.execute(query, all_params + [grid.limit, grid.offset])
-        rows = cursor.fetchall()
-    data_ms = (time.perf_counter() - data_start) * 1000
 
     print(
         f"[ModelManager] query_models_grouped count_ms={count_ms:.1f} data_ms={data_ms:.1f} "
