@@ -9,7 +9,8 @@ Nothing here touches the local library except to mark what is already owned.
 import json
 import threading
 import time
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -118,6 +119,57 @@ def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
     }
 
 
+@dataclass
+class _Search:
+    """
+    What both searches start from - the plain one and the streaming one used
+    to build each piece of it themselves.
+    """
+    limit: int                              # the page size
+    card_width: int
+    card_height: int
+    params: Dict[str, Any]                  # Civitai's search parameters
+    min_usable: int                         # usable images that make a model count
+    size_check: Optional[Callable]          # None: no size filter
+
+    def options(self, client, *, require_prompt: bool, sfw_only: bool):
+        """(whether the SFW check is on, the filter loop's arguments) - _filter_options()."""
+        return _filter_options(client, require_prompt=require_prompt, sfw_only=sfw_only,
+                               nsfw=self.params["nsfw"], size_check=self.size_check, limit=self.limit,
+                               min_usable=self.min_usable, fill_page=_fill_page_setting())
+
+    def stats(self, summary, *, require_prompt: bool, sfw: bool):
+        """What a filtered page passed over - _filter_stats()."""
+        return _filter_stats(summary, require_prompt=require_prompt, sfw=sfw,
+                             size_check=self.size_check, min_usable=self.min_usable)
+
+
+def _search(*, query, types, base_models, nsfw, sort, period, tag, checkpoint_type,
+            min_size_gb, max_size_gb, limit) -> _Search:
+    """A search as both endpoints read it: the page size the setting gives when
+    none is asked for, the card size, and the comma-separated lists split."""
+    def split(values):
+        return [v.strip() for v in values.split(",") if v.strip()] if values else None
+
+    card_width, card_height = card_size('model_manager_civitai_card_size')
+    return _Search(
+        limit=limit if limit > 0 else int(setting('model_manager_civitai_page_size')),
+        card_width=card_width, card_height=card_height,
+        params=dict(query=query, types=split(types), base_models=split(base_models), sort=sort,
+                    period=period, nsfw=nsfw, tag=tag, checkpoint_type=checkpoint_type),
+        min_usable=max(int(setting('model_manager_civitai_min_prompt_images')), 1),
+        size_check=size_range_check(min_size_gb, max_size_gb),
+    )
+
+
+def _annotate(models: List[Dict[str, Any]]) -> None:
+    """What a card shows besides Civitai's own: whether the library holds it,
+    what is paid, each image's level."""
+    annotate_local_ownership(get_models_db(), models)
+    annotate_paid_access(models)
+    annotate_image_levels(models)
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app.
 
@@ -152,81 +204,43 @@ def register(app: FastAPI):
         Returns models from Civitai with ownership indicators for locally owned versions.
         """
         try:
-            # Use setting for page size if not specified
-            if limit <= 0:
-                limit = int(setting('model_manager_civitai_page_size'))
-
-            # Parse card size setting (format: WIDTHxHEIGHT)
-            card_width, card_height = card_size('model_manager_civitai_card_size')
-
-            # Parse comma-separated values
-            type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
-            base_model_list = [b.strip() for b in base_models.split(",") if b.strip()] if base_models else None
-
-            search_params = dict(
-                query=query,
-                types=type_list,
-                base_models=base_model_list,
-                sort=sort,
-                period=period,
-                nsfw=nsfw,
-                tag=tag,
-                checkpoint_type=checkpoint_type,
-            )
-
-            # Search Civitai
+            search = _search(query=query, types=types, base_models=base_models, nsfw=nsfw, sort=sort,
+                             period=period, tag=tag, checkpoint_type=checkpoint_type,
+                             min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit)
             client = CivitaiClient.from_settings()
             filter_stats = None
-            size_check = size_range_check(min_size_gb, max_size_gb)
             try:
-                min_usable = max(int(setting('model_manager_civitai_min_prompt_images')), 1)
-                sfw, options = _filter_options(
-                    client, require_prompt=require_prompt,
-                    sfw_only=sfw_only, nsfw=nsfw, size_check=size_check,
-                    limit=limit, min_usable=min_usable,
-                    fill_page=_fill_page_setting())
-
-                if require_prompt or sfw or size_check:
+                sfw, options = search.options(client, require_prompt=require_prompt, sfw_only=sfw_only)
+                if require_prompt or sfw or search.size_check:
                     # Civitai can filter on none of these, so models are
                     # checked locally and the page is filled from what
                     # survives.
                     filtered = search_models_with_usable_prompts(
-                        client, search_params, None,
+                        client, search.params, None,
                         start_token=cursor if cursor else None,
                         **options,
                     )
                     items = filtered["models"]
                     next_cursor = filtered["nextCursor"]
-                    filter_stats = _filter_stats(
-                        filtered, require_prompt=require_prompt, sfw=sfw,
-                        size_check=size_check, min_usable=min_usable)
+                    filter_stats = search.stats(filtered, require_prompt=require_prompt, sfw=sfw)
                 else:
                     # Un-ticking the filter mid-listing can hand us a filter
                     # token; Civitai would reject it, so unwrap the real cursor
                     plain_cursor, _ = decode_filter_token(cursor if cursor else None)
-                    result = client.search_models(
-                        **search_params,
-                        limit=limit,
-                        cursor=plain_cursor
-                    )
+                    result = client.search_models(**search.params, limit=search.limit, cursor=plain_cursor)
                     items = result.get("items", [])
                     next_cursor = result.get("nextCursor")
             finally:
                 client.close()
 
-            # Get local ownership info
-            db = get_models_db()
-            annotate_local_ownership(db, items)
-            annotate_paid_access(items)
-            annotate_image_levels(items)
-
+            _annotate(items)
             return JSONResponse({
                 "success": True,
                 "models": items,
                 "nextCursor": next_cursor,
-                "pageSize": limit,
-                "cardWidth": card_width,
-                "cardHeight": card_height,
+                "pageSize": search.limit,
+                "cardWidth": search.card_width,
+                "cardHeight": search.card_height,
                 "filterStats": filter_stats,
             })
 
@@ -267,50 +281,29 @@ def register(app: FastAPI):
 
         Results and paging are identical to the non-streaming endpoint.
         """
-        if limit <= 0:
-            limit = int(setting('model_manager_civitai_page_size'))
-
-        card_width, card_height = card_size('model_manager_civitai_card_size')
-
-        search_params = dict(
-            query=query,
-            types=[t.strip() for t in types.split(",") if t.strip()] if types else None,
-            base_models=[b.strip() for b in base_models.split(",") if b.strip()] if base_models else None,
-            sort=sort,
-            period=period,
-            nsfw=nsfw,
-            tag=tag,
-            checkpoint_type=checkpoint_type,
-        )
-        min_usable = max(int(setting('model_manager_civitai_min_prompt_images')), 1)
-        size_check = size_range_check(min_size_gb, max_size_gb)
+        search = _search(query=query, types=types, base_models=base_models, nsfw=nsfw, sort=sort,
+                         period=period, tag=tag, checkpoint_type=checkpoint_type,
+                         min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit)
 
         def generate():
             client = CivitaiClient.from_settings()
-            db = get_models_db()
             try:
                 yield json.dumps({
                     "type": "meta",
-                    "pageSize": limit,
-                    "cardWidth": card_width,
-                    "cardHeight": card_height,
-                    "minUsable": min_usable,
+                    "pageSize": search.limit,
+                    "cardWidth": search.card_width,
+                    "cardHeight": search.card_height,
+                    "minUsable": search.min_usable,
                 }) + "\n"
 
-                sfw, options = _filter_options(
-                    client, require_prompt=require_prompt, sfw_only=sfw_only,
-                    nsfw=nsfw, size_check=size_check, limit=limit,
-                    min_usable=min_usable, fill_page=_fill_page_setting())
-
+                sfw, options = search.options(client, require_prompt=require_prompt, sfw_only=sfw_only)
                 for kind, payload in iter_models_with_usable_prompts(
-                    client, search_params, None,
+                    client, search.params, None,
                     start_token=cursor if cursor else None,
                     **options,
                 ):
                     if kind == "model":
-                        annotate_local_ownership(db, [payload])
-                        annotate_paid_access([payload])
-                        annotate_image_levels([payload])
+                        _annotate([payload])
                         yield json.dumps({"type": "model", "model": payload}) + "\n"
                     elif kind == "progress":
                         yield json.dumps({"type": "progress", **payload}) + "\n"
@@ -318,9 +311,7 @@ def register(app: FastAPI):
                         yield json.dumps({
                             "type": "done",
                             "nextCursor": payload["nextCursor"],
-                            "filterStats": _filter_stats(
-                                payload, require_prompt=require_prompt, sfw=sfw,
-                                size_check=size_check, min_usable=min_usable),
+                            "filterStats": search.stats(payload, require_prompt=require_prompt, sfw=sfw),
                         }) + "\n"
 
             except Exception as e:
@@ -358,9 +349,7 @@ def register(app: FastAPI):
                 )
 
             # Owned as a search card says it: the one rule (owned_by_library).
-            annotate_local_ownership(get_models_db(), [model])
-            annotate_paid_access([model])
-            annotate_image_levels([model])
+            _annotate([model])
 
             return JSONResponse({
                 "success": True,
