@@ -69,6 +69,60 @@ def write_civitai_info(model_path: str, data: Dict[str, Any]) -> bool:
         return False
 
 
+def as_model_payload(data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    A sidecar in the model format the scan reads, whichever it was written in.
+
+    This extension writes Civitai's model payload: the model at the root,
+    its versions under modelVersions. Other tools write the version payload
+    from the by-hash endpoint: the version at the root - so its id is the
+    version's - with modelId beside it and the model under "model". Read as
+    the model format, that made the version id a model id, the version's
+    name the model's, and left no type. It is turned into the model format:
+    the embedded model at the root, under its own id, with the version as
+    its one entry in modelVersions.
+    """
+    if not data or "modelVersions" in data:
+        return data
+    model = data.get("model")
+    if not isinstance(model, dict) or not data.get("modelId"):
+        return data
+    version = {k: v for k, v in data.items() if k != "model"}
+    payload = dict(model)
+    payload["id"] = data["modelId"]
+    payload.setdefault("creator", data.get("creator"))
+    payload["modelVersions"] = [version]
+    return payload
+
+
+
+def read_model_payload(model_path: str) -> Optional[Dict[str, Any]]:
+    """A model's .civitai.info, in the model format, whichever tool wrote it."""
+    return as_model_payload(read_civitai_info(model_path))
+
+
+def download_payload(model_data: Dict[str, Any], version_data: Dict[str, Any],
+                     model_type: str) -> Dict[str, Any]:
+    """
+    The sidecar a download writes: the model's payload, with this version.
+    The sync that follows a download writes Civitai's full answer over it;
+    this is what is beside the file if that sync cannot.
+    """
+    return {
+        "id": model_data.get("id"),
+        "modelId": model_data.get("id"),
+        "name": model_data.get("name"),
+        "description": model_data.get("description"),
+        "type": model_type,
+        "nsfw": model_data.get("nsfw"),
+        "nsfwLevel": model_data.get("nsfwLevel"),
+        "tags": model_data.get("tags", []),
+        "creator": model_data.get("creator"),
+        "stats": model_data.get("stats"),
+        "modelVersions": [version_data],
+    }
+
+
 def read_images_json(model_path: str) -> Optional[Dict[str, Any]]:
     """
     Read .images.json file for a model.

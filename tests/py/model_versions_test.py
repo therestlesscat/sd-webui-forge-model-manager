@@ -104,7 +104,8 @@ db.upsert_civitai_model(model(S, [version(22, index=0, published='2025-03-01'),
 check('7. and one that lists more adds them, newest first', ids(S), [22, 21, 20])
 
 # ------------------------------------------------ the scan and the sync pass it
-from model_manager.scan_service import ScanService, as_model_payload   # noqa: E402
+from model_manager.scan_service import ScanService                     # noqa: E402
+from model_manager.storage import as_model_payload                    # noqa: E402
 path = facts['linked_paths'][0]
 local = db.get_version(path)
 payload = {'id': local['model_id'], 'name': 'Linked', 'type': 'LORA',

@@ -17,11 +17,10 @@ from ..db import get_models_db
 from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
-from ..scan_service import as_model_payload
-from ..storage import read_civitai_info
+from ..storage import read_model_payload
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed
-from ..model_dirs import file_modified
+from ..model_dirs import COMPANIONS, file_modified
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -443,7 +442,7 @@ def register(app: FastAPI):
             listed, synced_at = db.get_civitai_versions(model_id)
             if listed is None and versions:
                 for version in versions:
-                    payload = as_model_payload(read_civitai_info(version["file_path"])) or {}
+                    payload = read_model_payload(version["file_path"]) or {}
                     if payload.get("id") == model_id:
                         db.store_civitai_versions(model_id, payload.get("modelVersions") or [])
                 listed, synced_at = db.get_civitai_versions(model_id)
@@ -585,16 +584,9 @@ def register(app: FastAPI):
 
             # Find all related files (same base name, different extensions)
             base_path = os.path.splitext(path)[0]
-            related_patterns = [
-                path,  # The model file itself
-                base_path + ".civitai.info",
-                base_path + ".preview.png",
-                base_path + ".preview.jpg",
-                base_path + ".preview.jpeg",
-                base_path + ".png",
-                base_path + ".jpg",
-                base_path + ".images.json",  # Legacy file
-            ]
+            # The file and what lies beside it under its name - the same
+            # side files Scan Disk moves with it (model_dirs.COMPANIONS).
+            related_patterns = [path] + [base_path + suffix for suffix in COMPANIONS]
 
             # Delete all related files
             for file_path in related_patterns:

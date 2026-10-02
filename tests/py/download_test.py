@@ -408,6 +408,13 @@ check('with the model id repeated where other extensions look',
 check('the type', written['type'], 'Checkpoint')
 check('and the one version that was fetched',
       [v['id'] for v in written['modelVersions']], [500])
+# Written through storage.py now (#64): the same sidecar, byte for byte.
+check('the sidecar is exactly as it was written before',
+      io.open(info, encoding='utf-8').read(),
+      json.dumps({'id': 42, 'modelId': 42, 'name': 'Subject', 'description': '<p>d</p>',
+                  'type': 'Checkpoint', 'nsfw': False, 'nsfwLevel': 1, 'tags': ['t'],
+                  'creator': {'username': 'someone'}, 'stats': {'downloadCount': 3},
+                  'modelVersions': [version()]}, indent=2))
 
 # the same file again
 civitai_says(FakeResponse([b'weights']))

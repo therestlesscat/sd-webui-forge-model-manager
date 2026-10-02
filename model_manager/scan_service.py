@@ -21,7 +21,7 @@ from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
     version_covers,
 )
-from .storage import read_civitai_info
+from .storage import read_model_payload
 
 
 def misplaced_files(db) -> List[Dict[str, Any]]:
@@ -76,32 +76,6 @@ class ScanProgress:
             "moved": self.moved,
             "not_moved": len(self.not_moved),
         }
-
-
-def as_model_payload(data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    A sidecar in the model format the scan reads, whichever it was written in.
-
-    This extension writes Civitai's model payload: the model at the root,
-    its versions under modelVersions. Other tools write the version payload
-    from the by-hash endpoint: the version at the root - so its id is the
-    version's - with modelId beside it and the model under "model". Read as
-    the model format, that made the version id a model id, the version's
-    name the model's, and left no type. It is turned into the model format:
-    the embedded model at the root, under its own id, with the version as
-    its one entry in modelVersions.
-    """
-    if not data or "modelVersions" in data:
-        return data
-    model = data.get("model")
-    if not isinstance(model, dict) or not data.get("modelId"):
-        return data
-    version = {k: v for k, v in data.items() if k != "model"}
-    payload = dict(model)
-    payload["id"] = data["modelId"]
-    payload.setdefault("creator", data.get("creator"))
-    payload["modelVersions"] = [version]
-    return payload
 
 
 class ScanService:
@@ -166,7 +140,7 @@ class ScanService:
             version_data["file_modified"] = None
 
         # Read .civitai.info
-        civitai_data = as_model_payload(read_civitai_info(model_path))
+        civitai_data = read_model_payload(model_path)
         civitai_model = None
 
         if civitai_data:
