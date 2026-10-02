@@ -2852,7 +2852,7 @@ body.mm-modal-open {
 
 /* The Scan Disk confirmation: a lead line and a few points, nothing more. */
 .mm-dialog-narrow {
-    max-width: 360px;
+    max-width: min(50%, 800px);
 }
 
 .mm-dialog-lead {
