@@ -235,10 +235,6 @@ function scrollToBrowserImagesTop() {
     });
 }
 
-// Wait for DOM
-
-// API call helper
-
 // POST API call helper
 async function apiPost(endpoint, data = {}) {
     const formData = new FormData();
@@ -1244,8 +1240,6 @@ window.cbToggleShowPromptless = async function(checked) {
     await reloadFromFirstPage();
 };
 
-// Helper to detect video URLs
-
 // How wide the gallery draws a card's image, measured as each page is drawn.
 let galleryWidth = null;
 
@@ -1424,8 +1418,6 @@ document.addEventListener('click', (event) => {
         videoUrl: viewerVideoUrl,
     }), at);
 });
-
-// Render a single resource (LoRA, VAE, etc)
 
 // Split sampler/scheduler if combined
 function splitSamplerScheduler(sampler) {

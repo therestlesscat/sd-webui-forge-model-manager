@@ -210,19 +210,12 @@ let generationsState = null;    // the server's totals; null until the tab loads
 let loadingGenerationPage = false;
 let generationPageError = '';   // why the last page asked for did not come
 let generationsRequest = 0;
-let nextImagesCursor = null;  // Cursor for loading more images
-let imagesSyncDate = null;    // Last sync date (null = never synced)
-let isLoadingMore = false;
 
 // NSFW image filtering state
 let hideNsfwImages = true;  // Default to hide, will be set from setting on first load
 let hideNsfwImagesInitialized = false;
 let totalImageCount = 0;
 let hiddenImageCount = 0;
-
-// Helper to detect video URLs
-
-
 
 function scrollToModelImagesTop() {
     return new Promise((resolve) => {
@@ -259,10 +252,6 @@ function scrollToModelImagesTop() {
         setTimeout(finish, 500);
     });
 }
-
-// Wait for DOM
-
-// API call helper
 
 // NSFW level order for "use max" mode
 const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
@@ -778,8 +767,6 @@ window.mmSelectModel = async function(index) {
     currentModelPath = model.file_path;
     imagePages = [];
     filteredImageCount = 0;
-    nextImagesCursor = null;
-    imagesSyncDate = null;
     resetGenerations();
     // Each model's gallery starts from the settings; its switches then last
     // while this model is open - as in the Civitai Browser.
@@ -897,8 +884,6 @@ async function loadVersionDetails(filePath) {
  */
 function applyImagesState(state) {
     currentVersionId = state.version_id || null;
-    nextImagesCursor = state.next_cursor || null;
-    imagesSyncDate = state.sync_date || null;
     totalImageCount = state.total_count || 0;
     filteredImageCount = state.filtered_count || 0;
     hiddenImageCount = state.hidden_nsfw ?? state.hidden_count ?? 0;
@@ -1030,8 +1015,6 @@ window.mmSelectVersion = async function(versionIndex) {
     currentVersionId = null;
     imagePages = [];
     filteredImageCount = 0;
-    nextImagesCursor = null;
-    imagesSyncDate = null;
     resetGenerations();
 
     // Update version selector UI
@@ -1301,8 +1284,6 @@ function resetImageState() {
     currentVersionId = null;
     imagePages = [];
     filteredImageCount = 0;
-    nextImagesCursor = null;
-    imagesSyncDate = null;
 }
 
 /**
@@ -3066,8 +3047,6 @@ function renderImageCard(img, index) {
         </div>
     `;
 }
-
-// Render a single resource (LoRA, VAE, etc)
 
 // Show image metadata in modal
 window.mmShowImageMeta = function(imageIndex) {
@@ -4883,7 +4862,6 @@ function matchSamplerName(samplerName) {
 
 // Load UI options on init
 loadUIOptionsFromAPI();
-// The words behind the "X · prompt" badge; the server has already filtered.
 
 // Split combined "Sampler Scheduler" format into separate parts
 // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }
@@ -5421,10 +5399,6 @@ window.mmOpenInCivitaiBrowser = function(query) {
     // before searching - measuring a hidden tab gives nonsense.
     setTimeout(() => window.cbShowModel(query), 100);
 };
-
-// Reveal more of what is already downloaded. No request, and deliberately no
-// scroll: the point of the continuous list is that the images you were
-// reading stay where they were.
 
 window.mmCloseDetails = function() {
     const detailsContainer = document.getElementById('mm_details');

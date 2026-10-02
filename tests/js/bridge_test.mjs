@@ -216,9 +216,10 @@ check('and says so rather than failing silently',
       $('cb_status').textContent.includes('404404'), true);
 
 // ------------------------------------------ the prompt filter, in a gallery
-// hasUsablePrompt() moved into the shared module and this tab's import of it
-// was never added, so with "Only with usable prompts" ticked every gallery
-// render threw ReferenceError. The module checker looks at calls, and this is
+// The prompt check a gallery filtered with once moved into the shared module
+// and this tab's import of it was never added, so with "Only with usable
+// prompts" ticked every gallery render threw ReferenceError. (The server
+// filters now.) The module checker looks at calls, and this is
 // a function passed by name to filter(), which is why it got through.
 galleryImages = [
     { id: 11, url: 'https://example.invalid/11.jpeg', browsingLevel: 1,
