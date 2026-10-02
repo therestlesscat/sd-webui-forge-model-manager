@@ -13,6 +13,7 @@ for _p in (ROOT, TESTS):
         sys.path.insert(0, _p)
 
 import fixtures                                       # noqa: E402
+from model_manager.db import GridQuery                 # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'licence_test')
 import io
@@ -81,13 +82,13 @@ if True:
         seen = {}
         for choice in ('true', 'false', 'unknown'):
             kwargs = {column: choice, 'limit': 5000}
-            _, count = db.query_models_grouped(**kwargs)
+            _, count = db.query_models_grouped(GridQuery(**kwargs))
             seen[choice] = count
 
         # Grouped query counts models, not versions, so compare the partition
         # rather than raw totals: the three choices must be disjoint and cover
         # everything the unfiltered query returns.
-        _, any_count = db.query_models_grouped(limit=5000)
+        _, any_count = db.query_models_grouped(GridQuery(limit=5000))
         check('%s: the three choices partition the library' % column,
               sum(seen.values()), any_count)
         check('%s: Any returns the most' % column, all(v <= any_count for v in seen.values()))
@@ -101,15 +102,15 @@ if True:
               seen['true'] + seen['unknown'] <= any_count)
 
         # An unrecognised value must be ignored, not crash or filter oddly.
-        _, junk = db.query_models_grouped(limit=5000, **{column: 'banana'})
+        _, junk = db.query_models_grouped(GridQuery(limit=5000, **{column: 'banana'}))
         check('%s: an unknown choice is ignored' % column, junk, any_count)
-        _, empty = db.query_models_grouped(limit=5000, **{column: None})
+        _, empty = db.query_models_grouped(GridQuery(limit=5000, **{column: None}))
         check('%s: None means no filter' % column, empty, any_count)
 
     # Both filters at once must intersect, not conflict.
-    _, both = db.query_models_grouped(limit=5000, allow_derivatives='unknown',
-                                      allow_different_license='unknown')
-    _, one = db.query_models_grouped(limit=5000, allow_derivatives='unknown')
+    _, both = db.query_models_grouped(GridQuery(limit=5000, allow_derivatives='unknown',
+                                      allow_different_license='unknown'))
+    _, one = db.query_models_grouped(GridQuery(limit=5000, allow_derivatives='unknown'))
     check('both filters intersect', both <= one)
     check('unknown+unknown is the unsynced set', both, one)
     raw.close()

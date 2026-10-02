@@ -21,6 +21,7 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 import fixtures                                          # noqa: E402
+from model_manager.db import GridQuery                 # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'type_filter')
 
@@ -34,12 +35,12 @@ db, facts = fixtures.build(WORK)
 
 
 def model_ids(model_type):
-    rows, _ = db.query_models_grouped(model_type=model_type, limit=500)
+    rows, _ = db.query_models_grouped(GridQuery(model_type=model_type, limit=500))
     return {r['model_id'] for r in rows}
 
 
 def row_for(model_id):
-    rows, _ = db.query_models_grouped(limit=500)
+    rows, _ = db.query_models_grouped(GridQuery(limit=500))
     return next(r for r in rows if r['model_id'] == model_id)
 
 
@@ -66,10 +67,10 @@ check('a file not read yet still shows Civitai\'s type', row_for(a_checkpoint)['
 local = facts['local_only_paths'][0]
 with db._cursor() as cursor:
     cursor.execute("UPDATE model_versions SET file_type = 'LoCon' WHERE file_path = ?", (local,))
-rows, _ = db.query_models_grouped(model_type='LoCon', limit=500)
+rows, _ = db.query_models_grouped(GridQuery(model_type='LoCon', limit=500))
 check('a file Civitai does not know gets its own type',
       [(r['file_path'], r['model_type'], r['civitai_type']) for r in rows], [(local, 'LoCon', None)])
-rows, _ = db.query_models_grouped(model_type='Unknown', limit=500)
+rows, _ = db.query_models_grouped(GridQuery(model_type='Unknown', limit=500))
 check('and is no longer Unknown', local in [r['file_path'] for r in rows], False)
 
 # The dropdown offers exactly the types a file can be, in their order.

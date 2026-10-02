@@ -24,6 +24,7 @@ from contextlib import contextmanager
 
 from .migrations import run_migrations
 from .models_ops import ModelsOps
+from .query import GridQuery
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
 from ..forge_host import setting
@@ -251,56 +252,10 @@ class ModelsDatabase:
         """Get all local versions for a Civitai model."""
         return self._models.get_versions_for_model(model_id)
 
-    def query_models_grouped(
-        self,
-        search: Optional[str] = None,
-        model_type: Optional[str] = None,
-        base_model: Optional[str] = None,
-        nsfw_levels: Optional[List[int]] = None,
-        nsfw_mode: str = "max",
-        has_civitai: Optional[bool] = None,
-        is_bookmarked: Optional[bool] = None,
-        min_versions: Optional[int] = None,
-        min_size_gb: Optional[float] = None,
-        max_size_gb: Optional[float] = None,
-        commercial_use: Optional[str] = None,
-        allow_derivatives: Optional[bool] = None,
-        allow_different_license: Optional[bool] = None,
-        checkpoint_type: Optional[str] = None,
-        sort_by: str = "file_modified",
-        sort_order: str = "desc",
-        limit: int = 50,
-        offset: int = 0,
-        preview_least_nsfw: bool = True,
-        sfw_only: bool = False,
-        pinned: Optional[bool] = None,
-        counts: Optional[Dict[str, int]] = None,
-    ) -> Tuple[List[Dict[str, Any]], int]:
-        """Query models grouped by civitai_model_id. See db/query.py."""
-        return self._models.query_models_grouped(
-            search=search,
-            model_type=model_type,
-            base_model=base_model,
-            nsfw_levels=nsfw_levels,
-            nsfw_mode=nsfw_mode,
-            has_civitai=has_civitai,
-            is_bookmarked=is_bookmarked,
-            min_versions=min_versions,
-            min_size_gb=min_size_gb,
-            max_size_gb=max_size_gb,
-            commercial_use=commercial_use,
-            allow_derivatives=allow_derivatives,
-            allow_different_license=allow_different_license,
-            checkpoint_type=checkpoint_type,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            limit=limit,
-            offset=offset,
-            preview_least_nsfw=preview_least_nsfw,
-            sfw_only=sfw_only,
-            pinned=pinned,
-            counts=counts,
-        )
+    def query_models_grouped(self, grid: GridQuery, counts: Optional[Dict[str, int]] = None
+                             ) -> Tuple[List[Dict[str, Any]], int]:
+        """The grid's page and how many cards match. See db/query.py."""
+        return self._models.query_models_grouped(grid, counts)
 
     def count_images_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:
         """How many images are cached per version. See db/images_ops.py."""
