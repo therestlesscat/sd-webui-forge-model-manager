@@ -32,7 +32,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
-    'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'samplers.mjs',
+    'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
     'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
@@ -42,11 +42,11 @@ const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
-const { mediaFallback, setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
-const { nsfwBadgeLabel } = await shared('nsfw.mjs');
+const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
 const {
     ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
-} = await shared('your_generations.mjs');
+    generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
+} = await shared('generations.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -453,7 +453,7 @@ function tileHtml(tile, index) {
         media = `
             <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview gen-openable"
                  onclick="window.genOpen(${index})" title="Open this ${what}: all ${tile.matching_count} images">
-                ${preview.map((img) => imageHtml(img)).join('')}
+                ${preview.map((img) => generationImageHtml(img)).join('')}
             </div>
             <span class="gen-count">×${tile.matching_count}</span>`;
         if (tile.kind === 'group') {
@@ -462,7 +462,7 @@ function tileHtml(tile, index) {
                 + `${escapeHtml(tile.group.value || emptyGroupValue(by))}</span>`;
         }
     } else {
-        media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${imageHtml(image)}</div>`;
+        media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${generationImageHtml(image)}</div>`;
     }
 
     // Select's tick: a batch or an image, never a group - open it, and pick inside.
@@ -575,20 +575,6 @@ function layout() {
     applySpans();
 }
 
-/** An image of a tile, or word that its file is gone. */
-function imageHtml(img) {
-    const url = new URL(img.url || '', window.location.origin).href;
-    const level = nsfwBadgeLabel(img, 'Unknown');
-    const badge = level !== 'PG' && level !== 'Unknown' && level !== 'None'
-        ? `<span class="mm-nsfw-badge">${escapeHtml(level)}</span>` : '';
-    const image = img.exists
-        ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
-                ${mediaFallback('', IMAGE_PLACEHOLDER_SVG)}>`
-        : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
-                title="Image unavailable: its file is no longer where it was saved">`;
-    return `<div class="mm-generation-tile">${image}${badge}</div>`;
-}
-
 /**
  * A tile's place in the grid: a wrapper the grid does not see, so it can be
  * redrawn alone. Grouped twice, the first tile of a section carries the
@@ -675,6 +661,11 @@ function renderBanner() {
 }
 
 // ------------------------------------------------------------- the tiles' actions
+/** Ask the server to rate: the switch this tab counts under goes with it (shared/generations.mjs). */
+function postRating(fields) {
+    return requestRating({ hide_nsfw_images: hideNsfw, ...fields }, setStatus);
+}
+
 /** Send a tile's image - a batch's first - back to the tab it was made in. Not a group's. */
 window.genSend = async function(index) {
     const tile = tiles[index];
@@ -735,28 +726,6 @@ async function rateImage(index, image, value) {
     }
     redrawTile(index);
     return true;
-}
-
-async function postRating(fields) {
-    try {
-        const body = new URLSearchParams({ hide_nsfw_images: String(hideNsfw) });
-        for (const [key, value] of Object.entries(fields)) {
-            if (value !== undefined && value !== null) body.set(key, String(value));
-        }
-        const response = await fetch('/model-manager/generations/rate', {
-            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString(),
-        });
-        const answer = await response.json();
-        if (!answer.success) {
-            setStatus(`Could not rate: ${answer.error || 'no answer'}`);
-            return null;
-        }
-        return answer;
-    } catch (error) {
-        setStatus(`Could not rate: ${error.message}`);
-        return null;
-    }
 }
 
 /** An image the NSFW switch now hides: off its tile, and the tile with its last. */
@@ -897,8 +866,7 @@ window.genSetSelecting = function(checked) {
  * one ticked, as this one now is.
  */
 function pickTile(index, on, shift) {
-    const range = shift && lastPicked >= 0 ? [Math.min(lastPicked, index), Math.max(lastPicked, index)]
-        : [index, index];
+    const range = pickRange(lastPicked, index, shift);
     for (let i = range[0]; i <= range[1]; i++) {
         const key = tileKey(tiles[i]);
         if (!key) continue;
@@ -1243,7 +1211,7 @@ window.genDelete = async function(index) {
     const n = tile.generation.image_count || tile.matching_count || 1;
     const answer = await askToDelete(`Delete this generation of ${n} image${n === 1 ? '' : 's'}?`, n);
     if (!answer) return;
-    if (await postDelete(`/model-manager/generations/${Number(tile.generation.id)}/delete`, answer)) {
+    if (await postDelete(requestGenerationDelete(tile.generation.id, answer.withFiles, setStatus))) {
         removeTile(index);
         markAboveChanged();
         await refreshTotals();
@@ -1255,33 +1223,11 @@ async function deleteImage(index, image) {
     if (!image) return false;
     const answer = await askToDelete('Delete this image?', 1);
     if (!answer) return false;
-    if (!await postDelete(`/model-manager/generations/images/${Number(image.id)}/delete`, answer)) return false;
+    if (!await postDelete(requestImageDelete(image.id, answer.withFiles, setStatus))) return false;
     forgetImage(index, image.id);
     markAboveChanged();
     await refreshTotals();
     return true;
-}
-
-/** Ask the server to delete; true if it did. */
-async function postDelete(endpoint, answer, fields = {}) {
-    try {
-        const body = new URLSearchParams({ ...fields, delete_files: String(answer.withFiles) });
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString(),
-        });
-        const data = await response.json();
-        if (!data.success) {
-            setStatus(`Delete failed: ${data.error || 'unknown error'}`);
-            return false;
-        }
-        if (data.failed?.length) setStatus(`${data.failed.length} file(s) could not be deleted`);
-        return true;
-    } catch (error) {
-        setStatus(`Delete failed: ${error.message}`);
-        return false;
-    }
 }
 
 /** Take a deleted image off the grid: off its tile, and the tile with its last. */
@@ -1296,6 +1242,13 @@ function forgetImage(index, imageId) {
         return;
     }
     removeTile(index);
+}
+
+/** A Delete's answer (shared/generations.mjs): whether it went, and any file it could not delete, said. */
+async function postDelete(asked) {
+    const data = await asked;
+    if (data?.failed?.length) setStatus(`${data.failed.length} file(s) could not be deleted`);
+    return !!data;
 }
 
 function removeTile(index) {
