@@ -8,7 +8,7 @@ const path = require('path');
 // The extension, found from this file rather than from a drive letter, so the
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
-const src = fs.readFileSync(REPO + '/javascript/model_manager.mjs', 'utf8');
+const src = fs.readFileSync(REPO + '/javascript/shared/send.mjs', 'utf8');
 
 const sb = {};
 vm.createContext(sb);

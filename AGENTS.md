@@ -76,7 +76,8 @@ version (see "The WebUI's rules"):
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
 | `your_generations` | selecting your images to delete, and rating one |
 | `downloads` | a version's Download button, and the downloads panel both tabs show |
-| `chips` | an image's LoRAs and embeddings as chips under the prompt, for the Model Manager's Send |
+| `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
+| `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, the chips on the page, and the hash lookups and resource downloads they share with the Model Manager's Resources dialog |
 | `wan` | a video's frames and size as Wan makes them |
 | `settings`, `viewer` | the settings window, and the image viewer every gallery opens |
 
@@ -323,9 +324,9 @@ Where they differ, and what the extension does about it - on the server, in
   original Forge was stored as unknown - for Neo too, since they share a
   database. `forge_host.diffusers_converter` tries both.
 - **The UI preset control.** Neo's is a dropdown; the original Forge's a row
-  of radio buttons (`sd`, `xl`, `flux`, `all`). `switchForgePreset` presses
-  the matching radio; typing into it as a dropdown cleared the first radio's
-  value.
+  of radio buttons (`sd`, `xl`, `flux`, `all`). `switchForgePreset`
+  (`send.mjs`) presses the matching radio; typing into it as a dropdown
+  cleared the first radio's value.
 - **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
   the original Forge's has none, and is found by its label. Every change to
   it is a request of Forge's own carrying the whole selection, and they can

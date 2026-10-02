@@ -374,6 +374,13 @@ for script in (JS, CB_JS):
     check('neither tab keeps its own copy',
           'function showApiKeyBanner' in script.replace('export function', ''), False)
 check('and the answer is fetched once for both', UI_OPTIONS.count('/model-manager/ui-options'), 1)
+# And nowhere else: Send asked for it again, for the samplers alone (#91).
+PAGE = {name: io.open(path, encoding='utf-8').read()
+        for name, path in ((n, os.path.join(d, n)) for d in (os.path.join(ROOT, 'javascript'),
+                                                             os.path.join(ROOT, 'javascript', 'shared'))
+                           for n in os.listdir(d) if n.endswith('.mjs'))}
+check('the page asks for ui-options in one place', sorted(n for n, s in PAGE.items() if '/model-manager/ui-options' in s),
+      ['ui_options.mjs'])
 
 # --- Scan Disk asks before it changes anything ------------------------------
 scan_dialog = block(UI, '<div id="mm_scan_dialog"')

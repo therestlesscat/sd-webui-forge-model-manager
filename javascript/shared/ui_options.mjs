@@ -44,7 +44,7 @@ function fetchUiOptions() {
  * The same, asked once for the page: whether there is an API key, and which
  * judges NSFW.
  */
-function uiOptions() {
+export function uiOptions() {
     uiOptionsRequest ||= fetchUiOptions();
     return uiOptionsRequest;
 }

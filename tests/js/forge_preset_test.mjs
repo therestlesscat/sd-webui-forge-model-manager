@@ -9,8 +9,7 @@
 // goes in, since a preset change resets the sampler, steps and modules, and
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
-const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, checker, mountTab, sharedModule, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
@@ -134,6 +133,8 @@ globalThis.fetch = withGalleryPages(async (url) => {
 });
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+// The last send's work after its paste, as the tab's copy of send.mjs keeps it.
+const { sendInfotext, whenSendSettled } = await sharedModule('send.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
@@ -144,7 +145,7 @@ async function send() {
     events.length = 0;
     planAsked.length = 0;
     await window.mmSendToTxt2img(0);
-    await window.mmSendSettled();                        // the modules go in after the paste
+    await whenSendSettled();                        // the modules go in after the paste
 }
 
 // ------------------------------------------------------ a Flux checkpoint
@@ -715,9 +716,8 @@ click(row().querySelector('[data-chips-clear]'));
 // an Anima one kept the Anima model and its encoders.
 async function sendGeneration(id, meta = {}) {
     events.length = 0;
-    await call('modelManager.sendInfotext', { infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta,
-                                  generationId: id });
-    await window.mmSendSettled();
+    await sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta, generationId: id });
+    await whenSendSettled();
 }
 const moduleChanges = () => events.filter((e) => e.startsWith('module'));
 preset.querySelector('input').value = 'flux';

@@ -113,14 +113,26 @@ for (const f of files) {
     }
     // A tab asks for every module it needs at once (SHARED_MODULES), then
     // awaits each: one left off the list is asked for only at its await, a
-    // round trip after the one before.
+    // round trip after the one before. The list may also name what those
+    // modules import, so that is asked for at once too - send.mjs's wan.mjs
+    // came a round trip after send.mjs - but nothing they do not.
     if (helper[1] === './shared/') {
         const listed = src.match(/const SHARED_MODULES = \[([^\]]*)\]/);
         const awaited = [...new Set(uses.map((m) => m[2]))].sort();
         const named = listed ? [...listed[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]).sort() : [];
-        if (!listed || named.join() !== awaited.join()) {
-            console.log(`FAIL ${f.replace(ROOT, '')}: SHARED_MODULES ${listed ? `lists ${named.join(', ')}` : 'is missing'}; `
-                        + `the tab awaits ${awaited.join(', ')}`);
+        const reached = new Set(awaited);
+        for (const name of reached) {
+            const path = resolve(dirname(f), helper[1] + name).replace(/\\/g, '/');
+            const own = exported.has(path) ? readFileSync(path, 'utf8') : '';
+            for (const m of own.matchAll(VIA_HELPER)) reached.add(m[2]);
+        }
+        const missing = awaited.filter((name) => !named.includes(name));
+        const needless = named.filter((name) => !reached.has(name));
+        if (!listed || missing.length || needless.length) {
+            const said = [!listed && 'is missing',
+                          missing.length && `leaves out ${missing.join(', ')}, which the tab awaits`,
+                          needless.length && `names ${needless.join(', ')}, which nothing the tab loads imports`];
+            console.log(`FAIL ${f.replace(ROOT, '')}: SHARED_MODULES ${said.filter(Boolean).join('; ')}`);
             failures++;
         }
     }
@@ -183,7 +195,10 @@ for (const f of files) {
             for (const n of p.matchAll(/[A-Za-z_$][\w$]*/g)) known.add(n[0]);
 
     const missing = new Set();
-    for (const m of src.matchAll(/(?<![.\w$'"`])([a-z_$][\w$]*)\s*\(/g)) {
+    // A member call - after one dot: a.b(), a?.b(), a chain's next line - is
+    // skipped; a spread's three are not one: ...fetchFiles(img) once went
+    // unchecked for the dot before it.
+    for (const m of src.matchAll(/(?<![\w$'"`])(?<!(?<!\.)\.)([a-z_$][\w$]*)\s*\(/g)) {
         const n = m[1];
         if (!known.has(n) && !KEYWORDS.test(n)) missing.add(n);
     }
