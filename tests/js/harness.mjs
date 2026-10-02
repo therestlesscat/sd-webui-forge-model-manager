@@ -35,6 +35,74 @@ export async function sharedModule(name) {
 }
 
 /**
+ * Press `element`, or the nearest around it that names an action: a click on
+ * it, or a field's change, which the page's one listener takes (shared/calls.mjs)
+ * - and what the action answered, to await. It throws what the action threw,
+ * and when the listener did not act at all.
+ */
+export function press(element) {
+    const target = element?.closest?.('[data-action]');
+    if (!target) throw new Error(`nothing to press: ${String(element?.outerHTML).slice(0, 120)}`);
+    const name = target.dataset.action;
+    const offered = globalThis.__mmOffered;
+    const action = offered?.get(name);
+    if (!action) throw new Error(`${name} is not offered: its tab has not loaded`);
+    let acted = false, answer, error;
+    offered.set(name, (...args) => {
+        acted = true;
+        try { answer = action(...args); } catch (e) { error = e; }
+        return answer;
+    });
+    try {
+        const field = target.matches('input, select, textarea');
+        target.dispatchEvent(new globalThis.window.Event(field ? 'change' : 'click', { bubbles: true, cancelable: true }));
+    } finally {
+        offered.set(name, action);
+    }
+    if (error) throw error;
+    if (!acted) throw new Error(`the page's listener did not act on ${name}`);
+    return answer;
+}
+
+/**
+ * Press what the markup draws for `action`, with these data where several
+ * name it: act('modelManager.selectModel', { index: 0 }) is the grid's first
+ * card, as a click on it. Throws when the page draws no such thing.
+ */
+export function act(action, data = {}) {
+    return press(named(action, data));
+}
+
+/** Tick or untick the box that names `action`, as a click on it would: its change. */
+export function tick(action, on, data = {}) {
+    const box = named(action, data);
+    box.checked = on;
+    return press(box);
+}
+
+/** Choose `value` in the picker that names `action`, as a person would: its change. */
+export function choose(action, value, data = {}) {
+    const picker = named(action, data);
+    picker.value = String(value);
+    return press(picker);
+}
+
+/** Call what one part of the page offers the rest (shared/calls.mjs), as code does. */
+export async function call(name, ...args) {
+    return (await sharedModule('calls.mjs')).call(name, ...args);
+}
+
+function named(action, data) {
+    const all = [...globalThis.document.querySelectorAll(`[data-action="${action}"]`)];
+    const found = all.find((el) => Object.entries(data).every(([key, value]) => el.dataset[key] === String(value)));
+    if (!found) {
+        throw new Error(`nothing on the page names ${action} ${JSON.stringify(data)}`
+                        + ` (${all.length} name it: ${all.map((el) => JSON.stringify({ ...el.dataset })).join(' ')})`);
+    }
+    return found;
+}
+
+/**
  * Put a tab's markup and the globals it needs in place.
  *
  * @param {string} tabFile - the tab's Python file, relative to the extension.

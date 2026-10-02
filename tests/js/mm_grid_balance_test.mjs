@@ -7,7 +7,7 @@
 // Browser: the fewest rows the width allows, the cards spread across them.
 //
 // linkedom does no layout, so widths are stubbed as in grid_balance_test.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -99,7 +99,7 @@ check('and the page is still the setting\'s size',
       document.getElementById('mm_status')?.textContent.includes('(Page 1/5)'), true);
 
 // The next page is the same size and is balanced at the width it lands in.
-await window.mmNextPage();
+await act('modelManager.nextPage');
 await waitFor('page two', () => listed.length === 2);
 check('the next page asks for page 2 with no size of its own',
       [listed[1].get('page'), listed[1].has('page_size')], ['2', false]);

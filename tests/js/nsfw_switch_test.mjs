@@ -19,7 +19,7 @@
 // check that matters is what the request says, not only how the box looks.
 //
 // A gallery a filter has emptied must keep the banner, and with it the switch.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -126,7 +126,7 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => cards() > 0);
 
 // ------------------------------------------------------------- both hiding
@@ -145,7 +145,7 @@ check('the first request leaves both filters to the settings, so they are read a
 
 // ---------------------------------------------------------------- NSFW shown
 asked.length = 0;
-await window.mmToggleShowNsfwImages(true);
+await tick('modelManager.showNsfwImages', true);
 await waitFor('the reload', () => cards() === 2);
 check('ticking NSFW asks the server not to hide them', asked, [['false', 'true']]);
 check('its clause drops out, and the NSFW image without a prompt moves to the other',
@@ -156,13 +156,13 @@ check('the ticked switch says how many NSFW it now shows - the number it said wh
 check('and is ticked', ticked(NSFW), true);
 
 asked.length = 0;
-await window.mmToggleShowNsfwImages(false);
+await tick('modelManager.showNsfwImages', false);
 await waitFor('the reload', () => cards() === 1);
 check('unticking asks it to hide them again', asked, [['true', 'true']]);
 
 // ------------------------------------------------------------- prompts shown
 asked.length = 0;
-await window.mmToggleShowPromptless(true);
+await tick('modelManager.showPromptless', true);
 await waitFor('the reload', () => cards() === 2);
 check('ticking the prompt switch asks the server not to hide them', asked, [['true', 'false']]);
 check('its clause drops out', sentence(), '4 images stored · 2 match the filters (2 shown) · 2 hidden due to NSFW filter');
@@ -171,13 +171,13 @@ check('and it still says every unusable one',
 check('ticked', ticked(PROMPT), true);
 
 asked.length = 0;
-await window.mmToggleShowPromptless(false);
+await tick('modelManager.showPromptless', false);
 await waitFor('the reload', () => cards() === 1);
 check('unticking asks it to hide them again', asked, [['true', 'true']]);
 
 // ------------------------------------------------- a gallery emptied by a filter
 everyImageLacksAPrompt = true;
-await window.mmToggleShowNsfwImages(false);
+await tick('modelManager.showNsfwImages', false);
 await waitFor('the emptied gallery', () => images().textContent.includes('Displaying 0 images'));
 check('the banner stays, saying why', sentence(),
       '2 images stored · 0 match the filters (0 shown) · 2 hidden due to unusable prompt');
@@ -201,7 +201,8 @@ check('rather than telling you to untick an NSFW box', images().textContent.incl
 // It used to have no banner at all, and so nowhere saying what is stored.
 everyImageLacksAPrompt = false;
 everyImagePasses = true;
-await window.mmToggleShowNsfwImages(false);
+// The gallery again, as a switch reloads it: the NSFW one, not drawn now.
+await call('modelManager.showNsfwImages', {}, { checked: false });
 await waitFor('the whole gallery', () => cards() === 1);
 check('with nothing hidden, the banner is still drawn, with the counts', sentence(),
       '1 image stored · 1 match the filters (1 shown)');

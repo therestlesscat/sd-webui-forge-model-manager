@@ -156,12 +156,9 @@ export const IMAGE_PLACEHOLDER_SVG = "data:image/svg+xml,%3Csvg xmlns='http://ww
 /**
  * The attributes that make a Civitai image or video fall back when a copy
  * does not load: to the upload, then to the placeholder, if one is given.
- * The placeholder is an attribute, not written into the handler: its SVG
- * holds quotes, and inside onerror's string it broke the handler.
  */
 export function mediaFallback(original, placeholder = '') {
-    return `data-original="${escapeHtml(original || '')}" data-placeholder="${escapeHtml(placeholder)}"`
-        + ' onerror="window.mmMediaFallback(this)"';
+    return `data-original="${escapeHtml(original || '')}" data-placeholder="${escapeHtml(placeholder)}"`;
 }
 
 /**
@@ -176,20 +173,29 @@ export function mediaShape(img) {
     return width > 0 && height > 0 ? `style="aspect-ratio: ${width} / ${height}"` : '';
 }
 
-// The handler itself, on window: the markup is strings, and an inline
-// onerror reaches only what is global.
-if (typeof window !== 'undefined' && !window.mmMediaFallback) {
-    window.mmMediaFallback = (node) => {
-        const original = node.getAttribute('data-original');
-        if (original && node.getAttribute('src') !== original) {
-            node.setAttribute('src', original);
-            if (node.tagName === 'VIDEO') node.load();
-            return;
-        }
-        node.onerror = null;
-        const placeholder = node.getAttribute('data-placeholder');
-        if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
-    };
+/**
+ * A copy that did not load falls back, by those attributes: one listener for
+ * the page, on the way down, as a load's error does not bubble. It was an
+ * inline onerror calling a window global (#95). The placeholder is the last:
+ * one that fails too is left.
+ */
+export function fallBack(node) {
+    if (!node?.hasAttribute?.('data-original') || node.dataset.fellBack) return;
+    const original = node.getAttribute('data-original');
+    if (original && node.getAttribute('src') !== original) {
+        node.setAttribute('src', original);
+        if (node.tagName === 'VIDEO') node.load();
+        return;
+    }
+    node.dataset.fellBack = 'true';
+    const placeholder = node.getAttribute('data-placeholder');
+    if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
+}
+
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function'
+        && !globalThis.__mmMediaFallback) {
+    globalThis.__mmMediaFallback = true;
+    document.addEventListener('error', (event) => fallBack(event.target), true);
 }
 
 /**

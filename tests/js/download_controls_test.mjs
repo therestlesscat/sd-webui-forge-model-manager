@@ -6,7 +6,7 @@
 // there is something to pause or resume.
 // Each asks the server (/download/control) and takes the list it answers.
 // The server's side: download_test.py.
-import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -67,7 +67,7 @@ const row = (id) => rows().find((r) => r.textContent.includes(`v${id}.safetensor
 const buttons = (id) => Array.from(row(id)?.querySelectorAll('.mm-download-actions button') || [])
     .map((b) => [b.textContent.trim(), b.disabled]);
 const calls = (id) => Array.from(row(id)?.querySelectorAll('.mm-download-actions button') || [])
-    .map((b) => b.getAttribute('onclick'));
+    .map((b) => [b.dataset.action, b.dataset.control, b.dataset.versionId]);
 const text = (id) => row(id)?.querySelector('.mm-download-percent')?.textContent.replace(/\s+/g, ' ').trim();
 const shown = (id) => document.getElementById(id)?.style.display !== 'none';
 await waitFor('the list, asked for at load', () => rows().length === 2);
@@ -89,24 +89,24 @@ check('the last waiting: up, not down', buttons(3), [['Start now', false], ['↑
 check('each waiting one says its place', [text(2), text(3)], ['Waiting - 1st in the queue', 'Waiting - 2nd in the queue']);
 check('a paused one: how far it got, Resume, and Cancel',
       [text(4), buttons(4)], ['Paused - 40.00 MB / 100.00 MB', [['Resume', false], ['Cancel', false]]]);
-check('the buttons ask the server what they say (this DOM runs no inline handlers)',
+check('the buttons ask the server what they say',
       [calls(1)[0], calls(2).slice(0, 3), calls(4)[0]],
-      ["window.mmDownloadControl('pause', 1)",
-       ["window.mmDownloadControl('start_now', 2)", "window.mmDownloadControl('up', 2)", "window.mmDownloadControl('down', 2)"],
-       "window.mmDownloadControl('resume', 4)"]);
+      [['downloads.control', 'pause', '1'],
+       [['downloads.control', 'start_now', '2'], ['downloads.control', 'up', '2'], ['downloads.control', 'down', '2']],
+       ['downloads.control', 'resume', '4']]);
 check('Pause all and Resume all show, there being something to pause and something to resume',
       [shown('mm_downloads_pause_all'), shown('mm_downloads_resume_all')], [true, true]);
 check('and the summary counts the paused', document.getElementById('mm_downloads_summary')?.textContent,
       '1 downloading, 2 pending, 1 paused, 1 finished');
 
-await window.mmDownloadControl('start_now', 2);
+await act('downloads.control', { control: 'start_now', versionId: 2 });
 check('Start now: asked, and the list is the server\'s answer at once - no row moved',
       [asked.at(-1), buttons(2)[0], names()], [['start_now', 2], ['Pause', false], LISTED]);
-await window.mmDownloadControl('resume_all', 0);
+await act('downloads.control', { control: 'resume_all' });
 check('Resume all: asked, nothing is left to resume, and the resumed one is where it was',
       [asked.at(-1), shown('mm_downloads_resume_all'), text(4), names()],
       [['resume_all', 0], false, 'Waiting - 1st in the queue', LISTED]);
-await window.mmCancelDownload(3);
+await act('downloads.cancel', { versionId: 3 });
 check('a waiting one cancelled: at once, without waiting for a poll, and in its row',
       [cancelled, row(3)?.querySelector('.mm-download-status-badge')?.textContent, names()], [[3], 'Cancelled', LISTED]);
 

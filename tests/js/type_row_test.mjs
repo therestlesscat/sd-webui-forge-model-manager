@@ -4,7 +4,7 @@
 // are a VAE and a text encoder. The row shows the file's own type, notes what
 // Civitai calls it where that differs, says what decided it on hover - and
 // follows the version picked, since versions of one model need not be alike.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -50,7 +50,7 @@ await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card'
 check('the card\'s badge is the file\'s type',
       document.querySelector('#mm_grid .type-badge')?.textContent, 'VAE');
 
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the details', () => document.querySelector('.mm-type-cell'));
 const cell = () => document.querySelector('.mm-type-cell');
 check('the Type row gives the file\'s type, and what Civitai lists it as',

@@ -9,6 +9,8 @@
 //      or a known global
 //   3. no file reads a window global another file defines; calls between
 //      files name something shared/calls.mjs was given
+//   4. markup holds no JavaScript, and every action it names is provided -
+//      in the modules' templates and the tabs' Python alike
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { join, resolve, dirname } from 'path';
@@ -256,6 +258,40 @@ for (const [f, src] of sources) {
     }
     if (unknown.size) {
         console.log(`FAIL ${f.replace(ROOT, '')}: calls ${[...unknown].join(', ')}, which no file provides`);
+        failures += unknown.size;
+    }
+}
+
+// --- 4. markup names what it does ------------------------------------------
+// Markup said what a click did in JavaScript - onclick="window.mmSelectModel(3)"
+// - a window global named in a string, in the modules' templates and in the
+// tabs' Python, that no check followed across (#95). It says it in
+// data-action now, a name provided in shared/calls.mjs. So no markup has an
+// inline handler, and every name of the form <area>.<what>, for an area some
+// file provides under, is provided: data-action="downloads.control" in the
+// Python, and the names a tab hands a renderer, action: 'modelManager.selectModel'.
+const UI = resolve(ROOT, '..', 'model_manager', 'ui').replace(/\\/g, '/');
+const shown = (f) => (f.startsWith(UI) ? f.replace(UI, 'model_manager/ui') : f.replace(ROOT, ''));
+const markup = new Map([...sources,
+    ...readdirSync(UI).filter((f) => f.endsWith('.py')).map((f) => [`${UI}/${f}`, readFileSync(`${UI}/${f}`, 'utf8')])]);
+// The tabs' own templates move in #95's second step.
+const NOT_YET = new Set(['model_manager.mjs', 'civitai_browser.mjs', 'generations.mjs'].map((f) => `${ROOT}/${f}`));
+const areas = new Set([...provided].map((name) => name.split('.')[0]));
+for (const [f, src] of markup) {
+    const inline = NOT_YET.has(f) ? []
+        : [...src.matchAll(/\son([a-z]+)=\\?["']|setAttribute\(\s*['"]on([a-z]+)/g)].map((m) => `on${m[1] || m[2]}`);
+    if (inline.length) {
+        console.log(`FAIL ${shown(f)}: markup with an inline handler (${[...new Set(inline)].join(', ')})`
+                    + ' - name what it does in data-action, provided in shared/calls.mjs');
+        failures += inline.length;
+    }
+    const unknown = new Set();
+    for (const m of src.matchAll(/(['"`])([a-zA-Z]+)\.(\w+)\1/g)) {
+        if (/^(mjs|js|py|css|json)$/.test(m[3])) continue;       // a file: shared('downloads.mjs')
+        if (areas.has(m[2]) && !provided.has(`${m[2]}.${m[3]}`)) unknown.add(`${m[2]}.${m[3]}`);
+    }
+    if (unknown.size) {
+        console.log(`FAIL ${shown(f)}: names ${[...unknown].join(', ')}, which no file provides`);
         failures += unknown.size;
     }
 }

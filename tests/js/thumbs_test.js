@@ -116,7 +116,7 @@ check('toggle is in the header',
       /\$\{nsfwToggleHtml\}/.test(browser.slice(browser.indexOf('mm-images-header'),
                                                 browser.indexOf('mm-images-header') + 900)));
 check('toggle keeps its element id', /id="cb_show_all_images"/.test(renderSrc));
-check('toggle still calls the handler', /window\.cbToggleShowAllImages/.test(renderSrc));
+check('toggle still calls the handler', /civitaiBrowser\.showAllImages/.test(browser));
 
 // Opening a model seeds the toggle from the search box.
 const openSrc = browser.slice(browser.indexOf('function openModel'),

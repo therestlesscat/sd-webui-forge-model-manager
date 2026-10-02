@@ -6,7 +6,7 @@
 // Model" for a model with one version here, and for one with several,
 // "Delete Current Model Version" - the version shown - and "Delete All Model
 // Versions".
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -45,7 +45,7 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const open = async () => {
     document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
     await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-    await window.mmSelectModel(0);
+    await act('modelManager.selectModel', { index: 0 });
 };
 const header = () => document.querySelector('#mm_details .detail-header');
 const buttons = () => Array.from(header()?.querySelectorAll('button.danger') || []).map((b) => b.textContent.trim());

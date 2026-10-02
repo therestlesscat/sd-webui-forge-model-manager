@@ -80,7 +80,7 @@ await shared('settings.mjs');
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
-const DOWNLOAD_CONTROLS = { prefix: 'cb', download: 'cbDownload', selectFile: 'cbSelectFile' };
+const DOWNLOAD_CONTROLS = { prefix: 'cb', download: 'civitaiBrowser.download', selectFile: 'civitaiBrowser.selectFile' };
 
 // State
 let currentModels = [];
@@ -98,7 +98,7 @@ let selectedFileIndex = null;  // null = whichever file Civitai marks primary
 // for the banner.
 const imageGallery = createPagedGallery({
     containerId: 'cb_images', bannerClass: 'cb-nsfw-warning', loadMoreId: 'cb_load_more_btn',
-    loadMoreCall: 'cbLoadMoreImages', card: (img, index) => renderImageCard(img, index),
+    loadMoreAction: 'civitaiBrowser.loadMoreImages', card: (img, index) => renderImageCard(img, index),
     bannerHtml: () => imagesBannerHtml(), redraw: () => renderImages(),
     afterDraw: (images) => { updateImagesCount(); learnResourceHashes(images); },
 });
@@ -590,7 +590,7 @@ function renderGrid() {
         // while Civitai hands back a cursor for it.
         pagination: !isStreaming && (cursors.length > 1 || hasMorePages) ? renderGridPagination({
             current: currentPage, last: cursors.length, hasNext: hasMorePages,
-            goTo: 'cbGoToPage', prev: 'cbPrevPage', next: 'cbNextPage',
+            goTo: 'civitaiBrowser.goToPage', prev: 'civitaiBrowser.prevPage', next: 'civitaiBrowser.nextPage',
         }) : '',
     });
 }
@@ -605,7 +605,7 @@ function renderCard(model, index) {
     const src = image?.url ? cardMediaUrl(image.url, image.type, cardSize.width, image.width) : '';
     return renderModelCard({
         index,
-        onclick: `window.cbOpenModel(${index})`,
+        action: 'civitaiBrowser.openModel',
         name: model.name,
         media: { src, video: isVideoUrl({ url: src, type: image?.type }),
                  original: image?.url ? originalMediaUrl(image.url) : '' },
@@ -1034,12 +1034,12 @@ function imagesBannerHtml() {
             { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: showAllNsfwImages, hidden: counts.hidden_nsfw || 0,
               count: counts.nsfw_count || 0,
-              onchange: 'window.cbToggleShowAllImages(this.checked)', note: nsfwModelNote() },
+              action: 'civitaiBrowser.showAllImages', note: nsfwModelNote() },
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: showPromptlessImages, hidden: counts.hidden_promptless || 0,
               count: counts.promptless_count || 0, total: counts.promptless_total,
-              onchange: 'window.cbToggleShowPromptless(this.checked)' },
+              action: 'civitaiBrowser.showPromptless' },
         ],
     });
 }
@@ -1098,17 +1098,17 @@ async function reloadFromFirstPage() {
 
 // Toggle show all images checkbox. The server filters, so the gallery is
 // fetched again from its first page.
-window.cbToggleShowAllImages = async function(checked) {
+async function toggleShowAllImages(checked) {
     showAllNsfwImages = checked;
     await reloadFromFirstPage();
-};
+}
 
 // Show or hide this model's images without a prompt. The search's own filter
 // is left as it is.
-window.cbToggleShowPromptless = async function(checked) {
+async function toggleShowPromptless(checked) {
     showPromptlessImages = checked;
     await reloadFromFirstPage();
-};
+}
 
 // How wide the gallery draws a card's image, measured as each page is drawn.
 let galleryWidth = null;
@@ -1116,13 +1116,13 @@ let galleryWidth = null;
 // A Civitai image's card, as both tabs draw it (shared/image_card.mjs): this
 // tab's Show All and Resources - no Send here - and the version its gallery
 // is of.
-const IMAGE_ACTIONS = { send: null, showAll: 'cbShowImageMeta', resources: 'cbShowResources' };
+const IMAGE_ACTIONS = { send: null, showAll: 'civitaiBrowser.showImageMeta', resources: 'civitaiBrowser.showResources' };
 function renderImageCard(img, index) {
     return sharedImageCard(img, index, { width: galleryWidth, exclude: galleryVersionId(), actions: IMAGE_ACTIONS });
 }
 
 // Show All, the same window in both tabs.
-window.cbShowImageMeta = (index) => showImageMeta(imageGallery.images[index]);
+const showImageMetaAt = (index) => showImageMeta(imageGallery.images[index]);
 
 // A card's image, or a video's ⤢, opens the viewer on the card as it is -
 // its file large, its buttons below, its text beside (shared/viewer.mjs) -
@@ -1171,10 +1171,10 @@ function updateResourceButtons() {
 }
 window.addEventListener('mm-resource-hashes', updateResourceButtons);
 
-window.cbShowResources = function(index) {
+function showResources(index) {
     const img = imageGallery.images[index];
     if (img) showImageResources(img, galleryVersionId());
-};
+}
 
 // Start download. The list and its panel are shared with the Model
 // Manager: see downloads() in shared/downloads.mjs.
@@ -1604,7 +1604,7 @@ async function clearCbSearch() {
 function runSavedSearch() {
     if (savedSearchDone) return;
     savedSearchDone = true;
-    window.cbSearch();
+    search();
 }
 
 /**
@@ -1628,7 +1628,7 @@ async function prepareSavedSearch() {
 }
 
 // Expose functions to window for inline handlers
-window.cbSearch = function() {
+function search() {
     savedSearchDone = true;          // the reader's own search: the saved one stands aside
     initTagInput();
     loadEnums();
@@ -1638,28 +1638,26 @@ window.cbSearch = function() {
     cursors = [""];
     hasMorePages = true;
     searchModels(1);
-};
-window.cbPrevPage = function() {
+}
+function prevPage() {
     if (currentPage > 1) {
         searchModels(currentPage - 1);
     }
-};
-window.cbNextPage = function() {
+}
+function nextPage() {
     // Can go next if there are more pages AND we have a cursor for it
     if (hasMorePages && cursors[currentPage]) {
         searchModels(currentPage + 1);
     }
-};
-window.cbGoToPage = function(page) {
+}
+function goToPage(page) {
     // Can navigate to any page we have a cursor for
     if (page >= 1 && page <= cursors.length && page !== currentPage) {
         searchModels(page);
     }
-};
-window.cbOpenModel = openModel;
+}
 window.cbCloseDetails = closeDetails;
 window.cbSelectVersion = selectVersion;
-window.cbSelectFile = selectFile;
 // Show a model here, asked for from another tab: this tab first, once it
 // shows - the grid measures itself, and a hidden tab measures nothing - and
 // a search of its own, so the saved search stands aside. The mirror of the
@@ -1691,8 +1689,23 @@ window.cbShowInModelManager = function(modelId) {
     call('modelManager.showModel', 'model:' + modelId);
 };
 
-window.cbDownload = startDownload;
-window.cbLoadMoreImages = loadMoreImages;
+
+// ---------------------------------------------------------------- markup
+// What this tab's markup does, by name: a card, a button or a field says it
+// in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
+provide('civitaiBrowser.search', () => search());
+provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
+provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
+provide('civitaiBrowser.prevPage', () => prevPage());
+provide('civitaiBrowser.nextPage', () => nextPage());
+provide('civitaiBrowser.showAllImages', (data, box) => toggleShowAllImages(box.checked));
+provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
+provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
+provide('civitaiBrowser.download', ({ modelId, versionId, fileId }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
+provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
+provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
+provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));
 
 // Initialize when ready
 onReady(init);

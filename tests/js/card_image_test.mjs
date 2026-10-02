@@ -5,7 +5,7 @@
 // the card no longer depends on it: an image above PG-13 is passed over for
 // the first PG or PG-13 one, and a version with none shows no image at all.
 // With NSFW models included, the first image is shown whatever it is.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -42,7 +42,7 @@ function previews() {
 }
 async function search() {
     $('cb_status').textContent = '';
-    window.cbSearch();
+    act('civitaiBrowser.search');
     await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
 }
 

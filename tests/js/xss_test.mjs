@@ -15,7 +15,7 @@
 // linkedom does not run inline handlers, so the checks are on what the markup
 // *is* rather than on whether something fired: no hostile value may end up in
 // an event attribute, and what is copied must be the text itself.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -80,7 +80,7 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelectorAll('.mm-image-card').length === 2);
 await waitFor('the description', () => document.querySelector('.mm-description'));
 

@@ -9,10 +9,11 @@
 // files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab } from './harness.mjs';
-const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, act, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
+// The page first: the registry listens to it when it loads.
+const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------------------- the server
@@ -238,14 +239,14 @@ const sizes = { '--gen-column-width': '200px', '--gen-gap': '12px', '--gen-image
 window.getComputedStyle = () => ({ getPropertyValue: (name) => sizes[name] || '' });
 grid().getBoundingClientRect = () => ({ width: 1300, top: 0 });
 const wideSpan = () => tileEls()[1].style.gridColumn;
-window.genSetPreserveOrder(false);
+tick('generations.preserveOrder', false);
 check('without it, the wide tile takes the columns nearest its image', wideSpan(), 'span 2');
-window.genSetPreserveOrder(true);
+tick('generations.preserveOrder', true);
 check('with it, every tile is one column, wide ones too', wideSpan(), 'span 1');
 check('which is remembered in this browser, and turns the grid\'s filling in off',
       [window.localStorage.getItem('mm_generations_preserve_order'), grid().classList.contains('gen-ordered')],
       ['true', true]);
-window.genSetPreserveOrder(false);
+tick('generations.preserveOrder', false);
 check('and back', [grid().classList.contains('gen-ordered'), wideSpan()], [false, 'span 2']);
 const made = new Date('2026-09-28T20:00:00').toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 check('each tile says when it was made, and its size, in its image\'s corner',
@@ -474,17 +475,17 @@ check('and grouped by nothing, a tile per generation again', tileIds(), ['3g', '
 
 // ---------------------------------------------------------------- the switches
 
-await window.genShowNsfw(true);
+await tick('generations.showNsfw', true);
 check('the NSFW switch starts again from the first part, showing NSFW',
       [lastAsked().get('page'), lastAsked().get('hide_nsfw_images'), tileEls()[0].querySelector('.gen-count')?.textContent],
       ['1', 'false', '×3']);   // 33 and 34 deleted above, 32 hidden until now
 const before = asked.length;
-await window.genRefresh();
+await act('generations.refresh');
 check('Refresh loads it again from the first part', [asked.length > before, lastAsked().get('page')], [true, '1']);
 
 generations.push({ generation: { id: 0, mode: 'txt2img', created_at: '2026-09-28T17:00:00', image_count: 1 },
                    images: [img(1, 0, 0)] });
-await window.genRefresh();
+await act('generations.refresh');
 endTop = 1000;
 window.dispatchEvent(new window.Event('scroll'));
 await waitFor('the next part', () => tileEls().length === 3);
@@ -496,39 +497,39 @@ endTop = 100000;
 // "Rate": a row of NSFW levels under every image - the level it has outlined,
 // your rating filled; your rating again clears it. A rated image the switch
 // now hides leaves at once; a batch rated, every image of it shown.
-await window.genShowNsfw(false);
+await tick('generations.showNsfw', false);
 await window.genLoadMore();
 const rows = () => tileEls().map((t) => !!t.querySelector('.mm-rate'));
 const chips = (tile) => Array.from(tile.querySelectorAll('.mm-rate-chip'));
 const marked = (tile, cls) => chips(tile).filter((c) => c.classList.contains(cls)).map((c) => c.textContent.trim());
 check('no row of levels until "Rate" is ticked', rows().every((r) => !r), true);
-window.genSetRating(true);
+tick('generations.rating', true);
 check('then one under every image', [rows().every(Boolean), chips(tileEls()[1]).map((c) => c.textContent.trim())],
       [true, ['PG', 'PG-13', 'R', 'X', 'XXX']]);
 check('the level an image has outlined, none of them yours yet',
       [marked(tileEls()[1], 'mm-rate-current'), marked(tileEls()[1], 'mm-rate-mine')], [['PG'], []]);
-await window.genRate(1, 2);
+await act('generations.rate', { tile: 1, level: 2 });
 check('a click rates the image, and marks it as yours',
       [rated.at(-1).image_id, rated.at(-1).level, marked(tileEls()[1], 'mm-rate-mine')], ['21', '2', ['PG-13']]);
-await window.genRate(1, 2);
+await act('generations.rate', { tile: 1, level: 2 });
 check('your rating clicked again clears it', [rated.at(-1).level, marked(tileEls()[1], 'mm-rate-mine')], ['', []]);
-await window.genRate(1, 8);
+await act('generations.rate', { tile: 1, level: 8 });
 check('an image rated X, with NSFW hidden, leaves the grid at once', tileIds(), ['3g', '0']);
 const loadsBeforeBatch = asked.length;
-await window.genRate(0, 2);
+await act('generations.rate', { tile: 0, level: 2 });
 check('a batch rated: every image of it the tab shows, and the grid loaded again in place',
       [rated.at(-1).generation, rated.at(-1).level, asked.length > loadsBeforeBatch,
        marked(tileEls()[0], 'mm-rate-mine')], ['3', '2', true, ['PG-13']]);
 await window.genSetGroupBy('size');
 check('a group has no row: rated whole, its images are easily misrated', rows(), [false]);
 await window.genSetGroupBy('');
-window.genSetRating(false);
+tick('generations.rating', false);
 check('unticked, the rows go', rows().every((r) => !r), true);
 
 await window.genView(1, 0);
 check('the viewer always shows the row of levels', chips(viewer()).map((c) => c.textContent.trim()),
       ['PG', 'PG-13', 'R', 'X', 'XXX']);
-await window.genRateInViewer(4);
+await act('generations.rateInViewer', { level: 4 });
 await waitFor('the viewer to move on', () => !viewer() || shownId() !== '1');
 check('an image rated R there, with NSFW hidden, leaves, and the viewer goes on or closes',
       [rated.at(-1).image_id, tileIds()], ['1', ['3g']]);

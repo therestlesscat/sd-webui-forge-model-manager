@@ -6,7 +6,7 @@
 // says so and where to switch: above the results while "Only Show Models with
 // SFW images" is ticked, and in the gallery's filter banner. The word list
 // needs no note; sfw_filter_test.mjs checks the Civitai Browser says none.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -66,7 +66,7 @@ $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-nsfw-warning'));
 const banner = document.querySelector('#mm_images .mm-nsfw-warning');
 check('2. the gallery\'s filter banner says it too, under the count',

@@ -40,7 +40,7 @@ const drawnAfter = [];
 let redraws = 0;
 const banner = () => `<div class="test-banner">${gallery.images.length} loaded</div>`;
 const gallery = createPagedGallery({
-    containerId: 'paging_test', bannerClass: 'test-banner', loadMoreId: 'test_more', loadMoreCall: 'testMore',
+    containerId: 'paging_test', bannerClass: 'test-banner', loadMoreId: 'test_more', loadMoreAction: 'test.more',
     card: (img, index) => `<div class="test-card" data-index="${index}">${img.id}</div>`,
     bannerHtml: banner,
     redraw: () => { redraws += 1; draw(); },
@@ -53,7 +53,7 @@ draw();
 const cards = () => Array.from(box.querySelectorAll('.test-card')).map((c) => c.textContent);
 check('a page is drawn: its cards and its note', [cards(), !!box.querySelector('.mm-page-note')], [['1', '2'], true]);
 check('with Load More while there is a next page',
-      box.querySelector('#test_more')?.getAttribute('onclick'), 'window.testMore()');
+      box.querySelector('#test_more')?.dataset.action, 'test.more');
 
 // Load More: the next page, added at the end; the first page's cards stay.
 const firstCard = box.querySelector('.test-card');

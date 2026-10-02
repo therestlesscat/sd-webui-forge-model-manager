@@ -2,7 +2,7 @@
 // (generations_select_test.mjs): a tick on every card - its generation whole,
 // as its Delete - shift-click for a range, Select all loaded, and one Delete
 // for all, asked once. Select and Rate are not on together.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -59,7 +59,7 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelector('#mm_grid .model-card'));
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-gallery-tab'));
 await window.mmShowGalleryTab('generations');
 const cardEls = () => document.querySelectorAll('#mm_images .mm-generation-card');
@@ -92,15 +92,15 @@ pick(1);
 check('a card\'s tick is its generation whole - its hidden image too', count(), '3 images selected');
 pick(2, true);
 check('shift-click ticks the range', [ticks().map((b) => b.checked), count()], [[false, true, true], '4 images selected']);
-window.mmClearGenerationPicks();
+act('modelManager.clearGenerationPicks');
 runInline(ticks()[0]);
 cardEls()[0].querySelector('[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
 check('a click on a card\'s image ticks the card, and opens no viewer',
       [ticks()[0].checked, count(), !!document.querySelector('.mm-viewer')], [true, '2 images selected', false]);
-window.mmSelectAllGenerations();
+act('modelManager.selectAllGenerations');
 check('Select all loaded ticks every card', count(), '6 images selected');
 
-const deleting = window.mmDeletePickedGenerations();
+const deleting = act('modelManager.deletePickedGenerations');
 await waitFor('the question', () => document.querySelector('.mm-delete-dialog h3'));
 check('Delete asks once, counting what the filter hides',
       document.querySelector('.mm-delete-dialog h3')?.textContent,

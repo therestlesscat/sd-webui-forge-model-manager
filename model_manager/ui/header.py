@@ -30,7 +30,7 @@ def version_link() -> str:
 # The gear that opens the settings window, which every tab shares. It says
 # which tab it is in (TAB, filled by header_actions), so the window opens with
 # that tab's sections open.
-SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings({ tab: 'TAB' })"
+SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" data-action="settings.open" data-tab="TAB"
         title="Model Manager settings" aria-label="Model Manager settings">
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

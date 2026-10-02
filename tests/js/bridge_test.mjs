@@ -12,14 +12,13 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { browserGalleryAnswer } from './harness.mjs';
+import { act, browserGalleryAnswer, tick } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
     : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
 
 // The shipped markup, not a replica of it.
-const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const tabSource = readFileSync(`${ROOT}/model_manager/ui/tab_civitai_browser.py`, 'utf8');
 const htmlMatch = tabSource.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
 if (!htmlMatch) throw new Error('could not find the tab markup in tab_civitai_browser.py');
@@ -27,6 +26,8 @@ const { window } = parseHTML(`<!doctype html><html><body>${htmlMatch[2]}</body><
 
 globalThis.window = window;
 globalThis.document = window.document;
+// The page first: the registry listens to it when it loads.
+const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 globalThis.location = { origin: 'http://localhost:7860' };
 window.location = globalThis.location;
 globalThis.URL = URL;
@@ -164,7 +165,7 @@ check('one card is shown',
 // ----------------------------------------------------- an ordinary search
 asked.length = 0;
 $('cb_search').value = 'anime';
-await window.cbSearch();
+await act('civitaiBrowser.search');
 await settle();
 
 check('a plain query searches', searches().length >= 1, true);
@@ -176,7 +177,7 @@ check('returning what Civitai listed',
 for (const query of ['model:', 'model:abc', 'a model:12', 'version:99', '12345']) {
     asked.length = 0;
     $('cb_search').value = query;
-    await window.cbSearch();
+    await act('civitaiBrowser.search');
     await settle();
     check(`"${query}" is a search, not a lookup`, singleLookups().length, 0);
 }
@@ -203,7 +204,7 @@ check('a version Civitai no longer has: the newest, and a word saying so',
       [shownPill(), $('cb_status').textContent.includes('Version 31337 is no longer on Civitai')], ['v1', true]);
 asked.length = 0;
 $('cb_search').value = 'model:555 version:';
-await window.cbSearch();
+await act('civitaiBrowser.search');
 await settle();
 check('"model:555 version:" is a search, not a lookup', singleLookups().length, 0);
 
@@ -232,7 +233,8 @@ await settle();
 $('cb_require_prompt').checked = true;
 let renderError = null;
 try {
-    await window.cbToggleShowAllImages(true);
+    // The gallery again, as a switch reloads it: the NSFW one, not drawn - every image is PG.
+    await call('civitaiBrowser.showAllImages', {}, { checked: true });
 } catch (e) {
     renderError = e.message;
 }
@@ -253,7 +255,7 @@ check('the banner carries the prompt switch', switchLabel(PROMPT), 'Show unusabl
 check('and its sentence says what the prompt filter hides', sentence(),
       '2 images loaded · 1 match the filters (1 shown) · 1 hidden due to unusable prompt');
 
-await window.cbToggleShowPromptless?.(true);
+await tick('civitaiBrowser.showPromptless', true);
 check('ticking it shows the images without a prompt',
       $('cb_images').querySelectorAll('.mm-image-card').length, 2);
 check('and the switch is still there to turn back, saying how many it shows',
@@ -261,7 +263,7 @@ check('and the switch is still there to turn back, saying how many it shows',
 check('with nothing hidden the sentence says so', sentence(), '2 images loaded · 2 match the filters (2 shown)');
 check("without touching the search's own filter", $('cb_require_prompt').checked, true);
 
-await window.cbToggleShowPromptless?.(false);
+await tick('civitaiBrowser.showPromptless', false);
 check('unticking hides them again',
       $('cb_images').querySelectorAll('.mm-image-card').length, 1);
 
@@ -279,7 +281,7 @@ await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
 
-await window.cbToggleShowAllImages(false);
+await tick('civitaiBrowser.showAllImages', false);
 check('the NSFW switch sits in the banner', switchIn('.cb-nsfw-warning'), 1);
 check('not in the list header', switchIn('.mm-images-header'), 0);
 check('and there is one of it, though the sentence repeats below the list',
@@ -288,7 +290,7 @@ check('beside a count of what it is holding back', switchLabel(NSFW), 'Show NSFW
 check('which the sentence states too', sentence(),
       '2 images loaded · 1 match the filters (1 shown) · 1 hidden due to NSFW filter');
 
-await window.cbToggleShowAllImages(true);
+await tick('civitaiBrowser.showAllImages', true);
 check('with everything shown the switch is still there to turn back',
       switchIn('.cb-nsfw-warning'), 1);
 check('saying how many NSFW it shows', switchLabel(NSFW), 'Show NSFW (1)');
@@ -310,7 +312,8 @@ galleryImages = [
 await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 $('cb_require_prompt').checked = true;
-await window.cbToggleShowAllImages(false);
+// NSFW hidden, as the switch says - which is not drawn: it would show nothing.
+await call('civitaiBrowser.showAllImages', {}, { checked: false });
 
 check('there is one banner at the top, not one per filter', banners().length, 1);
 check('whose sentence adds up to the total, what both filters hide apart', sentence(),
@@ -318,19 +321,19 @@ check('whose sentence adds up to the total, what both filters hide apart', sente
 check('the prompt switch saying every unusable one; the NSFW one, which would show nothing, left out',
       [switchLabel(NSFW), switchLabel(PROMPT)], [null, 'Show unusable prompts (2)']);
 
-await window.cbToggleShowAllImages(true);
+await call('civitaiBrowser.showAllImages', {}, { checked: true });
 check('showing NSFW, its image without a prompt is the prompt filter\'s alone', sentence(),
       '3 images loaded · 1 match the filters (1 shown) · 2 hidden due to unusable prompt');
 check('and the prompt switch has not moved',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (0)', 'Show unusable prompts (2)']);
 
-await window.cbToggleShowAllImages(false);
-await window.cbToggleShowPromptless(true);
+await tick('civitaiBrowser.showAllImages', false);
+await tick('civitaiBrowser.showPromptless', true);
 check('showing prompts leaves only the NSFW clause', sentence(),
       '3 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter');
 check('and the NSFW switch appears, with what it would show',
       [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (2)']);
-await window.cbToggleShowPromptless(false);
+await tick('civitaiBrowser.showPromptless', false);
 
 // ------------------------------------------ a download, finishing in place
 // A finished download used to say Complete while the library sync that
@@ -358,11 +361,11 @@ const poll = () => new Promise((r) => setTimeout(r, 250));
 
 await call('civitaiBrowser.showModel', 'model:31');
 await settle();
-window.cbOpenModel(0);
+act('civitaiBrowser.openModel', { index: 0 });
 await settle();
 downloads.push({ version_id: 62, file_name: 'm.safetensors', status: 'downloading', percent: 40,
                  downloaded_bytes: 400, total_bytes: 1000, synced: false });
-await window.cbDownload(31, 62, 1);
+await act('civitaiBrowser.download', { modelId: 31, versionId: 62 });
 await poll();
 check('while downloading, no button', [badge(), showInManager()], ['Downloading', false]);
 

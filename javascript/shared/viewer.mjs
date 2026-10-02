@@ -218,9 +218,12 @@ function onClick(event) {
         return;
     }
     if (current.source.onClick?.(event, current.index)) return;
-    // The gallery's Send goes on to txt2img or img2img: out of the way.
+    // The gallery's Send goes on to txt2img or img2img: out of the way - once
+    // the click is done. Send is its data-action, which the page's listener
+    // runs after this one (shared/calls.mjs), and it saves where the page was
+    // from the viewer, open (viewerPageScroll).
     if (target.closest?.('[data-viewer-close], .mm-send-btn')) {
-        closeViewer();
+        setTimeout(closeViewer, 0);
         return;
     }
     // Around the image - not on it, a button or the details - closes it.

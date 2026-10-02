@@ -5,7 +5,7 @@
 // The page used to send its own "hide" on the first request, so the server's
 // fall-back to the settings never ran and neither setting was read at all;
 // and a switch ticked on one model stayed ticked for every model after it.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -67,7 +67,7 @@ const ticked = () => ['mm_show_nsfw_images', 'mm_show_promptless_images']
 
 async function open(index) {
     document.getElementById('mm_images').innerHTML = '';
-    await window.mmSelectModel(index);
+    await act('modelManager.selectModel', { index: index });
     await waitFor('the gallery', () => document.querySelectorAll('#mm_images .mm-image-card').length > 0);
 }
 
@@ -75,8 +75,8 @@ await open(0);
 check('hiding both, the gallery opens with only the safe image with a prompt',
       [shown(), ticked()], [['1.jpeg'], [false, false]]);
 
-await window.mmToggleShowNsfwImages(true);
-await window.mmToggleShowPromptless(true);
+await tick('modelManager.showNsfwImages', true);
+await tick('modelManager.showPromptless', true);
 check('the switches show everything for this model', shown(), ['1.jpeg', '2.jpeg', '3.jpeg']);
 
 await open(1);

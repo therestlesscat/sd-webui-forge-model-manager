@@ -8,10 +8,11 @@
 // Civitai Browser's information and Download, and its download is followed in
 // the downloads panel both tabs share; once it is in the library, it is shown
 // as a local version.
-import { ROOT, checker, mountTab } from './harness.mjs';
-const { call, provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, act, checker, choose, mountTab, press } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The page first: the registry listens to it when it loads.
+const { call, provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
 const local = (id, name) => ({
@@ -75,7 +76,7 @@ const details = () => document.getElementById('mm_details');
 const pills = () => Array.from(details().querySelectorAll('.mm-version-pill'));
 const pillNames = () => pills().map((p) => p.textContent.trim());
 const active = () => pills().filter((p) => p.classList.contains('active')).map((p) => p.textContent.trim());
-const click = (el) => new Function('return ' + el.getAttribute('onclick'))();
+const click = (el) => (el.closest('[data-action]') ? press(el) : new Function('return ' + el.getAttribute('onclick'))());
 const pill = (name) => pills().find((p) => p.textContent.trim().startsWith(name));
 const row = (label) => Array.from(details().querySelectorAll('.detail-table tr'))
     .find((tr) => tr.querySelector('td')?.textContent.trim() === label)?.querySelectorAll('td')[1]?.textContent.trim();
@@ -93,7 +94,7 @@ const showInBrowser = async () => {
 };
 
 // ---------------------------------------------------------- the pills
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 check('1. one version on disk, three on Civitai: all three, in Civitai\'s order, the local one marked',
       pillNames(), ['v3', 'v2 ⬥', 'v1 ✓']);
 check('   the one on disk is the one shown', active(), ['v1 ✓']);
@@ -119,16 +120,17 @@ check('   its own trigger words, and the model\'s description',
 check('   the primary file, and a picker for the other', [row('File'), row('File Size'),
       details().querySelectorAll('.mm-file-select option').length], ['v3_fp16.safetensors', '2.00 MB', 2]);
 const button = () => document.getElementById('mm_download_btn');
-check('   a Download for that file', button()?.getAttribute('onclick'), 'window.mmDownload(4001, 503, 9032)');
+const downloads = () => ['action', 'modelId', 'versionId', 'fileId'].map((key) => button()?.dataset[key]);
+check('   a Download for that file', downloads(), ['modelManager.download', '4001', '503', '9032']);
 check('   the pill is the one shown', active(), ['v3']);
 check('   no gallery: there is no file to have fetched one for',
       document.getElementById('mm_images').style.display, 'none');
 check('   and nothing to delete', details().querySelectorAll('.detail-header button.danger').length, 0);
 
-window.mmSelectFile('0');
+await choose('modelManager.selectFile', '0');
 check('4. picking the other file points the rows and the button at it',
-      [row('File'), row('File Size'), button()?.getAttribute('onclick')],
-      ['v3_fp32.safetensors', '4.00 MB', 'window.mmDownload(4001, 503, 9031)']);
+      [row('File'), row('File Size'), downloads()],
+      ['v3_fp32.safetensors', '4.00 MB', ['modelManager.download', '4001', '503', '9031']]);
 
 await click(pill('v2'));
 check('5. a paid version says so, and offers no Download',
@@ -151,7 +153,7 @@ check('6. back to the local version: its panel, gallery and all',
 
 // ------------------------------------------------------------ downloading
 await click(pill('v3'));
-window.mmSelectFile('0');
+await choose('modelManager.selectFile', '0');
 // One click, one download: from the click until the version is in the
 // library, the button says how it is going and takes no clicks. A second
 // click used to start the same download again.
@@ -176,7 +178,7 @@ await click(pill('v2'));
 await click(pill('v3'));
 check('   and it is still disabled after another version and back',
       [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
-window.mmSelectFile('0');
+await choose('modelManager.selectFile', '0');
 const panel = document.getElementById('mm_downloads');
 const badge = () => panel.querySelector('.mm-download-status-badge')?.textContent.trim();
 check('   and the download shows in the tab\'s own panel, as it does in the Civitai Browser\'s',
@@ -220,17 +222,17 @@ globalThis.fetch = realFetch;
 // ------------------------------------------------- a paid version, bought
 // The account bought it: a Download like any other's, saying so.
 v2Owned = true;
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await click(pill('v2'));
 check('12. a paid version the account bought has a Download, saying so, and no Paid label',
-      [button()?.getAttribute('onclick'), /bought it/.test(button()?.getAttribute('title') || ''), !!paidLabel()],
-      ['window.mmDownload(4001, 502, 9032)', true, false]);
+      [downloads(), /bought it/.test(button()?.getAttribute('title') || ''), !!paidLabel()],
+      [['modelManager.download', '4001', '502', '9032'], true, false]);
 v2Owned = false;
 
 // -------------------------------------------------- nothing recorded yet
 civitaiVersions = () => [];
 localVersions = [local(501, 'v1')];
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 check('9. with one version on disk and no list recorded, no selector - as before', pills().length, 0);
 
 done();

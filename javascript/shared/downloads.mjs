@@ -7,7 +7,8 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, safeId, formatBytes, formatDay } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, formatBytes, formatDay } = await shared('core.mjs');
+const { provide } = await shared('calls.mjs');
 const { apiKeyIsMissing } = await shared('ui_options.mjs');
 
 // ------------------------------------------------------ a version to download
@@ -84,8 +85,9 @@ function downloadButtonState(versionId) {
  * The Download button and, when there is a choice, the file picker.
  *
  * `controls` is the tab's, named once there: the `prefix` of its ids - the
- * button is `<prefix>_download_btn` - and the window functions its markup
- * calls, `download` (modelId, versionId, fileId) and `selectFile` (index).
+ * button is `<prefix>_download_btn` - and what its markup does
+ * (shared/calls.mjs): `download`, reading data-model-id, data-version-id and
+ * data-file-id, and `selectFile`, the picker's value its file's index.
  * A paid version answers the download URL
  * with 401/403 until it is bought on Civitai, so it is offered only when
  * Civitai says the API key's account bought it (`paid_access.owned`, see
@@ -116,13 +118,14 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         const bought = paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${bought} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
-            + `onclick="window.${download}(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">`
+            + `data-action="${escapeHtml(download)}"`
+            + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id) })}>`
             + `${state.label}</button>`;
     }
 
     // Only worth a control when there is something to choose between.
     const picker = files.length > 1
-        ? `<select class="${prefix}-file-select" onchange="window.${selectFile}(this.value)"
+        ? `<select class="${prefix}-file-select" data-action="${escapeHtml(selectFile)}"
                    title="Which file to download">
              ${files.map((f, i) => `<option value="${i}" ${i === fileIndex ? 'selected' : ''}
                     title="${escapeHtml(f.name || '')}">${escapeHtml(describeFile(f))}`
@@ -141,7 +144,7 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
  * `controls` as for renderDownloadControls.
  */
 export function showChosenFile(controls, modelId, version, file) {
-    const { prefix, download } = controls;
+    const { prefix } = controls;
     const nameCell = document.getElementById(`${prefix}_file_name`);
     if (nameCell) nameCell.textContent = file.name || 'Unknown';
 
@@ -150,10 +153,11 @@ export function showChosenFile(controls, modelId, version, file) {
         sizeCell.textContent = file.sizeKB ? formatBytes(file.sizeKB * 1024) : 'Unknown';
     }
 
+    // The button's action reads these (renderDownloadControls).
     const button = document.getElementById(`${prefix}_download_btn`);
     if (button) {
-        button.setAttribute('onclick',
-            `window.${download}(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file.id)})`);
+        const ids = { 'data-model-id': modelId, 'data-version-id': version?.id, 'data-file-id': file.id };
+        for (const [name, id] of Object.entries(ids)) button.setAttribute(name, String(safeId(id) ?? ''));
     }
 }
 
@@ -225,10 +229,11 @@ function ordinal(n) {
     return `${n}${suffix}`;
 }
 
-/** A small button in a download's row, calling window.mmDownloadControl. */
+/** A small button in a download's row: downloads.control, as the panel's Pause all. */
 function downloadControl(action, versionId, label, title, { disabled = false, kind = 'secondary' } = {}) {
     return `<button class="mm-btn mm-btn-small ${kind}" title="${escapeHtml(title)}" ${disabled ? 'disabled' : ''}
-                    onclick="window.mmDownloadControl('${action}', ${safeId(versionId)})">${label}</button>`;
+                    data-action="downloads.control" data-control="${escapeHtml(action)}"`
+        + `${dataAttributes({ versionId: safeId(versionId) })}>${label}</button>`;
 }
 
 /** One download, as a panel shows it. Classes are the tab's own: `<prefix>-download-*`. */
@@ -286,10 +291,10 @@ function renderDownloadItem(dl, prefix) {
                 <div class="${p}-download-actions">
                     ${controls}
                     ${showCancel ? `
-                        <button class="mm-btn mm-btn-small danger" onclick="window.mmCancelDownload(${safeId(dl.version_id)})">Cancel</button>
+                        <button class="mm-btn mm-btn-small danger" data-action="downloads.cancel"${dataAttributes({ versionId: safeId(dl.version_id) })}>Cancel</button>
                     ` : ''}
                     ${showDismiss ? `
-                        <button class="mm-btn mm-btn-small secondary" onclick="window.mmDismissDownload(${safeId(dl.version_id)})">Dismiss</button>
+                        <button class="mm-btn mm-btn-small secondary" data-action="downloads.dismiss"${dataAttributes({ versionId: safeId(dl.version_id) })}>Dismiss</button>
                     ` : ''}
                 </div>
             </div>
@@ -560,10 +565,12 @@ function createDownloads() {
         });
     }
 
-    window.mmCancelDownload = (versionId) => store.cancel(versionId);
-    window.mmDownloadControl = (action, versionId) => store.control(action, versionId);
-    window.mmDismissDownload = (versionId) => store.dismiss(versionId);
-    window.mmDismissFinishedDownloads = () => store.dismissFinished();
+    // What the panels' buttons do - a row's, and Pause all, Resume all and
+    // Dismiss all in the tabs' markup; a version 0 is all of them.
+    provide('downloads.control', ({ control, versionId }) => store.control(control, safeId(versionId) ?? 0));
+    provide('downloads.cancel', ({ versionId }) => store.cancel(safeId(versionId)));
+    provide('downloads.dismiss', ({ versionId }) => store.dismiss(safeId(versionId)));
+    provide('downloads.dismissFinished', () => store.dismissFinished());
     return store;
 }
 

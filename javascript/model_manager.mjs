@@ -38,7 +38,7 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText,
+    onReady, apiCall, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
@@ -86,7 +86,7 @@ await shared('settings.mjs');
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
-const DOWNLOAD_CONTROLS = { prefix: 'mm', download: 'mmDownload', selectFile: 'mmSelectFile' };
+const DOWNLOAD_CONTROLS = { prefix: 'mm', download: 'modelManager.download', selectFile: 'modelManager.selectFile' };
 
 // State
 let currentModels = [];
@@ -153,7 +153,7 @@ let promptlessImageTotal = null;
 // more adds the next. Its images and pages are imageGallery's (shared/gallery.mjs).
 const imageGallery = createPagedGallery({
     containerId: 'mm_images', bannerClass: 'mm-nsfw-warning', loadMoreId: 'mm_load_more_btn',
-    loadMoreCall: 'mmLoadMoreImages', card: (img, index) => renderImageCard(img, index),
+    loadMoreAction: 'modelManager.loadMoreImages', card: (img, index) => renderImageCard(img, index),
     bannerHtml: () => imagesBannerHtml(), showing: () => galleryTab === 'civitai',
     redraw: () => renderModelImages(), afterDraw: () => refreshResourceButtons(),
 });
@@ -331,16 +331,16 @@ function getFilters() {
 }
 
 // Toggle NSFW dropdown
-window.mmToggleNsfwDropdown = function() {
+function toggleNsfwDropdown() {
     const panel = document.getElementById('mm_nsfw_panel');
     if (panel) panel.classList.toggle('open');
-};
+}
 
 // Toggle Commercial Use dropdown
-window.mmToggleCommercialDropdown = function() {
+function toggleCommercialDropdown() {
     const panel = document.getElementById('mm_commercial_panel');
     if (panel) panel.classList.toggle('open');
-};
+}
 
 // Update NSFW display text
 function updateNsfwDisplay() {
@@ -553,25 +553,25 @@ function updatePaginationStatus() {
 }
 
 // Navigate to previous page
-window.mmPrevPage = function() {
+function prevPage() {
     if (currentPage > 1 && !isLoading) {
         loadModels(currentPage - 1);
     }
-};
+}
 
 // Navigate to next page
-window.mmNextPage = function() {
+function nextPage() {
     if (currentPage < totalPages && !isLoading) {
         loadModels(currentPage + 1);
     }
-};
+}
 
 // Navigate to specific page
-window.mmGoToPage = function(page) {
+function goToPage(page) {
     if (page >= 1 && page <= totalPages && page !== currentPage && !isLoading) {
         loadModels(page);
     }
-};
+}
 
 // NSFW level -> the card's class, by the integer bitmask (1=PG, 2=PG-13,
 // 4=R, 8=X, 16=XXX); PG has none.
@@ -592,7 +592,7 @@ function mmCard(model, index) {
     const versions = model.local_version_count || 1;
     return renderModelCard({
         index,
-        onclick: `window.mmSelectModel(${index})`,
+        action: 'modelManager.selectModel',
         name: model.display_name,
         media: { src, video: isVideoUrl({ url: src }), original: originalMediaUrl(model.preview_url) },
         classes: [model.has_civitai_data ? 'has-civitai' : 'no-civitai', nsfwCardClass(model.nsfw_level || 1)],
@@ -658,13 +658,13 @@ function renderModelGrid(models) {
         // The library's page count is known: the server gives the total.
         pagination: totalPages > 1 ? renderGridPagination({
             current: currentPage, last: totalPages, hasNext: currentPage < totalPages,
-            goTo: 'mmGoToPage', prev: 'mmPrevPage', next: 'mmNextPage',
+            goTo: 'modelManager.goToPage', prev: 'modelManager.prevPage', next: 'modelManager.nextPage',
         }) : '',
     });
 }
 
 // Select a model
-window.mmSelectModel = async function(index) {
+async function selectModel(index) {
     selectedModelIndex = index;
     const model = currentModels[index];
     if (!model) return;
@@ -725,7 +725,7 @@ window.mmSelectModel = async function(index) {
 
     // Load full details for the selected version
     await loadVersionDetails(model.file_path);
-};
+}
 
 // Load details for a specific version
 async function loadVersionDetails(filePath) {
@@ -876,21 +876,21 @@ async function reloadGalleryForSwitch() {
 // hide_promptless_images. This is the one place the two meet. It reloads,
 // because the filtering is done in SQL: the hidden images are not in the page
 // to be revealed.
-window.mmToggleShowPromptless = async function(showPromptless) {
+async function toggleShowPromptless(showPromptless) {
     hidePromptlessImages = !showPromptless;
     hidePromptlessInitialised = true;
     await reloadGalleryForSwitch();
-};
+}
 
 // The gallery's NSFW switch. It reads "Show NSFW", as every other NSFW switch
 // in both tabs does, while the server is still asked whether to *hide* them -
 // hide_nsfw_images, and hideNsfwImages here. This is the one place the two
 // meet, so the inversion is done here and nowhere else.
-window.mmToggleShowNsfwImages = async function(showNsfw) {
+async function toggleShowNsfwImages(showNsfw) {
     hideNsfwImages = !showNsfw;
     hideNsfwImagesInitialized = true;
     await reloadGalleryForSwitch();
-};
+}
 
 // Update the images count cell in the Information table
 function updateImagesCountCell() {
@@ -1189,11 +1189,11 @@ function resetImageState() {
 /**
  * The pin: a card pinned comes first in the grid whenever it matches the
  * filters. On the card's corner, and beside the bookmark in its details, as
- * { cls, text, title, onclick } - an overlay of renderModelCard().
+ * { cls, text, title, action, data } - an overlay of renderModelCard().
  */
 function pinButton(model, index, cls) {
     const pinned = !!model?.is_pinned;
-    return { cls: `${cls}${pinned ? ' pinned' : ''}`, text: '📌', onclick: `window.mmTogglePin(${Number(index)})`,
+    return { cls: `${cls}${pinned ? ' pinned' : ''}`, text: '📌', action: 'modelManager.togglePin', data: { index: Number(index) },
              title: pinned ? 'Pinned: first whenever it matches the filters. Click to unpin.'
                            : 'Pin: show first whenever it matches the filters' };
 }
@@ -1208,7 +1208,7 @@ function renderDetailHeader(model, { deletable = true } = {}) {
     // The card's pin: the grid's model, whichever version the panel shows.
     const pin = pinButton(currentModels[selectedModelIndex], selectedModelIndex, 'mm-bookmark-btn mm-pin-toggle');
     const pinBtn = currentModels[selectedModelIndex]
-        ? `<button class="${pin.cls}" onclick="${pin.onclick}" title="${escapeHtml(pin.title)}">${pin.text}</button>` : '';
+        ? `<button class="${pin.cls}" data-action="${pin.action}"${dataAttributes(pin.data)} title="${escapeHtml(pin.title)}">${pin.text}</button>` : '';
 
     // Deleting sits with the other actions on the model, in the header. With
     // several versions, the one shown and all of them are separate choices.
@@ -1317,18 +1317,18 @@ function renderRemoteVersion() {
     if (images) images.style.display = 'none';
 }
 
-window.mmSelectFile = function(fileIndex) {
+function selectFile(fileIndex) {
     const index = parseInt(fileIndex, 10);
     const version = civitaiVersions.find((v) => v.id === remoteVersionId);
     const file = (version?.files || [])[index];
     if (!file) return;
     remoteFileIndex = index;
     showChosenFile(DOWNLOAD_CONTROLS, currentModels[selectedModelIndex]?.model_id, version, file);
-};
+}
 
 // The list and its panel are shared with the Civitai Browser: see
 // downloads() in shared/downloads.mjs.
-window.mmDownload = async function(modelId, versionId, fileId) {
+async function startDownload(modelId, versionId, fileId) {
     try {
         setStatus('Starting download...');
         const result = await downloads().start(modelId, versionId, fileId);
@@ -1338,7 +1338,7 @@ window.mmDownload = async function(modelId, versionId, fileId) {
         console.error('[ModelManager] Download error:', e);
         setStatus(`Download error: ${e.message}`, true);
     }
-};
+}
 
 /**
  * A version of the open model has reached the library: it is local now. If
@@ -1619,7 +1619,7 @@ window.mmForceSyncModel = async function() {
             setStatus(`Synced ${synced}/${total} versions successfully`);
             // Reload the current model to show updated data
             if (selectedModelIndex >= 0) {
-                window.mmSelectModel(selectedModelIndex);
+                selectModel(selectedModelIndex);
             }
         } else {
             setStatus('Sync failed: ' + (data.error || 'Unknown error'), true);
@@ -1637,7 +1637,7 @@ window.mmForceSyncModel = async function() {
  * Civitai does not know by its path. The card stays where it is until the
  * grid loads again - moving it now would take it from under the pointer.
  */
-window.mmTogglePin = async function(index) {
+async function togglePin(index) {
     const model = currentModels[index];
     if (!model) return;
     const pinned = !model.is_pinned;
@@ -1674,7 +1674,7 @@ window.mmTogglePin = async function(index) {
     }
     setStatus(pinned ? 'Pinned: it comes first whenever it matches the filters, from the next load'
                      : 'Unpinned');
-};
+}
 
 // Toggle bookmark status for a model
 window.mmToggleBookmark = async function(modelId) {
@@ -1854,12 +1854,12 @@ function imagesBannerHtml() {
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
-              onchange: 'window.mmToggleShowNsfwImages(this.checked)', note: nsfwModelNote() },
+              action: 'modelManager.showNsfwImages', note: nsfwModelNote() },
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
               count: promptlessImageCount, total: promptlessImageTotal ?? undefined,
-              onchange: 'window.mmToggleShowPromptless(this.checked)' },
+              action: 'modelManager.showPromptless' },
         ],
     });
 }
@@ -1877,9 +1877,7 @@ function imagesHeaderHtml(countText = '') {
            <label class="mm-rate-switch" title="Tick generations, then delete them all at once. A tick is the whole generation">
                <input type="checkbox" id="mm_select_generations" ${selectingGenerations ? 'checked' : ''}
                       onchange="window.mmSetSelectingGenerations(this.checked)"> Select</label>
-           ${selectingGenerations ? `<span class="mm-select-bar">${selectBarHtml(pickedSummary().images, {
-               all: 'window.mmSelectAllGenerations()', clear: 'window.mmClearGenerationPicks()',
-               delete: 'window.mmDeletePickedGenerations()' })}</span>` : ''}
+           ${selectingGenerations ? `<span class="mm-select-bar">${selectBarHtml(pickedSummary().images, PICK_ACTIONS)}</span>` : ''}
            <button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
                    title="Show images generated since this was drawn">Refresh</button>`
         : '';
@@ -1953,6 +1951,8 @@ window.mmSetRatingGenerations = function(checked) {
 let selectingGenerations = false;
 const pickedGenerations = new Set();
 let lastPickedCard = -1;
+const PICK_ACTIONS = { all: 'modelManager.selectAllGenerations', clear: 'modelManager.clearGenerationPicks',
+                       delete: 'modelManager.deletePickedGenerations' };
 
 function clearPickedGenerations() {
     pickedGenerations.clear();
@@ -1974,8 +1974,7 @@ function pickedSummary() {
 function updateGenerationSelectBar() {
     const bar = document.querySelector('#mm_images .mm-select-bar');
     if (!bar) return;
-    bar.innerHTML = selectBarHtml(pickedSummary().images, { all: 'window.mmSelectAllGenerations()',
-        clear: 'window.mmClearGenerationPicks()', delete: 'window.mmDeletePickedGenerations()' });
+    bar.innerHTML = selectBarHtml(pickedSummary().images, PICK_ACTIONS);
 }
 
 function showGenerationTicks() {
@@ -2021,17 +2020,17 @@ document.addEventListener('click', (event) => {
     box.dispatchEvent(Object.assign(new Event('click', { bubbles: true }), { shiftKey: event.shiftKey }));
 }, true);
 
-window.mmSelectAllGenerations = function() {
+function selectAllGenerations() {
     generationCards.forEach((card) => pickedGenerations.add(card.id));
     showGenerationTicks();
-};
+}
 
-window.mmClearGenerationPicks = function() {
+function clearGenerationPicks() {
     clearPickedGenerations();
     showGenerationTicks();
-};
+}
 
-window.mmDeletePickedGenerations = async function() {
+async function deletePickedGenerations() {
     const picked = pickedSummary();
     if (!picked.images) return;
     const answer = await askToDelete(bulkDeleteQuestion(picked.images, picked.ids.length, picked.hidden),
@@ -2047,14 +2046,14 @@ window.mmDeletePickedGenerations = async function() {
     await refreshGenerationTotals();
     renderGenerations();
     setStatus(bulkDeleteReport(data, answer.withFiles), (data.failed || []).length > 0);
-};
+}
 
 /**
  * Rate a card - its image, or every image of it this gallery shows, through
  * both switches - or, with `imageId`, one image "Show images" shows. Your
  * rating again clears it. What the switches now hide leaves at once.
  */
-window.mmRateGeneration = async function(id, value, imageId = null) {
+async function rateGeneration(id, value, imageId = null) {
     const { card } = drawnGeneration(id);
     if (!card) return;
     const image = imageId !== null ? (card.all || card.images || []).find((i) => Number(i.id) === Number(imageId))
@@ -2090,7 +2089,7 @@ window.mmRateGeneration = async function(id, value, imageId = null) {
     }
     redrawGenerationCard(card.id);
     await refreshGenerationTotals();
-};
+}
 
 /** Fetch the generations again, from page 1. */
 function refreshGenerations() {
@@ -2295,12 +2294,12 @@ function generationsBannerHtml() {
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: state.hidden_nsfw, count: state.nsfw_count,
-              onchange: 'window.mmToggleShowNsfwImages(this.checked)', note: nsfwModelNote() },
+              action: 'modelManager.showNsfwImages', note: nsfwModelNote() },
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: state.hidden_promptless,
               count: state.promptless_count, total: state.promptless_total ?? undefined,
-              onchange: 'window.mmToggleShowPromptless(this.checked)' },
+              action: 'modelManager.showPromptless' },
         ],
     });
 }
@@ -2347,7 +2346,7 @@ function viewCivitaiImage(index) {
     openViewer(cardSource({
         cards: civitaiCards,
         more: () => !!imageGallery.pages[imageGallery.pages.length - 1]?.more,
-        loadMore: () => window.mmLoadMoreImages(),
+        loadMore: () => loadMoreImages(),
         videoUrl: viewerVideoUrl,
     }), at);
 }
@@ -2368,7 +2367,7 @@ const generationViewerSource = {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return '';
         const label = resourceButtonLabel({ meta: image.meta || {} }, currentVersionId);
-        return `${ratingRowHtml(image, 'window.mmRateInViewer(%)')}
+        return `${ratingRowHtml(image, 'modelManager.rateInViewer')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
             <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>`;
@@ -2427,13 +2426,13 @@ function viewGenerationImage(imageId) {
 }
 
 /** Rate the image the viewer shows; one the switches now hide leaves, and the next shows in its place. */
-window.mmRateInViewer = async function(value) {
+async function rateInViewer(value) {
     const index = viewerIndex();
     const { card, image } = generationViewerImages()[index] || {};
     if (!image) return;
-    await window.mmRateGeneration(card.id, value, image.id);
+    await rateGeneration(card.id, value, image.id);
     if (viewerIndex() === index) showImage(index);
-};
+}
 
 /** Delete one image of a generation, from the viewer: asked first, and whether its file goes too. */
 async function deleteGenerationImage(card, image) {
@@ -2493,7 +2492,7 @@ function renderGenerationCard(card, index) {
                     ${preview.map((img) => generationImageHtml(img, { viewable: true })).join('')}
                 </div>
                 ${rateGenerations ? ratingRowHtml(card.matching_count <= 1 ? first : card,
-                                                  `window.mmRateGeneration(${Number(card.id)}, %)`) : ''}
+                                                  'modelManager.rateGeneration', { generation: Number(card.id) }) : ''}
             </div>
             <div class="mm-image-right">
                 <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
@@ -2516,7 +2515,7 @@ function renderGenerationCard(card, index) {
                 </div>
                 ${card.all ? `<div class="mm-generation-all">${card.all.map((img) => rateGenerations
                     ? `<div class="mm-generation-rated">${generationImageHtml(img, { viewable: true })}${ratingRowHtml(img,
-                        `window.mmRateGeneration(${Number(card.id)}, %, ${Number(img.id)})`)}</div>`
+                        'modelManager.rateGeneration', { generation: Number(card.id), image: Number(img.id) })}</div>`
                     : generationImageHtml(img, { viewable: true })).join('')}</div>` : ''}
             </div>
         </div>`;
@@ -2596,13 +2595,14 @@ let galleryWidth = null;
 
 // A Civitai image's card, as both tabs draw it (shared/image_card.mjs): this
 // tab's Send, Show All and Resources, and the version its gallery is of.
-const IMAGE_ACTIONS = { send: 'mmSendToTxt2img', showAll: 'mmShowImageMeta', resources: 'mmShowResources' };
+const IMAGE_ACTIONS = { send: 'modelManager.sendImage', showAll: 'modelManager.showImageMeta',
+                        resources: 'modelManager.showResources' };
 function renderImageCard(img, index) {
     return sharedImageCard(img, index, { width: galleryWidth, exclude: currentVersionId, actions: IMAGE_ACTIONS });
 }
 
 // Show All, the same window in both tabs.
-window.mmShowImageMeta = (imageIndex) => showImageMeta(imageGallery.images[imageIndex]);
+const showImageMetaAt = (imageIndex) => showImageMeta(imageGallery.images[imageIndex]);
 
 
 /** Relabel the gallery's Resources buttons from what is known now - your generations' too. */
@@ -2633,9 +2633,9 @@ function refreshResourceButtons(images = [...imageGallery.images, ...generationC
 }
 
 // Show the resources behind an image, resolved and merged
-window.mmShowResources = function(imageIndex) {
+function showResources(imageIndex) {
     return showImageResources(imageGallery.images[imageIndex], currentVersionId);
-};
+}
 
 /**
  * One of your generations' resources, in the same dialog: its LoRAs and
@@ -2666,7 +2666,7 @@ function generationResourcesImage(card) {
 }
 
 // Load the next page, filled from Civitai first if the library cannot fill it.
-window.mmLoadMoreImages = () => imageGallery.more((number) => loadGalleryPage(number, { append: true }));
+const loadMoreImages = () => imageGallery.more((number) => loadGalleryPage(number, { append: true }));
 
 /**
  * The version whose gallery is showing: the one picked in the details panel,
@@ -2676,7 +2676,7 @@ function shownVersion(model) {
     return (currentVersions.length && currentVersions[selectedVersionIndex]) || model;
 }
 
-window.mmSendToTxt2img = async function(imageIndex) {
+async function sendToTxt2img(imageIndex) {
     const img = imageGallery.images[imageIndex];
     if (!img || !img.meta) {
         console.error('[ModelManager] No image data at index', imageIndex);
@@ -2688,7 +2688,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
 
     const model = currentModels[selectedModelIndex];
     await sendGalleryImage({ img, model, version: model ? shownVersion(model) : null });
-};
+}
 
 // Close details panel
 // Jump straight to one model, e.g. from the Civitai Browser: this tab first,
@@ -2747,7 +2747,7 @@ async function showModel(query) {
 
     // A targeted lookup normally returns exactly one model - open it
     if (currentModels.length === 1) {
-        await window.mmSelectModel(0);
+        await selectModel(0);
     } else if (currentModels.length === 0) {
         // A file looked up by its path is named by its file name.
         const what = query.startsWith('path:') ? query.slice(5).split(/[\\/]/).pop() : query;
@@ -3297,6 +3297,32 @@ function setupScrollToTop() {
         }, 100);
     }, { passive: true });
 }
+
+// ---------------------------------------------------------------- markup
+// What this tab's markup does, by name: a card, a button or a field says it
+// in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
+provide('modelManager.toggleNsfwDropdown', () => toggleNsfwDropdown());
+provide('modelManager.toggleCommercialDropdown', () => toggleCommercialDropdown());
+provide('modelManager.selectModel', ({ index }) => selectModel(Number(index)));
+provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
+provide('modelManager.prevPage', () => prevPage());
+provide('modelManager.nextPage', () => nextPage());
+provide('modelManager.togglePin', ({ index }) => togglePin(Number(index)));
+provide('modelManager.showNsfwImages', (data, box) => toggleShowNsfwImages(box.checked));
+provide('modelManager.showPromptless', (data, box) => toggleShowPromptless(box.checked));
+provide('modelManager.loadMoreImages', () => loadMoreImages());
+provide('modelManager.selectAllGenerations', () => selectAllGenerations());
+provide('modelManager.clearGenerationPicks', () => clearGenerationPicks());
+provide('modelManager.deletePickedGenerations', () => deletePickedGenerations());
+provide('modelManager.rateInViewer', ({ level }) => rateInViewer(Number(level)));
+provide('modelManager.rateGeneration', ({ generation, level, image }) =>
+    rateGeneration(Number(generation), Number(level), image ? Number(image) : null));
+provide('modelManager.download', ({ modelId, versionId, fileId }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
+provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
+provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
+provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
+provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
 
 onReady(init);
 onReady(setupScrollToTop);

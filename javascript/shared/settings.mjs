@@ -1173,8 +1173,7 @@ export function settingsWindow() {
     return (theWindow ||= createSettings());
 }
 
+// From code, and from the gear and the banners' links: data-tab or data-section.
 provide('settings.open', (options) => settingsWindow().open(options));
-// The gear and the banners' links open it from markup, which reaches only globals.
-window.mmOpenSettings ||= (options) => settingsWindow().open(options);
 restampNotice();
 followSettingsPage();

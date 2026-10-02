@@ -9,7 +9,7 @@
 // Here one image is drawn in both tabs: the card says the same in each, and
 // Show All opens the same window - the table, with a Copy JSON button.
 import { readFileSync } from 'node:fs';
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -74,12 +74,12 @@ const browserCard = () => document.querySelector('#cb_images .mm-image-card');
 
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Model Manager\'s grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0, 40);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('its gallery', () => managerCard(), 40);
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the browser\'s grid', () => $('cb_status').textContent.startsWith('Showing'), 40);
-await window.cbOpenModel(0);
+await act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('its gallery', () => browserCard(), 40);
 
 check('the same image says the same in both tabs', said(browserCard()), said(managerCard()));
@@ -96,10 +96,10 @@ const windowSays = () => ({
     copy: (() => { try { return JSON.parse(shown()?.querySelector('[data-copy]')?.getAttribute('data-copy') || 'null'); }
                    catch { return 'not JSON'; } })(),
 });
-window.mmShowImageMeta(0);
+act('modelManager.showImageMeta', { index: 0 });
 const inManager = windowSays();
 shown()?.remove();
-window.cbShowImageMeta(0);
+act('civitaiBrowser.showImageMeta', { index: 0 });
 const inBrowser = windowSays();
 shown()?.remove();
 check('Show All opens the same window in both', inBrowser, inManager);

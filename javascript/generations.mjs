@@ -37,7 +37,7 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
-const { ready, call } = await shared('calls.mjs');
+const { provide, ready, call } = await shared('calls.mjs');
 const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -488,7 +488,7 @@ function tileHtml(tile, index) {
 
     // A group is not rated whole: its images are of any prompt and settings.
     const rateRow = rating && tile.kind !== 'group'
-        ? ratingRowHtml(folded ? tile : image, `window.genRate(${index}, %)`) : '';
+        ? ratingRowHtml(folded ? tile : image, 'generations.rate', { tile: index }) : '';
 
     const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
                      tile.kind === 'group' && 'gen-grouping'].filter(Boolean).join(' ');
@@ -655,7 +655,7 @@ function renderBanner() {
         switches: [{
             id: 'gen_show_nsfw', label: 'Show NSFW', reason: 'NSFW filter',
             showing: !hideNsfw, hidden: state.hidden_nsfw || 0, count: state.nsfw_count || 0,
-            onchange: 'window.genShowNsfw(this.checked)', note: nsfwModelNote(),
+            action: 'generations.showNsfw', note: nsfwModelNote(),
         }],
     });
 }
@@ -687,7 +687,7 @@ async function sendImage(tile, image) {
  * grid at once. A group is not rated whole - too easily misrated; its
  * batches and images are, once it is opened.
  */
-window.genRate = async function(index, value) {
+async function rateTile(index, value) {
     const tile = tiles[index];
     if (!tile || tile.kind === 'group') return;
     const single = tile.kind === 'image' || (tile.kind === 'generation' && tile.matching_count <= 1);
@@ -702,7 +702,7 @@ window.genRate = async function(index, value) {
         markAboveChanged();
         await reloadKeepingPlace();
     }
-};
+}
 
 /**
  * Rate one image, and draw it as it now is - taken off its tile if the NSFW
@@ -762,11 +762,11 @@ async function reloadKeepingPlace() {
     window.scrollTo?.(0, y);
 }
 
-window.genSetRating = function(checked) {
+function switchRating(checked) {
     rating = !!checked;
     if (rating && selecting) setSelecting(false);
     redrawAll();
-};
+}
 
 // ------------------------------------------------------------- selecting
 /**
@@ -806,8 +806,8 @@ function updateSelectBar() {
     const bar = byId('gen_select_bar');
     if (!bar) return;
     bar.hidden = !selecting;
-    bar.innerHTML = selecting ? selectBarHtml(selection().images, { all: 'window.genSelectAll()',
-        clear: 'window.genSelectClear()', delete: 'window.genDeleteSelected()' }) : '';
+    bar.innerHTML = selecting ? selectBarHtml(selection().images, { all: 'generations.selectAll',
+        clear: 'generations.selectClear', delete: 'generations.deleteSelected' }) : '';
 }
 
 /** The ticks drawn as the selection is: after a range or Select all. */
@@ -851,7 +851,7 @@ function setSelecting(on) {
     clearSelection();
 }
 
-window.genSetSelecting = function(checked) {
+function switchSelecting(checked) {
     setSelecting(!!checked);
     if (selecting && rating) {
         rating = false;
@@ -859,7 +859,7 @@ window.genSetSelecting = function(checked) {
         if (rate) rate.checked = false;
     }
     redrawAll();
-};
+}
 
 /**
  * Tick tile `index`, or untick it - or with shift every tile from the last
@@ -898,21 +898,21 @@ document.addEventListener('click', (event) => {
     pickTile(index, !selected.has(key), event.shiftKey);
 }, true);
 
-window.genSelectAll = function() {
+function selectAll() {
     for (const tile of tiles) {
         const key = tileKey(tile);
         if (key) selected.add(key);
     }
     showTicks();
-};
+}
 
-window.genSelectClear = function() {
+function selectClear() {
     clearSelection();
     showTicks();
-};
+}
 
 /** The one Delete: asked once, with how many and the files option. */
-window.genDeleteSelected = async function() {
+async function deleteSelected() {
     const picked = selection();
     if (!picked.images) return;
     const answer = await askToDelete(bulkDeleteQuestion(picked.images, picked.generations.size, picked.hidden),
@@ -930,7 +930,7 @@ window.genDeleteSelected = async function() {
     markAboveChanged();
     await refreshTotals();
     setStatus(tiles.length ? bulkDeleteReport(data, answer.withFiles) : emptyText());
-};
+}
 
 // ------------------------------------------------------------- the ⋯ menu
 // More that can be done with a tile or the image in the viewer, in a menu
@@ -1063,7 +1063,7 @@ const viewerSource = {
         const { tile, image } = viewerAt(index);
         if (!image) return '';
         const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
-        return `${ratingRowHtml(image, 'window.genRateInViewer(%)')}
+        return `${ratingRowHtml(image, 'generations.rateInViewer')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${mode}</button>
             <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>
             ${menuFor(image).length
@@ -1179,13 +1179,13 @@ function infoHtml(tile, image, url) {
  * Rate the image shown. If the NSFW switch now hides it, the viewer shows the
  * one now in its place - the next - or the last, as after a delete.
  */
-window.genRateInViewer = async function(value) {
+async function rateInViewer(value) {
     const index = viewerIndex();
     const { t, image } = viewerAt(index);
     if (!image) return;
     await rateImage(t, image, value);
     if (viewerIndex() === index) showImage(index);
-};
+}
 
 /** Delete the image shown, and show the one now in its place - or the last. */
 async function deleteFromViewer() {
@@ -1276,13 +1276,13 @@ async function refreshTotals() {
 }
 
 // ------------------------------------------------------------- the switches
-window.genSetPreserveOrder = function(checked) {
+function switchPreserveOrder(checked) {
     preserveOrder = !!checked;
     writeFlag(PRESERVE_ORDER_KEY, preserveOrder);
     const grid = byId('gen_grid');
     grid?.classList.toggle('gen-ordered', preserveOrder);
     applySpans();
-};
+}
 
 /** Group by something else, or nothing: the tab starts again from its top level. */
 window.genSetGroupBy = function(value) {
@@ -1296,20 +1296,34 @@ window.genSetGroupBy = function(value) {
     return reload();
 };
 
-window.genShowNsfw = function(checked) {
+function showNsfw(checked) {
     hideNsfw = !checked;
     markAboveChanged();
     window.scrollTo?.(0, 0);
     return reload();
-};
+}
 
-window.genRefresh = () => {
+const refresh = () => {
     markAboveChanged();
     return reload();
 };
 
 /** For tests, and anything else that wants the next part now. */
 window.genLoadMore = () => loadNext();
+
+// ---------------------------------------------------------------- markup
+// What this tab's markup does, by name: a tile, a button or a field says it
+// in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
+provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.checked));
+provide('generations.rating', (data, box) => switchRating(box.checked));
+provide('generations.selecting', (data, box) => switchSelecting(box.checked));
+provide('generations.refresh', () => refresh());
+provide('generations.showNsfw', (data, box) => showNsfw(box.checked));
+provide('generations.rate', ({ tile, level }) => rateTile(Number(tile), Number(level)));
+provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
+provide('generations.selectAll', () => selectAll());
+provide('generations.selectClear', () => selectClear());
+provide('generations.deleteSelected', () => deleteSelected());
 
 /**
  * The tab's markup, once Gradio has drawn it. The script runs when the page

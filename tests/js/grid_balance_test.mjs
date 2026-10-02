@@ -9,7 +9,7 @@
 // linkedom does no layout, so the widths are stubbed: every card is 200px,
 // the gap 15px, and the grid as wide as each check says. The layout is read
 // back from the cap put on the card list, which is what makes it wrap.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -72,7 +72,7 @@ await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 gridWidth = roomFor(10) + 50;
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('a page of cards', () => document.querySelectorAll('#cb_grid .model-card').length === 10);
 
 check('ten cards with room for ten sit in one row', rows(), '10');
@@ -88,7 +88,7 @@ check('an exact fit counts as a fit', rows(), '10');
 // Another page size, and a width the page has never been rendered at.
 pageSize = 20;
 resize(roomFor(8) + 10);
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('a page of twenty', () => document.querySelectorAll('#cb_grid .model-card').length === 20);
 check('twenty with room for eight is 7 + 7 + 6, not 8 + 8 + 4', rows(), '7 + 7 + 6');
 

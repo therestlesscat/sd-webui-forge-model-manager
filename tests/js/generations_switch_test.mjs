@@ -5,7 +5,7 @@
 // ui-options, and again when the setting is saved: in the settings window
 // (its answer carries the value) or on the Settings page (only which keys
 // changed, so the page asks). The server's side: generations_switch_test.py.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -54,7 +54,7 @@ check('and, as it was showing, the page goes to the Model Manager', clicked, ['M
 
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelector('#mm_grid .model-card'));
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-images-header'));
 const galleryTabs = () => Array.from(document.querySelectorAll('#mm_images .mm-gallery-tab')).map((t) => t.textContent.trim());
 check('a model\'s gallery has only its Civitai images', galleryTabs(), ['Civitai images']);

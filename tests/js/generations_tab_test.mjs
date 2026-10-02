@@ -7,7 +7,7 @@
 // one whose file is gone says so and opens nothing. Send pastes the
 // generation's own infotext, as Forge's PNG Info does, and Delete removes the
 // record - and the files only with the box beside it ticked.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -116,7 +116,7 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-gallery-tab'));
 
 const tabs = () => Array.from(document.querySelectorAll('#mm_images .mm-gallery-tab'))
@@ -259,7 +259,7 @@ check('ticked, a card has a row of levels under its images',
       Array.from(cardRow()?.querySelectorAll('.mm-rate-chip') || []).map((c) => c.textContent.trim()),
       ['PG', 'PG-13', 'R', 'X', 'XXX']);
 const pagesBefore = asked.filter((u) => u.includes('/generations/page')).length;
-await window.mmRateGeneration(2, 4);
+await act('modelManager.rateGeneration', { generation: 2, level: 4 });
 check('a card rated: every image of it the gallery shows, by the model\'s file and the generation',
       [ratings.at(-1).path, ratings.at(-1).generation, ratings.at(-1).level, ratings.at(-1).hide_promptless_images],
       ['C:/models/a.safetensors', '2', '4', 'true']);
@@ -270,13 +270,13 @@ check('and the cards loaded again, the rating marked as yours',
 if (!cards()[0].querySelector('.mm-generation-all')) await window.mmShowAllGeneration(2);
 const imageRows = () => cards()[0].querySelectorAll('.mm-generation-rated .mm-rate');
 check('each image "Show images" shows has its own row', imageRows().length, 6);
-await window.mmRateGeneration(2, 8, 23);
+await act('modelManager.rateGeneration', { generation: 2, level: 8, image: 23 });
 check('an image rated X there, with NSFW hidden, leaves the card at once',
       [ratings.at(-1).image_id, ratings.at(-1).level, imageRows().length], ['23', '8', 5]);
 window.mmSetRatingGenerations(false);
 check('unticked, the rows go', [!!cardRow(), imageRows().length], [false, 0]);
 
-await window.mmSelectModel(1);
+await act('modelManager.selectModel', { index: 1 });
 await waitFor('the next model', () => tabs().length === 2 && tabs()[0][1]);
 check('the next model opens on its Civitai images again', tabs(),
       [['Civitai images', true], ['Your generations (0)', false]]);

@@ -270,11 +270,11 @@ if (hasApiKey) {
         $('mm_api_key_warning').style.display, 'flex');
     const bannerText = $('mm_api_key_warning').textContent;
     check('it says what is missing', bannerText.includes('No Civitai API key'), true);
-    // (This DOM does not run inline handlers; the link's own is read instead.)
+    const link = $('mm_api_key_warning').querySelector('.mm-banner-link');
     check('and exactly where to set it: a link opening the settings window there',
-        [bannerText.includes('Set one in the settings, under Civitai connection'),
-         $('mm_api_key_warning').querySelector('.mm-banner-link')?.getAttribute('onclick')],
-        [true, "window.mmOpenSettings && window.mmOpenSettings({ section: 'connection' }); return false;"]);
+        [bannerText.includes('Set one in the settings, under Civitai connection'), link?.dataset.action,
+         link?.dataset.section],
+        [true, 'settings.open', 'connection']);
     check('and what it costs', /0\.5 per second|image prompts/.test(bannerText), true);
 }
 

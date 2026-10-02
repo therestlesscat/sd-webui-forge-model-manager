@@ -4,10 +4,11 @@
 // its details both pin it - a Civitai model by its id, a file Civitai does
 // not know by its path - and show it pinned where it is, without moving it
 // from under the pointer; the tabs' counts follow at once.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
-const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, act, checker, mountTab, press, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The page first: the registry listens to it when it loads.
+const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
 const model = (over) => ({
@@ -77,10 +78,10 @@ check('the grid opens on Unpinned: the models not pinned, asked for as such',
 check('each tab says how many match the filters', [tabText('pinned'), tabText('others')],
       ['📌 Pinned (1)', 'Unpinned (1)']);
 check('every card has a pin, whose click is its own, not the card\'s',
-      [cardPin(0)?.className, cardPin(0)?.getAttribute('onclick')],
-      ['mm-pin-btn', 'event.stopPropagation(); window.mmTogglePin(0)']);
+      [cardPin(0)?.className, cardPin(0)?.dataset.action, cardPin(0)?.dataset.index],
+      ['mm-pin-btn', 'modelManager.togglePin', '0']);
 
-await window.mmTogglePin(0);
+await press(cardPin(0));
 check('a file Civitai does not know is pinned by its path',
       pins.at(-1), { pinned: 'true', file_path: 'C:/m/b.safetensors' });
 check('and its card shows it pinned, where it was, and the counts follow',
@@ -93,19 +94,19 @@ check('the Pinned tab asks for the pinned models, and is the one lit',
       [asked.at(-1)?.get('pinned'), tab('pinned').classList.contains('active'),
        tab('others').classList.contains('active')], ['true', true, false]);
 
-await window.mmTogglePin(0);
+await act('modelManager.togglePin', { index: 0 });
 check('a model is unpinned by its id', pins.at(-1), { pinned: 'false', model_id: '50' });
 check('and its card no longer shows it, still where it was', [cardPin(0)?.className, names()],
       ['mm-pin-btn', ['Pinned already']]);
-await window.mmTogglePin(0);
+await act('modelManager.togglePin', { index: 0 });
 
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the details', () => document.querySelector('#mm_details .detail-header'));
 const detailsPin = () => document.querySelector('#mm_details .mm-pin-toggle');
 check('the details panel has the pin beside the bookmark, as the card shows it',
-      [detailsPin()?.classList.contains('pinned'), detailsPin()?.getAttribute('onclick')],
-      [true, 'window.mmTogglePin(0)']);
-await window.mmTogglePin(0);
+      [detailsPin()?.classList.contains('pinned'), detailsPin()?.dataset.action, detailsPin()?.dataset.index],
+      [true, 'modelManager.togglePin', '0']);
+await press(detailsPin());
 check('which unpins it there and on the card together',
       [detailsPin()?.classList.contains('pinned'), cardPin(0)?.className, pins.at(-1)],
       [false, 'mm-pin-btn', { pinned: 'false', model_id: '50' }]);

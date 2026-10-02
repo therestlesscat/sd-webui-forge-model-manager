@@ -11,7 +11,7 @@
 // real data: "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix". What
 // this checks is therefore which endpoint was asked and what came back, not
 // only the number of rows.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -146,10 +146,10 @@ document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 document.getElementById('mm_load_btn')
     .dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelectorAll('#mm_images .mm-image-card').length > 0);
 
-const button = document.querySelector('.mm-image-actions button[onclick*="mmShowResources"]');
+const button = document.querySelector('.mm-image-actions button[data-action="modelManager.showResources"]');
 check('the image offers its resources', !!button, true);
 
 // The button counts what the panel would list - duplicates once, the model
@@ -163,7 +163,7 @@ check('with four hashes not looked up yet, the count is a floor: the two Civitai
       + 'and the one hash-less file, with more to come',
       button.textContent.trim(), 'Resources (3+)');
 
-const showing = window.mmShowResources(0);
+const showing = act('modelManager.showResources', { index: 0 });
 check('the panel goes up before the lookups finish, not after',
       !!panel() && panel().textContent.includes('Looking up 4 more'), true);
 check('already showing what needed no lookup',
@@ -216,7 +216,7 @@ check('once looked up, the button says exactly what the panel lists',
 // after each.
 resolver.cap = 1;
 resolveCalls.length = 0;
-const rounds = window.mmShowResources(0);
+const rounds = act('modelManager.showResources', { index: 0 });
 await waitFor('a first round', () => resolveCalls.length >= 1);
 await rounds;
 check('a capped server is asked again for what it deferred', resolveCalls.length, 4);
@@ -231,7 +231,7 @@ resolver.cap = null;
 // A hash whose lookup failed is not the same as one Civitai does not know.
 resolver.answers = { ...RESOLVED };
 delete resolver.answers.dddddddddd;
-await window.mmShowResources(0);
+await act('modelManager.showResources', { index: 0 });
 await waitFor('the panel', () => !!panel() && !panel().textContent.includes('Looking up'));
 const reasons = Array.from(panel().querySelectorAll('.mm-res-unresolved'))
     .map((row) => row.querySelector('.mm-res-actions').textContent.trim());
@@ -246,7 +246,7 @@ resolver.answers = RESOLVED;
 // key - could paint over one opened after it. It must not.
 let release;
 resolver.hold = new Promise((resolve) => { release = resolve; });
-const slow = window.mmShowResources(0);
+const slow = act('modelManager.showResources', { index: 0 });
 await waitFor('the slow lookup to be in flight', () => resolveCalls.length > 0);
 
 // Meanwhile the panel is closed and a different one opened in its place.
@@ -254,7 +254,7 @@ document.querySelector('.mm-modal-overlay')?.remove();
 document.body.insertAdjacentHTML('beforeend',
     '<div class="mm-modal-overlay"><div class="mm-modal mm-resources-modal" id="newer-panel"></div></div>');
 resolver.hold = null;
-await window.mmShowResources(0);
+await act('modelManager.showResources', { index: 0 });
 const newer = panel();
 
 release();
@@ -297,12 +297,11 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     return fetchBefore(url, init);
 });
 const cell = (id) => panel()?.querySelector(`[data-res-download="${id}"]`);
-// The button's own onclick, run as the browser would: the harness's DOM does
-// not run inline handlers, and what it calls with is part of what is checked.
-const press = (id) => new Function(cell(id).querySelector('button').getAttribute('onclick'))();
+// The row's own Download, pressed: what it carries is part of what is checked.
+const download = (id) => press(cell(id).querySelector('button'));
 
 document.querySelector('.mm-modal-overlay')?.remove();
-await window.mmShowResources(0);
+await act('modelManager.showResources', { index: 0 });
 await waitFor('the installed check', () => cell(6002)?.textContent.includes('Installed'));
 check('a version the library has says so, and offers no download',
       [cell(6002).textContent.trim(), !!cell(6002).querySelector('button')], ['Installed', false]);
@@ -311,7 +310,7 @@ check('one it does not have offers Download', cell(6001).textContent.trim(), 'Do
 server.download[6001] = { success: true, version_id: 6001, version_name: 'v1', substituted: false,
                           progress: { version_id: 6001, percent: 0, status: 'pending' } };
 server.progress[6001] = { version_id: 6001, percent: 40.2, status: 'downloading', synced: false };
-press(6001);
+download(6001);
 await waitFor('the download to be asked for', () => downloadsAsked.length === 1);
 check('it asks the server for that very version, a newer one only if it is gone',
       [downloadsAsked[0].version_id, downloadsAsked[0].newer_if_gone], ['6001', 'true']);
@@ -324,7 +323,7 @@ check('in the library, it says Installed', cell(6001).textContent.trim(), 'Insta
 server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true,
                           progress: { version_id: 7009, percent: 0, status: 'pending' } };
 server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
-press(7001);
+download(7001);
 await waitFor('the newer version', () => cell(7001)?.textContent.includes('Installed'), 5000);
 check('and the row says which it got, and why',
       cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Installed v3 (the image's is gone)");
@@ -342,10 +341,10 @@ check('with no model id to send, none is sent - the server looks it up',
 // download that fails says so, and can be tried again.
 IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Third', modelVersionId: 6003, modelId: 4103 });
 document.querySelector('.mm-modal-overlay')?.remove();
-await window.mmShowResources(0);
+await act('modelManager.showResources', { index: 0 });
 await waitFor('the panel again', () => !!cell(6003)?.querySelector('button'));
 server.download[6003] = { success: false, error: 'Early access: needs an API key' };
-press(6003);
+download(6003);
 await waitFor('the failure', () => cell(6003)?.textContent.includes('Failed'));
 check('a model id the image carries is sent along', downloadsAsked.at(-1).model_id, '4103');
 check('a failed download says so, with the reason on hover, and can be tried again',
@@ -355,10 +354,10 @@ check('a failed download says so, with the reason on hover, and can be tried aga
 // Not found is for good: the version and its whole model are gone.
 IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Gone', modelVersionId: 6004, modelId: 4104 });
 document.querySelector('.mm-modal-overlay')?.remove();
-await window.mmShowResources(0);
+await act('modelManager.showResources', { index: 0 });
 await waitFor('the panel again', () => !!cell(6004)?.querySelector('button'));
 server.download[6004] = { status: 404, success: false, error: 'Model not found on Civitai' };
-press(6004);
+download(6004);
 await waitFor('the answer', () => !!cell(6004)?.textContent.includes('Not on Civitai'));
 check('one Civitai no longer has says so, and offers no retry',
       [cell(6004).textContent.trim(), !!cell(6004).querySelector('button')], ['Not on Civitai', false]);
