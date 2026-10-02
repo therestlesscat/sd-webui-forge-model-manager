@@ -469,7 +469,7 @@ check('the prompt switch\'s number is every image with an unusable prompt, howev
       [5, 5, 5, 5])
 check('one filter showing, nothing is hidden by both',
       (nsfw_shown['hidden_both'], prompts_shown['hidden_both']), (0, 0))
-from model_manager.api.images import filter_images                # noqa: E402
+from model_manager.gallery import filter_images                   # noqa: E402
 rows = db.get_all_images_for_version(VERSION)
 for label, hide_nsfw, hide_promptless in (('both hiding', True, True), ('NSFW shown', False, True),
                                           ('prompts shown', True, False), ('both showing', False, False)):
@@ -494,7 +494,7 @@ check('the endpoint reports what each switch is showing when nothing is hidden',
 # note counts what they hid. The gallery used to be sent whole, then paged
 # 100 matching images at a time, and a download from Civitai added pages
 # that lined up with neither.
-from model_manager.api.images import filter_images                   # noqa: E402
+from model_manager.gallery import filter_images                      # noqa: E402
 
 LARGE = facts['version_ids'][1]
 db.clear_version_images(LARGE)

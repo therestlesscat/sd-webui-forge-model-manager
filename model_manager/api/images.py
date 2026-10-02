@@ -12,15 +12,14 @@ import requests
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from ..db import get_models_db
-from ..nsfw import SFW_MAX, image_level, stamp_levels
+from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
 )
-from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
-from ..gallery import gallery_page_size
+from ..gallery import filter_images, gallery_page_size
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
 # while every one holds only images already stored.
@@ -167,40 +166,6 @@ def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -
         "hide_nsfw_images": hide_nsfw,
         "hide_promptless_images": hide_promptless,
     }
-
-
-def _has_readable_prompt(image: Dict[str, Any]) -> bool:
-    """hasReadablePrompt() in common.mjs, and the SQL images_ops filters with."""
-    meta = image.get("meta") or {}
-    return len((meta.get("prompt") or "").strip()) >= MIN_PROMPT_LENGTH
-
-
-def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
-                  hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """
-    The images the two switches let through, in order, and the counts - as
-    ImagesOps.get_image_counts() means each - over all of them: what each
-    filter alone hides, and what both do.
-    """
-    safe = [image_level(img) <= SFW_MAX for img in images]
-    readable = [_has_readable_prompt(img) for img in images]
-    nsfw_kept = [i for i in range(len(images)) if safe[i] or not hide_nsfw]
-    shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
-    both = sum(1 for i in range(len(images))
-               if hide_nsfw and hide_promptless and not safe[i] and not readable[i])
-    return [images[i] for i in shown], {
-        "total": len(images),
-        "filtered": len(shown),
-        "hidden_nsfw": len(images) - len(nsfw_kept) - both,
-        "hidden_both": both,
-        "hidden_promptless": len(nsfw_kept) - len(shown),
-        "hidden": len(images) - len(shown),
-        "nsfw_count": sum(1 for i in range(len(images))
-                          if not safe[i] and (readable[i] or not hide_promptless)),
-        "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
-        "promptless_total": sum(1 for r in readable if not r),
-    }
-
 
 
 def download_more(db, version: Dict[str, Any]) -> Dict[str, Any]:

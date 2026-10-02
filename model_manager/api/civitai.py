@@ -25,7 +25,8 @@ from ..civitai import (
 from .annotations import annotate_image_levels, annotate_local_ownership, annotate_paid_access
 from ..nsfw import stamp_levels
 from ..gallery import gallery_page_size
-from .images import PAGE_FETCHES, filter_images
+from ..gallery import filter_images
+from .images import PAGE_FETCHES
 
 # The most Civitai's /images gives one request, whatever limit it is sent:
 # 150, 200 and 201 all came back as 100.
