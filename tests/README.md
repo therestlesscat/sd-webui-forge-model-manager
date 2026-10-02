@@ -5,12 +5,13 @@ python tests/run.py --all           the offline suites and the static checks
 python tests/run.py --changed       only the suites the uncommitted changes need
 python tests/run.py --online        those, plus the ones that call Civitai
 python tests/run.py nsfw hash       only suites matching these words
-python tests/run.py -j 4            at most 4 at a time (default: one per CPU)
+python tests/run.py -j 8            at most 8 at a time (default: 4)
 python tests/py/hash_test.py        any suite, on its own, always
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`: about twenty seconds for all of them. A failing suite's tail is
+`tests/work/`, four at a time: about a minute for all of them. Not one per CPU:
+32 processes beside two running WebUIs left Windows out of memory. A failing suite's tail is
 printed after the list, its name in the last line, and its whole output kept
 in `tests/work/last_failures.log` until the next run.
 

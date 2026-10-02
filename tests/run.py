@@ -4,7 +4,7 @@ Run everything, and say what could not be run and why.
     python tests/run.py                 the offline suites and the checks
     python tests/run.py --online        those, plus the ones that call Civitai
     python tests/run.py nsfw hash       only suites whose name contains these
-    python tests/run.py -j 4            at most 4 suites at a time (default: one per CPU)
+    python tests/run.py -j 8            at most 8 suites at a time (default: 4)
     python tests/run.py --changed       only the suites the uncommitted changes need
     python tests/run.py --all           everything, said outright (what a bare run does)
 
@@ -240,7 +240,10 @@ def run_one(command, env, suite=None, record=False):
 
 def main(argv):
     online = '--online' in argv
-    jobs = os.cpu_count() or 4
+    # Four at a time, not one per CPU: each suite is a Python or Node process
+    # of its own, and 32 of them beside two running WebUIs left Windows out of
+    # memory to commit ("the paging file is too small").
+    jobs = 4
     for i, arg in enumerate(argv):
         if arg in ('-j', '--jobs') and i + 1 < len(argv):
             jobs = max(1, int(argv[i + 1]))
