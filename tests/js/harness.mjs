@@ -142,7 +142,7 @@ export function checker(label = '') {
  * page while there is one. The page does not
  * filter; the server does, in api/civitai.py, which browser_api_test.py holds
  * to the meanings used here. Each image needs the mm_level the server stamps;
- * the prompt floor is MIN_PROMPT_LENGTH. `more` says whether a page follows
+ * the prompt floor is the server's MIN_PROMPT_LENGTH. `more` says whether a page follows
  * the last of them - Civitai has more.
  */
 export function browserGalleryAnswer(href, images, extra = {}, { more = false, size = 100 } = {}) {

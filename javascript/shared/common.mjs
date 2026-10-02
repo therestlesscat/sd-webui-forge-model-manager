@@ -798,40 +798,6 @@ export function isImageSafe(image) {
 }
 
 /**
- * The shortest prompt worth showing, in characters after trimming.
- *
- * Measured against a library of 101,369 images: 10,476 carry no prompt at all,
- * and everything from one to ten characters together is 627. There is a cliff
- * rather than a slope, so the exact number matters far less than having one.
- * Below four is "1", ".", "???" - never a prompt someone wrote.
- */
-export const MIN_PROMPT_LENGTH = 4;
-
-/** Does this image carry a prompt worth reading? */
-export function hasReadablePrompt(image) {
-    const meta = image?.meta || {};
-    return (meta.prompt || '').trim().length >= MIN_PROMPT_LENGTH;
-}
-
-/**
- * Does this image carry a prompt you could reproduce it from?
- *
- * A prompt on its own is not enough - "Send to txt2img" without steps, sampler
- * and CFG produces something unrelated. Built on hasReadablePrompt() rather
- * than beside it, so the length floor cannot apply to one and not the other:
- * before it did, this accepted a prompt of "1" as long as the settings were
- * present.
- */
-export function hasUsablePrompt(image) {
-    if (!hasReadablePrompt(image)) return false;
-    const meta = image?.meta || {};
-    if (!meta.steps) return false;
-    if (!(meta.sampler || meta.Sampler)) return false;
-    if (!(meta.cfgScale || meta['CFG scale'])) return false;
-    return true;
-}
-
-/**
  * The widths Civitai's image server makes copies at. Asked for a width in
  * between, it sends the next one up - 128 to 320 all came back 320 wide,
  * 400 and 450 came back 450 - so these are the only sizes there are
