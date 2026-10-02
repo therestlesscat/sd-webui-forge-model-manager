@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from ..hashing import hash_key, read_hashes
 from .query import GridQuery, query_models_grouped
 from ..nsfw import UNKNOWN
-from typing import Optional, List, Dict, Any, Tuple, Callable, NamedTuple
+from typing import Optional, List, Dict, Any, Set, Tuple, Callable, NamedTuple
 
 # Whether the disk ignores case, as Windows does. file_path is unique as SQL
 # compares it, case and all, so a walk spelling a stored file another way
@@ -921,6 +921,29 @@ class ModelsOps:
             rows = self._whole_rows(cursor, list(id_paths.values()) + list(hash_paths.values()))
         return ({i: rows[p] for i, p in id_paths.items()},
                 {h: rows[p] for h, p in hash_paths.items()})
+
+    def owned_by_library(self, model_ids, version_ids) -> Tuple[Set[int], Set[int]]:
+        """
+        Which of these models and versions the library holds: (model ids,
+        version ids). A model is held if any file in the library is of it - by
+        its model id, or by a version id of it - including a version Civitai
+        no longer lists. The Civitai Browser's search cards and its details
+        panel each had a rule of their own, and a model held through a deleted
+        version was "Owned" on one and not on the other.
+        """
+        owned_models, owned_versions = set(), set()
+        with self._cursor() as cursor:
+            for column, ids in (("model_id", set(model_ids)), ("id", set(version_ids))):
+                ids.discard(None)
+                if not ids:
+                    continue
+                cursor.execute(
+                    f"SELECT DISTINCT model_id, id FROM model_versions "
+                    f"WHERE {column} IN ({','.join('?' * len(ids))})", list(ids))
+                for row in cursor.fetchall():
+                    owned_models.add(row["model_id"])
+                    owned_versions.add(row["id"])
+        return owned_models, owned_versions
 
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """

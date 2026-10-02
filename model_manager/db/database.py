@@ -303,6 +303,10 @@ class ModelsDatabase:
         """Store each file's path as a scan finds it. See ModelsOps.normalize_version_paths()."""
         return self._models.normalize_version_paths()
 
+    def owned_by_library(self, model_ids, version_ids) -> Tuple[Set[int], Set[int]]:
+        """Which of these models and versions the library holds. See ModelsOps.owned_by_library()."""
+        return self._models.owned_by_library(model_ids, version_ids)
+
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""
         return self._models.local_versions_by_name(names)

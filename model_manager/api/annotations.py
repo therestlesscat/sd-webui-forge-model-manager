@@ -55,23 +55,7 @@ def annotate_local_ownership(db, models: List[Dict[str, Any]]):
         if v.get("id")
     }
 
-    owned_models = set()
-    owned_versions = set()
-
-    if model_ids or version_ids:
-        with db._cursor() as cursor:
-            for column, ids in (("model_id", model_ids), ("id", version_ids)):
-                if not ids:
-                    continue
-                placeholders = ",".join("?" * len(ids))
-                cursor.execute(
-                    f"SELECT DISTINCT model_id, id FROM model_versions "
-                    f"WHERE {column} IN ({placeholders})",
-                    list(ids)
-                )
-                for row in cursor.fetchall():
-                    owned_models.add(row["model_id"])
-                    owned_versions.add(row["id"])
+    owned_models, owned_versions = db.owned_by_library(model_ids, version_ids)
 
     for model in models:
         model["owned_locally"] = model.get("id") in owned_models
