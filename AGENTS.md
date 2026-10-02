@@ -72,6 +72,8 @@ version (see "The WebUI's rules"):
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
 | `grid` | cards, the grid and its page strip, its rows kept even |
+| `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text |
+| `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
 | `gallery` | a gallery's loading bar, filter banner and page notes |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
 | `your_generations` | selecting your images to delete, and rating one |
@@ -636,3 +638,11 @@ four at a time: about a minute. Not wider - each is a process of its own, and
 `--changed` runs only the suites the uncommitted changes need. See
 `tests/README.md` for what they cover, how the choice is made, and how to add
 one.
+
+**A test run takes a minute at most; one that needs longer is asked for
+first.** That is the owner's rule. Start every run under a time limit
+(`timeout 60`), and if it would need more, ask before running it. A suite
+waits in seconds, never in thousands of tries: a `waitFor` of 4,000 tries is
+200 s, and two of them in one suite ran a whole run past ten minutes, leaving
+the suite's process behind. After a run that was stopped, look for what it
+left running and stop only that.

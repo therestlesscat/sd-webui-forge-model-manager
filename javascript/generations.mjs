@@ -32,7 +32,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs',
-    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'send.mjs', 'update_notice.mjs',
+    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'samplers.mjs', 'send.mjs', 'update_notice.mjs',
     'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
