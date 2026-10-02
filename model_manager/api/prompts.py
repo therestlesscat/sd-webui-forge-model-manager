@@ -11,7 +11,6 @@ hours; the prompt check asks again each time. What makes that affordable is
 checking a chunk of models at once and pooling their prompt lookups: 20
 images each, up to 30 ids per lookup, so 8 models cost 8 + 6 requests, not 16.
 """
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +23,7 @@ from ..civitai import (
 from ..civitai.prompt_filter import RATE_LIMITED
 from ..prompt_rules import usable
 from ..nsfw import SFW_MAX, image_level
+from ..remembered import Remembered
 
 
 # Images looked at per model: one /images request.
@@ -43,8 +43,9 @@ PROMPT_CHECK_WORKERS = 8
 # paging back, or searching again, cost nothing: 40 models took 6.0 s to
 # check, and 0.6 s again from here. Only the verdict is kept, in memory.
 SFW_VERDICT_TTL_SECONDS = 6 * 60 * 60
-_sfw_verdicts: Dict[int, Tuple[bool, float]] = {}
-_sfw_lock = threading.Lock()
+# The 2,000 most recent: a session's pages of models, and an old one forgotten
+# is only checked again.
+_sfw_verdicts = Remembered(most=2000)
 
 
 def has_nsfw_image(images) -> bool:
@@ -57,22 +58,19 @@ def has_nsfw_image(images) -> bool:
 
 
 def _remembered_sfw(version_id: int) -> Optional[bool]:
-    with _sfw_lock:
-        entry = _sfw_verdicts.get(version_id)
+    entry = _sfw_verdicts.get(version_id)
     if entry and time.time() - entry[1] < SFW_VERDICT_TTL_SECONDS:
         return entry[0]
     return None
 
 
 def _remember_sfw(version_id: int, has_nsfw: bool) -> None:
-    with _sfw_lock:
-        _sfw_verdicts[version_id] = (has_nsfw, time.time())
+    _sfw_verdicts[version_id] = (has_nsfw, time.time())
 
 
 def forget_sfw_verdicts() -> None:
     """Clear what the SFW check remembers. For tests."""
-    with _sfw_lock:
-        _sfw_verdicts.clear()
+    _sfw_verdicts.clear()
 
 
 def inspect_models(client, models: List[Dict[str, Any]], *, want_prompts: bool,

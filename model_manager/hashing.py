@@ -17,6 +17,8 @@ import zlib
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from .remembered import Remembered
+
 # Try to import blake3, fall back gracefully if not available
 try:
     import blake3
@@ -293,8 +295,9 @@ def hash_key(value: Any) -> str:
 # ---------------------------------------------------------------- one file's sha256
 # For confirming a file found by name is the one an image used, before any
 # sync has stored its hashes. Kept per file until it changes: a gallery asks
-# about the same few LoRAs again and again.
-_sha256_seen: Dict[str, tuple] = {}
+# about the same few LoRAs again and again. No bound - one entry a file, and
+# one dropped would mean reading a file of gigabytes again.
+_sha256_seen = Remembered()
 
 
 def file_sha256(path: str) -> Optional[str]:
@@ -313,8 +316,9 @@ def file_sha256(path: str) -> Optional[str]:
                 digest.update(chunk)
     except OSError:
         return None
-    _sha256_seen[path] = (stat.st_mtime, stat.st_size, digest.hexdigest())
-    return _sha256_seen[path][2]
+    found = digest.hexdigest()
+    _sha256_seen[path] = (stat.st_mtime, stat.st_size, found)
+    return found
 
 
 def names_this_file(stored: Optional[Dict[str, str]], path: str, image_hash: str) -> bool:

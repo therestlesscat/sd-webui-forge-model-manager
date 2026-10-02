@@ -772,6 +772,50 @@ del sys.modules['tqdm']
 # ------------------------------------------------------------- the singleton
 check('the service is made once', get_download_service() is get_download_service(), True)
 
+# Asked for by two requests at once - the page's first poll on the event loop,
+# a Download on a worker thread - it could be made twice, each with its own
+# queue; and it was handed out before it had restored what was paused (#68).
+made_once = ds._download_service
+real_init, real_restore = DownloadService.__init__, DownloadService.restore
+restored, built = set(), []
+
+
+def slow_init(self, *args, **kwargs):
+    built.append(1)
+    time.sleep(0.05)
+    real_init(self, *args, **kwargs)
+
+
+def slow_restore(self):
+    time.sleep(0.1)
+    real_restore(self)
+    restored.add(id(self))
+
+
+got, ready = [], threading.Barrier(8)
+
+
+def ask_for_it():
+    ready.wait(5)
+    asked = get_download_service()
+    got.append((id(asked), id(asked) in restored))
+
+
+DownloadService.__init__, DownloadService.restore = slow_init, slow_restore
+ds._download_service = None
+try:
+    askers = [threading.Thread(target=ask_for_it) for _ in range(8)]
+    for asker in askers:
+        asker.start()
+    for asker in askers:
+        asker.join(5)
+finally:
+    DownloadService.__init__, DownloadService.restore = real_init, real_restore
+    ds._download_service = made_once
+check('asked for by eight requests at once, it is made once', (len(built), len({made for made, _ in got})), (1, 1))
+check('and handed to none of them before it has restored what was paused',
+      [r for _, r in got], [True] * 8)
+
 # ---------------------------------------------------------------- .partial
 # A download is written as <name>.partial and renamed once whole and its
 # SHA-256 checked: a download that fails never leaves a file under the

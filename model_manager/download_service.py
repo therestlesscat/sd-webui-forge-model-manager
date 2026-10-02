@@ -1088,13 +1088,20 @@ class DownloadService:
 
 # Global download service instance
 _download_service: Optional[DownloadService] = None
+_download_service_lock = threading.Lock()
 
 
 def get_download_service() -> DownloadService:
-    """Get or create download service instance."""
+    """
+    The one download service, made at the first ask. Made under a lock: the
+    page's first poll and a Download, on two threads at once, each made one,
+    and the queue that was not kept went unwatched. Handed out only once it
+    has restored what was running or paused when the WebUI last stopped.
+    """
     global _download_service
-    if _download_service is None:
-        _download_service = DownloadService(max_concurrent=2)
-        # What was running or paused when the WebUI last stopped, paused.
-        _download_service.restore()
+    with _download_service_lock:
+        if _download_service is None:
+            service = DownloadService(max_concurrent=2)
+            service.restore()
+            _download_service = service
     return _download_service
