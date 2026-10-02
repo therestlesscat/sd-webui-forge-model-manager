@@ -75,6 +75,17 @@ const DOWNLOAD_BUTTON_BUSY = {
     finishing: 'Adding to library...', complete: 'Downloaded', paused: 'Paused',
 };
 
+// A version asked for and not yet over is not asked for again: the server
+// answers the download it has (#119). A finished one can be - its file may
+// have been deleted since - though its Download button, saying Downloaded,
+// takes no click until the list forgets it.
+const ON_ITS_WAY = new Set(['starting', 'pending', 'downloading', 'finishing', 'paused']);
+
+/** Whether a version's download is on its way: asked for, queued, coming, being added, or paused. */
+export function onItsWay(versionId) {
+    return ON_ITS_WAY.has(downloads().status(versionId));
+}
+
 /** A Download button's label and whether it is disabled, from its version's download. */
 function downloadButtonState(versionId) {
     const busy = DOWNLOAD_BUTTON_BUSY[downloads().status(versionId)];
@@ -446,7 +457,7 @@ function createDownloads() {
          * one is gone from Civitai - what the Resources dialog asks for.
          */
         start: async function start(modelId, versionId, fileId, { newerIfGone = false } = {}) {
-            if (downloadButtonState(versionId).disabled) return { success: false, error: 'Already downloading' };
+            if (onItsWay(versionId)) return { success: false, error: 'Already downloading' };
             starting.add(Number(versionId));
             renderButtons();
             try {

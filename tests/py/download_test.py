@@ -703,6 +703,32 @@ check('Resume all: the top two run, the third waits - and no row moved',
 release(610, 611, 612)
 queue.wait()
 
+# Asked again for a version on its way - the Resources dialog asking for one
+# the Civitai Browser started, or for a gone version whose newest is already
+# coming - the queue answers what it has (#119). It used to drop the row and
+# queue it afresh, so a running download started over.
+again = Queueing(max_concurrent=1)
+running = again.queue_download(620, CHECKPOINT, version(id=620))
+waiting = again.queue_download(621, CHECKPOINT, version(id=621))
+held = again.queue_download(622, CHECKPOINT, version(id=622))
+settle()
+again.pause(622)
+check('asked again for one running, waiting or paused, the queue answers the download it has',
+      [again.queue_download(620, CHECKPOINT, version(id=620)) is running,
+       again.queue_download(621, CHECKPOINT, version(id=621)) is waiting,
+       again.queue_download(622, CHECKPOINT, version(id=622)) is held],
+      [True, True, True])
+check('nothing started over or moved: one run of the running one, the rows in their order, the paused one paused',
+      [[q[0] for q in queued].count(620), order(again), states(again)[621], states(again)[622]],
+      [1, [620, 621, 622], ('pending', 1), ('paused', None)])
+release(620, 621)
+again.wait()
+afresh = again.queue_download(620, CHECKPOINT, version(id=620))
+again.cancel(622)
+again.wait()
+check('a finished one asked again is queued afresh, and runs again',
+      [afresh is running, [q[0] for q in queued].count(620)], [False, 2])
+
 
 
 # ------------------------------------------------- syncing what was downloaded

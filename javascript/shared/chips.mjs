@@ -308,7 +308,8 @@ function missingChipState(chip) {
         const percent = job.finishing ? 100 : Number(job.percent) || 0;
         return { busy: true, mark: job.finishing || !percent ? CHIP_MARKS.busy : CHIP_MARKS.download,
                  progress: percent,
-                 note: job.finishing ? 'adding to library...' : percent ? `downloading, ${job.percent}%` : 'queued',
+                 note: job.finishing ? 'adding to library...' : job.paused ? `paused, ${percent}%`
+                     : percent ? `downloading, ${job.percent}%` : 'queued',
                  title: `Downloading the missing ${what} ${chip.title}` };
     }
     if (job && job.state === 'installed' && job.substituted) {
