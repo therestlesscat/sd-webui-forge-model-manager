@@ -81,9 +81,14 @@ stamps them too; an image without a stamp reads as Unknown, and is hidden.
 what they hold when handed `NULL`, `'[]'`, `0` or Unknown. A scan reading a
 thin `.civitai.info` cannot tell "this model has no trigger words" from "this
 file does not mention any", and it used to write the second over the first —
-blanking trigger words, dates, licences, vote counts and stored hashes. Adding
-a column means adding it in four places: the INSERT list, the VALUES tuple, the
-`DO UPDATE SET` list, and that no-clobber rule.
+blanking trigger words, dates, licences, vote counts and stored hashes. Both
+are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS` in
+`db/models_ops.py`), each column with how an update treats it - overwritten,
+kept when the new value says nothing, or a rule of its own - and given its
+value by name. Adding a column means an entry there, or in the list of
+columns written elsewhere; `upsert_columns_test.py` fails on one in neither.
+It used to be four places by hand, and a column missed from the `SET` list
+was written once and never updated.
 
 **A model's version list is Civitai's, as of the last sync.**
 `civitai_models.versions` holds every version Civitai lists, local or not, so
