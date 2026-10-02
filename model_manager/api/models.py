@@ -637,9 +637,6 @@ def register(app: FastAPI):
         Returns:
             Success status and list of deleted files.
         """
-        import os
-        import glob
-
         try:
             # Only ever a file the library itself recorded. This used to delete
             # whatever path it was sent - plus its .png/.jpg/.civitai.info
@@ -706,14 +703,6 @@ def register(app: FastAPI):
             # Remove from database
             db = get_models_db()
             db.delete_version(path)
-
-            # Clear images from cache if we have version info
-            try:
-                from ..storage import read_civitai_info
-                # We already deleted the file, so we can't read it
-                # The images will be orphaned in cache but that's okay
-            except Exception:
-                pass
 
             return JSONResponse({
                 "success": True,

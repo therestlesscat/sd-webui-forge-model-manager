@@ -6,7 +6,7 @@ Used by ModelsDatabase facade - do not import directly.
 """
 import json
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
-from ..nsfw import SFW_MAX, UNKNOWN, image_level
+from ..nsfw import SFW_MAX, image_level
 from typing import Tuple, Optional, List, Dict, Any, Callable, Set
 
 
@@ -34,11 +34,6 @@ class ImagesOps:
 
     # ==================== Images ====================
 
-    @staticmethod
-    def calculate_effective_nsfw_level(img: Dict[str, Any]) -> int:
-        """How explicit an image is. The rule lives in model_manager.nsfw."""
-        return image_level(img)
-
     def store_images(
         self,
         version_id: int,
@@ -62,7 +57,7 @@ class ImagesOps:
                     url = img.get("url")
                     width = img.get("width")
                     height = img.get("height")
-                    effective_nsfw_level = self.calculate_effective_nsfw_level(img)
+                    effective_nsfw_level = image_level(img)  # the rule lives in model_manager.nsfw
                     created_at = img.get("createdAt")
 
                     cursor.execute("""
@@ -363,43 +358,6 @@ class ImagesOps:
 
     # ==================== NSFW Levels ====================
 
-    def get_max_nsfw_levels(self, version_ids: List[int]) -> Dict[int, int]:
-        """
-        Get max NSFW level for each version from cached images.
-
-        Args:
-            version_ids: List of Civitai version IDs
-
-        Returns:
-            Dict mapping version_id to max effective_nsfw_level
-        """
-        if not version_ids:
-            return {}
-
-        with self._cursor() as cursor:
-            placeholders = ','.join(['?'] * len(version_ids))
-            cursor.execute(f"""
-                SELECT version_id, MAX(effective_nsfw_level) as max_nsfw
-                FROM images
-                WHERE version_id IN ({placeholders})
-                GROUP BY version_id
-            """, version_ids)
-
-            return {row["version_id"]: row["max_nsfw"] or UNKNOWN for row in cursor.fetchall()}
-
-    def get_max_nsfw_level(self, version_id: int) -> int:
-        """
-        Get max NSFW level for a single version from cached images.
-
-        Args:
-            version_id: Civitai version ID
-
-        Returns:
-            Max effective_nsfw_level (default 64/Unknown if no images)
-        """
-        result = self.get_max_nsfw_levels([version_id])
-        return result.get(version_id, UNKNOWN)
-
     # ==================== Cleanup ====================
 
     def count_by_version(self, version_ids: Optional[List[int]] = None) -> Dict[int, int]:
@@ -440,29 +398,3 @@ class ImagesOps:
         """
         with self._cursor() as cursor:
             cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
-
-    def clear_all(self):
-        """Clear all image data."""
-        with self._cursor() as cursor:
-            cursor.execute("DELETE FROM images")
-
-    # ==================== Stats ====================
-
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """
-        Get image cache statistics.
-
-        Returns:
-            Dict with total_images, total_versions.
-        """
-        with self._cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) as count FROM images")
-            total_images = cursor.fetchone()["count"]
-
-            cursor.execute("SELECT COUNT(DISTINCT version_id) as count FROM images")
-            total_versions = cursor.fetchone()["count"]
-
-        return {
-            "total_images": total_images,
-            "total_versions": total_versions
-        }

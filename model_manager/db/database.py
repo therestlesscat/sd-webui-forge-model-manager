@@ -252,10 +252,6 @@ class ModelsDatabase:
         """Get all local versions for a Civitai model."""
         return self._models.get_versions_for_model(model_id)
 
-    def get_local_version_count(self, model_id: int) -> int:
-        """Get count of local versions for a model."""
-        return self._models.get_local_version_count(model_id)
-
     def query_models_grouped(
         self,
         search: Optional[str] = None,
@@ -368,10 +364,6 @@ class ModelsDatabase:
     def get_distinct_values(self, column: str) -> List[str]:
         """Get distinct values for a column."""
         return self._models.get_distinct_values(column)
-
-    def get_distinct_model_types(self) -> List[str]:
-        """Get distinct model types."""
-        return self._models.get_distinct_model_types()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
@@ -500,14 +492,6 @@ class ModelsDatabase:
         """Get how many pages have been cached for a version."""
         return self._images.get_cached_page_count(version_id)
 
-    def get_max_nsfw_levels(self, version_ids: List[int]) -> Dict[int, int]:
-        """Get max NSFW level for each version from cached images."""
-        return self._images.get_max_nsfw_levels(version_ids)
-
-    def get_max_nsfw_level(self, version_id: int) -> int:
-        """Get max NSFW level for a single version."""
-        return self._images.get_max_nsfw_level(version_id)
-
     def clear_version_images(self, version_id: int):
         """Clear all cached images for a version."""
         self._images.clear_version(version_id)
@@ -545,22 +529,7 @@ class ModelsDatabase:
         """Get a version record by its Civitai version ID."""
         return self._models.get_version_by_id(version_id)
 
-    def get_image_cache_stats(self) -> Dict[str, Any]:
-        """Get image cache statistics."""
-        stats = self._images.get_cache_stats()
-        # Add db size
-        db_size = 0
-        if os.path.exists(self.db_path):
-            db_size = os.path.getsize(self.db_path) / (1024 * 1024)
-        stats["db_size_mb"] = round(db_size, 2)
-        return stats
-
     # ==================== Combined Operations ====================
-
-    def clear_all(self):
-        """Clear all records (models and images)."""
-        self._models.clear_all()
-        self._images.clear_all()
 
     def set_metadata(self, key: str, value: str):
         """Set a metadata value in schema_info."""

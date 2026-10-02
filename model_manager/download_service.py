@@ -1108,22 +1108,6 @@ class DownloadService:
                 progress.sync_error = str(e)
             print(f"[ModelManager] Failed to sync downloaded file: {e}")
 
-    def shutdown(self):
-        """
-        Stop: running downloads are paused, not cancelled - their .partial is
-        kept, and the next start offers them to resume - and waiting ones
-        are dropped.
-        """
-        with self._lock:
-            waiting = self._waiting()
-            running = [v for v, p in self._active_downloads.items() if p.status == "downloading"]
-        for version_id in waiting:
-            progress = self._active_downloads.get(version_id)
-            if progress:
-                progress.status = "cancelled"
-        for version_id in running:
-            self.pause(version_id)
-
 
 # Global download service instance
 _download_service: Optional[DownloadService] = None

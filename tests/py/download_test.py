@@ -667,9 +667,11 @@ for _ in range(100):
     if states(queue)[605][0] == 'downloading':
         break
     settle()
+# Two places free at once, so both start; which thread records itself first
+# is the scheduler's (it failed 1 run in 20 when this asserted 605 last).
 check('when places free up, they start from the top - the resumed one told it is resuming',
-      [states(queue)[604], states(queue)[605], queued[-1][0], [q[3] for q in queued if q[0] == 605]],
-      [('downloading', None), ('downloading', None), 605, [True]])
+      [states(queue)[604], states(queue)[605], [q[3] for q in queued if q[0] == 605]],
+      [('downloading', None), ('downloading', None), [True]])
 release(605)
 release(604)
 queue.wait()
@@ -694,15 +696,6 @@ check('Resume all: the top two run, the third waits - and no row moved',
 release(610, 611, 612)
 queue.wait()
 
-queue.queue_download(620, CHECKPOINT, version(id=620))
-queue.queue_download(621, CHECKPOINT, version(id=621))
-queue.queue_download(622, CHECKPOINT, version(id=622))
-settle()
-queue.shutdown()
-check('shutting down pauses what runs - kept to resume - and drops what waits',
-      [queue._is_paused(620), queue._is_paused(621), states(queue)[622][0]], [True, True, 'cancelled'])
-release(620, 621)
-queue.wait()
 
 
 # ------------------------------------------------- syncing what was downloaded

@@ -1,14 +1,12 @@
 """
 Civitai API client with rate limiting and retry logic.
 """
-import base64
 import json
 import time
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, List, Dict, Any, Tuple, Callable
-from dataclasses import dataclass
+from typing import Optional, List, Dict, Any, Tuple
 from urllib.parse import quote
 
 
@@ -771,8 +769,4 @@ class CivitaiClient:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-
-# Prefix marking a browse cursor that also carries a within-batch offset.
-# Plain Civitai cursors are passed through untouched.
-FILTER_TOKEN_PREFIX = "mmfilter:"
 

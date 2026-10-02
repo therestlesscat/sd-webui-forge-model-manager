@@ -6,12 +6,10 @@ Used by ModelsDatabase facade - do not import directly.
 """
 import os
 import json
-import time
 from datetime import datetime, timezone
 from .query import query_models_grouped
 from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable
-from contextlib import contextmanager
 
 # Whether the disk ignores case, as Windows does. file_path is unique as SQL
 # compares it, case and all, so a walk spelling a stored file another way
@@ -123,7 +121,7 @@ class ModelsOps:
         """
         now = datetime.now().isoformat()
         with self._cursor() as cursor:
-            cursor.execute("""
+            cursor.execute(f"""
                 INSERT INTO civitai_models (
                     id, name, description, type, nsfw, nsfw_level, tags,
                     creator_username, creator_image_url,
@@ -144,7 +142,7 @@ class ModelsOps:
                     -- must not replace a type already known.
                     type = COALESCE(NULLIF(excluded.type, 'Unknown'), civitai_models.type),
                     nsfw = COALESCE(excluded.nsfw, civitai_models.nsfw),
-                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, 64), civitai_models.nsfw_level),
+                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}), civitai_models.nsfw_level),
                     tags = COALESCE(NULLIF(excluded.tags, '[]'), civitai_models.tags),
                     creator_username = COALESCE(excluded.creator_username, civitai_models.creator_username),
                     creator_image_url = COALESCE(excluded.creator_image_url, civitai_models.creator_image_url),
@@ -306,10 +304,11 @@ class ModelsOps:
         - so a scan or a re-sync would erase when a model was obtained and how
         far its gallery had been fetched.
 
-        ADDING A COLUMN: it must be added in three places - the INSERT column
-        list, the VALUES tuple, and the ON CONFLICT ... DO UPDATE SET list.
-        Miss the SET list and the column is written on insert but silently
-        never updated afterwards.
+        ADDING A COLUMN: it must be added in four places - the INSERT column
+        list, the VALUES tuple, the ON CONFLICT ... DO UPDATE SET list, and
+        the no-clobber rule below (AGENTS.md, "Absent is not empty"). Miss
+        the SET list and the column is written on insert but silently never
+        updated afterwards.
 
         The metadata columns keep what they hold when the incoming value says
         nothing - NULL, '[]', 0, or Unknown. A caller that knows a value has
@@ -336,7 +335,7 @@ class ModelsOps:
             if isinstance(file_hashes, dict):
                 file_hashes = json.dumps(file_hashes)
 
-            cursor.execute("""
+            cursor.execute(f"""
                 INSERT INTO model_versions (
                     id, model_id, version_name, base_model, published_at, created_at,
                     nsfw_level, trained_words, description,
@@ -361,7 +360,7 @@ class ModelsOps:
                     -- visible when new; that is no reading of the level.
                     nsfw_level = CASE WHEN excluded.has_civitai_data = 0
                                       THEN model_versions.nsfw_level
-                                      ELSE COALESCE(NULLIF(excluded.nsfw_level, 64),
+                                      ELSE COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}),
                                                     model_versions.nsfw_level) END,
                     trained_words = COALESCE(NULLIF(excluded.trained_words, '[]'),
                                              model_versions.trained_words),
@@ -515,12 +514,6 @@ class ModelsOps:
                 return self._version_row_to_dict(row)
         return None
 
-    def get_local_version_count(self, model_id: int) -> int:
-        """Get count of local versions for a model."""
-        with self._cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM model_versions WHERE model_id = ?", (model_id,))
-            return cursor.fetchone()[0]
-
     # ==================== Grouped Queries ====================
 
     def query_models_grouped(self, **filters) -> Tuple[List[Dict[str, Any]], int]:
@@ -588,10 +581,10 @@ class ModelsOps:
         """
         Record files the database has never seen, and leave the rest alone.
 
-        Insert-only on purpose. upsert_version() names id and model_id in its
-        SET list, so upserting a bare row for a file that is already
-        identified would wipe the very ids that make it identified. Here a
-        file_path that already has a row is simply skipped.
+        Insert-only on purpose: a file that already has a row holds more than
+        a walk knows about it, and a walk has nothing to add. A file_path the
+        library already holds - in any case, on a disk that ignores case - is
+        simply skipped.
 
         Args:
             rows: file_path, file_name, file_extension, file_size, file_modified.
@@ -888,19 +881,6 @@ class ModelsOps:
             """)
             return [row[0] for row in cursor.fetchall()]
 
-    def get_distinct_model_types(self) -> List[str]:
-        """Get distinct model types from both tables."""
-        with self._cursor() as cursor:
-            cursor.execute("""
-                SELECT DISTINCT type FROM civitai_models
-                WHERE type IS NOT NULL AND type != ''
-                UNION
-                SELECT DISTINCT 'Unknown' FROM model_versions
-                WHERE model_id IS NULL
-                ORDER BY 1
-            """)
-            return [row[0] for row in cursor.fetchall()]
-
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
         with self._cursor() as cursor:
@@ -919,12 +899,6 @@ class ModelsOps:
             "with_civitai_data": with_civitai,
             "without_civitai_data": total_versions - with_civitai
         }
-
-    def clear_all(self):
-        """Clear all model records."""
-        with self._cursor() as cursor:
-            cursor.execute("DELETE FROM model_versions")
-            cursor.execute("DELETE FROM civitai_models")
 
     # ==================== Row Converters ====================
 
