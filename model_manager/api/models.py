@@ -512,29 +512,6 @@ def register(app: FastAPI):
                 status_code=500
             )
 
-    @app.get("/model-manager/stats")
-    async def get_stats():
-        """Get database statistics."""
-        try:
-            db = get_models_db()
-            stats = db.get_stats()
-            last_scan = db.get_metadata("last_scan")
-
-            return JSONResponse({
-                "success": True,
-                "stats": stats,
-                "last_scan": last_scan
-            })
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Stats error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
-
     @app.get("/model-manager/filters")
     async def get_filter_options():
         """Get distinct values for filter dropdowns."""
@@ -1057,57 +1034,3 @@ def register(app: FastAPI):
         except Exception as e:
             print(f"[ModelManager] Image resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-    @app.get("/model-manager/resolve-hash")
-    def resolve_hash(hash: str):
-        """
-        Resolve a model hash to Civitai version info.
-
-        Args:
-            hash: Model file hash (SHA256 or AutoV2).
-
-        Returns:
-            Version info with model ID, version ID, name, and download URL.
-        """
-        try:
-            if not hash or len(hash) < 10:
-                return JSONResponse(
-                    {"success": False, "error": "Invalid hash"},
-                    status_code=400
-                )
-
-            client = CivitaiClient.from_settings()
-            try:
-                version_data = client.get_model_by_hash(hash)
-            finally:
-                client.close()
-
-            if not version_data:
-                return JSONResponse({
-                    "success": False,
-                    "error": "Not found on Civitai"
-                }, status_code=404)
-
-            version_id = version_data.get("id")
-            model_id = version_data.get("modelId")
-            model_name = version_data.get("model", {}).get("name", "Unknown")
-            version_name = version_data.get("name", "")
-
-            return JSONResponse({
-                "success": True,
-                "version_id": version_id,
-                "model_id": model_id,
-                "model_name": model_name,
-                "version_name": version_name,
-                "download_url": f"https://civitai.com/api/download/models/{version_id}" if version_id else None,
-                "view_url": f"https://civitai.com/model-versions/{version_id}" if version_id else None
-            })
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Hash resolve error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
