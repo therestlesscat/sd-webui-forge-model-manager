@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
 from .architecture import preset_for_base_model, read_shapes
+from .hashing import hash_key
 from .identity_store import record_architecture
 from .remembered import Remembered
 
@@ -162,8 +163,8 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
     Of those that map to a preset, the one whose file is named as the image's
     model wins; else the first.
     """
-    local_ids = {row.get("id") for row in db.versions_named_by(list(version_ids), [])}
-    keys = [("h", h.lower()) for h in hashes if h and not db.versions_named_by([], [h])] + \
+    local_ids, local_hashes = db.local_versions_by_key(list(version_ids), list(hashes))
+    keys = [("h", h.lower()) for h in hashes if h and hash_key(h) not in local_hashes] + \
            [("v", str(i)) for i in version_ids if i not in local_ids]
     stem = os.path.splitext(os.path.basename(model_name or ""))[0].lower()
 
