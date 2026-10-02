@@ -357,27 +357,8 @@ def register(app: FastAPI):
                     status_code=404
                 )
 
-            # Get local ownership info
-            db = get_models_db()
-            version_ids = [v.get("id") for v in model.get("modelVersions", [])]
-
-            owned_versions = set()
-            if version_ids:
-                with db._cursor() as cursor:
-                    placeholders = ",".join("?" * len(version_ids))
-                    cursor.execute(f"""
-                        SELECT id FROM model_versions
-                        WHERE id IN ({placeholders})
-                    """, version_ids)
-                    owned_versions = {row["id"] for row in cursor.fetchall()}
-
-            model["owned_locally"] = len(owned_versions) > 0
-            model["owned_versions"] = list(owned_versions)
-
-            # Mark each version with ownership
-            for version in model.get("modelVersions", []):
-                version["owned_locally"] = version.get("id") in owned_versions
-
+            # Owned as a search card says it: the one rule (owned_by_library).
+            annotate_local_ownership(get_models_db(), [model])
             annotate_paid_access([model])
             annotate_image_levels([model])
 
