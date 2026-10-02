@@ -5,10 +5,13 @@
  */
 
 /**
- * How explicit an image is, on Civitai's scale:
- *   PG 1 · PG-13 2 · R 4 · X 8 · XXX 16 · Blocked 32 · Unknown 64
- * The judging is the server's (nsfw.py); the page reads what it sends.
+ * How explicit an image is, on Civitai's scale, low to high: [value, name].
+ * The judging is the server's (nsfw.py); the page reads what it sends, and
+ * draws before any answer could come - so it keeps this copy of nsfw.py's
+ * LEVEL_TO_NAME, the page's only one, and page_constants_test.py holds it
+ * and the values below to the server's.
  */
+export const NSFW_LEVELS = [[1, 'PG'], [2, 'PG-13'], [4, 'R'], [8, 'X'], [16, 'XXX'], [32, 'Blocked'], [64, 'Unknown']];
 export const NSFW_UNKNOWN = 64;
 export const NSFW_SFW_MAX = 3;  // PG | PG-13
 
@@ -46,7 +49,7 @@ const NSFW_BADGE_MIN = 4;   // R
 export function nsfwBadge(image) {
     const level = nsfwImageLevel(image);
     if (level < NSFW_BADGE_MIN || level >= NSFW_UNKNOWN) return '';
-    const named = [...RATING_LEVELS, [32, 'Blocked']].filter(([value]) => value <= level).pop();
+    const named = NSFW_LEVELS.filter(([value]) => value <= level).pop();
     return nsfwBadgeLabel(image, named[1]);
 }
 
@@ -57,4 +60,5 @@ export function isImageSafe(image) {
 
 // The NSFW levels one can give an image of one's own, as nsfw.USER_LEVELS on
 // the server, which checks them: [value, name].
-export const RATING_LEVELS = [[1, 'PG'], [2, 'PG-13'], [4, 'R'], [8, 'X'], [16, 'XXX']];
+const USER_LEVELS = [1, 2, 4, 8, 16];
+export const RATING_LEVELS = NSFW_LEVELS.filter(([value]) => USER_LEVELS.includes(value));
