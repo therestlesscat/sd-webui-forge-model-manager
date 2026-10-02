@@ -772,7 +772,8 @@ _Missing.versions = {7020: {'id': 7020, 'modelId': 702, 'name': 'v1', 'model': {
                             'files': _files('bad_hands.pt')}}
 _Missing.hashes = {'abcdef0123': {'id': 7001, 'modelId': 700, 'name': 'v1', 'model': {'name': 'A Very Different Title'}}}
 models_api.CivitaiClient = _Missing
-models_api._MISSING_FILES.clear()
+import model_manager.resources as resources              # noqa: E402
+resources._MISSING_FILES.clear()
 try:
     code, body = post('/model-manager/missing-resources',
                       versions=json.dumps([{'version_id': 7001, 'model_id': 700},
@@ -806,7 +807,7 @@ try:
     check('Civitai failing is an error, for the page to fall back', (code, body.get('success')), (500, False))
 finally:
     models_api.CivitaiClient = real_client
-    models_api._MISSING_FILES.clear()
+    resources._MISSING_FILES.clear()
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
