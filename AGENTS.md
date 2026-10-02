@@ -32,7 +32,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, when a walk may forget a row, and where a file of each type belongs |
-| `jobs.py` | the long jobs - a sync, a scan - one of each kind at a time: which runs, its progress, and a failure reported on it |
+| `jobs.py` | the long jobs - a sync, a scan, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
@@ -174,10 +174,13 @@ judges live from the model, the version and the worst stored image
 (`nsfw.model_level_sql`), so it is right either way; the details panel's
 "Version:" row is not consistent. #104.
 
-**A long job is one of its kind, in `jobs.py`.** A sync (full or metadata) and
-a scan each run one at a time; what the page polls is the service's own
-progress, and a job that raises calls `fail()` on it. It used to write the
-error where the poll never read, and the job showed as running for ever.
+**A long job is one of its kind, in `jobs.py`.** A sync (full or metadata), a
+scan and a restamp of stored image levels each run one at a time; what the
+page polls is the service's own progress, and a job that raises calls
+`fail()` on it. It used to write the error where the poll never read, and the
+job showed as running for ever. A restamp asked for while one runs is not
+refused but run once more after (`again`): a settings save made meanwhile has
+words the running pass did not see.
 
 **A migration does not import today's rules.** v14 once imported the live
 `nsfw.image_level`, which later learnt to read the person's settings: it

@@ -79,6 +79,42 @@ p = jobs.progress('scan')
 check('a scan that raises is finished, with its error', (p.is_complete, p.errors, p.processed),
       (True, ['exploded'], 2))
 
+# ------------------------------------------------ asked again while it runs
+# A restamp asked for while one runs must not be lost (#98): with `again`, the
+# running service is asked again(), and runs once more when it is done.
+class Again(Service):
+    def __init__(self):
+        super().__init__()
+        self.asked, self.finished = 0, False
+
+    def again(self):
+        if self.finished:
+            return False
+        self.asked += 1
+        return True
+
+
+hold.clear()
+jobs.start('restamp', Again, lambda s: hold.wait(5))
+made, first = Service.made, jobs.service('restamp')
+check('asked again while it runs, the ask is taken',
+      jobs.start('restamp', Again, lambda s: None, again=True), True)
+check('by the running one: nothing new is made', (Service.made, first.asked), (made, 1))
+check('without again, the same ask is refused as ever', jobs.start('restamp', Again, lambda s: None), False)
+hold.set()
+jobs.join(5)
+
+# One that has finished, its thread not yet gone, says so: a new job starts.
+hold.clear()
+jobs.start('restamp', Again, lambda s: hold.wait(5))
+closing = jobs.service('restamp')
+closing.finished = True
+check('one that has finished, asked again, gives way to a new job',
+      jobs.start('restamp', Again, lambda s: None, again=True), True)
+check('with a service of its own', jobs.service('restamp') is not closing, True)
+hold.set()
+jobs.join(5)
+
 jobs.reset()
 check('reset forgets every job', (jobs.progress('sync'), jobs.progress('scan')), (None, None))
 

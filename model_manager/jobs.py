@@ -1,9 +1,10 @@
 """
-The long jobs - a sync, a scan - that run on a thread and are watched.
+The long jobs - a sync, a scan, a restamp of stored image levels - that run
+on a thread and are watched.
 
 At most one job of each kind runs at a time. A kind is a name ("sync",
-"scan"); a metadata sync is a "sync", as it shares the sync's endpoints. A
-new kind of job is a new name, not new state.
+"scan", "restamp"); a metadata sync is a "sync", as it shares the sync's
+endpoints. A new kind of job is a new name, not new state.
 
 What a job reports is its service's own progress, and only that. A job that
 raises marks that progress finished, with its error: it used to write the
@@ -28,16 +29,26 @@ class Jobs(object):
         self._jobs: Dict[str, _Job] = {}
         self._lock = threading.Lock()
 
-    def start(self, kind: str, make: Callable[[], Any], run: Callable[[Any], Any]) -> bool:
+    def start(self, kind: str, make: Callable[[], Any], run: Callable[[Any], Any],
+              again: bool = False) -> bool:
         """
         Make a service and run `run(service)` on a thread, unless a job of
         this kind is running - then nothing is made, and it returns False.
+
+        With `again`, a start while one runs is not lost: the running service
+        is asked again(), which is True when it will run once more after, and
+        False when it has just finished - then a new job is started, as if
+        none were running. A restamp asked for during one has words the
+        running pass did not see. Either way it returns True.
 
         The service has a `progress` with a `fail(message)`, and a `cancel()`.
         """
         with self._lock:
             if self._running(kind):
-                return False
+                if not again:
+                    return False
+                if self._jobs[kind].service.again():
+                    return True
             service = make()
             thread = threading.Thread(target=self._run, args=(kind, service, run), daemon=True)
             self._jobs[kind] = _Job(service, thread)
