@@ -458,7 +458,7 @@ class ScanService:
                       f"and {images_gone} of their images")
 
         # Update scan timestamp
-        db.set_metadata("last_scan", datetime.now().isoformat())
+        db.set_info("last_scan", datetime.now().isoformat())
 
         self._progress.current_file = ""
         self._progress.is_complete = True

@@ -52,7 +52,7 @@ def bring_up_to_date(db) -> Optional[int]:
         How many images changed level, or None if nothing needed doing.
     """
     fingerprint = prompt_words_fingerprint()
-    if db.get_metadata(FINGERPRINT_KEY) == fingerprint:
+    if db.get_info(FINGERPRINT_KEY) == fingerprint:
         return None
     changed, total, covers = db.restamp_image_levels(progress=_report)
     # Your own generations are judged by their prompts alone, so a change to
@@ -63,7 +63,7 @@ def bring_up_to_date(db) -> Optional[int]:
               f"generated images judged again")
     with _lock:
         _state.update(changed=changed, total=total)
-    db.set_metadata(FINGERPRINT_KEY, fingerprint)
+    db.set_info(FINGERPRINT_KEY, fingerprint)
     print(f"[ModelManager] NSFW prompt words: {changed} of {total} images judged again"
           + (f", {covers} safe covers cleared" if covers else ""))
     return changed
