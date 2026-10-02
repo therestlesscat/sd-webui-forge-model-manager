@@ -74,7 +74,7 @@ check('eight threads at once: no error, and within its bound', (errors, len(shar
 
 # ---------------------------------------------------------------- the five
 import model_manager.send_plan as send_plan              # noqa: E402
-import model_manager.api.models as models_api            # noqa: E402
+import model_manager.resources as resources              # noqa: E402
 import model_manager.api.prompts as prompts              # noqa: E402
 import model_manager.hashing as hashing                  # noqa: E402
 import model_manager.civitai.ownership as ownership      # noqa: E402
@@ -84,7 +84,7 @@ ownership.owned_versions([1], client_factory=lambda: type('C', (), {
     'api_key': 'a key', 'whoami': lambda self: {}, 'close': lambda self: None})())
 caches = {
     'send_plan._remembered': send_plan._remembered,
-    'api.models._MISSING_FILES': models_api._MISSING_FILES,
+    'resources._MISSING_FILES': resources._MISSING_FILES,
     'api.prompts._sfw_verdicts': prompts._sfw_verdicts,
     'civitai.ownership owned': ownership._state['owned'],
     'hashing._sha256_seen': hashing._sha256_seen,

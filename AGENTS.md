@@ -44,6 +44,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
+| `resources.py` | which local file, or which version on Civitai, an image's resources are: for the chips under a prompt (the library alone, and Forge's rule for which file `<lora:name>` loads), the Resources dialog, and what a missing one will be called once downloaded |
 | `payload_rows.py` | what a Civitai payload says about a model and a version, as database rows - for the scan and both kinds of sync alike |
 | `storage.py` | reading and writing `.civitai.info` |
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
