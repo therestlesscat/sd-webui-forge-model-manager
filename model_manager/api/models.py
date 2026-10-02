@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
-from ..db import get_models_db
+from ..db import GridQuery, get_models_db
 from ..forge_host import setting
 from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
@@ -156,7 +156,7 @@ def register(app: FastAPI):
             db = get_models_db()
             query_start = time.perf_counter()
             tab_counts = {}
-            models, total_count = db.query_models_grouped(
+            grid = GridQuery(
                 search=search if search else None,
                 model_type=type if type and type != "All" else None,
                 base_model=base_model if base_model and base_model != "All" else None,
@@ -178,8 +178,8 @@ def register(app: FastAPI):
                 preview_least_nsfw=preview_least_nsfw,
                 sfw_only=sfw_only,
                 pinned=None if paths_only else pinned,
-                counts=tab_counts,
             )
+            models, total_count = db.query_models_grouped(grid, counts=tab_counts)
 
             if paths_only:
                 # Grouped rows carry one version each; a sync works on models,

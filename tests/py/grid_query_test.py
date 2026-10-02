@@ -30,6 +30,7 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 import fixtures                                          # noqa: E402
+from model_manager.db import GridQuery                 # noqa: E402
 from model_manager.db import query as grid               # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'grid_query')
@@ -59,9 +60,9 @@ with db._cursor() as cursor:
                    % ",".join("?" * len(versions)), versions)
 
 
-def query(**kw):
+def query(counts=None, **kw):
     kw.setdefault('limit', 100000)
-    rows, total = db.query_models_grouped(**kw)
+    rows, total = db.query_models_grouped(GridQuery(**kw), counts)
     return rows, total
 
 
@@ -194,7 +195,7 @@ def steps(**kw):
         return 0
     conn.set_progress_handler(tick, 1)
     try:
-        page, _ = db.query_models_grouped(limit=1, offset=0, sort_by='file_path', sort_order='asc', **kw)
+        page, _ = db.query_models_grouped(GridQuery(limit=1, offset=0, sort_by='file_path', sort_order='asc', **kw))
     finally:
         conn.set_progress_handler(None, 0)
     return count[0], page[0]['file_path']

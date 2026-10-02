@@ -35,6 +35,7 @@ except ImportError:
     sys.exit(0)
 
 import fixtures                                          # noqa: E402
+from model_manager.db import GridQuery                 # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.nsfw as nsfw                        # noqa: E402
 import model_manager.prompt_levels as prompt_levels      # noqa: E402
@@ -124,7 +125,7 @@ with db._cursor() as cursor:
 # two share a date, which a tie decides (grid_query_test.py).
 with db._cursor() as cursor:
     cursor.execute("UPDATE model_versions SET published_at = '2026-06-01T00:00:00Z' WHERE id = ?", (version,))
-rows, _ = db.query_models_grouped(limit=500)
+rows, _ = db.query_models_grouped(GridQuery(limit=500))
 preview = next(r for r in rows if r['id'] == version)['preview_url']
 check('and the grid shows the version\'s first image still safe', preview,
       'https://example.invalid/plain.jpeg')

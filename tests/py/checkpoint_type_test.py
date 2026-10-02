@@ -19,6 +19,7 @@ for _p in (ROOT, TESTS):
         sys.path.insert(0, _p)
 
 import fixtures                                       # noqa: E402
+from model_manager.db import GridQuery                 # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'checkpoint_type_test')
 import os
@@ -99,7 +100,7 @@ check('every checkpoint in the fixture is there', len(ids), fixtures.CHECKPOINTS
 # How many are already classified is a fact about someone's library, and it
 # grows every time they sync. Count from where this test starts.
 def count(**kw):
-    return db.query_models_grouped(limit=1, offset=0, **kw)[1]
+    return db.query_models_grouped(GridQuery(limit=1, offset=0, **kw))[1]
 
 # Two with no answer yet, so setting one is a change rather than a no-op. The
 # fixture leaves one unclassified; clear a second to work with.

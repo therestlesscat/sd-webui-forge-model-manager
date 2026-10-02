@@ -18,6 +18,7 @@ does.
 import json
 import os
 import time
+from dataclasses import dataclass
 
 from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
 from .images_ops import GALLERY_ORDER
@@ -93,60 +94,76 @@ SHOWN_ORDER = """fv.published_at DESC NULLS LAST,
                              fv.id DESC, fv.file_path"""
 
 
+@dataclass
+class GridQuery:
+    """
+    What the Model Manager grid asks for - its filters, sort and page - read
+    from the request once (api/models.py) and handed through unchanged to
+    query_models_grouped(). Each default is the grid unfiltered.
+    """
+    search: Optional[str] = None
+    model_type: Optional[str] = None
+    base_model: Optional[str] = None
+    # NSFW levels as numbers: "max" shows models up to the highest of them,
+    # "contains" those with any of them.
+    nsfw_levels: Optional[List[int]] = None
+    nsfw_mode: str = "max"
+    has_civitai: Optional[bool] = None
+    is_bookmarked: Optional[bool] = None
+    min_versions: Optional[int] = None
+    # The file's size, in GB of 1024^3 bytes as the page shows sizes; either
+    # end may be left open. A model shows if any of its local files is in
+    # range, with the newest that is - as with every filter on a version.
+    min_size_gb: Optional[float] = None
+    max_size_gb: Optional[float] = None
+    # Comma-separated: None, Image, Rent, RentCivit, Sell.
+    commercial_use: Optional[str] = None
+    # "true", "false", or "unknown" - no Civitai licence; anything else, no
+    # filter. Strings, as the page sends them: the facade once said bool, and
+    # a caller trusting it got no filter at all.
+    allow_derivatives: Optional[str] = None
+    allow_different_license: Optional[str] = None
+    # "Trained", "Merge", or "unknown"; only checkpoints have one.
+    checkpoint_type: Optional[str] = None
+    # Only models with no image in the library above PG-13.
+    sfw_only: bool = False
+    # The grid's tabs: True the pinned cards, False the rest, None all.
+    pinned: Optional[bool] = None
+    sort_by: str = "file_modified"
+    sort_order: str = "desc"
+    limit: int = 50
+    offset: int = 0
+    # The card's preview: the least explicit image if True, else the newest.
+    preview_least_nsfw: bool = True
+
+
 def query_models_grouped(
     cursor_factory: Callable,
-    search: Optional[str] = None,
-    model_type: Optional[str] = None,
-    base_model: Optional[str] = None,
-    nsfw_levels: Optional[List[int]] = None,
-    nsfw_mode: str = "max",
-    has_civitai: Optional[bool] = None,
-    is_bookmarked: Optional[bool] = None,
-    min_versions: Optional[int] = None,
-    min_size_gb: Optional[float] = None,
-    max_size_gb: Optional[float] = None,
-    sort_by: str = "file_modified",
-    sort_order: str = "desc",
-    limit: int = 50,
-    offset: int = 0,
-    preview_least_nsfw: bool = True,
-    commercial_use: Optional[str] = None,
-    allow_derivatives: Optional[str] = None,
-    allow_different_license: Optional[str] = None,
-    checkpoint_type: Optional[str] = None,
-    sfw_only: bool = False,
-    pinned: Optional[bool] = None,
+    grid: GridQuery,
     counts: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
-    Query models grouped by civitai_model_id.
-    Returns latest version per group with version count.
+    The grid's page: one card per Civitai model, the newest matching version
+    of each, with its version count - and how many cards match in all.
 
     Args:
-        preview_least_nsfw: If True, preview is image with lowest NSFW level.
-                           If False, preview is most recent image by created_at.
-        pinned: the grid's tabs - True for the pinned cards only, False for
-            the rest, None for all.
+        grid: the filters, sort and page (GridQuery).
         counts: filled, if given, with how many cards match the filters in
             each tab: {"pinned": n, "others": m}, whichever tab is asked for.
-        min_size_gb, max_size_gb: the file's size, in GB of 1024^3 bytes as
-            the page shows sizes; either end may be left open. A model shows
-            if any of its local files is in range, with the newest that is -
-            as with every filter on a version.
     """
     conditions = []
     params = []
 
     # The library knows every file's size: exact, and paged as any filter.
     # (The Civitai Browser cannot ask Civitai for this, and checks results.)
-    for bound, op in ((min_size_gb, ">="), (max_size_gb, "<=")):
+    for bound, op in ((grid.min_size_gb, ">="), (grid.max_size_gb, "<=")):
         if bound is not None and bound > 0:
             conditions.append(f"v.file_size {op} ?")
             params.append(int(bound * 1024 ** 3))
 
     # Build WHERE conditions for versions
-    if search:
-        targeted = _targeted_search_condition(search)
+    if grid.search:
+        targeted = _targeted_search_condition(grid.search)
         if targeted:
             condition, value = targeted
             conditions.append(condition)
@@ -158,21 +175,21 @@ def query_models_grouped(
                 COALESCE(m.name, v.file_name) LIKE ? OR
                 COALESCE(m.tags, '[]') LIKE ?
             )""")
-            search_pattern = f"%{search}%"
+            search_pattern = f"%{grid.search}%"
             params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
 
-    if model_type:
+    if grid.model_type:
         # What the file is, read from it (file_identity.py); Civitai's type
         # only for a file not read yet - it is what the uploader filed it
         # under, and a VAE shared as a "Checkpoint" is still a VAE.
         conditions.append("COALESCE(v.file_type, m.type, 'Unknown') = ?")
-        params.append(model_type)
+        params.append(grid.model_type)
 
-    if base_model:
+    if grid.base_model:
         conditions.append("v.base_model = ?")
-        params.append(base_model)
+        params.append(grid.base_model)
 
-    if nsfw_levels:
+    if grid.nsfw_levels:
         # The same rule as nsfw.model_level(), expressed for the database so
         # the grid can filter without loading every row.
         effective_level_expr = model_level_sql(
@@ -181,30 +198,30 @@ def query_models_grouped(
             "SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id",
         )
 
-        if nsfw_mode == "contains":
+        if grid.nsfw_mode == "contains":
             # Exactly the chosen levels, nothing else.
-            placeholders = ','.join(['?'] * len(nsfw_levels))
+            placeholders = ','.join(['?'] * len(grid.nsfw_levels))
             conditions.append(f"({effective_level_expr}) IN ({placeholders})")
-            params.extend(nsfw_levels)
+            params.extend(grid.nsfw_levels)
         else:
             # Everything up to the highest chosen level. See max_mode_ceiling
             # for why this is a `<` against a doubled bound.
             conditions.append(f"({effective_level_expr}) < ?")
-            params.append(max_mode_ceiling(nsfw_levels))
+            params.append(max_mode_ceiling(grid.nsfw_levels))
 
-    if has_civitai is not None:
+    if grid.has_civitai is not None:
         conditions.append("v.has_civitai_data = ?")
-        params.append(1 if has_civitai else 0)
+        params.append(1 if grid.has_civitai else 0)
 
-    if is_bookmarked is not None:
+    if grid.is_bookmarked is not None:
         conditions.append("COALESCE(m.is_bookmarked, 0) = ?")
-        params.append(1 if is_bookmarked else 0)
+        params.append(1 if grid.is_bookmarked else 0)
 
     # License filters (only apply to models with Civitai data)
     # allow_commercial_use is stored as PostgreSQL-style array literal: "{Image,RentCivit,Rent}"
     # Filter can have multiple comma-separated values; model matches if it contains ANY of them
-    if commercial_use:
-        values = [v.strip() for v in commercial_use.split(',') if v.strip()]
+    if grid.commercial_use:
+        values = [v.strip() for v in grid.commercial_use.split(',') if v.strip()]
         if values:
             value_conditions = []
             for v in values:
@@ -226,15 +243,15 @@ def query_models_grouped(
     # Trained or merged, which only checkpoints have. Three-valued like the
     # licence columns: NULL is a model nobody has established it for, which is
     # every model Civitai no longer serves.
-    if checkpoint_type == "unknown":
+    if grid.checkpoint_type == "unknown":
         conditions.append("m.checkpoint_type IS NULL")
-    elif checkpoint_type in ("Trained", "Merge"):
+    elif grid.checkpoint_type in ("Trained", "Merge"):
         conditions.append("m.checkpoint_type = ?")
-        params.append(checkpoint_type)
+        params.append(grid.checkpoint_type)
 
     for column, choice in (
-        ("allow_derivatives", allow_derivatives),
-        ("allow_different_license", allow_different_license),
+        ("allow_derivatives", grid.allow_derivatives),
+        ("allow_different_license", grid.allow_different_license),
     ):
         if choice == "unknown":
             conditions.append(f"m.{column} IS NULL")
@@ -271,16 +288,16 @@ def query_models_grouped(
         # images; sorting by file size, 2.9.
         "image_count": "(SELECT COUNT(*) FROM images WHERE images.version_id = {row}.id)",
     }
-    sort_field = valid_sort_fields.get(sort_by, "file_modified")
-    sort_dir = "DESC" if sort_order.lower() == "desc" else "ASC"
+    sort_field = valid_sort_fields.get(grid.sort_by, "file_modified")
+    sort_dir = "DESC" if grid.sort_order.lower() == "desc" else "ASC"
 
     # Build outer WHERE clause (filters on CTE results)
     outer_conditions = ["rn = 1"]
     outer_params = []
-    if min_versions is not None and min_versions > 1:
+    if grid.min_versions is not None and grid.min_versions > 1:
         outer_conditions.append("local_version_count >= ?")
-        outer_params.append(min_versions)
-    if sfw_only:
+        outer_params.append(grid.min_versions)
+    if grid.sfw_only:
         # "Only Show Models with SFW images", as the Civitai Browser asks it: none of the
         # first 20 images of the version the card shows - in the order its
         # gallery shows them - is above PG-13, or unrated. And there has to
@@ -303,8 +320,8 @@ def query_models_grouped(
         outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
     # Both tabs' counts come from one count, before the tab's own condition.
     count_where = " AND ".join(outer_conditions)
-    if pinned is not None:
-        outer_conditions.append("is_pinned = 1" if pinned else "is_pinned = 0")
+    if grid.pinned is not None:
+        outer_conditions.append("is_pinned = 1" if grid.pinned else "is_pinned = 0")
     outer_where = " AND ".join(outer_conditions)
 
     # The card's image. NSFW allowed: the version's cover, else the first
@@ -319,7 +336,7 @@ def query_models_grouped(
     first_safe_image = (f"(SELECT url FROM images WHERE version_id = page.id "
                         f"AND effective_nsfw_level <= {SFW_MAX} ORDER BY {GALLERY_ORDER} LIMIT 1)")
     preview_url_column = (
-        f"COALESCE(NULLIF(page.safe_cover_url, ''), {first_safe_image})" if preview_least_nsfw
+        f"COALESCE(NULLIF(page.safe_cover_url, ''), {first_safe_image})" if grid.preview_least_nsfw
         else f"COALESCE(NULLIF(page.cover_url, ''), NULLIF(page.safe_cover_url, ''), {first_image})"
     )
 
@@ -450,14 +467,14 @@ def query_models_grouped(
     with cursor_factory() as cursor:
         cursor.execute(count_query, all_params)
         matching, pinned_count = cursor.fetchone()
-    total_count = matching if pinned is None else pinned_count if pinned else matching - pinned_count
+    total_count = matching if grid.pinned is None else pinned_count if grid.pinned else matching - pinned_count
     if counts is not None:
         counts.update(pinned=pinned_count, others=matching - pinned_count)
     count_ms = (time.perf_counter() - count_start) * 1000
 
     data_start = time.perf_counter()
     with cursor_factory() as cursor:
-        cursor.execute(query, all_params + [limit, offset])
+        cursor.execute(query, all_params + [grid.limit, grid.offset])
         rows = cursor.fetchall()
     data_ms = (time.perf_counter() - data_start) * 1000
 

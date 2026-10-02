@@ -8,7 +8,7 @@ import os
 import json
 from datetime import datetime, timezone
 from ..hashing import hash_key, read_hashes
-from .query import query_models_grouped
+from .query import GridQuery, query_models_grouped
 from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable, NamedTuple
 
@@ -570,9 +570,10 @@ class ModelsOps:
 
     # ==================== Grouped Queries ====================
 
-    def query_models_grouped(self, **filters) -> Tuple[List[Dict[str, Any]], int]:
-        """Query models grouped by Civitai model id. See db/query.py."""
-        return query_models_grouped(self._cursor, **filters)
+    def query_models_grouped(self, grid: GridQuery, counts: Optional[Dict[str, int]] = None
+                             ) -> Tuple[List[Dict[str, Any]], int]:
+        """The grid's page and how many cards match. See query.py."""
+        return query_models_grouped(self._cursor, grid, counts)
 
     def get_linked_versions(self,
                             synced_before: Optional[str] = None,
