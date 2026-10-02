@@ -360,47 +360,6 @@ def register(app: FastAPI):
                 status_code=500
             )
 
-    @app.post("/model-manager/images/load-more")
-    def load_more_images(
-        version_id: int = Form(default=0)
-    ):
-        """
-        Download more images for a model from Civitai using cursor pagination.
-
-        Args:
-            version_id: Civitai version ID.
-
-        Returns:
-            New images and updated cursor state.
-        """
-        try:
-            if not version_id:
-                return JSONResponse(
-                    {"success": False, "error": "version_id is required"},
-                    status_code=400
-                )
-
-            db = get_models_db()
-
-            # Get version record to get stored cursor
-            version = db.get_version_by_id(version_id)
-            if not version:
-                return JSONResponse(
-                    {"success": False, "error": "Version not found"},
-                    status_code=404
-                )
-
-            return JSONResponse({"success": True, **download_more(db, version)})
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Load more images error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
-
     @app.get("/model-manager/images/gallery-page")
     def get_gallery_page(version_id: int, page: int = 1,
                          hide_nsfw_images: Optional[bool] = None,
@@ -444,39 +403,3 @@ def register(app: FastAPI):
         it waits on Civitai.
         """
         return still_answer(url)
-
-    @app.get("/model-manager/images/cached")
-    async def get_cached_images(version_id: int):
-        """
-        Get all cached images for a version.
-
-        Args:
-            version_id: Civitai version ID.
-
-        Returns:
-            All cached images and cursor state.
-        """
-        try:
-            db = get_models_db()
-
-            images = db.get_all_images_for_version(version_id)
-            version_record = db.get_version_by_id(version_id)
-
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(images),
-                "images_state": {
-                    "version_id": version_id,
-                    "next_cursor": version_record.get("next_images_cursor") if version_record else None,
-                    "sync_date": version_record.get("images_sync_last_date") if version_record else None,
-                }
-            })
-
-        except Exception as e:
-            import traceback
-            print(f"[ModelManager] Get cached images error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
