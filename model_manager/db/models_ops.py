@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from ..hashing import hash_key, read_hashes
 from .query import query_models_grouped
 from ..nsfw import UNKNOWN
-from typing import Optional, List, Dict, Any, Tuple, Callable
+from typing import Optional, List, Dict, Any, Tuple, Callable, NamedTuple
 
 # Whether the disk ignores case, as Windows does. file_path is unique as SQL
 # compares it, case and all, so a walk spelling a stored file another way
@@ -46,6 +46,155 @@ def _flag(value):
     arrive here as NULL rather than as a cheerful default.
     """
     return None if value is None else (1 if value else 0)
+
+
+# ------------------------------------------------------------------ upserts
+# How an update treats each column of a row already there. upsert_civitai_model()
+# and upsert_version() are generated from these lists - the INSERT, its
+# placeholders and the ON CONFLICT ... SET - and take their values by name.
+# They were written out by hand, each column in four places; one left out of
+# the SET list was written once and never updated again.
+#
+# A source that says nothing about a field must not erase what is recorded
+# (AGENTS.md, "Absent is not empty"). A scan reading a thin .civitai.info
+# cannot tell "no trigger words" from "not mentioned", and used to write the
+# second over the first - and a zero over vote counts, a permissive default
+# over licence flags.
+
+KEY = None       # the row is found by it: written on insert, never updated
+
+
+def overwrite(table: str, column: str) -> str:
+    """The new value, whatever it is."""
+    return f"excluded.{column}"
+
+
+def keep(table: str, column: str) -> str:
+    """The new value, unless it is NULL: nobody said."""
+    return f"COALESCE(excluded.{column}, {table}.{column})"
+
+
+def keep_unless(nothing: str) -> Callable[[str, str], str]:
+    """The new value, unless it is NULL or `nothing` - a source's way of saying
+    nothing: an empty list, a zero count, Unknown."""
+    def rule(table: str, column: str) -> str:
+        return f"COALESCE(NULLIF(excluded.{column}, {nothing}), {table}.{column})"
+    return rule
+
+
+def written_as(sql: str) -> Callable[[str, str], str]:
+    """A rule of its own, in SQL."""
+    return lambda table, column: sql
+
+
+class Column(NamedTuple):
+    name: str
+    update: Optional[Callable[[str, str], str]]
+    placeholder: str = "?"
+
+
+MODEL_COLUMNS = (
+    Column("id", KEY),
+    Column("name", overwrite),
+    Column("description", keep),
+    # A sidecar with no type is stored as 'Unknown', which must not replace a
+    # type already known.
+    Column("type", keep_unless("'Unknown'"), placeholder="COALESCE(?, 'Unknown')"),
+    Column("nsfw", keep),
+    Column("nsfw_level", keep_unless(f"{UNKNOWN}")),
+    Column("tags", keep_unless("'[]'")),
+    Column("creator_username", keep),
+    Column("creator_image_url", keep),
+    Column("stats_download_count", keep_unless("0")),
+    Column("stats_thumbs_up", keep_unless("0")),
+    Column("stats_thumbs_down", keep_unless("0")),
+    Column("stats_rating", keep_unless("0")),
+    Column("allow_no_credit", keep),
+    Column("allow_commercial_use", keep),
+    Column("allow_derivatives", keep),
+    Column("allow_different_license", keep),
+    Column("supports_generation", keep),
+    Column("updated_at", overwrite),
+    # Only moves forward when the data came from the API.
+    Column("civitai_synced_at", keep),
+    Column("checkpoint_type", keep),
+)
+MODEL_COLUMNS_ELSEWHERE = {
+    "is_bookmarked": "set_bookmark(): the person's",
+    "versions": "_store_versions(): every version Civitai lists",
+    "versions_synced_at": "_store_versions(): when a sync wrote the list",
+}
+
+VERSION_COLUMNS = (
+    Column("id", keep),
+    Column("model_id", keep),
+    Column("version_name", keep),
+    Column("base_model", keep),
+    Column("published_at", keep),
+    Column("created_at", keep),
+    # A file with no Civitai data comes in as PG, to be visible when new;
+    # that is no reading of the level.
+    Column("nsfw_level", written_as(
+        "CASE WHEN excluded.has_civitai_data = 0 THEN model_versions.nsfw_level "
+        f"ELSE COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}), model_versions.nsfw_level) END")),
+    Column("trained_words", keep_unless("'[]'")),
+    Column("description", keep),
+    Column("stats_download_count", keep_unless("0")),
+    Column("stats_thumbs_up", keep_unless("0")),
+    Column("file_path", KEY),
+    Column("file_name", overwrite),
+    Column("file_size", overwrite),
+    Column("file_hashes", keep),
+    Column("file_modified", overwrite),
+    Column("file_extension", overwrite),
+    # Identified stays identified: a scan that finds no sidecar has not
+    # learned the file is unknown to Civitai.
+    Column("has_civitai_data", written_as(
+        "MAX(excluded.has_civitai_data, COALESCE(model_versions.has_civitai_data, 0))")),
+    Column("scanned_at", overwrite),
+    # NULL is "this source cannot say" (a stripped showcase has no reliable
+    # cover); '' is "has none", and is kept.
+    Column("cover_url", keep),
+    Column("safe_cover_url", keep),
+)
+# Written by flows of their own, which an upsert must not touch - the image
+# paging during a sync is written before the upsert runs.
+VERSION_COLUMNS_ELSEWHERE = {
+    "downloaded_at": "set_downloaded_at(): once, from the download",
+    "next_images_cursor": "update_version_images_state(): image syncing",
+    "images_sync_last_date": "update_version_images_state(): image syncing",
+    "civitai_lookup_failed_at": "set_lookup_failed(): the sync, either side of the upsert",
+    "architecture": "set_architecture(): what the file itself is (identity_store.py)",
+    "architecture_class": "set_architecture()",
+    "bundled_text_encoder": "set_architecture()",
+    "bundled_vae": "set_architecture()",
+    "architecture_checked": "set_architecture()",
+    "file_type": "set_architecture()",
+    "identified_by": "set_architecture()",
+}
+
+
+def _upsert(table: str, columns: Tuple[Column, ...]) -> str:
+    """The INSERT ... ON CONFLICT DO UPDATE for a table's columns."""
+    key = next(column.name for column in columns if column.update is KEY)
+    updates = ",\n    ".join(f"{column.name} = {column.update(table, column.name)}"
+                              for column in columns if column.update is not KEY)
+    return (f"INSERT INTO {table} ({', '.join(column.name for column in columns)})\n"
+            f"VALUES ({', '.join(column.placeholder for column in columns)})\n"
+            f"ON CONFLICT({key}) DO UPDATE SET\n    {updates}")
+
+
+def _row(columns: Tuple[Column, ...], values: Dict[str, Any]) -> Tuple[Any, ...]:
+    """The values in the columns' order - given by name, so none lands in
+    another's place. A name that is no column is a mistake, and said."""
+    extra = set(values) - {column.name for column in columns}
+    if extra:
+        raise KeyError(f"not columns of the upsert: {sorted(extra)}")
+    return tuple(values[column.name] for column in columns)
+
+
+_MODEL_UPSERT = _upsert("civitai_models", MODEL_COLUMNS)
+_VERSION_UPSERT = _upsert("model_versions", VERSION_COLUMNS)
 
 
 # What the details panel shows of a version it does not hold, and what a
@@ -122,71 +271,31 @@ class ModelsOps:
         """
         now = datetime.now().isoformat()
         with self._cursor() as cursor:
-            cursor.execute(f"""
-                INSERT INTO civitai_models (
-                    id, name, description, type, nsfw, nsfw_level, tags,
-                    creator_username, creator_image_url,
-                    stats_download_count, stats_thumbs_up, stats_thumbs_down, stats_rating,
-                    allow_no_credit, allow_commercial_use, allow_derivatives,
-                    allow_different_license, supports_generation, updated_at,
-                    civitai_synced_at, checkpoint_type
-                ) VALUES (?, ?, ?, COALESCE(?, 'Unknown'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    -- The same rule as upsert_version(): a source that says
-                    -- nothing about a field must not erase what is recorded.
-                    -- A scan reading a thin .civitai.info cannot see the
-                    -- licence flags or the vote counts, and used to write a
-                    -- permissive default and a zero over both.
-                    name = excluded.name,
-                    description = COALESCE(excluded.description, civitai_models.description),
-                    -- A sidecar with no type is stored as 'Unknown', which
-                    -- must not replace a type already known.
-                    type = COALESCE(NULLIF(excluded.type, 'Unknown'), civitai_models.type),
-                    nsfw = COALESCE(excluded.nsfw, civitai_models.nsfw),
-                    nsfw_level = COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}), civitai_models.nsfw_level),
-                    tags = COALESCE(NULLIF(excluded.tags, '[]'), civitai_models.tags),
-                    creator_username = COALESCE(excluded.creator_username, civitai_models.creator_username),
-                    creator_image_url = COALESCE(excluded.creator_image_url, civitai_models.creator_image_url),
-                    stats_download_count = COALESCE(NULLIF(excluded.stats_download_count, 0), civitai_models.stats_download_count),
-                    stats_thumbs_up = COALESCE(NULLIF(excluded.stats_thumbs_up, 0), civitai_models.stats_thumbs_up),
-                    stats_thumbs_down = COALESCE(NULLIF(excluded.stats_thumbs_down, 0), civitai_models.stats_thumbs_down),
-                    stats_rating = COALESCE(NULLIF(excluded.stats_rating, 0), civitai_models.stats_rating),
-                    allow_no_credit = COALESCE(excluded.allow_no_credit, civitai_models.allow_no_credit),
-                    allow_commercial_use = COALESCE(excluded.allow_commercial_use, civitai_models.allow_commercial_use),
-                    allow_derivatives = COALESCE(excluded.allow_derivatives, civitai_models.allow_derivatives),
-                    allow_different_license = COALESCE(excluded.allow_different_license, civitai_models.allow_different_license),
-                    supports_generation = COALESCE(excluded.supports_generation, civitai_models.supports_generation),
-                    updated_at = excluded.updated_at,
-                    -- only moves forward when the data came from the API
-                    civitai_synced_at = COALESCE(excluded.civitai_synced_at,
-                                                 civitai_models.civitai_synced_at),
-                    checkpoint_type = COALESCE(excluded.checkpoint_type,
-                                               civitai_models.checkpoint_type)
-            """, (
-                model_data.get("id"),
-                model_data.get("name"),
-                model_data.get("description"),
-                model_data.get("type"),
-                1 if model_data.get("nsfw") else 0,
-                model_data.get("nsfw_level", UNKNOWN),
+            cursor.execute(_MODEL_UPSERT, _row(MODEL_COLUMNS, {
+                "id": model_data.get("id"),
+                "name": model_data.get("name"),
+                "description": model_data.get("description"),
+                "type": model_data.get("type"),
+                "nsfw": 1 if model_data.get("nsfw") else 0,
+                "nsfw_level": model_data.get("nsfw_level", UNKNOWN),
                 # json.dumps(None) is the string "null", which COALESCE
                 # would happily keep. Absent has to reach SQL as NULL.
-                _json_or_none(model_data.get("tags")),
-                model_data.get("creator_username"),
-                model_data.get("creator_image_url"),
-                model_data.get("stats_download_count", 0),
-                model_data.get("stats_thumbs_up", 0),
-                model_data.get("stats_thumbs_down", 0),
-                model_data.get("stats_rating", 0),
-                _flag(model_data.get("allow_no_credit")),
-                self._format_commercial_use(model_data.get("allow_commercial_use")),
-                _flag(model_data.get("allow_derivatives")),
-                _flag(model_data.get("allow_different_license")),
-                _flag(model_data.get("supports_generation")),
-                now,
-                now if from_civitai else None,
-                model_data.get("checkpoint_type")
-            ))
+                "tags": _json_or_none(model_data.get("tags")),
+                "creator_username": model_data.get("creator_username"),
+                "creator_image_url": model_data.get("creator_image_url"),
+                "stats_download_count": model_data.get("stats_download_count", 0),
+                "stats_thumbs_up": model_data.get("stats_thumbs_up", 0),
+                "stats_thumbs_down": model_data.get("stats_thumbs_down", 0),
+                "stats_rating": model_data.get("stats_rating", 0),
+                "allow_no_credit": _flag(model_data.get("allow_no_credit")),
+                "allow_commercial_use": self._format_commercial_use(model_data.get("allow_commercial_use")),
+                "allow_derivatives": _flag(model_data.get("allow_derivatives")),
+                "allow_different_license": _flag(model_data.get("allow_different_license")),
+                "supports_generation": _flag(model_data.get("supports_generation")),
+                "updated_at": now,
+                "civitai_synced_at": now if from_civitai else None,
+                "checkpoint_type": model_data.get("checkpoint_type"),
+            }))
             if model_data.get("versions"):
                 self._store_versions(cursor, model_data.get("id"), model_data["versions"],
                                      from_civitai, now)
@@ -299,17 +408,16 @@ class ModelsOps:
         """
         Insert or update a model version record.
 
-        Updates only the columns supplied here. INSERT OR REPLACE would delete
-        the existing row and insert a fresh one, silently resetting every
-        column not named below - downloaded_at, and the image pagination state
-        - so a scan or a re-sync would erase when a model was obtained and how
-        far its gallery had been fetched.
+        Updates only the columns of VERSION_COLUMNS. INSERT OR REPLACE would
+        delete the existing row and insert a fresh one, silently resetting
+        every other column - downloaded_at, and the image pagination state -
+        so a scan or a re-sync would erase when a model was obtained and how
+        far its gallery had been fetched. VERSION_COLUMNS_ELSEWHERE names them,
+        and what writes each.
 
-        ADDING A COLUMN: it must be added in four places - the INSERT column
-        list, the VALUES tuple, the ON CONFLICT ... DO UPDATE SET list, and
-        the no-clobber rule below (AGENTS.md, "Absent is not empty"). Miss
-        the SET list and the column is written on insert but silently never
-        updated afterwards.
+        ADDING A COLUMN: an entry in VERSION_COLUMNS - how an update treats it
+        - and its value below, by name. upsert_columns_test.py fails on a
+        column of the table in neither list.
 
         The metadata columns keep what they hold when the incoming value says
         nothing - NULL, '[]', 0, or Unknown. A caller that knows a value has
@@ -317,13 +425,6 @@ class ModelsOps:
         trade: the callers are a scan reading whatever sidecar is on disk and a
         sync reading whatever Civitai returned, and neither can tell an absent
         field from a cleared one.
-
-        Columns deliberately absent from the SET list are owned by other
-        flows and must not be touched here: downloaded_at (set once, from the
-        download), next_images_cursor and images_sync_last_date (written by
-        image syncing, and written *before* this runs during a sync), and
-        civitai_lookup_failed_at (written by the sync itself, either side of
-        this call).
         """
         with self._cursor() as cursor:
             # The row the library already has for this file, however it is spelt.
@@ -336,77 +437,29 @@ class ModelsOps:
             if isinstance(file_hashes, dict):
                 file_hashes = json.dumps(file_hashes)
 
-            cursor.execute(f"""
-                INSERT INTO model_versions (
-                    id, model_id, version_name, base_model, published_at, created_at,
-                    nsfw_level, trained_words, description,
-                    stats_download_count, stats_thumbs_up,
-                    file_path, file_name, file_size, file_hashes, file_modified, file_extension,
-                    has_civitai_data, scanned_at, cover_url, safe_cover_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(file_path) DO UPDATE SET
-                    -- Absent is not the same as empty. A .civitai.info that
-                    -- says nothing about trained words is not a model that has
-                    -- none, and a scan reading a thin sidecar must not empty
-                    -- the row it lands on. Each of these keeps what is already
-                    -- there when the incoming value carries no information:
-                    -- NULL, an empty list, a zero count, or Unknown.
-                    id = COALESCE(excluded.id, model_versions.id),
-                    model_id = COALESCE(excluded.model_id, model_versions.model_id),
-                    version_name = COALESCE(excluded.version_name, model_versions.version_name),
-                    base_model = COALESCE(excluded.base_model, model_versions.base_model),
-                    published_at = COALESCE(excluded.published_at, model_versions.published_at),
-                    created_at = COALESCE(excluded.created_at, model_versions.created_at),
-                    -- A file with no Civitai data comes in as PG, to be
-                    -- visible when new; that is no reading of the level.
-                    nsfw_level = CASE WHEN excluded.has_civitai_data = 0
-                                      THEN model_versions.nsfw_level
-                                      ELSE COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}),
-                                                    model_versions.nsfw_level) END,
-                    trained_words = COALESCE(NULLIF(excluded.trained_words, '[]'),
-                                             model_versions.trained_words),
-                    description = COALESCE(excluded.description, model_versions.description),
-                    stats_download_count = COALESCE(NULLIF(excluded.stats_download_count, 0),
-                                                    model_versions.stats_download_count),
-                    stats_thumbs_up = COALESCE(NULLIF(excluded.stats_thumbs_up, 0),
-                                               model_versions.stats_thumbs_up),
-                    file_name = excluded.file_name,
-                    file_size = excluded.file_size,
-                    file_hashes = COALESCE(excluded.file_hashes, model_versions.file_hashes),
-                    file_modified = excluded.file_modified,
-                    file_extension = excluded.file_extension,
-                    -- Identified stays identified: a scan that finds no
-                    -- sidecar has not learned the file is unknown to Civitai.
-                    has_civitai_data = MAX(excluded.has_civitai_data,
-                                           COALESCE(model_versions.has_civitai_data, 0)),
-                    scanned_at = excluded.scanned_at,
-                    -- NULL is "this source cannot say" (a stripped showcase
-                    -- has no reliable cover); '' is "has none", and is kept.
-                    cover_url = COALESCE(excluded.cover_url, model_versions.cover_url),
-                    safe_cover_url = COALESCE(excluded.safe_cover_url, model_versions.safe_cover_url)
-            """, (
-                version_data.get("id"),
-                version_data.get("model_id"),
-                version_data.get("version_name"),
-                version_data.get("base_model"),
-                version_data.get("published_at"),
-                version_data.get("created_at"),
-                version_data.get("nsfw_level", UNKNOWN),
-                json.dumps(version_data.get("trained_words", [])),
-                version_data.get("description"),
-                version_data.get("stats_download_count", 0),
-                version_data.get("stats_thumbs_up", 0),
-                file_path,
-                file_name,
-                version_data.get("file_size"),
-                file_hashes,
-                version_data.get("file_modified"),
-                version_data.get("file_extension"),
-                1 if version_data.get("has_civitai_data") else 0,
-                datetime.now().isoformat(),
-                version_data.get("cover_url"),
-                version_data.get("safe_cover_url"),
-            ))
+            cursor.execute(_VERSION_UPSERT, _row(VERSION_COLUMNS, {
+                "id": version_data.get("id"),
+                "model_id": version_data.get("model_id"),
+                "version_name": version_data.get("version_name"),
+                "base_model": version_data.get("base_model"),
+                "published_at": version_data.get("published_at"),
+                "created_at": version_data.get("created_at"),
+                "nsfw_level": version_data.get("nsfw_level", UNKNOWN),
+                "trained_words": json.dumps(version_data.get("trained_words", [])),
+                "description": version_data.get("description"),
+                "stats_download_count": version_data.get("stats_download_count", 0),
+                "stats_thumbs_up": version_data.get("stats_thumbs_up", 0),
+                "file_path": file_path,
+                "file_name": file_name,
+                "file_size": version_data.get("file_size"),
+                "file_hashes": file_hashes,
+                "file_modified": version_data.get("file_modified"),
+                "file_extension": version_data.get("file_extension"),
+                "has_civitai_data": 1 if version_data.get("has_civitai_data") else 0,
+                "scanned_at": datetime.now().isoformat(),
+                "cover_url": version_data.get("cover_url"),
+                "safe_cover_url": version_data.get("safe_cover_url"),
+            }))
 
     def prune_orphans(self) -> Tuple[int, int]:
         """
