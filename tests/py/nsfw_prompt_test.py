@@ -138,8 +138,9 @@ check('taking a word out puts Civitai\'s rating back', stored(9101), 1)
 # more afterwards - with the words as they are then - and never two at once.
 import threading                                          # noqa: E402
 import time                                               # noqa: E402
+from model_manager.jobs import jobs                       # noqa: E402
 passes, overlapping, busy = [], [], threading.Event()
-def slow_pass(db_):
+def slow_pass(db_, *args):
     if busy.is_set():
         overlapping.append(True)
     busy.set()
@@ -153,12 +154,29 @@ try:
         prompt_levels.start_in_background()
     for _ in range(50):
         time.sleep(0.05)
-        if not prompt_levels._running:
+        if not jobs.running('restamp'):
             break
 finally:
     prompt_levels.bring_up_to_date = real_pass
 check('three asks while one runs: that pass and one more, never two at once',
       (len(passes), overlapping), (2, []))
+
+# ------------------------------------------------ one of the long jobs (#98)
+# A restamp is a kind in model_manager.jobs, as a sync and a scan are: the
+# registry knows it runs, and what the page is told is that job's progress.
+release = threading.Event()
+prompt_levels.bring_up_to_date = lambda db_, *a, **k: release.wait(5)
+try:
+    prompt_levels.start_in_background()
+    check('a pass that runs is a running job of its kind', jobs.running('restamp'), True)
+    found = jobs.progress('restamp')
+    check('and the page is told that job\'s progress',
+          found is not None and found.to_dict() == prompt_levels.progress(), True)
+finally:
+    release.set()
+    prompt_levels.bring_up_to_date = real_pass
+jobs.join(5)
+check('ended, it runs no more', jobs.running('restamp'), False)
 
 # -------------------------------------------------- how far it has got
 # The page shows a bar while stored images are judged again, then what
@@ -202,7 +220,7 @@ for _ in range(100):
 check('asked again with nothing to change: done, and nothing judged',
       (prompt_levels.progress()['state'], prompt_levels.progress()['changed']), ('done', None))
 
-def broken(db_):
+def broken(db_, *args):
     raise RuntimeError('the database is locked')
 prompt_levels.bring_up_to_date = broken
 try:
@@ -215,6 +233,9 @@ finally:
     prompt_levels.bring_up_to_date = real_pass
 check('a pass that fails says so, and why',
       (prompt_levels.progress()['state'], prompt_levels.progress()['error']), ('failed', 'the database is locked'))
+found = jobs.progress('restamp')
+check('on its job\'s progress, as a sync\'s failure is',
+      found and (found.to_dict()['state'], found.to_dict()['error']), ('failed', 'the database is locked'))
 
 from fastapi import FastAPI as _FastAPI                   # noqa: E402
 import model_manager.api.settings as settings_api        # noqa: E402

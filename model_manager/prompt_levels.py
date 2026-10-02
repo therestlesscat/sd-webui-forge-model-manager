@@ -12,39 +12,117 @@ The words' fingerprint is kept in the metadata table once a pass finishes.
 A pass that is cut short is run again at the next start.
 
 How far a pass has got is kept for the page, which shows it after a save
-that changed how images are judged: progress().
+that changed how images are judged: progress(). A pass is one of the long
+jobs (model_manager.jobs), as a sync and a scan are.
 """
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from .jobs import jobs
 from .nsfw import generated_level, prompt_words_fingerprint
 
 FINGERPRINT_KEY = "nsfw_prompt_words"
+KIND = "restamp"
 
-_lock = threading.Lock()
-_running = False
-_again = False
 
-# What the page is told: "idle" until a pass is asked for, then "running" -
-# with judged and total once the images are read - then "done" with what
-# changed, or "failed" with why. `changed` is None when the stored levels
-# already matched and nothing was judged.
-_state: Dict[str, Any] = {"state": "idle"}
+@dataclass
+class RestampProgress:
+    """
+    What the page is told: "running" - with judged and total once the
+    images are read - then "done" with what changed, or "failed" with why.
+    `changed` is None when the stored levels already matched and nothing was
+    judged. Before any pass, progress() says "idle".
+    """
+    state: str = "running"
+    judged: Optional[int] = None
+    total: Optional[int] = None
+    changed: Optional[int] = None
+    started: float = field(default_factory=time.time)
+    error: Optional[str] = None
+    finished: Optional[float] = None
+
+    def report(self, judged: int, total: int) -> None:
+        self.judged, self.total = judged, total
+
+    def restart(self) -> None:
+        """Another pass: nothing judged of it yet."""
+        self.judged = self.total = self.changed = None
+
+    def finish(self) -> None:
+        self.state, self.error, self.finished = "done", None, time.time()
+
+    def fail(self, message: str) -> None:
+        """Finished by an error."""
+        self.state, self.error, self.finished = "failed", message, time.time()
+
+    def to_dict(self) -> Dict[str, Any]:
+        found = {"state": self.state, "judged": self.judged, "total": self.total,
+                 "changed": self.changed, "started": self.started}
+        if self.state != "running":
+            found.update(error=self.error, finished=self.finished)
+        return found
+
+
+class Restamp(object):
+    """
+    A pass over every stored image, and one more after it if one is asked
+    for meanwhile - with the words as they are then. Never two at once.
+    """
+
+    def __init__(self):
+        self.progress = RestampProgress()
+        self._lock = threading.Lock()
+        self._again = False
+        self._ended = False
+
+    def again(self) -> bool:
+        """
+        Asked for while running: one more pass after this one - False once
+        this has ended, and a new job is started instead. Said at once, so a
+        page asking straight after the save that asked never sees the last
+        pass's numbers.
+        """
+        with self._lock:
+            if self._ended:
+                return False
+            self._again = True
+            self.progress.restart()
+            self.progress.started = time.time()
+            return True
+
+    def cancel(self) -> None:
+        """Nothing offers to: a pass takes seconds."""
+
+    def run(self) -> None:
+        while True:
+            error = None
+            try:
+                from .db import get_models_db
+                bring_up_to_date(get_models_db(), self.progress)
+            except Exception as e:
+                error = str(e)
+                print(f"[ModelManager] Could not apply the NSFW prompt words: {e}")
+            with self._lock:
+                if not self._again:
+                    self._ended = True
+                    if error:
+                        self.progress.fail(error)
+                    else:
+                        self.progress.finish()
+                    return
+                self._again = False
+                self.progress.restart()
 
 
 def progress() -> Dict[str, Any]:
     """Where the latest pass is, for the page."""
-    with _lock:
-        return dict(_state)
+    found = jobs.progress(KIND)
+    return found.to_dict() if found else {"state": "idle"}
 
 
-def _report(judged: int, total: int) -> None:
-    with _lock:
-        _state.update(judged=judged, total=total)
-
-
-def bring_up_to_date(db) -> Optional[int]:
+def bring_up_to_date(db, progress: Optional[RestampProgress] = None) -> Optional[int]:
     """
     Restamp every stored image if the words changed since the last pass.
 
@@ -54,15 +132,15 @@ def bring_up_to_date(db) -> Optional[int]:
     fingerprint = prompt_words_fingerprint()
     if db.get_info(FINGERPRINT_KEY) == fingerprint:
         return None
-    changed, total, covers = db.restamp_image_levels(progress=_report)
+    changed, total, covers = db.restamp_image_levels(progress=progress.report if progress else None)
     # Your own generations are judged by their prompts alone, so a change to
     # the words moves them too.
     generated, generated_total = db.restamp_generation_levels(generated_level)
     if generated:
         print(f"[ModelManager] NSFW prompt words: {generated} of {generated_total} "
               f"generated images judged again")
-    with _lock:
-        _state.update(changed=changed, total=total)
+    if progress:
+        progress.changed, progress.total = changed, total
     db.set_info(FINGERPRINT_KEY, fingerprint)
     print(f"[ModelManager] NSFW prompt words: {changed} of {total} images judged again"
           + (f", {covers} safe covers cleared" if covers else ""))
@@ -71,39 +149,8 @@ def bring_up_to_date(db) -> Optional[int]:
 
 def start_in_background() -> None:
     """
-    bring_up_to_date() on a thread, so neither the WebUI's start nor a
-    settings save waits for it. Asked again while running, it runs once more
+    A pass, as one of the long jobs, so neither the WebUI's start nor a
+    settings save waits for it. Asked again while one runs, it runs once more
     afterwards, with the words as they are then.
     """
-    global _running, _again
-    with _lock:
-        # Said before the thread starts, so a page asking straight after the
-        # save that started it never sees the last pass's "done".
-        _state.clear()
-        _state.update(state="running", judged=None, total=None, changed=None,
-                      started=time.time())
-        if _running:
-            _again = True
-            return
-        _running = True
-
-    def run():
-        global _running, _again
-        while True:
-            error = None
-            try:
-                from .db import get_models_db
-                bring_up_to_date(get_models_db())
-            except Exception as e:
-                error = str(e)
-                print(f"[ModelManager] Could not apply the NSFW prompt words: {e}")
-            with _lock:
-                if not _again:
-                    _running = False
-                    _state.update(state="failed" if error else "done", error=error,
-                                  finished=time.time())
-                    return
-                _again = False
-                _state.update(judged=None, total=None, changed=None)
-
-    threading.Thread(target=run, name="mm-prompt-levels", daemon=True).start()
+    jobs.start(KIND, Restamp, lambda restamp: restamp.run(), again=True)
