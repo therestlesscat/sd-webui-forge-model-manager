@@ -23,6 +23,7 @@ from ..db import get_models_db
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
+from .common import failed
 
 # The images a card shows before "Show images".
 PREVIEW_IMAGES = 4
@@ -540,10 +541,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, **browse_page(
                 get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup)})
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Generations page error: {e}")
-            traceback.print_exc()
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+            return failed(e, "Generations page error")
 
     @app.get("/model-manager/generations/page")
     async def get_generation_page(path: str, page: int = 1,
@@ -564,10 +562,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, **generation_page(
                 get_models_db(), path, hide_nsfw, hide_promptless, page)})
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Generation page error: {e}")
-            traceback.print_exc()
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+            return failed(e, "Generation page error")
 
     @app.get("/model-manager/generations/{generation_id}/images")
     async def get_generation_all_images(generation_id: int, path: str = "",
