@@ -1106,7 +1106,9 @@ export function loadNsfwDetection() {
 export async function galleryDefaults() {
     const data = await fetchUiOptions();
     return { hideNsfw: data?.gallery_hide_nsfw !== false,
-             hidePromptless: data?.hide_promptless_images !== false };
+             hidePromptless: data?.hide_promptless_images !== false,
+             // The Generations tab's own; a model's Your generations follows hideNsfw.
+             generationsHideNsfw: data?.generations_hide_nsfw !== false };
 }
 
 // The NSFW levels one can give an image of one's own, as nsfw.USER_LEVELS on

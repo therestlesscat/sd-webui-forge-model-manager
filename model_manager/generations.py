@@ -49,6 +49,9 @@ from .nsfw import generated_level
 
 # Whether generations are recorded at all; registered in ui/settings.py.
 RECORD_GENERATIONS = "model_manager_record_generations"
+# How the Generations tab opens: its explicit images hidden or shown. Its own:
+# it used to follow the Model Manager's image gallery setting.
+GENERATIONS_HIDE_NSFW = "model_manager_generations_hide_nsfw"
 
 # What a generation's state is kept under on p, for the hooks that follow.
 _ATTR = "_model_manager_generation"

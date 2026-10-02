@@ -428,6 +428,14 @@ if has_fastapi:
         return client.get('/model-manager/generations/browse', params=params).json()
 
     single = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False)
+    # Unsent, the switch is the tab's own setting, not the image gallery's.
+    setattr(shared.opts, 'model_manager_gallery_hide_nsfw', True)
+    setattr(shared.opts, 'model_manager_generations_hide_nsfw', False)
+    check('the Generations tab opens as its own setting says, not the image gallery\'s',
+          browse()['state']['hidden_nsfw'], 0)
+    setattr(shared.opts, 'model_manager_generations_hide_nsfw', True)
+    check('and hides its explicit images when that says to',
+          browse()['state']['hidden_nsfw'] > 0, True)
     body = browse(hide_nsfw_images='false')
     tiles = {t['generation']['id']: t for t in body['tiles']}
     check('every generation is a tile, the newest first, whatever model made it',

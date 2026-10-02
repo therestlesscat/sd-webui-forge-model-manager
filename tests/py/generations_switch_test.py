@@ -80,6 +80,9 @@ switch(False)
 check('ui-options tells the page it is off', client.get('/model-manager/ui-options').json()['generations_enabled'], False)
 switch(True)
 check('and on', client.get('/model-manager/ui-options').json()['generations_enabled'], True)
+shared.opts.model_manager_generations_hide_nsfw = False
+check('it tells the page how the Generations tab opens - its own setting',
+      client.get('/model-manager/ui-options').json()['generations_hide_nsfw'], False)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
