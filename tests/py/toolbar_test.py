@@ -181,7 +181,7 @@ check('no dialog control is left unwired', unused, [])
 # --- the missing-key banner -------------------------------------------------
 banner = block(UI, '<div id="mm_api_key_warning"')
 check('the banner starts hidden', 'style="display: none;"' in banner)
-OPENS_CONNECTION = "window.mmOpenSettings({ section: 'connection' })"
+OPENS_CONNECTION = 'data-action="settings.open" data-section="connection"'
 check('it opens the settings window where the key is set, not the WebUI\'s Settings page',
       [OPENS_CONNECTION in banner, 'Civitai connection' in banner, 'Settings &rarr;' in banner], [True, True, False])
 check('and says why it matters', 'No Civitai API key' in banner)

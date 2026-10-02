@@ -6,7 +6,7 @@
 // poll, so the next download brought every dismissed one back. Dismiss now
 // asks the server to forget it; the list follows the server's; and "Dismiss
 // all" takes every finished one off at once, leaving what is still running.
-import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -53,14 +53,14 @@ check('finished downloads are listed beside the running one',
       listed(), ['v1.safetensors', 'v2.safetensors', 'v3.safetensors', 'v4.safetensors']);
 check('with Dismiss all offered while any has finished', dismissAll()?.style.display, '');
 
-await window.mmDismissDownload(2);
+await act('downloads.dismiss', { versionId: 2 });
 check('Dismiss takes one off the list', listed().includes('v2.safetensors'), false);
 check('and asks the server to forget it', dismissAsked, [2]);
 await polls();
 check('so it stays gone while another download keeps the list polling',
       listed().includes('v2.safetensors'), false);
 
-await window.mmDismissFinishedDownloads();
+await act('downloads.dismissFinished');
 check('Dismiss all takes every finished one off, leaving the running one', listed(), ['v1.safetensors']);
 check('asking the server to forget every finished one', dismissAsked.at(-1), 0);
 check('and is not offered with nothing finished', dismissAll()?.style.display, 'none');
@@ -72,7 +72,7 @@ check('none of them comes back', listed(), ['v1.safetensors']);
 server = server.concat(download(5, 'error'));
 await waitFor('a new failure', () => listed().includes('v5.safetensors'));
 forgets = false;
-await window.mmDismissDownload(5);
+await act('downloads.dismiss', { versionId: 5 });
 await polls();
 check('a dismissed download a poll still carries stays off the list', listed().includes('v5.safetensors'), false);
 forgets = true;
@@ -86,7 +86,7 @@ check('one dismissed and started again is listed again', listed().includes('v5.s
 // Everything finished, everything dismissed: the panel goes.
 server = [download(1, 'complete'), download(5, 'complete')];
 await waitFor('both complete', () => listed().length === 2 && dismissAll()?.style.display === '');
-await window.mmDismissFinishedDownloads();
+await act('downloads.dismissFinished');
 check('with nothing left, the list is empty and the panel hidden',
       [listed(), $('mm_downloads').style.display], [[], 'none']);
 

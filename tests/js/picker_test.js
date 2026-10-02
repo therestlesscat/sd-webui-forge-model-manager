@@ -92,6 +92,7 @@ check('empty file object', typeof describeFile({}) === 'string');
 // --- selectFile updates the panel in place ----------------------------------
 sandbox.getSelectedVersion = () => version;
 sandbox.selectedModel = { id: 7 };
+sandbox.DOWNLOAD_CONTROLS = { prefix: 'cb', download: 'civitaiBrowser.download', selectFile: 'civitaiBrowser.selectFile' };
 els.cb_file_name = { textContent: '' };
 els.cb_file_size = { textContent: '' };
 els.cb_download_btn = { _attrs: {}, setAttribute(k, v) { this._attrs[k] = v; } };
@@ -100,15 +101,13 @@ selectFile('0');
 check('picked index recorded', sandbox.selectedFileIndex === 0, String(sandbox.selectedFileIndex));
 check('name cell updated', els.cb_file_name.textContent === FILES[0].name, els.cb_file_name.textContent);
 check('size cell updated', els.cb_file_size.textContent === '3.97 GB', els.cb_file_size.textContent);
-check('button carries the file id',
-      els.cb_download_btn._attrs.onclick === 'window.cbDownload(7, 42, 852531)',
-      els.cb_download_btn._attrs.onclick);
+const ids = () => ['data-model-id', 'data-version-id', 'data-file-id'].map((k) => els.cb_download_btn._attrs[k]).join(' ');
+check('button carries the file id', ids() === '7 42 852531', ids());
 check('chosen index follows the pick', chosenFileIndex(version) === 0);
 
 selectFile('2');
 check('switching to the VAE', sandbox.selectedFileIndex === 2);
-check('button id follows', els.cb_download_btn._attrs.onclick === 'window.cbDownload(7, 42, 900001)',
-      els.cb_download_btn._attrs.onclick);
+check('button id follows', ids() === '7 42 900001', ids());
 
 // Out-of-range and junk must be ignored, leaving the last good pick.
 selectFile('9');
@@ -121,7 +120,7 @@ sandbox.selectedFileIndex = 5;
 check('stale index falls back to primary', chosenFileIndex(version) === 1, String(chosenFileIndex(version)));
 
 // --- the dropdown only exists when there is a choice ------------------------
-const controls = (files) => sandbox.renderDownloadControls({ prefix: 'cb', modelId: 7,
+const controls = (files) => sandbox.renderDownloadControls({ controls: sandbox.DOWNLOAD_CONTROLS, modelId: 7,
     version: { id: 42, files }, fileIndex: 0, owned: false });
 check('gated on more than one file',
       !controls([FILES[1]]).includes('<select') && controls(FILES).includes('<select'), controls([FILES[1]]));

@@ -9,7 +9,7 @@
 //
 // A range whose minimum is above its maximum is refused before any search,
 // since it would spend every search it is allowed on finding nothing.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -56,7 +56,7 @@ const summary = (stats) => ({ type: 'done', nextCursor: null, filterStats: stats
 async function search() {
     asked.length = 0;
     $('cb_status').textContent = '';
-    window.cbSearch();
+    act('civitaiBrowser.search');
     await waitFor('the search to finish', () => status().startsWith('Showing')
         || status().startsWith('File size'));
 }
@@ -97,7 +97,7 @@ streamLines = [
 release = {};
 asked.length = 0;
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 // Let the stream say one more line, then give the page a moment to show it.
 async function step() {
     await waitFor('the next line', () => release.next, 20);

@@ -82,6 +82,18 @@ export function escapeHtml(text) {
 }
 
 /**
+ * ` data-<key>="<value>"` for each entry, escaped: what an element's
+ * data-action reads (shared/calls.mjs). A key is written as dataset reads it
+ * back - versionId is data-version-id - and a value left out is not written.
+ */
+export function dataAttributes(data = {}) {
+    return Object.entries(data)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => ` data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${escapeHtml(value ?? '')}"`)
+        .join('');
+}
+
+/**
  * An id from Civitai, as a number, or null if it is not one.
  *
  * Ids go into URLs and handler calls unquoted, so a string arriving where a

@@ -63,9 +63,9 @@ version (see "The WebUI's rules"):
 
 | | |
 |---|---|
-| `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call` |
+| `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`; and the page's one listener calling what markup names in `data-action` |
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
-| `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
+| `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
 | `notes` | notes to the user, at the top of each tab |
 | `jobs` | the long jobs, Sync with Civitai and Scan Disk: their dialogs, starting, following and cancelling one, and finding one still running; the Model Manager connects them to its status line and grid (`connectJobs`), a note's button opens them (`showSyncDialog`, `showScanDialog`) |
@@ -135,11 +135,22 @@ settings window's `settings.open`, a tab's `cardPreview.<setting key>` -
 provides it by name; the others `call` it, and ask `ready` first where they
 tell the user that tab has not loaded. They reached each other through window
 globals (`window.mmShowModel`), and a caller found out what was missing its
-own way, or not at all. What markup calls stays on `window` - an inline
-handler reaches only globals - and is the tab's own: `check_js_references.mjs`
-fails on a file that reads another's window global, and on a call to a name
-nothing provides. Events stay window events (`mm-settings-saved` and three
-more).
+own way, or not at all. `check_js_references.mjs` fails on a file that reads
+another's window global, and on a call to a name nothing provides. Events
+stay window events (`mm-settings-saved` and three more).
+
+**Markup names what it does, the same way** (#95):
+`data-action="modelManager.selectModel"`, with what it needs in `data-*`,
+which one listener for the page calls - a field on its change, anything else
+on a click, the innermost action alone, with the element's data, the element
+and the event. Inline handlers reached window globals by names in strings, in
+the modules' templates and the tabs' Python, and no check followed them
+across: `check_js_references.mjs` fails on markup with an inline handler and
+on an action name nothing provides, in the JavaScript and the Python alike.
+Nothing is stopped: a stop in the metadata window once kept Copy JSON's click
+from the listener that copies. An action runs as the click reaches the
+document, after anything around its element has heard it - an inline handler
+ran first: the viewer, which closes on Send, closes once the click is done.
 
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
@@ -513,9 +524,11 @@ real time once.
   markup is there before the script, where in the WebUI it comes after: a
   test passed while the real panel never showed. Its MutationObserver misses
   a change made through `element.style`, which a browser reports - so
-  `showTab` looks at the panel each frame rather than observing it. When a
-  suite passes and the page does not, look for what the suite set up that the
-  WebUI does not.
+  `showTab` looks at the panel each frame rather than observing it. It has no
+  capture phase. When a suite passes and the page does not, look for what the
+  suite set up that the WebUI does not - and ask a real browser: headless
+  Edge (see `tests/README.md`) showed that Copy JSON had done nothing for
+  three releases, which no suite could.
 - **A test passes for the wrong reason when something else rescues it.** The
   downloads test had a running download, whose poll redrew the panel; the
   bug was a panel of paused downloads only, which nothing polls.

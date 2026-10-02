@@ -9,7 +9,7 @@
 // into the library - with its own gallery's version left out. Both tabs'
 // scripts are on one page, as in the WebUI.
 import { readFileSync } from 'node:fs';
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, press } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -99,9 +99,9 @@ const rows = () => Array.from(panel()?.querySelectorAll('tbody tr') || [])
                    row.querySelector('.mm-res-name')?.childNodes[0]?.textContent.trim()]);
 
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
-await window.cbOpenModel(0);
+await act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('the gallery', () => card());
 check('a PG image has no badge, whatever Civitai\'s old nsfw flag says (it once read "true")',
       card().querySelector('.mm-nsfw-badge')?.textContent ?? null, null);
@@ -114,11 +114,11 @@ check('the button counts each resource once, and not the model the gallery shows
 // version, and only that: it once fell back to the Model Manager's (#90).
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Model Manager\'s grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 
-// (This DOM does not run inline handlers; the button's own is read, and run.)
-check('its button opens the image\'s resources', button()?.getAttribute('onclick'), 'window.cbShowResources(0)');
-window.cbShowResources(0);
+check('its button opens the image\'s resources', [button()?.dataset.action, button()?.dataset.index],
+      ['civitaiBrowser.showResources', '0']);
+press(button());
 await waitFor('the dialog', () => rows().length === 2);
 check('it opens the Model Manager\'s Resources dialog: the same table, the same rows - the LoRA among them, '
       + 'though the Model Manager shows its model',
@@ -127,8 +127,9 @@ check('it opens the Model Manager\'s Resources dialog: the same table, the same 
 
 const download = panel().querySelector('[data-res-download="6001"] button');
 check('with a Download for each: the LoRA alone, into the library',
-      download?.getAttribute('onclick'), 'window.mmDownloadResource(6001, 600)');
-await window.mmDownloadResource(6001, 600);
+      [download?.dataset.action, download?.dataset.versionId, download?.dataset.modelId],
+      ['resources.download', '6001', '600']);
+await press(download);
 check('which downloads that version, not the model the image is an example of',
       downloads.map((d) => d.version_id), ['6001']);
 

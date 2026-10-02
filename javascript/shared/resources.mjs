@@ -13,8 +13,9 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { apiCall, escapeHtml, safeId } = await shared('core.mjs');
+const { apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
 const { downloads } = await shared('downloads.mjs');
+const { provide } = await shared('calls.mjs');
 const { openMetaModal } = await shared('viewer.mjs');
 
 // ------------------------------------------- an image's resources, looked up
@@ -298,7 +299,7 @@ function renderResourcesModal(resources, pending = 0) {
 
     const modalHtml = `
         <div class="mm-modal-overlay" id="mm_meta_modal">
-            <div class="mm-modal mm-resources-modal" onclick="event.stopPropagation()">
+            <div class="mm-modal mm-resources-modal">
                 <div class="mm-modal-header">
                     <h3>Resources</h3>
                     <button class="mm-modal-close">&times;</button>
@@ -354,8 +355,8 @@ function resourceDownloadCell(resource) {
     const retry = job && job.state === 'error'
         ? `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Failed</span> ` : '';
     const modelId = resource.modelId || (job && job.modelId);
-    return `${retry}<button type="button" class="mm-btn primary mm-btn-small"
-        onclick="window.mmDownloadResource(${safeId(id)}, ${modelId ? safeId(modelId) : 'null'})">Download</button>`;
+    return `${retry}<button type="button" class="mm-btn primary mm-btn-small" data-action="resources.download"`
+        + `${dataAttributes({ versionId: safeId(id), modelId: modelId ? safeId(modelId) : null })}>Download</button>`;
 }
 
 /** Redraw one row's download cell, if the dialog is showing it. */
@@ -407,8 +408,8 @@ export async function downloadResource(versionId, modelId) {
     redrawResourceDownload(versionId, { versionId, modelId });
     announceDownloads();
 }
-// Its markup calls it, and an inline handler reaches only globals.
-if (typeof window !== 'undefined') window.mmDownloadResource = downloadResource;
+// Its markup's Download.
+provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
 
 function finishResourceDownload(versionId) {
     resourceDownloads[versionId].state = 'installed';

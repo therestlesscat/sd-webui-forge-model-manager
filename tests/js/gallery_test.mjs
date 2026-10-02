@@ -13,7 +13,7 @@
 // second Load More could add images without a page of its own - "PAGE 3"
 // never showed. The whole gallery was drawn again on each Load More too, and
 // every image above came back blank until it reloaded, moving the page.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -105,7 +105,7 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
 let before = asked.length;
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => cards().length > 0);
 
 check('opening a model asks for its details, then page 1 on its own',
@@ -118,7 +118,7 @@ check('page buttons are gone', document.querySelectorAll('#mm_images .mm-image-p
 
 // A page that cannot be loaded says why above Load More, and changes nothing.
 serverDown = true;
-await window.mmLoadMoreImages();
+await act('modelManager.loadMoreImages');
 serverDown = false;
 check('a page that cannot be loaded says why, above Load More',
       [(document.querySelector('#mm_images .mm-images-footer')?.textContent || '').includes(
@@ -127,7 +127,7 @@ check('a page that cannot be loaded says why, above Load More',
 
 const firstCard = cards()[0];
 before = asked.length;
-await window.mmLoadMoreImages();
+await act('modelManager.loadMoreImages');
 await waitFor('page 2', () => cards().length === 180);
 check('Load More asks for the next page', pagesAsked(before), ['2']);
 check('and adds it after a separator, with its own note',
@@ -135,13 +135,13 @@ check('and adds it after a separator, with its own note',
 check('leaving the cards already drawn as they were, not drawn again',
       [cards()[0] === firstCard, firstCard.isConnected], [true, true]);
 
-await window.mmLoadMoreImages();
+await act('modelManager.loadMoreImages');
 await waitFor('page 3', () => separators().length === 2);
 check('the next Load More adds page 3, as every one adds a page - filled from Civitai, '
       + 'as the library held only 50 of it', [separators(), notes()[2], cards().length],
       [['Page 2', 'Page 3'], 'Displaying 90 images for page 3 · 10 hidden due to NSFW filter', 270]);
 
-await window.mmLoadMoreImages();
+await act('modelManager.loadMoreImages');
 await waitFor('page 4', () => separators().length === 3);
 check('a page the switches empty still has its separator and its note, which says why, '
       + 'and that Civitai has no more', [separators()[2], notes()[3], cards().length],
@@ -150,7 +150,7 @@ check('so there is no Load More', loadMore(), false);
 
 scrolls.length = 0;
 before = asked.length;
-await window.mmToggleShowNsfwImages(true);
+await tick('modelManager.showNsfwImages', true);
 await waitFor('the reload', () => cards().length === 100);
 check('changing a switch starts again from page 1', [pagesAsked(before), separators(), notes()],
       [['1'], [], ['Displaying 100 images for page 1']]);
@@ -186,15 +186,14 @@ key('ArrowRight');
 await waitFor('the next page', () => shown() === 'https://example.invalid/101.jpeg');
 check('past the last card, the gallery\'s next page is loaded - into the gallery too - and shown',
       [pagesAsked(before), cards().length, shown()], [['2'], 200, 'https://example.invalid/101.jpeg']);
-// (This DOM does not run inline handlers; the button's own is read instead.)
 const send = viewer().querySelector('.mm-send-btn');
-check('its Send is that card\'s own', send?.getAttribute('onclick'), 'window.mmSendToTxt2img(100)');
+check('its Send is that card\'s own', [send?.dataset.action, send?.dataset.index], ['modelManager.sendImage', '100']);
 localStorage.removeItem('mm_scroll_position');
-window.mmSendToTxt2img(100).catch(() => {});
+press(send).catch(() => {});                  // the viewer hears the click first, then Send runs
 check('which saves where the gallery was when the viewer opened, for Previous Position',
       localStorage.getItem('mm_scroll_position'), '1234');
-send.dispatchEvent(new window.Event('click', { bubbles: true }));
-check('and closes the viewer, on the way to txt2img', viewer(), null);
+await new Promise((resolve) => setTimeout(resolve, 0));
+check('and closes the viewer once the click is done, on the way to txt2img', viewer(), null);
 // "Previous Position" brings back the card sent - the one shown last, not the
 // one the viewer opened on - and the saved position only once it is gone.
 const intoView = [];
@@ -215,7 +214,7 @@ foreign.className = 'mm-modal-overlay';
 foreign.id = 'another_tabs_modal';
 document.body.prepend(foreign);
 const own = () => Array.from(document.querySelectorAll('.mm-modal-overlay')).filter((m) => m.id !== 'another_tabs_modal');
-window.mmShowImageMeta(0);
+act('modelManager.showImageMeta', { index: 0 });
 check('the metadata modal opens, leaving another tab\'s in place',
       [own().length, !!document.getElementById('another_tabs_modal')], [1, true]);
 key('Escape');

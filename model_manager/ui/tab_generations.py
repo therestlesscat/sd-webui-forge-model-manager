@@ -40,21 +40,21 @@ def create_generations_ui():
                         </span>
                     </span>
                     <label class="gen-view-switch" title="Every tile the same size, strictly newest first: wide images are cropped to a single column rather than a later tile filling in beside them">
-                        <input type="checkbox" id="gen_preserve_order" onchange="window.genSetPreserveOrder(this.checked)">
+                        <input type="checkbox" id="gen_preserve_order" data-action="generations.preserveOrder">
                         Preserve order
                     </label>
                     <label class="gen-view-switch" title="Rate each image's NSFW level: a row of levels under every image">
-                        <input type="checkbox" id="gen_rate" onchange="window.genSetRating(this.checked)">
+                        <input type="checkbox" id="gen_rate" data-action="generations.rating">
                         Rate
                     </label>
                     <label class="gen-view-switch" title="Tick batches and images, then delete them all at once. A batch's tick is the whole generation">
-                        <input type="checkbox" id="gen_select" onchange="window.genSetSelecting(this.checked)">
+                        <input type="checkbox" id="gen_select" data-action="generations.selecting">
                         Select
                     </label>
                     <span id="gen_select_bar" class="mm-select-bar" hidden></span>
                     <span class="gen-toolbar-fill"></span>
                     <button type="button" class="mm-btn secondary" id="gen_refresh_btn"
-                            onclick="window.genRefresh()">Refresh</button>
+                            data-action="generations.refresh">Refresh</button>
                 </div>
 
                 <!-- Inside a group or a batch: Back, and where it is -->

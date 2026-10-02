@@ -61,13 +61,14 @@ globalThis.fetch = async (url) => {
 };
 
 await import(`file:///${ROOT}/javascript/generations.mjs`);
+const { ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
 
 // ------------------------------------------------------------------ Send
 await window.genSend(0);
 await waitFor('the paste', () => pasted.txt2img > 0);
-check('the Model Manager\'s script is not loaded', typeof window.mmSendToTxt2img, 'undefined');
+check('the Model Manager\'s script is not loaded', ready('modelManager.sendImage'), false);
 check('Send pastes the generation\'s infotext into the tab it was made in',
       document.querySelector('#txt2img_prompt textarea').value, INFOTEXT);
 check('and presses that tab\'s paste, once', [pasted.txt2img, pasted.img2img], [1, 0]);

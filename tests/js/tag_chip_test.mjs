@@ -6,7 +6,7 @@
 // The x takes it out and gives the empty box back. Text typed and never
 // chosen still counts, as it always did, and becomes a chip on Enter or at
 // Search, so what the search is filtered by is always on show.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -42,7 +42,7 @@ const type = (text) => { input.value = text; input.dispatchEvent(new window.Even
 async function search() {
     const before = searched.length;
     $('cb_status').textContent = '';
-    window.cbSearch();
+    act('civitaiBrowser.search');
     await waitFor('the search', () => searched.length > before
         && $('cb_status').textContent.startsWith('Showing'));
     return searched[searched.length - 1];

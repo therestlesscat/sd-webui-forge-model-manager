@@ -21,7 +21,7 @@ def create_civitai_browser_ui():
                     <!-- The settings window: one, shared with the Model Manager -->
                     <span class="mm-header-actions">
                     <!-- version -->
-                    <button type="button" class="mm-settings-btn" onclick="window.mmOpenSettings && window.mmOpenSettings({ tab: 'civitai_browser' })"
+                    <button type="button" class="mm-settings-btn" data-action="settings.open" data-tab="civitai_browser"
                             title="Model Manager settings" aria-label="Model Manager settings">
                         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -40,7 +40,7 @@ def create_civitai_browser_ui():
                         Searches are limited to 0.5 requests per second instead of 6,
                         image prompts cannot be fetched at all, and some models refuse
                         to download.
-                        <a href="#" class="mm-banner-link" onclick="window.mmOpenSettings && window.mmOpenSettings({ section: 'connection' }); return false;">Set one in the settings</a>, under Civitai connection.
+                        <a href="#" class="mm-banner-link" data-action="settings.open" data-section="connection">Set one in the settings</a>, under Civitai connection.
                     </span>
                 </div>
 
@@ -179,7 +179,7 @@ def create_civitai_browser_ui():
                     <div class="filter-buttons-row">
                         <button type="button" id="cb_save_search_btn" class="mm-btn secondary"
                                 title="Save these filters as the search this tab opens with. Right-click to clear it.">Save Search</button>
-                        <button type="button" id="cb_search_btn" class="cb-btn primary" onclick="window.cbSearch && window.cbSearch()">Search</button>
+                        <button type="button" id="cb_search_btn" class="cb-btn primary" data-action="civitaiBrowser.search">Search</button>
                     </div>
                 </div>
 
@@ -192,7 +192,7 @@ def create_civitai_browser_ui():
                         <span id="cb_sfw_only_banner_text"></span>
                         <span id="cb_sfw_only_banner_setting">To fill every page anyway, turn on
                             <strong>Fill every page with 'Only Show Models with SFW images'</strong>
-                            <a href="#" class="mm-banner-link" onclick="window.mmOpenSettings && window.mmOpenSettings({ section: 'advanced' }); return false;">in the settings</a>, under Advanced - not recommended:
+                            <a href="#" class="mm-banner-link" data-action="settings.open" data-section="advanced">in the settings</a>, under Advanced - not recommended:
                             one page can take hundreds of requests and several minutes.</span>
                         <span id="cb_sfw_only_banner_model" class="mm-banner-note"></span></span>
                 </div>
@@ -215,13 +215,13 @@ def create_civitai_browser_ui():
                             <span class="cb-downloads-summary" id="cb_downloads_summary"></span>
                             <button class="mm-btn mm-btn-small secondary" id="cb_downloads_pause_all"
                                     title="Pause every download, running or waiting" style="display: none;"
-                                    onclick="window.mmDownloadControl('pause_all', 0)">Pause all</button>
+                                    data-action="downloads.control" data-control="pause_all">Pause all</button>
                             <button class="mm-btn mm-btn-small secondary" id="cb_downloads_resume_all"
                                     title="Resume every paused download, in order" style="display: none;"
-                                    onclick="window.mmDownloadControl('resume_all', 0)">Resume all</button>
+                                    data-action="downloads.control" data-control="resume_all">Resume all</button>
                             <button class="mm-btn mm-btn-small secondary" id="cb_downloads_dismiss_all"
                                     title="Take every finished download off the list" style="display: none;"
-                                    onclick="window.mmDismissFinishedDownloads()">Dismiss all</button>
+                                    data-action="downloads.dismissFinished">Dismiss all</button>
                         </div>
                     </div>
                     <div id="cb_download_list" class="cb-downloads-list"></div>

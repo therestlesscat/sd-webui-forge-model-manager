@@ -11,7 +11,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml } = await shared('core.mjs');
+const { escapeHtml, dataAttributes } = await shared('core.mjs');
 const { IMAGE_PLACEHOLDER_SVG, mediaFallback } = await shared('media.mjs');
 const { RATING_LEVELS, nsfwBadge } = await shared('nsfw.mjs');
 
@@ -26,14 +26,14 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * The bar Select shows: how many images, Select all loaded, Clear, Delete.
- * `calls` names the window functions each button runs.
+ * `actions` names what each button does (shared/calls.mjs).
  */
-export function selectBarHtml(images, calls) {
+export function selectBarHtml(images, actions) {
     return `<span class="mm-select-count">${plural(images, 'image')} selected</span>
-        <button type="button" class="mm-btn secondary mm-btn-small" onclick="${calls.all}">Select all loaded</button>
-        <button type="button" class="mm-btn secondary mm-btn-small" onclick="${calls.clear}"
+        <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.all)}">Select all loaded</button>
+        <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.clear)}"
                 ${images ? '' : 'disabled'}>Clear</button>
-        <button type="button" class="mm-btn danger mm-btn-small" onclick="${calls.delete}"
+        <button type="button" class="mm-btn danger mm-btn-small" data-action="${escapeHtml(actions.delete)}"
                 ${images ? '' : 'disabled'}>Delete...</button>`;
 }
 
@@ -73,16 +73,16 @@ export function bulkDeleteReport(data, withFiles) {
  * marked: outlined when it is its prompt's, filled when it is a person's
  * rating. `of` is an image - its mm_level and user_level - or something
  * holding several, with the level and user_level they share, if they do.
- * `call` is the click, % standing for the level. Both tabs that show your
- * generations draw it.
+ * `action` is what a click does (shared/calls.mjs), with the level as
+ * data-level beside `data`. Both tabs that show your generations draw it.
  */
-export function ratingRowHtml(of, call) {
+export function ratingRowHtml(of, action, data = {}) {
     const level = of.mm_level ?? of.level;
     const mine = of.user_level;
     return `<div class="mm-rate" title="NSFW level: click to rate, click your rating again to clear it">
         ${RATING_LEVELS.map(([value, name]) => `<button type="button" class="mm-rate-chip${
             level === value ? ' mm-rate-current' : ''}${mine === value ? ' mm-rate-mine' : ''}"
-            onclick="event.stopPropagation(); ${call.replace('%', value)}">${name}</button>`).join('')}
+            data-action="${escapeHtml(action)}" data-level="${value}"${dataAttributes(data)}>${name}</button>`).join('')}
     </div>`;
 }
 

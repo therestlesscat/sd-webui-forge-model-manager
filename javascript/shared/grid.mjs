@@ -9,7 +9,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml, formatNumber } = await shared('core.mjs');
+const { escapeHtml, dataAttributes, formatNumber } = await shared('core.mjs');
 const { mediaFallback } = await shared('media.mjs');
 
 /**
@@ -149,23 +149,25 @@ const CARD_NAME_LENGTH = 30;
  *
  * @param {object} card
  * @param {number} card.index - its place in the grid, as data-index.
- * @param {string} card.onclick - what a click runs, e.g. "window.mmSelectModel(3)".
+ * @param {string} card.action - what a click does, a name provided in
+ *     shared/calls.mjs, e.g. "modelManager.selectModel"; it reads data-index.
  * @param {string} card.name - the model's name, in full; the card cuts it.
  * @param {{src: string, video: boolean, original?: string}} [card.media] - the
  *     card image's URL, as cardMediaUrl() gives it, and the upload's, to fall
  *     back to; none, or an empty src, shows the placeholder.
  * @param {string[]} [card.classes] - added to model-card: owned, nsfw-x, ...
  * @param {Object<string, string|number>} [card.data] - data- attributes.
- * @param {{cls: string, text: string, title?: string, onclick?: string}[]} [card.overlays] -
+ * @param {{cls: string, text: string, title?: string, action?: string, data?: object}[]} [card.overlays] -
  *     on the image: Owned, No Civitai Data, the bookmark star. One with an
- *     onclick is a button, whose click is its own, not the card's.
+ *     action is a button, whose click is its own, not the card's; `data` is
+ *     what the action reads.
  * @param {{cls: string, text: string, title?: string}[]} [card.badges] -
  *     under the name: type, base model, versions.
  * @param {({text: string, title?: string}|{html: string})[]} [card.stats] -
  *     the bottom row. `html` is for renderThumbs(), which escapes its own.
  * @returns {string} the card's HTML.
  */
-export function renderModelCard({ index, onclick, name, media, classes = [], data = {},
+export function renderModelCard({ index, action, name, media, classes = [], data = {},
                                   overlays = [], badges = [], stats = [] }) {
     const full = name || 'Unknown';
     const shown = full.length > CARD_NAME_LENGTH ? full.substring(0, CARD_NAME_LENGTH) + '...' : full;
@@ -176,14 +178,12 @@ export function renderModelCard({ index, onclick, name, media, classes = [], dat
         : media.video
             ? `<video src="${escapeHtml(src)}" loop muted autoplay playsinline ${mediaFallback(media.original)}></video>`
             : `<img src="${escapeHtml(src)}" alt="${escapeHtml(full)}" loading="lazy" ${mediaFallback(media.original, CARD_PLACEHOLDER)}>`;
-    const attributes = Object.entries(data)
-        .map(([key, value]) => ` data-${key}="${escapeHtml(value ?? '')}"`).join('');
     return `
-        <div class="${['model-card', ...classes.filter(Boolean)].join(' ')}" data-index="${Number(index)}"${attributes} onclick="${escapeHtml(onclick)}">
+        <div class="${['model-card', ...classes.filter(Boolean)].join(' ')}" data-index="${Number(index)}"${dataAttributes(data)} data-action="${escapeHtml(action)}">
             <div class="model-card-image">
                 ${image}
-                ${overlays.map((o) => (o.onclick
-                    ? `<button type="button" class="${escapeHtml(o.cls)}"${title(o)} onclick="event.stopPropagation(); ${escapeHtml(o.onclick)}">${escapeHtml(o.text)}</button>`
+                ${overlays.map((o) => (o.action
+                    ? `<button type="button" class="${escapeHtml(o.cls)}"${title(o)} data-action="${escapeHtml(o.action)}"${dataAttributes(o.data)}>${escapeHtml(o.text)}</button>`
                     : `<div class="${escapeHtml(o.cls)}"${title(o)}>${escapeHtml(o.text)}</div>`)).join('')}
             </div>
             <div class="model-card-info">
@@ -213,9 +213,9 @@ export function renderModelCard({ index, onclick, name, media, classes = [], dat
  * @param {number} p.last - the highest page there is to go to.
  * @param {boolean} p.hasNext - whether there is a page after this one; it may
  *     not be numbered yet.
- * @param {string} p.goTo - the window function a page number calls, with it.
- * @param {string} p.prev - the window function Prev calls.
- * @param {string} p.next - the window function Next calls.
+ * @param {string} p.goTo - what a page number does (shared/calls.mjs); it reads data-page.
+ * @param {string} p.prev - what Prev does.
+ * @param {string} p.next - what Next does.
  */
 export function renderGridPagination({ current, last, hasNext, goTo, prev, next }) {
     const visible = 5;
@@ -236,17 +236,17 @@ export function renderGridPagination({ current, last, hasNext, goTo, prev, next 
 
     const numbers = pages.map((page) => (page === null
         ? '<span class="mm-page-ellipsis">...</span>'
-        : `<button class="mm-page-num ${page === current ? 'active' : ''}" onclick="window.${goTo}(${page})">${page}</button>`
+        : `<button class="mm-page-num ${page === current ? 'active' : ''}" data-action="${escapeHtml(goTo)}" data-page="${page}">${page}</button>`
     )).join('');
     return `
         <div class="mm-pagination">
-            <button class="mm-btn mm-page-btn" onclick="window.${prev}()" ${current <= 1 ? 'disabled' : ''}>
+            <button class="mm-btn mm-page-btn" data-action="${escapeHtml(prev)}" ${current <= 1 ? 'disabled' : ''}>
                 ← Prev
             </button>
             <div class="mm-page-numbers">
                 ${numbers}
             </div>
-            <button class="mm-btn mm-page-btn" onclick="window.${next}()" ${hasNext ? '' : 'disabled'}>
+            <button class="mm-btn mm-page-btn" data-action="${escapeHtml(next)}" ${hasNext ? '' : 'disabled'}>
                 Next →
             </button>
         </div>

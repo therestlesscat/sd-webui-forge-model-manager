@@ -997,7 +997,7 @@ function setGradioDropdown(elem_id, value) {
 
 // Send image generation params to txt2img using paste button
 // The last send's work after the paste - scheduler, modules, hires - which
-// runs on after mmSendToTxt2img returns. Resolved once all of it is done.
+// runs on after a gallery's Send returns. Resolved once all of it is done.
 let sendSettled = Promise.resolve();
 
 /** Wait for the last send to finish setting Forge up. */

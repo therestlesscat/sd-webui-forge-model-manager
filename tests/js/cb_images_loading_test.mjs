@@ -5,7 +5,7 @@
 // Now a bar shows at once: over an emptied gallery saying it is loading when
 // a model is opened, over the current images - dimmed, their switches off -
 // when a switch changes; and a failure is said.
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, call, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -50,11 +50,11 @@ const switches = () => Array.from(gallery()?.querySelectorAll('input[type="check
 const held = () => waitFor('the images request', () => release !== null);
 
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
 
 // ------------------------------------------------------- opening a model
-const opening = window.cbOpenModel(0);
+const opening = act('civitaiBrowser.openModel', { index: 0 });
 check('opening a model shows the bar at once, over a gallery saying it is loading',
       [!!bar(), gallery()?.querySelector('.mm-images-loading')?.textContent, cards().length],
       [true, 'Loading images...', 0]);
@@ -66,7 +66,7 @@ check('and the bar goes when the images are drawn', [!!bar(), gallery().classLis
       [false, false]);
 
 // ------------------------------------------------------ changing a switch
-const toggling = window.cbToggleShowAllImages(false);
+const toggling = tick('civitaiBrowser.showAllImages', false);
 await held();
 check('changing a switch keeps the images, dimmed under the bar, the switches off until the answer',
       [!!bar(), gallery().classList.contains('mm-gallery-loading'), cards().length,
@@ -80,7 +80,8 @@ check('then the new images, undimmed, the switches on again',
 
 // ---------------------------------------------------------- a failure said
 failNext = true;
-const failing = window.cbToggleShowAllImages(true);
+// The switch is not drawn now - nothing hidden for it to show - so its action is called.
+const failing = call('civitaiBrowser.showAllImages', {}, { checked: true });
 await held();
 release();
 await failing;
@@ -91,7 +92,7 @@ check('a request that fails says so, and gives the images back as they were',
       [true, false, false, 2, false]);
 
 // ------------------------------------------------- another model, at once
-const another = window.cbOpenModel(1);
+const another = act('civitaiBrowser.openModel', { index: 1 });
 check('opening another model clears the last one\'s images at once', [cards().length, !!bar()], [0, true]);
 await held();
 release();

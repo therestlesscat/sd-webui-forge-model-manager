@@ -73,10 +73,20 @@ the test's own (`DownloadService.store`), so no suite can reach a real
 `harness.mjs` gives a tab its markup and the WebUI's globals in linkedom, which
 is close to a browser and not one:
 
-- **No inline handlers run.** An `onclick="..."` is never called - a suite
-  reads the attribute, or adds the handler itself where the handler is what is
-  being tested (`runInline` in the select suites: a label's
-  `stopPropagation()` once kept every click from the page).
+- **No inline handlers run.** The page's markup has none (#95; the tabs' own
+  templates in its second step): it names an action in `data-action`, and a
+  suite presses what the page draws - `act(name, data)`, `tick(name, on)`,
+  `choose(name, value)`, `press(element)` in `harness.mjs` - which dispatches a
+  real click or change to the page's one listener (`shared/calls.mjs`) and
+  gives back what the action answered. What linkedom never showed is a stop
+  in markup: `onclick="event.stopPropagation()"` on the metadata window kept
+  Copy JSON's click from its listener for three releases. Headless Edge
+  showed it (`msedge --headless --allow-file-access-from-files
+  --virtual-time-budget=5000 --dump-dom file:///...` on a page under
+  `tests/work/`, with its own `--user-data-dir`).
+- **No capture phase.** A listener for the way down runs with the ones on the
+  way up, and an event that does not bubble - an image's load error - reaches
+  none on the document: a suite calls `fallBack` (`shared/media.mjs`) itself.
 - **No layout.** Widths and positions are 0; a suite checks the stylesheet's
   rule instead.
 - **The markup is read from the tab's `.py`**, as written: markup Python adds
@@ -94,7 +104,7 @@ is close to a browser and not one:
 | | |
 |---|---|
 | `check_python_references.py` | relative imports name real attributes; facade methods exist with matching arity; call sites fit the signatures they call |
-| `check_js_references.mjs` | every imported and destructured name is exported; every called name is declared; no `window.*` read but never assigned; no file reads a `window.*` another file defines, and every name called through `shared/calls.mjs` is provided; a tab's `SHARED_MODULES` is what it awaits |
+| `check_js_references.mjs` | every imported and destructured name is exported; every called name is declared; no `window.*` read but never assigned; no file reads a `window.*` another file defines, and every name called through `shared/calls.mjs` is provided; a tab's `SHARED_MODULES` is what it awaits; markup holds no inline handler, and every action it names - in the modules and the tabs' Python - is provided |
 | `check_api_contract.py` | the parameters the browser sends are the ones the endpoints declare, both directions |
 | `check_forge_imports.py` | nothing in the package but `forge_host.py` (and `ui/settings.py`) imports Forge, or reaches it by name |
 | `check_import_cycles.py` | the extension's package imports without a cycle, counting imports inside functions |

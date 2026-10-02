@@ -2,7 +2,7 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, call, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The Settings page's result line is watched for; linkedom has the observer,
@@ -189,7 +189,7 @@ for (const [file, tab] of [['tab_model_manager.py', 'model_manager'], ['tab_civi
                            ['header.py', 'TAB']]) {
     const markup = readFileSync(`${ROOT}/model_manager/ui/${file}`, 'utf8');
     check(`${file} has the gear, opening the one window, saying which tab it is in`,
-          new RegExp(`class="mm-settings-btn"[^>]*onclick="window\\.mmOpenSettings && window\\.mmOpenSettings\\(\\{ tab: '${tab}' \\}\\)"`)
+          new RegExp(`class="mm-settings-btn"[^>]*data-action="settings\\.open" data-tab="${tab}"`)
               .test(markup), true);
 }
 check('the gear is in the header', Boolean(document.querySelector('.model-manager-header .mm-settings-btn')), true);
@@ -208,7 +208,7 @@ function pick(el) {
     el.dispatchEvent(new window.Event('change', { bubbles: true }));
 }
 
-await window.mmOpenSettings();
+await call('settings.open');
 check('it opens', $('#mm_settings')?.style.display, 'flex');
 check('on the page body, outside anything Gradio redraws', $('#mm_settings')?.parentElement, document.body);
 check('asking the server, each time it opens', settingsAsked, 1);
@@ -357,7 +357,7 @@ check('as if typed there, so Gradio takes them',
 const before = (await sharedModule('settings.mjs')).settingsWindow();
 check('the other tab, importing the module too, gets the same window',
       (await sharedModule('settings.mjs')).settingsWindow(), before);
-await window.mmOpenSettings();
+await call('settings.open');
 check('which is drawn once', document.querySelectorAll('#mm_settings').length, 1);
 check('and opens with what the server has now', field('model_manager_page_size')
     .querySelector('input[type="number"]').value, '30');
@@ -406,7 +406,7 @@ check('with the key removed, there is none to test', keyResult()[0], 'No key to 
 // Leave the key as it was: close without saving, and open again.
 confirmAnswer = true;
 $('[data-act="cancel"]').click();
-await window.mmOpenSettings();
+await call('settings.open');
 
 // -------------------------------------------- text encoders and VAE table
 const block = (name) => field(`model_manager_modules_${name}`);
@@ -497,7 +497,7 @@ restampStates = [
     { state: 'running', judged: 50000, total: 100000 },
     { state: 'done', changed: 633, total: 100000 },
 ];
-await window.mmOpenSettings();
+await call('settings.open');
 pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'));
 $('#mm_settings_save').click();
 await waitFor('the notice', () => Boolean(notice()));
@@ -512,7 +512,7 @@ check('then what changed', noticeText(), `Done: ${n(633)} of ${n(100000)} images
 restampStates = [{ state: 'done', changed: 633, total: 100000 }];
 const noticeShown = notice()?.style.display;
 if (notice()) notice().style.display = 'none';
-await window.mmOpenSettings();
+await call('settings.open');
 type(field('model_manager_page_size').querySelector('input[type="number"]'), '40');
 $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 4);
@@ -587,7 +587,7 @@ const present = () => Array.from(document.querySelectorAll('.mm-settings-section
 const reopen = async (options) => {
     confirmAnswer = true;
     $('[data-act="cancel"]').click();
-    await window.mmOpenSettings(options);
+    await call('settings.open', options);
 };
 await reopen();
 check('opened with nothing named, every section is collapsed', openSections(), []);

@@ -9,7 +9,7 @@
 // a card passes over a flagged image as over any unsafe one, and the gallery
 // hides it with NSFW hidden and badges it "X · prompt" when shown. The words
 // are made up.
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -51,19 +51,19 @@ check('an image with no stamp is Unknown - hidden - not judged here on less',
 const $ = (id) => document.getElementById(id);
 $('cb_nsfw').checked = false;
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
 check('a card passes over a PG image whose prompt is explicit, for the next safe one',
       document.querySelector('#cb_grid .model-card img')?.getAttribute('src'),
       'https://example.invalid/clean.jpeg');
 
 // --------------------------------------------------------------- the gallery
-window.cbOpenModel(0);
+act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelectorAll('#cb_images .mm-image-card').length > 0);
 const shown = () => Array.from(document.querySelectorAll('#cb_images .mm-image-card img'))
     .map((img) => (img.getAttribute('data-src') || img.getAttribute('src') || '').split('/').pop());
 check('with NSFW hidden, the gallery leaves it out', shown(), ['clean.jpeg']);
-await window.cbToggleShowAllImages(true);
+await tick('civitaiBrowser.showAllImages', true);
 check('shown, it is badged for why', document.querySelector('#cb_images .mm-nsfw-badge')?.textContent,
       'X · prompt');
 

@@ -3,7 +3,7 @@
 // a model is opened, over the current images, dimmed with their switches off,
 // when a switch changes - and a first page that fails is said in the gallery,
 // where it was the console's alone.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -54,7 +54,7 @@ const held = () => waitFor('the gallery page', () => release !== null);
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelector('#mm_grid .model-card'));
 
-const opening = window.mmSelectModel(0);
+const opening = act('modelManager.selectModel', { index: 0 });
 check('opening a model shows the bar at once, over a gallery saying it is loading',
       [!!bar(), gallery()?.querySelector('.mm-images-loading')?.textContent, gallery()?.style.display],
       [true, 'Loading images...', 'block']);
@@ -65,7 +65,7 @@ await waitFor('the images', () => cards().length === 2);
 check('and it goes when the images are drawn', [!!bar(), gallery().classList.contains('mm-gallery-loading')],
       [false, false]);
 
-const toggling = window.mmToggleShowNsfwImages(false);
+const toggling = tick('modelManager.showNsfwImages', false);
 await held();
 check('changing a switch keeps the images, dimmed under the bar, the switches off',
       [!!bar(), gallery().classList.contains('mm-gallery-loading'), cards().length,
@@ -78,7 +78,8 @@ check('then the new page, undimmed, the switches on again',
       [false, false, false]);
 
 failNext = true;
-const failing = window.mmToggleShowNsfwImages(true);
+// The switch is not drawn now - nothing hidden for it to show - so its action is called.
+const failing = call('modelManager.showNsfwImages', {}, { checked: true });
 await held();
 release();
 await failing;

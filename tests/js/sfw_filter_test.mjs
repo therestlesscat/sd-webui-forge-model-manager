@@ -6,10 +6,11 @@
 // sent as on. When it is on, the search streams - it checks models one at a time -
 // and the status line says what it left out, and when Civitai's rate limit
 // cut a page short.
-import { ROOT, checker, mountTab } from './harness.mjs';
-const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
+// The page first: the registry listens to it when it loads.
+const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
 const asked = [];
@@ -46,7 +47,7 @@ const toggle = (id, on) => { $(id).checked = on; $(id).dispatchEvent(new window.
 async function search() {
     asked.length = 0;
     $('cb_status').textContent = '';
-    window.cbSearch();
+    act('civitaiBrowser.search');
     await waitFor('the search to finish', () => status().startsWith('Showing'));
 }
 
@@ -109,8 +110,8 @@ check('and where to find the setting that fills every page, and that it is not r
        settingNote.includes('in the settings, under Advanced'), settingNote.includes('not recommended')],
       [true, true, true]);
 check('with a link that opens the settings window there',
-      $('cb_sfw_only_banner_setting')?.querySelector('.mm-banner-link')?.getAttribute('onclick'),
-      "window.mmOpenSettings && window.mmOpenSettings({ section: 'advanced' }); return false;");
+      ['action', 'section'].map((key) => $('cb_sfw_only_banner_setting')?.querySelector('.mm-banner-link')?.dataset[key]),
+      ['settings.open', 'advanced']);
 toggle('cb_sfw_only', false);
 check('unticking it takes the banner down', bannerShown(), false);
 
@@ -144,7 +145,7 @@ summary = { checked: 30, dropped: 0, unsafe: 24, failed: 0, rejected: 0,
             budgetReached: true, rateLimited: false };
 asked.length = 0;
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the stream', () => asked.length === 1);
 check('with it on, the search streams and says so',
       [asked[0].pathname, asked[0].searchParams.get('sfw_only'),

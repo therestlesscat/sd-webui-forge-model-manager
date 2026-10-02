@@ -73,7 +73,7 @@ export function dimGalleryWhileLoading(containerId, on) {
  * @param {string} options.bannerClass - the tab's banner class.
  * @param {string} options.labelClass - the tab's switch label class.
  * @param {Array<object>} options.switches - one per filter:
- *     id, onchange (a fixed call, never data), label, reason (for "hidden due
+ *     id, action (what ticking it does, shared/calls.mjs), label, reason (for "hidden due
  *     to ..."), showing (ticked), hidden (what it hides now), count (what it
  *     would show once ticked, i.e. its kind among what the other filter lets
  *     through), total (if given, the number on the switch whatever either
@@ -109,7 +109,7 @@ export function renderFilterBanner({ matching, total, onScreen, word = 'stored',
     const controls = offered.length
         ? `<div class="filter-banner-switches">${offered.map((s) => `
                 <label class="${labelClass}">
-                    <input type="checkbox" id="${s.id}" ${s.showing ? 'checked' : ''} onchange="${s.onchange}">
+                    <input type="checkbox" id="${s.id}" ${s.showing ? 'checked' : ''} data-action="${escapeHtml(s.action)}">
                     ${s.label} (${s.number})
                 </label>`).join('')}
            </div>`
@@ -165,7 +165,7 @@ export function pageNoteHtml(page, { end = 'no more images on Civitai' } = {}) {
 const always = () => true;
 const nothing = () => {};
 
-export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadMoreCall, card, bannerHtml,
+export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadMoreAction, card, bannerHtml,
                                      showing = always, redraw, afterDraw = nothing }) {
     const gallery = {
         images: [],
@@ -216,7 +216,7 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
                 ? `<div class="mm-page-note">${escapeHtml(gallery.error)}</div>` : '';
             if (!last || !last.more) return error;
             return `${error}<div class="mm-load-more">
-             <button class="mm-btn secondary" id="${loadMoreId}" onclick="window.${loadMoreCall}()"
+             <button class="mm-btn secondary" id="${loadMoreId}" data-action="${escapeHtml(loadMoreAction)}"
                      ${gallery.loading ? 'disabled' : ''}>
                ${gallery.loading ? 'Loading...' : 'Load More Images'}
              </button>

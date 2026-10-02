@@ -5,7 +5,7 @@
 // earlier visit had reached page 6, a new search offered pages 1 to 6 while
 // having been to page 2. Resume is gone, and nothing is saved: every search
 // starts fresh.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -33,19 +33,19 @@ const onPage = async (n) => waitFor(`page ${n}`, () => $('cb_status').textConten
 
 // An earlier visit, to page 5.
 $('cb_search').value = 'cats';
-window.cbSearch();
+act('civitaiBrowser.search');
 await onPage(1);
 for (let page = 2; page <= 5; page++) {
-    window.cbNextPage();
+    act('civitaiBrowser.nextPage');
     await onPage(page);
 }
 check('the earlier visit offers the pages it went to', pageNumbers(), ['1', '2', '3', '4', '5', '6']);
 
 // The same search again, later.
-window.cbSearch();
+act('civitaiBrowser.search');
 await onPage(1);
 check('a new search offers only the pages it has been to', pageNumbers(), ['1', '2']);
-window.cbNextPage();
+act('civitaiBrowser.nextPage');
 await onPage(2);
 check('and grows as it goes, not to where the last visit got', pageNumbers(), ['1', '2', '3']);
 

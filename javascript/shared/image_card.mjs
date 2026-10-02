@@ -114,8 +114,9 @@ export function imageTextHtml(img) {
 /**
  * A Civitai image's card, as both tabs draw it. `width` is how wide the
  * gallery draws a card's image; `exclude` the version the gallery is of,
- * which its Resources leave out; `actions` the window functions the tab's
- * buttons call - `send` (the Model Manager's alone), `showAll`, `resources`.
+ * which its Resources leave out; `actions` what the tab's buttons do
+ * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
+ * alone), `showAll`, `resources`.
  */
 export function renderImageCard(img, index, { width, exclude, actions }) {
     const src = img.url || '';
@@ -156,7 +157,6 @@ export function renderImageCard(img, index, { width, exclude, actions }) {
         ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoPosterUrl(src))}"
                   class="mm-lazy-media" preload="none" controls loop muted ${mediaShape(img)}
                   ${mediaFallback(originalMediaUrl(src))}
-                  onclick="event.stopPropagation()"
                   title="Click to play"></video>
            <button type="button" class="mm-view-btn" data-view-index="${index}" title="Open in the viewer">⤢</button>`
         : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
@@ -177,17 +177,17 @@ export function renderImageCard(img, index, { width, exclude, actions }) {
                 ${resourcesHtml}
                 ${imageTextHtml(img)}
                 <div class="mm-image-actions">
-                    ${actions.send ? `<button class="mm-btn primary mm-send-btn" onclick="window.${actions.send}(${index})">
+                    ${actions.send ? `<button class="mm-btn primary mm-send-btn" data-action="${escapeHtml(actions.send)}" data-index="${index}">
                         Send to txt2img
                     </button>` : ''}
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
                         Copy Prompt
                     </button>
-                    <button class="mm-btn secondary" onclick="window.${actions.showAll}(${index})">
+                    <button class="mm-btn secondary" data-action="${escapeHtml(actions.showAll)}" data-index="${index}">
                         Show All
                     </button>
                     ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
-                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" onclick="window.${actions.resources}(${index})">${resourcesLabel}</button>` : ''}
+                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" data-action="${escapeHtml(actions.resources)}" data-index="${index}">${resourcesLabel}</button>` : ''}
                 </div>
             </div>
         </div>
@@ -242,7 +242,7 @@ export function showImageMeta(img) {
     // Create modal
     const modalHtml = `
         <div class="mm-modal-overlay" id="mm_meta_modal">
-            <div class="mm-modal" onclick="event.stopPropagation()">
+            <div class="mm-modal">
                 <div class="mm-modal-header">
                     <h3>Image Metadata</h3>
                     <button class="mm-modal-close">&times;</button>

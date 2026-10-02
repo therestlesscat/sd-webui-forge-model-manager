@@ -13,7 +13,7 @@
 // under a .mp4 name, so a card asking for the original got 17 MB of GIF,
 // read it as video by its name, could not play it, and stayed blank (model
 // 11718). A copy is a real MP4.
-import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -58,16 +58,20 @@ check('a gallery\'s image width, where nothing can be measured, is the styleshee
 
 // ------------------------------------------------------------ falling back
 // A copy that does not load falls back to the upload, and that to the
-// placeholder. The placeholder is an attribute: written into onerror's
-// string, its SVG's quotes ended the string, and it never showed.
+// placeholder, which is the last. The page's one listener does it (#95): an
+// inline onerror once held the placeholder, whose SVG's quotes ended the
+// handler's string, and it never showed.
 const img = document.createElement('img');
 img.setAttribute('src', `${C}/width=320/a.jpeg`);
 img.setAttribute('data-original', `${C}/original=true/a.jpeg`);
 img.setAttribute('data-placeholder', 'data:image/svg+xml,placeholder');
-window.mmMediaFallback(img);
+mediaModule.fallBack(img);
 check('a copy that fails falls back to the upload', img.getAttribute('src'), `${C}/original=true/a.jpeg`);
-window.mmMediaFallback(img);
+mediaModule.fallBack(img);
 check('and an upload that fails to the placeholder', img.getAttribute('src'), 'data:image/svg+xml,placeholder');
+img.setAttribute('src', 'data:image/svg+xml,another');
+mediaModule.fallBack(img);
+check('which is the last: a placeholder that fails is left', img.getAttribute('src'), 'data:image/svg+xml,another');
 
 // ------------------------------------------------------- the Model Manager card
 const MODEL = {
@@ -108,11 +112,11 @@ check('the Model Manager card asks for a video as the copy for its width, which 
       [media?.tagName.toLowerCase(), media?.getAttribute('src')],
       ['video', `${C}/width=320/293422.mp4`]);
 check('falling back to the upload',
-      [media?.getAttribute('data-original'), media?.getAttribute('onerror')],
-      [`${C}/original=true/293422.mp4`, 'window.mmMediaFallback(this)']);
+      [media?.getAttribute('data-original'), media?.hasAttribute('onerror')],
+      [`${C}/original=true/293422.mp4`, false]);
 
 // ------------------------------------------------------------ the gallery
-await window.mmSelectModel(0);
+await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-image-card'));
 const galleryImage = document.querySelector('#mm_images .mm-image-card img');
 check('a gallery image loads the copy its card draws, and the viewer shows the upload',

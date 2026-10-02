@@ -4,10 +4,11 @@
 // model asked for there is a request Civitai counts.
 // (The window's side - how many fit, never a second row - is in
 // settings_window_test.mjs.)
-import { ROOT, checker, mountTab } from './harness.mjs';
-const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
+// The page first: the registry listens to it when it loads.
+const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
 const model = (id) => ({ id, name: `Model ${id}`, type: 'Checkpoint', stats: {}, creator: {},
@@ -39,7 +40,7 @@ check('fewer needs nothing more from Civitai', [searches, cards(html)], [[3], 2]
 
 searches.length = 0;
 document.getElementById('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => document.getElementById('cb_status').textContent.startsWith('Showing'));
 searches.length = 0;
 html = await preview(4);

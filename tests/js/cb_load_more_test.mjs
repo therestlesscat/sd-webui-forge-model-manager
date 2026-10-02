@@ -9,7 +9,7 @@
 // the switches, and say what a download brought beside the button: three
 // clicks on one model stored 30 images, 26 of them R or above, and looked
 // like clicks that did nothing.
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -68,9 +68,9 @@ const footer = () => (document.querySelector('#cb_images .mm-images-footer')?.te
     .replace(/\s+/g, ' ').trim();
 
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
-await window.cbOpenModel(0);
+await act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('the gallery', () => cards().length > 0);
 
 check('page 1 shows its safe images, and says what it held',
@@ -87,7 +87,7 @@ check('page buttons are gone', document.querySelectorAll('#cb_images .mm-image-p
 
 // Civitai down: the page does not come, and the foot says why.
 civitaiDown = true;
-await window.cbLoadMoreImages();
+await act('civitaiBrowser.loadMoreImages');
 civitaiDown = false;
 check('a page that cannot be loaded says why, above Load More',
       footer().startsWith('Page 2 could not be loaded: Civitai: Image search is temporarily overloaded (503)'), true);
@@ -96,7 +96,7 @@ check('and Load More is offered again', !!$('cb_load_more_btn'), true);
 
 const firstCard = cards()[0];
 let from = galleryAsks.length;
-await window.cbLoadMoreImages();
+await act('civitaiBrowser.loadMoreImages');
 await waitFor('page 2', () => separators().length === 1);
 check('Load More adds page 2 after its separator, with its own note',
       [separators(), notes()[1]], [['Page 2'],
@@ -109,7 +109,7 @@ check('and the details count them, with no more to come', $('cb_images_count').t
 check('and the foot is clear again, with nothing more to load', [footer(), !!$('cb_load_more_btn')], ['', false]);
 
 from = galleryAsks.length;
-await window.cbToggleShowAllImages(true);
+await tick('civitaiBrowser.showAllImages', true);
 await waitFor('the reload', () => separators().length === 0);
 check('a switch starts again from page 1, asked for afresh', [cards().length, notes(), asked(from)],
       [3, ['Displaying 3 images for page 1'], [['1', '']]]);
@@ -119,18 +119,18 @@ check('a switch starts again from page 1, asked for afresh', [cards().length, no
 // hides, what both do, and every unusable prompt on the prompt switch.
 cached.splice(0, cached.length, image(1, 1), { ...image(2, 8), meta: null }, image(3, 1),
               { ...image(4, 1), meta: null }, { ...image(5, 16), meta: null }, image(6, 8));
-await window.cbToggleShowAllImages(false);
+await tick('civitaiBrowser.showAllImages', false);
 await waitFor('page 1 again', () => separators().length === 0 && cards().length === 2);
-await window.cbLoadMoreImages();
+await act('civitaiBrowser.loadMoreImages');
 await waitFor('page 2', () => separators().length === 1);
 const switchText = (id) => (document.getElementById(id)?.closest('label')?.textContent || '').replace(/\s+/g, ' ').trim();
 check('the banner adds the pages up, counting what both filters hide apart',
       [sentence(), switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],
       ['6 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt, '
        + '2 hidden due to both', 'Show NSFW (1)', 'Show unusable prompts (3)']);
-await window.cbToggleShowAllImages(true);
+await tick('civitaiBrowser.showAllImages', true);
 await waitFor('page 1 again', () => separators().length === 0);
-await window.cbLoadMoreImages();
+await act('civitaiBrowser.loadMoreImages');
 await waitFor('page 2', () => separators().length === 1);
 check('NSFW shown: its number as it was, and the prompt switch\'s as it was',
       [switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],

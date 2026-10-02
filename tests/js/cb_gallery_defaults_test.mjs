@@ -7,7 +7,7 @@
 // models are listed, not which of their images are shown. Then it read the
 // settings once per page, so a change on the Settings page reached a model
 // opened afterwards only after a reload.
-import { ROOT, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -49,7 +49,7 @@ const ticked = () => [$('cb_show_all_images')?.checked ?? null,
 
 async function open(index) {
     $('cb_images').innerHTML = '';
-    await window.cbOpenModel(index);
+    await act('civitaiBrowser.openModel', { index: index });
     await waitFor('the gallery', () => document.querySelectorAll('#cb_images .mm-image-card').length > 0);
 }
 
@@ -57,7 +57,7 @@ async function open(index) {
 $('cb_nsfw').checked = true;
 $('cb_require_prompt').checked = false;
 $('cb_status').textContent = '';
-window.cbSearch();
+act('civitaiBrowser.search');
 await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing'));
 
 await open(0);
@@ -65,8 +65,8 @@ check('hiding both, the gallery opens with only the safe image with a prompt',
       shown(), ['1.jpeg']);
 check('whatever Include NSFW models and Only with usable prompts say', ticked(), [false, false]);
 
-await window.cbToggleShowAllImages(true);
-await window.cbToggleShowPromptless(true);
+await tick('civitaiBrowser.showAllImages', true);
+await tick('civitaiBrowser.showPromptless', true);
 check('the switches show everything for this model', shown(), ['1.jpeg', '2.jpeg', '3.jpeg']);
 
 await open(1);
