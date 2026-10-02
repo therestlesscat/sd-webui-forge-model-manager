@@ -492,6 +492,23 @@ class ModelsDatabase:
         """Get how many pages have been cached for a version."""
         return self._images.get_cached_page_count(version_id)
 
+    def replace_first_page(self, version_id: int, images: List[Dict[str, Any]],
+                           next_cursor: Optional[str]):
+        """
+        Replace a version's stored gallery with a fresh first page, and record
+        where Civitai's next one starts - in one transaction. Three steps, each
+        committed on its own, left a model with no images when storing failed
+        after the clear.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
+            self._images.insert_images(cursor, version_id, 1, images)
+            cursor.execute("""
+                UPDATE model_versions
+                SET next_images_cursor = ?, images_sync_last_date = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (next_cursor, version_id))
+
     def clear_version_images(self, version_id: int):
         """Clear all cached images for a version."""
         self._images.clear_version(version_id)
