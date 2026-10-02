@@ -732,6 +732,36 @@ def _create_v2_tables(cursor):
 # ==================== Model Operations (delegated) ====================
 
 
+def _v14_image_level(image) -> int:
+    """
+    How explicit one image is, as nsfw.image_level judged it when v14 was
+    written (7dad02f): Civitai's fields only - browsingLevel, then nsfwLevel
+    as a number or its legacy name, then the nsfw flag.
+
+    A frozen copy. v14 used to import the live image_level, which has since
+    learnt to read the person's prompt words and trained model - settings
+    that may not be loaded this early, and a rule v14 was never written
+    with - and renaming it would have stopped every pre-v14 database from
+    opening. What prompts add is prompt_levels' to stamp, after startup.
+    """
+    pg, pg13, r, xxx, unknown = 1, 2, 4, 16, 64
+    browsing = image.get("browsingLevel")
+    if isinstance(browsing, int) and browsing > 0:
+        return browsing
+    legacy = image.get("nsfwLevel")
+    if isinstance(legacy, int) and legacy > 0:
+        return legacy
+    if isinstance(legacy, str):
+        level = {"None": pg, "Soft": pg13, "Mature": r, "X": xxx}.get(legacy)
+        if level:
+            return level
+    if image.get("nsfw") is True:
+        return r
+    if image.get("nsfw") is False:
+        return pg
+    return unknown
+
+
 def _migrate_to_v14(cursor):
     """Recompute every stored image level under the corrected rule.
 
@@ -746,8 +776,7 @@ def _migrate_to_v14(cursor):
     """
     print("[ModelManager] Migrating to schema v14 (recomputing image NSFW levels)...")
 
-    from ..nsfw import image_level
-
+    image_level = _v14_image_level
     cursor.execute("SELECT id, version_id, effective_nsfw_level, data FROM images")
     rows = cursor.fetchall()
 
