@@ -8,9 +8,10 @@ shapes, read from the header (architecture.read_shapes) and never the
 weights, give:
 
     type          what the file is - Checkpoint, LORA, LoCon, LoHa, LoKr,
-                  DoRA, LyCORIS Full, TextualInversion, Hypernetwork, VAE,
-                  Text Encoder, Upscaler, or Unknown. Civitai's names where
-                  Civitai has the type, the plain name where it does not.
+                  DoRA, LyCORIS Full, TextualInversion, Hypernetwork,
+                  Controlnet, VAE, Text Encoder, Upscaler, or Unknown.
+                  Civitai's names where Civitai has the type, the plain name
+                  where it does not.
     architecture  the Forge Neo preset it is for ("xl", "flux", ...), when
                   the file ties to exactly one. A VAE often does not: SD 1.x
                   and SDXL VAEs are shaped alike, and Qwen-Image, Wan, Anima
@@ -39,7 +40,7 @@ Shapes = Dict[str, Tuple[Tuple[int, ...], str]]
 
 # Every type, in the order the Type filter lists them.
 FILE_TYPES = ("Checkpoint", "LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full",
-              "TextualInversion", "Hypernetwork", "VAE", "Text Encoder", "Upscaler",
+              "TextualInversion", "Hypernetwork", "Controlnet", "VAE", "Text Encoder", "Upscaler",
               "Unknown")
 
 # The types a prompt names by file name: <lora:name> for the LoRA family, the
@@ -81,7 +82,7 @@ def identify_shapes(shapes: Shapes, guess: Callable = None) -> Architecture:
     """identify(), for tensors already read."""
     names = list(shapes)
 
-    found = detect_shapes(shapes, guess)
+    found = _control(shapes) or detect_shapes(shapes, guess)
     if found:
         return found
 
@@ -105,6 +106,44 @@ def identify_shapes(shapes: Shapes, guess: Callable = None) -> Architecture:
     if preset:                      # a bare diffusion model Forge did not take
         return Architecture(preset, None, False, False, "Checkpoint", how)
     return Architecture(None, None, False, False, "Unknown", "no layout this knows")
+
+
+def _control(shapes: Shapes) -> Optional[Architecture]:
+    """
+    What Forge keeps in its ControlNet folder, by the names its loaders test
+    for: ControlNets in diffusers' and the original layout, Control-LoRAs and
+    T2I-Adapters (modules_forge/supported_controlnet.py and
+    backend/patcher/controlnet.py, the same in both WebUIs), ControlLLLites
+    and IP-Adapters (the built-in sd_forge_controlllite, sd_forge_ipadapter).
+
+    Shaped like the UNet or DiT it steers, a ControlNet that Forge's
+    checkpoint detector refused read as a bare diffusion model: it was called
+    a Checkpoint, and a download of one moved into Stable-diffusion (#118).
+    So these are told first. Checked on 19 published files' headers
+    (tests/controlnet_headers.json.gz). A T2I-Adapter's body.N needs its
+    conv_in beside it: an ESRGAN upscaler has body.N blocks too.
+    """
+    names = set(shapes)
+
+    def starts(*prefixes):
+        return any(n.startswith(prefixes) for n in names)
+
+    if "lora_controlnet" in names:
+        kind = "a Control-LoRA"
+    elif starts("zero_convs.", "control_model.zero_convs.", "input_hint_block.", "controlnet_cond_embedding.",
+                "controlnet_down_blocks.", "controlnet_blocks.", "controlnet_single_blocks.", "controlnet_x_embedder."):
+        kind = "a ControlNet"
+    elif (starts("adapter.body.") or "body.0.in_conv.weight" in names
+          or ("conv_in.weight" in names and starts("body."))):
+        kind = "a T2I-Adapter"
+    elif starts("lllite_"):
+        kind = "a ControlLLLite"
+    elif starts("image_proj.") and starts("ip_adapter."):
+        kind = "an IP-Adapter"
+    else:
+        return None
+    preset, how = _layout(shapes)
+    return Architecture(preset, None, False, False, "Controlnet", f"{kind}; {how}" if preset else kind)
 
 
 def _preset_for_module(kind: str) -> Optional[str]:

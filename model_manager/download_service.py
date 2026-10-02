@@ -28,7 +28,7 @@ from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
 from .forge_host import setting
 from .hashing import HashResult
-from .model_dirs import download_dir, proper_place
+from .model_dirs import download_dir, filed_as, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
 
 
@@ -594,11 +594,12 @@ class DownloadService:
         """
         try:
             from .file_identity import identify
-            file_type = identify(path).file_type
+            found = identify(path)
+            file_type = found.file_type
         except Exception as e:
             print(f"[ModelManager] Could not read what {os.path.basename(path)} is: {e}")
             return path
-        to = proper_place(path, file_type)
+        to = proper_place(path, filed_as(file_type, found.model_class))
         if not to:
             return path
         if os.path.exists(to):

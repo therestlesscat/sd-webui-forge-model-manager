@@ -57,6 +57,7 @@ def create_ui():
                                 <option value="LyCORIS Full">LyCORIS Full</option>
                                 <option value="TextualInversion">Embedding</option>
                                 <option value="Hypernetwork">Hypernetwork</option>
+                                <option value="Controlnet">ControlNet</option>
                                 <option value="VAE">VAE</option>
                                 <option value="Text Encoder">Text Encoder</option>
                                 <option value="Upscaler">Upscaler</option>

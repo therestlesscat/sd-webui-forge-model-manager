@@ -511,12 +511,16 @@ class ModelsOps:
         return changed
 
     def files_with_types(self) -> List[Dict[str, Any]]:
-        """Every file a header has been read for: its path, what it is, what said so, its hashes."""
+        """
+        Every file a header has been read for: its path, what it is, what said
+        so, Forge's model class if its detector took it, its hashes.
+        """
         with self._cursor() as cursor:
-            cursor.execute("SELECT file_path, file_type, identified_by, file_hashes FROM model_versions "
+            cursor.execute("SELECT file_path, file_type, identified_by, architecture_class, file_hashes "
+                           "FROM model_versions "
                            "WHERE file_type IS NOT NULL AND file_type <> 'Unknown' AND file_path IS NOT NULL")
             return [{"file_path": r["file_path"], "file_type": r["file_type"],
-                     "identified_by": r["identified_by"],
+                     "identified_by": r["identified_by"], "architecture_class": r["architecture_class"],
                      "file_hashes": json.loads(r["file_hashes"]) if r["file_hashes"] else None}
                     for r in cursor.fetchall()]
 

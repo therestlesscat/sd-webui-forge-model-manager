@@ -60,7 +60,8 @@ SAME_FOLDER_AS = {"LoCon": "LORA", "DoRA": "LORA"}
 FOLDER_FOR_FILE_TYPE = {
     "Checkpoint": "Checkpoint", "LORA": "LORA", "LoCon": "LORA", "LoHa": "LORA", "LoKr": "LORA",
     "DoRA": "LORA", "LyCORIS Full": "LORA", "VAE": "VAE", "Text Encoder": "TextEncoder",
-    "TextualInversion": "TextualInversion", "Hypernetwork": "Hypernetwork", "Upscaler": "Upscaler",
+    "TextualInversion": "TextualInversion", "Hypernetwork": "Hypernetwork", "Controlnet": "Controlnet",
+    "Upscaler": "Upscaler",
 }
 
 #: What lies beside a model file under its name, and goes where it goes.
@@ -163,6 +164,19 @@ def folder_of(path: str, cmd_opts=None, models_path: Optional[str] = None):
         if where.startswith(base.rstrip("\\/") + os.sep):
             return kind, root
     return None, None
+
+
+def filed_as(file_type: Optional[str], model_class: Optional[str]) -> Optional[str]:
+    """
+    The type a file is filed by, when it is not where that type goes: its
+    own - but a Checkpoint only when Forge's detector took it (`model_class`).
+    One known by its layer names alone is something UNet-shaped Forge did not
+    take - a ControlNet was, until #118 - and in Stable-diffusion Forge could
+    not load it as a checkpoint either.
+    """
+    if file_type == "Checkpoint" and not model_class:
+        return None
+    return file_type
 
 
 def proper_place(path: str, file_type: Optional[str], cmd_opts=None,
