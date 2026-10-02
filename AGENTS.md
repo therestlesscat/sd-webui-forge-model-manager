@@ -571,7 +571,9 @@ real time once.
 python tests/run.py --all
 ```
 
-Forty-seven Python suites, fifty-eight browser suites and the static checks,
-run side by side: about twenty seconds. While working, `--changed` runs only the
-suites the uncommitted changes need. See `tests/README.md` for what they
-cover, how the choice is made, and how to add one.
+Sixty-seven Python suites, sixty-two browser suites and six static checks, run
+four at a time: about a minute. Not wider - each is a process of its own, and
+32 at once beside two running WebUIs left Windows out of memory. While working,
+`--changed` runs only the suites the uncommitted changes need. See
+`tests/README.md` for what they cover, how the choice is made, and how to add
+one.
