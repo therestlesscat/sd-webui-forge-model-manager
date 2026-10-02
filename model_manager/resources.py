@@ -185,7 +185,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     hashes: hash -> version id, or None when Civitai does not know it}.
 
     A version's name is its file's, as a download names it: the file
-    DownloadService.pick_file_index() would take, from Civitai's model
+    download_service.pick_file_index() would take, from Civitai's model
     payload - one request per hundred models (/models?ids), where nearly every
     resource of Civitai's list carries its model id. A resource named by hash
     alone is turned into a version first (resolve_hashes). What could not be
@@ -195,7 +195,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
         wanted: [{version_id, model_id}]; model_id may be None.
         hash_list: lower-case hashes of resources known by no version, each once.
     """
-    from .download_service import DownloadService
+    from .download_service import pick_file_index
 
     # Every hash at once: #109 asks for a bound, as resolve-hashes has.
     known, _ = resolve_hashes(db, hash_list, civitai)
@@ -248,7 +248,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
                                           "name": model_name, "file_type": model_type}
             continue
         files = version.get("files") or []
-        chosen = files[DownloadService.pick_file_index(files)] if files else {}
+        chosen = files[pick_file_index(files)] if files else {}
         _MISSING_FILES[version_id] = {
             "file_stem": os.path.splitext(chosen.get("name") or "")[0] or None,
             "file_type": model_type, "model_id": model_id,

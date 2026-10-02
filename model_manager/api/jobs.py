@@ -13,12 +13,8 @@ from fastapi.responses import JSONResponse
 from ..db import get_models_db
 from ..jobs import jobs
 from ..scan_service import ScanService, misplaced_files
-from ..sync_service import (
-    SyncService,
-    estimate_metadata_sync,
-    sync_window_counts,
-    window_cutoff,
-)
+from ..sync_estimates import estimate_metadata_sync, sync_window_counts, window_cutoff
+from ..sync_service import SyncService
 from .common import failed
 
 #: What progress and cancel answer before a job of the kind has run.

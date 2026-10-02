@@ -165,6 +165,75 @@ class DownloadProgress:
         }
 
 
+def apply_folder_template(
+    template: str,
+    model_data: Dict[str, Any],
+    version_data: Dict[str, Any]
+) -> str:
+    """Apply folder template with placeholders."""
+    if not template:
+        return ""
+
+    base_model = version_data.get("baseModel", "Unknown")
+    model_name = model_data.get("name", "Unknown")
+    creator = model_data.get("creator", {}).get("username", "Unknown") if model_data.get("creator") else "Unknown"
+    model_id = str(model_data.get("id", 0))
+
+    def sanitize(name: str) -> str:
+        # Replace special characters and whitespace with underscore
+        name = re.sub(r'[<>:"/\\|?*\s]+', '_', name)
+        name = name.strip('._')
+        return name[:100] if len(name) > 100 else name
+
+    result = template
+    result = result.replace("{baseModel}", sanitize(base_model))
+    result = result.replace("{modelName}", sanitize(model_name))
+    result = result.replace("{creator}", sanitize(creator))
+    result = result.replace("{modelId}", model_id)
+
+    # Normalize separators: convert all to forward slash, collapse multiples, strip edges
+    result = result.replace("\\", "/")
+    result = re.sub(r'/+', '/', result)
+    result = result.strip('/')
+    # Convert to OS-native path separators
+    result = result.replace("/", os.sep)
+
+    return result
+
+
+def pick_file_index(
+    files: List[Dict[str, Any]],
+    file_index: Optional[int] = None,
+    file_id: Optional[int] = None
+) -> int:
+    """
+    Choose which of a version's files to download.
+
+    files[0] is not the primary file for roughly one version in eleven -
+    it is often the full fp32 weights, about twice the size of the pruned
+    fp16 file most people want. So, in order of preference:
+
+      - `file_id`, which the file picker sends. It survives the list being
+        ordered differently between the search that drew the picker and the
+        fetch that serves the download, which an index would not.
+      - `file_index`, a position in this list.
+      - whichever file Civitai marks primary.
+    """
+    if file_id is not None:
+        for index, file_info in enumerate(files):
+            if file_info.get("id") == file_id:
+                return index
+
+    if file_index is not None and 0 <= file_index < len(files):
+        return file_index
+
+    for index, file_info in enumerate(files):
+        if file_info.get("primary"):
+            return index
+
+    return 0
+
+
 class DownloadService:
     """
     Service for downloading models from Civitai.
@@ -552,42 +621,6 @@ class DownloadService:
         """The folder a download of this Civitai type is filed under - see model_dirs."""
         return download_dir(model_type)
 
-    def apply_folder_template(
-        self,
-        template: str,
-        model_data: Dict[str, Any],
-        version_data: Dict[str, Any]
-    ) -> str:
-        """Apply folder template with placeholders."""
-        if not template:
-            return ""
-
-        base_model = version_data.get("baseModel", "Unknown")
-        model_name = model_data.get("name", "Unknown")
-        creator = model_data.get("creator", {}).get("username", "Unknown") if model_data.get("creator") else "Unknown"
-        model_id = str(model_data.get("id", 0))
-
-        def sanitize(name: str) -> str:
-            # Replace special characters and whitespace with underscore
-            name = re.sub(r'[<>:"/\\|?*\s]+', '_', name)
-            name = name.strip('._')
-            return name[:100] if len(name) > 100 else name
-
-        result = template
-        result = result.replace("{baseModel}", sanitize(base_model))
-        result = result.replace("{modelName}", sanitize(model_name))
-        result = result.replace("{creator}", sanitize(creator))
-        result = result.replace("{modelId}", model_id)
-
-        # Normalize separators: convert all to forward slash, collapse multiples, strip edges
-        result = result.replace("\\", "/")
-        result = re.sub(r'/+', '/', result)
-        result = result.strip('/')
-        # Convert to OS-native path separators
-        result = result.replace("/", os.sep)
-
-        return result
-
     def _download_file(
         self,
         url: str,
@@ -792,39 +825,6 @@ class DownloadService:
             # Always release tqdm position
             self._release_tqdm_position(progress.version_id)
 
-    @staticmethod
-    def pick_file_index(
-        files: List[Dict[str, Any]],
-        file_index: Optional[int] = None,
-        file_id: Optional[int] = None
-    ) -> int:
-        """
-        Choose which of a version's files to download.
-
-        files[0] is not the primary file for roughly one version in eleven -
-        it is often the full fp32 weights, about twice the size of the pruned
-        fp16 file most people want. So, in order of preference:
-
-          - `file_id`, which the file picker sends. It survives the list being
-            ordered differently between the search that drew the picker and the
-            fetch that serves the download, which an index would not.
-          - `file_index`, a position in this list.
-          - whichever file Civitai marks primary.
-        """
-        if file_id is not None:
-            for index, file_info in enumerate(files):
-                if file_info.get("id") == file_id:
-                    return index
-
-        if file_index is not None and 0 <= file_index < len(files):
-            return file_index
-
-        for index, file_info in enumerate(files):
-            if file_info.get("primary"):
-                return index
-
-        return 0
-
     def download_version(
         self,
         version_id: int,
@@ -884,7 +884,7 @@ class DownloadService:
             base_path = self.get_base_path(model_type)
 
             template = setting('model_manager_civitai_folder_template')
-            subfolder = self.apply_folder_template(template, model_data, version_data)
+            subfolder = apply_folder_template(template, model_data, version_data)
             # Absolute, with no "..": the path a scan finds the file by, which
             # is how the library knows it is the same file.
             target_dir = os.path.abspath(os.path.join(base_path, subfolder) if subfolder else base_path)
@@ -897,7 +897,7 @@ class DownloadService:
                 progress.error = "No files available for download"
                 return progress
 
-            file_info = files[self.pick_file_index(files, file_index, file_id)]
+            file_info = files[pick_file_index(files, file_index, file_id)]
             file_name = file_info.get("name", f"model_{version_id}.safetensors")
             download_url = file_info.get("downloadUrl") or version_data.get("downloadUrl")
 
@@ -1038,7 +1038,7 @@ class DownloadService:
         progress = DownloadProgress(version_id=version_id)
         files = version_data.get("files", [])
         progress.file_name = (
-            files[self.pick_file_index(files, file_index, file_id)].get("name", "Unknown")
+            files[pick_file_index(files, file_index, file_id)].get("name", "Unknown")
             if files else "Unknown"
         )
 

@@ -15,7 +15,7 @@ from .db import get_models_db
 from .file_identity import identify
 from .identity_store import needs_check, store_architecture
 from .hashing import read_hashes
-from .model_dirs import file_modified, gone_from_disk, library_dirs, proper_place, relocate
+from .model_dirs import file_modified, forget_gone, library_dirs, proper_place, relocate
 from .payload_rows import model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
@@ -371,10 +371,7 @@ class ScanService:
         # sidecar failed to read lost its row though it was still there.
         # A cancelled scan forgets nothing: it has not looked everywhere.
         if not self._cancel_requested:
-            removed_paths = gone_from_disk(db.get_all_version_paths(), model_files)
-            for path in removed_paths:
-                db.delete_version(path)
-
+            removed_paths = forget_gone(db, model_files)
             if removed_paths:
                 print(f"[ModelManager] Removed {len(removed_paths)} deleted models from database")
 

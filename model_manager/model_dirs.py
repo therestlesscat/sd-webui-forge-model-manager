@@ -227,3 +227,22 @@ def gone_from_disk(stored_paths, found_paths) -> List[str]:
     """
     found = set(found_paths)
     return [p for p in stored_paths if p and p not in found and not os.path.exists(p)]
+
+
+def forget_gone(db, found_paths) -> List[str]:
+    """
+    After a walk of the whole library that found `found_paths`, forget the
+    rows of files that are gone - and only those (gone_from_disk). A walk
+    that found nothing forgets nothing: that is a drive not mounted or a
+    folder setting wrong, not a library emptied. Scan Disk and a full sync
+    each did this in their own code, the rule written two ways.
+
+    Returns the paths forgotten.
+    """
+    if not found_paths:
+        print("[ModelManager] Walk found no model files; leaving the database alone")
+        return []
+    gone = gone_from_disk(db.get_all_version_paths(), found_paths)
+    for path in gone:
+        db.delete_version(path)
+    return gone

@@ -36,9 +36,11 @@ from model_manager.civitai import (                      # noqa: E402
     CivitaiAPIError, CivitaiNotFoundError, TokenBucketRateLimiter,
 )
 from model_manager.hashing import HashResult             # noqa: E402
+from model_manager.sync_estimates import (               # noqa: E402
+    SYNC_WINDOWS, estimate_metadata_sync, sync_window_counts, window_cutoff,
+)
 from model_manager.sync_service import (                 # noqa: E402
-    SYNC_WINDOWS, SyncProgress, SyncService, configured_hash_threads,
-    estimate_metadata_sync, sync_window_counts, window_cutoff,
+    SyncProgress, SyncService, configured_hash_threads,
 )
 
 WORK = os.path.join(TESTS, 'work', 'sync')

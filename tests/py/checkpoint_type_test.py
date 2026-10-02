@@ -42,6 +42,7 @@ DB = facts['db_path']
 from model_manager.db import ModelsDatabase
 import model_manager.db.database as dbmod
 import model_manager.sync_service as ss
+import model_manager.sync_estimates as estimates
 from model_manager.civitai import CivitaiClient
 
 dbmod._db_instance = db
@@ -141,7 +142,7 @@ check('the three add up to the library', trained + merge + unknown, everything)
 check('no filter is not the same as a filter', everything > trained + merge)
 
 # ------------------------------------------------------------- the estimate
-e = ss.estimate_metadata_sync()
+e = estimates.estimate_metadata_sync()
 check('the estimate counts the extra requests', e['requests']['checkpoints'] > 0)
 check('and includes them in the total',
       e['requests']['total'],
