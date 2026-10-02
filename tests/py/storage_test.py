@@ -58,43 +58,6 @@ FULL = {
     }],
 }
 
-check('a full payload is not partial', storage.is_partial_civitai_data(FULL), False)
-check('nothing at all is partial', storage.is_partial_civitai_data({}), True)
-check('and so is None', storage.is_partial_civitai_data(None), True)
-
-# NOTE: for a full-shaped payload this only looks at `description`, so a
-# sidecar with no versions at all - or one whose version has no files and no
-# images - reads as complete. That is the exact shape a bad sync once wrote
-# over 747 of them. It does not bite because nothing calls this function:
-# grep says it has no callers outside this test. Recorded as it behaves, not
-# as it ought to, so that fixing it fails here and is noticed.
-no_versions = dict(FULL, modelVersions=[])
-check('an empty version list is NOT currently called partial',
-      storage.is_partial_civitai_data(no_versions), False)
-
-thin = json.loads(json.dumps(FULL))
-thin['modelVersions'][0].pop('files')
-thin['modelVersions'][0].pop('images')
-check('nor is a version with no files and no images',
-      storage.is_partial_civitai_data(thin), False)
-
-check('what it does catch is a missing description',
-      storage.is_partial_civitai_data(dict(FULL, description='')), True)
-
-# The by-hash shape, which is the one it was written for and does handle.
-by_hash = {"id": 4242, "name": "v1",
-           "model": {"name": "Subject", "type": "Checkpoint"}}
-check('a by-hash response is partial', storage.is_partial_civitai_data(by_hash), True)
-check('even with a description, without tags',
-      storage.is_partial_civitai_data(
-          {"id": 1, "model": {"description": "d"}}), True)
-check('and is complete once the embedded model carries everything',
-      storage.is_partial_civitai_data(
-          {"id": 1, "model": {"description": "d", "tags": ["t"], "stats": {"x": 1}}}),
-      False)
-check('an unrecognised shape is partial',
-      storage.is_partial_civitai_data({"something": "else"}), True)
-
 # ----------------------------------------------------------- round tripping
 check('writing succeeds', storage.write_civitai_info(MODEL, FULL), True)
 check('the file is where it said', os.path.exists(info), True)
@@ -111,7 +74,8 @@ storage.write_civitai_info(MODEL, FULL)
 IMAGES = [{"id": 1, "url": "https://example.invalid/1.png",
            "meta": {"prompt": "a prompt"}},
           {"id": 2, "url": "https://example.invalid/2.png", "meta": None}]
-check('writing images succeeds', storage.write_images_json(MODEL, IMAGES), True)
+# Written by older versions only; read still, for the details panel's fallback.
+io.open(os.path.splitext(MODEL)[0] + '.images.json', 'w', encoding='utf-8').write(json.dumps({'images': IMAGES}))
 back = storage.read_images_json(MODEL)
 check('and they come back', bool(back), True)
 check('with both of them', len(back.get('images', back) if isinstance(back, dict) else back), 2)
@@ -143,8 +107,6 @@ check('loading an absent model yields empties', (absent[0], absent[1], list(abse
 unwritable = os.path.join(WORK, 'no_such_directory', 'deep', 'model.safetensors')
 check('writing into a directory that is not there fails rather than raises',
       storage.write_civitai_info(unwritable, FULL), False)
-check('and so does writing its images',
-      storage.write_images_json(unwritable, IMAGES), False)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

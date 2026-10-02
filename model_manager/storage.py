@@ -24,54 +24,6 @@ def get_metadata_paths(model_path: str) -> Tuple[str, str]:
     return civitai_path, images_path
 
 
-# Fields that only come from the full model endpoint (/models/{id})
-# These are missing when data comes from by-hash endpoint only
-FULL_MODEL_REQUIRED_FIELDS = ["description", "tags", "stats"]
-
-
-def is_partial_civitai_data(data: Dict[str, Any]) -> bool:
-    """
-    Check if civitai data is partial (missing full model info).
-
-    By-hash endpoint returns version data with limited embedded model info.
-    Full model endpoint returns description, tags, stats that are missing
-    from by-hash response.
-
-    Args:
-        data: Civitai data from .civitai.info file
-
-    Returns:
-        True if data is missing fields that require full model fetch
-    """
-    if not data:
-        return True
-
-    # Check if this is version-only response (has "model" key but no "modelVersions")
-    # This format comes from by-hash endpoint
-    if "model" in data and "modelVersions" not in data:
-        # Check if embedded model has full data
-        model_data = data.get("model", {})
-        # By-hash response's embedded model never has description
-        if not model_data.get("description"):
-            return True
-        if not model_data.get("tags"):
-            return True
-        if not model_data.get("stats"):
-            return True
-        return False
-
-    # Full model response format - check directly
-    if "modelVersions" in data:
-        # This is full model response, should have everything
-        if not data.get("description"):
-            return True
-        # tags and stats might be empty but should exist
-        return False
-
-    # Unknown format - assume partial
-    return True
-
-
 def read_civitai_info(model_path: str) -> Optional[Dict[str, Any]]:
     """
     Read .civitai.info file for a model.
@@ -140,53 +92,6 @@ def read_images_json(model_path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def write_images_json(model_path: str, images_data) -> bool:
-    """
-    Write .images.json file for a model.
-
-    Args:
-        model_path: Path to the model file
-        images_data: Dict with 'images', 'total_count', etc. OR list of images
-
-    Returns:
-        True if successful
-    """
-    _, images_path = get_metadata_paths(model_path)
-
-    try:
-        # Handle both dict format (new) and list format (legacy)
-        if isinstance(images_data, dict):
-            # New format with total_count, next_cursor, etc.
-            data = images_data
-            # Ensure images are dicts
-            if "images" in data:
-                image_list = []
-                for img in data["images"]:
-                    if isinstance(img, ModelImage):
-                        image_list.append(img.to_dict())
-                    elif isinstance(img, dict):
-                        image_list.append(img)
-                data["images"] = image_list
-        else:
-            # Legacy list format
-            image_list = []
-            for img in images_data:
-                if isinstance(img, ModelImage):
-                    image_list.append(img.to_dict())
-                elif isinstance(img, dict):
-                    image_list.append(img)
-            data = {"images": image_list}
-
-        with open(images_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        return True
-    except IOError as e:
-        print(f"[ModelManager] Error writing {images_path}: {e}")
-        return False
-
-
-_debug_nsfw_logged = False
-
 def parse_civitai_info(data: Dict[str, Any], filename: Optional[str] = None) -> Tuple[Optional[CivitaiModelInfo], Optional[ModelVersion]]:
     """
     Parse .civitai.info data into model and version objects.
@@ -203,16 +108,8 @@ def parse_civitai_info(data: Dict[str, Any], filename: Optional[str] = None) -> 
     Returns:
         Tuple of (CivitaiModelInfo, ModelVersion) - either may be None
     """
-    global _debug_nsfw_logged
     if not data:
         return None, None
-
-    # Debug: log first civitai data to see nsfw field format
-    if not _debug_nsfw_logged:
-        nsfw_val = data.get("nsfw", data.get("nsfwLevel", "NOT_FOUND"))
-        print(f"[ModelManager] DEBUG first civitai data nsfw field: {nsfw_val}, type: {type(nsfw_val)}")
-        print(f"[ModelManager] DEBUG keys in data: {list(data.keys())[:10]}")
-        _debug_nsfw_logged = True
 
     # Check if this is a version-only response (from by-hash API)
     if "model" in data and "modelVersions" not in data:
@@ -298,32 +195,3 @@ def load_model_metadata(model_path: str) -> Tuple[Optional[CivitaiModelInfo], Op
         images = version_info.images
 
     return model_info, version_info, images
-
-
-def save_model_metadata(
-    model_path: str,
-    civitai_response: Dict[str, Any],
-    save_images_separately: bool = True
-) -> bool:
-    """
-    Save metadata for a model from Civitai API response.
-
-    Args:
-        model_path: Path to the model file
-        civitai_response: Raw Civitai API response
-        save_images_separately: If True, also save .images.json
-
-    Returns:
-        True if successful
-    """
-    # Save civitai.info
-    if not write_civitai_info(model_path, civitai_response):
-        return False
-
-    # Optionally save images separately with full metadata
-    if save_images_separately:
-        images = civitai_response.get("images", [])
-        if images:
-            write_images_json(model_path, images)
-
-    return True

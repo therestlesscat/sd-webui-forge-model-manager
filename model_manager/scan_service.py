@@ -5,7 +5,6 @@ Scans model directories, reads metadata files, and stores
 computed metadata in SQLite for fast querying.
 """
 import os
-import json
 import threading
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -17,15 +16,10 @@ from .architecture import needs_check, store_architecture
 from .file_identity import identify
 from .model_dirs import gone_from_disk, library_dirs, proper_place, relocate
 from .nsfw import (
-    PG, UNKNOWN, level_name, max_image_level, model_level, showcase_is_complete,
+    PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
     version_covers,
 )
 from .storage import read_civitai_info
-
-
-# NSFW level bitmask values (from Civitai API)
-# NSFW severity order for comparison (higher index = more severe)
-NSFW_SEVERITY = ["PG", "PG-13", "R", "X", "XXX", "Unknown"]
 
 
 def _sha256(hashes) -> str:
