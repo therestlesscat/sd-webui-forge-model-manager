@@ -35,7 +35,8 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from .architecture import preset_for_base_model, read_shapes, record_architecture
+from .architecture import preset_for_base_model, read_shapes
+from .identity_store import record_architecture
 
 # At most this many Civitai lookups for one send: an image can name a dozen
 # "checkpoints", most of them VAEs and encoders filed as one.

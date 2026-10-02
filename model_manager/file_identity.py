@@ -16,21 +16,24 @@ weights, give:
                   and SDXL VAEs are shaped alike, and Qwen-Image, Wan, Anima
                   and Krea 2 share one.
 
-A checkpoint is judged by Forge's own detector (architecture.detect_shapes),
-a VAE or text encoder by the module reader (forge_modules.classify). The
-rest is here: the LoRA family by the names of the layers it adapts, which
-differ between architectures, and by their widths where names are shared -
-SD 1.x and SDXL both have attn2, but its context is 768 wide in one and 2048
-in the other. Measured on a library of 1,262 files: all but eight
-identified, those eight being a type whose base model the file cannot tell
-(SD3, HiDream, an 8-tensor LoRA on a block SD and SDXL share).
+A checkpoint is judged by Forge's own detector (architecture.detect_shapes).
+The rest is here: a VAE or text encoder by its token embedding or latent
+channels (classify(), which Send to txt2img's module picking asks too), the
+LoRA family by the names of the layers it adapts, which differ between
+architectures, and by their widths where names are shared - SD 1.x and SDXL
+both have attn2, but its context is 768 wide in one and 2048 in the other.
+Measured on a library of 1,262 files: all but eight identified, those eight
+being a type whose base model the file cannot tell (SD3, HiDream, an
+8-tensor LoRA on a block SD and SDXL share).
 """
+import os
 import re
+import threading
 from typing import Callable, Dict, Optional, Tuple
 
 from .architecture import (Architecture, PRESET_BY_CLASS, detect_shapes,
                            read_shapes)
-from .forge_modules import NEEDS, classify as classify_module
+from .forge_modules import NEEDS
 
 Shapes = Dict[str, Tuple[Tuple[int, ...], str]]
 
@@ -88,7 +91,7 @@ def identify_shapes(shapes: Shapes, guess: Callable = None) -> Architecture:
     if any(n.startswith(_WHOLE_MODEL) for n in names):
         return _checkpoint_forge_refused(shapes)
 
-    kind = classify_module(shapes, loadable_only=False)
+    kind = classify(shapes, loadable_only=False)
     if kind:
         file_type = "VAE" if kind.startswith("vae") else "Text Encoder"
         return Architecture(_preset_for_module(kind), None, False, False, file_type,
@@ -275,3 +278,106 @@ def _upscaler(names) -> Optional[Architecture]:
                                         and any(n.startswith("model.1.sub.") for n in names)):
         return Architecture(None, None, False, False, "Upscaler", "an ESRGAN-style upscaler")
     return None
+
+
+# ------------------------------------------------------------------ modules
+# A text encoder or VAE, by kind: what identify_shapes() makes of a file
+# Forge's detector did not take, and what forge_modules.pick() chooses among.
+
+# A text encoder's token embedding, (vocabulary, width), and whether it has a
+# vision tower -> its kind.
+_EMBEDDINGS = {
+    (49408, 768, False): "clip_l",
+    (49408, 1280, False): "clip_g",
+    (32128, 4096, False): "t5xxl",
+    (256384, 4096, False): "umt5xxl",
+    (151936, 1024, False): "qwen3_06b",
+    (151936, 2560, False): "qwen3_4b",
+    (151936, 2560, True): "qwen3vl_4b",
+    (151936, 4096, False): "qwen3_8b",
+    (152064, 3584, False): "qwen25_7b",
+    (152064, 3584, True): "qwen25_7b",
+    (256000, 2304, False): "gemma2_2b",
+    (131072, 3072, False): "ministral3_3b",
+}
+_EMBEDDING_NAMES = ("embed_tokens.weight", "token_embedding.weight", "shared.weight",
+                    "token_embd.weight")
+
+# The keys Forge's loader looks for before taking a file as T5 or UMT5
+# (backend/loader.py replace_state_dict): Hugging Face's layout, plain or
+# quantized. The same encoder saved in Wan's own layout (blocks.N.attn.q,
+# a top-level token_embedding) has the right shape and is not loaded.
+_T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
+                "encoder.block.0.layer.0.SelfAttention.k.qweight")
+
+# A VAE's latent channels, from its decoder's first convolution -> its kind.
+_LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
+
+
+def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
+             loadable_only: bool = True) -> Optional[str]:
+    """
+    What kind of module a file is, from its tensor shapes - or None.
+
+    A whole checkpoint is None: Forge lists files in its VAE folder as
+    modules whatever they are, and a checkpoint loaded as one is not a VAE.
+    `loadable_only=False` names a T5 or UMT5 even in a layout Forge cannot
+    load - it is still a text encoder, just not one to pick.
+    """
+    names = list(shapes)
+    if any(n.startswith(("model.diffusion_model.", "first_stage_model.", "conditioner."))
+           for n in names):
+        return None
+
+    vision = any("visual" in n or "vision" in n for n in names)
+    for name in names:
+        if name.endswith(_EMBEDDING_NAMES):
+            shape = shapes[name][0]
+            if len(shape) == 2:
+                kind = _EMBEDDINGS.get((shape[0], shape[1], vision)) \
+                    or _EMBEDDINGS.get((shape[0], shape[1], False))
+                if kind in ("t5xxl", "umt5xxl") and loadable_only \
+                        and not any(k in shapes for k in _T5_LOADABLE):
+                    return None         # right encoder, in a layout Forge cannot load
+                if kind:
+                    return kind
+
+    conv_in = shapes.get("decoder.conv_in.weight")
+    if conv_in and len(conv_in[0]) == 4:
+        return _LATENT_CHANNELS.get(conv_in[0][1])
+    if "decoder.middle.0.residual.0.gamma" in shapes:
+        return "vae_wan21"
+    return None
+
+
+def _precision(path: str, shapes) -> int:
+    """How faithful a file's weights are: full or half beats fp8 beats GGUF."""
+    if path.lower().endswith(".gguf"):
+        return 0
+    kinds = {kind for _, kind in shapes.values()}
+    if kinds & {"F16", "BF16", "F32"} and not any(k.startswith("F8") for k in kinds):
+        return 2
+    return 1
+
+
+# Classified module files: path -> (modified time, kind, precision). A module
+# folder is read once, then only what has changed.
+_classified: Dict[str, Tuple[float, Optional[str], int]] = {}
+_lock = threading.Lock()
+
+
+def classify_file(path: str) -> Tuple[Optional[str], int]:
+    """(kind, precision) of a module file, remembered until it changes."""
+    try:
+        modified = os.path.getmtime(path)
+    except OSError:
+        return None, 0
+    with _lock:
+        known = _classified.get(path)
+    if known and known[0] == modified:
+        return known[1], known[2]
+    shapes = read_shapes(path) or {}
+    result = (classify(shapes) if shapes else None, _precision(path, shapes) if shapes else 0)
+    with _lock:
+        _classified[path] = (modified, *result)
+    return result

@@ -34,6 +34,7 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+import model_manager.file_identity as fi                 # noqa: E402
 import model_manager.forge_modules as fm                 # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 
@@ -62,7 +63,7 @@ def vae(channels=None, wan=False):
 # ------------------------------------------------------------- telling apart
 HF_T5 = {'encoder.block.0.layer.0.SelfAttention.k.weight': ((4096, 4096), 'F16')}
 check('text encoders are told apart by their embedding',
-      [fm.classify(s) for s in (
+      [fi.classify(s) for s in (
           te(49408, 768, name='text_model.embeddings.token_embedding.weight'),
           te(49408, 1280, name='text_model.embeddings.token_embedding.weight'),
           {**te(32128, 4096, name='shared.weight'), **HF_T5},
@@ -77,23 +78,23 @@ check('text encoders are told apart by their embedding',
 # as missing rather than be picked.
 HF_T5 = {'encoder.block.0.layer.0.SelfAttention.k.weight': ((4096, 4096), 'F16')}
 check('UMT5-XXL in Hugging Face\'s layout is UMT5-XXL',
-      fm.classify({**te(256384, 4096, name='shared.weight'), **HF_T5}), 'umt5xxl')
+      fi.classify({**te(256384, 4096, name='shared.weight'), **HF_T5}), 'umt5xxl')
 check('as is a quantized one',
-      fm.classify({**te(32128, 4096, name='shared.weight'),
+      fi.classify({**te(32128, 4096, name='shared.weight'),
                    'encoder.block.0.layer.0.SelfAttention.k.qweight': ((4096, 512), 'I32')}), 't5xxl')
 check('but the same encoder in Wan\'s own layout is not a module Forge can load',
-      fm.classify({'token_embedding.weight': ((256384, 4096), 'BF16'),
+      fi.classify({'token_embedding.weight': ((256384, 4096), 'BF16'),
                    'blocks.0.attn.k.weight': ((4096, 4096), 'BF16'),
                    'blocks.0.ffn.gate.0.weight': ((10240, 4096), 'BF16')}), None)
 check('and by a vision tower: Qwen3-VL is not Qwen3',
-      fm.classify(te(151936, 2560, vision=True)), 'qwen3vl_4b')
+      fi.classify(te(151936, 2560, vision=True)), 'qwen3vl_4b')
 check('VAEs by their latent channels, or the Wan-style layout',
-      [fm.classify(vae(4)), fm.classify(vae(16)), fm.classify(vae(32)), fm.classify(vae(wan=True))],
+      [fi.classify(vae(4)), fi.classify(vae(16)), fi.classify(vae(32)), fi.classify(vae(wan=True))],
       ['vae_sd', 'vae_ae', 'vae_flux2', 'vae_wan21'])
 check('a whole checkpoint in the VAE folder is not a module',
-      fm.classify({'model.diffusion_model.x': ((1,), 'F16'),
+      fi.classify({'model.diffusion_model.x': ((1,), 'F16'),
                    'first_stage_model.decoder.conv_in.weight': ((512, 4, 3, 3), 'F16')}), None)
-check('nor is anything else', fm.classify({'emb_params': ((8, 768), 'F16')}), None)
+check('nor is anything else', fi.classify({'emb_params': ((8, 768), 'F16')}), None)
 
 # ------------------------------------------------------------------- picking
 MODULES = {
@@ -171,22 +172,22 @@ raw = json.dumps({'shared.weight': {'dtype': 'BF16', 'shape': [32128, 4096], 'da
                   'encoder.block.0.layer.0.SelfAttention.k.weight':
                       {'dtype': 'BF16', 'shape': [4096, 4096], 'data_offsets': [0, 0]}}).encode()
 open(path, 'wb').write(struct.pack('<Q', len(raw)) + raw)
-check('a module file is read and classified, .sft included', fm.classify_file(path), ('t5xxl', 2))
+check('a module file is read and classified, .sft included', fi.classify_file(path), ('t5xxl', 2))
 
 # -------------------------------------------------------------- the endpoint
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
 fm.installed_modules = lambda: {label: label for label in MODULES}
-fm.classify_file = lambda path: MODULES[path]
+fi.classify_file = lambda path: MODULES[path]
 fm.saved_modules = lambda preset: []
 settings = {}
 fm.preferred_modules = lambda preset: fm.parse_file_names(settings.get(preset, ''))
 
 flux_path = facts['linked_paths'][4]
 db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
-import model_manager.architecture as arch                 # noqa: E402
-arch.needs_check = lambda db_, p: None                    # already read, as stored
+import model_manager.identity_store as store             # noqa: E402
+store.needs_check = lambda db_, p: None                   # already read, as stored
 body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
 check('for a checkpoint read as Flux: its preset, and what to select, from the file',
       (body['preset'], body['source'], body['manage_modules'], body['select']),

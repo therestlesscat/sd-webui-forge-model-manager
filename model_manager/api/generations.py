@@ -277,8 +277,8 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
         target (the module labels to hold), modules_missing (the recorded
         modules Forge does not offer) - or None for no such generation.
     """
-    from ..architecture import record_architecture
     from ..file_identity import identify
+    from ..identity_store import record_architecture
     from ..forge_modules import installed_modules
 
     generation = db.get_generation(generation_id)

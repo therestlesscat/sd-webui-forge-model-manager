@@ -25,7 +25,7 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 import fixtures                                          # noqa: E402
-import model_manager.architecture as arch                # noqa: E402
+import model_manager.identity_store as store             # noqa: E402
 import model_manager.send_plan as sp                     # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'send_plan')
@@ -37,7 +37,7 @@ def check(label, got, want=True):
 
 
 db, facts = fixtures.build(WORK)
-arch.needs_check = lambda db_, p: None          # every file below is as stored
+store.needs_check = lambda db_, p: None         # every file below is as stored
 paths = facts['linked_paths']
 
 

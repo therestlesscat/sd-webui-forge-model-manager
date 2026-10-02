@@ -23,7 +23,7 @@ from .hashing import HashResult, ModelHasher
 from .model_dirs import file_modified, gone_from_disk, library_dirs
 from .payload_rows import model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
-from .architecture import record_architecture
+from .identity_store import record_architecture
 from .nsfw import version_covers
 from .db import get_models_db
 from .gallery import gallery_page_size
