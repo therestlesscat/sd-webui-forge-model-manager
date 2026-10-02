@@ -119,7 +119,7 @@ check('with NSFW models excluded it can be used', $('cb_sfw_only').disabled, fal
 toggle('cb_sfw_only', true);
 toggle('cb_nsfw', true);
 check('including NSFW models greys it out',
-      [$('cb_sfw_only').disabled, $('cb_sfw_only_label').classList.contains('cb-filter-disabled')],
+      [$('cb_sfw_only').disabled, $('cb_sfw_only_label').classList.contains('filter-disabled')],
       [true, true]);
 check('saying why, ahead of what it does',
       $('cb_sfw_only_label').title.startsWith('Only applies while Include NSFW models is unticked. '),

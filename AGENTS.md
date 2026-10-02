@@ -72,11 +72,11 @@ version (see "The WebUI's rules"):
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
-| `grid` | cards, the grid and its page strip, its rows kept even |
+| `grid` | cards, the grid and its page strip, its rows kept even, and the card size the server gave a tab (`createCardSize`) |
 | `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text |
 | `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
-| `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page |
-| `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
+| `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page; and scrolling to a gallery's top |
+| `filters` | what both filter bars share: base models in order, the size boxes, a saved search and Save Search's flash, the checkpoint-type filter greyed while Type is not Checkpoint |
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
 | `downloads` | a version's Download button, and the downloads panel both tabs show |
 | `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
@@ -373,7 +373,8 @@ So:
   classes: `.mm-btn, .cb-btn { ... }`. Do not scope a copy to a tab.
 - **A `cb-` or `mm-` class is for something only that tab has** — the
   browser's downloads panel, the manager's sync dialog. Not for a variation on
-  something shared.
+  something shared, nor for a state both have: a disabled filter is
+  `.filter-disabled` in either (#84).
 - **A tab that needs a variation extends the shared rule**, with a modifier
   class and a variable where there is one (`--mm-btn-height`, `--mm-btn-bg`),
   rather than restating the box.

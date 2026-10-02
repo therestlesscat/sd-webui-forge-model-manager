@@ -277,3 +277,43 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
     };
     return gallery;
 }
+
+/**
+ * Scroll the page to the top of a gallery's list - after a switch draws it
+ * again from its first page - and resolve once there, or after half a second.
+ */
+export function scrollToImagesTop(containerId) {
+    return new Promise((resolve) => {
+        const container = document.getElementById(containerId);
+        if (!container) {
+            resolve();
+            return;
+        }
+
+        const list = container.querySelector('.model-images-list') || container;
+        const targetY = Math.max(0, window.scrollY + list.getBoundingClientRect().top - 12);
+
+        if (Math.abs(window.scrollY - targetY) < 4) {
+            resolve();
+            return;
+        }
+
+        let finished = false;
+        const finish = () => {
+            if (finished) return;
+            finished = true;
+            window.removeEventListener('scroll', onScroll);
+            resolve();
+        };
+
+        const onScroll = () => {
+            if (Math.abs(window.scrollY - targetY) < 4) {
+                finish();
+            }
+        };
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.scrollTo({ top: targetY, behavior: 'smooth' });
+        setTimeout(finish, 500);
+    });
+}

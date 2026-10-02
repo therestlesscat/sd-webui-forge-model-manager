@@ -49,3 +49,32 @@ export async function saveSearch(tab, filters) {
         return false;
     }
 }
+
+/** Say on a tab's Save Search button what happened, for a moment. */
+export function flashSaveSearch(buttonId, text) {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return;
+    btn.textContent = text;
+    setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
+}
+
+/**
+ * Trained or merged is a question only checkpoints answer: a tab's
+ * checkpoint-type filter (`<prefix>_checkpoint_type`) is usable only while its
+ * Type (`<prefix>_type`) is Checkpoint.
+ *
+ * Disabled rather than hidden, so the filter bar keeps its shape and the
+ * control explains itself when it cannot be used.
+ */
+export function syncCheckpointType(prefix) {
+    const typeSelect = document.getElementById(`${prefix}_type`);
+    const checkpointType = document.getElementById(`${prefix}_checkpoint_type`);
+    if (!typeSelect || !checkpointType) return;
+
+    const applies = typeSelect.value === 'Checkpoint';
+    checkpointType.disabled = !applies;
+    checkpointType.title = applies
+        ? 'Show only trained checkpoints, or only merges'
+        : 'Only applies when Type is Checkpoint';
+    checkpointType.closest('.filter-group')?.classList.toggle('filter-disabled', !applies);
+}

@@ -47,13 +47,15 @@ const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
-const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
 const {
-    showGalleryLoading, dimGalleryWhileLoading, renderFilterBanner, createPagedGallery,
+    savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
+} = await shared('filters.mjs');
+const {
+    showGalleryLoading, dimGalleryWhileLoading, renderFilterBanner, createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
-    renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
-    renderModelGrid: renderSharedGrid,
+    renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
+    createCardSize,
 } = await shared('grid.mjs');
 const {
     isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, galleryImageWidth, setupLazyMedia,
@@ -112,21 +114,8 @@ let showAllNsfwImages = false;
 let showPromptlessImages = false;
 
 // Card sizing (default values, updated from API)
-let cardWidth = 200;
-let cardHeight = 280;
-
-// Apply card size from API response
-function applyCardSize(width, height) {
-    if (width && height && (width !== cardWidth || height !== cardHeight)) {
-        cardWidth = width;
-        cardHeight = height;
-        sharedApplyCardSize({
-            width, height,
-            containerId: 'civitai_browser_app',
-            logTag: 'CivitaiBrowser',
-        });
-    }
-}
+// The cards' size as the server last gave it, applied when it changes (shared/grid.mjs).
+const cardSize = createCardSize({ containerId: 'civitai_browser_app', logTag: 'CivitaiBrowser' });
 
 // After the settings window saved: redo what this tab drew from the settings.
 // The page size applies from the next search, and the gallery reads its
@@ -137,7 +126,7 @@ window.addEventListener('mm-settings-saved', (e) => {
         // Saved as the server normalises it: "200x280".
         const [width, height] = String(e.detail.settings.model_manager_civitai_card_size.value || '')
             .split('x').map(Number);
-        if (width > 0 && height > 0) applyCardSize(width, height);
+        if (width > 0 && height > 0) cardSize.apply(width, height);
     }
 });
 
@@ -183,44 +172,6 @@ let tagSuggestions = [];
 let tagSelectedIndex = -1;
 let tagInputInitialized = false;
 
-
-// Calculate effective NSFW level using same algorithm as Python backend
-// NSFW levels: 1=PG, 2=PG-13, 4=R, 8=X, 16=XXX, 32=Blocked, 64=Unknown
-function scrollToBrowserImagesTop() {
-    return new Promise((resolve) => {
-        const container = document.getElementById('cb_images');
-        if (!container) {
-            resolve();
-            return;
-        }
-
-        const list = container.querySelector('.model-images-list') || container;
-        const targetY = Math.max(0, window.scrollY + list.getBoundingClientRect().top - 12);
-
-        if (Math.abs(window.scrollY - targetY) < 4) {
-            resolve();
-            return;
-        }
-
-        let finished = false;
-        const finish = () => {
-            if (finished) return;
-            finished = true;
-            window.removeEventListener('scroll', onScroll);
-            resolve();
-        };
-
-        const onScroll = () => {
-            if (Math.abs(window.scrollY - targetY) < 4) {
-                finish();
-            }
-        };
-
-        window.addEventListener('scroll', onScroll, { passive: true });
-        window.scrollTo({ top: targetY, behavior: 'smooth' });
-        setTimeout(finish, 500);
-    });
-}
 
 // POST API call helper
 async function apiPost(endpoint, data = {}) {
@@ -317,7 +268,7 @@ function syncSfwOnlyEnabled() {
     if (label.dataset.title === undefined) label.dataset.title = label.title;
     const applies = !(document.getElementById('cb_nsfw')?.checked || false);
     box.disabled = !applies;
-    label.classList.toggle('cb-filter-disabled', !applies);
+    label.classList.toggle('filter-disabled', !applies);
     setTitle(label, applies
         ? label.dataset.title
         : 'Only applies while Include NSFW models is unticked. ' + label.dataset.title);
@@ -407,7 +358,7 @@ async function searchModelsStreaming(page, cursor) {
 
                 if (evt.type === 'meta') {
                     if (evt.cardWidth && evt.cardHeight) {
-                        applyCardSize(evt.cardWidth, evt.cardHeight);
+                        cardSize.apply(evt.cardWidth, evt.cardHeight);
                     }
                     pageSize = evt.pageSize || pageSize;
                 } else if (evt.type === 'model') {
@@ -580,7 +531,7 @@ async function searchModels(page = 1) {
         if (result.success) {
             // Apply card size from API response
             if (result.cardWidth && result.cardHeight) {
-                applyCardSize(result.cardWidth, result.cardHeight);
+                cardSize.apply(result.cardWidth, result.cardHeight);
             }
 
             currentModels = result.models || [];
@@ -651,7 +602,7 @@ function renderGrid() {
 function renderCard(model, index) {
     const firstVersion = model.modelVersions?.[0];
     const image = cardImage(firstVersion);
-    const src = image?.url ? cardMediaUrl(image.url, image.type, cardWidth, image.width) : '';
+    const src = image?.url ? cardMediaUrl(image.url, image.type, cardSize.width, image.width) : '';
     return renderModelCard({
         index,
         onclick: `window.cbOpenModel(${index})`,
@@ -1132,7 +1083,7 @@ async function reloadFromFirstPage() {
             takeImagesPage(result, { append: false });
             dimImagesWhileLoading(false);
             renderImages();
-            await scrollToBrowserImagesTop();
+            await scrollToImagesTop('cb_images');
             return;
         }
     } catch (e) {
@@ -1429,26 +1380,10 @@ async function loadEnums() {
     if (!typesFilled || !baseFilled) return false;
 
     enumsLoaded = true;
-    syncCheckpointTypeEnabled();
+    syncCheckpointType('cb');
     console.log(`[CivitaiBrowser] Loaded ${result.model_types.length} model types, `
                 + `${result.base_models.length} base models from Civitai`);
     return true;
-}
-
-// Initialize tag input
-// Trained/Merge only applies to checkpoints, so grey it out otherwise
-// rather than letting it silently do nothing.
-function syncCheckpointTypeEnabled() {
-    const typeSelect = document.getElementById('cb_type');
-    const checkpointType = document.getElementById('cb_checkpoint_type');
-    if (!typeSelect || !checkpointType) return;
-
-    const applies = typeSelect.value === 'Checkpoint';
-    checkpointType.disabled = !applies;
-    checkpointType.title = applies
-        ? 'Show only trained checkpoints or only merges'
-        : 'Only applies when Type is Checkpoint';
-    checkpointType.closest('.filter-group')?.classList.toggle('cb-filter-disabled', !applies);
 }
 
 function initTagInput() {
@@ -1545,9 +1480,9 @@ function init() {
 
     const typeSelect = document.getElementById('cb_type');
     if (typeSelect) {
-        typeSelect.addEventListener('change', syncCheckpointTypeEnabled);
+        typeSelect.addEventListener('change', () => syncCheckpointType('cb'));
     }
-    syncCheckpointTypeEnabled();
+    syncCheckpointType('cb');
 
     syncSfwOnlyEnabled();
     loadNsfwDetection().then(syncSfwOnlyEnabled);
@@ -1645,15 +1580,8 @@ function applySearch(filters) {
     set('cb_min_size', 'min_size');
     set('cb_max_size', 'max_size');
     if (Object.prototype.hasOwnProperty.call(filters, 'tag')) selectTag(filters.tag || '');
-    syncCheckpointTypeEnabled();
+    syncCheckpointType('cb');
     syncSfwOnlyEnabled();
-}
-
-function flashSaveSearch(text) {
-    const btn = document.getElementById('cb_save_search_btn');
-    if (!btn) return;
-    btn.textContent = text;
-    setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
 }
 
 async function saveCbSearch() {
@@ -1662,7 +1590,7 @@ async function saveCbSearch() {
         updateStatus('Could not save the search: the server did not keep it.');
         return;
     }
-    flashSaveSearch('✓ Saved');
+    flashSaveSearch('cb_save_search_btn', '✓ Saved');
 }
 
 async function clearCbSearch() {
@@ -1670,7 +1598,7 @@ async function clearCbSearch() {
         updateStatus('Could not clear the saved search: the server did not answer.');
         return;
     }
-    flashSaveSearch('✗ Cleared');
+    flashSaveSearch('cb_save_search_btn', '✗ Cleared');
 }
 
 function runSavedSearch() {

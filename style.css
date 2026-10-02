@@ -2449,21 +2449,20 @@ body.mm-modal-open {
     font-size: 0.85em;
 }
 
-/* A filter that does not apply to the current Type. Both tabs have one, and
-   they should look the same, so the rule names both rather than being copied. */
-.cb-filter-disabled,
-.mm-filter-disabled {
+/* A filter that does not apply now - the checkpoint type while Type is not
+   Checkpoint, the browser's SFW only while NSFW is shown. One class for both
+   tabs: it is a state they share, not a tab's own look (#84). */
+.filter-disabled {
     opacity: 0.45;
 }
 
-.cb-filter-disabled select,
-.cb-filter-disabled input,
-.mm-filter-disabled select {
+.filter-disabled select,
+.filter-disabled input {
     cursor: not-allowed;
 }
 
 /* Pagination */
-/* Downloads panel - both tabs draw the one list (downloads() in shared/common.mjs),
+/* Downloads panel - both tabs draw the one list (downloads() in shared/downloads.mjs),
    between the grid and the details. */
 .mm-downloads-inline,
 .cb-downloads-inline {

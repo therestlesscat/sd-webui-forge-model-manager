@@ -46,14 +46,16 @@ const {
     showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
-const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
+const {
+    savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
+} = await shared('filters.mjs');
 const {
     showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
-    createPagedGallery,
+    createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
-    renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
-    renderModelGrid: renderSharedGrid,
+    renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
+    createCardSize,
 } = await shared('grid.mjs');
 const {
     isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, IMAGE_PLACEHOLDER_SVG, galleryImageWidth,
@@ -111,26 +113,13 @@ let totalModels = 0;
 let pageSize = 0;  // the server's, from the Models per page setting
 
 // Card sizing (default values, updated from API)
-let cardWidth = 200;
-let cardHeight = 280;
+// The cards' size as the server last gave it, applied when it changes (shared/grid.mjs).
+const cardSize = createCardSize({ containerId: 'model_manager_app', logTag: 'ModelManager' });
 
 // Track if preview_least_nsfw checkbox has been initialized from setting
 let previewLeastNsfwInitialized = false;
 let previewLeastNsfwUserTouched = false;
 let filterDefaultsPromise = null;
-
-// Apply card size from API response
-function applyCardSize(width, height) {
-    if (width && height && (width !== cardWidth || height !== cardHeight)) {
-        cardWidth = width;
-        cardHeight = height;
-        sharedApplyCardSize({
-            width, height,
-            containerId: 'model_manager_app',
-            logTag: 'ModelManager',
-        });
-    }
-}
 
 
 // Sync with Civitai and Scan Disk (shared/jobs.mjs), connected to this tab's
@@ -192,64 +181,8 @@ let hideNsfwImagesInitialized = false;
 let totalImageCount = 0;
 let hiddenImageCount = 0;
 
-function scrollToModelImagesTop() {
-    return new Promise((resolve) => {
-        const container = document.getElementById('mm_images');
-        if (!container) {
-            resolve();
-            return;
-        }
-
-        const list = container.querySelector('.model-images-list') || container;
-        const targetY = Math.max(0, window.scrollY + list.getBoundingClientRect().top - 12);
-
-        if (Math.abs(window.scrollY - targetY) < 4) {
-            resolve();
-            return;
-        }
-
-        let finished = false;
-        const finish = () => {
-            if (finished) return;
-            finished = true;
-            window.removeEventListener('scroll', onScroll);
-            resolve();
-        };
-
-        const onScroll = () => {
-            if (Math.abs(window.scrollY - targetY) < 4) {
-                finish();
-            }
-        };
-
-        window.addEventListener('scroll', onScroll, { passive: true });
-        window.scrollTo({ top: targetY, behavior: 'smooth' });
-        setTimeout(finish, 500);
-    });
-}
-
 // NSFW level order for "use max" mode
 const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
-
-// Get current filter values
-/**
- * Trained or merged is a question only checkpoints answer.
- *
- * Disabled rather than hidden, so the filter bar keeps its shape and the
- * control explains itself when it cannot be used.
- */
-function syncCheckpointTypeEnabled() {
-    const typeSelect = document.getElementById('mm_type');
-    const checkpointType = document.getElementById('mm_checkpoint_type');
-    if (!typeSelect || !checkpointType) return;
-
-    const applies = typeSelect.value === 'Checkpoint';
-    checkpointType.disabled = !applies;
-    checkpointType.title = applies
-        ? 'Show only trained checkpoints, or only merges'
-        : 'Only applies when Type is Checkpoint';
-    checkpointType.closest('.filter-group')?.classList.toggle('mm-filter-disabled', !applies);
-}
 
 // The checkbox asks to SHOW NSFW in the preview; the API asks for the LEAST
 // NSFW image to be used as the preview. Those are opposites, and the backend
@@ -547,7 +480,7 @@ async function loadModels(page = 1) {
         if (data.success) {
             // Apply card size from API response
             if (data.card_width && data.card_height) {
-                applyCardSize(data.card_width, data.card_height);
+                cardSize.apply(data.card_width, data.card_height);
             }
 
             // Initialize preview_least_nsfw checkbox from setting on first load
@@ -593,7 +526,7 @@ async function ensureFilterDefaults() {
             const data = await apiCall({ endpoint: '/model-manager/filter-defaults' });
             if (data.success) {
                 if (data.card_width && data.card_height) {
-                    applyCardSize(Number(data.card_width), Number(data.card_height));
+                    cardSize.apply(Number(data.card_width), Number(data.card_height));
                 }
 
                 if (!previewLeastNsfwInitialized && !previewLeastNsfwUserTouched && data.preview_least_nsfw !== undefined) {
@@ -655,7 +588,7 @@ function nsfwCardClass(level) {
  * was chosen by the server, by the card thumbnail setting.
  */
 function mmCard(model, index) {
-    const src = cardMediaUrl(model.preview_url, null, cardWidth);
+    const src = cardMediaUrl(model.preview_url, null, cardSize.width);
     const versions = model.local_version_count || 1;
     return renderModelCard({
         index,
@@ -931,7 +864,7 @@ async function reloadGalleryForSwitch() {
     dimGalleryWhileLoading('mm_images', true);
     try {
         await loadVersionDetails(currentModelPath);
-        await scrollToModelImagesTop();
+        await scrollToImagesTop('mm_images');
         if (galleryTab === 'generations') await loadGenerationsPage(1);
     } finally {
         dimGalleryWhileLoading('mm_images', false);
@@ -3057,14 +2990,6 @@ function currentSearchFilters() {
     return filters;
 }
 
-/** Say on the Save Search button what happened, for a moment. */
-function flashSaveSearch(text) {
-    const btn = document.getElementById('mm_save_search_btn');
-    if (!btn) return;
-    btn.textContent = text;
-    setTimeout(() => { btn.textContent = 'Save Search'; }, 1500);
-}
-
 async function saveSearchFilters() {
     const filters = currentSearchFilters();
     if (!await saveSearch('model_manager', filters)) {
@@ -3072,7 +2997,7 @@ async function saveSearchFilters() {
         return;
     }
     console.log('[ModelManager] Saved search filters:', filters);
-    flashSaveSearch('✓ Saved');
+    flashSaveSearch('mm_save_search_btn', '✓ Saved');
 }
 
 // The Base Model filter lists what this library holds, asked of the server.
@@ -3229,7 +3154,7 @@ async function clearSearchFilters() {
         return;
     }
     console.log('[ModelManager] Cleared saved filters');
-    flashSaveSearch('✗ Cleared');
+    flashSaveSearch('mm_save_search_btn', '✗ Cleared');
 }
 
 // Initialize with retry logic for Gradio-rendered content
@@ -3279,9 +3204,9 @@ function bindElements() {
     // control rather than sitting there looking usable.
     const typeFilter = document.getElementById('mm_type');
     if (typeFilter) {
-        typeFilter.addEventListener('change', syncCheckpointTypeEnabled);
+        typeFilter.addEventListener('change', () => syncCheckpointType('mm'));
     }
-    syncCheckpointTypeEnabled();
+    syncCheckpointType('mm');
 
     // Sync and Scan Disk: their buttons and dialogs (shared/jobs.mjs).
     bindJobControls();
