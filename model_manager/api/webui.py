@@ -133,7 +133,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True, "modules": current_modules()})
 
     @app.get("/model-manager/ui-options")
-    async def get_ui_options():
+    def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
         from ..forge_host import samplers, schedulers, setting

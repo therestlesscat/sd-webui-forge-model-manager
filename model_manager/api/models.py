@@ -40,7 +40,7 @@ def register(app: FastAPI):
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
     @app.get("/model-manager/models")
-    async def get_models(
+    def get_models(
         search: str = "",
         type: str = "",
         base_model: str = "",
@@ -239,7 +239,7 @@ def register(app: FastAPI):
             return failed(e, "Filter defaults error")
 
     @app.get("/model-manager/models/details")
-    async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
+    def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
                                 hide_promptless_images: Optional[bool] = None):
         """
         Get detailed info for a specific model by file path, with its
@@ -395,7 +395,7 @@ def register(app: FastAPI):
             return failed(e, "Get versions error")
 
     @app.get("/model-manager/filters")
-    async def get_filter_options():
+    def get_filter_options():
         """Get distinct values for filter dropdowns."""
         try:
             db = get_models_db()
@@ -469,7 +469,7 @@ def register(app: FastAPI):
             return failed(e, "Force sync error")
 
     @app.post("/model-manager/models/delete")
-    async def delete_model(path: str = Form(...)):
+    def delete_model(path: str = Form(...)):
         """
         Delete a model and all related files.
 
@@ -554,7 +554,7 @@ def register(app: FastAPI):
             return failed(e, "Delete error")
 
     @app.post("/model-manager/pin")
-    async def set_pin(
+    def set_pin(
         pinned: bool = Form(...),
         model_id: Optional[int] = Form(None),
         file_path: Optional[str] = Form(None),
@@ -574,7 +574,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/bookmark")
-    async def toggle_bookmark(
+    def toggle_bookmark(
         model_id: int = Form(...),
         bookmarked: bool = Form(...)
     ):

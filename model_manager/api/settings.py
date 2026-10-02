@@ -301,7 +301,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True})
 
     @app.get("/model-manager/settings")
-    async def get_settings():
+    def get_settings():
         """Every Model Manager setting: its value, default, label and bounds."""
         try:
             return JSONResponse(_describe())
@@ -348,7 +348,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True, **progress()})
 
     @app.post("/model-manager/settings")
-    async def save_settings(values: Dict[str, Any] = Body(..., embed=True)):
+    def save_settings(values: Dict[str, Any] = Body(..., embed=True)):
         """Save the settings given, all or none; answers what they are now."""
         try:
             answer = save(values)

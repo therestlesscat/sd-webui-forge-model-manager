@@ -503,7 +503,7 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
 
     @app.get("/model-manager/generations/browse")
-    async def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
+    def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
                               group: str = "", in_group: str = "",
                               generation: Optional[int] = None, in_subgroup: str = ""):
         """
@@ -525,7 +525,7 @@ def register(app: FastAPI):
             return failed(e, "Generations page error")
 
     @app.get("/model-manager/generations/page")
-    async def get_generation_page(path: str, page: int = 1,
+    def get_generation_page(path: str, page: int = 1,
                                   hide_nsfw_images: Optional[bool] = None,
                                   hide_promptless_images: Optional[bool] = None):
         """
@@ -546,7 +546,7 @@ def register(app: FastAPI):
             return failed(e, "Generation page error")
 
     @app.get("/model-manager/generations/{generation_id}/images")
-    async def get_generation_all_images(generation_id: int, path: str = "",
+    def get_generation_all_images(generation_id: int, path: str = "",
                                         hide_nsfw_images: Optional[bool] = None,
                                         hide_promptless_images: Optional[bool] = None):
         """
@@ -585,7 +585,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/images/{image_id}/file")
-    async def get_generation_image_file(image_id: int):
+    def get_generation_image_file(image_id: int):
         """A generated image, by its record: only what was recorded is served."""
         path = get_models_db().get_generation_image_path(image_id)
         if not path or not os.path.isfile(path):

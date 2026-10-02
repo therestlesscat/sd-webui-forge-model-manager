@@ -129,7 +129,7 @@ def register(app: FastAPI):
                       "Metadata sync started" + (" (with images)" if with_images else ""))
 
     @app.get("/model-manager/sync/estimate")
-    async def get_sync_estimate(
+    def get_sync_estimate(
         include_images: str = "false",
         include_prompts: str = "true",
         stale_days: int = 0,
