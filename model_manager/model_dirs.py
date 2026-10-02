@@ -10,6 +10,7 @@ Every folder a download can write to is one the library walks.
 """
 import os
 import shutil
+from datetime import datetime
 from typing import List, Optional
 
 
@@ -208,6 +209,18 @@ def relocate(path: str, to: str) -> bool:
     for source, destination in moves:
         shutil.move(source, destination)   # a rename, or a copy across drives
     return True
+
+
+def file_modified(path: str) -> Optional[str]:
+    """
+    A file's modified time, as the database stores it: local time, ISO text.
+    The one way it is written - needs_check() compares a stored one with a
+    fresh one to decide whether a header is read again.
+    """
+    try:
+        return datetime.fromtimestamp(os.stat(path).st_mtime).isoformat()
+    except OSError:
+        return None
 
 
 def gone_from_disk(stored_paths, found_paths) -> List[str]:

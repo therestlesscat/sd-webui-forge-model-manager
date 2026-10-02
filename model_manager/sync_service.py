@@ -20,7 +20,7 @@ from .civitai import (
     keep_generation_data,
 )
 from .hashing import HashResult, ModelHasher
-from .model_dirs import gone_from_disk, library_dirs
+from .model_dirs import file_modified, gone_from_disk, library_dirs
 from .payload_rows import model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
 from .architecture import record_architecture
@@ -375,7 +375,7 @@ class SyncService:
             try:
                 stat = os.stat(path)
                 row["file_size"] = stat.st_size
-                row["file_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+                row["file_modified"] = file_modified(path)
             except OSError:
                 pass
             rows.append(row)
@@ -444,12 +444,11 @@ class SyncService:
 
             # Get file stats
             file_size = 0
-            file_modified = None
+            modified = None
             try:
                 stat = os.stat(model_path)
                 file_size = stat.st_size
-                from datetime import datetime
-                file_modified = datetime.fromtimestamp(stat.st_mtime).isoformat()
+                modified = file_modified(model_path)
             except OSError:
                 pass
 
@@ -470,7 +469,7 @@ class SyncService:
                         "file_name": file_name,
                         "file_size": file_size,
                         "file_hashes": self._hashes_to_dict(hashes),
-                        "file_modified": file_modified,
+                        "file_modified": modified,
                         "file_extension": file_ext,
                         "has_civitai_data": True,
                     }
@@ -489,7 +488,7 @@ class SyncService:
                     "file_name": file_name,
                     "file_size": file_size,
                     "file_hashes": self._hashes_to_dict(hashes),
-                    "file_modified": file_modified,
+                    "file_modified": modified,
                     "file_extension": file_ext,
                     "has_civitai_data": True,
                 }

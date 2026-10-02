@@ -76,6 +76,8 @@ raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
 row = raw.execute('SELECT * FROM model_versions WHERE file_path = ?', (newcomers[0],)).fetchone()
 check('the row carries the file size', row['file_size'], 1000)
+from model_manager.model_dirs import file_modified      # noqa: E402
+check('and its modified time, as file_modified() writes it', row['file_modified'], file_modified(newcomers[0]))
 check('and its name', row['file_name'], 'brand_new_0.safetensors')
 check('and is marked as having no Civitai data', row['has_civitai_data'], 0)
 check('and is visible to the grid rather than Unknown', row['nsfw_level'], 1)

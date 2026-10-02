@@ -21,6 +21,7 @@ from ..scan_service import as_model_payload
 from ..storage import read_civitai_info
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed
+from ..model_dirs import file_modified
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -322,7 +323,6 @@ def register(app: FastAPI):
         try:
             from ..storage import load_model_metadata
             import os
-            from datetime import datetime
 
             if not os.path.exists(path):
                 return JSONResponse(
@@ -336,7 +336,7 @@ def register(app: FastAPI):
                 "file_path": path,
                 "file_name": os.path.basename(path),
                 "file_size": stat.st_size,
-                "file_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "file_modified": file_modified(path),
             }
 
             # Try database first (more reliable - uses filename matching during scan)

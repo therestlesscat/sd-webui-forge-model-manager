@@ -26,6 +26,7 @@ from .migrations import run_migrations
 from .models_ops import ModelsOps
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
+from ..model_dirs import file_modified
 
 
 # The schema this code expects. Bumping it means adding a migration.
@@ -232,10 +233,7 @@ class ModelsDatabase:
         Never overwrites an existing value: re-syncing a model must not rewrite
         the day it was obtained.
         """
-        try:
-            downloaded_at = datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
-        except OSError:
-            downloaded_at = datetime.now().isoformat()
+        downloaded_at = file_modified(file_path) or datetime.now().isoformat()
 
         with self._cursor() as cursor:
             cursor.execute("""

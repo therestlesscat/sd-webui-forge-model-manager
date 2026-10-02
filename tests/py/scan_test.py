@@ -125,6 +125,10 @@ check('and the one with a sidecar', rich in after, True)
 
 stored = db.get_version(rich)
 check('the sidecar reached the database', stored['id'], 8888)
+# One way a modified time is written (#65): needs_check compares a stored one
+# with a fresh one to decide whether a header is read again.
+from model_manager.model_dirs import file_modified       # noqa: E402
+check('its modified time stored as file_modified() writes it', stored['file_modified'], file_modified(rich))
 check('with its trigger words', stored['trained_words'], ['boop'])
 
 # ------------------------------------------------------------- embeddings

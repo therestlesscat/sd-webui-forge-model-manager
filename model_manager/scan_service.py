@@ -15,7 +15,7 @@ from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
 from .hashing import read_hashes
-from .model_dirs import gone_from_disk, library_dirs, proper_place, relocate
+from .model_dirs import file_modified, gone_from_disk, library_dirs, proper_place, relocate
 from .payload_rows import model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
@@ -160,7 +160,7 @@ class ScanService:
         try:
             stat = os.stat(model_path)
             version_data["file_size"] = stat.st_size
-            version_data["file_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+            version_data["file_modified"] = file_modified(model_path)
         except OSError:
             version_data["file_size"] = 0
             version_data["file_modified"] = None
