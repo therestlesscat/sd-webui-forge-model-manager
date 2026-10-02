@@ -8,12 +8,11 @@
 // It is one for the page, even when the shared modules load twice. And with
 // all three tabs loaded, every name the page calls has been offered.
 import { readdirSync, readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
-    const source = readFileSync(`${ROOT}/model_manager/ui/${tab}`, 'utf8');
-    document.body.insertAdjacentHTML('beforeend', source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2]);
+    document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
 const { check, done } = checker();
 

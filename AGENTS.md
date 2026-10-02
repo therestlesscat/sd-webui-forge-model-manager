@@ -54,7 +54,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
-| `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order |
+| `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order; `header.py` what they draw alike - the version and the settings gear, the downloads panel |
 
 ### `javascript/shared/`
 
@@ -524,8 +524,12 @@ real time once.
 - **The test DOM is not the WebUI.** linkedom runs no inline handlers: a tick's
   `onclick="event.stopPropagation()"` kept every click from the page's
   listener, and the suite never saw it - markup holds none now (#95). It
-  has no layout. The harness reads a tab's markup straight from its `.py`, so
-  markup a `.replace()` adds is not there (build it in the page). And the
+  has no layout. The harness reads a tab's markup straight from its `.py`
+  (`tabMarkup`), filling in only the header and the downloads panel from
+  `ui/header.py`; any other markup a `.replace()` adds is not there (build it
+  in the page). A check that reads a template rather than the tab as drawn
+  passes on what the drawing gets wrong: the Generations gear said "TAB" in
+  0.44.21 under one (`tab_markup_test.py` draws the tabs). And the
   markup is there before the script, where in the WebUI it comes after: a
   test passed while the real panel never showed. Its MutationObserver misses
   a change made through `element.style`, which a browser reports - so

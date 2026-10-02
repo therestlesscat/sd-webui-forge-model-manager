@@ -7,7 +7,7 @@ so the tab appears in the right place, and for nothing else.
 """
 import gradio as gr
 
-from .header import version_link
+from .header import downloads_panel, header_actions
 
 
 def create_civitai_browser_ui():
@@ -19,17 +19,7 @@ def create_civitai_browser_ui():
                 <div class="cb-header">
                     <h2>Civitai Browser</h2>
                     <!-- The settings window: one, shared with the Model Manager -->
-                    <span class="mm-header-actions">
-                    <!-- version -->
-                    <button type="button" class="mm-settings-btn" data-action="settings.open" data-tab="civitai_browser"
-                            title="Model Manager settings" aria-label="Model Manager settings">
-                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="3"></circle>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                        </svg>
-                    </button>
-                    </span>
+                    <!-- actions -->
                 </div>
 
                 <!-- Shown only when Civitai cannot be asked properly -->
@@ -208,24 +198,7 @@ def create_civitai_browser_ui():
                 </div>
 
                 <!-- Download Progress (fixed location between grid and details) -->
-                <div id="cb_downloads" class="cb-downloads-inline" style="display: none;">
-                    <div class="cb-downloads-header">
-                        <h4>Downloads</h4>
-                        <div class="cb-downloads-header-end">
-                            <span class="cb-downloads-summary" id="cb_downloads_summary"></span>
-                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_pause_all"
-                                    title="Pause every download, running or waiting" style="display: none;"
-                                    data-action="downloads.control" data-control="pause_all">Pause all</button>
-                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_resume_all"
-                                    title="Resume every paused download, in order" style="display: none;"
-                                    data-action="downloads.control" data-control="resume_all">Resume all</button>
-                            <button class="mm-btn mm-btn-small secondary" id="cb_downloads_dismiss_all"
-                                    title="Take every finished download off the list" style="display: none;"
-                                    data-action="downloads.dismissFinished">Dismiss all</button>
-                        </div>
-                    </div>
-                    <div id="cb_download_list" class="cb-downloads-list"></div>
-                </div>
+                <!-- downloads -->
 
                 <!-- Model Details (shown when model selected) -->
                 <div id="cb_details" class="model-details" style="display: none;">
@@ -237,6 +210,7 @@ def create_civitai_browser_ui():
                     <!-- Images populated by JS -->
                 </div>
             </div>
-        """.replace("<!-- version -->", version_link()), elem_id="civitai_browser_container")
+        """.replace("<!-- actions -->", header_actions("civitai_browser"))
+          .replace("<!-- downloads -->", downloads_panel("cb")), elem_id="civitai_browser_container")
 
     return civitai_browser_tab

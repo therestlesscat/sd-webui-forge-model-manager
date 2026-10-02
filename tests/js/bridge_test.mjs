@@ -12,17 +12,14 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { act, browserGalleryAnswer, tick } from './harness.mjs';
+import { act, browserGalleryAnswer, tabMarkup, tick } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
     : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
 
 // The shipped markup, not a replica of it.
-const tabSource = readFileSync(`${ROOT}/model_manager/ui/tab_civitai_browser.py`, 'utf8');
-const htmlMatch = tabSource.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
-if (!htmlMatch) throw new Error('could not find the tab markup in tab_civitai_browser.py');
-const { window } = parseHTML(`<!doctype html><html><body>${htmlMatch[2]}</body></html>`);
+const { window } = parseHTML(`<!doctype html><html><body>${tabMarkup('model_manager/ui/tab_civitai_browser.py')}</body></html>`);
 
 globalThis.window = window;
 globalThis.document = window.document;

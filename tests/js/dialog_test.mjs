@@ -10,6 +10,7 @@ import { parseHTML } from 'linkedom';
 
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { tabMarkup } from './harness.mjs';
 
 // The extension, found from this file rather than from a drive letter.
 const ROOT = process.env.MM_ROOT
@@ -21,10 +22,7 @@ const SCRATCH = process.env.MM_SCRATCH
 // Taken from the tab module itself rather than from a copy: a copy goes stale
 // the moment the markup changes, and then the test passes against a page that
 // no longer exists.
-const tabSource = readFileSync(`${ROOT}/model_manager/ui/tab_model_manager.py`, 'utf8');
-const htmlMatch = tabSource.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
-if (!htmlMatch) throw new Error('could not find the tab markup in tab_model_manager.py');
-const tabHtml = htmlMatch[2];
+const tabHtml = tabMarkup('model_manager/ui/tab_model_manager.py');
 mkdirSync(SCRATCH, { recursive: true });
 const { window } = parseHTML(`<!doctype html><html><body>${tabHtml}</body></html>`);
 

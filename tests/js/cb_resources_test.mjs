@@ -9,12 +9,11 @@
 // into the library - with its own gallery's version left out. Both tabs'
 // scripts are on one page, as in the WebUI.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, press } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, press, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
-const managerMarkup = readFileSync(`${ROOT}/model_manager/ui/tab_model_manager.py`, 'utf8')
-    .match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2];
+const managerMarkup = tabMarkup('model_manager/ui/tab_model_manager.py');
 document.body.insertAdjacentHTML('beforeend', managerMarkup);
 
 const GALLERY_VERSION = 70;               // the version whose images these are

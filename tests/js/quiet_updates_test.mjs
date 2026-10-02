@@ -6,19 +6,15 @@
 // ran with them. With all three tabs loaded, as in the WebUI, a second round
 // of the callbacks, nothing having changed, has to change nothing.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
-    const source = readFileSync(`${ROOT}/model_manager/ui/${tab}`, 'utf8');
-    document.body.insertAdjacentHTML('beforeend', source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2]);
+    document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
-// Each tab's header, as header_actions() fills it: the version the notice goes beside.
-document.querySelectorAll('.model-manager-header, .cb-header, .gen-header').forEach((header) => {
-    header.insertAdjacentHTML('beforeend', '<span class="mm-header-actions"><a class="mm-version" '
-        + 'href="https://example.test/CHANGELOG.md">v0.41.14</a></span>');
-});
+// Each tab's header has its version and gear (tabMarkup, as ui/header.py fills it):
+// the notice goes beside the version.
 
 const hooks = [];
 globalThis.onAfterUiUpdate = (callback) => hooks.push(callback);
