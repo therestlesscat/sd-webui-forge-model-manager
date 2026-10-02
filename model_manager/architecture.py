@@ -30,6 +30,7 @@ import struct
 import zipfile
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
+from .model_dirs import file_modified
 
 # Forge's model classes (huggingface_guess.model_list), by the UI preset
 # (modules_forge.presets.PresetArch) that runs them.
@@ -381,15 +382,6 @@ def _bundles_text_encoder(config, judged) -> bool:
             pass
     prefixes = tuple(getattr(config, "text_encoder_key_prefix", None) or ())
     return bool(prefixes) and any(k.startswith(prefixes) for k in judged)
-
-
-def file_modified(path: str) -> Optional[str]:
-    """A file's modified time, as the database stores it (see scan_service)."""
-    from datetime import datetime
-    try:
-        return datetime.fromtimestamp(os.stat(path).st_mtime).isoformat()
-    except OSError:
-        return None
 
 
 def needs_check(db, path: str, force: bool = False) -> Optional[str]:
