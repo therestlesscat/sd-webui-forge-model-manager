@@ -4,7 +4,6 @@ Defines structures for models, versions, images, and metadata.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Optional, List, Dict, Any
 import os
 
@@ -24,51 +23,6 @@ def _stored_level(data: Dict) -> int:
     if isinstance(value, str) and value not in ("", "None"):
         return parse_level(value)
     return rated_level(data)
-
-
-class ModelType(Enum):
-    """Types of models supported."""
-    CHECKPOINT = "Checkpoint"
-    LORA = "LORA"
-    LOCON = "LoCon"
-    TEXTUAL_INVERSION = "TextualInversion"
-    HYPERNETWORK = "Hypernetwork"
-    AESTHETIC_GRADIENT = "AestheticGradient"
-    CONTROLNET = "Controlnet"
-    UPSCALER = "Upscaler"
-    MOTION_MODULE = "MotionModule"
-    VAE = "VAE"
-    POSES = "Poses"
-    WILDCARDS = "Wildcards"
-    OTHER = "Other"
-    UNKNOWN = "Unknown"
-
-    @classmethod
-    def from_string(cls, value: str) -> "ModelType":
-        """Convert string to ModelType."""
-        if not value:
-            return cls.UNKNOWN
-
-        normalized = value.lower().replace(" ", "").replace("_", "")
-
-        mapping = {
-            "checkpoint": cls.CHECKPOINT,
-            "lora": cls.LORA,
-            "locon": cls.LOCON,
-            "textualinversion": cls.TEXTUAL_INVERSION,
-            "embedding": cls.TEXTUAL_INVERSION,
-            "hypernetwork": cls.HYPERNETWORK,
-            "aestheticgradient": cls.AESTHETIC_GRADIENT,
-            "controlnet": cls.CONTROLNET,
-            "upscaler": cls.UPSCALER,
-            "motionmodule": cls.MOTION_MODULE,
-            "vae": cls.VAE,
-            "poses": cls.POSES,
-            "wildcards": cls.WILDCARDS,
-            "other": cls.OTHER,
-        }
-
-        return mapping.get(normalized, cls.UNKNOWN)
 
 
 @dataclass
@@ -278,7 +232,7 @@ class CivitaiModelInfo:
     id: int
     name: str
     description: str = ""
-    type: ModelType = ModelType.UNKNOWN
+    type: str = "Unknown"     # Civitai's type, as Civitai gave it; Unknown as the database keeps none
     nsfw: int = UNKNOWN       # a level from nsfw.py's scale
     tags: List[str] = field(default_factory=list)
     creator: Optional[str] = None
@@ -300,7 +254,7 @@ class CivitaiModelInfo:
             id=data.get("id", 0),
             name=data.get("name", ""),
             description=data.get("description", ""),
-            type=ModelType.from_string(data.get("type", "")),
+            type=data.get("type") or "Unknown",
             nsfw=rated_level(data),
             tags=data.get("tags", []),
             creator=data.get("creator", {}).get("username") if data.get("creator") else None,

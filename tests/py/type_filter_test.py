@@ -80,5 +80,13 @@ select = re.search(r'<select id="mm_type".*?</select>', markup, re.S).group(0)
 check('the Type filter lists every file type, and nothing else',
       re.findall(r'<option value="([^"]+)"', select), list(FILE_TYPES))
 
+# One list of what a file is (#66): what is built from it names only its types.
+from model_manager.file_identity import NAMED_IN_PROMPTS   # noqa: E402
+from model_manager.model_dirs import FOLDER_FOR_FILE_TYPE  # noqa: E402
+check('every type a file can be has a folder, but Unknown - and no folder names another type',
+      sorted(FOLDER_FOR_FILE_TYPE), sorted(t for t in FILE_TYPES if t != 'Unknown'))
+check('the types a prompt names by file name are file types',
+      [t for t in NAMED_IN_PROMPTS if t not in FILE_TYPES], [])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
