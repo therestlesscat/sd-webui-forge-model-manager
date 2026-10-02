@@ -372,7 +372,7 @@ check('a known model whose file is gone still answers 404', code, 404)
 # place the images do. A prompt shorter than MIN_PROMPT_LENGTH is not one:
 # measured over a real library, what sits below four characters is "1", ".",
 # "???" - never something a person wrote.
-from model_manager.civitai.prompt_filter import MIN_PROMPT_LENGTH   # noqa: E402
+from model_manager.prompt_rules import MIN_PROMPT_LENGTH            # noqa: E402
 
 VERSION = facts['version_ids'][0]
 db.clear_version_images(VERSION)

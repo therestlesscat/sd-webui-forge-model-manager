@@ -8,8 +8,9 @@ SQL (ImagesOps.get_image_counts). AGENTS.md: a switch's number holds when it
 is flipped - which needs the two to agree, for every combination of the
 switches. They were written apart, and nothing held them to each other.
 
-Prompts padded with tabs or newlines are left out on purpose: Python's
-strip() and SQL's TRIM disagree on them, which is #61's to settle.
+Prompts padded with tabs and newlines are among them: Python's strip() and
+SQL's TRIM disagreed on those (#61) - "\t\tab\n" was unreadable to one and
+readable to the other - until both trimmed by prompt_rules.
 """
 import os
 import sys
@@ -41,7 +42,7 @@ def check(label, got, want=True):
 
 # Every kind there is: safe and explicit, each with a prompt worth reading,
 # a short one, an empty one, and none - so no count is zero by accident.
-PROMPTS = ['a prompt long enough to read', 'ok', '', None]
+PROMPTS = ['a prompt long enough to read', 'ok', '', None, '\t\tab\n', ' \r\nfour\n\t']
 IMAGES = []
 for level in (1, 2, 4, 8, 16):
     for prompt in PROMPTS:
@@ -72,7 +73,8 @@ check('none of the counts is zero by accident', all(both[k] for k in KEYS), True
 # Every gallery counts through one function; how it tells safe and readable
 # is the only part its own. The same answers from the same verdicts:
 safe = [img['browsingLevel'] <= SFW_MAX for img in IMAGES]
-readable = [bool(img['meta'] and len((img['meta'].get('prompt') or '').strip()) >= 4) for img in IMAGES]
+readable = [bool(img['meta'] and len((img['meta'].get('prompt') or '').strip(' \t\r\n')) >= 4)
+            for img in IMAGES]
 check('switch_counts, given the verdicts, counts as filter_images does',
       switch_counts(IMAGES, safe, readable, True, True)[1], both)
 

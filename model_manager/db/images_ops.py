@@ -5,7 +5,7 @@ This module handles images table operations.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
-from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
+from ..prompt_rules import readable_sql, unreadable_sql
 from ..nsfw import SFW_MAX, image_level
 from typing import Tuple, Optional, List, Dict, Any, Callable, Set
 
@@ -122,13 +122,13 @@ class ImagesOps:
     # json_extract rather than given a column. Measured over 101,369 images, a
     # full scan of every one takes about a second; a gallery is a few hundred
     # rows of that, so no index earns its keep here.
-    _PROMPT = "TRIM(COALESCE(json_extract(data, '$.meta.prompt'), ''))"
+    _PROMPT = "json_extract(data, '$.meta.prompt')"
 
     def _prompt_filter(self, require_prompt: bool) -> str:
         """The SQL for "has a prompt worth reading", or nothing."""
         if not require_prompt:
             return ""
-        return " AND LENGTH(%s) >= %d" % (self._PROMPT, MIN_PROMPT_LENGTH)
+        return " AND " + readable_sql(self._PROMPT)
 
     def get_images(
         self,
@@ -288,7 +288,7 @@ class ImagesOps:
             nsfw_count = cursor.fetchone()[0]
             cursor.execute(
                 "SELECT COUNT(*) FROM images WHERE version_id = ?" + nsfw_clause
-                + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                + " AND " + unreadable_sql(self._PROMPT),
                 (version_id,) + nsfw_param
             )
             promptless_count = cursor.fetchone()[0]
@@ -298,7 +298,7 @@ class ImagesOps:
             # however either switch is set.
             cursor.execute(
                 "SELECT COUNT(*) FROM images WHERE version_id = ?"
-                + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                + " AND " + unreadable_sql(self._PROMPT),
                 (version_id,)
             )
             promptless_total = cursor.fetchone()[0]
@@ -315,7 +315,7 @@ class ImagesOps:
                     # as its "<= ?" hides that too.
                     "SELECT COUNT(*) FROM images WHERE version_id = ?"
                     " AND NOT COALESCE(effective_nsfw_level <= ?, 0)"
-                    + " AND LENGTH(%s) < %d" % (self._PROMPT, MIN_PROMPT_LENGTH),
+                    + " AND " + unreadable_sql(self._PROMPT),
                     (version_id, max_nsfw_level)
                 )
                 both = cursor.fetchone()[0]

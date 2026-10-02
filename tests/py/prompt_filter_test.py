@@ -22,8 +22,8 @@ from model_manager.civitai import prompt_filter as pf    # noqa: E402
 from model_manager.civitai.prompt_filter import (        # noqa: E402
     apply_generation_data, decode_filter_token, encode_filter_token,
     enrich_images_with_generation_data, generation_ids_needing_lookup,
-    image_has_usable_prompt,
 )
+from model_manager.prompt_rules import usable as image_usable   # noqa: E402
 
 fails = []
 def check(label, got, want=True):
@@ -31,30 +31,9 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 
 
-# ------------------------------------------------------- what counts as usable
-# A prompt on its own is not enough: "Send to txt2img" needs the settings too.
+# A Civitai image's settings, complete (what makes a prompt usable is
+# prompt_rules_test's).
 FULL = {'prompt': 'a cat', 'steps': 20, 'sampler': 'Euler a', 'cfgScale': 7}
-check('a prompt with its settings is usable', image_has_usable_prompt({'meta': FULL}), True)
-check('the capitalised spellings count too',
-      image_has_usable_prompt({'meta': {'prompt': 'a cat', 'steps': 20,
-                                        'Sampler': 'Euler a', 'CFG scale': 7}}), True)
-check('but a prompt with no steps is not',
-      image_has_usable_prompt({'meta': dict(FULL, steps=0)}), False)
-check('nor one with no sampler',
-      image_has_usable_prompt({'meta': dict(FULL, sampler=None)}), False)
-check('nor one with no guidance scale',
-      image_has_usable_prompt({'meta': dict(FULL, cfgScale=None)}), False)
-check('no meta at all is not', image_has_usable_prompt({'meta': None}), False)
-check('nor an empty meta', image_has_usable_prompt({'meta': {}}), False)
-check('nor a blank prompt', image_has_usable_prompt({'meta': {'prompt': '   '}}), False)
-check('nor a missing key', image_has_usable_prompt({}), False)
-# It takes an image out of a list Civitai returned, so None is not a case it
-# has to handle - and it does not: passing one raises.
-try:
-    image_has_usable_prompt(None)
-    check('None is handled', False)
-except AttributeError:
-    pass
 
 # ------------------------------------------------------------------ the cursor
 token = encode_filter_token('abc', 3)
@@ -128,7 +107,7 @@ def usable(model):
     """The count_usable_images callback the browser passes in."""
     return sum(1 for version in model.get('modelVersions', [])
                for image in version.get('images', [])
-               if image_has_usable_prompt(image))
+               if image_usable(image))
 
 
 class Searcher:

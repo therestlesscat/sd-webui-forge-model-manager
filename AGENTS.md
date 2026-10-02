@@ -35,6 +35,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
+| `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors |
