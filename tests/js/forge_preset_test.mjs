@@ -292,12 +292,13 @@ const tabs = document.createElement('div');
 tabs.id = 'tabs';
 for (const name of ['txt2img', 'img2img']) {
     const button = document.createElement('button');
+    button.id = `tab_${name}-button`;
     button.addEventListener('click', () => events.push(`tab:${name}`));
     tabs.appendChild(button);
 }
 const mode = document.createElement('div');
 mode.id = 'mode_img2img';
-mode.innerHTML = '<button></button>';
+mode.innerHTML = '<button id="img2img_img2img_tab-button"></button>';
 mode.querySelector('button').addEventListener('click', () => events.push('mode:img2img'));
 const i2iPrompt = document.createElement('div');
 i2iPrompt.id = 'img2img_prompt';

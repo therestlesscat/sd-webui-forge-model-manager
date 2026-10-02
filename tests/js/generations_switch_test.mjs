@@ -13,9 +13,9 @@ const { check, waitFor, done } = checker();
 // Forge's tab bar, as far as the switch looks at it.
 document.body.insertAdjacentHTML('afterbegin', `
     <div id="tabs">
-        <button class="selected" aria-selected="true">Generations</button>
-        <button>Model Manager</button>
-        <button>Civitai Browser</button>
+        <button id="tab_generations_tab-button" class="selected" aria-selected="true">Generations</button>
+        <button id="tab_model_manager_tab-button">Model Manager</button>
+        <button id="tab_civitai_browser_tab-button">Civitai Browser</button>
     </div>`);
 const tabButton = (label) => Array.from(document.querySelectorAll('#tabs button')).find((b) => b.textContent === label);
 const clicked = [];

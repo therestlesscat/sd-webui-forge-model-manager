@@ -156,7 +156,6 @@ provide('modelManager.showFile', (path) => { shownFiles.push(path); });
 const shownVersions = [];
 provide('modelManager.showVersion', (id) => { shownVersions.push(id); });
 const civitaiAsked = [];
-provide('modelManager.openInCivitaiBrowser', (query) => { civitaiAsked.push(query); });
 
 // This DOM has no layout: the end of the grid is put where the test says,
 // far below the window until it is scrolled to.
@@ -268,6 +267,13 @@ check('Esc closes it', menuEl(), null);
 window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
 click(menuEl().querySelector('button'));
 check('the model is asked for by its version, not its file', [shownVersions, shownFiles, menuEl()], [[701], [], null]);
+// The Civitai Browser asked directly: not loaded, this tab says so, not the
+// Model Manager's status line in a tab nobody is looking at.
+window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+click(menuEl().querySelectorAll('button')[1]);
+check('without the Civitai Browser, this tab says so',
+      document.getElementById('gen_status')?.textContent, 'The Civitai Browser tab has not started yet: open it once and try again.');
+provide('civitaiBrowser.showModel', (query) => { civitaiAsked.push(query); });
 window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
 click(menuEl().querySelectorAll('button')[1]);
 check('and in the Civitai Browser by its model and version', civitaiAsked, ['model:70 version:701']);

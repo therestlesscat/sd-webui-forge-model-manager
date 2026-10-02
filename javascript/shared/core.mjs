@@ -19,6 +19,7 @@ export const TIMING = Object.freeze({
     estimate: 120,        // the sync dialog's cost, asked once its controls stop changing
     modulesCheck: 300,    // between asks whether Forge took a VAE / Text Encoder change
     modulesCheckMax: 3000, // and how long it is given to
+    tabShown: 2000,       // a tab asked to show, at most: Gradio shows it in a moment
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

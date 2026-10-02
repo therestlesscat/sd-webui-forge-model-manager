@@ -64,6 +64,7 @@ version (see "The WebUI's rules"):
 | | |
 |---|---|
 | `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call` |
+| `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
 | `notes` | notes to the user, at the top of each tab |
@@ -272,6 +273,16 @@ facade.
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
+- **A tab is found by its id, never its label or place.** Gradio 4 gives a
+  tab's panel the id it registers with (`tab_<id>`: `tab_txt2img`,
+  `tab_model_manager_tab`) and its button that id and `-button`, the same in
+  both WebUIs. Labels are translated by a localization and the tab bar can be
+  reordered; the label lookups and "img2img is the second button" broke on
+  both. Gradio shows a tab by setting its panel's display as it draws, and a
+  hidden tab's grid measures nothing: `showTab` (`shared/tabs.mjs`) resolves
+  once the panel shows, where a fixed 100 ms wait searched a hidden tab on a
+  slow machine. A tab asked to show a model switches to itself and waits; the
+  caller only calls.
 - **Gradio draws the tabs after the scripts have run.** A module's top level
   finds none of its tab's markup; something drawn from there - an answer that
   comes back at load - is drawn again once the container is there, from
@@ -494,8 +505,11 @@ real time once.
   has no layout. The harness reads a tab's markup straight from its `.py`, so
   markup a `.replace()` adds is not there (build it in the page). And the
   markup is there before the script, where in the WebUI it comes after: a
-  test passed while the real panel never showed. When a suite passes and the
-  page does not, look for what the suite set up that the WebUI does not.
+  test passed while the real panel never showed. Its MutationObserver misses
+  a change made through `element.style`, which a browser reports - so
+  `showTab` looks at the panel each frame rather than observing it. When a
+  suite passes and the page does not, look for what the suite set up that the
+  WebUI does not.
 - **A test passes for the wrong reason when something else rescues it.** The
   downloads test had a running download, whose poll redrew the panel; the
   bug was a panel of paused downloads only, which nothing polls.

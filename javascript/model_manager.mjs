@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
     'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'downloads.mjs',
     'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
@@ -40,6 +40,7 @@ const {
     onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText, TIMING,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
+const { showTab } = await shared('tabs.mjs');
 const {
     showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -4703,18 +4704,14 @@ function keepResourceChips() {
 }
 if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
 
-/** Show txt2img, or img2img on its plain img2img mode. */
+/** Show txt2img, or img2img on its plain img2img mode - by their ids (shared/tabs.mjs). */
 function showGenerationTab(tab) {
     if (tab === 'img2img') {
-        if (typeof switch_to_img2img === 'function') {
-            switch_to_img2img();
-            return;
-        }
-        gradioApp().querySelectorAll('#tabs button')[1]?.click();
-        gradioApp().querySelectorAll('#mode_img2img button')[0]?.click();
+        showTab('img2img');
+        showTab('img2imgMode');
         return;
     }
-    gradioApp().querySelector('#tabs button:first-child')?.click();
+    showTab('txt2img');
 }
 
 /** A video's length in seconds, from its metadata alone; null if unreadable. */
@@ -5227,12 +5224,14 @@ window.mmSendToTxt2img = async function(imageIndex) {
 };
 
 // Close details panel
-// Jump straight to one model, e.g. from the Civitai Browser.
+// Jump straight to one model, e.g. from the Civitai Browser: this tab first,
+// once it shows - the grid measures itself, and a hidden tab measures nothing.
 // Every filter is relaxed first - an active NSFW, type or SFW-only filter
 // would otherwise hide the very model the caller asked to show. SFW only was
 // once left on, and a generation's model with one explicit image was "not
 // found", its file in the library.
 async function showModel(query) {
+    await showTab('modelManager');
     const setValue = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.value = value;
@@ -5298,7 +5297,6 @@ provide('modelManager.showModel', showModel);
  */
 async function showFile(path) {
     if (!path) return;
-    await showModelManagerTab();
     await showModel(`path:${path}`);
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
     if (wanted >= 0) await window.mmSelectVersion(wanted);
@@ -5313,24 +5311,12 @@ provide('modelManager.showFile', showFile);
 async function showVersion(versionId) {
     const id = Number(versionId);
     if (!id) return;
-    await showModelManagerTab();
     await showModel(`version:${id}`);
     const wanted = currentVersions.findIndex((v) => Number(v.id) === id);
     if (wanted >= 0) await window.mmSelectVersion(wanted);
 }
 provide('modelManager.showVersion', showVersion);
 
-async function showModelManagerTab() {
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const tabButton = Array.from(root.querySelectorAll('#tabs button'))
-        .find((b) => b.textContent.trim() === 'Model Manager');
-    tabButton?.click();
-    // The grid sizes itself from the viewport: let the tab show first.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-}
-
-// Open this model over in the Civitai Browser tab. The mirror of
-// cbShowInModelManager() there, down to the tab lookup.
 /**
  * The Information table's first row. The button works out which version to
  * send when pressed - the one shown then - rather than carrying an id that a
@@ -5355,32 +5341,15 @@ window.mmShowInCivitaiBrowser = function() {
     openInCivitaiBrowser(civitaiBrowserQuery());
 };
 
-/** "model:<id> version:<id>" in the Civitai Browser tab - from here, or from the Generations tab. */
+/** "model:<id> version:<id>" in the Civitai Browser tab, which shows itself. */
 function openInCivitaiBrowser(query) {
     if (!query) return;
     if (!ready('civitaiBrowser.showModel')) {
         setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);
         return;
     }
-
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const tabs = root.querySelector('#tabs');
-    const tabButton = tabs && Array.from(tabs.querySelectorAll('button'))
-        .find(b => b.textContent.trim() === 'Civitai Browser');
-
-    if (tabButton) {
-        // A search of its own is coming: the tab's saved search stands aside.
-        call('civitaiBrowser.skipSavedSearch');
-        tabButton.click();
-    } else {
-        console.warn('[ModelManager] Could not find the Civitai Browser tab button');
-    }
-
-    // The grid sizes itself from the viewport, so let the tab become visible
-    // before searching - measuring a hidden tab gives nonsense.
-    setTimeout(() => call('civitaiBrowser.showModel', query), 100);
+    call('civitaiBrowser.showModel', query);
 }
-provide('modelManager.openInCivitaiBrowser', openInCivitaiBrowser);
 
 window.mmCloseDetails = function() {
     const detailsContainer = document.getElementById('mm_details');

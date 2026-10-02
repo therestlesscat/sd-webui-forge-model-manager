@@ -330,10 +330,11 @@ check('and the modifier is not named after one tab',
 # these only check the two halves are wired to each other's names.
 check('the details table offers the jump, as its first row',
       'window.mmShowInCivitaiBrowser(' in JS and '${modelId ? showInCivitaiRow() : \'\'}' in JS)
-check('it looks for the tab by the name the tab is registered under',
-      "b.textContent.trim() === 'Civitai Browser'" in JS)
+check('it asks the browser, which finds its own tab by the id it is registered under',
+      "call('civitaiBrowser.showModel', query)" in JS
+      and "'tab_civitai_browser_tab'" in io.open(os.path.join(ROOT, 'javascript/shared/tabs.mjs'), encoding='utf-8').read())
 check('and the browser registers exactly that',
-      '"Civitai Browser"' in io.open(
+      '"civitai_browser_tab"' in io.open(
           os.path.join(ROOT, 'scripts/model_manager_ui.py'), encoding='utf-8').read())
 # Both header actions are the shared small button, so they are the same size
 # as each other. Sync used to be a pill of its own - 0.75em text and a height

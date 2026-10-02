@@ -1056,14 +1056,14 @@ function showModel(file) {
     else call('modelManager.showFile', file.path);
 }
 
-/** Its model and version in the Civitai Browser tab. */
+/** Its model and version in the Civitai Browser tab, which shows itself. */
 function showOnCivitai(file) {
     closeViewer();
-    if (!ready('modelManager.openInCivitaiBrowser')) {
-        setStatus('The Model Manager tab has not started yet: open it once and try again.');
+    if (!ready('civitaiBrowser.showModel')) {
+        setStatus('The Civitai Browser tab has not started yet: open it once and try again.');
         return;
     }
-    call('modelManager.openInCivitaiBrowser', file.version_id ? `model:${file.model_id} version:${file.version_id}`
+    call('civitaiBrowser.showModel', file.version_id ? `model:${file.model_id} version:${file.version_id}`
         : `model:${file.model_id}`);
 }
 

@@ -5,6 +5,12 @@
  * saved.
  */
 
+// The other shared modules, under the version this one was asked for under -
+// the copy the tabs loaded. A plain import would be another URL, and another
+// copy of it, with state of its own.
+const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
+const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
+
 /**
  * Show a tab's "no Civitai API key" banner, once both halves exist.
  *
@@ -134,20 +140,13 @@ export function generationsEnabled() {
     return generationsOn !== false;
 }
 
-function tabButton(label) {
-    const root = typeof gradioApp === 'function' ? gradioApp() : document;
-    return Array.from(root.querySelectorAll('#tabs button')).find((b) => b.textContent.trim() === label) || null;
-}
-
 function applyGenerationsEnabled() {
-    const button = tabButton('Generations');
+    const button = tabButton('generations');
     if (!button) return;
     const off = !generationsEnabled();
     button.style.display = off ? 'none' : '';
     // Off while its tab shows: to the Model Manager, rather than a tab whose button is gone.
-    if (off && (button.classList.contains('selected') || button.getAttribute('aria-selected') === 'true')) {
-        tabButton('Model Manager')?.click();
-    }
+    if (off && tabShowing('generations')) showTab('modelManager');
 }
 
 /** Take a new answer: hide or show, and tell the tabs (the gallery listens). */

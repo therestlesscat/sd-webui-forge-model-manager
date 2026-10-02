@@ -32,7 +32,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
     'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
@@ -41,6 +41,7 @@ const {
     formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
+const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -1868,8 +1869,6 @@ function init() {
 // Model Manager's "Show in Civitai Browser" brings, comes first and it stands
 // aside.
 let savedSearchDone = false;
-let skipSavedSearch = false;
-provide('civitaiBrowser.skipSavedSearch', () => { skipSavedSearch = true; });
 
 /** The filters as the bar shows them, as Save Search keeps them - the boxes, not what is sent. */
 function currentSearch() {
@@ -1932,15 +1931,9 @@ async function clearCbSearch() {
     flashSaveSearch('✗ Cleared');
 }
 
-function browserTabButton() {
-    const root = typeof gradioApp === 'function' ? gradioApp() : document;
-    return Array.from(root.querySelectorAll('#tabs button')).find((b) => b.textContent.trim() === 'Civitai Browser');
-}
-
 function runSavedSearch() {
     if (savedSearchDone) return;
     savedSearchDone = true;
-    if (skipSavedSearch) return;
     window.cbSearch();
 }
 
@@ -1955,14 +1948,12 @@ async function prepareSavedSearch() {
     await loadEnums();
     if (savedSearchDone) return;
     applySearch(filters);
-    const button = browserTabButton();
-    if (button && (button.classList.contains('selected') || button.getAttribute('aria-selected') === 'true')) {
+    if (tabShowing('civitaiBrowser')) {
         runSavedSearch();
         return;
     }
     document.addEventListener('click', (event) => {
-        const tab = event.target.closest?.('#tabs button');
-        if (tab && tab.textContent.trim() === 'Civitai Browser') runSavedSearch();
+        if (tabButton('civitaiBrowser')?.contains(event.target)) runSavedSearch();
     });
 }
 
@@ -1999,9 +1990,13 @@ window.cbOpenModel = openModel;
 window.cbCloseDetails = closeDetails;
 window.cbSelectVersion = selectVersion;
 window.cbSelectFile = selectFile;
-// Show a model here, asked for from the Model Manager tab. The mirror of
-// cbShowInModelManager() below, and of modelManager.showModel over there.
+// Show a model here, asked for from another tab: this tab first, once it
+// shows - the grid measures itself, and a hidden tab measures nothing - and
+// a search of its own, so the saved search stands aside. The mirror of the
+// Model Manager's modelManager.showModel.
 async function showModel(query) {
+    savedSearchDone = true;
+    await showTab('civitaiBrowser');
     const search = document.getElementById('cb_search');
     if (search) search.value = query;
 
@@ -2017,27 +2012,13 @@ async function showModel(query) {
 }
 provide('civitaiBrowser.showModel', showModel);
 
-// Open this model over in the Model Manager tab
+// Open this model over in the Model Manager tab, which shows itself.
 window.cbShowInModelManager = function(modelId) {
     if (!ready('modelManager.showModel')) {
         updateStatus('Model Manager tab has not initialised yet - open it once and try again.');
         return;
     }
-
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const tabs = root.querySelector('#tabs');
-    const tabButton = tabs && Array.from(tabs.querySelectorAll('button'))
-        .find(b => b.textContent.trim() === 'Model Manager');
-
-    if (tabButton) {
-        tabButton.click();
-    } else {
-        console.warn('[CivitaiBrowser] Could not find the Model Manager tab button');
-    }
-
-    // The grid sizes itself from the viewport, so let the tab become
-    // visible before loading - measuring a hidden tab gives nonsense
-    setTimeout(() => call('modelManager.showModel', 'model:' + modelId), 100);
+    call('modelManager.showModel', 'model:' + modelId);
 };
 
 window.cbDownload = startDownload;
