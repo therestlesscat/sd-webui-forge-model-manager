@@ -21,7 +21,7 @@ def create_generations_ui():
                     <!-- actions -->
                 </div>
 
-                <!-- Notes to the user per release: filled by shared/common.mjs -->
+                <!-- Notes to the user per release: filled by shared/notes.mjs -->
                 <div id="gen_notes" class="mm-notes"></div>
 
                 <!-- Held at the top while the grid scrolls, as the other

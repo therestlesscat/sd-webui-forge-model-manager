@@ -9,7 +9,7 @@ import { ROOT, checker } from './harness.mjs';
 
 const { check, done } = checker();
 const { videoFrames, videoSize, WAN_FPS, WAN_MAX_FRAMES } =
-    await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+    await import(`file:///${ROOT}/javascript/shared/wan.mjs`);
 
 check('Wan makes 16 frames a second', WAN_FPS, 16);
 check('and Neo\'s Frames slider stops at 241', WAN_MAX_FRAMES, 241);

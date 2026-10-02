@@ -35,12 +35,12 @@ def check(label, got, want=True):
 
 
 check('it looks in the extension\'s javascript/shared',
-      os.path.isfile(os.path.join(webui.SHARED_SCRIPTS, 'common.mjs')), True)
+      os.path.isfile(os.path.join(webui.SHARED_SCRIPTS, 'core.mjs')), True)
 
 WORK = os.path.join(TESTS, 'work', 'asset_version')
 shutil.rmtree(WORK, ignore_errors=True)
 os.makedirs(os.path.join(WORK, 'nested'))
-for name, when in (('common.mjs', 1_700_000_000), ('viewer.mjs', 1_700_000_500),
+for name, when in (('core.mjs', 1_700_000_000), ('viewer.mjs', 1_700_000_500),
                    (os.path.join('nested', 'part.mjs'), 1_700_000_200), ('notes.txt', 1_800_000_000)):
     path = os.path.join(WORK, name)
     io.open(path, 'w').write('x')

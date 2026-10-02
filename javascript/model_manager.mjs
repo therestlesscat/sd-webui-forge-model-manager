@@ -23,88 +23,60 @@ window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-st
     .then((response) => (response.ok ? response.json() : null))
     .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
     .catch(() => null);
-const sharedModule = new URL('./shared/common.mjs', import.meta.url);
-sharedModule.search = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const sharedVersion = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+
+// Asked for all at once, then taken one by one below. Awaited in turn, each
+// module waited a round trip of its own before the next was asked for. An
+// import of a URL already asked for is the same module, so the awaits find
+// them on their way. A failure still stops the tab at its await; the catch
+// here only keeps it from being reported twice.
+const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'downloads.mjs',
+    'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady,
-    showApiKeyBanner,
-    showNotes,
-    generationsEnabled,
-    savedSearch,
-    saveSearch,
-    showGalleryLoading,
-    dimGalleryWhileLoading,
-    selectBarHtml,
-    bulkDeleteQuestion,
-    deleteManyGenerations,
-    bulkDeleteReport,
-    apiCall,
-    escapeHtml,
-    safeId,
-    sanitizeHtml,
-    formatNumber,
-    renderThumbs,
-    isVideoUrl,
-    cardMediaUrl,
-    originalMediaUrl,
-    sizedMediaUrl,
-    videoPosterUrl,
-    viewerVideoUrl,
-    mediaFallback,
-    mediaShape,
-    IMAGE_PLACEHOLDER_SVG,
-    galleryImageWidth,
-    pageSeparator,
-    pageNoteHtml,
-    collectResourceChips,
-    resourceNames,
-    promptHasChip,
-    toggleChip,
-    renameLoraTags,
-    sortBaseModels,
-    videoFrames,
-    videoSize,
-    setupLazyMedia,
-    renderResource,
-    renderFilterBanner,
-    balanceGridRows,
-    nsfwBadgeLabel,
-    nsfwBadge,
-    paidAccessLabel,
-    isPaid,
-    primaryFileIndex,
-    renderDownloadControls,
-    ratingRowHtml,
-    showChosenFile,
-    downloads,
-    formatBytes,
-    formatDay,
-    loadNsfwDetection,
-    nsfwModelNote,
-    setText,
-    sizeBound,
-    refreshUiOptions,
-    applyCardSize: sharedApplyCardSize,
-    TIMING,
-    renderModelCard,
-    renderGridPagination,
+    onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText, TIMING,
+} = await shared('core.mjs');
+const {
+    showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
+} = await shared('ui_options.mjs');
+const { showNotes } = await shared('notes.mjs');
+const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
+const {
+    showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
+} = await shared('gallery.mjs');
+const {
+    renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
     renderModelGrid: renderSharedGrid,
-} = await import(sharedModule.href);
-
-// The image viewer every gallery opens, asked for with this script's version.
-const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
-viewerModule.search = sharedModule.search;
+} = await shared('grid.mjs');
 const {
-    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll,
-    closeOnEscape,
-} = await import(viewerModule.href);
+    isVideoUrl, cardMediaUrl, originalMediaUrl, sizedMediaUrl, videoPosterUrl, viewerVideoUrl, mediaFallback,
+    mediaShape, IMAGE_PLACEHOLDER_SVG, galleryImageWidth, setupLazyMedia,
+} = await shared('media.mjs');
+const { nsfwBadgeLabel, nsfwBadge } = await shared('nsfw.mjs');
+const {
+    collectResourceChips, resourceNames, promptHasChip, toggleChip, renameLoraTags, renderResource,
+} = await shared('chips.mjs');
+const { videoFrames, videoSize } = await shared('wan.mjs');
+const {
+    selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport, ratingRowHtml,
+} = await shared('your_generations.mjs');
+const {
+    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
+} = await shared('downloads.mjs');
 
-// The settings window behind the gear in the header, asked for with this
-// script's version as the shared module is.
-const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
-settingsModule.search = sharedModule.search;
-await import(settingsModule.href);
+// The notice of a newer version beside the header's: it draws itself.
+await shared('update_notice.mjs');
+
+// The image viewer every gallery opens.
+const {
+    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll, closeOnEscape,
+} = await shared('viewer.mjs');
+
+// The settings window behind the gear in the header.
+await shared('settings.mjs');
 
 // State
 let currentModels = [];
@@ -1427,7 +1399,7 @@ window.mmSelectFile = function(fileIndex) {
 };
 
 // The list and its panel are shared with the Civitai Browser: see
-// downloads() in shared/common.mjs.
+// downloads() in shared/downloads.mjs.
 window.mmDownload = async function(modelId, versionId, fileId) {
     try {
         setStatus('Starting download...');
@@ -1972,7 +1944,7 @@ function refreshImagesChrome() {
  * back, which adds up with what matches them to the total, and a switch for
  * each on the right. The server splits the hidden images between the filters
  * so that none is counted twice - NSFW first, as it filters - and reports
- * what each switch would show once ticked. Built in shared/common.mjs, as the
+ * what each switch would show once ticked. Built in shared/gallery.mjs, as the
  * Civitai Browser's is.
  */
 function imagesBannerHtml() {
@@ -4171,7 +4143,7 @@ async function presetTaken(preset, callsBefore = forgeCalls.started) {
     return currentForgePreset() === preset;
 }
 
-// How long a preset switch is waited on: TIMING in common.mjs.
+// How long a preset switch is waited on: TIMING in core.mjs.
 const FORGE_PRESET_SETTLE_MS = TIMING.presetSettle;
 const FORGE_PRESET_QUIET_MS = TIMING.presetQuiet;
 const FORGE_PRESET_MAX_MS = TIMING.presetMax;
@@ -4354,7 +4326,7 @@ function giveImg2imgImage(file) {
 // ------------------------------------------------------------ resource chips
 // A send puts the image's LoRAs and embeddings under the target tab's
 // negative prompt as chips; a click puts a resource's tag in, or takes it
-// out. The rules are collectResourceChips() and toggleChip() in common.mjs.
+// out. The rules are collectResourceChips() and toggleChip() in chips.mjs.
 
 // Per tab, the chips the last send left there, the row that shows them, and
 // the image and model they came from - a download from the Resources dialog
@@ -6244,7 +6216,7 @@ window.mmRestoreScrollPosition = function() {
 };
 
 // Save Search: one set of filters, in the database (savedSearch in
-// common.mjs) - it was in this browser's storage, and is moved from there the
+// filters.mjs) - it was in this browser's storage, and is moved from there the
 // first time. It fills the filters when the tab opens; Load Models, which
 // waits for it, loads them.
 const LEGACY_SAVED_FILTERS = 'mm_saved_filters';

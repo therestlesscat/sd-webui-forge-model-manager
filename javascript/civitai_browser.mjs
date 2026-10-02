@@ -24,74 +24,52 @@ window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-st
     .then((response) => (response.ok ? response.json() : null))
     .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
     .catch(() => null);
-const sharedModule = new URL('./shared/common.mjs', import.meta.url);
-sharedModule.search = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const sharedVersion = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+
+// Asked for all at once, then taken one by one below. Awaited in turn, each
+// module waited a round trip of its own before the next was asked for. An
+// import of a URL already asked for is the same module, so the awaits find
+// them on their way. A failure still stops the tab at its await; the catch
+// here only keeps it from being reported twice.
+const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady,
-    showApiKeyBanner,
-    showNotes,
-    showGalleryLoading,
-    dimGalleryWhileLoading,
-    savedSearch,
-    saveSearch,
-    apiCall,
-    escapeHtml,
-    safeId,
-    sanitizeHtml,
-    formatNumber,
-    renderThumbs,
-    nsfwImageLevel,
-    isImageSafe,
-    nsfwBadge,
-    isVideoUrl,
-    sortBaseModels,
-    cardMediaUrl,
-    originalMediaUrl,
-    sizedMediaUrl,
-    videoPosterUrl,
-    viewerVideoUrl,
-    mediaFallback,
-    mediaShape,
-    IMAGE_PLACEHOLDER_SVG,
-    galleryImageWidth,
-    pageSeparator,
-    pageNoteHtml,
-    setupLazyMedia,
-    renderResource,
-    renderFilterBanner,
-    balanceGridRows,
-    applyCardSize: sharedApplyCardSize,
-    paidAccessLabel,
-    isPaid,
-    primaryFileIndex,
-    renderDownloadControls,
-    showChosenFile,
-    downloads,
-    formatBytes: formatFileSize,
-    formatDay: formatDate,
-    loadNsfwDetection,
-    nsfwModelNote,
-    setText,
-    sizeBound,
-    setTitle,
-    galleryDefaults,
-    refreshUiOptions,
-    renderModelCard,
-    renderGridPagination,
+    onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes: formatFileSize,
+    formatDay: formatDate, setText, setTitle,
+} = await shared('core.mjs');
+const {
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
+} = await shared('ui_options.mjs');
+const { showNotes } = await shared('notes.mjs');
+const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
+const {
+    showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
+} = await shared('gallery.mjs');
+const {
+    renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
     renderModelGrid: renderSharedGrid,
-} = await import(sharedModule.href);
+} = await shared('grid.mjs');
+const {
+    isVideoUrl, cardMediaUrl, originalMediaUrl, sizedMediaUrl, videoPosterUrl, viewerVideoUrl, mediaFallback,
+    mediaShape, IMAGE_PLACEHOLDER_SVG, galleryImageWidth, setupLazyMedia,
+} = await shared('media.mjs');
+const { nsfwImageLevel, isImageSafe, nsfwBadge } = await shared('nsfw.mjs');
+const { renderResource } = await shared('chips.mjs');
+const {
+    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
+} = await shared('downloads.mjs');
 
-// The image viewer every gallery opens, asked for with this script's version.
-const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
-viewerModule.search = sharedModule.search;
-const { openViewer, cardSource, closeOnEscape, dialogShowing, viewerIsOpen } = await import(viewerModule.href);
+// The notice of a newer version beside the header's: it draws itself.
+await shared('update_notice.mjs');
 
-// The settings window behind the gear in the header, asked for with this
-// script's version as the shared module is.
-const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
-settingsModule.search = sharedModule.search;
-await import(settingsModule.href);
+// The image viewer every gallery opens.
+const { openViewer, cardSource, closeOnEscape, dialogShowing, viewerIsOpen } = await shared('viewer.mjs');
+
+// The settings window behind the gear in the header.
+await shared('settings.mjs');
 
 // State
 let currentModels = [];
@@ -1018,7 +996,7 @@ function takeImagesPage(result, { append }) {
 }
 
 // While a model's images load: a bar, from the moment it starts
-// (showGalleryLoading, dimGalleryWhileLoading in common.mjs).
+// (showGalleryLoading, dimGalleryWhileLoading in gallery.mjs).
 const showImagesLoading = () => showGalleryLoading('cb_images');
 const dimImagesWhileLoading = (on) => dimGalleryWhileLoading('cb_images', on);
 
@@ -1095,7 +1073,7 @@ function updateImagesCount() {
 }
 
 /**
- * The banner, built in shared/common.mjs as the Model Manager's is: what the
+ * The banner, built in shared/gallery.mjs as the Model Manager's is: what the
  * switches hold back over everything loaded - which adds up with what
  * matches, NSFW counted first as it filters first - and a switch for each on
  * the right. A ticked NSFW switch shows how many NSFW images it lets through,
@@ -1500,7 +1478,7 @@ window.cbShowResources = function(index) {
 };
 
 // Start download. The list and its panel are shared with the Model
-// Manager: see downloads() in shared/common.mjs.
+// Manager: see downloads() in shared/downloads.mjs.
 async function startDownload(modelId, versionId, fileId) {
     try {
         updateStatus('Starting download...');
@@ -1878,7 +1856,7 @@ function init() {
 }
 
 // ------------------------------------------------------------- Save Search
-// One saved search, in the database (savedSearch in common.mjs): its filters
+// One saved search, in the database (savedSearch in filters.mjs): its filters
 // fill the bar, and it runs the first time this tab is shown - not when the
 // page loads, when every tab loads at once, which would ask Civitai whether
 // or not the tab is ever looked at. A search of the reader's own, or one the

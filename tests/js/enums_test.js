@@ -62,8 +62,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
-    .replace(/^export /gm, ''), sandbox);
+vm.runInContext(require('./shared_script.cjs')(), sandbox);
 sandbox.escapeHtml = sandbox.escapeHtml;
 
 function lift(name) {

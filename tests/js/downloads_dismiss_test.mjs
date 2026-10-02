@@ -38,7 +38,7 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-const { downloads } = await sharedModule('common.mjs');     // the tab's copy
+const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

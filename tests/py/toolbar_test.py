@@ -358,7 +358,7 @@ check('and still offers the trip the other way',
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
 CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()
-COMMON = io.open(os.path.join(ROOT, 'javascript/shared/common.mjs'), encoding='utf-8').read()
+UI_OPTIONS = io.open(os.path.join(ROOT, 'javascript/shared/ui_options.mjs'), encoding='utf-8').read()
 
 cb_banner = block(CB_UI, '<div id="cb_api_key_warning"')
 check('the browser has the banner too', 'style="display: none;"' in cb_banner)
@@ -368,11 +368,11 @@ check('and it shares the styling', 'class="mm-banner"' in cb_banner)
 check('the browser script shows it',
       "showApiKeyBanner('cb_api_key_warning')" in CB_JS)
 
-check('the waiting is written once', 'export function showApiKeyBanner' in COMMON)
+check('the waiting is written once', 'export function showApiKeyBanner' in UI_OPTIONS)
 for script in (JS, CB_JS):
     check('neither tab keeps its own copy',
           'function showApiKeyBanner' in script.replace('export function', ''), False)
-check('and the answer is fetched once for both', COMMON.count('/model-manager/ui-options'), 1)
+check('and the answer is fetched once for both', UI_OPTIONS.count('/model-manager/ui-options'), 1)
 
 # --- Scan Disk asks before it changes anything ------------------------------
 scan_dialog = block(UI, '<div id="mm_scan_dialog"')

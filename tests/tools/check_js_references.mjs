@@ -91,6 +91,55 @@ for (const f of files) {
     }
 }
 
+// --- 1c. the same, through a file's `shared` helper -------------------------
+// The tabs and the shared modules import javascript/shared/ through one line,
+// `const shared = (name) => import(new URL(\`<folder>${name}<version>\`, ...))`,
+// so each module comes under one version (#93). `await shared('x.mjs')` names
+// a module in that folder, and what is destructured from it has to be there.
+const HELPER = /const shared = \(name\) => import\(new URL\(`([^`$]*)\$\{name\}/;
+const VIA_HELPER = /(?:const \{([^}]*)\}\s*=\s*)?await shared\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+for (const f of files) {
+    const src = readFileSync(f, 'utf8');
+    const uses = [...src.matchAll(VIA_HELPER)];
+    if (!uses.length) continue;
+    const helper = src.match(HELPER);
+    if (!helper) {
+        console.log(`FAIL ${f.replace(ROOT, '')}: calls shared() but defines no shared helper`);
+        failures++;
+        continue;
+    }
+    // A tab asks for every module it needs at once (SHARED_MODULES), then
+    // awaits each: one left off the list is asked for only at its await, a
+    // round trip after the one before.
+    if (helper[1] === './shared/') {
+        const listed = src.match(/const SHARED_MODULES = \[([^\]]*)\]/);
+        const awaited = [...new Set(uses.map((m) => m[2]))].sort();
+        const named = listed ? [...listed[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]).sort() : [];
+        if (!listed || named.join() !== awaited.join()) {
+            console.log(`FAIL ${f.replace(ROOT, '')}: SHARED_MODULES ${listed ? `lists ${named.join(', ')}` : 'is missing'}; `
+                        + `the tab awaits ${awaited.join(', ')}`);
+            failures++;
+        }
+    }
+    for (const m of uses) {
+        const target = resolve(dirname(f), helper[1] + m[2]).replace(/\\/g, '/');
+        if (!exported.has(target)) {
+            console.log(`FAIL ${f.replace(ROOT, '')}: imports ${m[2]} through shared() — no such module`);
+            failures++;
+            continue;
+        }
+        for (const part of (m[1] || '').split(',')) {
+            const name = part.trim().split(':')[0].trim();
+            if (name && !exported.get(target).has(name)) {
+                console.log(`FAIL ${f.replace(ROOT, '')}: destructures ${name} from ${m[2]}, `
+                            + 'which does not export it');
+                failures++;
+            }
+        }
+    }
+}
+
 // --- 2. every called name is known -----------------------------------------
 const GLOBALS = new Set(['window', 'document', 'console', 'fetch', 'setTimeout', 'clearTimeout',
     'setInterval', 'clearInterval', 'localStorage', 'navigator', 'URL', 'URLSearchParams',
@@ -124,7 +173,7 @@ for (const f of files) {
     for (const m of src.matchAll(/import\s*\{([^}]*)\}/gs))
         for (const p of m[1].split(',')) known.add(p.trim().split(/\s+as\s+/).pop().trim());
     // const { a, b: c } = await import(...)
-    for (const m of src.matchAll(/const \{([^}]*)\}\s*=\s*await import\(/gs))
+    for (const m of src.matchAll(/const \{([^}]*)\}\s*=\s*await (?:import|shared)\(/gs))
         for (const p of m[1].split(',')) known.add(p.trim().split(':').pop().trim());
     // parameters and destructured bindings
     for (const m of src.matchAll(/\(([^)]*)\)\s*(?:=>|\{)/g))

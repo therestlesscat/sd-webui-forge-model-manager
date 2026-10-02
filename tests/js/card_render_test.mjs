@@ -1,6 +1,6 @@
 // The model card, the page strip and the grid, drawn once for both tabs and
 // the settings window's previews (renderModelCard, renderGridPagination,
-// renderModelGrid in shared/common.mjs). They take what to show and read no
+// renderModelGrid in shared/grid.mjs). They take what to show and read no
 // setting; the tabs' adapters are exercised by the tab suites.
 //
 // Each tab drew its own before, and the copies had drifted: the Civitai
@@ -10,7 +10,7 @@ import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, done } = checker();
-const shared = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+const shared = await import(`file:///${ROOT}/javascript/shared/grid.mjs`);
 const { renderModelCard, renderGridPagination, renderModelGrid, CARD_PLACEHOLDER } = shared;
 
 function parse(html) {

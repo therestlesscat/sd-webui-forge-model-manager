@@ -37,7 +37,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-const shared = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+const shared = await import(`file:///${ROOT}/javascript/shared/nsfw.mjs`);
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 

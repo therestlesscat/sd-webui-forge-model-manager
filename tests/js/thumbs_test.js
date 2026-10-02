@@ -8,7 +8,7 @@ const path = require('path');
 // The extension, found from this file rather than from a drive letter, so the
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
-const common = fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8');
+const common = require('./shared_script.cjs')();
 const browser = fs.readFileSync(REPO + '/javascript/civitai_browser.mjs', 'utf8');
 const manager = fs.readFileSync(REPO + '/javascript/model_manager.mjs', 'utf8');
 
@@ -28,7 +28,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(common.replace(/^export /gm, ''), sandbox);
+vm.runInContext(common, sandbox);
 const { renderThumbs, formatNumber } = sandbox;
 
 let failures = 0;

@@ -16,11 +16,11 @@
  * what was saved here.
  */
 
-// common.mjs under the version this module was asked for under - the copy the
-// tabs loaded. A plain import would be another URL, and another copy of it.
-const common = new URL('./common.mjs', import.meta.url);
-common.search = new URL(import.meta.url).search;
-const { escapeHtml } = await import(common.href);
+// The other shared modules, under the version this one was asked for under -
+// the copy the tabs loaded. A plain import would be another URL, and another
+// copy of it, with state of its own.
+const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
+const { escapeHtml } = await shared('core.mjs');
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',

@@ -46,8 +46,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
-    .replace(/^export /gm, ''), sandbox);
+vm.runInContext(require('./shared_script.cjs')(), sandbox);
 sandbox.escapeHtml = sandbox.escapeHtml;
 // The browser reads dates as the shared formatDay does.
 sandbox.formatDate = sandbox.formatDay;
@@ -72,7 +71,7 @@ function check(label, cond, extra) {
     if (!cond) { failures++; console.log('FAIL ' + label + (extra ? '\n  ' + extra : '')); }
 }
 
-// Shared with the Model Manager, so they live in common.mjs.
+// Shared with the Model Manager, so they live in javascript/shared/.
 const { paidAccessLabel, isPaid } = sandbox;
 
 // --- paidAccessLabel / isPaid -----------------------------------------------
@@ -93,7 +92,7 @@ check('isPaid true for both',
       isPaid({ paid_access: { permanent: true } }) && isPaid({ paid_access: { permanent: false, ends_at: 'x' } }));
 
 // --- getFilters: checkpoint_type only for checkpoints ------------------------
-// getFilters reads the size boxes through sizeBound, which common.mjs, loaded above, has.
+// getFilters reads the size boxes through sizeBound, which filters.mjs, loaded above, has.
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 const getFilters = lift('getFilters');
 const group = makeGroup();

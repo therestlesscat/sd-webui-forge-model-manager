@@ -44,7 +44,7 @@ def create_civitai_browser_ui():
                     </span>
                 </div>
 
-                <!-- Notes to the user per release: filled by shared/common.mjs -->
+                <!-- Notes to the user per release: filled by shared/notes.mjs -->
                 <div id="cb_notes" class="mm-notes"></div>
 
                 <!-- Filter bar -->

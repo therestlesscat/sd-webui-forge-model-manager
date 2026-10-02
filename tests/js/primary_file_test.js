@@ -14,9 +14,8 @@ const src = fs.readFileSync(REPO + '/javascript/civitai_browser.mjs', 'utf8');
 const sandbox = { console };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-// primaryFileIndex is shared with the Model Manager, so it lives in common.mjs.
-vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
-    .replace(/^export /gm, ''), sandbox);
+// primaryFileIndex is shared with the Model Manager, so it lives in downloads.mjs.
+vm.runInContext(require('./shared_script.cjs')(), sandbox);
 
 function lift(name) {
     const m = src.match(new RegExp('^[ \\t]*(async )?function ' + name + '\\s*\\(', 'm'));

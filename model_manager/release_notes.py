@@ -22,7 +22,7 @@ A note is:
     title, text
     actions   optional, several buttons, each as `action`
     action    optional {"id", "label", "section"}: a button that does it - the
-              ids are the page's (NOTE_ACTIONS in javascript/shared/common.mjs);
+              ids are the page's (NOTE_ACTIONS in javascript/shared/notes.mjs);
               "settings" opens the settings window at `section`, one of its
               sections' ids (SECTIONS in javascript/shared/settings.mjs)
     when      optional: a condition of this install the note is only for, of
