@@ -33,7 +33,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, when a walk may forget a row, and where a file of each type belongs |
 | `jobs.py` | the long jobs - a sync, a scan - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
-| `hashing.py` | the hashes that tell Civitai which file this is |
+| `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |

@@ -7,6 +7,7 @@ Used by ModelsDatabase facade - do not import directly.
 import os
 import json
 from datetime import datetime, timezone
+from ..hashing import hash_key, read_hashes
 from .query import query_models_grouped
 from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Tuple, Callable
@@ -695,7 +696,7 @@ class ModelsOps:
             Dict keyed by lowercase hash. A value with version_id None means
             "asked, not on Civitai".
         """
-        wanted = [h.lower() for h in hashes if h]
+        wanted = [hash_key(h) for h in hashes if h]
         if not wanted:
             return {}
 
@@ -736,7 +737,7 @@ class ModelsOps:
                     model_type = excluded.model_type,
                     checked_at = excluded.checked_at
             """, (
-                hash_value.lower(),
+                hash_key(hash_value),
                 version.get("id"),
                 version.get("modelId"),
                 model.get("name"),
@@ -753,7 +754,7 @@ class ModelsOps:
         carries the AutoV2 hash that an image's legacy resource list names - so
         anything in this library resolves for free.
         """
-        wanted = {h.lower() for h in hashes if h}
+        wanted = {hash_key(h) for h in hashes if h}
         if not wanted:
             return {}
 
@@ -766,11 +767,7 @@ class ModelsOps:
                 WHERE v.file_hashes IS NOT NULL AND v.id IS NOT NULL
             """)
             for row in cursor.fetchall():
-                try:
-                    stored = json.loads(row["file_hashes"]) or {}
-                except (TypeError, ValueError):
-                    continue
-                autov2 = (stored.get("autov2") or stored.get("AutoV2") or "").lower()
+                autov2 = read_hashes(row["file_hashes"]).get("autov2", "")
                 if autov2 and autov2 in wanted:
                     found[autov2] = {
                         "hash": autov2,
@@ -789,18 +786,14 @@ class ModelsOps:
         version id. Hash matches first: a hash names one file, where an
         image's version ids name everything it used.
         """
-        wanted = {h.lower() for h in hashes if h}
+        wanted = {hash_key(h) for h in hashes if h}
         ids = [int(i) for i in version_ids if str(i).isdigit()]
         by_hash, by_id = [], {}
         with self._cursor() as cursor:
             cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
             for row in cursor.fetchall():
                 if wanted and row["file_hashes"]:
-                    try:
-                        stored = json.loads(row["file_hashes"]) or {}
-                    except (TypeError, ValueError):
-                        stored = {}
-                    if any(str(v).lower() in wanted for v in stored.values() if v):
+                    if any(v in wanted for v in read_hashes(row["file_hashes"]).values()):
                         by_hash.append(self._version_row_to_dict(row))
                         continue
                 if row["id"] in ids:
@@ -815,7 +808,7 @@ class ModelsOps:
         answers "which files", this "which file for which resource" - what a
         per-resource answer needs.
         """
-        wanted = {h.lower() for h in hashes if h}
+        wanted = {hash_key(h) for h in hashes if h}
         ids = {int(i) for i in version_ids if str(i).isdigit()}
         by_id, by_hash = {}, {}
         with self._cursor() as cursor:
@@ -824,12 +817,7 @@ class ModelsOps:
                 if row["id"] in ids and row["id"] not in by_id:
                     by_id[row["id"]] = self._version_row_to_dict(row)
                 if wanted and row["file_hashes"]:
-                    try:
-                        stored = json.loads(row["file_hashes"]) or {}
-                    except (TypeError, ValueError):
-                        stored = {}
-                    for value in stored.values():
-                        value = str(value or "").lower()
+                    for value in read_hashes(row["file_hashes"]).values():
                         if value in wanted and value not in by_hash:
                             by_hash[value] = self._version_row_to_dict(row)
         return by_id, by_hash

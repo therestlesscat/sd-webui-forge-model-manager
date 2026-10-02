@@ -15,7 +15,7 @@ import json
 import os
 import zlib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # Try to import blake3, fall back gracefully if not available
 try:
@@ -263,6 +263,33 @@ class ModelHasher:
         return None
 
 
+# ---------------------------------------------------------------- reading stored hashes
+# Stored hashes arrive in either case - the hasher writes values upper case,
+# Civitai's lists and older rows lower - and every reader used to fold them
+# itself (#62). Read them through here: kinds and values lower case, the form
+# they are compared in. tests/tools/check_hash_access.py fails on a read of
+# file_hashes, or of resource_hashes, that does not come through this module.
+
+def read_hashes(stored: Any) -> Dict[str, str]:
+    """
+    A file's stored hashes - a dict, the JSON text a row holds, or nothing -
+    as {kind: value}, both lower case, empty values left out.
+    """
+    if isinstance(stored, str):
+        try:
+            stored = json.loads(stored)
+        except ValueError:
+            return {}
+    if not isinstance(stored, dict):
+        return {}
+    return {str(k).lower(): str(v).strip().lower() for k, v in stored.items() if v}
+
+
+def hash_key(value: Any) -> str:
+    """A single hash as it is compared and kept - resource_hashes' key."""
+    return str(value or "").strip().lower()
+
+
 # ---------------------------------------------------------------- one file's sha256
 # For confirming a file found by name is the one an image used, before any
 # sync has stored its hashes. Kept per file until it changes: a gallery asks
@@ -296,10 +323,10 @@ def names_this_file(stored: Optional[Dict[str, str]], path: str, image_hash: str
     AutoV2 - SHA-256's first ten characters - or twelve, or the whole of it;
     each is a start of the file's SHA-256, stored by a sync or worked out here.
     """
-    wanted = (image_hash or "").strip().lower()
+    wanted = hash_key(image_hash)
     if len(wanted) < 8:
         return False
-    stored = {k.lower(): str(v or "").lower() for k, v in (stored or {}).items()}
+    stored = read_hashes(stored)
     if stored.get("sha256"):
         return stored["sha256"].startswith(wanted)
     if any(value and (value == wanted or value.startswith(wanted)) for value in stored.values()):
