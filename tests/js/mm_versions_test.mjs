@@ -83,7 +83,6 @@ const row = (label) => Array.from(details().querySelectorAll('.detail-table tr')
 // "Show in Civitai Browser" hands the Civitai Browser a query; stand in for it.
 const shownInBrowser = [];
 provide('civitaiBrowser.showModel', async (query) => { shownInBrowser.push(query); });
-provide('civitaiBrowser.skipSavedSearch', () => {});
 const showInBrowser = async () => {
     const buttons = details().querySelectorAll('button[onclick*="mmShowInCivitaiBrowser"]');
     click(buttons[0]);

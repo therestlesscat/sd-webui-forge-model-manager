@@ -12,8 +12,8 @@ const { check, waitFor, done } = checker();
 // Forge's tab bar, the Model Manager showing.
 document.body.insertAdjacentHTML('afterbegin', `
     <div id="tabs">
-        <button class="selected" aria-selected="true">Model Manager</button>
-        <button>Civitai Browser</button>
+        <button id="tab_model_manager_tab-button" class="selected" aria-selected="true">Model Manager</button>
+        <button id="tab_civitai_browser_tab-button">Civitai Browser</button>
     </div>`);
 const browserTab = () => Array.from(document.querySelectorAll('#tabs button')).find((b) => b.textContent === 'Civitai Browser');
 

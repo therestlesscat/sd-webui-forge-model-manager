@@ -63,7 +63,7 @@ check('Save Search keeps it', [saves.at(-1).filters.min_size, saves.at(-1).filte
 // explicit image, though its file was in the library.
 $('mm_sfw_only').checked = true;
 const before = listed.length;
-call('modelManager.showModel', 'path:C:\\models\\some model.safetensors');
+await call('modelManager.showModel', 'path:C:\\models\\some model.safetensors');
 check('jumping to a model loosens it, with every other filter', [$('mm_min_size').value, $('mm_max_size').value],
       ['', '']);
 check('SFW only included', $('mm_sfw_only').checked, false);
