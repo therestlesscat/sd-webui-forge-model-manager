@@ -28,6 +28,7 @@ from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
 from .hashing import HashResult
 from .model_dirs import download_dir, proper_place
+from .storage import download_payload, get_metadata_paths, write_civitai_info
 
 
 # What a download is written as until it is whole and verified: never a
@@ -927,9 +928,8 @@ class DownloadService:
                 progress.file_path = target_path
                 if expected and (file_sha256(target_path) or "").upper() == expected:
                     print(f"[ModelManager] Already on disk, adding to the library: {target_path}")
-                    info_path = os.path.splitext(target_path)[0] + ".civitai.info"
-                    if not os.path.exists(info_path):
-                        self._write_civitai_info(info_path, model_data, version_data, model_type)
+                    if not os.path.exists(get_metadata_paths(target_path)[0]):
+                        write_civitai_info(target_path, download_payload(model_data, version_data, model_type))
                     progress.total_bytes = progress.downloaded_bytes = os.path.getsize(target_path)
                     progress.status = "finishing"
                     self._sync_downloaded_file(target_path, progress, known)
@@ -989,9 +989,7 @@ class DownloadService:
             partial_path = None
             target_path = self._file_by_what_it_is(target_path, progress)
 
-            # Create .civitai.info file
-            info_path = os.path.splitext(target_path)[0] + ".civitai.info"
-            self._write_civitai_info(info_path, model_data, version_data, model_type)
+            write_civitai_info(target_path, download_payload(model_data, version_data, model_type))
 
             print(f"[ModelManager] Downloaded: {target_path}")
 
@@ -1028,26 +1026,6 @@ class DownloadService:
             if progress.status == "error":
                 print(f"[ModelManager] Download of {progress.file_name or 'version %s' % version_id} "
                       f"failed: {progress.error}")
-
-    @staticmethod
-    def _write_civitai_info(info_path: str, model_data: Dict[str, Any], version_data: Dict[str, Any],
-                            model_type: str) -> None:
-        """The sidecar a scan reads: the model's payload, with this version."""
-        civitai_info = {
-            "id": model_data.get("id"),
-            "modelId": model_data.get("id"),
-            "name": model_data.get("name"),
-            "description": model_data.get("description"),
-            "type": model_type,
-            "nsfw": model_data.get("nsfw"),
-            "nsfwLevel": model_data.get("nsfwLevel"),
-            "tags": model_data.get("tags", []),
-            "creator": model_data.get("creator"),
-            "stats": model_data.get("stats"),
-            "modelVersions": [version_data],
-        }
-        with open(info_path, 'w', encoding='utf-8') as f:
-            json.dump(civitai_info, f, indent=2)
 
     def queue_download(
         self,

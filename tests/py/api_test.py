@@ -337,7 +337,14 @@ webui_stub.install()
 # ------------------------------------------------------------------ deleting
 victim = facts['local_only_paths'][0]
 check('the file is there to begin with', os.path.exists(victim), True)
+# Its side files go with it - the ones Scan Disk moves with it too
+# (model_dirs.COMPANIONS). The .cm-info.json was left behind (#64).
+victim_sides = [os.path.splitext(victim)[0] + s for s in ('.civitai.info', '.cm-info.json', '.preview.png')]
+for side in victim_sides:
+    io.open(side, 'w').write('{}')
 code, body = post('/model-manager/models/delete', path=victim)
+check('its side files go with it, .cm-info.json too', [os.path.exists(side) for side in victim_sides],
+      [False, False, False])
 check('deleting answers', code, 200)
 check('and succeeds', body.get('success'), True)
 check('the file is gone', os.path.exists(victim), False)

@@ -62,6 +62,11 @@ FULL = {
 check('writing succeeds', storage.write_civitai_info(MODEL, FULL), True)
 check('the file is where it said', os.path.exists(info), True)
 check('reading gives it back', storage.read_civitai_info(MODEL), FULL)
+named = dict(FULL, name='Café 日本')
+storage.write_civitai_info(MODEL, named)
+check('a name beyond ASCII reads back as it was - every sidecar is written so now (#64)',
+      storage.read_civitai_info(MODEL)['name'], 'Café 日本')
+storage.write_civitai_info(MODEL, FULL)
 
 check('reading a model with no sidecar gives nothing',
       storage.read_civitai_info(os.path.join(WORK, 'absent.safetensors')), None)
