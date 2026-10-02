@@ -7,10 +7,10 @@ import { ROOT, checker, mountTab } from './harness.mjs';
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
 
-// The header's version and gear, as header_actions() fills them in.
+// The header's version and gear are the harness's, from ui/header.py; this
+// is what a redraw by Gradio puts back.
 const HEADER = `<span class="mm-header-actions"><a class="mm-version" href="https://example.test/CHANGELOG.md"
     target="_blank" rel="noopener">v0.41.11</a><button class="mm-settings-btn"></button></span>`;
-document.querySelector('.gen-header').insertAdjacentHTML('beforeend', HEADER);
 
 let update = { success: true, current: '0.41.11', latest: '0.42.0', build: 260, newer: true, note: '' };
 let asked = 0;
@@ -34,7 +34,7 @@ await waitFor('the notice', () => notice());
 check('beside the version, the version out, linking where the version does - the changelog',
       [notice().previousElementSibling?.className, notice().textContent, notice().getAttribute('href'),
        notice().target],
-      ['mm-version', 'v0.42.0.260 available', 'https://example.test/CHANGELOG.md', '_blank']);
+      ['mm-version', 'v0.42.0.260 available', document.querySelector('.gen-header a.mm-version')?.getAttribute('href'), '_blank']);
 check('its tooltip says how to update', /Extensions -> Check for updates/.test(notice().title), true);
 check('asked once for the page, however many tabs', asked, 1);
 

@@ -9,12 +9,11 @@
 // Here one image is drawn in both tabs: the card says the same in each, and
 // Show All opens the same window - the table, with a Copy JSON button.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, browserGalleryAnswer, checker, mountTab } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
-document.body.insertAdjacentHTML('beforeend', readFileSync(`${ROOT}/model_manager/ui/tab_model_manager.py`, 'utf8')
-    .match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2]);
+document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_model_manager.py'));
 
 const IMAGE = {
     id: 4242, url: 'https://example.invalid/4242.jpeg', width: 512, height: 768, nsfwLevel: 1, browsingLevel: 1,

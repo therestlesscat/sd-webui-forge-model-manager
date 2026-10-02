@@ -16,7 +16,7 @@
 // tab has asked for every one.
 import { registerHooks } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule, tabMarkup } from './harness.mjs';
 
 const urls = new Map();         // file name -> the URLs it was asked for under
 registerHooks({
@@ -34,8 +34,7 @@ registerHooks({
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
-    const source = readFileSync(`${ROOT}/model_manager/ui/${tab}`, 'utf8');
-    document.body.insertAdjacentHTML('beforeend', source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2]);
+    document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
 const { check, done } = checker();
 

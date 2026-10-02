@@ -105,10 +105,12 @@ check('which the header shows, linking to the changelog',
 version._git = real
 version._found = None
 
-for tab in ('tab_model_manager.py', 'tab_civitai_browser.py'):
+from model_manager.ui.header import header_actions
+check('the header carries the version, beside the gear', version_link() in header_actions('model_manager'), True)
+for tab in ('tab_model_manager.py', 'tab_civitai_browser.py', 'tab_generations.py'):
     source = open(os.path.join(ROOT, 'model_manager', 'ui', tab), encoding='utf-8').read()
-    check('%s puts the version in its header' % tab,
-          '<!-- version -->' in source and 'replace("<!-- version -->", version_link())' in source, True)
+    check('%s puts it in its header' % tab,
+          '<!-- actions -->' in source and 'replace("<!-- actions -->", header_actions(' in source, True)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

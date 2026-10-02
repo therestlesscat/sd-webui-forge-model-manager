@@ -89,8 +89,10 @@ is close to a browser and not one:
   none on the document: a suite calls `fallBack` (`shared/media.mjs`) itself.
 - **No layout.** Widths and positions are 0; a suite checks the stylesheet's
   rule instead.
-- **The markup is read from the tab's `.py`**, as written: markup Python adds
-  with `.replace()` is not there.
+- **The markup is read from the tab's `.py`**, as written (`tabMarkup`), with
+  the header's version and gear and the downloads panel filled in from
+  `ui/header.py`'s templates; any other markup Python adds with `.replace()`
+  is not there. `tab_markup_test.py` draws the tabs as Gradio is handed them.
 - **The markup is there before the script runs.** In the WebUI, Gradio draws
   it after; a suite that matters for that removes the container, loads the
   page, then puts it back (`download_controls_test.mjs`).

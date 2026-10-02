@@ -109,17 +109,39 @@ function named(action, data) {
 }
 
 /**
+ * A tab's markup, as its Python hands it to Gradio: read from the file, with
+ * the header's gear and the downloads panel filled in from ui/header.py's own
+ * templates (#85) - the version beside the gear is a stand-in.
+ *
+ * @param {string} tabFile - the tab's Python file, relative to the extension.
+ */
+export function tabMarkup(tabFile) {
+    const source = readFileSync(`${ROOT}/${tabFile}`, 'utf8');
+    const markup = source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
+    if (!markup) throw new Error(`could not find the tab markup in ${tabFile}`);
+    const header = readFileSync(`${ROOT}/model_manager/ui/header.py`, 'utf8');
+    const gear = header.match(/SETTINGS_BUTTON = """([\s\S]*?)"""/)[1];
+    const panel = header.match(/def downloads_panel[\s\S]*?return f"""([\s\S]*?)"""/)[1];
+    const tab = source.match(/header_actions\("(\w+)"\)/)?.[1];
+    const prefix = source.match(/downloads_panel\("(\w+)"\)/)?.[1];
+    let html = markup[2];
+    if (tab) {
+        html = html.replace('<!-- actions -->', '<span class="mm-header-actions"><a class="mm-version" href="https://example.test/CHANGELOG.md" target="_blank"'
+                            + ' rel="noopener">v0.0.0</a>'
+                            + `${gear.replace('{tab}', tab)}</span>`);
+    }
+    if (prefix) html = html.replace('<!-- downloads -->', panel.replaceAll('{p}', prefix));
+    return html;
+}
+
+/**
  * Put a tab's markup and the globals it needs in place.
  *
  * @param {string} tabFile - the tab's Python file, relative to the extension.
  * @returns {{window: object, document: object}}
  */
 export function mountTab(tabFile) {
-    const source = readFileSync(`${ROOT}/${tabFile}`, 'utf8');
-    const markup = source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
-    if (!markup) throw new Error(`could not find the tab markup in ${tabFile}`);
-
-    const { window } = parseHTML(`<!doctype html><html><body>${markup[2]}</body></html>`);
+    const { window } = parseHTML(`<!doctype html><html><body>${tabMarkup(tabFile)}</body></html>`);
 
     globalThis.window = window;
     globalThis.document = window.document;

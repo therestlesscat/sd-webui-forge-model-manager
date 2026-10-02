@@ -7,7 +7,7 @@ are rendered into by javascript/model_manager.js.
 """
 import gradio as gr
 
-from .header import version_link
+from .header import downloads_panel, header_actions
 
 
 def create_ui():
@@ -21,17 +21,7 @@ def create_ui():
                 <div class="model-manager-header">
                     <h2>Model Manager</h2>
                     <!-- The settings window: one, shared with the Civitai Browser -->
-                    <span class="mm-header-actions">
-                    <!-- version -->
-                    <button type="button" class="mm-settings-btn" data-action="settings.open" data-tab="model_manager"
-                            title="Model Manager settings" aria-label="Model Manager settings">
-                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
-                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="3"></circle>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                        </svg>
-                    </button>
-                    </span>
+                    <!-- actions -->
                 </div>
 
                 <!-- Shown only when Civitai cannot be asked properly -->
@@ -375,24 +365,7 @@ def create_ui():
                 </div>
 
                 <!-- Downloads, shared with the Civitai Browser: either tab's show in both -->
-                <div id="mm_downloads" class="mm-downloads-inline" style="display: none;">
-                    <div class="mm-downloads-header">
-                        <h4>Downloads</h4>
-                        <div class="mm-downloads-header-end">
-                            <span class="mm-downloads-summary" id="mm_downloads_summary"></span>
-                            <button class="mm-btn mm-btn-small secondary" id="mm_downloads_pause_all"
-                                    title="Pause every download, running or waiting" style="display: none;"
-                                    data-action="downloads.control" data-control="pause_all">Pause all</button>
-                            <button class="mm-btn mm-btn-small secondary" id="mm_downloads_resume_all"
-                                    title="Resume every paused download, in order" style="display: none;"
-                                    data-action="downloads.control" data-control="resume_all">Resume all</button>
-                            <button class="mm-btn mm-btn-small secondary" id="mm_downloads_dismiss_all"
-                                    title="Take every finished download off the list" style="display: none;"
-                                    data-action="downloads.dismissFinished">Dismiss all</button>
-                        </div>
-                    </div>
-                    <div id="mm_download_list" class="mm-downloads-list"></div>
-                </div>
+                <!-- downloads -->
 
                 <!-- Model Details (shown when model selected) -->
                 <div id="mm_details" class="model-details" style="display: none;">
@@ -404,6 +377,7 @@ def create_ui():
                     <!-- Images populated by JS -->
                 </div>
             </div>
-        """.replace("<!-- version -->", version_link()), elem_id="model_manager_container")
+        """.replace("<!-- actions -->", header_actions("model_manager"))
+          .replace("<!-- downloads -->", downloads_panel("mm")), elem_id="model_manager_container")
 
     return [(model_manager_tab, "Model Manager", "model_manager_tab")]

@@ -2,7 +2,7 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, call, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, call, checker, mountTab, sharedModule, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The Settings page's result line is watched for; linkedom has the observer,
@@ -185,9 +185,11 @@ await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 // -------------------------------------------------------------- the gear
+// The tab as drawn, not the template: the template's placeholder once
+// changed its quotes, and the Generations tab's gear said "TAB" (0.44.21).
 for (const [file, tab] of [['tab_model_manager.py', 'model_manager'], ['tab_civitai_browser.py', 'civitai_browser'],
-                           ['header.py', 'TAB']]) {
-    const markup = readFileSync(`${ROOT}/model_manager/ui/${file}`, 'utf8');
+                           ['tab_generations.py', 'generations']]) {
+    const markup = tabMarkup(`model_manager/ui/${file}`);
     check(`${file} has the gear, opening the one window, saying which tab it is in`,
           new RegExp(`class="mm-settings-btn"[^>]*data-action="settings\\.open" data-tab="${tab}"`)
               .test(markup), true);
