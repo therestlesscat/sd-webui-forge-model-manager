@@ -9,7 +9,7 @@ const path = require('path');
 // The extension, found from this file rather than from a drive letter, so the
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
-const src = fs.readFileSync(REPO + '/javascript/model_manager.mjs', 'utf8');
+const src = fs.readFileSync(REPO + '/javascript/shared/jobs.mjs', 'utf8');
 
 let failures = 0;
 const check = (label, cond, extra) => {

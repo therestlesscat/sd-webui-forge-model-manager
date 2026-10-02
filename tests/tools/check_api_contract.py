@@ -47,7 +47,9 @@ for (method, route), names in sorted(endpoints.items()):
     print('   %-5s %-38s %s' % (method, route, ', '.join(sorted(names)) or '(none)'))
 
 # --- what the browser sends -------------------------------------------------
-js = io.open('javascript/model_manager.mjs', encoding='utf-8').read()
+# The Model Manager's page code: its script, and the jobs it connects (shared/jobs.mjs).
+js = io.open('javascript/model_manager.mjs', encoding='utf-8').read() \
+    + io.open('javascript/shared/jobs.mjs', encoding='utf-8').read()
 
 print('\n--- the dialog\'s POST body ---')
 m = re.search(r"const body = new URLSearchParams\(\{(.*?)\}\);(.*?)body\.set\('(\w+)'",
