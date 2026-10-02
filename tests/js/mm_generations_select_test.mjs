@@ -2,7 +2,7 @@
 // (generations_select_test.mjs): a tick on every card - its generation whole,
 // as its Delete - shift-click for a range, Select all loaded, and one Delete
 // for all, asked once. Select and Rate are not on together.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -61,39 +61,29 @@ document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', {
 await waitFor('the grid', () => document.querySelector('#mm_grid .model-card'));
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-gallery-tab'));
-await window.mmShowGalleryTab('generations');
+await act('modelManager.showGalleryTab', { tab: 'generations' });
 const cardEls = () => document.querySelectorAll('#mm_images .mm-generation-card');
 await waitFor('the cards', () => cardEls().length === 3);
 
 const ticks = () => Array.from(document.querySelectorAll('#mm_images [data-mm-pick]'));
 const count = () => document.querySelector('#mm_images .mm-select-bar .mm-select-count')?.textContent;
-// This DOM does not run inline handlers: the tick's own label's is run here,
-// as a browser would, so one that stops the click before the page counts it fails.
-const runInline = (box) => {
-    const label = box.closest('label');
-    const code = label?.getAttribute('onclick');
-    if (code && !label.inlineRun) {
-        label.addEventListener('click', new Function('event', code));
-        label.inlineRun = true;
-    }
-};
+// The tick's click reaches the page's listener, which counts it: no markup
+// holds a handler that could stop it (check_js_references.mjs).
 const pick = (i, shift = false) => {
     const box = ticks()[i];
-    runInline(box);
     box.checked = !box.checked;
     box.dispatchEvent(Object.assign(new window.Event('click', { bubbles: true }), { shiftKey: shift }));
 };
 
 check('Select is beside Rate, off: no ticks', [!!document.getElementById('mm_select_generations'), ticks().length],
       [true, 0]);
-window.mmSetSelectingGenerations(true);
+tick('modelManager.selectGenerations', true);
 check('on: a tick on every card, and the bar', [ticks().length, count()], [3, '0 images selected']);
 pick(1);
 check('a card\'s tick is its generation whole - its hidden image too', count(), '3 images selected');
 pick(2, true);
 check('shift-click ticks the range', [ticks().map((b) => b.checked), count()], [[false, true, true], '4 images selected']);
 act('modelManager.clearGenerationPicks');
-runInline(ticks()[0]);
 cardEls()[0].querySelector('[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
 check('a click on a card\'s image ticks the card, and opens no viewer',
       [ticks()[0].checked, count(), !!document.querySelector('.mm-viewer')], [true, '2 images selected', false]);
@@ -111,7 +101,7 @@ check('in one request, the generations whole, the files kept - as not asked',
       deletes, [{ generation_ids: '1,2,3', image_ids: '', delete_files: 'false' }]);
 check('and the cards go', cardEls().length, 0);
 
-window.mmSetRatingGenerations(true);
+tick('modelManager.rateGenerations', true);
 check('Rate turns Select off', [document.getElementById('mm_select_generations')?.checked, ticks().length],
       [false, 0]);
 

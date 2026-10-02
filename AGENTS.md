@@ -146,7 +146,10 @@ on a click, the innermost action alone, with the element's data, the element
 and the event. Inline handlers reached window globals by names in strings, in
 the modules' templates and the tabs' Python, and no check followed them
 across: `check_js_references.mjs` fails on markup with an inline handler and
-on an action name nothing provides, in the JavaScript and the Python alike.
+on an action name nothing provides, in the JavaScript and the Python alike -
+and on any window global but `mmSharedVersion`, which every tab needs before
+the registry has loaded. A suite presses what the page draws (`act`, `tick`,
+`press` in `tests/js/harness.mjs`), through the real listener.
 Nothing is stopped: a stop in the metadata window once kept Copy JSON's click
 from the listener that copies. An action runs as the click reaches the
 document, after anything around its element has heard it - an inline handler
@@ -518,7 +521,7 @@ real time once.
 - **Check what a timed call returned**, not only how long it took.
 - **The test DOM is not the WebUI.** linkedom runs no inline handlers: a tick's
   `onclick="event.stopPropagation()"` kept every click from the page's
-  listener, and the suite never saw it - it now runs that handler itself. It
+  listener, and the suite never saw it - markup holds none now (#95). It
   has no layout. The harness reads a tab's markup straight from its `.py`, so
   markup a `.replace()` adds is not there (build it in the page). And the
   markup is there before the script, where in the WebUI it comes after: a

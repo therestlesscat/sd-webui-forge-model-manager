@@ -199,11 +199,11 @@ check('and closes the viewer once the click is done, on the way to txt2img', vie
 const intoView = [];
 window.HTMLElement.prototype.scrollIntoView = function() { intoView.push(this); };
 scrolls.length = 0;
-window.mmRestoreScrollPosition();
+act('modelManager.restoreScrollPosition');
 check('Previous Position brings the card sent into view',
       [intoView.length, intoView[0] === cards()[100], scrolls.length], [1, true, 0]);
 localStorage.setItem('mm_scroll_target', '#mm_images .mm-image-card[data-index="9999"]');
-window.mmRestoreScrollPosition();
+act('modelManager.restoreScrollPosition');
 check('or, with that card no longer drawn, the page where it was', [intoView.length, scrolls[0]?.top], [1, 1234]);
 
 // Escape closes this tab's own modal, not another tab's (#83): all three tabs

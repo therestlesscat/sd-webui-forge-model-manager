@@ -76,7 +76,7 @@ const details = () => document.getElementById('mm_details');
 const pills = () => Array.from(details().querySelectorAll('.mm-version-pill'));
 const pillNames = () => pills().map((p) => p.textContent.trim());
 const active = () => pills().filter((p) => p.classList.contains('active')).map((p) => p.textContent.trim());
-const click = (el) => (el.closest('[data-action]') ? press(el) : new Function('return ' + el.getAttribute('onclick'))());
+const click = (el) => press(el);
 const pill = (name) => pills().find((p) => p.textContent.trim().startsWith(name));
 const row = (label) => Array.from(details().querySelectorAll('.detail-table tr'))
     .find((tr) => tr.querySelector('td')?.textContent.trim() === label)?.querySelectorAll('td')[1]?.textContent.trim();
@@ -85,11 +85,11 @@ const row = (label) => Array.from(details().querySelectorAll('.detail-table tr')
 const shownInBrowser = [];
 provide('civitaiBrowser.showModel', async (query) => { shownInBrowser.push(query); });
 const showInBrowser = async () => {
-    const buttons = details().querySelectorAll('button[onclick*="mmShowInCivitaiBrowser"]');
+    const buttons = details().querySelectorAll('button[data-action="modelManager.showInCivitaiBrowser"]');
     click(buttons[0]);
     await waitFor('the hop', () => shownInBrowser.length > 0, 20);
     return { query: shownInBrowser.pop(), buttons: buttons.length, inHeader:
-             !!details().querySelector('.detail-header [onclick*="mmShowInCivitaiBrowser"]'),
+             !!details().querySelector('.detail-header [data-action="modelManager.showInCivitaiBrowser"]'),
              firstRow: details().querySelector('.detail-table tr')?.querySelector('td[colspan="2"] button')?.textContent.trim() };
 };
 
@@ -148,7 +148,7 @@ check('   Show in Civitai Browser is the table\'s first row, not in the header, 
 
 await click(pill('v1'));
 check('6. back to the local version: its panel, gallery and all',
-      [active(), !!details().querySelector('[onclick*="mmResyncImages"]'), detailsAsked.at(-1)],
+      [active(), !!details().querySelector('[data-action="modelManager.resyncImages"]'), detailsAsked.at(-1)],
       [['v1 ✓'], true, 'C:/models/v1.safetensors']);
 
 // ------------------------------------------------------------ downloading

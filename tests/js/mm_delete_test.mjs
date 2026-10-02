@@ -6,7 +6,7 @@
 // Model" for a model with one version here, and for one with several,
 // "Delete Current Model Version" - the version shown - and "Delete All Model
 // Versions".
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -49,10 +49,10 @@ const open = async () => {
 };
 const header = () => document.querySelector('#mm_details .detail-header');
 const buttons = () => Array.from(header()?.querySelectorAll('button.danger') || []).map((b) => b.textContent.trim());
-// The button's own onclick, run as the browser would - and its promise
-// returned, so a check waits for every delete it starts.
-const press = (label) => new Function('return ' + Array.from(header().querySelectorAll('button'))
-    .find((b) => b.textContent.trim() === label).getAttribute('onclick'))();
+// A click on the button, and its promise returned, so a check waits for
+// every delete it starts.
+const pressLabelled = (label) => press(Array.from(header().querySelectorAll('button'))
+    .find((b) => b.textContent.trim() === label));
 
 // ------------------------------------------------------ several versions
 await open();
@@ -63,16 +63,16 @@ check('beside "Sync", before the close button',
       order.slice(order.indexOf('Sync'), order.indexOf('Sync') + 4),
       ['Sync', 'Delete Current Model Version', 'Delete All Model Versions', '×']);
 check('and nothing is left at the foot of the panel',
-      !!document.querySelector('#mm_details .detail-actions [onclick*="mmDeleteModel"]'), false);
+      !!document.querySelector('#mm_details .detail-actions [data-action="modelManager.deleteModel"]'), false);
 
-await window.mmSelectVersion(1);
-await press('Delete Current Model Version');
+await act('modelManager.selectPill', { index: 1 });
+await pressLabelled('Delete Current Model Version');
 check('"current" deletes the version on screen - not the grid card\'s', deleted, ['C:/models/v2.safetensors']);
 check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
 
 deleted.length = 0;
 await open();
-await press('Delete All Model Versions');
+await pressLabelled('Delete All Model Versions');
 check('"all" deletes every version here', deleted, ['C:/models/v1.safetensors', 'C:/models/v2.safetensors']);
 check('having listed them in the confirmation',
       [confirmText.includes('all 2 versions'), confirmText.includes('v1.safetensors'),
@@ -81,7 +81,7 @@ check('having listed them in the confirmation',
 deleted.length = 0;
 refuse = 'C:/models/v1.safetensors';
 await open();
-await press('Delete All Model Versions');
+await pressLabelled('Delete All Model Versions');
 check('one that fails does not stop the rest', deleted, ['C:/models/v2.safetensors']);
 check('and is said', document.getElementById('mm_status')?.textContent.includes('v1: Not a model in the library'),
       true);
@@ -92,7 +92,7 @@ versions = [version(501, 'v1')];
 deleted.length = 0;
 await open();
 check('with one version, one button: Delete Model', buttons(), ['Delete Model']);
-await press('Delete Model');
+await pressLabelled('Delete Model');
 check('deleting that version', deleted, ['C:/models/v1.safetensors']);
 
 done();

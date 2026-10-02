@@ -9,7 +9,7 @@
 // files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 // The page first: the registry listens to it when it loads.
@@ -214,9 +214,9 @@ const group = tileEls()[0];
 check('a folded batch shows its first four images the filter leaves, and how many there are',
       [group.querySelectorAll('.mm-generation-tile').length, group.querySelector('.gen-count')?.textContent], [4, '×4']);
 check('the NSFW images hidden as the gallery setting says', lastAsked().get('hide_nsfw_images'), 'true');
-const clickAt = (tile) => tile.querySelector('.gen-viewable, .gen-openable')?.getAttribute('onclick');
+const clickAt = (tile) => ['action', 'tile'].map((key) => tile.querySelector('.gen-viewable, .gen-openable')?.dataset[key]);
 check('a click on an image opens the viewer on it; on a batch, the batch, in a grid of its own',
-      [clickAt(tileEls()[1]), clickAt(group)], ['window.genView(1, 0)', 'window.genOpen(0)']);
+      [clickAt(tileEls()[1]), clickAt(group)], [['generations.view', '1'], ['generations.open', '0']]);
 check('every tile offers Send - named for the tab it was made in - and Delete, in one row',
       [Array.from(tileEls()[1].querySelectorAll('.gen-actions button')).map((b) => b.textContent.trim()),
        tileEls()[1].querySelector('.gen-actions button')?.getAttribute('title')],
@@ -226,7 +226,7 @@ check('a wide image gets a horizontal tile, a tall one or a batch of them a vert
 // A wide tile takes the columns nearest its image's width at the tiles'
 // height - cropped least - from two up to four, and no more than there are.
 // Columns of 200 and a gap of 12, tiles 300 high, six columns in the window:
-const span = (ratio, columns = 6) => window.genSpanFor(ratio, 200, 12, 300, columns);
+const span = (ratio, columns = 6) => call('generations.spanFor', ratio, 200, 12, 300, columns);
 check('a wide tile takes the columns nearest its image\'s width: 1216x832 two, 16:9 three, 3:1 four',
       [span(1216 / 832), span(16 / 9), span(21 / 9), span(3), span(6)], [2, 3, 3, 4, 4]);
 check('never more than the window has, and a tall or square image one',
@@ -265,7 +265,7 @@ check('a tile whose images share a checkpoint has ⋯; one with no checkpoint re
       tileEls().map((t) => !!t.querySelector('.gen-menu-btn')), [true, false]);
 check('its NSFW badge moved to the left, out of ⋯\'s way: the tab\'s stylesheet says so',
       /\.gen-media \.mm-nsfw-badge \{[^}]*left: 6px/.test(readFileSync(`${ROOT}/style.css`, 'utf8')), true);
-window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+act('generations.menu', { tile: 0 });
 const items = () => Array.from(menuEl()?.querySelectorAll('button') || []).map((b) => [b.textContent.trim(), b.disabled]);
 check('⋯ opens a menu: the model in the Model Manager and the Civitai Browser, then each LoRA - '
       + 'one the library no longer has greyed',
@@ -277,20 +277,20 @@ click(menuEl().querySelectorAll('button')[3]);
 check('and does nothing', [menuEl() !== null, shownVersions, shownFiles], [true, [], []]);
 key('Escape');
 check('Esc closes it', menuEl(), null);
-window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+act('generations.menu', { tile: 0 });
 click(menuEl().querySelector('button'));
 check('the model is asked for by its version, not its file', [shownVersions, shownFiles, menuEl()], [[701], [], null]);
 // The Civitai Browser asked directly: not loaded, this tab says so, not the
 // Model Manager's status line in a tab nobody is looking at.
-window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+act('generations.menu', { tile: 0 });
 click(menuEl().querySelectorAll('button')[1]);
 check('without the Civitai Browser, this tab says so',
       document.getElementById('gen_status')?.textContent, 'The Civitai Browser tab has not started yet: open it once and try again.');
 provide('civitaiBrowser.showModel', (query) => { civitaiAsked.push(query); });
-window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+act('generations.menu', { tile: 0 });
 click(menuEl().querySelectorAll('button')[1]);
 check('and in the Civitai Browser by its model and version', civitaiAsked, ['model:70 version:701']);
-window.genMenu(0, tileEls()[0].querySelector('.gen-menu-btn'));
+act('generations.menu', { tile: 0 });
 click(menuEl().querySelectorAll('button')[2]);
 check('a LoRA by its own version', shownVersions, [701, 801]);
 
@@ -303,7 +303,7 @@ const shownId = () => viewer()?.querySelector('.mm-viewer-image')?.getAttribute(
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
-await window.genView(0, 0);
+await call('generations.view', { tile: 0 });     // a batch: a click opens it
 check('the viewer steps through the images a batch\'s tile shows, saying where it is in the batch',
       [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent], ['31', '1 of 4 in this generation']);
 check('with its details beside it: its prompts and what was recorded, and a way to the file',
@@ -316,7 +316,7 @@ click(viewer().querySelector('[data-gen-menu]'));
 click(menuEl().querySelector('button'));
 check('⋯ in the viewer shows the image\'s own checkpoint - one Civitai does not know, by its file - closing the viewer',
       [shownFiles.at(-1), viewer()], [ANIMA_PATH, null]);
-await window.genView(0, 0);
+await call('generations.view', { tile: 0 });     // a batch: a click opens it
 check('nothing before the first', viewer().querySelector('.mm-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();
 check('→ steps through them', shownId(), '33');
@@ -358,11 +358,11 @@ click(viewer().querySelector('.mm-viewer-info'));
 check('a click on the image or its details leaves it open', !!viewer(), true);
 click(viewer().querySelector('.mm-viewer-frame'));
 check('a click around the image closes it', viewer(), null);
-await window.genView(2, 2);
+await call('generations.view', { tile: 2, image: 2 });
 key('Escape');
 check('Esc closes it, and gives the page its scrolling back',
       [viewer(), document.body.classList.contains('mm-modal-open')], [null, false]);
-await window.genView(1, 0);
+await act('generations.view', { tile: 1 });
 check('and it opens again with its details folded, as left', viewer()?.classList.contains('mm-viewer-collapsed'), true);
 click(viewer().querySelector('[data-panel]'));
 const sentBefore = sent.length;
@@ -380,18 +380,18 @@ const scrolled = [];
 window.scrollTo = (x, y) => scrolled.push(y);
 const scrollTo = (y) => Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true });
 scrollTo(640);
-await window.genOpen(0);
-await window.genLoadMore();              // two tiles a part, here, at every level
+await act('generations.open', { tile: 0 });
+await call('generations.loadMore');              // two tiles a part, here, at every level
 check('a click on a batch opens it in a grid of its own: a tile for each of its images',
       [lastAsked().get('generation'), tileIds()], ['3', ['3', '3', '3', '3']]);
 check('under a header with Back, the way here, and what it is',
       [!!document.querySelector('#gen_path button'), pathText().includes('Generations ›'),
        pathText().includes('4 images'), pathText().includes('anima.safetensors')], [true, true, true, true]);
-await window.genSend(2);
+await act('generations.send', { tile: 2 });
 check('Send on one of its images sends that image\'s own infotext, to its generation\'s tab',
       [sent.at(-1).infotext, sent.at(-1).mode], ['prompt 34\nSteps: 20, Seed: 1034', 'txt2img']);
 
-const deleting = window.genDelete(1);
+const deleting = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
 check('Delete asks first, offering to delete the file too',
       dialog().querySelector('h3')?.textContent, 'Delete this image?');
@@ -401,14 +401,14 @@ await deleting;
 check('an image is deleted alone, with its file when asked',
       [posted.at(-1), tileIds()], [['/generations/images/33/delete', 'delete_files=true'], ['3', '3', '3']]);
 scrollTo(0);
-await window.genBack();
+await act('generations.back');
 check('Back lands where the grid was left, the page scrolled back to it', scrolled.at(-1), 640);
 check('with what was deleted inside counted there', [tileIds(), tileEls()[0].querySelector('.gen-count')?.textContent],
       [['3g', '2', '1g'], '×3']);
 check('and no header on the top grid', pathText(), '');
 
-await window.genOpen(2);
-await window.genLoadMore();
+await act('generations.open', { tile: 2 });
+await call('generations.loadMore');
 check('another batch opens the same way', tileIds(), ['1', '1', '1']);
 const loadsBefore = asked.length;
 key('Escape');
@@ -416,19 +416,19 @@ await waitFor('the way back', () => pathText() === '');
 check('Esc goes back too, drawing the grid again as it was, without loading it',
       [tileIds(), asked.length], [['3g', '2', '1g'], loadsBefore]);
 
-await window.genSend(0);
+await act('generations.send', { tile: 0 });
 check('Send on a batch sends its first image\'s', sent.at(-1).infotext.startsWith('prompt 31'), true);
-await window.genSend(1);
+await act('generations.send', { tile: 1 });
 check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
 
 // ---------------------------------------------------------------- deleting
-const cancelled = window.genDelete(1);
+const cancelled = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
 click(dialog().querySelector('[data-close]'));
 await cancelled;
 check('cancelled, nothing is deleted', [posted.length, tileIds()], [1, ['3g', '2', '1g']]);
 
-const whole = window.genDelete(2);
+const whole = act('generations.delete', { tile: 2 });
 await waitFor('the question', () => dialog());
 check('a batch is deleted whole, and says how many images',
       dialog().querySelector('h3')?.textContent, 'Delete this generation of 3 images?');
@@ -438,7 +438,7 @@ check('its records only, unless asked', posted.at(-1), ['/generations/1/delete',
 check('and its tile goes', tileIds(), ['3g', '2']);
 
 // Delete from the viewer: that image, and the viewer moves on to the next.
-await window.genView(0, 1);
+await call('generations.view', { tile: 0, image: 1 });
 const viewDelete = (async () => { click(viewer().querySelector('[data-gen-delete]')); })();
 await waitFor('the question', () => dialog());
 click(dialog().querySelector('[data-confirm]'));
@@ -452,7 +452,7 @@ key('Escape');
 // ---------------------------------------------------------------- grouping
 // Grouped, a tile per group of images, whatever generation they are of; a
 // group opens onto its generations, a generation onto its images.
-await window.genSetGroupBy('size');
+await call('generations.groupBy', 'size');
 check('"Group by" is remembered in this browser, and asked for',
       [window.localStorage.getItem('mm_generations_group_by'), lastAsked().get('group')], ['size', 'size']);
 check('a tile per group, saying what it is', [tileIds(), tileEls().map((t) => t.querySelector('.gen-group-name')?.textContent)],
@@ -460,17 +460,17 @@ check('a tile per group, saying what it is', [tileIds(), tileEls().map((t) => t.
 check('a group has neither Send nor Delete - misleading, and too much at once - but says what it holds',
       [tileEls()[0].querySelectorAll('.gen-actions button').length,
        tileEls()[0].querySelector('.gen-group-facts')?.textContent.trim()], [0, '2 images · 1 generation']);
-await window.genOpen(0);
+await act('generations.open', { tile: 0 });
 check('a group opens onto its generations', [lastAsked().get('in_group'), tileIds()], ['832×1216', ['3g']]);
 check('its header naming the group', pathText().includes('Size: 832×1216'), true);
-await window.genOpen(0);
+await act('generations.open', { tile: 0 });
 check('and a generation in it onto its images in the group, as deep as it goes',
       [lastAsked().get('in_group'), lastAsked().get('generation'), tileIds()], ['832×1216', '3', ['3', '3']]);
 check('the way here all in its header', pathText().includes('Generations › Size: 832×1216 ›'), true);
-await window.genBack();
-await window.genBack();
+await act('generations.back');
+await act('generations.back');
 check('Back, and Back, to the groups', tileIds(), ['3G', '2G']);
-await window.genSetGroupBy('');
+await call('generations.groupBy', '');
 check('and grouped by nothing, a tile per generation again', tileIds(), ['3g', '2']);
 
 // ---------------------------------------------------------------- the switches
@@ -498,7 +498,7 @@ endTop = 100000;
 // your rating filled; your rating again clears it. A rated image the switch
 // now hides leaves at once; a batch rated, every image of it shown.
 await tick('generations.showNsfw', false);
-await window.genLoadMore();
+await call('generations.loadMore');
 const rows = () => tileEls().map((t) => !!t.querySelector('.mm-rate'));
 const chips = (tile) => Array.from(tile.querySelectorAll('.mm-rate-chip'));
 const marked = (tile, cls) => chips(tile).filter((c) => c.classList.contains(cls)).map((c) => c.textContent.trim());
@@ -520,13 +520,13 @@ await act('generations.rate', { tile: 0, level: 2 });
 check('a batch rated: every image of it the tab shows, and the grid loaded again in place',
       [rated.at(-1).generation, rated.at(-1).level, asked.length > loadsBeforeBatch,
        marked(tileEls()[0], 'mm-rate-mine')], ['3', '2', true, ['PG-13']]);
-await window.genSetGroupBy('size');
+await call('generations.groupBy', 'size');
 check('a group has no row: rated whole, its images are easily misrated', rows(), [false]);
-await window.genSetGroupBy('');
+await call('generations.groupBy', '');
 tick('generations.rating', false);
 check('unticked, the rows go', rows().every((r) => !r), true);
 
-await window.genView(1, 0);
+await act('generations.view', { tile: 1 });
 check('the viewer always shows the row of levels', chips(viewer()).map((c) => c.textContent.trim()),
       ['PG', 'PG-13', 'R', 'X', 'XXX']);
 await act('generations.rateInViewer', { level: 4 });

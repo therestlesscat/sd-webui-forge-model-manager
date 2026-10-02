@@ -65,7 +65,7 @@ window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { cha
 check('on again, from the settings window: the button is back', tabButton('Generations').style.display, '');
 check('and the gallery\'s Your generations', galleryTabs(), ['Civitai images', 'Your generations (3)']);
 
-await window.mmShowGalleryTab('generations');
+await act('modelManager.showGalleryTab', { tab: 'generations' });
 check('which opens', document.querySelector('#mm_images .mm-gallery-tab.active')?.textContent.trim(),
       'Your generations (3)');
 

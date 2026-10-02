@@ -5,7 +5,7 @@
 // what was opened (in_group the section, in_subgroup the group, generation),
 // named on the path, Back one level at a time. Groups cannot be ticked, so
 // Select is hidden among them. The server's side: generations_test.py.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -128,29 +128,29 @@ check('as does a click anywhere else', list().hidden, true);
 check('a group\'s tooltip names its own grouping',
       document.querySelector('#gen_grid .gen-group-name')?.getAttribute('title'), 'Prompt, as written: a fox');
 
-await window.genOpen(0);
+await act('generations.open', { tile: 0 });
 await waitFor('the batches', () => last()[2] === 'g-21' && !names().length);
 check('a group opens straight onto its batches, in it and its section; Select is back',
       [last(), tileKinds(), selectHidden(), heads()],
       [['model>prompt_written', 's-1', 'g-21', ''], ['tile', 'tile'], false, []]);
 check('the path names both', trail(), ['Generations', 'Model: model-one › Prompt, as written: a fox']);
 
-await window.genOpen(0);
+await act('generations.open', { tile: 0 });
 await waitFor('the images', () => last()[3] === '7');
 check('a batch there is asked for within both', last(), ['model>prompt_written', 's-1', 'g-21', '7']);
 
-await window.genBack();
-await window.genBack();
+await act('generations.back');
+await act('generations.back');
 check('Back, twice, is the sections again, Select hidden',
       [heads().length, names(), selectHidden()], [2, ['a fox', 'None', 'a cat'], true]);
 
 // By base model (#35): the checkpoint's, as the library holds it; one the
 // library has none for is Unknown.
-await window.genSetGroupBy('base_model');
+await call('generations.groupBy', 'base_model');
 await waitFor('the base models', () => names().includes('Illustrious'));
 check('by base model, a checkpoint the library has none for is Unknown', names(), ['Illustrious', 'Unknown']);
 
-await window.genSetGroupBy('model>nonsense');
+await call('generations.groupBy', 'model>nonsense');
 await waitFor('ungrouped', () => last()[0] === '');
 check('a pair that is not one is no grouping', [last(), selectHidden()], [['', '', '', ''], false]);
 

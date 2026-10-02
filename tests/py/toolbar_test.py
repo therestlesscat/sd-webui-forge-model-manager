@@ -331,7 +331,7 @@ check('and the modifier is not named after one tab',
 # this is the return trip. tests/js/bridge_test.mjs drives the lookup itself -
 # these only check the two halves are wired to each other's names.
 check('the details table offers the jump, as its first row',
-      'window.mmShowInCivitaiBrowser(' in JS and '${modelId ? showInCivitaiRow() : \'\'}' in JS)
+      'data-action="modelManager.showInCivitaiBrowser"' in JS and '${modelId ? showInCivitaiRow() : \'\'}' in JS)
 check('it asks the browser, which finds its own tab by the id it is registered under',
       "call('civitaiBrowser.showModel', query)" in JS
       and "'tab_civitai_browser_tab'" in io.open(os.path.join(ROOT, 'javascript/shared/tabs.mjs'), encoding='utf-8').read())
@@ -342,7 +342,7 @@ check('and the browser registers exactly that',
 # as each other. Sync used to be a pill of its own - 0.75em text and a height
 # that came from its padding - beside a 28px button, which is what put them
 # out of line.
-for action in ('mmForceSyncModel', 'mmShowInCivitaiBrowser'):
+for action in ('modelManager.syncModel', 'modelManager.showInCivitaiBrowser'):
     call = JS[JS.index(action) - 200:JS.index(action)]
     check('%s is on a shared button' % action, 'mm-btn' in call and 'mm-btn-small' in call)
 check('neither carries a tab-specific class', 'cb-header-action' in JS, False)
@@ -356,7 +356,7 @@ CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'),
                       encoding='utf-8').read()
 check('the browser answers to that name', "provide('civitaiBrowser.showModel', showModel)" in CB_JS_EARLY)
 check('and still offers the trip the other way',
-      'window.cbShowInModelManager = ' in CB_JS_EARLY)
+      "provide('civitaiBrowser.showInModelManager'" in CB_JS_EARLY)
 
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()

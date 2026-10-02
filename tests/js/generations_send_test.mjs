@@ -6,7 +6,7 @@
 // Here the Generations tab is loaded alone. Its Send pastes the generation's
 // infotext into the tab it was made in and presses paste, shows that tab,
 // and leaves Forge's scheduler set; the Model Manager's script never loads.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -66,7 +66,7 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
 
 // ------------------------------------------------------------------ Send
-await window.genSend(0);
+await act('generations.send', { tile: 0 });
 await waitFor('the paste', () => pasted.txt2img > 0);
 check('the Model Manager\'s script is not loaded', ready('modelManager.sendImage'), false);
 check('Send pastes the generation\'s infotext into the tab it was made in',

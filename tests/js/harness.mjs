@@ -87,9 +87,15 @@ export function choose(action, value, data = {}) {
     return press(picker);
 }
 
-/** Call what one part of the page offers the rest (shared/calls.mjs), as code does. */
-export async function call(name, ...args) {
-    return (await sharedModule('calls.mjs')).call(name, ...args);
+/**
+ * Call what one part of the page offers the rest (shared/calls.mjs), as code
+ * does - at once, and throwing where the page would only warn: a suite that
+ * calls a name nothing offers has a mistake in it.
+ */
+export function call(name, ...args) {
+    const offered = globalThis.__mmOffered?.get(name);
+    if (!offered) throw new Error(`${name} is not offered: its tab has not loaded`);
+    return offered(...args);
 }
 
 function named(action, data) {

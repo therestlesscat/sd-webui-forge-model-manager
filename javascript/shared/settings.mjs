@@ -1136,8 +1136,8 @@ export function changedOnSettingsPage(text) {
  * the tabs, so this is one listener for it, set once.
  */
 function followSettingsPage() {
-    if (window.mmFollowingSettingsPage) return;
-    window.mmFollowingSettingsPage = true;
+    if (globalThis.__mmFollowingSettingsPage) return;
+    globalThis.__mmFollowingSettingsPage = true;
     document.addEventListener('click', (e) => {
         if (!e.target?.closest?.('#settings_submit')) return;
         const app = typeof gradioApp === 'function' ? gradioApp() : document;
