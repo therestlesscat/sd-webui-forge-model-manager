@@ -81,7 +81,7 @@ def parse(infotext):
     return parsed
 
 
-generations._parse_generation_parameters = parse
+generations.parse_generation_parameters = parse
 
 
 class Image(object):
@@ -692,15 +692,15 @@ if has_fastapi:
     # modules it loaded. Neo ignores an infotext's checkpoint and modules by
     # default, so the paste alone set up none of it.
     import model_manager.identity_store as store               # noqa: E402
-    import model_manager.forge_modules as fm                   # noqa: E402
+    import model_manager.forge_host as host                    # noqa: E402
     sd_models = types.ModuleType('modules.sd_models')
     sd_models.checkpoints_list = {'m': types.SimpleNamespace(filename=CHECKPOINT, title='linked/m.safetensors [abc]')}
     sys.modules['modules.sd_models'] = sd_models
     sys.modules['modules'].sd_models = sd_models
     db.set_architecture(CHECKPOINT, 'sd', 'SD15', True, True, '1', file_type='Checkpoint')
-    real_check, real_installed = store.needs_check, fm.installed_modules
+    real_check, real_installed = store.needs_check, host.installed_modules
     store.needs_check = lambda db_, p: None                     # read already, as stored
-    fm.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
+    host.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
     try:
         plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
         check('a generation is sent back set up as it was made: preset, checkpoint as Forge lists it, '
@@ -709,7 +709,7 @@ if has_fastapi:
               {'preset': 'sd', 'checkpoint': 'linked/m.safetensors [abc]', 'checkpoint_missing': None,
                'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
         sd_models.checkpoints_list = {}
-        fm.installed_modules = lambda: {}
+        host.installed_modules = lambda: {}
         plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
         check('what Forge no longer lists is named, and not asked for',
               (plan['checkpoint'], plan['checkpoint_missing'].lower(), plan['target'], plan['modules_missing']),
@@ -717,7 +717,7 @@ if has_fastapi:
         check('a generation nobody recorded has no plan',
               client.get('/model-manager/generations/999999/send-plan').status_code, 404)
     finally:
-        store.needs_check, fm.installed_modules = real_check, real_installed
+        store.needs_check, host.installed_modules = real_check, real_installed
 
 # ------------------------------------------------------ a failure costs nothing
 p = Processing(n_iter=1)

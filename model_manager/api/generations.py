@@ -239,25 +239,6 @@ def _delete_files(paths: List[str]) -> Tuple[List[str], List[Dict[str, str]]]:
     return deleted, failed
 
 
-def forge_checkpoint_name(path: str) -> Optional[str]:
-    """
-    The name Forge lists a checkpoint file under, for its selectCheckpoint(),
-    or None if Forge does not list it - it is gone, or outside every folder
-    Forge looks in. Found by the file, not guessed from its folders.
-    """
-    if not path:
-        return None
-    try:
-        from modules import sd_models
-        wanted = os.path.normcase(os.path.abspath(path))
-        for info in sd_models.checkpoints_list.values():
-            if os.path.normcase(os.path.abspath(info.filename)) == wanted:
-                return info.title
-    except Exception as e:
-        print(f"[ModelManager] Could not ask Forge for its checkpoints: {e}")
-    return None
-
-
 def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
     """
     What Forge is set up with before a generation of your own is sent back to
@@ -278,8 +259,8 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
         modules Forge does not offer) - or None for no such generation.
     """
     from ..file_identity import identify
+    from ..forge_host import checkpoint_name, installed_modules
     from ..identity_store import record_architecture
-    from ..forge_modules import installed_modules
 
     generation = db.get_generation(generation_id)
     if not generation:
@@ -299,7 +280,7 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
         if not preset and os.path.isfile(path):
             preset = identify(path).preset
 
-    checkpoint = forge_checkpoint_name(path)
+    checkpoint = checkpoint_name(path)
     installed = installed_modules()
     recorded = [os.path.basename(p) for p in generation.get("modules") or [] if p]
     return {

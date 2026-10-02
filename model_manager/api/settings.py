@@ -71,9 +71,9 @@ def _kind(info) -> Tuple[str, Dict[str, Any]]:
 
 def _ours() -> List[Tuple[str, Any]]:
     """This extension's settings, in the order they were registered."""
-    from modules import shared
+    from ..forge_host import registered_options
     found = []
-    for key, info in shared.opts.data_labels.items():
+    for key, info in registered_options().items():
         section = getattr(info, "section", None) or ()
         if not section or section[0] != SECTION_ID or getattr(info, "do_not_save", False):
             continue
@@ -82,11 +82,11 @@ def _ours() -> List[Tuple[str, Any]]:
 
 
 def _describe() -> Dict[str, Any]:
-    from modules import shared
+    from ..forge_host import setting
     settings = {}
     for key, info in _ours():
         kind, extra = _kind(info)
-        value = getattr(shared.opts, key, info.default)
+        value = setting(key)
         entry = {"label": info.label, "info": _plain(getattr(info, "comment_after", "")),
                  "kind": kind, "default": info.default, **extra}
         if kind == "secret":
@@ -161,7 +161,7 @@ def save(values: Dict[str, Any]) -> Dict[str, Any]:
     Check every value first, then set them all and write the file - so a save
     is all or nothing, as the dialog presents it.
     """
-    from modules import shared
+    from ..forge_host import store_settings
     ours = dict(_ours())
     errors, checked = {}, {}
     for key, value in (values or {}).items():
@@ -177,9 +177,7 @@ def save(values: Dict[str, Any]) -> Dict[str, Any]:
     if errors:
         return {"success": False, "errors": errors}
 
-    changed = [key for key, value in checked.items() if shared.opts.set(key, value)]
-    if changed:
-        shared.opts.save(shared.config_filename)
+    changed = store_settings(checked)
     answer = _describe()
     answer["changed"] = changed
     return answer
@@ -214,9 +212,8 @@ def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     the settings - or, for a preset in `drafts`, the text the window holds.
     """
     from ..file_identity import classify_file
-    from ..forge_host import setting
-    from ..forge_modules import (SETTING_PREFIX, available_presets, describe_presets,
-                                 installed_modules)
+    from ..forge_host import available_presets, installed_modules, setting
+    from ..forge_modules import SETTING_PREFIX, describe_presets
     modules = {label: classify_file(path) for label, path in installed_modules().items()}
     texts = {}
     for key, _ in _ours():

@@ -37,7 +37,6 @@ generation.
 """
 import dataclasses
 import enum
-import importlib.util
 import os
 import sys
 import threading
@@ -45,7 +44,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .db import get_models_db
-from .forge_host import available, setting
+from .forge_host import (available, closest_checkpoint, forge_name, infotext_settings,
+                         installed_modules, loaded_model, loaded_modules, main_infotext,
+                         parse_generation_parameters, setting)
 from .nsfw import generated_level
 
 # Whether generations are recorded at all; registered in ui/settings.py.
@@ -217,8 +218,7 @@ def _checkpoint_path(name: Any) -> Optional[str]:
     if not name or not isinstance(name, str) or name.startswith("Use same"):
         return None
     try:
-        from modules import sd_models
-        info = sd_models.get_closet_checkpoint_match(name)
+        info = closest_checkpoint(name)
         return _path(info.filename) if info else None
     except Exception:
         return None
@@ -228,11 +228,7 @@ def _module_paths(values: Any) -> List[str]:
     """Text encoders and VAE, named by path or by file name, as files."""
     if not isinstance(values, (list, tuple)):
         return []
-    try:
-        from modules_forge import main_entry
-        known = getattr(main_entry, "module_list", {}) or {}
-    except Exception:
-        known = {}
+    known = installed_modules()
     paths = []
     for value in values:
         if not isinstance(value, str) or value in ("Use same choices", "Built-in"):
@@ -244,18 +240,13 @@ def _module_paths(values: Any) -> List[str]:
 
 
 def _loaded_files(p) -> Dict[str, Any]:
-    from modules import shared
     loaded: Dict[str, Any] = {}
-    model = getattr(shared, "sd_model", None) or getattr(p, "sd_model", None)
+    model = loaded_model() or getattr(p, "sd_model", None)
     info = getattr(model, "sd_checkpoint_info", None)
     if info is not None:
         loaded["checkpoint_path"] = _path(getattr(info, "filename", None))
         loaded["checkpoint_hash"] = getattr(info, "sha256", None) or getattr(info, "shorthash", None)
-    # The modules this call runs with: Neo keeps a per-call VAE override
-    # apart from the setting, and writes its infotext from it.
-    overridden = getattr(sys.modules.get("modules.processing"), "_overridden_modules", None)
-    modules = overridden or getattr(shared.opts, "forge_additional_modules", None) or []
-    loaded["modules"] = _module_paths(list(modules))
+    loaded["modules"] = _module_paths(list(loaded_modules()))
     if getattr(p, "enable_hr", False):
         loaded["hr_checkpoint_path"] = _checkpoint_path(getattr(p, "hr_checkpoint_name", None))
         hr_modules = getattr(p, "hr_additional_modules", None)
@@ -374,48 +365,6 @@ def _script_args(p) -> Dict[str, Any]:
     return found
 
 
-def _settings() -> Dict[str, Any]:
-    """The settings Forge marks as belonging in an infotext, as they are now."""
-    from modules import shared
-    data = getattr(shared.opts, "data", None) or {}
-    found: Dict[str, Any] = {}
-    for key, info in (getattr(shared.opts, "data_labels", None) or {}).items():
-        if getattr(info, "infotext", None):
-            found[key] = _jsonable(data.get(key, getattr(info, "default", None)))
-    for key in ("sd_model_checkpoint", "forge_additional_modules", "sd_vae"):
-        if key in data:
-            found[key] = _jsonable(data[key])
-    return found
-
-
-def _forge() -> str:
-    """Which Forge made it, and its version."""
-    try:
-        # Neo keeps Forge's own packages there; the original Forge does not.
-        neo = importlib.util.find_spec("modules_forge.packages") is not None
-    except ImportError:
-        neo = False
-    version = ""
-    try:
-        from modules import launch_utils
-        version = launch_utils.git_tag()
-    except Exception:
-        pass
-    # Neo's tag names it already - "neo 2.29" - which read "Forge Neo neo 2.29".
-    if neo and version.lower().startswith("neo"):
-        version = version[3:].strip()
-    return ("Forge Neo" if neo else "Forge") + (f" {version}" if version else "")
-
-
-def _parse_generation_parameters(infotext: str) -> Dict[str, Any]:
-    """Forge's own infotext parser - the one its paste uses."""
-    try:
-        from modules.infotext_utils import parse_generation_parameters
-    except ImportError:
-        from modules.generation_parameters_copypaste import parse_generation_parameters
-    return parse_generation_parameters(infotext)
-
-
 # An infotext's names for what a Civitai image's meta calls otherwise; the
 # gallery's cards and the NSFW rule read those.
 _META_NAMES = {"Prompt": "prompt", "Negative prompt": "negativePrompt", "Steps": "steps",
@@ -431,7 +380,7 @@ def infotext_meta(infotext: Optional[str], width: Optional[int] = None,
     """
     if not infotext:
         return {}
-    parsed = _parse_generation_parameters(infotext)
+    parsed = parse_generation_parameters(infotext)
     meta = {}
     for key, value in parsed.items():
         meta[_META_NAMES.get(key, key)] = value
@@ -440,17 +389,6 @@ def infotext_meta(infotext: Optional[str], width: Optional[int] = None,
     if "Size" not in meta and width and height:
         meta["Size"] = f"{width}x{height}"
     return meta
-
-
-def _main_infotext(p, first: Optional[str]) -> Optional[str]:
-    """The generation's infotext, as Forge writes it for a grid; the first
-    result's when Forge cannot say."""
-    try:
-        from modules import processing
-        return processing.create_infotext(p, p.all_prompts, p.all_seeds, p.all_subseeds,
-                                          use_main_prompt=True)
-    except Exception:
-        return first
 
 
 def _at(values: Any, index: int) -> Any:
@@ -510,7 +448,7 @@ def _write(p, processed, generation: _Generation) -> int:
     row.update({
         "created_at": generation.created_at,
         "mode": "img2img" if hasattr(p, "init_images") else "txt2img",
-        "forge": _forge(),
+        "forge": forge_name(),
         "n_iter": getattr(p, "n_iter", None),
         "batch_size": batch_size,
         "width": getattr(p, "width", None),
@@ -524,8 +462,8 @@ def _write(p, processed, generation: _Generation) -> int:
         "params": _params(p),
         "extra_params": _extra_params(p),
         "script_args": _script_args(p),
-        "settings": _settings(),
-        "infotext": _main_infotext(p, images[0]["infotext"]),
+        "settings": {key: _jsonable(value) for key, value in infotext_settings().items()},
+        "infotext": main_infotext(p, images[0]["infotext"]),
         "image_count": len(images),
         "prompt_nsfw_level": max(image["prompt_nsfw_level"] for image in images),
     })
