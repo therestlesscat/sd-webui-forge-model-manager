@@ -28,7 +28,7 @@ that kind. `runner_test.py` covers the rules.
 
 A page setting that waits or polls reads `TIMING` in `core.mjs`; a browser
 suite shortens them with `window.mmTiming` before loading the page, and waits
-for what it is waiting on (`window.mmSendSettled()`, a condition) rather than
+for what it is waiting on (`whenSendSettled()` in `send.mjs`, a condition) rather than
 for a fixed time. Node is needed for the JavaScript suites; one of them
 also wants a DOM:
 

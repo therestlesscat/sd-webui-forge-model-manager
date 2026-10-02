@@ -105,6 +105,7 @@ globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     const params = new URL(href, 'http://webui').searchParams;
+    if (href.includes('/send-plan')) return reply({ success: false });
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, gallery_hide_nsfw: true, hide_promptless_images: true });
     }
@@ -148,9 +149,20 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-// The Model Manager's paste, and its showing a file, which this tab calls.
+// Forge's generation tabs, which Send pastes into (shared/send.mjs): what
+// each paste carried, and where.
+document.body.insertAdjacentHTML('afterbegin', `
+    <div id="txt2img_prompt"><textarea></textarea></div>
+    <div id="txt2img_tools"><button id="paste"></button></div>
+    <div id="img2img_prompt"><textarea></textarea></div>
+    <div id="img2img_tools"><button id="paste"></button></div>`);
 const sent = [];
-provide('modelManager.sendInfotext', (what) => { sent.push(what); return true; });
+for (const mode of ['txt2img', 'img2img']) {
+    document.querySelector(`#${mode}_tools #paste`).addEventListener('click', () => {
+        sent.push({ infotext: document.querySelector(`#${mode}_prompt textarea`).value, mode });
+    });
+}
+// The Model Manager's showing a file, which this tab calls.
 const shownFiles = [];
 provide('modelManager.showFile', (path) => { shownFiles.push(path); });
 const shownVersions = [];
@@ -352,8 +364,9 @@ check('Esc closes it, and gives the page its scrolling back',
 await window.genView(1, 0);
 check('and it opens again with its details folded, as left', viewer()?.classList.contains('mm-viewer-collapsed'), true);
 click(viewer().querySelector('[data-panel]'));
+const sentBefore = sent.length;
 click(viewer().querySelector('[data-gen-send]'));
-await settle();
+await waitFor('the paste', () => sent.length > sentBefore);
 check('Send from the viewer sends that image, and closes it',
       [sent.at(-1)?.infotext.startsWith('prompt 21'), sent.at(-1)?.mode, viewer()], [true, 'img2img', null]);
 
@@ -373,7 +386,7 @@ check('a click on a batch opens it in a grid of its own: a tile for each of its 
 check('under a header with Back, the way here, and what it is',
       [!!document.querySelector('#gen_path button'), pathText().includes('Generations ›'),
        pathText().includes('4 images'), pathText().includes('anima.safetensors')], [true, true, true, true]);
-window.genSend(2);
+await window.genSend(2);
 check('Send on one of its images sends that image\'s own infotext, to its generation\'s tab',
       [sent.at(-1).infotext, sent.at(-1).mode], ['prompt 34\nSteps: 20, Seed: 1034', 'txt2img']);
 
@@ -402,9 +415,9 @@ await waitFor('the way back', () => pathText() === '');
 check('Esc goes back too, drawing the grid again as it was, without loading it',
       [tileIds(), asked.length], [['3g', '2', '1g'], loadsBefore]);
 
-window.genSend(0);
+await window.genSend(0);
 check('Send on a batch sends its first image\'s', sent.at(-1).infotext.startsWith('prompt 31'), true);
-window.genSend(1);
+await window.genSend(1);
 check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
 
 // ---------------------------------------------------------------- deleting

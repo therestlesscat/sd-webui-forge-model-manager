@@ -13,9 +13,8 @@
  * near. Only the NSFW switch applies; nothing is hidden here for its prompt.
  *
  * The server does the filtering, the grouping and the parts
- * (api/generations.browse_page). The paste into txt2img or img2img is the
- * Model Manager's (modelManager.sendInfotext, in shared/calls.mjs): it lives
- * in that tab's script, loaded with this.
+ * (api/generations.browse_page). The paste into txt2img or img2img is
+ * shared/send.mjs's, as the Model Manager's is.
  */
 
 // The shared modules, asked for with the version the server gives them: see
@@ -32,12 +31,14 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs', 'nsfw.mjs',
-    'your_generations.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs',
+    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'send.mjs', 'update_notice.mjs',
+    'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
+const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
@@ -682,12 +683,8 @@ window.genSend = async function(index) {
 };
 
 async function sendImage(tile, image) {
-    if (!ready('modelManager.sendInfotext')) {
-        console.error('[ModelManager] The Model Manager tab is not loaded; cannot send');
-        return;
-    }
-    if (!await call('modelManager.sendInfotext', { infotext: image.infotext, mode: tile.generation.mode,
-                                                   meta: image.meta, generationId: tile.generation.id })) {
+    if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
+                              generationId: tile.generation.id })) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
 }

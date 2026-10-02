@@ -256,3 +256,12 @@ export function setupLazyMedia(container) {
 
     lazyNodes.forEach((node) => lazyMediaObserver.observe(node));
 }
+
+/**
+ * A Civitai video's copy for Send to read its length and first frame from, a
+ * fixed 450 pixels wide whatever the screen: what Send used before cards
+ * were sized to it. A copy, not the upload: see sizedMediaUrl().
+ */
+export function videoCopyUrl(img) {
+    return sizedMediaUrl(img.url, { pixels: 450, type: img.type });
+}
