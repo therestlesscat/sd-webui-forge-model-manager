@@ -40,7 +40,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
-| `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
+| `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, Controlnet, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
 | `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
@@ -213,7 +213,10 @@ another type is moved to that type's folder (`_file_by_what_it_is`) - never
 over a file. Files already in another type's folder are listed in Scan Disk's
 dialog and moved only when its own box is ticked - never by a note's button,
 which ticks "Re-evaluate file headers" - with their row, pin and generations
-(`move_version`).
+(`move_version`). A Checkpoint is moved only when Forge's detector took it
+(`model_dirs.filed_as`): one known by its layer names alone is something
+UNet-shaped Forge did not take, which it could not load from Stable-diffusion
+either - a ControlNet was, and is now told first (#118).
 
 **`checkpointType` is inferred, not read.** Civitai accepts it as a filter and
 returns it on neither the model nor the version. `get_checkpoint_types()` asks
@@ -580,6 +583,14 @@ real time once.
   instead of the model payload (`storage.as_model_payload`).
 - **The file is the reliable witness.** Tensor names and shapes identified
   1,254 of a 1,262-file library; the rest were families Forge Neo cannot run.
+- **A rule measured on one library knows only what it holds.** That library
+  had no ControlNets, and its folder was not walked until 0.44.1: a ControlNet
+  - shaped like the UNet it steers, refused by Forge's checkpoint detector -
+  read as a bare diffusion model, and from 0.44.10 a download of one was
+  moved into Stable-diffusion (#118). Found by comparing the code before and
+  after the 0.44 round, not by any suite. Twelve of nineteen published
+  ControlNet-folder files were taken for checkpoints; their headers are now
+  a fixture (`tests/controlnet_headers.json.gz`).
 - **A model trained on a library forgives that library's mistakes.** Trained on every
   image, the NSFW prompt model raised 25 of the library's 33,730 PG/PG-13 images at the
   "2%" setting, not 670: it had learned the under-rated explicit ones as PG. Out-of-fold

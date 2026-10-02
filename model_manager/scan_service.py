@@ -15,7 +15,7 @@ from .db import get_models_db
 from .file_identity import identify
 from .identity_store import needs_check, store_architecture
 from .hashing import read_hashes
-from .model_dirs import file_modified, forget_gone, library_dirs, proper_place, relocate
+from .model_dirs import file_modified, filed_as, forget_gone, library_dirs, proper_place, relocate
 from .payload_rows import model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
@@ -35,7 +35,7 @@ def misplaced_files(db) -> List[Dict[str, Any]]:
     """
     found = []
     for row in db.files_with_types():
-        to = proper_place(row["file_path"], row["file_type"])
+        to = proper_place(row["file_path"], filed_as(row["file_type"], row["architecture_class"]))
         if not to:
             continue
         clash = None
