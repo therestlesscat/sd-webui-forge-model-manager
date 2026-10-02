@@ -68,6 +68,7 @@ version (see "The WebUI's rules"):
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
 | `notes` | notes to the user, at the top of each tab |
+| `jobs` | the long jobs, Sync with Civitai and Scan Disk: their dialogs, starting, following and cancelling one, and finding one still running; the Model Manager connects them to its status line and grid (`connectJobs`), a note's button opens them (`showSyncDialog`, `showScanDialog`) |
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |

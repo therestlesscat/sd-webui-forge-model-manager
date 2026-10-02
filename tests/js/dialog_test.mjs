@@ -228,7 +228,7 @@ const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: tr
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+const { showScanDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
 // linkedom has no readyState, so onReady() is waiting on the event rather
 // than its 100ms timer. Fire it, as a browser would.
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
@@ -542,7 +542,7 @@ await settle();
 check('ticked, the scan moves them', JSON.parse(posts[2]?.body || '{}'),
       { reread_headers: false, move_misplaced: true });
 for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
-call('modelManager.openScanDialog', { rereadHeaders: true });
+showScanDialog({ rereadHeaders: true });
 await settle();
 check('a note\'s button ticks "Re-evaluate file headers", never the move',
       [$('mm_scan_reread').checked, $('mm_scan_move').checked], [true, false]);

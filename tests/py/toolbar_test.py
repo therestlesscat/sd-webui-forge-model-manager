@@ -21,7 +21,9 @@ import sys
 
 UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_model_manager.py'), encoding='utf-8').read()
 CSS = io.open(os.path.join(ROOT, 'style.css'), encoding='utf-8').read()
-JS = io.open(os.path.join(ROOT, 'javascript/model_manager.mjs'), encoding='utf-8').read()
+# The Model Manager's page code: its script, and the jobs it connects (shared/jobs.mjs).
+JS = io.open(os.path.join(ROOT, 'javascript/model_manager.mjs'), encoding='utf-8').read() \
+    + io.open(os.path.join(ROOT, 'javascript/shared/jobs.mjs'), encoding='utf-8').read()
 
 fails = []
 def check(label, got, want=True):
