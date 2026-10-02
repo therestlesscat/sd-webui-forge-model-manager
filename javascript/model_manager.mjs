@@ -45,6 +45,7 @@ const { showTab } = await shared('tabs.mjs');
 const {
     showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
 } = await shared('ui_options.mjs');
+const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
     savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
@@ -182,7 +183,7 @@ let totalImageCount = 0;
 let hiddenImageCount = 0;
 
 // NSFW level order for "use max" mode
-const NSFW_LEVEL_ORDER = ['PG', 'PG-13', 'R', 'X', 'XXX', 'Blocked', 'Unknown'];
+const NSFW_LEVEL_ORDER = NSFW_LEVELS.map(([, name]) => name);
 
 // The checkbox asks to SHOW NSFW in the preview; the API asks for the LEAST
 // NSFW image to be used as the preview. Those are opposites, and the backend
@@ -1006,42 +1007,11 @@ function updateVersionInfo(version) {
     }
 }
 
-// NSFW level bitmask to string mapping
-const NSFW_LEVEL_BITS = {
-    1: 'PG',
-    2: 'PG-13',
-    4: 'R',
-    8: 'X',
-    16: 'XXX',
-    32: 'Blocked',
-    64: 'Unknown'
-};
-
-// Format NSFW level (now an integer bitmask) - returns highest set bit only
-function formatNsfwLevels(level) {
-    if (!level || typeof level !== 'number') return 'Unknown';
-
-    // Find highest set bit
-    const bitOrder = [64, 32, 16, 8, 4, 2, 1];
-    for (const bit of bitOrder) {
-        if (level & bit) {
-            return NSFW_LEVEL_BITS[bit] || 'Unknown';
-        }
-    }
-    return 'Unknown';
-}
-
 // Expand NSFW level bitmask to comma-separated labels (e.g., 5 -> "PG, R")
 function expandNsfwLevel(level) {
     if (!level || typeof level !== 'number') return 'Unknown';
 
-    const labels = [];
-    const bitOrder = [1, 2, 4, 8, 16, 32, 64];  // Low to high
-    for (const bit of bitOrder) {
-        if (level & bit) {
-            labels.push(NSFW_LEVEL_BITS[bit]);
-        }
-    }
+    const labels = NSFW_LEVELS.filter(([bit]) => level & bit).map(([, name]) => name);
     return labels.length > 0 ? labels.join(', ') : 'Unknown';
 }
 

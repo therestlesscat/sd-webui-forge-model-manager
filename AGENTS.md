@@ -70,7 +70,7 @@ version (see "The WebUI's rules"):
 | `notes` | notes to the user, at the top of each tab |
 | `jobs` | the long jobs, Sync with Civitai and Scan Disk: their dialogs, starting, following and cancelling one, and finding one still running; the Model Manager connects them to its status line and grid (`connectJobs`), a note's button opens them (`showSyncDialog`, `showScanDialog`) |
 | `update_notice` | "vX available" beside each tab's version |
-| `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate |
+| `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
 | `grid` | cards, the grid and its page strip, its rows kept even, and the card size the server gave a tab (`createCardSize`) |
 | `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text |
@@ -260,7 +260,9 @@ setting's default). Each found a second copy that had already begun to
 disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
 to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
 table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
-facade.
+facade. What the page must have before any answer could come - the NSFW
+levels, the setting keys it reads - it keeps a copy of, once (`nsfw.mjs`), and
+`page_constants_test.py` holds it to the server's (#86).
 
 ## The WebUI's rules, which are not obvious
 
