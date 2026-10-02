@@ -32,9 +32,9 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
-    'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs',
-    'settings.mjs'];
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs',
+    'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'image_card.mjs',
+    'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -56,14 +56,13 @@ const {
     renderModelGrid: renderSharedGrid,
 } = await shared('grid.mjs');
 const {
-    isVideoUrl, cardMediaUrl, originalMediaUrl, sizedMediaUrl, videoPosterUrl, viewerVideoUrl, mediaFallback,
-    mediaShape, IMAGE_PLACEHOLDER_SVG, galleryImageWidth, setupLazyMedia,
+    isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, galleryImageWidth, setupLazyMedia,
 } = await shared('media.mjs');
-const { nsfwImageLevel, isImageSafe, nsfwBadge } = await shared('nsfw.mjs');
-const { renderResource } = await shared('chips.mjs');
+const { nsfwImageLevel, isImageSafe } = await shared('nsfw.mjs');
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
+const { renderImageCard: sharedImageCard, showImageMeta } = await shared('image_card.mjs');
 const {
     showImageResources, resourceButtonLabel: resourcesLabel, learnResourceHashes,
 } = await shared('resources.mjs');
@@ -72,7 +71,7 @@ const {
 await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
-const { openViewer, cardSource, closeOnEscape, dialogShowing, viewerIsOpen } = await shared('viewer.mjs');
+const { openViewer, cardSource, dialogShowing, viewerIsOpen } = await shared('viewer.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
@@ -1231,162 +1230,16 @@ window.cbToggleShowPromptless = async function(checked) {
 // How wide the gallery draws a card's image, measured as each page is drawn.
 let galleryWidth = null;
 
-// Render single image card - EXACTLY like Model Manager
+// A Civitai image's card, as both tabs draw it (shared/image_card.mjs): this
+// tab's Show All and Resources - no Send here - and the version its gallery
+// is of.
+const IMAGE_ACTIONS = { send: null, showAll: 'cbShowImageMeta', resources: 'cbShowResources' };
 function renderImageCard(img, index) {
-    const src = img.url || '';
-
-    // Detect media type from URL or type field
-    const isVideo = isVideoUrl({ url: src, type: img.type });
-
-    const meta = img.meta || {};
-    const prompt = meta.prompt || '';
-    const negPrompt = meta.negativePrompt || '';
-    const resources = meta.resources || [];
-    const resourcesLabel = resourceButtonLabel(img);
-
-    // Split sampler if it contains scheduler
-    let displaySampler = meta.sampler;
-    let displayScheduler = meta['Schedule type'];
-
-    if (!displayScheduler && displaySampler) {
-        const split = splitSamplerScheduler(displaySampler);
-        displaySampler = split.sampler;
-        displayScheduler = split.scheduler;
-    }
-
-    // Get size
-    let sizeStr = meta.Size;
-    if (!sizeStr && img.width && img.height) {
-        sizeStr = `${img.width}x${img.height}`;
-    }
-    if (!sizeStr && meta.width && meta.height) {
-        sizeStr = `${meta.width}x${meta.height}`;
-    }
-
-    // Build generation params string
-    const genParams = [];
-    if (meta.steps) genParams.push(`Steps: ${meta.steps}`);
-    if (displaySampler) genParams.push(`Sampler: ${displaySampler}`);
-    if (displayScheduler) genParams.push(`Scheduler: ${displayScheduler}`);
-    if (meta.cfgScale) genParams.push(`CFG: ${meta.cfgScale}`);
-    if (meta.seed) genParams.push(`Seed: ${meta.seed}`);
-    if (meta.VAE) genParams.push(`VAE: ${meta.VAE}`);
-    if (meta['Clip skip']) genParams.push(`Clip Skip: ${meta['Clip skip']}`);
-    if (meta['Denoising strength']) genParams.push(`Denoise: ${meta['Denoising strength']}`);
-    if (sizeStr) genParams.push(`Size: ${sizeStr}`);
-
-    // Hires info
-    const hiresParams = [];
-    if (meta['Hires upscaler']) hiresParams.push(`Upscaler: ${meta['Hires upscaler']}`);
-    if (meta['Hires upscale']) hiresParams.push(`Scale: ${meta['Hires upscale']}`);
-    if (meta['Hires steps']) hiresParams.push(`Steps: ${meta['Hires steps']}`);
-
-    // ADetailer info
-    const adetailerParams = [];
-    if (meta['ADetailer model']) adetailerParams.push(`Model: ${meta['ADetailer model']}`);
-    if (meta['ADetailer confidence']) adetailerParams.push(`Conf: ${meta['ADetailer confidence']}`);
-    if (meta['ADetailer dilate erode']) adetailerParams.push(`Dilate: ${meta['ADetailer dilate erode']}`);
-    if (meta['ADetailer mask blur']) adetailerParams.push(`Blur: ${meta['ADetailer mask blur']}`);
-    if (meta['ADetailer denoising strength']) adetailerParams.push(`Denoise: ${meta['ADetailer denoising strength']}`);
-
-    // Image ID
-    const imageIdHtml = img.id
-        ? `<div class="mm-image-id">
-             <span class="mm-resources-label">Image ID:</span>
-             <span>${img.id}</span>
-           </div>`
-        : '';
-
-    // Resources (LoRAs, etc)
-    const resourcesHtml = resources.length > 0
-        ? `<div class="mm-image-resources">
-             <span class="mm-resources-label">Resources:</span>
-             ${resources.map(r => renderResource(r)).join('')}
-           </div>`
-        : '';
-
-    // Prompt (truncated)
-    const promptShort = prompt.length > 300 ? prompt.substring(0, 300) + '...' : prompt;
-    const promptHtml = prompt
-        ? `<div class="mm-image-prompt">
-             <span class="mm-prompt-label">Prompt:</span>
-             <span class="mm-prompt-text" title="${escapeHtml(prompt)}">${escapeHtml(promptShort)}</span>
-           </div>`
-        : '';
-
-    // Negative prompt (truncated)
-    const negPromptShort = negPrompt.length > 150 ? negPrompt.substring(0, 150) + '...' : negPrompt;
-    const negPromptHtml = negPrompt
-        ? `<div class="mm-image-neg-prompt">
-             <span class="mm-prompt-label">Negative:</span>
-             <span class="mm-prompt-text" title="${escapeHtml(negPrompt)}">${escapeHtml(negPromptShort)}</span>
-           </div>`
-        : '';
-
-    // Generation params
-    const genParamsHtml = genParams.length > 0
-        ? `<div class="mm-image-params">${genParams.join(' | ')}</div>`
-        : '';
-
-    // Hires params
-    const hiresHtml = hiresParams.length > 0
-        ? `<div class="mm-image-hires">Hires: ${hiresParams.join(', ')}</div>`
-        : '';
-
-    // ADetailer params
-    const adetailerHtml = adetailerParams.length > 0
-        ? `<div class="mm-image-adetailer">ADetailer: ${adetailerParams.join(', ')}</div>`
-        : '';
-
-    const nsfwLevel = nsfwBadge(img);
-
-    // Render media element (image or video)
-    // A copy the size the card draws it, not the upload; a click opens the upload.
-    const shown = sizedMediaUrl(src, { cssWidth: galleryWidth, originalWidth: img.width, type: img.type });
-    // A click opens the viewer (shared/viewer.mjs) - on a video, its ⤢, as a
-    // click on the video plays it.
-    const mediaHtml = isVideo
-        ? `<video data-src="${escapeHtml(shown)}" data-poster="${escapeHtml(videoPosterUrl(src))}"
-                  class="mm-lazy-media" preload="none" controls loop muted ${mediaShape(img)}
-                  ${mediaFallback(originalMediaUrl(src))}
-                  onclick="event.stopPropagation()"
-                  title="Click to play"></video>
-           <button type="button" class="mm-view-btn" data-view-index="${index}" title="Open in the viewer">⤢</button>`
-        : `<img data-src="${escapeHtml(shown || IMAGE_PLACEHOLDER_SVG)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Example image" loading="lazy"
-                ${mediaShape(img)} ${mediaFallback(originalMediaUrl(src), IMAGE_PLACEHOLDER_SVG)}
-                ${src ? `data-view-index="${index}"` : ''}
-                title="Click to view">`;
-
-    return `
-        <div class="mm-image-card" data-index="${index}">
-            <div class="mm-image-left" data-viewer-url="${escapeHtml(src ? originalMediaUrl(src) : '')}"
-                 data-viewer-video="${isVideo}" data-viewer-width="${Number(img.width) || ''}"
-                 data-viewer-height="${Number(img.height) || ''}">
-                ${mediaHtml}
-                ${nsfwLevel ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
-            </div>
-            <div class="mm-image-right">
-                ${imageIdHtml}
-                ${resourcesHtml}
-                ${promptHtml}
-                ${negPromptHtml}
-                ${genParamsHtml}
-                ${hiresHtml}
-                ${adetailerHtml}
-                <div class="mm-image-actions">
-                    <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
-                        Copy Prompt
-                    </button>
-                    <button class="mm-btn secondary" onclick="window.cbShowImageMeta(${index})">
-                        Show All
-                    </button>
-                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
-                    ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" onclick="window.cbShowResources(${index})">${resourcesLabel}</button>` : ''}
-                </div>
-            </div>
-        </div>
-    `;
+    return sharedImageCard(img, index, { width: galleryWidth, exclude: galleryVersionId(), actions: IMAGE_ACTIONS });
 }
+
+// Show All, the same window in both tabs.
+window.cbShowImageMeta = (index) => showImageMeta(currentImages[index]);
 
 // A card's image, or a video's ⤢, opens the viewer on the card as it is -
 // its file large, its buttons below, its text beside (shared/viewer.mjs) -
@@ -1407,53 +1260,7 @@ document.addEventListener('click', (event) => {
     }), at);
 });
 
-// Split sampler/scheduler if combined
-function splitSamplerScheduler(sampler) {
-    if (!sampler) return { sampler: '', scheduler: '' };
 
-    const schedulers = ['Karras', 'Exponential', 'SGM Uniform', 'Simple', 'Normal', 'Beta'];
-    for (const sched of schedulers) {
-        if (sampler.includes(sched)) {
-            return {
-                sampler: sampler.replace(sched, '').trim(),
-                scheduler: sched
-            };
-        }
-    }
-    return { sampler, scheduler: '' };
-}
-
-// Show image metadata modal
-window.cbShowImageMeta = function(index) {
-    const img = currentImages[index];
-    if (!img) return;
-
-    const meta = img.meta || {};
-    const metaStr = JSON.stringify(meta, null, 2);
-
-    // Create modal
-    document.getElementById('cb_meta_modal')?.remove();
-    const modal = document.createElement('div');
-    modal.className = 'mm-modal-overlay';
-    modal.id = 'cb_meta_modal';
-    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-    modal.innerHTML = `
-        <div class="mm-modal">
-            <div class="mm-modal-header">
-                <h3>Image Metadata</h3>
-                <button class="mm-modal-close" onclick="this.closest('.mm-modal-overlay').remove()">×</button>
-            </div>
-            <div class="mm-modal-body">
-                <pre class="mm-meta-content">${escapeHtml(metaStr)}</pre>
-            </div>
-            <div class="mm-modal-footer">
-                <button class="mm-btn secondary" data-copy="${escapeHtml(metaStr)}">Copy JSON</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    closeOnEscape(modal, () => modal.remove());
-};
 
 // ------------------------------------------------------------ resources
 // The Model Manager's Resources, for these images too: the same dialog, the
