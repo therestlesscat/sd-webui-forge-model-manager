@@ -77,7 +77,7 @@ version (see "The WebUI's rules"):
 | `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
 | `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
-| `your_generations` | selecting your images to delete, and rating one |
+| `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
 | `downloads` | a version's Download button, and the downloads panel both tabs show |
 | `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |

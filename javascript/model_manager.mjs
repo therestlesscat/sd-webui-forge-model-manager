@@ -33,7 +33,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
-    'your_generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'send.mjs',
+    'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'send.mjs',
     'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
@@ -56,13 +56,13 @@ const {
     renderModelGrid: renderSharedGrid,
 } = await shared('grid.mjs');
 const {
-    isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, mediaFallback, IMAGE_PLACEHOLDER_SVG,
-    galleryImageWidth, setupLazyMedia,
+    isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, IMAGE_PLACEHOLDER_SVG, galleryImageWidth,
+    setupLazyMedia,
 } = await shared('media.mjs');
-const { nsfwBadgeLabel } = await shared('nsfw.mjs');
 const {
     selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport, ratingRowHtml,
-} = await shared('your_generations.mjs');
+    generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
+} = await shared('generations.mjs');
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
@@ -2064,8 +2064,7 @@ document.addEventListener('click', (event) => {
     if (!box) return;
     const index = generationCards.findIndex((card) => card.id === Number(box.dataset.mmPick));
     if (index < 0) return;
-    const range = event.shiftKey && lastPickedCard >= 0
-        ? [Math.min(lastPickedCard, index), Math.max(lastPickedCard, index)] : [index, index];
+    const range = pickRange(lastPickedCard, index, event.shiftKey);
     for (let i = range[0]; i <= range[1]; i++) {
         if (box.checked) pickedGenerations.add(generationCards[i].id);
         else pickedGenerations.delete(generationCards[i].id);
@@ -2132,20 +2131,8 @@ window.mmRateGeneration = async function(id, value, imageId = null) {
                      hide_promptless_images: hidePromptlessImages };
     if (image) fields.image_id = image.id;
     else Object.assign(fields, { path: currentModelPath, generation: card.id });
-    let answer;
-    try {
-        const response = await fetch('/model-manager/generations/rate', {
-            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams(Object.entries(fields).map(([k, v]) => [k, String(v)])).toString(),
-        });
-        answer = await response.json();
-    } catch (error) {
-        answer = { success: false, error: error.message };
-    }
-    if (!answer?.success) {
-        setStatus('Could not rate: ' + (answer?.error || 'no answer'), true);
-        return;
-    }
+    const answer = await requestRating(fields, (message) => setStatus(message, true));
+    if (!answer) return;
     if (!image) {
         // Every image of the card may have changed: the list again, where it was.
         const y = window.scrollY || document.documentElement.scrollTop || 0;
@@ -2409,21 +2396,6 @@ function generationsFooterHtml() {
            </div>`;
 }
 
-/** One generated image: opens full size in a new tab, or says its file is gone. */
-function generationImageHtml(img) {
-    const url = new URL(img.url, window.location.origin).href;
-    const level = nsfwBadgeLabel(img, 'Unknown');
-    const badge = level !== 'PG' && level !== 'Unknown' && level !== 'None'
-        ? `<span class="mm-nsfw-badge">${escapeHtml(level)}</span>` : '';
-    const image = img.exists
-        ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
-                ${mediaFallback('', IMAGE_PLACEHOLDER_SVG)}
-                data-view-generation-image="${Number(img.id)}" title="Click to view">`
-        : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
-                title="Image unavailable: its file is no longer where it was saved">`;
-    return `<div class="mm-generation-tile">${image}${badge}</div>`;
-}
-
 // ------------------------------------------------------------- the viewer
 // A card's image opens the shared viewer (shared/viewer.mjs). On the Civitai
 // images, it shows the card's own buttons and text (cardSource); on your
@@ -2535,20 +2507,7 @@ async function deleteGenerationImage(card, image) {
     const index = viewerIndex();
     const answer = await askToDelete('Delete this image?', 1);
     if (!answer) return;
-    try {
-        const response = await fetch(`/model-manager/generations/images/${Number(image.id)}/delete`, {
-            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `delete_files=${answer.withFiles}`,
-        });
-        const data = await response.json();
-        if (!data.success) {
-            setStatus('Delete failed: ' + (data.error || 'unknown error'), true);
-            return;
-        }
-    } catch (error) {
-        setStatus('Delete failed: ' + error.message, true);
-        return;
-    }
+    if (!await requestImageDelete(image.id, answer.withFiles, (message) => setStatus(message, true))) return;
     for (const key of ['images', 'all']) {
         if (card[key]) card[key] = card[key].filter((i) => Number(i.id) !== Number(image.id));
     }
@@ -2598,7 +2557,7 @@ function renderGenerationCard(card, index) {
                 ${selectingGenerations ? `<label class="mm-select-tick" title="Select">
                     <input type="checkbox" data-mm-pick="${Number(card.id)}" ${pickedGenerations.has(card.id) ? 'checked' : ''}></label>` : ''}
                 <div class="mm-generation-preview mm-generation-preview-${Math.min(preview.length, 4)}">
-                    ${preview.map(generationImageHtml).join('')}
+                    ${preview.map((img) => generationImageHtml(img, { viewable: true })).join('')}
                 </div>
                 ${rateGenerations ? ratingRowHtml(card.matching_count <= 1 ? first : card,
                                                   `window.mmRateGeneration(${Number(card.id)}, %)`) : ''}
@@ -2623,9 +2582,9 @@ function renderGenerationCard(card, index) {
                     </span>
                 </div>
                 ${card.all ? `<div class="mm-generation-all">${card.all.map((img) => rateGenerations
-                    ? `<div class="mm-generation-rated">${generationImageHtml(img)}${ratingRowHtml(img,
+                    ? `<div class="mm-generation-rated">${generationImageHtml(img, { viewable: true })}${ratingRowHtml(img,
                         `window.mmRateGeneration(${Number(card.id)}, %, ${Number(img.id)})`)}</div>`
-                    : generationImageHtml(img)).join('')}</div>` : ''}
+                    : generationImageHtml(img, { viewable: true })).join('')}</div>` : ''}
             </div>
         </div>`;
 }
@@ -2687,27 +2646,15 @@ window.mmDeleteGeneration = async function(id) {
           + `Its ${n} image file${n === 1 ? ' stays' : 's stay'} on disk; only the record goes, `
           + 'from this gallery and from those of the other models it used.');
     if (!confirmed) return;
-    try {
-        const response = await fetch(`/model-manager/generations/${card.id}/delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `delete_files=${withFiles}`,
-        });
-        const data = await response.json();
-        if (!data.success) {
-            setStatus('Delete failed: ' + (data.error || 'unknown error'), true);
-            return;
-        }
-        const failed = data.failed || [];
-        setStatus(withFiles
-            ? `Deleted the generation and ${data.deleted_files} image file${data.deleted_files === 1 ? '' : 's'}`
-              + (failed.length ? `; ${failed.length} could not be deleted` : '')
-            : 'Deleted the generation\'s record; its image files are still on disk', failed.length > 0);
-        removeGenerationCard(card.id);
-        await refreshGenerationTotals();
-    } catch (error) {
-        setStatus('Delete failed: ' + error.message, true);
-    }
+    const data = await requestGenerationDelete(card.id, withFiles, (message) => setStatus(message, true));
+    if (!data) return;
+    const failed = data.failed || [];
+    setStatus(withFiles
+        ? `Deleted the generation and ${data.deleted_files} image file${data.deleted_files === 1 ? '' : 's'}`
+          + (failed.length ? `; ${failed.length} could not be deleted` : '')
+        : 'Deleted the generation\'s record; its image files are still on disk', failed.length > 0);
+    removeGenerationCard(card.id);
+    await refreshGenerationTotals();
 };
 
 
