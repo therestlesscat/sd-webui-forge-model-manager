@@ -32,6 +32,7 @@ except ImportError:
     print('fastapi or gradio is not installed; run this with the WebUI\'s python')
     sys.exit(0)
 
+import model_manager.file_identity as fi                 # noqa: E402
 import model_manager.forge_modules as fm                 # noqa: E402
 
 fails = []
@@ -109,7 +110,7 @@ check('in the original Forge, whose presets are sd, xl, flux and all, only Flux 
 
 # ------------------------------------------------------------ the endpoint
 fm.installed_modules = lambda: {label: 'C:/models/' + label for label in INSTALLED}
-fm.classify_file = lambda path: INSTALLED[os.path.basename(path)]
+fi.classify_file = lambda path: INSTALLED[os.path.basename(path)]
 fm.available_presets = lambda: ['sd', 'xl', 'flux', 'zit']
 
 from modules import shared                               # noqa: E402

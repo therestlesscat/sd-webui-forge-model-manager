@@ -12,8 +12,8 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import get_models_db
-from .architecture import needs_check, store_architecture
 from .file_identity import identify
+from .identity_store import needs_check, store_architecture
 from .hashing import read_hashes
 from .model_dirs import file_modified, gone_from_disk, library_dirs, proper_place, relocate
 from .payload_rows import model_row, version_row

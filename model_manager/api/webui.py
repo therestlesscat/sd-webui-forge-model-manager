@@ -83,8 +83,9 @@ def register(app: FastAPI):
             otherwise reads as a send that failed.
         """
         from ..db import get_models_db
-        from ..forge_modules import (CLASS_FOR_PRESET, NEEDS, classify_file, installed_modules,
-                                     match_vae, pick, preferred_modules, saved_modules)
+        from ..file_identity import classify_file
+        from ..forge_modules import (CLASS_FOR_PRESET, NEEDS, installed_modules, match_vae, pick,
+                                     preferred_modules, saved_modules)
         from ..send_plan import SendModel, plan_model
 
         try:

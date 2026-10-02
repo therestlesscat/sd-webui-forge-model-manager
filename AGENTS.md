@@ -38,7 +38,8 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
-| `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors |
+| `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
+| `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for |
@@ -501,6 +502,11 @@ real time once.
 
 ### The code
 
+- **An import inside a function hides a cycle; it does not break it.**
+  `architecture` imported `file_identity` that way while `file_identity`
+  imported it at the top: one moved line from failing at startup. The cut was
+  in the wrong place - the database part sat in the header reader - and
+  `tests/tools/check_import_cycles.py` now counts every import, wherever it is.
 - **A fallback can hide a bug.** The folder-path type guess masked a sidecar
   format read wrongly and a scan that died on one bad file.
 - **Delete what is gone, not what was not seen.** Scan Disk once forgot every

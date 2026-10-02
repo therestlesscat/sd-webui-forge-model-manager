@@ -95,6 +95,7 @@ is close to a browser and not one:
 | `check_python_references.py` | relative imports name real attributes; facade methods exist with matching arity; call sites fit the signatures they call |
 | `check_js_references.mjs` | every imported and destructured name is exported; every called name is declared; no `window.*` read but never assigned |
 | `check_api_contract.py` | the parameters the browser sends are the ones the endpoints declare, both directions |
+| `check_import_cycles.py` | the extension's package imports without a cycle, counting imports inside functions |
 
 **Suites** (`py/`, `js/`) cover, roughly: hashing and its one-read guarantee;
 the no-clobber rule on both tables; what a sync may and may not delete;

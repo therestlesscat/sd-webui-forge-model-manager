@@ -214,8 +214,9 @@ def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     the settings - or, for a preset in `drafts`, the text the window holds.
     """
     from modules import shared
-    from ..forge_modules import (SETTING_PREFIX, available_presets, classify_file,
-                                 describe_presets, installed_modules)
+    from ..file_identity import classify_file
+    from ..forge_modules import (SETTING_PREFIX, available_presets, describe_presets,
+                                 installed_modules)
     modules = {label: classify_file(path) for label, path in installed_modules().items()}
     texts = {}
     for key, _ in _ours():

@@ -33,7 +33,9 @@ webui_stub.install()
 import fixtures                                          # noqa: E402
 import model_manager.architecture as arch                # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+import model_manager.identity_store as store             # noqa: E402
 import model_manager.scan_service as scan_module         # noqa: E402
+from model_manager.model_dirs import file_modified       # noqa: E402
 import model_manager.sync_service as sync_module         # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'architecture')
@@ -146,35 +148,34 @@ check('and to none when Forge Neo has no preset for it',
 # ------------------------------------------------------ when files are read
 path = facts['linked_paths'][0]
 reads = []
-import model_manager.file_identity as identity_module       # noqa: E402
-real_detect = identity_module.identify
-identity_module.identify = lambda p, guess=None: reads.append(p) or arch.Architecture('xl', 'SDXL', True, True)
+real_detect = store.identify
+store.identify = lambda p, guess=None: reads.append(p) or arch.Architecture('xl', 'SDXL', True, True)
 try:
-    check('a file never read is read', arch.record_architecture(db, path).preset, 'xl')
+    check('a file never read is read', store.record_architecture(db, path).preset, 'xl')
     row = db.get_version(path)
     check('and what it said is stored, with Forge\'s class, the file\'s type, and when',
           (row['architecture'], row['architecture_class'], row['bundled_text_encoder'],
-           row['bundled_vae'], row['file_type'], row['architecture_checked'] == arch.file_modified(path)),
+           row['bundled_vae'], row['file_type'], row['architecture_checked'] == file_modified(path)),
           ('xl', 'SDXL', True, True, 'Checkpoint', True))
     check('an unchanged file is not read again',
-          (arch.record_architecture(db, path), len(reads)), (None, 1))
+          (store.record_architecture(db, path), len(reads)), (None, 1))
     check('unless forced - a forced sync or a download',
-          (arch.record_architecture(db, path, force=True).preset, len(reads)), ('xl', 2))
+          (store.record_architecture(db, path, force=True).preset, len(reads)), ('xl', 2))
     time.sleep(0.05)
     os.utime(path, None)
-    arch.record_architecture(db, path)
+    store.record_architecture(db, path)
     check('a file that has changed is read again', len(reads), 3)
 
-    identity_module.identify = lambda p, guess=None: reads.append(p) or \
+    store.identify = lambda p, guess=None: reads.append(p) or \
         arch.Architecture(None, None, False, False, 'LORA', 'no layer names this knows')
     other = facts['linked_paths'][1]
-    arch.record_architecture(db, other)
+    store.record_architecture(db, other)
     row = db.get_version(other)
     check('a file whose model cannot be told is stored as none, so it is not read again',
           (row['architecture'], row['file_type'], row['architecture_checked'] is not None,
-           arch.record_architecture(db, other)), (None, 'LORA', True, None))
+           store.record_architecture(db, other)), (None, 'LORA', True, None))
 finally:
-    identity_module.identify = real_detect
+    store.identify = real_detect
 
 # ---------------------------------------------------------------- Scan Disk
 # GGUF checkpoints (quantized Flux, Wan, Z-Image) were never indexed at all.
@@ -259,11 +260,11 @@ finally:
 # anyway - after an update that tells more kinds of file apart, a file read
 # before it would otherwise keep its old type until it changed on disk.
 read_path = facts['linked_paths'][0]
-modified = arch.file_modified(read_path)
-arch.store_architecture(db, read_path, None, modified)
+modified = file_modified(read_path)
+store.store_architecture(db, read_path, None, modified)
 check('a file already read at its modified time is not read again',
-      arch.needs_check(db, read_path), None)
-check('unless every header is to be read again', arch.needs_check(db, read_path, force=True), modified)
+      store.needs_check(db, read_path), None)
+check('unless every header is to be read again', store.needs_check(db, read_path, force=True), modified)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

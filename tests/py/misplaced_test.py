@@ -26,7 +26,9 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from modules import paths                                # noqa: E402  (webui_stub's)
 from model_manager import model_dirs                     # noqa: E402
-from model_manager.architecture import Architecture, file_modified, store_architecture  # noqa: E402
+from model_manager.architecture import Architecture     # noqa: E402
+from model_manager.identity_store import store_architecture  # noqa: E402
+from model_manager.model_dirs import file_modified      # noqa: E402
 from model_manager.scan_service import ScanService, misplaced_files  # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'misplaced')

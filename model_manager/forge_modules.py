@@ -8,31 +8,31 @@ looks up what the model's architecture needs (NEEDS, from Forge's own model
 classes), leaves out what the file bundles (architecture.py), and finds the
 rest among the modules Forge offers in its "VAE / Text Encoder" control.
 
-Those are told apart by what they are, not by name. A text encoder by its
-token embedding - vocabulary by width - and whether it has a vision tower;
-a VAE by its latent channels, or the Wan-style layout Qwen-Image's uses.
-The files named for a preset in the extension's settings come first, then
-Forge's saved choice for the preset - each only when it is the right kind:
-on the library this was written against, the "sd" preset held the Flux
-modules and the "qwen" preset held Z-Image's text encoder. Otherwise the
-finest weights win, which is not always what a machine can load: a person
-with less memory names the fp8 file in the settings.
+Those are told apart by what they are, not by name (file_identity.classify):
+a text encoder by its token embedding - vocabulary by width - and whether it
+has a vision tower; a VAE by its latent channels, or the Wan-style layout
+Qwen-Image's uses. The files named for a preset in the extension's settings
+come first, then Forge's saved choice for the preset - each only when it is
+the right kind: on the library this was written against, the "sd" preset
+held the Flux modules and the "qwen" preset held Z-Image's text encoder.
+Otherwise the finest weights win, which is not always what a machine can
+load: a person with less memory names the fp8 file in the settings.
 
 Nothing here asks for Forge's modules by import at load time, so the rest of
 the extension, and its tests, work without them.
 """
 import os
-import threading
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
-from .architecture import PRESET_BY_CLASS, read_shapes
+from .architecture import PRESET_BY_CLASS
 
 HF = "https://huggingface.co/"
 
 
 class ModuleFile(NamedTuple):
-    """A text encoder or VAE a model needs: its kind, as classify() names
-    it, what to call it, and where to get it - (name, Hugging Face path)."""
+    """A text encoder or VAE a model needs: its kind, as
+    file_identity.classify() names it, what to call it, and where to get
+    it - (name, Hugging Face path)."""
     kind: str
     label: str
     links: Tuple[Tuple[str, str], ...]
@@ -41,8 +41,8 @@ class ModuleFile(NamedTuple):
 # The files models need. A kind is a shape, and two files of one shape are
 # not always one file: Wan's VAE and Qwen-Image's share a layout, and PiD's
 # Gemma is Lumina's, instruction-tuned. So a model's needs are named by file,
-# and classify(), which sees only shapes, matches them by kind. The links are
-# from Forge Neo's Download Models page.
+# and file_identity.classify(), which sees only shapes, matches them by kind.
+# The links are from Forge Neo's Download Models page.
 _KLEIN = "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/"
 _WAN = "Comfy-Org/Wan_2.1_ComfyUI_repackaged/blob/main/split_files/"
 _QWEN = "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/"
@@ -166,104 +166,6 @@ NAME_HINTS = {
     "anima": ("qwen", "anima"), "flux": ("ae", "flux"), "zit": ("ae", "flux"),
     "lumina": ("ae", "flux"), "klein": ("flux2", "klein"), "ernie": ("flux2",),
 }
-
-# A text encoder's token embedding, (vocabulary, width), and whether it has a
-# vision tower -> its kind.
-_EMBEDDINGS = {
-    (49408, 768, False): "clip_l",
-    (49408, 1280, False): "clip_g",
-    (32128, 4096, False): "t5xxl",
-    (256384, 4096, False): "umt5xxl",
-    (151936, 1024, False): "qwen3_06b",
-    (151936, 2560, False): "qwen3_4b",
-    (151936, 2560, True): "qwen3vl_4b",
-    (151936, 4096, False): "qwen3_8b",
-    (152064, 3584, False): "qwen25_7b",
-    (152064, 3584, True): "qwen25_7b",
-    (256000, 2304, False): "gemma2_2b",
-    (131072, 3072, False): "ministral3_3b",
-}
-_EMBEDDING_NAMES = ("embed_tokens.weight", "token_embedding.weight", "shared.weight",
-                    "token_embd.weight")
-
-# The keys Forge's loader looks for before taking a file as T5 or UMT5
-# (backend/loader.py replace_state_dict): Hugging Face's layout, plain or
-# quantized. The same encoder saved in Wan's own layout (blocks.N.attn.q,
-# a top-level token_embedding) has the right shape and is not loaded.
-_T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
-                "encoder.block.0.layer.0.SelfAttention.k.qweight")
-
-# A VAE's latent channels, from its decoder's first convolution -> its kind.
-_LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
-
-
-def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
-             loadable_only: bool = True) -> Optional[str]:
-    """
-    What kind of module a file is, from its tensor shapes - or None.
-
-    A whole checkpoint is None: Forge lists files in its VAE folder as
-    modules whatever they are, and a checkpoint loaded as one is not a VAE.
-    `loadable_only=False` names a T5 or UMT5 even in a layout Forge cannot
-    load - it is still a text encoder, just not one to pick.
-    """
-    names = list(shapes)
-    if any(n.startswith(("model.diffusion_model.", "first_stage_model.", "conditioner."))
-           for n in names):
-        return None
-
-    vision = any("visual" in n or "vision" in n for n in names)
-    for name in names:
-        if name.endswith(_EMBEDDING_NAMES):
-            shape = shapes[name][0]
-            if len(shape) == 2:
-                kind = _EMBEDDINGS.get((shape[0], shape[1], vision)) \
-                    or _EMBEDDINGS.get((shape[0], shape[1], False))
-                if kind in ("t5xxl", "umt5xxl") and loadable_only \
-                        and not any(k in shapes for k in _T5_LOADABLE):
-                    return None         # right encoder, in a layout Forge cannot load
-                if kind:
-                    return kind
-
-    conv_in = shapes.get("decoder.conv_in.weight")
-    if conv_in and len(conv_in[0]) == 4:
-        return _LATENT_CHANNELS.get(conv_in[0][1])
-    if "decoder.middle.0.residual.0.gamma" in shapes:
-        return "vae_wan21"
-    return None
-
-
-def _precision(path: str, shapes) -> int:
-    """How faithful a file's weights are: full or half beats fp8 beats GGUF."""
-    if path.lower().endswith(".gguf"):
-        return 0
-    kinds = {kind for _, kind in shapes.values()}
-    if kinds & {"F16", "BF16", "F32"} and not any(k.startswith("F8") for k in kinds):
-        return 2
-    return 1
-
-
-# Classified module files: path -> (modified time, kind, precision). A module
-# folder is read once, then only what has changed.
-_classified: Dict[str, Tuple[float, Optional[str], int]] = {}
-_lock = threading.Lock()
-
-
-def classify_file(path: str) -> Tuple[Optional[str], int]:
-    """(kind, precision) of a module file, remembered until it changes."""
-    try:
-        modified = os.path.getmtime(path)
-    except OSError:
-        return None, 0
-    with _lock:
-        known = _classified.get(path)
-    if known and known[0] == modified:
-        return known[1], known[2]
-    shapes = read_shapes(path) or {}
-    result = (classify(shapes) if shapes else None, _precision(path, shapes) if shapes else 0)
-    with _lock:
-        _classified[path] = (modified, *result)
-    return result
 
 
 def installed_modules() -> Dict[str, str]:
