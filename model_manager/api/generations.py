@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
 from ..db import get_models_db
 from ..nsfw import PG, SFW_MAX, user_level
-from ..gallery import gallery_page_size
+from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
 
 # The images a card shows before "Show images".
@@ -37,29 +37,12 @@ def generations_hide_nsfw() -> bool:
 
 def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,
               hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """
-    The images the switches let through, and the counts the banner states -
-    meaning what ImagesOps.get_image_counts() means by each, so the banner
-    reads the same in both tabs.
-    """
-    safe = [r["level"] is not None and r["level"] <= SFW_MAX for r in rows]
-    readable = [r["prompt_length"] >= MIN_PROMPT_LENGTH for r in rows]
-    nsfw_kept = [i for i in range(len(rows)) if safe[i] or not hide_nsfw]
-    shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
-    both = sum(1 for i in range(len(rows))
-               if hide_nsfw and hide_promptless and not safe[i] and not readable[i])
-    return [rows[i] for i in shown], {
-        "total": len(rows),
-        "filtered": len(shown),
-        "hidden_nsfw": len(rows) - len(nsfw_kept) - both,
-        "hidden_both": both,
-        "hidden_promptless": len(nsfw_kept) - len(shown),
-        "hidden": len(rows) - len(shown),
-        "nsfw_count": sum(1 for i in range(len(rows))
-                          if not safe[i] and (readable[i] or not hide_promptless)),
-        "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
-        "promptless_total": sum(1 for r in readable if not r),
-    }
+    """Your generations through the switches: their stored level, their prompt's length."""
+    return switch_counts(
+        rows,
+        [r["level"] is not None and r["level"] <= SFW_MAX for r in rows],
+        [r["prompt_length"] >= MIN_PROMPT_LENGTH for r in rows],
+        hide_nsfw, hide_promptless)
 
 
 def _hash_list(value: Any) -> Dict[str, str]:
