@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List, Dict, Any, Tuple
 from urllib.parse import quote
 
+from ..forge_host import setting
+
 
 class CivitaiAPIError(Exception):
     """Base exception for Civitai API errors."""
@@ -132,12 +134,7 @@ def api_key_from_settings() -> Optional[str]:
     or a newline around it; the download header, which read it separately,
     sent it as pasted.
     """
-    try:
-        from modules import shared
-        key = str(getattr(shared.opts, 'model_manager_civitai_api_key', '') or '').strip()
-    except Exception as e:
-        print(f"[ModelManager] Error reading API key from settings: {e}")
-        return None
+    key = str(setting('model_manager_civitai_api_key') or '').strip()
     return key or None
 
 
@@ -219,11 +216,10 @@ class CivitaiClient:
         api_key = api_key_from_settings()
         rate = None
         try:
-            from modules import shared
-            configured = getattr(shared.opts, 'model_manager_civitai_requests_per_second', None)
+            configured = setting('model_manager_civitai_requests_per_second')
             if configured:
                 rate = float(configured)
-        except Exception:
+        except (TypeError, ValueError):
             pass
 
         return cls(api_key, requests_per_second=rate)

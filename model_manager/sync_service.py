@@ -26,6 +26,7 @@ from .storage import get_metadata_paths, write_civitai_info
 from .identity_store import record_architecture
 from .nsfw import version_covers
 from .db import get_models_db
+from .forge_host import DEFAULTS, setting
 from .gallery import gallery_page_size
 
 
@@ -1023,13 +1024,12 @@ def configured_hash_threads() -> int:
     setting rather than a constant.
     """
     try:
-        from modules import shared
-        configured = getattr(shared.opts, 'model_manager_hash_threads', None)
+        configured = setting('model_manager_hash_threads')
         if configured:
             return max(1, min(int(configured), 16))
-    except Exception:
+    except (TypeError, ValueError):
         pass
-    return 4
+    return DEFAULTS['model_manager_hash_threads']
 
 
 def estimate_metadata_sync(model_paths: Optional[List[str]] = None,

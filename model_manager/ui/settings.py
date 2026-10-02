@@ -10,7 +10,8 @@ import os
 import gradio as gr
 from modules import shared
 
-from ..gallery import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PAGE_SIZE_SETTING
+from ..forge_host import DEFAULTS
+from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from .. import prompt_levels
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
@@ -27,7 +28,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_api_key",
         shared.OptionInfo(
-            default="",
+            default=DEFAULTS["model_manager_civitai_api_key"],
             label="Civitai API Key",
             component=gr.Textbox,
             component_args={"type": "password"},
@@ -38,7 +39,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_page_size",
         shared.OptionInfo(
-            default=20,
+            default=DEFAULTS["model_manager_page_size"],
             label="Model Manager: Models per page",
             component=gr.Slider,
             component_args={
@@ -53,7 +54,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_database_path",
         shared.OptionInfo(
-            default="",
+            default=DEFAULTS["model_manager_database_path"],
             label="Custom Database Path",
             component=gr.Textbox,
             component_args={"placeholder": "e.g., F:\\shared\\models.db"},
@@ -64,7 +65,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_preview_least_nsfw",
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS["model_manager_preview_least_nsfw"],
             label="Model Manager: card thumbnail is the least explicit image",
             component=gr.Checkbox,
             section=section,
@@ -81,7 +82,7 @@ def on_ui_settings():
     shared.opts.add_option(
         GALLERY_HIDE_NSFW,
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS[GALLERY_HIDE_NSFW],
             label="Image gallery: hide explicit images by default",
             component=gr.Checkbox,
             section=section,
@@ -98,7 +99,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_page_size",
         shared.OptionInfo(
-            default=20,
+            default=DEFAULTS["model_manager_civitai_page_size"],
             label="Civitai Browser: Models per page",
             component=gr.Slider,
             component_args={
@@ -113,7 +114,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_hide_promptless_images",
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS["model_manager_hide_promptless_images"],
             label="Example images: hide the ones with no prompt",
             component=gr.Checkbox,
             section=section,
@@ -125,7 +126,7 @@ def on_ui_settings():
     shared.opts.add_option(
         RECORD_GENERATIONS,
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS[RECORD_GENERATIONS],
             label="Your generations",
             component=gr.Checkbox,
             section=section,
@@ -142,7 +143,7 @@ def on_ui_settings():
     shared.opts.add_option(
         GENERATIONS_HIDE_NSFW,
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS[GENERATIONS_HIDE_NSFW],
             label="Generations tab: hide explicit images by default",
             component=gr.Checkbox,
             section=section,
@@ -156,7 +157,7 @@ def on_ui_settings():
     shared.opts.add_option(
         PAGE_SIZE_SETTING,
         shared.OptionInfo(
-            default=DEFAULT_PAGE_SIZE,
+            default=DEFAULTS[PAGE_SIZE_SETTING],
             label="Image gallery: images per page",
             component=gr.Slider,
             component_args={"minimum": 10, "maximum": MAX_PAGE_SIZE, "step": 10},
@@ -170,7 +171,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_folder_template",
         shared.OptionInfo(
-            default="_{baseModel}/{modelName}",
+            default=DEFAULTS["model_manager_civitai_folder_template"],
             label="Civitai Browser: Download folder template",
             component=gr.Textbox,
             component_args={"placeholder": "_{baseModel}/{modelName}"},
@@ -181,7 +182,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_requests_per_second",
         shared.OptionInfo(
-            default=6,
+            default=DEFAULTS["model_manager_civitai_requests_per_second"],
             label="Civitai: Requests per second",
             component=gr.Slider,
             component_args={
@@ -196,7 +197,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_hash_threads",
         shared.OptionInfo(
-            default=4,
+            default=DEFAULTS["model_manager_hash_threads"],
             label="Sync: Hashing threads",
             component=gr.Slider,
             component_args={
@@ -217,7 +218,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_min_prompt_images",
         shared.OptionInfo(
-            default=1,
+            default=DEFAULTS["model_manager_civitai_min_prompt_images"],
             label="Civitai Browser: Minimum images with usable prompt",
             component=gr.Slider,
             component_args={
@@ -232,7 +233,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_sfw_fill_page",
         shared.OptionInfo(
-            default=False,
+            default=DEFAULTS["model_manager_civitai_sfw_fill_page"],
             label="Civitai Browser: Fill every page with 'Only Show Models with SFW images' (not recommended)",
             component=gr.Checkbox,
             section=section,
@@ -248,7 +249,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_card_size",
         shared.OptionInfo(
-            default="200x280",
+            default=DEFAULTS["model_manager_card_size"],
             label="Model Manager: Card size (WIDTHxHEIGHT)",
             component=gr.Textbox,
             component_args={"placeholder": "200x280"},
@@ -259,7 +260,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_civitai_card_size",
         shared.OptionInfo(
-            default="200x280",
+            default=DEFAULTS["model_manager_civitai_card_size"],
             label="Civitai Browser: Card size (WIDTHxHEIGHT)",
             component=gr.Textbox,
             component_args={"placeholder": "200x280"},
@@ -270,7 +271,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_nsfw_prompt_words",
         shared.OptionInfo(
-            default="",
+            default=DEFAULTS["model_manager_nsfw_prompt_words"],
             label="NSFW: extra prompt words",
             component=gr.Textbox,
             component_args={"placeholder": "comma-separated words", "lines": 2},
@@ -286,7 +287,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_nsfw_detection",
         shared.OptionInfo(
-            default="model",
+            default=DEFAULTS["model_manager_nsfw_detection"],
             label="NSFW detection: what finds explicit images Civitai rates PG or PG-13",
             component=gr.Radio,
             component_args={"choices": [
@@ -306,7 +307,7 @@ def on_ui_settings():
     shared.opts.add_option(
         "model_manager_nsfw_prompt_model_percent",
         shared.OptionInfo(
-            default=2.0,
+            default=DEFAULTS["model_manager_nsfw_prompt_model_percent"],
             label="NSFW: trained model - % of PG/PG-13 prompts to treat as X",
             component=gr.Number,
             component_args={"minimum": 0, "maximum": 20, "step": 0.25},
@@ -325,7 +326,7 @@ def on_ui_settings():
     shared.opts.add_option(
         CHECK_UPDATES,
         shared.OptionInfo(
-            default=True,
+            default=DEFAULTS[CHECK_UPDATES],
             label="Check for a new version",
             component=gr.Checkbox,
             onchange=_check_updates_changed,
@@ -357,7 +358,7 @@ def on_ui_settings():
         shared.opts.add_option(
             SETTING_PREFIX + preset,
             shared.OptionInfo(
-                default="",
+                default=DEFAULTS[SETTING_PREFIX + preset],
                 label=f"Send to txt2img: {label} text encoders and VAE",
                 component=gr.Textbox,
                 component_args={"placeholder": _module_example(preset)},

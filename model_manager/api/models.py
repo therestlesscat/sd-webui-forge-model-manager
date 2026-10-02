@@ -14,6 +14,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
+from ..forge_host import setting
 from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
@@ -154,11 +155,10 @@ def register(app: FastAPI):
         """
         try:
             request_start = time.perf_counter()
-            from modules import shared
 
             # Use setting for page size if not specified
             if page_size <= 0:
-                page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
+                page_size = int(setting('model_manager_page_size'))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
             card_width, card_height = card_size('model_manager_card_size')
@@ -223,7 +223,7 @@ def register(app: FastAPI):
 
             # Get preview setting - use parameter if provided, otherwise use setting
             if preview_least_nsfw is None:
-                preview_least_nsfw = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+                preview_least_nsfw = setting('model_manager_preview_least_nsfw')
             preview_least_nsfw = bool(preview_least_nsfw)
 
             # Query database with grouped query
@@ -271,7 +271,7 @@ def register(app: FastAPI):
             query_ms = (time.perf_counter() - query_start) * 1000
 
             # Get the setting value for JS to initialize checkbox
-            preview_least_nsfw_setting = getattr(shared.opts, 'model_manager_preview_least_nsfw', True)
+            preview_least_nsfw_setting = setting('model_manager_preview_least_nsfw')
 
             response = JSONResponse({
                 "success": True,
@@ -299,14 +299,12 @@ def register(app: FastAPI):
     async def get_filter_defaults():
         """Get default filter values needed before first model load."""
         try:
-            from modules import shared
-
             card_width, card_height = card_size('model_manager_card_size')
-            page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
+            page_size = int(setting('model_manager_page_size'))
 
             return JSONResponse({
                 "success": True,
-                "preview_least_nsfw": getattr(shared.opts, 'model_manager_preview_least_nsfw', True),
+                "preview_least_nsfw": setting('model_manager_preview_least_nsfw'),
                 "page_size": page_size,
                 "card_width": card_width,
                 "card_height": card_height,

@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from ..db import get_models_db
+from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
@@ -31,9 +32,8 @@ PREVIEW_IMAGES = 4
 
 def generations_hide_nsfw() -> bool:
     """Whether the Generations tab opens with explicit images hidden: its own setting."""
-    from modules import shared
     from ..generations import GENERATIONS_HIDE_NSFW
-    return bool(getattr(shared.opts, GENERATIONS_HIDE_NSFW, True))
+    return bool(setting(GENERATIONS_HIDE_NSFW))
 
 
 def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,

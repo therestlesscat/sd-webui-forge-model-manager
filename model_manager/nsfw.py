@@ -44,6 +44,8 @@ import threading
 import zlib
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
+from .forge_host import DEFAULTS, setting
+
 # ---------------------------------------------------------------- vocabulary
 
 PG = 1
@@ -180,12 +182,7 @@ def prompt_words() -> FrozenSet[str]:
                     _bundled = parse_words(f.read())
             except OSError:
                 _bundled = frozenset()
-        raw = ""
-        try:
-            from modules import shared
-            raw = str(getattr(shared.opts, PROMPT_WORDS_SETTING, "") or "")
-        except Exception:
-            pass
+        raw = str(setting(PROMPT_WORDS_SETTING) or "")
         if raw != _extra[0]:
             _extra = (raw, parse_words(raw))
         return _bundled | _extra[1]
@@ -213,14 +210,12 @@ PROMPT_MODEL_FILE = os.path.join(os.path.dirname(__file__), "data", "nsfw_prompt
 #: The setting: what share of PG and PG-13 prompts the model may raise, in
 #: percent, as measured on what it was trained on. 0 turns it off.
 PROMPT_MODEL_SETTING = "model_manager_nsfw_prompt_model_percent"
-PROMPT_MODEL_DEFAULT = 2.0
 
 #: Which judges a prompt: "model" - the trained model and the words - or
 #: "words" alone. A trained model is right more often, and is still wrong
 #: sometimes, in ways nobody can point at; the words say exactly what they
 #: do. The choice is the user's.
 DETECTION_SETTING = "model_manager_nsfw_detection"
-DETECTION_DEFAULT = "model"
 
 _model_lock = threading.Lock()
 _model: Optional[Dict[str, Any]] = None
@@ -312,21 +307,15 @@ def prompt_model() -> Optional[Dict[str, Any]]:
 
 def detection() -> str:
     """The setting: "model" or "words"."""
-    try:
-        from modules import shared
-        value = getattr(shared.opts, DETECTION_SETTING, DETECTION_DEFAULT)
-    except Exception:
-        value = DETECTION_DEFAULT
-    return "words" if value == "words" else "model"
+    return "words" if setting(DETECTION_SETTING) == "words" else "model"
 
 
 def prompt_model_percent() -> float:
     """The setting, as a number; the default where it cannot be read."""
     try:
-        from modules import shared
-        return max(0.0, float(getattr(shared.opts, PROMPT_MODEL_SETTING, PROMPT_MODEL_DEFAULT)))
-    except Exception:
-        return PROMPT_MODEL_DEFAULT
+        return max(0.0, float(setting(PROMPT_MODEL_SETTING)))
+    except (TypeError, ValueError):
+        return DEFAULTS[PROMPT_MODEL_SETTING]
 
 
 def prompt_model_threshold() -> Optional[float]:

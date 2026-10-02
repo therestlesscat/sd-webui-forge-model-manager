@@ -14,6 +14,7 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..db import get_models_db
+from ..forge_host import setting
 from ..civitai import (
     CivitaiClient,
     decode_filter_token,
@@ -97,8 +98,7 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
 
 def _fill_page_setting() -> bool:
     """Whether "Fill every page with Only Show Models with SFW images" is on."""
-    from modules import shared
-    return bool(getattr(shared.opts, 'model_manager_civitai_sfw_fill_page', False))
+    return bool(setting('model_manager_civitai_sfw_fill_page'))
 
 
 def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
@@ -152,11 +152,9 @@ def register(app: FastAPI):
         Returns models from Civitai with ownership indicators for locally owned versions.
         """
         try:
-            from modules import shared
-
             # Use setting for page size if not specified
             if limit <= 0:
-                limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
+                limit = int(setting('model_manager_civitai_page_size'))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
             card_width, card_height = card_size('model_manager_civitai_card_size')
@@ -181,8 +179,7 @@ def register(app: FastAPI):
             filter_stats = None
             size_check = size_range_check(min_size_gb, max_size_gb)
             try:
-                min_usable = max(int(getattr(
-                    shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
+                min_usable = max(int(setting('model_manager_civitai_min_prompt_images')), 1)
                 sfw, options = _filter_options(
                     client, require_prompt=require_prompt,
                     sfw_only=sfw_only, nsfw=nsfw, size_check=size_check,
@@ -270,10 +267,8 @@ def register(app: FastAPI):
 
         Results and paging are identical to the non-streaming endpoint.
         """
-        from modules import shared
-
         if limit <= 0:
-            limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
+            limit = int(setting('model_manager_civitai_page_size'))
 
         card_width, card_height = card_size('model_manager_civitai_card_size')
 
@@ -287,8 +282,7 @@ def register(app: FastAPI):
             tag=tag,
             checkpoint_type=checkpoint_type,
         )
-        min_usable = max(int(getattr(
-            shared.opts, 'model_manager_civitai_min_prompt_images', 1)), 1)
+        min_usable = max(int(setting('model_manager_civitai_min_prompt_images')), 1)
         size_check = size_range_check(min_size_gb, max_size_gb)
 
         def generate():

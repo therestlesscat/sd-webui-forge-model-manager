@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .forge_host import setting
 from .version import REPOSITORY, VERSION, _git
 
 SETTING = "model_manager_check_updates"
@@ -48,11 +49,7 @@ def is_newer(latest, current=VERSION) -> bool:
 
 
 def enabled() -> bool:
-    try:
-        from modules import shared
-        return bool(getattr(shared.opts, SETTING, True))
-    except Exception:
-        return True
+    return bool(setting(SETTING))
 
 
 def branches() -> List[str]:

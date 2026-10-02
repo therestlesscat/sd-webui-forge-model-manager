@@ -17,11 +17,11 @@ Kept apart from api/ and ui/, which both read it, so neither imports the other.
 """
 from typing import Any, Dict, List, Sequence, Tuple
 
+from .forge_host import DEFAULTS, setting
 from .nsfw import SFW_MAX, image_level
 from .prompt_rules import image_readable
 
 PAGE_SIZE_SETTING = "model_manager_gallery_page_size"
-DEFAULT_PAGE_SIZE = 100
 # A sync fetches a gallery's first page in one request, and Civitai answers at
 # most 200 images to one; a larger size, set by hand in config.json, failed
 # the fetch instead of paging.
@@ -31,10 +31,9 @@ MAX_PAGE_SIZE = 200
 def gallery_page_size() -> int:
     """The page size the settings give, kept to something that works."""
     try:
-        from modules import shared
-        size = int(getattr(shared.opts, PAGE_SIZE_SETTING, DEFAULT_PAGE_SIZE))
-    except (TypeError, ValueError, ImportError):
-        size = DEFAULT_PAGE_SIZE
+        size = int(setting(PAGE_SIZE_SETTING))
+    except (TypeError, ValueError):
+        size = DEFAULTS[PAGE_SIZE_SETTING]
     return min(max(size, 1), MAX_PAGE_SIZE)
 
 
