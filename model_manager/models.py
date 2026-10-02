@@ -8,103 +8,23 @@ from enum import Enum
 from typing import Optional, List, Dict, Any
 import os
 
+from .nsfw import UNKNOWN, parse_level, rated_level
 
-class NSFWLevel(Enum):
-    """NSFW content levels from Civitai."""
-    PG = "PG"
-    PG13 = "PG-13"
-    R = "R"
-    X = "X"
-    XXX = "XXX"
-    BANNED = "Banned"
-    UNKNOWN = "Unknown"
 
-    @classmethod
-    def from_string(cls, value) -> "NSFWLevel":
-        """Convert string/int to NSFWLevel, handling various formats."""
-        if value is None or value == "":
-            return cls.UNKNOWN
+def _stored_level(data: Dict) -> int:
+    """
+    An image's level as an .images.json holds it: the number to_dict()
+    writes, or - written by versions before 0.44 - the old enum's name
+    ("X"). Anything else is a Civitai payload, and how explicit that is, is
+    nsfw.py's to say (rated_level), never a second rule here.
+    """
+    value = data.get("nsfw")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value or UNKNOWN
+    if isinstance(value, str) and value not in ("", "None"):
+        return parse_level(value)
+    return rated_level(data)
 
-        # Handle integer values (Civitai uses bitmask for nsfwLevel)
-        # Bits: 1=None/SFW, 2=Soft, 4=Mature, 8=X, 16=XXX, 32=Banned
-        # Value can be combination (e.g., 29 = 1+4+8+16 = has None+Mature+X+XXX content)
-        # We take the highest set bit as the effective NSFW level
-        if isinstance(value, (int, float)):
-            int_val = int(value)
-            # Map bit positions to levels (highest to lowest)
-            bit_mapping = [
-                (32, cls.BANNED),
-                (16, cls.XXX),
-                (8, cls.X),
-                (4, cls.R),      # Mature
-                (2, cls.PG13),   # Soft
-                (1, cls.PG),     # None/SFW
-            ]
-            # Find highest set bit
-            for bit, level in bit_mapping:
-                if int_val & bit:
-                    return level
-            return cls.UNKNOWN
-
-        # Handle boolean
-        if isinstance(value, bool):
-            return cls.R if value else cls.PG
-
-        # Convert to string and normalize
-        normalized = str(value).upper().replace("-", "").replace(" ", "")
-
-        mapping = {
-            "PG": cls.PG,
-            "PG13": cls.PG13,
-            "R": cls.R,
-            "X": cls.X,
-            "XXX": cls.XXX,
-            "BANNED": cls.BANNED,
-            "NONE": cls.UNKNOWN,  # "None" means no rating assigned
-            "FALSE": cls.PG,  # Boolean false = not NSFW = PG
-            "TRUE": cls.R,  # Legacy boolean true -> R
-            # Also handle "Soft", "Mature" etc. from some API responses
-            "SOFT": cls.PG13,
-            "MATURE": cls.R,
-        }
-
-        return mapping.get(normalized, cls.UNKNOWN)
-
-    @classmethod
-    def severity_order(cls) -> List["NSFWLevel"]:
-        """Return levels in order of severity (least to most).
-        UNKNOWN is highest - assume worst case when we don't know."""
-        return [cls.PG, cls.PG13, cls.R, cls.X, cls.XXX, cls.BANNED, cls.UNKNOWN]
-
-    def severity_index(self) -> int:
-        """Get numeric severity for comparison."""
-        order = self.severity_order()
-        return order.index(self)
-
-    def __lt__(self, other: "NSFWLevel") -> bool:
-        return self.severity_index() < other.severity_index()
-
-    def __le__(self, other: "NSFWLevel") -> bool:
-        return self.severity_index() <= other.severity_index()
-
-    def __gt__(self, other: "NSFWLevel") -> bool:
-        return self.severity_index() > other.severity_index()
-
-    def __ge__(self, other: "NSFWLevel") -> bool:
-        return self.severity_index() >= other.severity_index()
-
-    def to_bitmask(self) -> int:
-        """Convert NSFWLevel to bitmask value."""
-        bitmask_map = {
-            NSFWLevel.PG: 1,
-            NSFWLevel.PG13: 2,
-            NSFWLevel.R: 4,
-            NSFWLevel.X: 8,
-            NSFWLevel.XXX: 16,
-            NSFWLevel.BANNED: 32,
-            NSFWLevel.UNKNOWN: 64,  # Unknown is highest level
-        }
-        return bitmask_map.get(self, 1)
 
 class ModelType(Enum):
     """Types of models supported."""
@@ -253,7 +173,7 @@ class ModelImage:
     """Image from Civitai with metadata."""
     id: int
     url: str
-    nsfw: NSFWLevel = NSFWLevel.UNKNOWN
+    nsfw: int = UNKNOWN       # a level from nsfw.py's scale
     width: Optional[int] = None
     height: Optional[int] = None
     hash: Optional[str] = None
@@ -262,12 +182,10 @@ class ModelImage:
     @classmethod
     def from_civitai(cls, data: Dict) -> "ModelImage":
         """Create from Civitai API response."""
-        # Prefer browsingLevel (integer) over nsfwLevel (often string "None")
-        nsfw_value = data.get("browsingLevel", data.get("nsfwLevel", data.get("nsfw", "")))
         return cls(
             id=data.get("id", 0),
             url=data.get("url", ""),
-            nsfw=NSFWLevel.from_string(nsfw_value),
+            nsfw=rated_level(data),
             width=data.get("width"),
             height=data.get("height"),
             hash=data.get("hash"),
@@ -279,7 +197,7 @@ class ModelImage:
         return {
             "id": self.id,
             "url": self.url,
-            "nsfw": self.nsfw.value,
+            "nsfw": self.nsfw,
             "width": self.width,
             "height": self.height,
             "hash": self.hash,
@@ -289,12 +207,10 @@ class ModelImage:
     @classmethod
     def from_dict(cls, data: Dict) -> "ModelImage":
         """Create from dictionary."""
-        # Prefer browsingLevel (integer) over nsfw (may be string "None")
-        nsfw_value = data.get("browsingLevel", data.get("nsfw", ""))
         return cls(
             id=data.get("id", 0),
             url=data.get("url", ""),
-            nsfw=NSFWLevel.from_string(nsfw_value),
+            nsfw=_stored_level(data),
             width=data.get("width"),
             height=data.get("height"),
             hash=data.get("hash"),
@@ -311,19 +227,12 @@ class ModelVersion:
     base_model: str = ""
     trained_words: List[str] = field(default_factory=list)
     download_url: Optional[str] = None
-    nsfw: NSFWLevel = NSFWLevel.UNKNOWN
+    nsfw: int = UNKNOWN       # a level from nsfw.py's scale
     published_at: Optional[datetime] = None
     images: List[ModelImage] = field(default_factory=list)
     # File info from Civitai
     file_size_kb: Optional[float] = None
     file_hash: Optional[str] = None  # SHA256
-
-    @property
-    def max_image_nsfw(self) -> NSFWLevel:
-        """Get the highest NSFW level from all images."""
-        if not self.images:
-            return NSFWLevel.UNKNOWN
-        return max(self.images, key=lambda i: i.nsfw.severity_index()).nsfw
 
     @classmethod
     def from_civitai(cls, data: Dict) -> "ModelVersion":
@@ -355,7 +264,7 @@ class ModelVersion:
             base_model=data.get("baseModel", ""),
             trained_words=data.get("trainedWords", []),
             download_url=data.get("downloadUrl"),
-            nsfw=NSFWLevel.from_string(data.get("nsfw", data.get("nsfwLevel", ""))),
+            nsfw=rated_level(data),
             published_at=published_at,
             images=[ModelImage.from_civitai(img) for img in data.get("images", [])],
             file_size_kb=file_size,
@@ -370,7 +279,7 @@ class CivitaiModelInfo:
     name: str
     description: str = ""
     type: ModelType = ModelType.UNKNOWN
-    nsfw: NSFWLevel = NSFWLevel.UNKNOWN
+    nsfw: int = UNKNOWN       # a level from nsfw.py's scale
     tags: List[str] = field(default_factory=list)
     creator: Optional[str] = None
     # Stats
@@ -392,7 +301,7 @@ class CivitaiModelInfo:
             name=data.get("name", ""),
             description=data.get("description", ""),
             type=ModelType.from_string(data.get("type", "")),
-            nsfw=NSFWLevel.from_string(data.get("nsfw", data.get("nsfwLevel", ""))),
+            nsfw=rated_level(data),
             tags=data.get("tags", []),
             creator=data.get("creator", {}).get("username") if data.get("creator") else None,
             download_count=stats.get("downloadCount", 0),

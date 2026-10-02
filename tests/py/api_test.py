@@ -6,6 +6,7 @@ send. This runs them: the filter parsing in models.py alone is nearly three
 hundred statements deciding what the grid shows, and none of it had ever been
 executed by a test.
 """
+import io
 import json
 import os
 import sys
@@ -165,6 +166,18 @@ code, body = get('/model-manager/images/gallery-page', version_id=first_version,
                  hide_nsfw_images='false', hide_promptless_images='false')
 check('its gallery\'s images judged here, for the browser to read',
       bool(body.get('images')) and all('mm_level' in i for i in body['images']), True)
+
+# A file with a .civitai.info and no row: the details come from the sidecar,
+# in the shape the database's give - a level as a number, nsfw.py's (#58).
+unread = os.path.join(WORK, 'sidecar_only.safetensors')
+io.open(unread, 'wb').write(b'\0')
+io.open(os.path.splitext(unread)[0] + '.civitai.info', 'w', encoding='utf-8').write(json.dumps({
+    'id': 818, 'name': 'Only A Sidecar', 'type': 'LORA', 'nsfw': True, 'nsfwLevel': 28,
+    'modelVersions': [{'id': 819, 'name': 'v1', 'nsfwLevel': 4,
+                       'files': [{'name': 'sidecar_only.safetensors'}]}]}))
+code, body = get('/model-manager/models/details', path=unread)
+check('a file known only by its sidecar gives its model\'s level as a number, as the database does',
+      (body.get('model') or {}).get('civitai_model', {}).get('nsfw'), 28)
 
 code, body = get('/model-manager/models/details', path=r'Z:\nope\missing.safetensors')
 check('details for an unknown file do not pretend', body.get('success'), False)

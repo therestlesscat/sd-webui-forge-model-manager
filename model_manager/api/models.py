@@ -414,7 +414,7 @@ def register(app: FastAPI):
                         "name": model_info.name,
                         "description": model_info.description,
                         "type": model_info.type.value,
-                        "nsfw": model_info.nsfw.value,
+                        "nsfw": model_info.nsfw,
                         "tags": model_info.tags,
                         "creator": model_info.creator,
                         "rating": model_info.rating,
