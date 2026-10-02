@@ -799,6 +799,48 @@ class ModelsOps:
                 datetime.now().isoformat(),
             ))
 
+    # ------------------------------------------------- finding local files
+    # Four lookups find files in the library - by hash, version id or name -
+    # for the Resources dialog, Send to txt2img and the chips under a prompt.
+    # Each read every column of every row and parsed every row's hashes: 8 ms
+    # a call on a library of 1,536 files, and Send asked once per hash. They
+    # read only what finds a file now, each row's hashes once through
+    # read_hashes() - the one fold of their case - and whole rows only for
+    # what they found. In table order, which decides between files that
+    # share a hash or an id.
+
+    @staticmethod
+    def _hashed_files(cursor) -> List[Tuple[str, Optional[int], Dict[str, str]]]:
+        """(file path, version id, {kind: hash}) for every file with stored hashes."""
+        cursor.execute("SELECT file_path, id, file_hashes FROM model_versions "
+                       "WHERE file_path IS NOT NULL AND file_hashes IS NOT NULL ORDER BY rowid")
+        return [(row["file_path"], row["id"], read_hashes(row["file_hashes"]))
+                for row in cursor.fetchall()]
+
+    @staticmethod
+    def _paths_of_versions(cursor, version_ids) -> List[Tuple[int, str]]:
+        """(version id, file path) for every file of these versions, in table order."""
+        ids = list(dict.fromkeys(version_ids))
+        found = []
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            cursor.execute("SELECT rowid, id, file_path FROM model_versions WHERE file_path IS NOT NULL"
+                           " AND id IN (%s)" % ",".join("?" * len(chunk)), chunk)
+            found += [(row[0], row["id"], row["file_path"]) for row in cursor.fetchall()]
+        return [(version_id, path) for _, version_id, path in sorted(found)]
+
+    def _whole_rows(self, cursor, paths) -> Dict[str, Dict[str, Any]]:
+        """{file path: its row, as _version_row_to_dict() gives it}."""
+        paths = list(dict.fromkeys(paths))
+        found = {}
+        for start in range(0, len(paths), 500):
+            chunk = paths[start:start + 500]
+            cursor.execute("SELECT * FROM model_versions WHERE file_path IN (%s)"
+                           % ",".join("?" * len(chunk)), chunk)
+            for row in cursor.fetchall():
+                found[row["file_path"]] = self._version_row_to_dict(row)
+        return found
+
     def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
         """
         Resolve what we can from our own rows, before asking Civitai anything.
@@ -811,26 +853,30 @@ class ModelsOps:
         if not wanted:
             return {}
 
-        found = {}
         with self._cursor() as cursor:
+            named = {}          # AutoV2 -> file path: the last file to have it
+            for path, version_id, stored in self._hashed_files(cursor):
+                autov2 = stored.get("autov2", "")
+                if autov2 and autov2 in wanted and version_id is not None:
+                    named[autov2] = path
+            if not named:
+                return {}
+            paths = list(dict.fromkeys(named.values()))
             cursor.execute("""
-                SELECT v.id, v.model_id, v.version_name, v.file_hashes, m.name, m.type
+                SELECT v.file_path, v.id, v.model_id, v.version_name, m.name, m.type
                 FROM model_versions v
                 LEFT JOIN civitai_models m ON m.id = v.model_id
-                WHERE v.file_hashes IS NOT NULL AND v.id IS NOT NULL
-            """)
-            for row in cursor.fetchall():
-                autov2 = read_hashes(row["file_hashes"]).get("autov2", "")
-                if autov2 and autov2 in wanted:
-                    found[autov2] = {
-                        "hash": autov2,
-                        "version_id": row["id"],
-                        "model_id": row["model_id"],
-                        "name": row["name"],
-                        "version_name": row["version_name"],
-                        "model_type": row["type"],
-                    }
-        return found
+                WHERE v.file_path IN (%s)
+            """ % ",".join("?" * len(paths)), paths)
+            rows = {row["file_path"]: row for row in cursor.fetchall()}
+        return {autov2: {
+            "hash": autov2,
+            "version_id": rows[path]["id"],
+            "model_id": rows[path]["model_id"],
+            "name": rows[path]["name"],
+            "version_name": rows[path]["version_name"],
+            "model_type": rows[path]["type"],
+        } for autov2, path in named.items()}
 
     def versions_named_by(self, version_ids: List[int], hashes: List[str]) -> List[Dict[str, Any]]:
         """
@@ -841,39 +887,39 @@ class ModelsOps:
         """
         wanted = {hash_key(h) for h in hashes if h}
         ids = [int(i) for i in version_ids if str(i).isdigit()]
-        by_hash, by_id = [], {}
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
-            for row in cursor.fetchall():
-                if wanted and row["file_hashes"]:
-                    if any(v in wanted for v in read_hashes(row["file_hashes"]).values()):
-                        by_hash.append(self._version_row_to_dict(row))
-                        continue
-                if row["id"] in ids:
-                    by_id.setdefault(row["id"], []).append(self._version_row_to_dict(row))
-        return by_hash + [v for i in ids for v in by_id.get(i, [])]
+            by_hash = [path for path, _, stored in (self._hashed_files(cursor) if wanted else ())
+                       if any(v in wanted for v in stored.values())]
+            named = set(by_hash)
+            by_id: Dict[int, List[str]] = {}
+            for version_id, path in self._paths_of_versions(cursor, ids):
+                if path not in named:
+                    by_id.setdefault(version_id, []).append(path)
+            rows = self._whole_rows(cursor, by_hash + [p for paths in by_id.values() for p in paths])
+        return [rows[p] for p in by_hash] + [rows[p] for i in ids for p in by_id.get(i, [])]
 
     def local_versions_by_key(self, version_ids: List[int], hashes: List[str]
                               ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
         The local file each of an image's resources names, keyed by what named
-        it: {version id: row} and {hash: row}, in one pass. versions_named_by()
-        answers "which files", this "which file for which resource" - what a
-        per-resource answer needs.
+        it: {version id: row} and {hash: row}, the first file in table order.
+        versions_named_by() answers "which files", this "which file for which
+        resource" - what a per-resource answer needs.
         """
         wanted = {hash_key(h) for h in hashes if h}
-        ids = {int(i) for i in version_ids if str(i).isdigit()}
-        by_id, by_hash = {}, {}
+        ids = [int(i) for i in version_ids if str(i).isdigit()]
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
-            for row in cursor.fetchall():
-                if row["id"] in ids and row["id"] not in by_id:
-                    by_id[row["id"]] = self._version_row_to_dict(row)
-                if wanted and row["file_hashes"]:
-                    for value in read_hashes(row["file_hashes"]).values():
-                        if value in wanted and value not in by_hash:
-                            by_hash[value] = self._version_row_to_dict(row)
-        return by_id, by_hash
+            id_paths: Dict[int, str] = {}
+            for version_id, path in self._paths_of_versions(cursor, ids):
+                id_paths.setdefault(version_id, path)
+            hash_paths: Dict[str, str] = {}
+            for path, _, stored in (self._hashed_files(cursor) if wanted else ()):
+                for value in stored.values():
+                    if value in wanted:
+                        hash_paths.setdefault(value, path)
+            rows = self._whole_rows(cursor, list(id_paths.values()) + list(hash_paths.values()))
+        return ({i: rows[p] for i, p in id_paths.items()},
+                {h: rows[p] for h, p in hash_paths.items()})
 
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """
@@ -883,16 +929,17 @@ class ModelsOps:
         identified yet. Several files can share a name, in different folders.
         """
         wanted = {str(n).lower() for n in names if n}
-        found: Dict[str, List[Dict[str, Any]]] = {}
         if not wanted:
-            return found
+            return {}
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE file_path IS NOT NULL")
+            cursor.execute("SELECT file_path FROM model_versions WHERE file_path IS NOT NULL ORDER BY rowid")
+            named: Dict[str, List[str]] = {}
             for row in cursor.fetchall():
                 stem = os.path.splitext(os.path.basename(row["file_path"]))[0].lower()
                 if stem in wanted:
-                    found.setdefault(stem, []).append(self._version_row_to_dict(row))
-        return found
+                    named.setdefault(stem, []).append(row["file_path"])
+            rows = self._whole_rows(cursor, [p for paths in named.values() for p in paths])
+        return {stem: [rows[p] for p in paths] for stem, paths in named.items()}
 
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
