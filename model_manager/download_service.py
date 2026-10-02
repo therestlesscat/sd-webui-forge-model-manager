@@ -55,6 +55,10 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESUMABLE_KEY = "downloads:" + hashlib.sha1(os.path.normcase(_ROOT).encode("utf-8")).hexdigest()[:12]
 
 
+#: A download asked for and not yet over: asked for again, it is not started again.
+ON_ITS_WAY = ("pending", "downloading", "finishing", "paused")
+
+
 @dataclass
 class DownloadProgress:
     """Track download progress."""
@@ -1044,7 +1048,15 @@ class DownloadService:
         )
 
         with self._lock:
-            # A new download goes to the end of the list - one asked for again too.
+            # One on its way is answered as it is: dropping its row and
+            # queuing it afresh started a running download over - asked for
+            # again by the Resources dialog for one the Civitai Browser
+            # started, say, or for a gone version whose newest was coming
+            # already (#119). A finished one is queued afresh, at the end of
+            # the list: its file may be gone since.
+            current = self._active_downloads.get(version_id)
+            if current is not None and current.status in ON_ITS_WAY:
+                return current
             self._active_downloads.pop(version_id, None)
             self._active_downloads[version_id] = progress
             self._cancel_flags[version_id] = False

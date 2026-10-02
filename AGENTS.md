@@ -168,7 +168,11 @@ restart.
 
 **The download queue is the service's own.** `DownloadService` runs up to two,
 and when a place frees up starts the first waiting one from the top; Start now
-runs one over the limit. Pause keeps the `.partial` and frees the place;
+runs one over the limit. A version asked for again while on its way - queued,
+coming, being added, paused - is answered with the download it has, never
+started over (`ON_ITS_WAY`); a finished one is queued afresh. The page keeps
+the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
+a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
 Resume asks Civitai's download address again (its storage link is signed and
 expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
 there, and checks the finished file as ever. What is running or paused is kept

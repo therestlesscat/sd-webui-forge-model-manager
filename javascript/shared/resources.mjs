@@ -14,7 +14,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
-const { downloads } = await shared('downloads.mjs');
+const { downloads, onItsWay } = await shared('downloads.mjs');
 const { provide } = await shared('calls.mjs');
 const { openMetaModal } = await shared('viewer.mjs');
 
@@ -346,7 +346,8 @@ function resourceDownloadCell(resource) {
         return `<span class="mm-res-state installed">Installed${which}</span>`;
     }
     if (job && job.state === 'downloading') {
-        const shown = job.finishing ? 'Adding to library...' : job.percent ? `${job.percent}%` : 'Queued';
+        const shown = job.finishing ? 'Adding to library...' : job.paused ? `Paused, ${job.percent}%`
+            : job.percent ? `${job.percent}%` : 'Queued';
         return `<span class="mm-res-state">${shown}</span>`;
     }
     if (job && job.state === 'unavailable') {
@@ -381,6 +382,16 @@ async function checkInstalledResources(resources) {
 
 /** Download a resource into the library: the version the image names, or its model's newest if it is gone. */
 export async function downloadResource(versionId, modelId) {
+    if (onItsWay(versionId)) {
+        // Coming already - started in the Civitai Browser, say: followed as
+        // it is, not asked for again. It was refused, marked failed and never
+        // followed, and stayed failed once it had landed (#119).
+        resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId, target: versionId };
+        followResourceDownloads();
+        redrawResourceDownload(versionId, { versionId, modelId });
+        announceDownloads();
+        return;
+    }
     resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId };
     redrawResourceDownload(versionId, { versionId, modelId });
     announceDownloads();
@@ -429,6 +440,7 @@ function followResourceDownloads() {
         if (!progress) continue;
         job.percent = Math.floor(progress.percent || 0);
         job.finishing = progress.status === 'finishing';
+        job.paused = progress.status === 'paused';
         // Complete is on disk; synced is in the library, which is what a
         // chip or a send looks at.
         if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
