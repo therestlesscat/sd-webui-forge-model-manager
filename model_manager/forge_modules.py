@@ -18,14 +18,14 @@ held the Flux modules and the "qwen" preset held Z-Image's text encoder.
 Otherwise the finest weights win, which is not always what a machine can
 load: a person with less memory names the fp8 file in the settings.
 
-Nothing here asks for Forge's modules by import at load time, so the rest of
-the extension, and its tests, work without them.
+What Forge offers, holds and remembers is asked through forge_host.py; the
+rest is worked out here, so the tests can hand it any of those.
 """
 import os
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .architecture import PRESET_BY_CLASS
-from .forge_host import DEFAULTS, setting
+from .forge_host import DEFAULTS, saved_modules, setting
 
 HF = "https://huggingface.co/"
 
@@ -169,42 +169,6 @@ NAME_HINTS = {
 }
 
 
-def installed_modules() -> Dict[str, str]:
-    """
-    The modules Forge offers in its VAE / Text Encoder control: label -> path.
-
-    Forge's own list (modules_forge.main_entry.module_list), keyed by the
-    file name it shows. Empty where Forge is not there to ask.
-    """
-    try:
-        from modules_forge import main_entry
-        return dict(main_entry.module_list)
-    except Exception:
-        return {}
-
-
-def saved_modules(preset: str) -> List[str]:
-    """The modules Forge remembers for a UI preset, as the labels it shows."""
-    try:
-        from modules import shared
-        paths = getattr(shared.opts, f"forge_additional_modules_{preset}", None) or []
-        return [os.path.basename(p) for p in paths]
-    except Exception:
-        return []
-
-
-def current_modules() -> Optional[List[str]]:
-    """
-    The modules Forge holds now, as the labels it shows - what it will load,
-    whatever its control shows. None where Forge is not there to ask.
-    """
-    try:
-        from modules import shared
-        return sorted(os.path.basename(p) for p in shared.opts.forge_additional_modules or [])
-    except Exception:
-        return None
-
-
 def match_vae(name: str, labels) -> Optional[str]:
     """
     The installed module an image's VAE name means, as Forge lists it.
@@ -329,26 +293,6 @@ def pick(model_class: Optional[str], preset: Optional[str],
 # which the settings name.
 
 PRECISION_NAMES = {0: "GGUF", 1: "fp8", 2: "full"}
-
-
-def available_presets() -> Optional[List[str]]:
-    """
-    The UI presets this WebUI has, from its own preset control - Forge Neo's
-    dozen, or the original Forge's sd, xl, flux and all. None where it cannot
-    be asked.
-    """
-    try:
-        from modules_forge import main_entry
-        choices = getattr(getattr(main_entry, "ui_forge_preset", None), "choices", None)
-        if choices:
-            return [c[1] if isinstance(c, (tuple, list)) else c for c in choices]
-    except Exception:
-        pass
-    try:
-        from modules_forge.presets import PresetArch
-        return PresetArch.choices()
-    except Exception:
-        return None
 
 
 def describe_presets(presets: Optional[List[str]],

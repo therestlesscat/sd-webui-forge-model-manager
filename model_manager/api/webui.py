@@ -84,8 +84,8 @@ def register(app: FastAPI):
         """
         from ..db import get_models_db
         from ..file_identity import classify_file
-        from ..forge_modules import (CLASS_FOR_PRESET, NEEDS, installed_modules, match_vae, pick,
-                                     preferred_modules, saved_modules)
+        from ..forge_host import installed_modules, saved_modules
+        from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_vae, pick, preferred_modules
         from ..send_plan import SendModel, plan_model
 
         try:
@@ -129,14 +129,14 @@ def register(app: FastAPI):
         its change took: the control can show one thing while Forge's setting
         holds another. modules is null where Forge is not there to ask.
         """
-        from ..forge_modules import current_modules
+        from ..forge_host import current_modules
         return JSONResponse({"success": True, "modules": current_modules()})
 
     @app.get("/model-manager/ui-options")
     async def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
-        from ..forge_host import setting
+        from ..forge_host import samplers, schedulers, setting
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
@@ -157,18 +157,10 @@ def register(app: FastAPI):
             nsfw_detection = "words"
 
         try:
-            from modules import sd_samplers, sd_schedulers
-
-            # Get sampler names
-            samplers = [s.name for s in sd_samplers.all_samplers]
-
-            # Get scheduler labels
-            schedulers = [s.label for s in sd_schedulers.schedulers]
-
             return JSONResponse({
                 "success": True,
-                "samplers": samplers,
-                "schedulers": schedulers,
+                "samplers": samplers(),
+                "schedulers": schedulers(),
                 "has_api_key": has_api_key,
                 "nsfw_detection": nsfw_detection,
                 "gallery_hide_nsfw": gallery_hide_nsfw,

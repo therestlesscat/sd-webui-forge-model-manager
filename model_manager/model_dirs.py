@@ -13,6 +13,8 @@ import shutil
 from datetime import datetime
 from typing import List, Optional
 
+from .forge_host import model_folders
+
 
 class Folder:
     """
@@ -84,15 +86,6 @@ def option_dirs(cmd_opts, *option_names) -> List[str]:
     return found
 
 
-def _host():
-    """The WebUI's command-line options and models path; empty outside it."""
-    try:
-        from modules import paths, shared
-        return getattr(shared, "cmd_opts", None), getattr(paths, "models_path", "") or ""
-    except ImportError:
-        return None, ""
-
-
 def download_dir(model_type: str, cmd_opts=None, models_path: Optional[str] = None) -> str:
     """
     The folder a download of this Civitai type is filed under: the first
@@ -100,7 +93,7 @@ def download_dir(model_type: str, cmd_opts=None, models_path: Optional[str] = No
     models path. An unknown type goes to Other.
     """
     if cmd_opts is None and models_path is None:
-        cmd_opts, models_path = _host()
+        cmd_opts, models_path = model_folders()
     models_path = models_path or ""
     model_type = SAME_FOLDER_AS.get(model_type, model_type)
     folder = FOLDERS.get(model_type)
@@ -124,7 +117,7 @@ def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
     duplicates (case-insensitively on Windows) are left out.
     """
     if cmd_opts is None and models_path is None:
-        cmd_opts, models_path = _host()
+        cmd_opts, models_path = model_folders()
 
     directories = []
     for folder in FOLDERS.values():
@@ -163,7 +156,7 @@ def folder_of(path: str, cmd_opts=None, models_path: Optional[str] = None):
     command-line folder inside models/ is its own kind.
     """
     if cmd_opts is None and models_path is None:
-        cmd_opts, models_path = _host()
+        cmd_opts, models_path = model_folders()
     where = os.path.normcase(os.path.abspath(path))
     for kind, root in _roots(cmd_opts, models_path or ""):
         base = os.path.normcase(root)
@@ -181,7 +174,7 @@ def proper_place(path: str, file_type: Optional[str], cmd_opts=None,
     or it is outside the library's folders.
     """
     if cmd_opts is None and models_path is None:
-        cmd_opts, models_path = _host()
+        cmd_opts, models_path = model_folders()
     belongs = FOLDER_FOR_FILE_TYPE.get(file_type or "")
     kind, root = folder_of(path, cmd_opts, models_path)
     if not belongs or kind is None or kind == belongs:

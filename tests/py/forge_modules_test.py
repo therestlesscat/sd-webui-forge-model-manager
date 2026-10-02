@@ -35,6 +35,7 @@ except ImportError:
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.file_identity as fi                 # noqa: E402
+import model_manager.forge_host as host                  # noqa: E402
 import model_manager.forge_modules as fm                 # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 
@@ -178,9 +179,9 @@ check('a module file is read and classified, .sft included', fi.classify_file(pa
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
-fm.installed_modules = lambda: {label: label for label in MODULES}
+host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
-fm.saved_modules = lambda preset: []
+host.saved_modules = lambda preset: []
 settings = {}
 fm.preferred_modules = lambda preset: fm.parse_file_names(settings.get(preset, ''))
 
