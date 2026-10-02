@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
+from .hashing import read_hashes
 from .model_dirs import gone_from_disk, library_dirs, proper_place, relocate
 from .payload_rows import model_row, version_row
 from .nsfw import (
@@ -21,10 +22,6 @@ from .nsfw import (
     version_covers,
 )
 from .storage import read_civitai_info
-
-
-def _sha256(hashes) -> str:
-    return str((hashes or {}).get("sha256") or "").upper() if isinstance(hashes, dict) else ""
 
 
 def misplaced_files(db) -> List[Dict[str, Any]]:
@@ -43,7 +40,8 @@ def misplaced_files(db) -> List[Dict[str, Any]]:
             continue
         clash = None
         if os.path.exists(to):
-            mine, theirs = _sha256(row["file_hashes"]), _sha256((db.get_version(to) or {}).get("file_hashes"))
+            mine = read_hashes(row["file_hashes"]).get("sha256", "")
+            theirs = read_hashes((db.get_version(to) or {}).get("file_hashes")).get("sha256", "")
             clash = ("same" if mine == theirs else "different") if mine and theirs else "exists"
         found.append({"path": row["file_path"], "to": to, "file_type": row["file_type"],
                       "identified_by": row["identified_by"], "clash": clash})
