@@ -31,12 +31,12 @@ and its mask. Where no file can be read, Civitai's baseModel names it.
 """
 import os
 import re
-import threading
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .architecture import preset_for_base_model, read_shapes
 from .identity_store import record_architecture
+from .remembered import Remembered
 
 # At most this many Civitai lookups for one send: an image can name a dozen
 # "checkpoints", most of them VAEs and encoders filed as one.
@@ -61,9 +61,10 @@ class SendModel:
 # Civitai's answer for a checkpoint an image names but this library does not
 # have: ("v", version id) or ("h", hash) -> (baseModel, file names), or None
 # for not found. Only answers are kept, not failures, so a network error is
-# asked about again next time.
-_remembered: Dict[Tuple[str, str], Optional[Tuple[str, List[str]]]] = {}
-_lock = threading.Lock()
+# asked about again next time. The 2,000 most recent: a long session sends
+# from many galleries, and an answer forgotten is only asked again.
+_remembered = Remembered(most=2000)
+_NOT_ASKED = object()
 
 
 def plan_model(db, file_path: str = "", base_model: str = "",
@@ -181,9 +182,9 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
 
 
 def _remember(key, lookup) -> Optional[Tuple[str, List[str]]]:
-    with _lock:
-        if key in _remembered:
-            return _remembered[key]
+    known = _remembered.get(key, _NOT_ASKED)
+    if known is not _NOT_ASKED:
+        return known
     try:
         version = lookup(*key)
     except Exception as e:
@@ -193,8 +194,7 @@ def _remember(key, lookup) -> Optional[Tuple[str, List[str]]]:
     if version:
         answer = (version.get("baseModel") or "",
                   [f.get("name") or "" for f in version.get("files") or []])
-    with _lock:
-        _remembered[key] = answer
+    _remembered[key] = answer
     return answer
 
 

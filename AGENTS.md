@@ -49,6 +49,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
 | `models.py` | the data classes `storage.py` reads `.civitai.info` into |
+| `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order |

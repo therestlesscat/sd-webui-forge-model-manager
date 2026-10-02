@@ -23,6 +23,7 @@ from .images import gallery_state, gallery_switches
 from .common import card_size, failed
 from ..file_identity import NAMED_IN_PROMPTS
 from ..model_dirs import COMPANIONS, file_modified
+from ..remembered import Remembered
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -31,9 +32,9 @@ from ..model_dirs import COMPANIONS, file_modified
 MAX_HASH_LOOKUPS = 20
 
 # What a missing resource's file will be called once downloaded, by version
-# id, as Civitai answered: for this server's life, so sending the same image
+# id, as Civitai answered: the 2,000 most recent, so sending the same image
 # again does not ask again.
-_MISSING_FILES: dict = {}
+_MISSING_FILES = Remembered(most=2000)
 
 
 # The file types a resource can be found by name among: what a chip is for.
@@ -899,9 +900,11 @@ def register(app: FastAPI):
                 if client:
                     client.close()
 
+            # Read once each: another request may drop one between asking and reading.
+            answers = {str(v): _MISSING_FILES.get(v) for v in model_of}
             return JSONResponse({
                 "success": True,
-                "versions": {str(v): _MISSING_FILES[v] for v in model_of if v in _MISSING_FILES},
+                "versions": {v: answer for v, answer in answers.items() if answer is not None},
                 "hashes": by_hash,
             })
         except Exception as e:
