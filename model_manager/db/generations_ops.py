@@ -11,6 +11,8 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
+from ..prompt_rules import trimmed_sql
+
 _GENERATION_COLUMNS = (
     "created_at", "mode", "forge", "prompt", "negative_prompt", "styles",
     "hr_prompt", "hr_negative_prompt", "n_iter", "batch_size", "width", "height",
@@ -189,7 +191,7 @@ class GenerationsOps:
                 SELECT gi.id, gi.generation_id, gi.position,
                        COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
                        gi.user_nsfw_level AS user_level,
-                       LENGTH(TRIM(COALESCE(gi.prompt, ''))) AS prompt_length,
+                       LENGTH({trimmed_sql('gi.prompt')}) AS prompt_length,
                        g.created_at, gi.prompt AS image_prompt, g.prompt AS typed_prompt,
                        g.checkpoint_path, gi.loras, gi.width, gi.height
                 FROM generation_images gi

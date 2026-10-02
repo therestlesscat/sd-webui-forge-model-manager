@@ -17,8 +17,8 @@ Kept apart from api/ and ui/, which both read it, so neither imports the other.
 """
 from typing import Any, Dict, List, Sequence, Tuple
 
-from .civitai.prompt_filter import MIN_PROMPT_LENGTH
 from .nsfw import SFW_MAX, image_level
+from .prompt_rules import image_readable
 
 PAGE_SIZE_SETTING = "model_manager_gallery_page_size"
 DEFAULT_PAGE_SIZE = 100
@@ -70,10 +70,9 @@ def switch_counts(items: Sequence[Any], safe: Sequence[bool], readable: Sequence
 
 def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
                   hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """Civitai images through the switches: judged by nsfw.py, read for a prompt."""
+    """Civitai images through the switches: judged by nsfw.py, read by prompt_rules."""
     return switch_counts(
         images,
         [image_level(img) <= SFW_MAX for img in images],
-        [len(((img.get("meta") or {}).get("prompt") or "").strip()) >= MIN_PROMPT_LENGTH
-         for img in images],
+        [image_readable(img) for img in images],
         hide_nsfw, hide_promptless)

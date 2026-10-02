@@ -20,9 +20,9 @@ from ..civitai import (
     CivitaiRateLimitError,
     apply_generation_data,
     generation_ids_needing_lookup,
-    image_has_usable_prompt,
 )
 from ..civitai.prompt_filter import RATE_LIMITED
+from ..prompt_rules import usable
 from ..nsfw import SFW_MAX, image_level
 
 
@@ -162,7 +162,7 @@ def inspect_models(client, models: List[Dict[str, Any]], *, want_prompts: bool,
     for position, images in samples.items():
         if generation_data:
             apply_generation_data(images, generation_data)
-        if sum(1 for img in images if image_has_usable_prompt(img)) >= min_usable:
+        if sum(1 for img in images if usable(img)) >= min_usable:
             continue
         # Too few prompts - unless some were never learned. A lookup that
         # failed says nothing about the model; it used to drop it as promptless.

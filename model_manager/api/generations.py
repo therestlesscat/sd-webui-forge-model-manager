@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, Form
 from fastapi.responses import FileResponse, JSONResponse
 
-from ..civitai.prompt_filter import MIN_PROMPT_LENGTH
+from ..prompt_rules import MIN_PROMPT_LENGTH
 from ..db import get_models_db
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
