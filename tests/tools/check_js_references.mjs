@@ -7,6 +7,8 @@
 //   1. every imported name must actually be exported by the file named
 //   2. every bare identifier that gets called must be declared, imported,
 //      or a known global
+//   3. no file reads a window global another file defines; calls between
+//      files name something shared/calls.mjs was given
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { join, resolve, dirname } from 'path';
@@ -199,6 +201,47 @@ for (const f of files) {
     if (missing.size) {
         console.log(`FAIL ${f.replace(ROOT, '')}: calls ${[...missing].join(', ')} — not declared or imported`);
         failures += missing.size;
+    }
+}
+
+// --- 3. calls between files go through the registry ------------------------
+// Tabs and shared code once called each other through window globals - a tab
+// defining window.mmShowModel, another calling it - with nothing saying who
+// offered what (#94). They go through shared/calls.mjs now: what a file offers
+// it provides by name, and others call that name. So no file reads a window.X
+// another file defines (an inline handler in markup reaches only globals, so
+// a tab keeps its own), and every name called is one some file provides.
+function stripComments(text) {
+    return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+const definedIn = new Map();        // window name -> the files that define it
+const provided = new Set();
+const sources = new Map(files.map((f) => [f, stripComments(readFileSync(f, 'utf8'))]));
+for (const [f, src] of sources) {
+    for (const m of src.matchAll(/window\.(\w+)\s*(?:=|\|\|=|\?\?=)(?!=)/g)) {
+        if (!definedIn.has(m[1])) definedIn.set(m[1], new Set());
+        definedIn.get(m[1]).add(f);
+    }
+    for (const m of src.matchAll(/\bprovide\(\s*['"`]([^'"`$]+)/g)) provided.add(m[1]);
+}
+for (const [f, src] of sources) {
+    const reached = new Set();
+    for (const m of src.matchAll(/window\.(\w+)/g)) {
+        const owners = definedIn.get(m[1]);
+        if (owners && !owners.has(f)) reached.add(`window.${m[1]} (defined in ${[...owners].map((o) => o.replace(ROOT, '')).join(', ')})`);
+    }
+    const unknown = new Set();
+    for (const m of src.matchAll(/\b(?:call|ready)\(\s*(['"])([^'"]+)\1/g)) {
+        if (!provided.has(m[2])) unknown.add(m[2]);
+    }
+    if (reached.size) {
+        console.log(`FAIL ${f.replace(ROOT, '')}: reaches another file's ${[...reached].join(', ')}`
+                    + ' - provide it in shared/calls.mjs and call it by name');
+        failures += reached.size;
+    }
+    if (unknown.size) {
+        console.log(`FAIL ${f.replace(ROOT, '')}: calls ${[...unknown].join(', ')}, which no file provides`);
+        failures += unknown.size;
     }
 }
 

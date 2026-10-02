@@ -14,8 +14,8 @@
  *
  * The server does the filtering, the grouping and the parts
  * (api/generations.browse_page). The paste into txt2img or img2img is the
- * Model Manager's, on window (window.mmSendInfotext): it lives in that tab's
- * script, loaded with this.
+ * Model Manager's (modelManager.sendInfotext, in shared/calls.mjs): it lives
+ * in that tab's script, loaded with this.
  */
 
 // The shared modules, asked for with the version the server gives them: see
@@ -32,11 +32,12 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs', 'nsfw.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs', 'nsfw.mjs',
     'your_generations.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { ready, call } = await shared('calls.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
@@ -681,12 +682,12 @@ window.genSend = async function(index) {
 };
 
 async function sendImage(tile, image) {
-    if (typeof window.mmSendInfotext !== 'function') {
+    if (!ready('modelManager.sendInfotext')) {
         console.error('[ModelManager] The Model Manager tab is not loaded; cannot send');
         return;
     }
-    if (!await window.mmSendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
-                                       generationId: tile.generation.id })) {
+    if (!await call('modelManager.sendInfotext', { infotext: image.infotext, mode: tile.generation.mode,
+                                                   meta: image.meta, generationId: tile.generation.id })) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
 }
@@ -1047,22 +1048,22 @@ function closeMenu() {
 function showModel(file) {
     closeViewer();
     const byVersion = Boolean(file.version_id);
-    const open = byVersion ? window.mmShowVersion : window.mmShowFile;
-    if (typeof open !== 'function') {
+    if (!ready(byVersion ? 'modelManager.showVersion' : 'modelManager.showFile')) {
         setStatus('The Model Manager tab has not started yet: open it once and try again.');
         return;
     }
-    open(byVersion ? file.version_id : file.path);
+    if (byVersion) call('modelManager.showVersion', file.version_id);
+    else call('modelManager.showFile', file.path);
 }
 
 /** Its model and version in the Civitai Browser tab. */
 function showOnCivitai(file) {
     closeViewer();
-    if (typeof window.mmOpenInCivitaiBrowser !== 'function') {
+    if (!ready('modelManager.openInCivitaiBrowser')) {
         setStatus('The Model Manager tab has not started yet: open it once and try again.');
         return;
     }
-    window.mmOpenInCivitaiBrowser(file.version_id ? `model:${file.model_id} version:${file.version_id}`
+    call('modelManager.openInCivitaiBrowser', file.version_id ? `model:${file.model_id} version:${file.version_id}`
         : `model:${file.model_id}`);
 }
 

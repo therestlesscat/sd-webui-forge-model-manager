@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SHARED = path.resolve(__dirname, '..', '..', 'javascript', 'shared');
-const ORDER = ['core', 'ui_options', 'nsfw', 'media', 'grid', 'gallery', 'filters', 'your_generations',
+const ORDER = ['core', 'calls', 'ui_options', 'nsfw', 'media', 'grid', 'gallery', 'filters', 'your_generations',
                'update_notice', 'notes', 'chips', 'wan', 'downloads'];
 
 module.exports = function sharedScript() {

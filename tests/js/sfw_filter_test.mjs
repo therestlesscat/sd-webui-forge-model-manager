@@ -7,6 +7,7 @@
 // and the status line says what it left out, and when Civitai's rate limit
 // cut a page short.
 import { ROOT, checker, mountTab } from './harness.mjs';
+const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -162,7 +163,7 @@ check('when Civitai cut the page short, it says that instead', status(),
 
 // ------------------------------------------------ jumping from the Model Manager
 toggle('cb_nsfw', false);
-await window.cbShowModel('model:12345');
+await call('civitaiBrowser.showModel', 'model:12345');
 check('a jump from the Model Manager includes NSFW models, and greys the box out with it',
       [$('cb_nsfw').checked, $('cb_sfw_only').disabled, bannerShown()], [true, true, false]);
 

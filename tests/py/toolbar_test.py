@@ -351,7 +351,7 @@ check('it sends the same syntax this tab takes, naming the version shown',
 
 CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'),
                       encoding='utf-8').read()
-check('the browser answers to that name', 'window.cbShowModel = ' in CB_JS_EARLY)
+check('the browser answers to that name', "provide('civitaiBrowser.showModel', showModel)" in CB_JS_EARLY)
 check('and still offers the trip the other way',
       'window.cbShowInModelManager = ' in CB_JS_EARLY)
 

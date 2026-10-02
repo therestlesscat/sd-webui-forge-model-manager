@@ -10,6 +10,7 @@
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
 import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
@@ -713,7 +714,7 @@ click(row().querySelector('[data-chips-clear]'));
 // an Anima one kept the Anima model and its encoders.
 async function sendGeneration(id, meta = {}) {
     events.length = 0;
-    await window.mmSendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta,
+    await call('modelManager.sendInfotext', { infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta,
                                   generationId: id });
     await window.mmSendSettled();
 }

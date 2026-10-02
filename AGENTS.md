@@ -63,6 +63,7 @@ version (see "The WebUI's rules"):
 
 | | |
 |---|---|
+| `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
 | `notes` | notes to the user, at the top of each tab |
@@ -121,6 +122,18 @@ sync replaces it; a sidecar only adds to it, and not at all once a sync has
 written it - a sidecar is as old as its file, and would bring back a version
 Civitai deleted. A library synced before the column existed is filled from a
 sidecar the first time the panel asks.
+
+**Calls between files go through `shared/calls.mjs`.** A tab that offers
+something to the others - the Model Manager's `modelManager.showModel`, the
+settings window's `settings.open`, a tab's `cardPreview.<setting key>` -
+provides it by name; the others `call` it, and ask `ready` first where they
+tell the user that tab has not loaded. They reached each other through window
+globals (`window.mmShowModel`), and a caller found out what was missing its
+own way, or not at all. What markup calls stays on `window` - an inline
+handler reaches only globals - and is the tab's own: `check_js_references.mjs`
+fails on a file that reads another's window global, and on a call to a name
+nothing provides. Events stay window events (`mm-settings-saved` and three
+more).
 
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
