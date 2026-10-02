@@ -51,22 +51,21 @@ class ImagesOps:
                 Civitai's ranking and the id says nothing about it.
         """
         with self._cursor() as cursor:
-            for position, img in enumerate(images):
-                img_id = img.get("id")
-                if img_id:
-                    url = img.get("url")
-                    width = img.get("width")
-                    height = img.get("height")
-                    effective_nsfw_level = image_level(img)  # the rule lives in model_manager.nsfw
-                    created_at = img.get("createdAt")
+            self.insert_images(cursor, version_id, page, images)
 
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO images
-                        (id, version_id, page, position, url, width, height,
-                         effective_nsfw_level, created_at, data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (img_id, version_id, page, position, url, width, height,
-                          effective_nsfw_level, created_at, json.dumps(img)))
+    def insert_images(self, cursor, version_id: int, page: int, images: List[Dict[str, Any]]):
+        """store_images(), into a transaction the caller holds."""
+        for position, img in enumerate(images):
+            img_id = img.get("id")
+            if img_id:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO images
+                    (id, version_id, page, position, url, width, height,
+                     effective_nsfw_level, created_at, data)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (img_id, version_id, page, position, img.get("url"), img.get("width"),
+                      img.get("height"), image_level(img),  # the rule lives in model_manager.nsfw
+                      img.get("createdAt"), json.dumps(img)))
 
     # How often restamp_levels() says how far it has got: on 109,738 images
     # judging took 3-7 s, so this is a few reports a second.

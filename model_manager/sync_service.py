@@ -316,14 +316,7 @@ class SyncService:
                 next_cursor = images_result.get("next_cursor")
                 result.image_count = len(images)
 
-                # Store images in database
-                # Clear any existing images for this version
-                db.clear_version_images(version_id)
-                # Store images
-                if images:
-                    db.store_images(version_id, page=1, images=images)
-                # Update cursor and sync date
-                db.update_version_images_state(version_id, next_cursor)
+                db.replace_first_page(version_id, images, next_cursor)
 
             # Update database with model and version data. A failure here
             # means the model will not show up in the UI, so it must not be
@@ -1031,16 +1024,13 @@ class SyncService:
                     # used to be cleared and nothing stored in its place: a
                     # network error during a sync emptied the galleries it
                     # touched. The failure is already counted as an error.
+                    # With where Civitai's next page starts, as a sync of one
+                    # model keeps it. Without it "Download More Images" asked
+                    # for the first page again - these images - and showed
+                    # nothing new until a second click: 718 of 1,051 files in
+                    # one library had images and no cursor.
                     if next_cursor is not False:
-                        db.clear_version_images(version_id)
-                        if images:
-                            db.store_images(version_id, page=1, images=images)
-                        # Where Civitai's next page starts, as a sync of one
-                        # model keeps it. Without it "Download More Images"
-                        # asked for the first page again - these images - and
-                        # showed nothing new until a second click: 718 of
-                        # 1,051 files in one library had images and no cursor.
-                        db.update_version_images_state(version_id, next_cursor)
+                        db.replace_first_page(version_id, images, next_cursor)
                 except Exception as e:
                     with self._progress_lock:
                         self._progress.errors += 1

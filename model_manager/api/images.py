@@ -298,13 +298,7 @@ def register(app: FastAPI):
 
             next_cursor = result.get("next_cursor")
 
-            # Store in database
-            db.clear_version_images(version_id)
-            if images:
-                db.store_images(version_id, page=1, images=images)
-
-            # Update cursor and sync date
-            db.update_version_images_state(version_id, next_cursor)
+            db.replace_first_page(version_id, images, next_cursor)
 
             print(f"[ModelManager] Resynced {len(images)} images for version {version_id} "
                   f"(has_more: {next_cursor is not None})")
