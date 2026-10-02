@@ -1394,7 +1394,7 @@ onReady(async () => {
     showGroupChoice();
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
     try {
-        hideNsfw = (await galleryDefaults()).hideNsfw;
+        hideNsfw = (await galleryDefaults()).generationsHideNsfw;
     } catch (e) { /* the gallery's default: hidden */ }
     watchEnd();
     document.addEventListener('keydown', onKey);

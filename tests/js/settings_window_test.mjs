@@ -22,6 +22,8 @@ const SETTINGS = {
     model_manager_card_size: setting('text', '200x280'),
     model_manager_preview_least_nsfw: setting('bool', true),
     model_manager_gallery_hide_nsfw: setting('bool', true),
+    model_manager_record_generations: setting('bool', true),
+    model_manager_generations_hide_nsfw: setting('bool', true),
     model_manager_nsfw_detection: setting('choice', 'words', { default: 'model', choices: [
         ['Trained model', 'model'], ['Word list', 'words']] }),
     model_manager_nsfw_prompt_model_percent: setting('number', 2, { minimum: 0, maximum: 20, step: 0.25 }),
@@ -215,9 +217,9 @@ const titles = Array.from(document.querySelectorAll('.mm-settings-section > summ
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
 check('grouped into sections, in order, with a setting no section names under Other - What\'s new first',
       titles, ["What's new",
-    'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'NSFW detection',
+    'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'Your generations', 'NSFW detection',
     'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
-check('the text encoders collapsed', document.querySelectorAll('.mm-settings-section')[6].hasAttribute('open'), false);
+check('the text encoders collapsed', document.querySelectorAll('.mm-settings-section')[7].hasAttribute('open'), false);
 
 // "What's new": every note that applies, dismissed ones too, by version -
 // where a note dismissed in a tab can be read again. Collapsed.
@@ -243,6 +245,21 @@ check('the words are shown', shown('model_manager_nsfw_prompt_words'), true);
 pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'));
 check('with the trained model, its share is shown', shown('model_manager_nsfw_prompt_model_percent'), true);
 check('and the words still, since they apply with it too', shown('model_manager_nsfw_prompt_words'), true);
+
+// The Generations tab's own explicit-images setting, under Your generations -
+// shown only while generations are recorded, there being no tab otherwise.
+const GEN_NSFW = 'model_manager_generations_hide_nsfw';
+const recording = () => field('model_manager_record_generations').querySelector('input[type="checkbox"]');
+check('the Generations tab\'s setting is in Your generations, with its label',
+      [field(GEN_NSFW)?.closest('.mm-settings-section')?.dataset.section,
+       field(GEN_NSFW)?.querySelector('.mm-settings-label')?.textContent],
+      ['generations', 'Generations tab: hide explicit images by default']);
+check('shown while generations are recorded', shown(GEN_NSFW), true);
+recording().checked = false;
+recording().dispatchEvent(new window.Event('change', { bubbles: true }));
+check('hidden when they are not', shown(GEN_NSFW), false);
+recording().checked = true;
+recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 
 // -------------------------------------------------------------- changes
 check('two changes so far, counted', status(), '2 unsaved changes');

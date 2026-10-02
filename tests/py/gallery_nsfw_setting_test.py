@@ -36,7 +36,7 @@ except ImportError:
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
-from model_manager.ui.settings import carry_over_gallery_nsfw   # noqa: E402
+from model_manager.ui.settings import carry_over_gallery_nsfw, carry_over_generations_nsfw   # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'gallery_nsfw_setting')
 
@@ -56,6 +56,18 @@ check('whoever had turned it off keeps seeing them',
       carry_over_gallery_nsfw({OLD: False}), False)
 check('once the new setting has a value, the old one no longer decides it',
       carry_over_gallery_nsfw({OLD: False, NEW: True}), None)
+
+# The Generations tab followed the image gallery's setting; its own starts
+# from what that says, so nothing changes on updating.
+GEN = 'model_manager_generations_hide_nsfw'
+check('the Generations tab: a fresh install hides them', carry_over_generations_nsfw({}), True)
+check('whoever shows them in the image gallery keeps seeing them in the Generations tab',
+      carry_over_generations_nsfw({NEW: False}), False)
+check('and whoever hides them keeps them hidden', carry_over_generations_nsfw({NEW: True}), True)
+check('from the setting before that one too, where the gallery has none yet',
+      carry_over_generations_nsfw({OLD: False}), False)
+check('once the tab has its own, the gallery\'s no longer decides it',
+      carry_over_generations_nsfw({NEW: False, GEN: True}), None)
 
 # ------------------------------------------------- what the endpoints read
 db, facts = fixtures.build(WORK)

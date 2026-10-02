@@ -28,6 +28,13 @@ from .images import gallery_switches
 PREVIEW_IMAGES = 4
 
 
+def generations_hide_nsfw() -> bool:
+    """Whether the Generations tab opens with explicit images hidden: its own setting."""
+    from modules import shared
+    from ..generations import GENERATIONS_HIDE_NSFW
+    return bool(getattr(shared.opts, GENERATIONS_HIDE_NSFW, True))
+
+
 def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,
               hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
@@ -536,7 +543,7 @@ def register(app: FastAPI):
                               generation: Optional[int] = None, in_subgroup: str = ""):
         """
         Part `page` of a level of the Generations tab, through the NSFW switch
-        - the setting decides it when not sent. See browse_page().
+        - the tab's own setting decides it when not sent. See browse_page().
 
         Args:
             group: what images are grouped by (GROUPINGS), or two of them
@@ -546,7 +553,7 @@ def register(app: FastAPI):
             generation: the generation opened.
         """
         try:
-            hide_nsfw, _ = gallery_switches(hide_nsfw_images, False)
+            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
             return JSONResponse({"success": True, **browse_page(
                 get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup)})
         except Exception as e:

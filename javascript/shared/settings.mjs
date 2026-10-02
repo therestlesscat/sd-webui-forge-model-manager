@@ -33,6 +33,7 @@ const K = {
     promptless: 'model_manager_hide_promptless_images',
     pageSize: 'model_manager_gallery_page_size',
     recordGenerations: 'model_manager_record_generations',
+    generationsNsfw: 'model_manager_generations_hide_nsfw',
     detection: 'model_manager_nsfw_detection',
     percent: 'model_manager_nsfw_prompt_model_percent',
     words: 'model_manager_nsfw_prompt_words',
@@ -59,7 +60,7 @@ const SECTIONS = [
     { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser'],
       keys: [K.galleryNsfw, K.promptless, K.pageSize] },
     { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
-      keys: [K.recordGenerations] },
+      keys: [K.recordGenerations, K.generationsNsfw] },
     { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations'],
       keys: [K.detection, K.percent, K.words] },
     { id: 'storage', title: 'Sync and storage', tabs: ['model_manager'], keys: [K.threads, K.database] },
@@ -87,6 +88,7 @@ const LABELS = {
     [K.promptless]: 'Hide images with no prompt by default',
     [K.pageSize]: 'Images per page',
     [K.recordGenerations]: 'Your generations: record the images you generate, and show them',
+    [K.generationsNsfw]: 'Generations tab: hide explicit images by default',
     [K.detection]: 'What finds explicit images Civitai rates PG or PG-13',
     [K.percent]: 'Trained model: share of PG/PG-13 prompts to treat as X (%)',
     [K.words]: 'Extra prompt words',
@@ -104,6 +106,8 @@ const SHOWN_WHEN = {
     // this says.
     [K.rate]: (s) => s.hasKey(),
     [K.percent]: (s) => s.value(K.detection) === 'model',
+    // No Generations tab while nothing is recorded.
+    [K.generationsNsfw]: (s) => s.value(K.recordGenerations) !== false,
 };
 
 /** Controls that suit a setting better than its kind's default one. */

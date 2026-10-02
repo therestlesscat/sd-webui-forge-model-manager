@@ -140,6 +140,7 @@ def register(app: FastAPI):
         # settings.
         gallery_hide_nsfw = True
         hide_promptless_images = True
+        generations_hide_nsfw = True
         # "Your generations": off, nothing is recorded and every tab of them is
         # hidden (generations_enabled in generations.py).
         generations_on = True
@@ -159,7 +160,8 @@ def register(app: FastAPI):
                 shared.opts, 'model_manager_gallery_hide_nsfw', True))
             hide_promptless_images = bool(getattr(
                 shared.opts, 'model_manager_hide_promptless_images', True))
-            from ..generations import generations_enabled
+            from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
+            generations_hide_nsfw = bool(getattr(shared.opts, GENERATIONS_HIDE_NSFW, True))
             generations_on = generations_enabled()
         except Exception:
             pass
@@ -181,6 +183,7 @@ def register(app: FastAPI):
                 "nsfw_detection": nsfw_detection,
                 "gallery_hide_nsfw": gallery_hide_nsfw,
                 "hide_promptless_images": hide_promptless_images,
+                "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_enabled": generations_on,
             })
 
@@ -195,6 +198,7 @@ def register(app: FastAPI):
                  "nsfw_detection": nsfw_detection,
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images,
+                 "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_enabled": generations_on},
                 status_code=500
             )

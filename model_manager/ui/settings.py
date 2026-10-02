@@ -11,7 +11,7 @@ import gradio as gr
 from modules import shared
 
 from ..gallery import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PAGE_SIZE_SETTING
-from ..generations import RECORD_GENERATIONS
+from ..generations import GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from .. import prompt_levels
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
@@ -86,7 +86,8 @@ def on_ui_settings():
             component=gr.Checkbox,
             section=section,
         ).info("How a model's image gallery opens, in the Model Manager and the Civitai "
-               "Browser. The Show NSFW switch above the images shows them for that model. "
+               "Browser - and a model's Your generations; the Generations tab has its own. "
+               "The Show NSFW switch above the images shows them for that model. "
                "The Civitai Browser's Include NSFW models decides which models are listed, "
                "not which of their images are shown.")
     )
@@ -134,6 +135,23 @@ def on_ui_settings():
                "generations are hidden at once; from the next start the Generations tab is not "
                "created at all. What was recorded is kept, and comes back when this is on again.")
     )
+
+    # The Generations tab followed the image gallery's setting; it starts from
+    # what that said - once - and the two are independent after.
+    carried_generations = carry_over_generations_nsfw(shared.opts.data)
+    shared.opts.add_option(
+        GENERATIONS_HIDE_NSFW,
+        shared.OptionInfo(
+            default=True,
+            label="Generations tab: hide explicit images by default",
+            component=gr.Checkbox,
+            section=section,
+        ).info("How the Generations tab opens. The Show NSFW switch above the images shows "
+               "them until the tab is opened again. A model's Your generations, in the Model "
+               "Manager, follows the image gallery's setting.")
+    )
+    if carried_generations is not None:
+        shared.opts.data[GENERATIONS_HIDE_NSFW] = carried_generations
 
     shared.opts.add_option(
         PAGE_SIZE_SETTING,
@@ -363,6 +381,20 @@ def carry_over_gallery_nsfw(data):
     if GALLERY_HIDE_NSFW in data:
         return None
     return bool(data.get("model_manager_preview_least_nsfw", True))
+
+
+def carry_over_generations_nsfw(data):
+    """
+    The Generations tab's first value: the image gallery setting it used to
+    follow, as that would read now; None once it has one of its own.
+
+    Args:
+        data: the saved settings, as `shared.opts.data` holds them.
+    """
+    if GENERATIONS_HIDE_NSFW in data:
+        return None
+    gallery = carry_over_gallery_nsfw(data)
+    return bool(data.get(GALLERY_HIDE_NSFW, True)) if gallery is None else gallery
 
 
 def _check_updates_changed():
