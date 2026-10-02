@@ -20,6 +20,7 @@ from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
 )
 from ..gallery import filter_images, gallery_page_size
+from .common import failed
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
 # while every one holds only images already stored.
@@ -311,13 +312,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Resync images error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Resync images error")
 
     @app.get("/model-manager/images/gallery-page")
     def get_gallery_page(version_id: int, page: int = 1,
@@ -340,13 +335,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, **gallery_page(
                 get_models_db(), version_id, page, hide_nsfw, hide_promptless)})
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Gallery page error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Gallery page error")
 
     @app.get("/model-manager/video-still")
     def video_still(url: str = ""):

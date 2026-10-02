@@ -20,6 +20,7 @@ from ..civitai import CivitaiClient, paid_access_info
 from ..scan_service import as_model_payload
 from ..storage import read_civitai_info
 from .images import gallery_state, gallery_switches
+from .common import card_size, failed
 
 
 # The most resource hashes /resolve-hashes asks Civitai about in one request.
@@ -158,17 +159,7 @@ def register(app: FastAPI):
                 page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
-            def parse_card_size(size_str: str):
-                try:
-                    if 'x' in size_str.lower():
-                        parts = size_str.lower().split('x')
-                        return int(parts[0].strip()), int(parts[1].strip())
-                except (ValueError, IndexError):
-                    pass
-                return 200, 280  # Default
-
-            card_size_str = getattr(shared.opts, 'model_manager_card_size', '200x280')
-            card_width, card_height = parse_card_size(card_size_str)
+            card_width, card_height = card_size('model_manager_card_size')
 
             # Valid sort columns in DB
             valid_sort_columns = {
@@ -300,13 +291,7 @@ def register(app: FastAPI):
             return response
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] API error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "API error")
 
     @app.get("/model-manager/filter-defaults")
     async def get_filter_defaults():
@@ -314,17 +299,7 @@ def register(app: FastAPI):
         try:
             from modules import shared
 
-            def parse_card_size(size_str: str):
-                try:
-                    if 'x' in size_str.lower():
-                        parts = size_str.lower().split('x')
-                        return int(parts[0].strip()), int(parts[1].strip())
-                except (ValueError, IndexError):
-                    pass
-                return 200, 280
-
-            card_size_str = getattr(shared.opts, 'model_manager_card_size', '200x280')
-            card_width, card_height = parse_card_size(card_size_str)
+            card_width, card_height = card_size('model_manager_card_size')
             page_size = int(getattr(shared.opts, 'model_manager_page_size', 20))
 
             return JSONResponse({
@@ -335,13 +310,7 @@ def register(app: FastAPI):
                 "card_height": card_height,
             })
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Filter defaults error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Filter defaults error")
 
     @app.get("/model-manager/models/details")
     async def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
@@ -446,13 +415,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, "model": result})
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] API error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "API error")
 
     @app.get("/model-manager/models/versions")
     def get_model_versions(model_id: int):
@@ -504,13 +467,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Get versions error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Get versions error")
 
     @app.get("/model-manager/filters")
     async def get_filter_options():
@@ -527,13 +484,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Filters error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Filters error")
 
     @app.post("/model-manager/models/force-sync")
     def force_sync_model(model_id: int = Form(...)):
@@ -590,13 +541,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Force sync error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Force sync error")
 
     @app.post("/model-manager/models/delete")
     async def delete_model(path: str = Form(...)):
@@ -688,13 +633,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Delete error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Delete error")
 
     @app.post("/model-manager/pin")
     async def set_pin(
@@ -748,13 +687,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Bookmark error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Bookmark error")
 
     @app.post("/model-manager/resolve-hashes")
     def resolve_hashes(hashes: str = Form(default=""),
@@ -856,10 +789,7 @@ def register(app: FastAPI):
                                  "deferred": deferred})
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Resolve hashes error: {e}")
-            traceback.print_exc()
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+            return failed(e, "Resolve hashes error")
 
     @app.post("/model-manager/missing-resources")
     def missing_resources(versions: str = Form(default="[]"), hashes: str = Form(default="")):

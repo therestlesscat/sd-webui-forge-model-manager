@@ -32,6 +32,7 @@ from .images import PAGE_FETCHES
 # 150, 200 and 201 all came back as 100.
 CIVITAI_IMAGES_PER_REQUEST = 100
 from .prompts import PROMPT_CHECK_WORKERS, inspect_models
+from .common import card_size, failed
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -158,17 +159,7 @@ def register(app: FastAPI):
                 limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
 
             # Parse card size setting (format: WIDTHxHEIGHT)
-            def parse_card_size(size_str: str):
-                try:
-                    if 'x' in size_str.lower():
-                        parts = size_str.lower().split('x')
-                        return int(parts[0].strip()), int(parts[1].strip())
-                except (ValueError, IndexError):
-                    pass
-                return 200, 280  # Default
-
-            card_size_str = getattr(shared.opts, 'model_manager_civitai_card_size', '200x280')
-            card_width, card_height = parse_card_size(card_size_str)
+            card_width, card_height = card_size('model_manager_civitai_card_size')
 
             # Parse comma-separated values
             type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
@@ -243,13 +234,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai search error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Civitai search error")
 
     @app.get("/model-manager/civitai/models/stream")
     async def civitai_search_models_stream(
@@ -290,17 +275,7 @@ def register(app: FastAPI):
         if limit <= 0:
             limit = int(getattr(shared.opts, 'model_manager_civitai_page_size', 20))
 
-        def parse_card_size(size_str: str):
-            try:
-                if 'x' in size_str.lower():
-                    parts = size_str.lower().split('x')
-                    return int(parts[0].strip()), int(parts[1].strip())
-            except (ValueError, IndexError):
-                pass
-            return 200, 280
-
-        card_width, card_height = parse_card_size(
-            getattr(shared.opts, 'model_manager_civitai_card_size', '200x280'))
+        card_width, card_height = card_size('model_manager_civitai_card_size')
 
         search_params = dict(
             query=query,
@@ -418,13 +393,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai get model error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Civitai get model error")
 
     @app.get("/model-manager/civitai/versions/{version_id}/images")
     def civitai_get_version_images(
@@ -503,13 +472,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai images error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Civitai images error")
 
     @app.post("/model-manager/civitai/download")
     def civitai_download_model(
@@ -612,13 +575,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Civitai download error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Civitai download error")
 
     @app.get("/model-manager/civitai/download/progress")
     async def civitai_download_progress(version_id: Optional[int] = None):
@@ -650,13 +607,7 @@ def register(app: FastAPI):
                 })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Download progress error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Download progress error")
 
     @app.post("/model-manager/civitai/download/cancel")
     async def civitai_cancel_download(version_id: int = Form(default=0)):
@@ -682,13 +633,7 @@ def register(app: FastAPI):
                 })
 
         except Exception as e:
-            import traceback
-            print(f"[ModelManager] Cancel download error: {e}")
-            traceback.print_exc()
-            return JSONResponse(
-                {"success": False, "error": str(e)},
-                status_code=500
-            )
+            return failed(e, "Cancel download error")
 
     @app.post("/model-manager/civitai/download/control")
     async def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):

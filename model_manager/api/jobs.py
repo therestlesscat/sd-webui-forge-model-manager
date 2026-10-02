@@ -19,6 +19,7 @@ from ..sync_service import (
     sync_window_counts,
     window_cutoff,
 )
+from .common import failed
 
 #: What progress and cancel answer before a job of the kind has run.
 NOT_STARTED = {"sync": "No sync in progress", "scan": "No scan in progress"}
@@ -169,9 +170,7 @@ def register(app: FastAPI):
                 "unidentified": get_models_db().count_unidentified(),
             })
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+            return failed(e)
 
     @app.get("/model-manager/sync/progress")
     async def get_sync_progress():
