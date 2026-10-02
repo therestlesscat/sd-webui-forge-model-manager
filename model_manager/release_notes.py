@@ -42,6 +42,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Set
 
+from .forge_host import setting
 from .version import VERSION
 
 NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "release_notes.json")
@@ -54,11 +55,7 @@ ACTIONS = ("reread_headers", "settings", "scan_disk", "sync_unidentified")
 
 def _custom_database() -> bool:
     """Whether the settings name a database file - the only way two WebUIs share one."""
-    try:
-        from modules import shared
-        return bool(str(getattr(shared.opts, "model_manager_database_path", "") or "").strip())
-    except Exception:
-        return False
+    return bool(str(setting("model_manager_database_path") or "").strip())
 
 
 # Conditions a note can be for, by the name its "when" gives.

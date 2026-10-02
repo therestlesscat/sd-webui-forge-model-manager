@@ -25,6 +25,7 @@ import os
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .architecture import PRESET_BY_CLASS
+from .forge_host import DEFAULTS, setting
 
 HF = "https://huggingface.co/"
 
@@ -243,14 +244,11 @@ def parse_file_names(value) -> List[str]:
 
 
 def preferred_modules(preset: Optional[str]) -> List[str]:
-    """The files the settings name for a UI preset, as written there."""
-    if not preset:
+    """The files the settings name for a UI preset, as written there - none
+    for a preset the settings have no list for (sd, xl)."""
+    if not preset or SETTING_PREFIX + preset not in DEFAULTS:
         return []
-    try:
-        from modules import shared
-        return parse_file_names(getattr(shared.opts, SETTING_PREFIX + preset, ""))
-    except Exception:
-        return []
+    return parse_file_names(setting(SETTING_PREFIX + preset))
 
 
 def _match(name: str, labels) -> Optional[str]:

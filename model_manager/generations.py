@@ -45,6 +45,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .db import get_models_db
+from .forge_host import available, setting
 from .nsfw import generated_level
 
 # Whether generations are recorded at all; registered in ui/settings.py.
@@ -184,11 +185,8 @@ def postprocess(p, processed) -> Optional[int]:
 # ----------------------------------------------------------------- reading
 
 def _recording() -> bool:
-    try:
-        from modules import shared
-        return bool(getattr(shared.opts, RECORD_GENERATIONS, True))
-    except Exception:
-        return False
+    # Outside a WebUI nothing is generated, and nothing is recorded.
+    return available() and bool(setting(RECORD_GENERATIONS))
 
 
 def generations_enabled() -> bool:
@@ -199,11 +197,7 @@ def generations_enabled() -> bool:
     What was recorded is kept either way. For the UI, a setting that cannot
     be read is on, as by default.
     """
-    try:
-        from modules import shared
-        return bool(getattr(shared.opts, RECORD_GENERATIONS, True))
-    except Exception:
-        return True
+    return bool(setting(RECORD_GENERATIONS))
 
 
 def _text(value: Any) -> Optional[str]:

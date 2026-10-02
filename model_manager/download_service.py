@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
+from .forge_host import setting
 from .hashing import HashResult
 from .model_dirs import download_dir, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
@@ -837,8 +838,6 @@ class DownloadService:
         Download a model version from Civitai - with `resume`, carrying on
         from its .partial where there is one.
         """
-        from modules import shared
-
         partial_path = None
         with self._lock:
             # The progress the queue made, or a paused one being resumed, is
@@ -884,7 +883,7 @@ class DownloadService:
             model_type = model_data.get("type", "Other")
             base_path = self.get_base_path(model_type)
 
-            template = getattr(shared.opts, 'model_manager_civitai_folder_template', '_{baseModel}/{modelName}')
+            template = setting('model_manager_civitai_folder_template')
             subfolder = self.apply_folder_template(template, model_data, version_data)
             # Absolute, with no "..": the path a scan finds the file by, which
             # is how the library knows it is the same file.

@@ -30,7 +30,8 @@ for text, want in (('260x364', (260, 364)), (' 160 X 224 ', (160, 224)), ('200x2
     opts.model_manager_card_size = text
     check('a card size of %r reads as %r - as the four copies read it' % (text, want),
           card_size('model_manager_card_size'), want)
-check('a setting that is not there reads as the default', card_size('model_manager_no_such_size'), (200, 280))
+del opts.model_manager_card_size
+check('a card size Forge holds nothing for reads as the default', card_size('model_manager_card_size'), (200, 280))
 
 answer = failed(RuntimeError('it broke'), 'Testing error')
 check('a failure is answered 500, success false, with the error',

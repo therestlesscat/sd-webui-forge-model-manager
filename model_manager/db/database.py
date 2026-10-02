@@ -26,6 +26,7 @@ from .migrations import run_migrations
 from .models_ops import ModelsOps
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
+from ..forge_host import setting
 from ..model_dirs import file_modified
 
 
@@ -570,15 +571,9 @@ def get_models_db() -> ModelsDatabase:
                     os.path.dirname(os.path.abspath(__file__))))
 
                 # Check for custom database path in settings
-                custom_db_path = None
-                try:
-                    from modules import shared
-                    custom_path = getattr(shared.opts, 'model_manager_database_path', '')
-                    if custom_path and custom_path.strip():
-                        custom_db_path = custom_path.strip()
-                        print(f"[ModelManager] Using custom database path: {custom_db_path}")
-                except Exception as e:
-                    print(f"[ModelManager] Could not read custom database path setting: {e}")
+                custom_db_path = str(setting('model_manager_database_path') or '').strip() or None
+                if custom_db_path:
+                    print(f"[ModelManager] Using custom database path: {custom_db_path}")
 
                 _db_instance = ModelsDatabase(ext_dir, custom_db_path)
 

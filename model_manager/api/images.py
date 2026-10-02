@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from typing import Any, Dict, Optional, Tuple
 
 from ..db import get_models_db
+from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
@@ -34,11 +35,10 @@ def gallery_switches(hide_nsfw: Optional[bool],
     it has, as the settings say. The page sends neither on a model's first
     load, so that the settings are read at all.
     """
-    from modules import shared
     if hide_nsfw is None:
-        hide_nsfw = getattr(shared.opts, 'model_manager_gallery_hide_nsfw', True)
+        hide_nsfw = setting('model_manager_gallery_hide_nsfw')
     if hide_promptless is None:
-        hide_promptless = getattr(shared.opts, 'model_manager_hide_promptless_images', True)
+        hide_promptless = setting('model_manager_hide_promptless_images')
     return hide_nsfw, hide_promptless
 
 

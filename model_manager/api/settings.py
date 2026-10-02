@@ -213,8 +213,8 @@ def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     description of each preset this WebUI has, from what is installed and
     the settings - or, for a preset in `drafts`, the text the window holds.
     """
-    from modules import shared
     from ..file_identity import classify_file
+    from ..forge_host import setting
     from ..forge_modules import (SETTING_PREFIX, available_presets, describe_presets,
                                  installed_modules)
     modules = {label: classify_file(path) for label, path in installed_modules().items()}
@@ -222,7 +222,7 @@ def modules_table(drafts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     for key, _ in _ours():
         if key.startswith(SETTING_PREFIX):
             preset = key[len(SETTING_PREFIX):]
-            texts[preset] = str(getattr(shared.opts, key, "") or "")
+            texts[preset] = str(setting(key) or "")
     texts.update(drafts or {})
     return {"success": True, "presets": describe_presets(available_presets(), modules, texts)}
 

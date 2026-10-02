@@ -135,16 +135,19 @@ def register(app: FastAPI):
     @app.get("/model-manager/ui-options")
     async def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
-        has_api_key = False
+        from ..civitai import api_key_from_settings
+        from ..forge_host import setting
+        from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
+        has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
         # the Model Manager's asks the details endpoint, which reads the same
         # settings.
-        gallery_hide_nsfw = True
-        hide_promptless_images = True
-        generations_hide_nsfw = True
+        gallery_hide_nsfw = bool(setting('model_manager_gallery_hide_nsfw'))
+        hide_promptless_images = bool(setting('model_manager_hide_promptless_images'))
+        generations_hide_nsfw = bool(setting(GENERATIONS_HIDE_NSFW))
         # "Your generations": off, nothing is recorded and every tab of them is
         # hidden (generations_enabled in generations.py).
-        generations_on = True
+        generations_on = generations_enabled()
         # Which judges prompts, as in force: "model" only when the trained
         # model is chosen and on. The pages say so when it is.
         try:
@@ -152,20 +155,6 @@ def register(app: FastAPI):
             nsfw_detection = "model" if prompt_model_threshold() is not None else "words"
         except Exception:
             nsfw_detection = "words"
-        try:
-            from modules import shared
-            has_api_key = bool(
-                (getattr(shared.opts, 'model_manager_civitai_api_key', '') or '').strip()
-            )
-            gallery_hide_nsfw = bool(getattr(
-                shared.opts, 'model_manager_gallery_hide_nsfw', True))
-            hide_promptless_images = bool(getattr(
-                shared.opts, 'model_manager_hide_promptless_images', True))
-            from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
-            generations_hide_nsfw = bool(getattr(shared.opts, GENERATIONS_HIDE_NSFW, True))
-            generations_on = generations_enabled()
-        except Exception:
-            pass
 
         try:
             from modules import sd_samplers, sd_schedulers

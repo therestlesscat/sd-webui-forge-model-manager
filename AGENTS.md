@@ -28,6 +28,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 |---|---|
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations` |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
+| `forge_host.py` | what the extension asks of the WebUI it runs in: its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, when a walk may forget a row, and where a file of each type belongs |
@@ -189,10 +190,12 @@ an older copy sharing the database, which never touches it.
 `nsfw.py` (a level, with `model_level_sql`), `prompt_rules.py` (a prompt
 worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
 switches hide), `payload_rows.py` (a Civitai payload as rows),
-`hashing.read_hashes` (stored hashes, either case). Each found a second copy
-that had already begun to disagree; tests hold the Python to the SQL
-(`switch_counts_test`, `prompt_rules_test`), and `check_hash_access.py` keeps
-readers on the facade.
+`hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
+setting's default). Each found a second copy that had already begun to
+disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
+to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
+table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
+facade.
 
 ## The WebUI's rules, which are not obvious
 
