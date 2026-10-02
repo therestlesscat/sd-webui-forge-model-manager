@@ -74,7 +74,7 @@ version (see "The WebUI's rules"):
 | `grid` | cards, the grid and its page strip, its rows kept even |
 | `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text |
 | `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
-| `gallery` | a gallery's loading bar, filter banner and page notes |
+| `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
 | `your_generations` | selecting your images to delete, and rating one |
 | `downloads` | a version's Download button, and the downloads panel both tabs show |

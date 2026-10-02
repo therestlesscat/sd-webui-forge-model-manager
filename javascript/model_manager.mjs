@@ -49,6 +49,7 @@ const { showNotes } = await shared('notes.mjs');
 const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
 const {
     showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
+    createPagedGallery,
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
@@ -140,7 +141,6 @@ let isScanning = false;
 let scanPollInterval = null;
 
 // Image gallery state
-let currentImages = [];
 let currentVersionId = null;
 let currentModelPath = null;
 // Whether the gallery is hiding images with no prompt worth reading. Filtered
@@ -164,13 +164,13 @@ let hiddenByBothCount = 0;
 let promptlessImageTotal = null;
 // The gallery is a list of pages, each a slice of what is stored, in gallery
 // order, before the switches filter it - see model_manager/gallery.py. Load
-// more adds the next. currentImages holds the images drawn, every page's in
-// turn, and imagePages each page loaded: its number, where its images start
-// in currentImages, and its own counts, for its note.
-let imagePages = [];
-let loadingImagePage = false;
-// Why the last page asked for did not come, above Load More, until the next.
-let pageRequestError = '';
+// more adds the next. Its images and pages are imageGallery's (shared/gallery.mjs).
+const imageGallery = createPagedGallery({
+    containerId: 'mm_images', bannerClass: 'mm-nsfw-warning', loadMoreId: 'mm_load_more_btn',
+    loadMoreCall: 'mmLoadMoreImages', card: (img, index) => renderImageCard(img, index),
+    bannerHtml: () => imagesBannerHtml(), showing: () => galleryTab === 'civitai',
+    redraw: () => renderModelImages(), afterDraw: () => refreshResourceButtons(),
+});
 let filteredImageCount = 0;
 // Each fetch of the gallery takes a number; an answer to anything but the
 // latest is dropped, so a slow page cannot land over a newer one.
@@ -740,10 +740,10 @@ window.mmSelectModel = async function(index) {
     if (!model) return;
 
     // Reset image state
-    currentImages = [];
+    imageGallery.images = [];
     currentVersionId = null;
     currentModelPath = model.file_path;
-    imagePages = [];
+    imageGallery.pages = [];
     filteredImageCount = 0;
     resetGenerations();
     // Each model's gallery starts from the settings; its switches then last
@@ -825,8 +825,8 @@ async function loadVersionDetails(filePath) {
 
             // The gallery's totals now, its first page after: page 1 may be
             // fetched from Civitai, and the details do not wait for it.
-            currentImages = [];
-            imagePages = [];
+            imageGallery.images = [];
+            imageGallery.pages = [];
             const imagesState = data.model.images_state || {};
             applyImagesState(imagesState);
             generationsCount = data.model.generations_count || 0;
@@ -883,7 +883,7 @@ function applyImagesState(state) {
 async function loadGalleryPage(number, { append = false } = {}) {
     const versionId = currentVersionId;
     if (!versionId) {
-        renderModelImages(currentImages);
+        renderModelImages();
         return false;
     }
     const request = ++imagesRequest;
@@ -895,28 +895,20 @@ async function loadGalleryPage(number, { append = false } = {}) {
         if (request !== imagesRequest || versionId !== currentVersionId) return false;
         if (!data.success) {
             console.error('[ModelManager] Failed to load images:', data.error);
-            if (append) pageRequestError = `Page ${number} could not be loaded: ${data.error || 'no answer'}`;
+            if (append) imageGallery.error = `Page ${number} could not be loaded: ${data.error || 'no answer'}`;
             else sayGalleryFailed(data.error || 'no answer');
             return false;
         }
-        pageRequestError = '';
+        imageGallery.error = '';
         applyImagesState(data.images_state || {});
-        const images = data.images || [];
-        const page = { ...(data.page || { number }), first: append ? currentImages.length : 0 };
-        if (append) {
-            currentImages = currentImages.concat(images);
-            imagePages.push(page);
-            appendGalleryPage(page, images);
-        } else {
-            currentImages = images;
-            imagePages = [page];
-            renderModelImages(currentImages);
-        }
+        const { page, images } = imageGallery.take(data, { append, number });
+        if (append) imageGallery.append(page, images);
+        else renderModelImages();
         updateImagesCountCell();
         return true;
     } catch (error) {
         console.error('[ModelManager] Failed to load images:', error);
-        if (append) pageRequestError = `Page ${number} could not be loaded: ${error.message}`;
+        if (append) imageGallery.error = `Page ${number} could not be loaded: ${error.message}`;
         else sayGalleryFailed(error.message);
         return false;
     }
@@ -989,9 +981,9 @@ window.mmSelectVersion = async function(versionIndex) {
     currentModelPath = version.file_path;
 
     // Reset image state
-    currentImages = [];
+    imageGallery.images = [];
     currentVersionId = null;
-    imagePages = [];
+    imageGallery.pages = [];
     filteredImageCount = 0;
     resetGenerations();
 
@@ -1258,9 +1250,9 @@ window.mmSelectPill = async function(index) {
 };
 
 function resetImageState() {
-    currentImages = [];
+    imageGallery.images = [];
     currentVersionId = null;
-    imagePages = [];
+    imageGallery.pages = [];
     filteredImageCount = 0;
 }
 
@@ -1878,7 +1870,7 @@ window.mmDeleteModel = async function(scope = 'version') {
 
 
 // Render model images - new list layout
-function renderModelImages(images) {
+function renderModelImages() {
     const container = document.getElementById('mm_images');
     if (!container) return;
     if (galleryTab === 'generations') {
@@ -1887,7 +1879,7 @@ function renderModelImages(images) {
     }
 
     // No page loaded, or nothing stored and none to fetch: nothing to list.
-    if (!imagePages.length || (!totalImageCount && !imagePages[0].count)) {
+    if (!imageGallery.pages.length || (!totalImageCount && !imageGallery.pages[0].count)) {
         if (!totalImageCount && generationsCount > 0) {
             // No example images, but your own generations: the tabs still
             // show, or there would be no way to them.
@@ -1906,43 +1898,11 @@ function renderModelImages(images) {
     container.innerHTML = `
         ${imagesHeaderHtml()}
         ${imagesBannerHtml()}
-        <div class="model-images-list">${imagePages.map((page) =>
-            galleryPageHtml(page, images.slice(page.first, page.first + (page.shown || 0)))).join('')}</div>
-        <div class="mm-images-footer">${imagesFooterHtml()}</div>
+        ${imageGallery.pagesHtml()}
     `;
     container.style.display = 'block';
     setupLazyMedia(container);
     refreshResourceButtons();
-}
-
-/**
- * Add a page to the end of the gallery's list: what Load more brings. The
- * cards already drawn are left alone - the whole gallery used to be drawn
- * again, and every image above came back as a blank square until it
- * reloaded, moving the page under the reader. Only the banner and the foot
- * are drawn again. Anything else - a filter, another model - draws it all.
- */
-function appendGalleryPage(page, images) {
-    const container = document.getElementById('mm_images');
-    const list = container?.querySelector('.model-images-list');
-    if (!list || galleryTab !== 'civitai' || !list.querySelector('.mm-page-note')) {
-        renderModelImages(currentImages);
-        return;
-    }
-    list.insertAdjacentHTML('beforeend', galleryPageHtml(page, images));
-    refreshImagesChrome();
-    setupLazyMedia(list);
-    refreshResourceButtons();
-}
-
-/** Draw again what sums the gallery up - the banner, the foot - and not the images. */
-function refreshImagesChrome() {
-    const container = document.getElementById('mm_images');
-    if (!container || galleryTab !== 'civitai') return;
-    const banner = container.querySelector('.mm-nsfw-warning');
-    if (banner) banner.outerHTML = imagesBannerHtml();
-    const footer = container.querySelector('.mm-images-footer');
-    if (footer) footer.innerHTML = imagesFooterHtml();
 }
 
 /**
@@ -1957,7 +1917,7 @@ function imagesBannerHtml() {
     return renderFilterBanner({
         matching: filteredImageCount,
         total: totalImageCount,
-        onScreen: currentImages.length,
+        onScreen: imageGallery.images.length,
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
         both: hiddenByBothCount,
@@ -1972,32 +1932,6 @@ function imagesBannerHtml() {
               onchange: 'window.mmToggleShowPromptless(this.checked)' },
         ],
     });
-}
-
-/**
- * One page of the list: its separator, after the first, its cards, and its
- * note, which says what that page held - what it shows, and what each switch
- * hid - so a page showing few images, or none, says why. `images` are the
- * page's shown images; their cards take their places in currentImages.
- */
-function galleryPageHtml(page, images) {
-    const cards = images.map((img, i) => renderImageCard(img, page.first + i)).filter(Boolean).join('');
-    return (page.number > 1 ? pageSeparator(page.number) : '') + cards + pageNoteHtml(page);
-}
-
-
-/** The foot of the list: why a page did not come, and Load more while there is a next. */
-function imagesFooterHtml() {
-    const last = imagePages[imagePages.length - 1];
-    const error = pageRequestError
-        ? `<div class="mm-page-note">${escapeHtml(pageRequestError)}</div>` : '';
-    if (!last || !last.more) return error;
-    return `${error}<div class="mm-load-more">
-             <button class="mm-btn secondary" id="mm_load_more_btn" onclick="window.mmLoadMoreImages()"
-                     ${loadingImagePage ? 'disabled' : ''}>
-               ${loadingImagePage ? 'Loading...' : 'Load More Images'}
-             </button>
-           </div>`;
 }
 
 /**
@@ -2057,7 +1991,7 @@ window.mmShowGalleryTab = async function(tab) {
         await refreshGenerations();
         return;
     }
-    renderModelImages(currentImages);
+    renderModelImages();
 };
 
 // "Your generations" turned off or on: the gallery's tab goes or comes back at
@@ -2069,7 +2003,7 @@ window.addEventListener('mm-generations-enabled', (event) => {
         return;
     }
     if (galleryTab === 'generations') renderGenerations();
-    else renderModelImages(currentImages);
+    else renderModelImages();
 });
 
 // "Rate" on your generations: a row of NSFW levels on each card and on each
@@ -2343,7 +2277,7 @@ function renderGenerations() {
 
 /**
  * Add a page of generations to the end of the list - Load More - and leave
- * the cards already drawn alone, as appendGalleryPage() does for the Civitai
+ * the cards already drawn alone, as imageGallery.append() does for the Civitai
  * images; only the banner and the foot are drawn again.
  */
 function appendGenerationPage(page, cards) {
@@ -2510,7 +2444,7 @@ function viewCivitaiImage(index) {
     if (at < 0) return;
     openViewer(cardSource({
         cards: civitaiCards,
-        more: () => !!imagePages[imagePages.length - 1]?.more,
+        more: () => !!imageGallery.pages[imageGallery.pages.length - 1]?.more,
         loadMore: () => window.mmLoadMoreImages(),
         videoUrl: viewerVideoUrl,
     }), at);
@@ -2791,13 +2725,13 @@ function renderImageCard(img, index) {
 }
 
 // Show All, the same window in both tabs.
-window.mmShowImageMeta = (imageIndex) => showImageMeta(currentImages[imageIndex]);
+window.mmShowImageMeta = (imageIndex) => showImageMeta(imageGallery.images[imageIndex]);
 
 
 /** Relabel the gallery's Resources buttons from what is known now - your generations' too. */
 function updateResourceButtons() {
     document.querySelectorAll('#mm_images [data-resources-index]').forEach((button) => {
-        const img = currentImages[Number(button.dataset.resourcesIndex)];
+        const img = imageGallery.images[Number(button.dataset.resourcesIndex)];
         const label = img ? resourceButtonLabel(img, currentVersionId) : '';
         if (label) button.textContent = label;
         else button.remove();
@@ -2817,13 +2751,13 @@ window.addEventListener('mm-resource-hashes', updateResourceButtons);
  * images', and your generations' - and relabel the buttons with it
  * (learnResourceHashes in resources.mjs).
  */
-function refreshResourceButtons(images = [...currentImages, ...generationCards.map(generationResourcesImage)]) {
+function refreshResourceButtons(images = [...imageGallery.images, ...generationCards.map(generationResourcesImage)]) {
     return learnResourceHashes(images);
 }
 
 // Show the resources behind an image, resolved and merged
 window.mmShowResources = function(imageIndex) {
-    return showImageResources(currentImages[imageIndex], currentVersionId);
+    return showImageResources(imageGallery.images[imageIndex], currentVersionId);
 };
 
 /**
@@ -2855,18 +2789,7 @@ function generationResourcesImage(card) {
 }
 
 // Load the next page, filled from Civitai first if the library cannot fill it.
-window.mmLoadMoreImages = async function() {
-    const last = imagePages[imagePages.length - 1];
-    if (loadingImagePage || !last || !last.more) return;
-    loadingImagePage = true;
-    refreshImagesChrome();
-    try {
-        await loadGalleryPage(last.number + 1, { append: true });
-    } finally {
-        loadingImagePage = false;
-        refreshImagesChrome();
-    }
-};
+window.mmLoadMoreImages = () => imageGallery.more((number) => loadGalleryPage(number, { append: true }));
 
 /**
  * The version whose gallery is showing: the one picked in the details panel,
@@ -2877,7 +2800,7 @@ function shownVersion(model) {
 }
 
 window.mmSendToTxt2img = async function(imageIndex) {
-    const img = currentImages[imageIndex];
+    const img = imageGallery.images[imageIndex];
     if (!img || !img.meta) {
         console.error('[ModelManager] No image data at index', imageIndex);
         return;

@@ -49,7 +49,7 @@ const {
 const { showNotes } = await shared('notes.mjs');
 const { savedSearch, saveSearch, sortBaseModels, sizeBound } = await shared('filters.mjs');
 const {
-    showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
+    showGalleryLoading, dimGalleryWhileLoading, renderFilterBanner, createPagedGallery,
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, applyCardSize: sharedApplyCardSize, renderModelCard, renderGridPagination,
@@ -91,15 +91,15 @@ let selectedFileIndex = null;  // null = whichever file Civitai marks primary
 // The gallery is a list of pages, as the Model Manager's is, but live: each
 // the next page of Civitai's, before the switches filter it, and Load More
 // adds the next (model_manager/gallery.py). Nothing is kept on the server;
-// nextImagesCursor is where Civitai's next page starts. currentImages holds
-// the images drawn, every page's in turn; imagePages each page loaded, with
-// where its images start and its own counts, for its note; imageCounts those
-// counts added up, for the banner.
-let currentImages = [];
-let imagePages = [];
-let loadingImagePage = false;
-// Why the last page asked for did not come, above Load More, until the next.
-let pageRequestError = '';
+// nextImagesCursor is where Civitai's next page starts. Its images and pages
+// are imageGallery's (shared/gallery.mjs); imageCounts their counts added up,
+// for the banner.
+const imageGallery = createPagedGallery({
+    containerId: 'cb_images', bannerClass: 'cb-nsfw-warning', loadMoreId: 'cb_load_more_btn',
+    loadMoreCall: 'cbLoadMoreImages', card: (img, index) => renderImageCard(img, index),
+    bannerHtml: () => imagesBannerHtml(), redraw: () => renderImages(),
+    afterDraw: (images) => { updateImagesCount(); learnResourceHashes(images); },
+});
 let imageCounts = null;
 // Each fetch of the gallery takes a number; an answer to anything but the
 // latest is dropped, so a slow page cannot land over a newer one.
@@ -736,8 +736,8 @@ function closeDetails() {
     selectedModel = null;
     selectedVersionIndex = 0;
     selectedFileIndex = null;
-    currentImages = [];
-    imagePages = [];
+    imageGallery.images = [];
+    imageGallery.pages = [];
     imageCounts = null;
     nextImagesCursor = null;
 }
@@ -978,12 +978,12 @@ function addUpPages() {
     const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'hidden_both', 'nsfw_count',
                   'promptless_count', 'promptless_total'];
     const sums = Object.fromEntries(keys.map((key) =>
-        [key, imagePages.reduce((sum, page) => sum + (page[key] || 0), 0)]));
+        [key, imageGallery.pages.reduce((sum, page) => sum + (page[key] || 0), 0)]));
     return { total: sums.count, filtered: sums.shown, hidden_nsfw: sums.hidden_nsfw,
              hidden_promptless: sums.hidden_promptless, hidden_both: sums.hidden_both,
              nsfw_count: sums.nsfw_count,
              // Only when every page says it: a page without it would make it short.
-             promptless_total: imagePages.every((page) => typeof page.promptless_total === 'number')
+             promptless_total: imageGallery.pages.every((page) => typeof page.promptless_total === 'number')
                  ? sums.promptless_total : undefined,
              promptless_count: sums.promptless_count };
 }
@@ -991,17 +991,9 @@ function addUpPages() {
 /** Take a page's answer: the page itself, and the banner's totals again. */
 function takeImagesPage(result, { append }) {
     nextImagesCursor = result.next_cursor || null;
-    const images = result.images || [];
-    const page = { ...(result.page || { number: 1 }), first: append ? currentImages.length : 0 };
-    if (append) {
-        currentImages = currentImages.concat(images);
-        imagePages.push(page);
-    } else {
-        currentImages = images;
-        imagePages = [page];
-    }
+    const taken = imageGallery.take(result, { append });
     imageCounts = addUpPages();
-    return { page, images };
+    return taken;
 }
 
 // While a model's images load: a bar, from the moment it starts
@@ -1013,11 +1005,11 @@ const dimImagesWhileLoading = (on) => dimGalleryWhileLoading('cb_images', on);
 async function loadImagesFromVersion() {
     // Which images are safe depends on the NSFW prompt words too.
     const version = getSelectedVersion();
-    currentImages = [];
-    imagePages = [];
+    imageGallery.images = [];
+    imageGallery.pages = [];
     imageCounts = null;
     nextImagesCursor = null;
-    pageRequestError = '';
+    imageGallery.error = '';
     if (!version?.id) {
         renderImages();
         return;
@@ -1047,28 +1039,17 @@ async function loadImagesFromVersion() {
 }
 
 // Load More: the next page, added to the end of the list.
-async function loadMoreImages() {
-    const last = imagePages[imagePages.length - 1];
-    if (loadingImagePage || !last || !last.more) return;
-    loadingImagePage = true;
-    pageRequestError = '';
-    refreshImagesChrome();
-    try {
-        const result = await fetchImagesPage(last.number + 1);
+function loadMoreImages() {
+    return imageGallery.more(async (number) => {
+        const result = await fetchImagesPage(number);
         if (!result) return;
         if (!result.success) {
-            pageRequestError = `Page ${last.number + 1} could not be loaded: ${result.error || 'no answer'}`;
+            imageGallery.error = `Page ${number} could not be loaded: ${result.error || 'no answer'}`;
             return;
         }
         const { page, images } = takeImagesPage(result, { append: true });
-        appendImagesPage(page, images);
-    } catch (e) {
-        console.error('[CivitaiBrowser] Load more error:', e);
-        pageRequestError = `Page ${last.number + 1} could not be loaded: ${e.message}`;
-    } finally {
-        loadingImagePage = false;
-        refreshImagesChrome();
-    }
+        imageGallery.append(page, images);
+    });
 }
 
 // Update images count in the details table: every image loaded, filtered or
@@ -1076,7 +1057,7 @@ async function loadMoreImages() {
 function updateImagesCount() {
     const countCell = document.getElementById('cb_images_count');
     if (countCell) {
-        const last = imagePages[imagePages.length - 1];
+        const last = imageGallery.pages[imageGallery.pages.length - 1];
         countCell.textContent = imageCounts ? `${imageCounts.total}${last?.more ? '+' : ''}` : '...';
     }
 }
@@ -1093,7 +1074,7 @@ function imagesBannerHtml() {
     return renderFilterBanner({
         matching: counts.filtered || 0,
         total: counts.total || 0,
-        onScreen: currentImages.length,
+        onScreen: imageGallery.images.length,
         word: 'loaded',
         bannerClass: 'cb-nsfw-warning',
         labelClass: 'cb-show-all-label',
@@ -1110,26 +1091,6 @@ function imagesBannerHtml() {
               onchange: 'window.cbToggleShowPromptless(this.checked)' },
         ],
     });
-}
-
-/** One page of the list: its separator, after the first, its cards, its note. */
-function imagesPageHtml(page, images) {
-    const cards = images.map((img, i) => renderImageCard(img, page.first + i)).join('');
-    return (page.number > 1 ? pageSeparator(page.number) : '') + cards + pageNoteHtml(page);
-}
-
-/** The foot of the list: why a page did not come, and Load More while there is a next. */
-function imagesFooterHtml() {
-    const last = imagePages[imagePages.length - 1];
-    const error = pageRequestError
-        ? `<div class="mm-page-note">${escapeHtml(pageRequestError)}</div>` : '';
-    if (!last || !last.more) return error;
-    return `${error}<div class="mm-load-more">
-            <button class="mm-btn secondary" id="cb_load_more_btn" onclick="window.cbLoadMoreImages()"
-                    ${loadingImagePage ? 'disabled' : ''}>
-                ${loadingImagePage ? 'Loading...' : 'Load More Images'}
-            </button>
-           </div>`;
 }
 
 // Draw the gallery whole: when a version opens, or a switch changes.
@@ -1150,41 +1111,12 @@ function renderImages() {
             <h4>Example Images</h4>
         </div>
         ${imagesBannerHtml()}
-        <div class="model-images-list">${imagePages.map((page) =>
-            imagesPageHtml(page, currentImages.slice(page.first, page.first + (page.shown || 0)))).join('')}</div>
-        <div class="mm-images-footer">${imagesFooterHtml()}</div>
+        ${imageGallery.pagesHtml()}
     `;
     container.style.display = 'block';
     setupLazyMedia(container);
     updateImagesCount();
-    learnResourceHashes(currentImages);
-}
-
-/**
- * Add a page to the end of the list - Load More - leaving the cards already
- * drawn alone; only the banner and the foot are drawn again.
- */
-function appendImagesPage(page, images) {
-    const container = document.getElementById('cb_images');
-    const list = container?.querySelector('.model-images-list');
-    if (!list) {
-        renderImages();
-        return;
-    }
-    list.insertAdjacentHTML('beforeend', imagesPageHtml(page, images));
-    setupLazyMedia(list);
-    updateImagesCount();
-    learnResourceHashes(images);
-}
-
-/** Draw again what sums the gallery up - the banner, the foot - and not the images. */
-function refreshImagesChrome() {
-    const container = document.getElementById('cb_images');
-    if (!container) return;
-    const banner = container.querySelector('.cb-nsfw-warning');
-    if (banner) banner.outerHTML = imagesBannerHtml();
-    const footer = container.querySelector('.mm-images-footer');
-    if (footer) footer.innerHTML = imagesFooterHtml();
+    learnResourceHashes(imageGallery.images);
 }
 
 /** A switch changed: the gallery again from page 1, at its first image. */
@@ -1239,7 +1171,7 @@ function renderImageCard(img, index) {
 }
 
 // Show All, the same window in both tabs.
-window.cbShowImageMeta = (index) => showImageMeta(currentImages[index]);
+window.cbShowImageMeta = (index) => showImageMeta(imageGallery.images[index]);
 
 // A card's image, or a video's ⤢, opens the viewer on the card as it is -
 // its file large, its buttons below, its text beside (shared/viewer.mjs) -
@@ -1254,7 +1186,7 @@ document.addEventListener('click', (event) => {
     if (at < 0) return;
     openViewer(cardSource({
         cards: browserCards,
-        more: () => !!imagePages[imagePages.length - 1]?.more,
+        more: () => !!imageGallery.pages[imageGallery.pages.length - 1]?.more,
         loadMore: () => loadMoreImages(),
         videoUrl: viewerVideoUrl,
     }), at);
@@ -1280,7 +1212,7 @@ function resourceButtonLabel(img) {
 /** Relabel the gallery's Resources buttons from what is known now. */
 function updateResourceButtons() {
     document.querySelectorAll('#cb_images [data-resources-index]').forEach((button) => {
-        const img = currentImages[Number(button.dataset.resourcesIndex)];
+        const img = imageGallery.images[Number(button.dataset.resourcesIndex)];
         const label = img ? resourceButtonLabel(img) : '';
         if (label) button.textContent = label;
         else button.remove();
@@ -1289,7 +1221,7 @@ function updateResourceButtons() {
 window.addEventListener('mm-resource-hashes', updateResourceButtons);
 
 window.cbShowResources = function(index) {
-    const img = currentImages[index];
+    const img = imageGallery.images[index];
     if (img) showImageResources(img, galleryVersionId());
 };
 

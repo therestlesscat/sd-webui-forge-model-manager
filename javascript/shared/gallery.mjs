@@ -1,6 +1,7 @@
 /**
  * A gallery of images, as both tabs draw it: the bar while it loads, the
- * filter banner and its switches, and each page's separator and note.
+ * filter banner and its switches, each page's separator and note, and its
+ * pages kept and paged through (createPagedGallery).
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -8,6 +9,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml } = await shared('core.mjs');
+const { setupLazyMedia } = await shared('media.mjs');
 
 // ------------------------------------------------------ loading a gallery
 // A model's images come from Civitai through the server, and take seconds;
@@ -142,4 +144,136 @@ export function pageNoteHtml(page, { end = 'no more images on Civitai' } = {}) {
     if (page.error) parts.push(`more could not be fetched from Civitai: ${page.error}`);
     else if (!page.more && end) parts.push(end);
     return `<div class="mm-page-note">${escapeHtml(parts.join(' · '))}</div>`;
+}
+
+// ------------------------------------------------------------ a gallery's pages
+// The Model Manager's gallery and the Civitai Browser's are lists of pages,
+// paged through the same way, and each kept them in its own code (#115) -
+// which had drifted. Each tab now makes one of these, naming its ids, how it
+// draws a card and its banner, and keeps only how it fetches a page.
+
+/**
+ * A gallery's pages: the images drawn, every page's in turn; each page loaded,
+ * with where its images start and its own counts, for its note; why the last
+ * page asked for did not come; and whether Load More is under way.
+ *
+ * `showing()` says whether the list is on screen - the Model Manager's is not
+ * while it shows your generations; `redraw()` draws the gallery whole, which
+ * adding a page falls back on when its list is not there to add to; and
+ * `afterDraw(images)` runs once cards are drawn.
+ */
+const always = () => true;
+const nothing = () => {};
+
+export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadMoreCall, card, bannerHtml,
+                                     showing = always, redraw, afterDraw = nothing }) {
+    const gallery = {
+        images: [],
+        pages: [],
+        error: '',
+        loading: false,
+
+        /** The page last added, if any. */
+        last: () => gallery.pages[gallery.pages.length - 1],
+
+        /** Take a page's answer: the list starts again with it, or it goes at the end. */
+        take: (answer, { append, number = 1 }) => {
+            const images = answer.images || [];
+            const page = { ...(answer.page || { number }), first: append ? gallery.images.length : 0 };
+            if (append) {
+                gallery.images = gallery.images.concat(images);
+                gallery.pages.push(page);
+            } else {
+                gallery.images = images;
+                gallery.pages = [page];
+            }
+            return { page, images };
+        },
+
+        /**
+         * One page of the list: its separator, after the first, its cards, and
+         * its note, which says what that page held - what it shows, and what
+         * each switch hid - so a page showing few images, or none, says why.
+         * `images` are the page's shown images; their cards take their places
+         * in the gallery's images.
+         */
+        pageHtml: (page, images) => {
+            const cards = images.map((img, i) => card(img, page.first + i)).filter(Boolean).join('');
+            return (page.number > 1 ? pageSeparator(page.number) : '') + cards + pageNoteHtml(page);
+        },
+
+        /** Every page, and the foot under them. */
+        pagesHtml: () => {
+            return `<div class="model-images-list">${gallery.pages.map((page) =>
+                gallery.pageHtml(page, gallery.images.slice(page.first, page.first + (page.shown || 0)))).join('')}</div>
+        <div class="mm-images-footer">${gallery.footerHtml()}</div>`;
+        },
+
+        /** The foot of the list: why a page did not come, and Load More while there is a next. */
+        footerHtml: () => {
+            const last = gallery.last();
+            const error = gallery.error
+                ? `<div class="mm-page-note">${escapeHtml(gallery.error)}</div>` : '';
+            if (!last || !last.more) return error;
+            return `${error}<div class="mm-load-more">
+             <button class="mm-btn secondary" id="${loadMoreId}" onclick="window.${loadMoreCall}()"
+                     ${gallery.loading ? 'disabled' : ''}>
+               ${gallery.loading ? 'Loading...' : 'Load More Images'}
+             </button>
+           </div>`;
+        },
+
+        /**
+         * Add a page to the end of the list: what Load More brings. The cards
+         * already drawn are left alone - the whole gallery used to be drawn
+         * again, and every image above came back as a blank square until it
+         * reloaded, moving the page under the reader. Only the banner and the
+         * foot are drawn again. Anything else - a filter, another model - draws
+         * it all.
+         */
+        append: (page, images) => {
+            const list = document.getElementById(containerId)?.querySelector('.model-images-list');
+            if (!list || !showing() || !list.querySelector('.mm-page-note')) {
+                redraw();
+                return;
+            }
+            list.insertAdjacentHTML('beforeend', gallery.pageHtml(page, images));
+            gallery.refreshChrome();
+            setupLazyMedia(list);
+            afterDraw(images);
+        },
+
+        /** Draw again what sums the gallery up - the banner, the foot - and not the images. */
+        refreshChrome: () => {
+            const container = document.getElementById(containerId);
+            if (!container || !showing()) return;
+            const banner = container.querySelector(`.${bannerClass}`);
+            if (banner) banner.outerHTML = bannerHtml();
+            const footer = container.querySelector('.mm-images-footer');
+            if (footer) footer.innerHTML = gallery.footerHtml();
+        },
+
+        /**
+         * Load More: the next page, once at a time - the button says so, and
+         * takes no clicks meanwhile. `loadPage(number)` fetches it, adds it
+         * (take, append), and says in `error` why it did not come.
+         */
+        more: async function more(loadPage) {
+            const last = gallery.last();
+            if (gallery.loading || !last || !last.more) return;
+            gallery.loading = true;
+            gallery.error = '';
+            gallery.refreshChrome();
+            try {
+                await loadPage(last.number + 1);
+            } catch (e) {
+                console.error('[ModelManager] Load more error:', e);
+                gallery.error = `Page ${last.number + 1} could not be loaded: ${e.message}`;
+            } finally {
+                gallery.loading = false;
+                gallery.refreshChrome();
+            }
+        },
+    };
+    return gallery;
 }
