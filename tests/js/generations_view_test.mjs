@@ -10,6 +10,7 @@
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab } from './harness.mjs';
+const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -149,13 +150,13 @@ globalThis.fetch = async (url, init = {}) => {
 
 // The Model Manager's paste, and its showing a file, which this tab calls.
 const sent = [];
-window.mmSendInfotext = (what) => { sent.push(what); return true; };
+provide('modelManager.sendInfotext', (what) => { sent.push(what); return true; });
 const shownFiles = [];
-window.mmShowFile = (path) => { shownFiles.push(path); };
+provide('modelManager.showFile', (path) => { shownFiles.push(path); });
 const shownVersions = [];
-window.mmShowVersion = (id) => { shownVersions.push(id); };
+provide('modelManager.showVersion', (id) => { shownVersions.push(id); });
 const civitaiAsked = [];
-window.mmOpenInCivitaiBrowser = (query) => { civitaiAsked.push(query); };
+provide('modelManager.openInCivitaiBrowser', (query) => { civitaiAsked.push(query); });
 
 // This DOM has no layout: the end of the grid is put where the test says,
 // far below the window until it is scrolled to.

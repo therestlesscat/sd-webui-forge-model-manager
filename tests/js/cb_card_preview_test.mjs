@@ -5,6 +5,7 @@
 // (The window's side - how many fit, never a second row - is in
 // settings_window_test.mjs.)
 import { ROOT, checker, mountTab } from './harness.mjs';
+const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -26,8 +27,8 @@ globalThis.fetch = async (url) => {
 
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
-const preview = window.mmCardPreviews?.model_manager_civitai_card_size;
-check('the tab offers the settings window a preview of its cards', typeof preview, 'function');
+check('the tab offers the settings window a preview of its cards', ready('cardPreview.model_manager_civitai_card_size'), true);
+const preview = (count) => call('cardPreview.model_manager_civitai_card_size', count);
 
 const cards = (html) => (html.match(/class="model-card[ "]/g) || []).length;
 let html = await preview(3);

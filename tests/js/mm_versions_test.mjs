@@ -9,6 +9,7 @@
 // the downloads panel both tabs share; once it is in the library, it is shown
 // as a local version.
 import { ROOT, checker, mountTab } from './harness.mjs';
+const { call, provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -81,7 +82,8 @@ const row = (label) => Array.from(details().querySelectorAll('.detail-table tr')
 
 // "Show in Civitai Browser" hands the Civitai Browser a query; stand in for it.
 const shownInBrowser = [];
-window.cbShowModel = async (query) => { shownInBrowser.push(query); };
+provide('civitaiBrowser.showModel', async (query) => { shownInBrowser.push(query); });
+provide('civitaiBrowser.skipSavedSearch', () => {});
 const showInBrowser = async () => {
     const buttons = details().querySelectorAll('button[onclick*="mmShowInCivitaiBrowser"]');
     click(buttons[0]);
@@ -206,12 +208,12 @@ globalThis.fetch = async (url, init) => {
 };
 await click(pill('v1'));
 check('   (v1 shown first, so the file has to be found)', active(), ['v1 ✓']);
-await window.mmShowFile('C:/models/v3.safetensors');
+await call('modelManager.showFile', 'C:/models/v3.safetensors');
 check('10. a file shown from another tab is looked up by its exact path, and its own version opened',
       [searched.at(-1), active(), detailsAsked.at(-1)], ['path:C:/models/v3.safetensors', ['v3 ✓'], 'C:/models/v3.safetensors']);
 // By its version, as the Generations tab now asks (#42): no path passed about.
 await click(pill('v1'));
-await window.mmShowVersion(503);
+await call('modelManager.showVersion', 503);
 check('11. a version shown from another tab is looked up by its id, and opened',
       [searched.at(-1), active()], ['version:503', ['v3 ✓']]);
 globalThis.fetch = realFetch;

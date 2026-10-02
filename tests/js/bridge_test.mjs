@@ -19,6 +19,7 @@ const ROOT = process.env.MM_ROOT
     : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
 
 // The shipped markup, not a replica of it.
+const { call, ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const tabSource = readFileSync(`${ROOT}/model_manager/ui/tab_civitai_browser.py`, 'utf8');
 const htmlMatch = tabSource.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/);
 if (!htmlMatch) throw new Error('could not find the tab markup in tab_civitai_browser.py');
@@ -144,12 +145,12 @@ await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 await settle();
 
-check('the tab exposes the hop the other tab calls',
-      typeof window.cbShowModel, 'function');
+check('the tab offers the hop the other tab calls',
+      ready('civitaiBrowser.showModel'), true);
 
 // ------------------------------------------------------- a targeted lookup
 asked.length = 0;
-await window.cbShowModel('model:12345');
+await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 
 check('the query lands in the search box', $('cb_search').value, 'model:12345');
@@ -183,7 +184,7 @@ for (const query of ['model:', 'model:abc', 'a model:12', 'version:99', '12345']
 // Whitespace and case are the shapes a person types.
 for (const query of ['model: 77', ' MODEL:77 ']) {
     asked.length = 0;
-    await window.cbShowModel(query);
+    await call('civitaiBrowser.showModel', query);
     await settle();
     check(`"${query}" is still a lookup`, singleLookups().length, 1);
 }
@@ -192,11 +193,11 @@ for (const query of ['model: 77', ' MODEL:77 ']) {
 // The Model Manager's "Show in Civitai Browser" sends the version it was
 // showing; it used to send the model alone, and the newest version opened.
 const shownPill = () => $('cb_details').querySelector('.mm-version-pill.active')?.textContent.trim();
-await window.cbShowModel('model:555 version:9002');
+await call('civitaiBrowser.showModel', 'model:555 version:9002');
 await settle();
 check('"model:555 version:9002" opens that model on that version',
       [$('cb_search').value, shownPill()], ['model:555 version:9002', 'older']);
-await window.cbShowModel('model:555 version:31337');
+await call('civitaiBrowser.showModel', 'model:555 version:31337');
 await settle();
 check('a version Civitai no longer has: the newest, and a word saying so',
       [shownPill(), $('cb_status').textContent.includes('Version 31337 is no longer on Civitai')], ['v1', true]);
@@ -208,7 +209,7 @@ check('"model:555 version:" is a search, not a lookup', singleLookups().length, 
 
 // ------------------------------------------------------- a model that is gone
 asked.length = 0;
-await window.cbShowModel('model:404404');
+await call('civitaiBrowser.showModel', 'model:404404');
 await settle();
 check('a model Civitai no longer has shows nothing',
       $('cb_grid').querySelectorAll('.model-card').length, 0);
@@ -226,7 +227,7 @@ galleryImages = [
       meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
     { id: 12, url: 'https://example.invalid/12.jpeg', browsingLevel: 1, meta: null },
 ];
-await window.cbShowModel('model:12345');
+await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 $('cb_require_prompt').checked = true;
 let renderError = null;
@@ -274,7 +275,7 @@ galleryImages = [
     { id: 22, url: 'https://example.invalid/22.jpeg', browsingLevel: 8,
       meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
 ];
-await window.cbShowModel('model:12345');
+await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
 
@@ -306,7 +307,7 @@ galleryImages = [
     { id: 32, url: 'https://example.invalid/32.jpeg', browsingLevel: 1, meta: null },
     { id: 33, url: 'https://example.invalid/33.jpeg', browsingLevel: 8, meta: null },
 ];
-await window.cbShowModel('model:12345');
+await call('civitaiBrowser.showModel', 'model:12345');
 await settle();
 $('cb_require_prompt').checked = true;
 await window.cbToggleShowAllImages(false);
@@ -355,7 +356,7 @@ const showInManager = () => !!document.querySelector('#cb_details [onclick*="cbS
 // One of the page's progress polls (TIMING.poll, shortened above), and a margin.
 const poll = () => new Promise((r) => setTimeout(r, 250));
 
-await window.cbShowModel('model:31');
+await call('civitaiBrowser.showModel', 'model:31');
 await settle();
 window.cbOpenModel(0);
 await settle();

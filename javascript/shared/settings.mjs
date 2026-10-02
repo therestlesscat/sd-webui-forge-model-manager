@@ -21,6 +21,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml } = await shared('core.mjs');
+const { provide, ready, call } = await shared('calls.mjs');
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -613,8 +614,8 @@ function createSettings() {
         const drawing = `${w}x${h}:${count}`;
         if (previewDrawn[key] === drawing && row.childElementCount) return;
         previewDrawn[key] = drawing;
-        const draw = window.mmCardPreviews?.[key];
-        if (!draw) {
+        const preview = `cardPreview.${key}`;
+        if (!ready(preview)) {
             note.textContent = 'This tab has not loaded yet, so there are no cards to preview.';
             return;
         }
@@ -622,7 +623,7 @@ function createSettings() {
         previewAsked[key] = asked;
         note.textContent = '';
         try {
-            const cards = await draw(count);
+            const cards = await call(preview, count);
             if (asked !== previewAsked[key]) return;
             row.innerHTML = cards || '';
             note.textContent = cards ? '' : 'No models to preview.';
@@ -1172,6 +1173,8 @@ export function settingsWindow() {
     return (theWindow ||= createSettings());
 }
 
+provide('settings.open', (options) => settingsWindow().open(options));
+// The gear and the banners' links open it from markup, which reaches only globals.
 window.mmOpenSettings ||= (options) => settingsWindow().open(options);
 restampNotice();
 followSettingsPage();

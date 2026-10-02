@@ -11,14 +11,15 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml } = await shared('core.mjs');
+const { call } = await shared('calls.mjs');
 
 // What a note's button does, by the id its note names - with the action, for
 // the settings section it is about.
 const NOTE_ACTIONS = {
-    reread_headers: () => window.mmOpenScanDialog?.({ rereadHeaders: true }),
-    settings: (action) => window.mmOpenSettings?.({ section: action.section || null }),
-    scan_disk: () => window.mmOpenScanDialog?.(),
-    sync_unidentified: () => window.mmOpenSyncDialog?.({ force: 'unidentified' }),
+    reread_headers: () => call('modelManager.openScanDialog', { rereadHeaders: true }),
+    settings: (action) => call('settings.open', { section: action.section || null }),
+    scan_disk: () => call('modelManager.openScanDialog'),
+    sync_unidentified: () => call('modelManager.openSyncDialog', { force: 'unidentified' }),
 };
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };
 // On top: a tab's introduction, for someone new; then the important ones,

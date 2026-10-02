@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
     'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'your_generations.mjs', 'downloads.mjs',
     'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
@@ -39,6 +39,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 const {
     onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText, TIMING,
 } = await shared('core.mjs');
+const { provide, ready, call } = await shared('calls.mjs');
 const {
     showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -77,6 +78,10 @@ const {
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// The download controls' ids, and the window functions they call
+// (renderDownloadControls in shared/downloads.mjs).
+const DOWNLOAD_CONTROLS = { prefix: 'mm', download: 'mmDownload', selectFile: 'mmSelectFile' };
 
 // State
 let currentModels = [];
@@ -300,7 +305,7 @@ async function cardPreview(count) {
     }
     return models.slice(0, count).map((model, index) => mmCard(model, index)).join('');
 }
-(window.mmCardPreviews ||= {}).model_manager_card_size = cardPreview;
+provide('cardPreview.model_manager_card_size', cardPreview);
 
 function getFilters() {
     const useMax = document.getElementById('mm_nsfw_use_max')?.checked || false;
@@ -1377,7 +1382,7 @@ function renderRemoteVersion() {
 
             <div class="detail-section detail-actions">
                 <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(modelId)}?modelVersionId=${safeId(version.id)}" target="_blank">View on Civitai</a>
-                ${renderDownloadControls({ prefix: 'mm', modelId, version, fileIndex, owned: false })}
+                ${renderDownloadControls({ controls: DOWNLOAD_CONTROLS, modelId, version, fileIndex, owned: false })}
             </div>
             <div class="mm-versions-note">Not downloaded, so there are no example images here yet.
                 Show in Civitai Browser has them.</div>
@@ -1395,7 +1400,7 @@ window.mmSelectFile = function(fileIndex) {
     const file = (version?.files || [])[index];
     if (!file) return;
     remoteFileIndex = index;
-    showChosenFile('mm', currentModels[selectedModelIndex]?.model_id, version, file);
+    showChosenFile(DOWNLOAD_CONTROLS, currentModels[selectedModelIndex]?.model_id, version, file);
 };
 
 // The list and its panel are shared with the Civitai Browser: see
@@ -2564,7 +2569,7 @@ const generationViewerSource = {
         if (event.target.closest?.('[data-gen-send]')) {
             rememberScrollPosition(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
             closeViewer();
-            window.mmSendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id });
+            sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id });
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
@@ -2700,7 +2705,7 @@ function sendTab(card) {
 
 /**
  * Send a generation back to the tab it was made in: Forge set up as it was
- * made with (mmSendInfotext), then its own infotext, pasted as Forge's PNG
+ * made with (sendInfotext), then its own infotext, pasted as Forge's PNG
  * Info sends one, and the scheduler and hires fix as every send sets them.
  * An img2img generation's source image is not kept, so img2img gets its
  * settings and a word to add an image.
@@ -2714,7 +2719,7 @@ window.mmSendGeneration = async function(id) {
         return;
     }
     rememberScrollPosition(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
-    if (await window.mmSendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
+    if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
 };
@@ -2734,7 +2739,7 @@ window.mmSendGeneration = async function(id) {
  *
  * @returns {Promise<boolean>} whether it could be pasted
  */
-window.mmSendInfotext = async function({ infotext, mode, meta = {}, generationId = null }) {
+async function sendInfotext({ infotext, mode, meta = {}, generationId = null }) {
     if (!infotext) return false;
     meta = meta || {};
     let plan = null;
@@ -2777,7 +2782,8 @@ window.mmSendInfotext = async function({ infotext, mode, meta = {}, generationId
                    + 'is not kept: drop an image in before generating.');
     }
     return true;
-};
+}
+provide('modelManager.sendInfotext', sendInfotext);
 
 /** Show every image of a generation this gallery has, in the card; or hide them again. */
 window.mmShowAllGeneration = async function(id) {
@@ -3352,9 +3358,9 @@ function generationResourcesImage(card) {
  * image used, without the model it is an example of. `exclude` is the version
  * that gallery shows.
  */
-window.mmShowImageResources = (img, exclude) => showImageResources(img, exclude ?? null);
-window.mmResourceButtonLabel = (img, exclude) => resourceButtonLabel(img, exclude ?? null);
-window.mmLearnResourceHashes = (images) => refreshResourceButtons(images);
+provide('modelManager.showImageResources', (img, exclude) => showImageResources(img, exclude ?? null));
+provide('modelManager.resourceButtonLabel', (img, exclude) => resourceButtonLabel(img, exclude ?? null));
+provide('modelManager.learnResourceHashes', (images) => refreshResourceButtons(images));
 
 /** The Resources dialog for an image - a Civitai image, or one of your own. */
 async function showImageResources(img, exclude = currentVersionId) {
@@ -5226,7 +5232,7 @@ window.mmSendToTxt2img = async function(imageIndex) {
 // would otherwise hide the very model the caller asked to show. SFW only was
 // once left on, and a generation's model with one explicit image was "not
 // found", its file in the library.
-window.mmShowModel = async function(query) {
+async function showModel(query) {
     const setValue = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.value = value;
@@ -5281,7 +5287,8 @@ window.mmShowModel = async function(query) {
         const what = query.startsWith('path:') ? query.slice(5).split(/[\\/]/).pop() : query;
         setStatus(`Nothing found for "${what}". It may not be downloaded, or the database needs a refresh.`, true);
     }
-};
+}
+provide('modelManager.showModel', showModel);
 
 /**
  * Show one model file here, from another tab: this tab, the file's model,
@@ -5289,27 +5296,29 @@ window.mmShowModel = async function(query) {
  * The Generations tab's "Show model in Model Manager" asks with the
  * checkpoint a generation's record names.
  */
-window.mmShowFile = async function(path) {
+async function showFile(path) {
     if (!path) return;
     await showModelManagerTab();
-    await window.mmShowModel(`path:${path}`);
+    await showModel(`path:${path}`);
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
     if (wanted >= 0) await window.mmSelectVersion(wanted);
-};
+}
+provide('modelManager.showFile', showFile);
 
 /**
  * Show one version here, from another tab, by its id - this tab, its model,
  * and that version. What the Generations tab asks for: a path was passed
  * about before, and printed back as "path:F:\..." when nothing was found.
  */
-window.mmShowVersion = async function(versionId) {
+async function showVersion(versionId) {
     const id = Number(versionId);
     if (!id) return;
     await showModelManagerTab();
-    await window.mmShowModel(`version:${id}`);
+    await showModel(`version:${id}`);
     const wanted = currentVersions.findIndex((v) => Number(v.id) === id);
     if (wanted >= 0) await window.mmSelectVersion(wanted);
-};
+}
+provide('modelManager.showVersion', showVersion);
 
 async function showModelManagerTab() {
     const root = (typeof gradioApp === 'function') ? gradioApp() : document;
@@ -5343,13 +5352,13 @@ function civitaiBrowserQuery() {
 }
 
 window.mmShowInCivitaiBrowser = function() {
-    window.mmOpenInCivitaiBrowser(civitaiBrowserQuery());
+    openInCivitaiBrowser(civitaiBrowserQuery());
 };
 
 /** "model:<id> version:<id>" in the Civitai Browser tab - from here, or from the Generations tab. */
-window.mmOpenInCivitaiBrowser = function(query) {
+function openInCivitaiBrowser(query) {
     if (!query) return;
-    if (typeof window.cbShowModel !== 'function') {
+    if (!ready('civitaiBrowser.showModel')) {
         setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);
         return;
     }
@@ -5361,7 +5370,7 @@ window.mmOpenInCivitaiBrowser = function(query) {
 
     if (tabButton) {
         // A search of its own is coming: the tab's saved search stands aside.
-        window.cbSkipSavedSearch = true;
+        call('civitaiBrowser.skipSavedSearch');
         tabButton.click();
     } else {
         console.warn('[ModelManager] Could not find the Civitai Browser tab button');
@@ -5369,8 +5378,9 @@ window.mmOpenInCivitaiBrowser = function(query) {
 
     // The grid sizes itself from the viewport, so let the tab become visible
     // before searching - measuring a hidden tab gives nonsense.
-    setTimeout(() => window.cbShowModel(query), 100);
-};
+    setTimeout(() => call('civitaiBrowser.showModel', query), 100);
+}
+provide('modelManager.openInCivitaiBrowser', openInCivitaiBrowser);
 
 window.mmCloseDetails = function() {
     const detailsContainer = document.getElementById('mm_details');
@@ -5783,7 +5793,7 @@ function openSyncDialog() {
  * chosen if asked ("unidentified": the files Civitai has not identified
  * yet). Opened, never started.
  */
-window.mmOpenSyncDialog = ({ force = null } = {}) => {
+provide('modelManager.openSyncDialog', ({ force = null } = {}) => {
     openSyncDialog();
     if (!force) return;
     const scope = document.querySelector('input[name="mm_sync_scope"][value="force"]');
@@ -5794,7 +5804,7 @@ window.mmOpenSyncDialog = ({ force = null } = {}) => {
         scope.dispatchEvent(new Event('change', { bubbles: true }));
     }
     mode?.dispatchEvent(new Event('change', { bubbles: true }));
-};
+});
 
 function closeSyncDialog() {
     const dialog = document.getElementById('mm_sync_dialog');
@@ -5963,11 +5973,11 @@ async function showMisplaced() {
 }
 
 /** Scan Disk's dialog, from elsewhere - a note: "Re-evaluate file headers" ticked if asked. */
-window.mmOpenScanDialog = ({ rereadHeaders = false } = {}) => {
+provide('modelManager.openScanDialog', ({ rereadHeaders = false } = {}) => {
     openScanDialog();
     const reread = document.getElementById('mm_scan_reread');
     if (reread) reread.checked = rereadHeaders;
-};
+});
 
 function closeScanDialog() {
     const dialog = document.getElementById('mm_scan_dialog');

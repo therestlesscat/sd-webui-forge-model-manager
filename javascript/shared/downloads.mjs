@@ -83,16 +83,18 @@ function downloadButtonState(versionId) {
 /**
  * The Download button and, when there is a choice, the file picker.
  *
- * `prefix` is the tab's: the button is `<prefix>_download_btn` and calls
- * window.<prefix>Download(modelId, versionId, fileId), the picker calls
- * window.<prefix>SelectFile(index). A paid version answers the download URL
+ * `controls` is the tab's, named once there: the `prefix` of its ids - the
+ * button is `<prefix>_download_btn` - and the window functions its markup
+ * calls, `download` (modelId, versionId, fileId) and `selectFile` (index).
+ * A paid version answers the download URL
  * with 401/403 until it is bought on Civitai, so it is offered only when
  * Civitai says the API key's account bought it (`paid_access.owned`, see
  * civitai/ownership.py); otherwise its label, saying why. While
  * the version is downloading - from the click until it is in the library - the
  * button says so and takes no clicks: a second click started it again.
  */
-export function renderDownloadControls({ prefix, modelId, version, fileIndex, owned }) {
+export function renderDownloadControls({ controls, modelId, version, fileIndex, owned }) {
+    const { prefix, download, selectFile } = controls;
     const files = version?.files || [];
     const file = files[fileIndex];
     const paidLabel = paidAccessLabel(version);
@@ -114,13 +116,13 @@ export function renderDownloadControls({ prefix, modelId, version, fileIndex, ow
         const bought = paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${bought} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
-            + `onclick="window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">`
+            + `onclick="window.${download}(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file?.id)})">`
             + `${state.label}</button>`;
     }
 
     // Only worth a control when there is something to choose between.
     const picker = files.length > 1
-        ? `<select class="${prefix}-file-select" onchange="window.${prefix}SelectFile(this.value)"
+        ? `<select class="${prefix}-file-select" onchange="window.${selectFile}(this.value)"
                    title="Which file to download">
              ${files.map((f, i) => `<option value="${i}" ${i === fileIndex ? 'selected' : ''}
                     title="${escapeHtml(f.name || '')}">${escapeHtml(describeFile(f))}`
@@ -135,9 +137,11 @@ export function renderDownloadControls({ prefix, modelId, version, fileIndex, ow
  * Point the File and File Size rows and the Download button at another file.
  *
  * In place rather than re-rendering the panel, which would scroll the reader
- * back to the top. The rows are `<prefix>_file_name` and `<prefix>_file_size`.
+ * back to the top. The rows are `<prefix>_file_name` and `<prefix>_file_size`;
+ * `controls` as for renderDownloadControls.
  */
-export function showChosenFile(prefix, modelId, version, file) {
+export function showChosenFile(controls, modelId, version, file) {
+    const { prefix, download } = controls;
     const nameCell = document.getElementById(`${prefix}_file_name`);
     if (nameCell) nameCell.textContent = file.name || 'Unknown';
 
@@ -149,7 +153,7 @@ export function showChosenFile(prefix, modelId, version, file) {
     const button = document.getElementById(`${prefix}_download_btn`);
     if (button) {
         button.setAttribute('onclick',
-            `window.${prefix}Download(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file.id)})`);
+            `window.${download}(${safeId(modelId)}, ${safeId(version?.id)}, ${safeId(file.id)})`);
     }
 }
 

@@ -32,7 +32,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'filters.mjs', 'gallery.mjs', 'grid.mjs',
     'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
@@ -40,6 +40,7 @@ const {
     onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes: formatFileSize,
     formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
+const { provide, ready, call } = await shared('calls.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -70,6 +71,10 @@ const { openViewer, cardSource, closeOnEscape, dialogShowing, viewerIsOpen } = a
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// The download controls' ids, and the window functions they call
+// (renderDownloadControls in shared/downloads.mjs).
+const DOWNLOAD_CONTROLS = { prefix: 'cb', download: 'cbDownload', selectFile: 'cbSelectFile' };
 
 // State
 let currentModels = [];
@@ -149,7 +154,7 @@ async function cardPreview(count) {
     }
     return models.slice(0, count).map((model, index) => renderCard(model, index)).join('');
 }
-(window.mmCardPreviews ||= {}).model_manager_civitai_card_size = cardPreview;
+provide('cardPreview.model_manager_civitai_card_size', cardPreview);
 
 // Cursor-based pagination state
 // cursors[N-1] = cursor to fetch page N
@@ -825,7 +830,7 @@ function renderModelDetails() {
 
     const paidLabel = paidAccessLabel(version);
     const downloadControls = renderDownloadControls({
-        prefix: 'cb', modelId: model.id, version, fileIndex, owned: isOwned });
+        controls: DOWNLOAD_CONTROLS, modelId: model.id, version, fileIndex, owned: isOwned });
 
     // Only offer the jump for models that are actually in the library.
     // Lives on the header row so it stays reachable while scrolling the
@@ -922,7 +927,7 @@ function selectFile(fileIndex) {
     if (!file) return;
 
     selectedFileIndex = index;
-    showChosenFile('cb', selectedModel?.id, version, file);
+    showChosenFile(DOWNLOAD_CONTROLS, selectedModel?.id, version, file);
 }
 
 function selectVersion(versionIndex) {
@@ -1148,7 +1153,7 @@ function renderImages() {
     container.style.display = 'block';
     setupLazyMedia(container);
     updateImagesCount();
-    window.mmLearnResourceHashes?.(currentImages);
+    call('modelManager.learnResourceHashes', currentImages);
 }
 
 /**
@@ -1165,7 +1170,7 @@ function appendImagesPage(page, images) {
     list.insertAdjacentHTML('beforeend', imagesPageHtml(page, images));
     setupLazyMedia(list);
     updateImagesCount();
-    window.mmLearnResourceHashes?.(images);
+    call('modelManager.learnResourceHashes', images);
 }
 
 /** Draw again what sums the gallery up - the banner, the foot - and not the images. */
@@ -1458,7 +1463,7 @@ const galleryVersionId = () => getSelectedVersion()?.id ?? null;
 function resourceButtonLabel(img) {
     const meta = img.meta || {};
     if (!(meta.civitaiResources || []).length && !(meta.resources || []).length) return '';
-    return window.mmResourceButtonLabel?.(img, galleryVersionId()) ?? 'Resources';
+    return call('modelManager.resourceButtonLabel', img, galleryVersionId()) ?? 'Resources';
 }
 
 /** Relabel the gallery's Resources buttons from what is known now. */
@@ -1474,7 +1479,7 @@ window.addEventListener('mm-resource-hashes', updateResourceButtons);
 
 window.cbShowResources = function(index) {
     const img = currentImages[index];
-    if (img) window.mmShowImageResources?.(img, galleryVersionId());
+    if (img) call('modelManager.showImageResources', img, galleryVersionId());
 };
 
 // Start download. The list and its panel are shared with the Model
@@ -1863,6 +1868,8 @@ function init() {
 // Model Manager's "Show in Civitai Browser" brings, comes first and it stands
 // aside.
 let savedSearchDone = false;
+let skipSavedSearch = false;
+provide('civitaiBrowser.skipSavedSearch', () => { skipSavedSearch = true; });
 
 /** The filters as the bar shows them, as Save Search keeps them - the boxes, not what is sent. */
 function currentSearch() {
@@ -1933,7 +1940,7 @@ function browserTabButton() {
 function runSavedSearch() {
     if (savedSearchDone) return;
     savedSearchDone = true;
-    if (window.cbSkipSavedSearch) return;        // Show in Civitai Browser brings its own
+    if (skipSavedSearch) return;
     window.cbSearch();
 }
 
@@ -1993,8 +2000,8 @@ window.cbCloseDetails = closeDetails;
 window.cbSelectVersion = selectVersion;
 window.cbSelectFile = selectFile;
 // Show a model here, asked for from the Model Manager tab. The mirror of
-// cbShowInModelManager() below, and of mmShowModel() over there.
-window.cbShowModel = async function(query) {
+// cbShowInModelManager() below, and of modelManager.showModel over there.
+async function showModel(query) {
     const search = document.getElementById('cb_search');
     if (search) search.value = query;
 
@@ -2007,11 +2014,12 @@ window.cbShowModel = async function(query) {
     if (requirePrompt) requirePrompt.checked = false;
 
     await searchModels(1);
-};
+}
+provide('civitaiBrowser.showModel', showModel);
 
 // Open this model over in the Model Manager tab
 window.cbShowInModelManager = function(modelId) {
-    if (typeof window.mmShowModel !== 'function') {
+    if (!ready('modelManager.showModel')) {
         updateStatus('Model Manager tab has not initialised yet - open it once and try again.');
         return;
     }
@@ -2029,7 +2037,7 @@ window.cbShowInModelManager = function(modelId) {
 
     // The grid sizes itself from the viewport, so let the tab become
     // visible before loading - measuring a hidden tab gives nonsense
-    setTimeout(() => window.mmShowModel('model:' + modelId), 100);
+    setTimeout(() => call('modelManager.showModel', 'model:' + modelId), 100);
 };
 
 window.cbDownload = startDownload;

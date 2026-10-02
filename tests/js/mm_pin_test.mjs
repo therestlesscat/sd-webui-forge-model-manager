@@ -5,6 +5,7 @@
 // not know by its path - and show it pinned where it is, without moving it
 // from under the pointer; the tabs' counts follow at once.
 import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
+const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -123,7 +124,7 @@ check('an empty Pinned tab says how to pin',
 tabs = { pinned: [PINNED], others: [LOCAL] };
 click(tab('others'));
 await waitFor('Unpinned', () => names()[0] === 'Local only');
-await window.mmShowModel('Pinned already');
+await call('modelManager.showModel', 'Pinned already');
 check('a model shown from elsewhere is found in the Pinned tab if it is pinned, and opened',
       [tab('pinned').classList.contains('active'), names(), !!document.querySelector('#mm_details .detail-header')],
       [true, ['Pinned already'], true]);
