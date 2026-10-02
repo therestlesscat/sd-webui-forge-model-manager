@@ -157,6 +157,42 @@ which ids are Trained, then which are Merge, and takes the answer from set
 membership — discarding any batch whose answer does not partition the request,
 because that would mean the assumption no longer holds.
 
+**A refresh replaces a gallery with Civitai's first page.** Resync Images, a
+sync of one model and the metadata sync "with images" fetch one batch (the
+gallery page size, 100) and replace every stored image of the version with it,
+in one transaction (`db.replace_first_page`): Civitai's order changes, so old
+pages kept beside a fresh first one would duplicate and leave gaps. Pages past
+the first are fetched again when someone pages there. #103 asks a refresh to
+keep as many images as the gallery had.
+
+**A version's stored NSFW level means two things.** After a sync it is
+Civitai's rating; after Scan Disk, which stores no images, the higher of that
+and the worst showcase image (`ScanService._calculate_nsfw_level`). The grid
+judges live from the model, the version and the worst stored image
+(`nsfw.model_level_sql`), so it is right either way; the details panel's
+"Version:" row is not consistent. #104.
+
+**A long job is one of its kind, in `jobs.py`.** A sync (full or metadata) and
+a scan each run one at a time; what the page polls is the service's own
+progress, and a job that raises calls `fail()` on it. It used to write the
+error where the poll never read, and the job showed as running for ever.
+
+**A migration does not import today's rules.** v14 once imported the live
+`nsfw.image_level`, which later learnt to read the person's settings: it
+applied a rule it was not written with, during startup, and renaming the
+function would have broken every older database. It carries a frozen copy.
+An index is a migration too (v30), versioned like any other - and harmless to
+an older copy sharing the database, which never touches it.
+
+**Two rules for one thing drift, so each lives once, its SQL beside it.**
+`nsfw.py` (a level, with `model_level_sql`), `prompt_rules.py` (a prompt
+worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
+switches hide), `payload_rows.py` (a Civitai payload as rows),
+`hashing.read_hashes` (stored hashes, either case). Each found a second copy
+that had already begun to disagree; tests hold the Python to the SQL
+(`switch_counts_test`, `prompt_rules_test`), and `check_hash_access.py` keeps
+readers on the facade.
+
 ## The WebUI's rules, which are not obvious
 
 - `javascript/*.js` become classic scripts, `*.mjs` become
@@ -182,6 +218,14 @@ because that would mean the assumption no longer holds.
   finds none of its tab's markup; something drawn from there - an answer that
   comes back at load - is drawn again once the container is there, from
   `onAfterUiUpdate` (the downloads panel, the notes).
+- **Settings -> Reload UI runs the scripts again in the same process**, with
+  the extension already imported, after clearing every callback; Extensions
+  -> Apply and restart UI is a new process. So every callback is registered
+  by the script (`scripts/model_manager_ui.py` registers the API's
+  `app_started` itself), never at import - and nothing deletes the extension's
+  modules to "reload" them: that once left two copies running, the recording
+  script and the settings on one, the API on the other. Edited Python needs a
+  real restart, as the scripts and the stylesheet do.
 - **`onAfterUiUpdate` runs 250 ms after any change to the page**
   (`scheduleAfterUiUpdateCallbacks` in the WebUI's `script.js`). A callback
   that writes even the same text again changes the page and schedules itself:
@@ -334,8 +378,7 @@ only by the owner.
   though the delete path knows about it.
 - **`checkpointType` is only known for models Civitai still serves.** Anything
   delisted stays Unknown; nothing can recover it.
-- Usage history, manual collections, and a "newer version available" check are
-  all unimplemented.
+- Usage history and manual collections are unimplemented.
 
 ## Learned the hard way
 
@@ -359,6 +402,11 @@ real time once.
 - **After two wrong guesses, ask** for a console line, a screenshot, a number.
 - **A proposal needs an explicit yes.** "Go ahead?" answered by moving on to
   something else is not one; an implementation started on that was undone.
+- **Scope is the owner's.** Asked "what would the shared part be, and how
+  would it be called?", show the code shape before changing anything; R29 was
+  narrowed twice that way, to what is actually shared. A behaviour change
+  found inside a refactor becomes its own issue unless the owner folds it in.
+- **"mm" means the Model Manager tab**, not the `model_manager/` package.
 - **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
   made from the local `dev`, which held commits not yet pushed, and had to be
   put back.
@@ -395,6 +443,28 @@ real time once.
 - **No test reaches a database.** A service that saves through
   `get_models_db()` takes a store the test can set
   (`DownloadService.store`), and saves nothing when there is nothing to keep.
+- **A refactor is checked on real data, before and after.** Run every real
+  sidecar (about 1,160 here) through the old code and the new, read-only, and
+  compare every field: R13 found the enum it removed had been wrong for 25 of
+  25 models; R18 found nothing changed. Then make one deliberate change and
+  see the comparison catch it (a rating rounded differently: 395 differ) - a
+  comparison that cannot fail proves nothing.
+- **A test that pins an incidental fact breaks on every change.** "The schema
+  is at 29" failed the moment v30 came; assert what the test is about.
+- **A check that fails once is run twenty times on HEAD before it is blamed
+  on the change.** One download test asserted which of two threads started at
+  once recorded itself last: the scheduler's choice, 1 run in 20.
+- **Read the run's result before committing.** A commit chained after the
+  run with `;` went in over "1 failed", and which suite could not be
+  recovered. The runner now names failing suites in its last line and keeps
+  their output in `tests/work/last_failures.log`.
+- **Scripted edits anchor on whole top-level lines.** A substring match put an
+  import inside a function, twice (the match was an indented copy); a "cut
+  to the next method" took a module's tail with the last method. After any
+  scripted edit, parse every changed file and compare its function count.
+- **A swallowed error looks like an unrelated failure.** A test's own helper
+  named `usable` shadowed the imported `usable`; the paging code caught the
+  recursion and reported "no models kept".
 - **Gate what is costly on the case that needs it.** The tie-break read
   Civitai's order from JSON: for every version, +13.6 ms a grid query;
   counting ties with a window, +25 ms; asked only where an indexed `EXISTS`
@@ -406,7 +476,7 @@ real time once.
   "Checkpoint" or "LORA"; SDXL files labelled Anima; an image's `baseModel` is
   every resource's base model run together ("OtherAnima"); versions get
   deleted and 404; other tools write the version payload into `.civitai.info`
-  instead of the model payload (`scan_service.as_model_payload`).
+  instead of the model payload (`storage.as_model_payload`).
 - **The file is the reliable witness.** Tensor names and shapes identified
   1,254 of a 1,262-file library; the rest were families Forge Neo cannot run.
 - **A model trained on a library forgives that library's mistakes.** Trained on every
@@ -440,6 +510,14 @@ real time once.
   a page of images; across the grid's queries it was 2.7 s against 4 ms.
 - **Choose the page, then look up its details.** Filter, group, sort and limit
   first; per-row lookups after. With an index in the order the lookups read.
+- **A bool is an int.** An enum checked `isinstance(value, int)` before
+  `bool`, so a model's `nsfw: true` read as bitmask 1 - PG - and its own
+  branch for booleans never ran. Test for `bool` first.
+- **Whatever a ticked box does, a note's button must not do by accident.** A
+  release note's button ticks "Re-evaluate file headers"; moving files into
+  their type's folder got a box of its own, never ticked for anyone.
+- **`check_python_references.py` does not model `@staticmethod`** called on an
+  instance; make such a helper a plain method rather than leave a red check.
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show.
