@@ -531,21 +531,6 @@ class ModelsDatabase:
 
     # ==================== Combined Operations ====================
 
-    def set_metadata(self, key: str, value: str):
-        """Set a metadata value in schema_info."""
-        with self._cursor() as cursor:
-            cursor.execute(
-                "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
-                (key, value)
-            )
-
-    def get_metadata(self, key: str) -> Optional[str]:
-        """Get a metadata value from schema_info."""
-        with self._cursor() as cursor:
-            cursor.execute("SELECT value FROM schema_info WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            return row[0] if row else None
-
     def close(self):
         """Close the database connection."""
         if hasattr(self._local, 'connection') and self._local.connection:
