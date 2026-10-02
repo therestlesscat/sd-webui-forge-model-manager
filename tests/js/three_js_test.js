@@ -129,22 +129,23 @@ check('missing control is safe', f.checkpoint_type === '');
 els.cb_checkpoint_type = makeSelect('Merge', group);
 
 // --- syncCheckpointTypeEnabled ----------------------------------------------
-const sync = lift('syncCheckpointTypeEnabled');
+// Shared with the Model Manager (shared/filters.mjs), loaded above with the rest.
+const sync = () => vm.runInContext("syncCheckpointType('cb')", sandbox);
 els.cb_type.value = 'Checkpoint';
 sync();
 check('enabled for Checkpoint', els.cb_checkpoint_type.disabled === false);
-check('no dimming class', !group._classes.has('cb-filter-disabled'));
+check('no dimming class', !group._classes.has('filter-disabled'));
 check('helpful title', /trained checkpoints/.test(els.cb_checkpoint_type.title), els.cb_checkpoint_type.title);
 
 els.cb_type.value = 'LORA';
 sync();
 check('disabled for LORA', els.cb_checkpoint_type.disabled === true);
-check('dimming class applied', group._classes.has('cb-filter-disabled'));
+check('dimming class applied', group._classes.has('filter-disabled'));
 check('explains why', /Only applies/.test(els.cb_checkpoint_type.title), els.cb_checkpoint_type.title);
 
 els.cb_type.value = 'Checkpoint';
 sync();
-check('re-enabled', els.cb_checkpoint_type.disabled === false && !group._classes.has('cb-filter-disabled'));
+check('re-enabled', els.cb_checkpoint_type.disabled === false && !group._classes.has('filter-disabled'));
 
 delete els.cb_checkpoint_type;
 sync();  // must not throw

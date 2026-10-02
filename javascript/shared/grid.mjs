@@ -107,6 +107,26 @@ export function applyCardSize({ width, height, containerId, logTag }) {
     console.log(`[${logTag}] Card size set to ${width}x${height}`);
 }
 
+/**
+ * A tab's card size, as the server last gave it with a page of models,
+ * applied to the tab's container only when it changes. `width` is what the
+ * tab sizes its cards' images by.
+ */
+export function createCardSize({ containerId, logTag, width = 200, height = 280 }) {
+    const size = {
+        width,
+        height,
+        apply: (w, h) => {
+            if (w && h && (w !== size.width || h !== size.height)) {
+                size.width = w;
+                size.height = h;
+                applyCardSize({ width: w, height: h, containerId, logTag });
+            }
+        },
+    };
+    return size;
+}
+
 /** The same, on an element already in hand. */
 export function setCardSize(element, width, height) {
     element.style.setProperty('--mm-card-width', `${width}px`);
