@@ -20,6 +20,7 @@ from ..civitai import CivitaiClient, paid_access_info
 from ..storage import read_model_payload
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed
+from ..file_identity import NAMED_IN_PROMPTS
 from ..model_dirs import COMPANIONS, file_modified
 
 
@@ -35,7 +36,8 @@ _MISSING_FILES: dict = {}
 
 
 # The file types a resource can be found by name among: what a chip is for.
-_NAMED_TYPES = {"LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion", None}
+# What a prompt names by file name - and a file not read yet, which may be one.
+_NAMED_TYPES = set(NAMED_IN_PROMPTS) | {None}
 
 
 _NUMBERS = re.compile(r"([0-9]+)")
@@ -381,7 +383,7 @@ def register(app: FastAPI):
                         "id": model_info.id,
                         "name": model_info.name,
                         "description": model_info.description,
-                        "type": model_info.type.value,
+                        "type": model_info.type,
                         "nsfw": model_info.nsfw,
                         "tags": model_info.tags,
                         "creator": model_info.creator,

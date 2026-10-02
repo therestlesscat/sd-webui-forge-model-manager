@@ -39,6 +39,10 @@ FILE_TYPES = ("Checkpoint", "LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Fu
               "TextualInversion", "Hypernetwork", "VAE", "Text Encoder", "Upscaler",
               "Unknown")
 
+# The types a prompt names by file name: <lora:name> for the LoRA family, the
+# bare name for an embedding.
+NAMED_IN_PROMPTS = ("LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion")
+
 # The context width of an SD-family cross-attention -> preset. SD 2.x has no
 # Forge Neo preset.
 _CONTEXT = {768: "sd", 2048: "xl"}
