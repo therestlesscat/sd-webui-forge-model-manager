@@ -542,7 +542,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai download error")
 
     @app.get("/model-manager/civitai/download/progress")
-    async def civitai_download_progress(version_id: Optional[int] = None):
+    def civitai_download_progress(version_id: Optional[int] = None):
         """
         Get download progress for one or all downloads.
         """
@@ -574,7 +574,7 @@ def register(app: FastAPI):
             return failed(e, "Download progress error")
 
     @app.post("/model-manager/civitai/download/cancel")
-    async def civitai_cancel_download(version_id: int = Form(default=0)):
+    def civitai_cancel_download(version_id: int = Form(default=0)):
         """
         Cancel a download. If version_id=0, cancels all downloads.
         """
@@ -600,7 +600,7 @@ def register(app: FastAPI):
             return failed(e, "Cancel download error")
 
     @app.post("/model-manager/civitai/download/control")
-    async def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
+    def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
         """
         Steer the downloads: `pause` or `resume` one, `start_now` a waiting
         one (over the limit), move one `up` or `down` the queue, or
@@ -631,7 +631,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/civitai/download/dismiss")
-    async def civitai_dismiss_download(version_id: int = Form(default=0)):
+    def civitai_dismiss_download(version_id: int = Form(default=0)):
         """
         Forget a finished download, so the downloads list stops showing it -
         or, with version_id=0, every finished one. One still running is kept.

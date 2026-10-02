@@ -30,7 +30,9 @@ endpoints = {}
 for path in ('model_manager/api/jobs.py', 'model_manager/api/models.py'):
     tree = ast.parse(io.open(path, encoding='utf-8').read())
     for node in ast.walk(tree):
-        if not isinstance(node, ast.AsyncFunctionDef):
+        # Plain def or async: a handler that waits on the database or disk is
+        # a plain def, which FastAPI runs off the event loop (#80).
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for dec in node.decorator_list:
             if not (isinstance(dec, ast.Call) and dec.args):
