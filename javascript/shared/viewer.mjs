@@ -20,15 +20,15 @@
  * A button with data-viewer-close, or a gallery's Send (.mm-send-btn), closes
  * the viewer as it is pressed: the page goes to txt2img or img2img.
  *
- * It imports common.mjs, for its escapeHtml, under the version it was itself
+ * It imports core.mjs, for its escapeHtml, under the version it was itself
  * asked for under (see the top of civitai_browser.mjs): the tabs' copy.
  */
 
-// common.mjs under the version this module was asked for under - the copy the
-// tabs loaded. A plain import would be another URL, and another copy of it.
-const common = new URL('./common.mjs', import.meta.url);
-common.search = new URL(import.meta.url).search;
-const { escapeHtml } = await import(common.href);
+// The other shared modules, under the version this one was asked for under -
+// the copy the tabs loaded. A plain import would be another URL, and another
+// copy of it, with state of its own.
+const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
+const { escapeHtml } = await shared('core.mjs');
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -273,7 +273,7 @@ function onKey(event) {
  * @param {() => boolean} options.more - whether another page can be loaded
  * @param {() => Promise} options.loadMore - loads it, drawing its cards
  * @param {Function} [options.videoUrl] - (url, {width, height}, box) => what
- *     a video plays: viewerVideoUrl in common.mjs, which this cannot import
+ *     a video plays: viewerVideoUrl in media.mjs
  */
 export function cardSource({ cards, more, loadMore, videoUrl }) {
     const card = (index) => cards()[index];

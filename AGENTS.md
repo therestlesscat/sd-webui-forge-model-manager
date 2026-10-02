@@ -56,6 +56,28 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order |
 
+### `javascript/shared/`
+
+What the tabs share, one module per job (#93), each asked for under one
+version (see "The WebUI's rules"):
+
+| | |
+|---|---|
+| `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
+| `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
+| `notes` | notes to the user, at the top of each tab |
+| `update_notice` | "vX available" beside each tab's version |
+| `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate |
+| `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
+| `grid` | cards, the grid and its page strip, its rows kept even |
+| `gallery` | a gallery's loading bar, filter banner and page notes |
+| `filters` | what both filter bars share: base models in order, the size boxes, a saved search |
+| `your_generations` | selecting your images to delete, and rating one |
+| `downloads` | a version's Download button, and the downloads panel both tabs show |
+| `chips` | an image's LoRAs and embeddings as chips under the prompt, for the Model Manager's Send |
+| `wan` | a video's frames and size as Wan makes them |
+| `settings`, `viewer` | the settings window, and the image viewer every gallery opens |
+
 ## What the pieces assume about each other
 
 **A generation's result is known by the object Forge hands every script.**
@@ -101,7 +123,7 @@ Civitai deleted. A library synced before the column existed is filled from a
 sidecar the first time the panel asks.
 
 **One downloads list for both tabs.** `downloads()` in
-`javascript/shared/common.mjs` polls once and draws into each tab's panel. It
+`javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
 is module state: the tabs share one copy of the module (see "The WebUI's
 rules"), and so do the notes, the update notice, the Your generations switch
 and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓
@@ -226,9 +248,14 @@ facade.
   shared module also **runs once**, not once per tab. Without an answer, the
   tab's own version, as before - then one copy per tab, page state included.
   A shared module that needs another imports it the same way, under its own
-  `import.meta.url`'s version (`settings.mjs` and `viewer.mjs` take
-  `escapeHtml` from `common.mjs` so): a plain `import` is a URL without the
-  version, and a second copy (`page_state_test.mjs` fails on one).
+  `import.meta.url`'s version. Both go through one line, `const shared =
+  (name) => import(...)`, and `await shared('core.mjs')`: a plain `import` is
+  a URL without the version, and a second copy (`page_state_test.mjs` records
+  every URL a shared module is asked for under, and fails on a second).
+  `check_js_references.mjs` holds what is taken through it to what the module
+  exports. A tab asks for every module it needs at once (`SHARED_MODULES`),
+  then awaits each: awaited in turn, each module waited a round trip before
+  the next was asked for. The check holds the list to the awaits.
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
@@ -249,7 +276,7 @@ facade.
   that writes even the same text again changes the page and schedules itself:
   four of ours did, and every extension's callbacks ran four times a second,
   without end. Write only what differs - `setText` / `setTitle` in
-  `common.mjs` - and `quiet_updates_test.mjs` finds any that does not.
+  `core.mjs` - and `quiet_updates_test.mjs` finds any that does not.
 
 ## Two WebUIs: everything has to work in both
 
@@ -383,7 +410,7 @@ Then, in the same commit:
    asking again for what an earlier one asked - Scan Disk once more - names
    it in `"replaces"`, so it is asked once. A button, if one helps,
    names an action the page knows (`NOTE_ACTIONS` in
-   `javascript/shared/common.mjs`). Most releases need none.
+   `javascript/shared/notes.mjs`). Most releases need none.
 
 After committing, tag it `vMAJOR.MINOR.PATCH`. Tags, like commits, are pushed
 only by the owner.

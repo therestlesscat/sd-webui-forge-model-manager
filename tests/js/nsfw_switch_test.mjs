@@ -189,7 +189,7 @@ check('rather than telling you to untick an NSFW box', images().textContent.incl
 
 // ------------------------------------------ the note under a page, likewise
 {
-    const { pageNoteHtml } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+    const { pageNoteHtml } = await import(`file:///${ROOT}/javascript/shared/gallery.mjs`);
     const note = pageNoteHtml({ number: 1, shown: 1, hidden_nsfw: 1, hidden_promptless: 1, hidden_both: 1, more: true });
     check('a page\'s note says what both filters hid, apart',
           note.replace(/<[^>]+>/g, ''),

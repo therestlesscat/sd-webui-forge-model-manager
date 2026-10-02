@@ -24,38 +24,38 @@ window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-st
     .then((response) => (response.ok ? response.json() : null))
     .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
     .catch(() => null);
-const sharedModule = new URL('./shared/common.mjs', import.meta.url);
-sharedModule.search = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const sharedVersion = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
 
+// Asked for all at once, then taken one by one below. Awaited in turn, each
+// module waited a round trip of its own before the next was asked for. An
+// import of a URL already asked for is the same module, so the awaits find
+// them on their way. A failure still stops the tab at its await; the catch
+// here only keeps it from being reported twice.
+const SHARED_MODULES = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs', 'nsfw.mjs',
+    'your_generations.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
+
+const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
+const { showNotes } = await shared('notes.mjs');
+const { renderFilterBanner } = await shared('gallery.mjs');
+const { mediaFallback, setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
+const { nsfwBadgeLabel } = await shared('nsfw.mjs');
 const {
-    onReady,
-    apiCall,
-    escapeHtml,
-    mediaFallback,
-    setupLazyMedia,
-    renderFilterBanner,
-    nsfwBadgeLabel,
-    nsfwModelNote,
-    setText,
-    galleryDefaults,
-    ratingRowHtml,
-    showNotes,
-    selectBarHtml,
-    bulkDeleteQuestion,
-    deleteManyGenerations,
-    bulkDeleteReport,
-    IMAGE_PLACEHOLDER_SVG,
-} = await import(sharedModule.href);
+    ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
+} = await shared('your_generations.mjs');
 
-const viewerModule = new URL('./shared/viewer.mjs', import.meta.url);
-viewerModule.search = sharedModule.search;
+// The notice of a newer version beside the header's: it draws itself.
+await shared('update_notice.mjs');
+
+// The image viewer every gallery opens.
 const {
     openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete, dialogShowing,
-} = await import(viewerModule.href);
+} = await shared('viewer.mjs');
 
-const settingsModule = new URL('./shared/settings.mjs', import.meta.url);
-settingsModule.search = sharedModule.search;
-await import(settingsModule.href);
+// The settings window behind the gear in the header.
+await shared('settings.mjs');
 
 // "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';

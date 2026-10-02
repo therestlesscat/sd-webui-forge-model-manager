@@ -1,4 +1,4 @@
-// Notes to the user at the top of a tab (showNotes in shared/common.mjs; the
+// Notes to the user at the top of a tab (showNotes in shared/notes.mjs; the
 // server's side: notes_test.py), as a pile: one note in full, what needs
 // doing on top, the edges of the rest under it; its arrows step through
 // them, a click on the edges spreads them into rows. Each note is coloured
@@ -43,7 +43,7 @@ globalThis.fetch = async (url, init = {}) => {
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 // The other tabs import the shared module too - under the same version, so
 // the same copy (#53): one click dismisses a note once.
-await sharedModule('common.mjs');
+await sharedModule('notes.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const panel = () => document.getElementById('mm_notes');
@@ -133,7 +133,7 @@ check('the last note left is still a pile, "1 of 1": its arrows there and off, n
 // Gradio redraws a tab's markup wholesale, emptying the panel: the notes are
 // drawn again - without the ones dismissed.
 panel().innerHTML = '';
-const { showNotes } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+const { showNotes } = await import(`file:///${ROOT}/javascript/shared/notes.mjs`);
 showNotes('model_manager', 'mm_notes');
 check('drawn again after a redraw, the dismissed ones not among them', notes().map((n) => n.dataset.note),
       ['pinned-tabs']);

@@ -5,24 +5,65 @@
 // window to be one. Under one version (#53) a shared module runs once, so its
 // state is plain module state, and window keeps only what markup calls.
 //
-// settings.mjs and viewer.mjs take escapeHtml from common.mjs, through the
-// version the tabs asked for theirs under: a plain import would be a second
-// copy of it, with state of its own.
+// So every shared module has to be asked for under one URL, the server's
+// version on it - by the tabs, and by the shared modules importing each
+// other: a plain import between them would be a URL without it, and a second
+// copy with state of its own. Every URL Node resolves under javascript/shared/
+// is recorded while all three tabs load.
+//
+// And asked for at once: a tab that awaited each before asking for the next
+// waited a round trip per module. So by the time the first of them runs, the
+// tab has asked for every one.
+import { registerHooks } from 'node:module';
+import { readdirSync, readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
-const { window } = mountTab('model_manager/ui/tab_model_manager.py');
+
+const urls = new Map();         // file name -> the URLs it was asked for under
+registerHooks({
+    resolve(specifier, context, nextResolve) {
+        const result = nextResolve(specifier, context);
+        const at = result.url.indexOf('/javascript/shared/');
+        if (at >= 0) {
+            const name = result.url.slice(at + '/javascript/shared/'.length).split('?')[0];
+            if (!urls.has(name)) urls.set(name, new Set());
+            urls.get(name).add(result.url.split('?')[1] ?? '');
+        }
+        return result;
+    },
+});
+
+const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
+    const source = readFileSync(`${ROOT}/model_manager/ui/${tab}`, 'utf8');
+    document.body.insertAdjacentHTML('beforeend', source.match(/gr\.HTML\(\s*("""|''')([\s\S]*?)\1/)[2]);
+}
 const { check, done } = checker();
 
 let copies = 0;
-globalThis.onAfterUiUpdate = (fn) => { if (String(fn).includes('apiKeyBanners')) copies += 1; };
-// The server answers with a version, so the shared modules are asked for
-// under it - and a plain import between them would be a URL without it.
+let askedBeforeOneRan = null;
+globalThis.onAfterUiUpdate = (fn) => {
+    if (!String(fn).includes('apiKeyBanners')) return;
+    copies += 1;
+    askedBeforeOneRan ??= [...urls.keys()].sort();      // ui_options.mjs runs; what had been asked for
+};
 globalThis.fetch = async (url) => ({ ok: true, json: async () => (String(url).includes('/asset-version')
     ? { success: true, version: '1700000123' } : { success: true, downloads: [], notes: [] }) });
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-const common = await sharedModule('common.mjs');
+await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await import(`file:///${ROOT}/javascript/generations.mjs`);
+
+const shared = readdirSync(`${ROOT}/javascript/shared`).filter((name) => name.endsWith('.mjs')).sort();
+check('every shared module is loaded by the tabs', [...urls.keys()].sort(), shared);
+check('each under one URL, with the server\'s version',
+      Object.fromEntries(shared.map((name) => [name, [...(urls.get(name) || [])]])),
+      Object.fromEntries(shared.map((name) => [name, ['v=1700000123']])));
+check('so ui_options.mjs ran once, though all three tabs import it', copies, 1);
+check('the first tab asked for every module it needs before any of them ran', askedBeforeOneRan, shared);
+
+const { downloads } = await sharedModule('downloads.mjs');
 const settings = await sharedModule('settings.mjs');
-common.downloads();
+downloads();
 settings.settingsWindow();
 settings.restampNotice();
 
@@ -30,10 +71,11 @@ const PAGE_STATE = ['mmDownloads', 'mmNotePiles', 'mmNoteRedraw', 'mmNotesDismis
                     'mmGenerationsWatched', 'mmUpdate', 'mmUpdateWatched', 'mmSettingsWindow', 'mmRestampNotice'];
 check('the page\'s state is the shared modules\' own, none of it on window',
       PAGE_STATE.filter((name) => name in window), []);
-check('the downloads panel is one, asked for twice', common.downloads(), common.downloads());
+check('the downloads panel is one, asked for twice', downloads(), downloads());
 check('the settings window too', settings.settingsWindow(), settings.settingsWindow());
-check('common.mjs ran once, though the tab, the settings and the viewer each import it', copies, 1);
-check('one escape function: the settings window keeps a 0 as 0', common.escapeHtml(0), '0');
-check('and nothing as nothing', [common.escapeHtml(null), common.escapeHtml(undefined), common.escapeHtml('')], ['', '', '']);
+
+const { escapeHtml } = await sharedModule('core.mjs');
+check('one escape function: the settings window keeps a 0 as 0', escapeHtml(0), '0');
+check('and nothing as nothing', [escapeHtml(null), escapeHtml(undefined), escapeHtml('')], ['', '', '']);
 
 done();

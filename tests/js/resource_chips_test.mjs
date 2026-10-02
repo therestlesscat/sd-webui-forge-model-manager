@@ -9,7 +9,7 @@ import { ROOT, checker } from './harness.mjs';
 
 const { check, done } = checker();
 const { collectResourceChips, toggleChip, promptHasChip, renameLoraTags, chipTag,
-        DEFAULT_LORA_WEIGHT, resourceNames } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+        DEFAULT_LORA_WEIGHT, resourceNames } = await import(`file:///${ROOT}/javascript/shared/chips.mjs`);
 
 const lora = { kind: 'lora', name: 'add_detail', weight: 0.5 };
 const embedding = { kind: 'embedding', name: 'easynegative' };

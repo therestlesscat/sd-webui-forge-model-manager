@@ -26,7 +26,7 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-const { downloadRateText } = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+const { downloadRateText } = await import(`file:///${ROOT}/javascript/shared/downloads.mjs`);
 const rate = (speed, left, extra = {}) => downloadRateText({ status: 'downloading', speed_bps: speed,
                                                               eta_seconds: left, stalled: false, ...extra });
 check('the speed, one decimal, and minutes left rounded up',
@@ -40,7 +40,7 @@ check('nothing measured yet: nothing said', rate(null, null), '');
 check('not downloading: nothing said, whatever else', rate(12 * MB, 10, { status: 'pending' }), '');
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-const { downloads } = await sharedModule('common.mjs');     // the tab's copy
+const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 downloads().track(server[0]);
 const line = (id) => Array.from(document.querySelectorAll('#mm_download_list .mm-download-item'))

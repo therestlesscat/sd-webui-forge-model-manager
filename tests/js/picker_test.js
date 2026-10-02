@@ -29,8 +29,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(REPO + '/javascript/shared/common.mjs', 'utf8')
-    .replace(/^export /gm, ''), sandbox);
+vm.runInContext(require('./shared_script.cjs')(), sandbox);
 sandbox.escapeHtml = sandbox.escapeHtml;
 // The browser imports the shared formatBytes as its formatFileSize.
 sandbox.formatFileSize = sandbox.formatBytes;
@@ -50,7 +49,7 @@ function lift(name) {
 }
 
 sandbox.selectedFileIndex = null;
-// Shared with the Model Manager, so they live in common.mjs.
+// Shared with the Model Manager, so they live in javascript/shared/.
 const { primaryFileIndex, describeFile } = sandbox;
 const primaryFile = lift('primaryFile');
 const chosenFileIndex = lift('chosenFileIndex');

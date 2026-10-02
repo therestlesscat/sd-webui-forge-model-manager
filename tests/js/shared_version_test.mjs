@@ -5,8 +5,8 @@
 // module ran once per tab.
 //
 // Here one tab script is loaded twice, under two versions, as two tabs
-// stamped at different mtimes are. common.mjs registers one onAfterUiUpdate
-// callback when it runs; counted, they say how many copies ran.
+// stamped at different mtimes are. ui_options.mjs registers one
+// onAfterUiUpdate callback when it runs; counted, they say how many copies ran.
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 mountTab('model_manager/ui/tab_generations.py');

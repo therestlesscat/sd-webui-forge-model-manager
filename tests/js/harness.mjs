@@ -22,7 +22,7 @@ export const ROOT = process.env.MM_ROOT
     : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
 
 /**
- * A shared module (common.mjs, settings.mjs, viewer.mjs) as the tabs loaded it.
+ * A shared module (core.mjs, downloads.mjs, settings.mjs, ...) as the tabs loaded it.
  *
  * @param {string} name - the module's file name in javascript/shared/.
  */

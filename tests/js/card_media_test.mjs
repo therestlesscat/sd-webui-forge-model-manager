@@ -18,9 +18,10 @@ import { ROOT, checker, mountTab, withGalleryPages } from './harness.mjs';
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
 
-const shared = await import(`file:///${ROOT}/javascript/shared/common.mjs`);
+const mediaModule = await import(`file:///${ROOT}/javascript/shared/media.mjs`);
+const { nsfwBadge } = await import(`file:///${ROOT}/javascript/shared/nsfw.mjs`);
 const { cardMediaUrl, sizedMediaUrl, videoStillUrl, civitaiWidth, CIVITAI_WIDTHS,
-        galleryImageWidth, GALLERY_IMAGE_WIDTH } = shared;
+        galleryImageWidth, GALLERY_IMAGE_WIDTH, mediaShape } = mediaModule;
 const C = 'https://image.civitai.com/acct/1234-abcd';
 
 // ----------------------------------------------------------------- the widths
@@ -129,14 +130,14 @@ check('each holds its own shape before it loads, from the size Civitai gives',
       [galleryImage?.style?.aspectRatio || galleryImage?.getAttribute('style'),
        galleryVideo?.style?.aspectRatio || galleryVideo?.getAttribute('style')],
       ['1024 / 1536', '720 / 1280']);
-check('and none it does not know', [shared.mediaShape({ width: 1024 }), shared.mediaShape(null)], ['', '']);
+check('and none it does not know', [mediaShape({ width: 1024 }), mediaShape(null)], ['', '']);
 
 // ------------------------------------------------------- the viewer's video
 // The viewer plays a copy, not the upload: an upload often keeps its index at
 // the end of the file - about three of Civitai's answers before a frame - and
 // every copy keeps it at the start. As wide as the frame shows it on this
 // screen, at one of Civitai's widths, never past the video's own.
-const { viewerVideoUrl } = shared;
+const { viewerVideoUrl } = mediaModule;
 const UP = `${C}/original=true/moving.mp4`;
 const V = { width: 960, height: 1440 };
 check('a frame narrower than the video: a copy that wide, at the next of Civitai\'s widths',
@@ -167,8 +168,8 @@ const badges = () => Array.from(document.querySelectorAll('#mm_images .mm-image-
     .map((c) => c.querySelector('.mm-nsfw-badge')?.textContent.trim() ?? '');
 check('a card badges its level from R up, whatever Civitai\'s nsfw flag says', badges(), ['', 'R']);
 check('each level named, the prompt\'s said as such, and nothing below R or unknown',
-      [1, 2, 4, 8, 16, 32, 64].map((mm_level) => shared.nsfwBadge({ mm_level, nsfw: true }))
-          .concat(shared.nsfwBadge({ mm_level: 8, mm_level_from_prompt: true }), shared.nsfwBadge({ nsfw: true })),
+      [1, 2, 4, 8, 16, 32, 64].map((mm_level) => nsfwBadge({ mm_level, nsfw: true }))
+          .concat(nsfwBadge({ mm_level: 8, mm_level_from_prompt: true }), nsfwBadge({ nsfw: true })),
       ['', '', 'R', 'X', 'XXX', 'Blocked', '', 'X · prompt', '']);
 
 done();

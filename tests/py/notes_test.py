@@ -71,8 +71,8 @@ for note in shipped:
               action.get('id') in rn.ACTIONS and bool(action.get('label')))
     check(f'{where}: from this version or before - a later one would never show',
           rn.version_key(note['version']) <= rn.version_key(VERSION))
-common = open(os.path.join(ROOT, 'javascript', 'shared', 'common.mjs'), encoding='utf-8').read()
-block = re.search(r'const NOTE_ACTIONS = \{(.*?)\n\};', common, re.S).group(1)
+notes_js = open(os.path.join(ROOT, 'javascript', 'shared', 'notes.mjs'), encoding='utf-8').read()
+block = re.search(r'const NOTE_ACTIONS = \{(.*?)\n\};', notes_js, re.S).group(1)
 check('the page knows every action a note can name, and no other',
       sorted(re.findall(r'^\s+(\w+):', block, re.M)), sorted(rn.ACTIONS))
 settings_js = open(os.path.join(ROOT, 'javascript', 'shared', 'settings.mjs'), encoding='utf-8').read()

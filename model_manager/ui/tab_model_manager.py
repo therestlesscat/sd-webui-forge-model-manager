@@ -45,7 +45,7 @@ def create_ui():
                     </span>
                 </div>
 
-                <!-- Notes to the user per release: filled by shared/common.mjs -->
+                <!-- Notes to the user per release: filled by shared/notes.mjs -->
                 <div id="mm_notes" class="mm-notes"></div>
 
                 <!-- Filter bar. The controls most searches use are on
