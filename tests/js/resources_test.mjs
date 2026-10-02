@@ -268,7 +268,8 @@ check('the older lookup does not paint over the panel opened after it',
 // downloads as the Civitai Browser does - into the library - the version the
 // image names, or the model's newest if that version is gone.
 const downloadsAsked = [];
-const progressAsked = [];
+const progressAsked = [];            // a version's own progress, asked for by version
+let listAsked = 0;                   // the downloads list's, every download at once
 const server = { download: {}, progress: {} };
 const fetchBefore = globalThis.fetch;
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
@@ -279,12 +280,17 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
                        hashes: {} });
     }
     if (href.includes('/model-manager/civitai/download/progress')) {
-        const id = Number(new URL(href, 'http://webui').searchParams.get('version_id'));
-        progressAsked.push(id);
-        return reply({ success: true, progress: server.progress[id] || null });
+        const asked = new URL(href, 'http://webui').searchParams.get('version_id');
+        if (!asked) {
+            listAsked += 1;
+            return reply({ success: true, downloads: Object.values(server.progress) });
+        }
+        progressAsked.push(Number(asked));
+        return reply({ success: true, progress: server.progress[Number(asked)] || null });
     }
     if (href.includes('/model-manager/civitai/download')) {
-        const form = new URLSearchParams(String(init.body || ''));
+        // As every download is asked for (downloads().start): a form.
+        const form = init.body instanceof FormData ? init.body : new URLSearchParams(String(init.body || ''));
         downloadsAsked.push(Object.fromEntries(form));
         return reply(server.download[form.get('version_id')]);
     }
@@ -320,10 +326,14 @@ server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', s
 server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
 press(7001);
 await waitFor('the newer version', () => cell(7001)?.textContent.includes('Installed'), 5000);
-check('a version gone from Civitai: its progress is the newer one\'s',
-      progressAsked.includes(7009), true);
 check('and the row says which it got, and why',
       cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Installed v3 (the image's is gone)");
+
+// One poller: the dialog follows its downloads in the downloads list, which
+// asks after every download at once. It used to ask after each of its own
+// as well, beside the list, for the same jobs - two requests a tick.
+check('the dialog follows its downloads in the downloads list, asking nothing of its own',
+      [listAsked > 0, progressAsked], [true, []]);
 
 check('with no model id to send, none is sent - the server looks it up',
       'model_id' in downloadsAsked[0], false);

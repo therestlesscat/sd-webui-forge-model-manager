@@ -4,8 +4,8 @@
  * LoRAs as resources without a tag in the prompt, which meant finding each
  * one by hand. The rules come first, apart from the page, so they can be
  * tested; then which local files and Civitai versions an image's resources
- * are - shared with the Model Manager's Resources dialog - and the chips on
- * the page.
+ * are, from resources.mjs, which the Resources dialog uses too - and the chips
+ * on the page.
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -13,7 +13,9 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, escapeHtml } = await shared('core.mjs');
-const { call } = await shared('calls.mjs');
+const {
+    resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownloads, downloadResource,
+} = await shared('resources.mjs');
 
 // What Forge loads through <lora:...>, by the file's own type or Civitai's.
 const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
@@ -251,66 +253,6 @@ export function renderResource(resource) {
             </span>`;
 }
 
-// ------------------------------------------- an image's resources, looked up
-// Which Civitai versions an image's resource hashes are, and the downloads of
-// them under way - the chips' and the Model Manager's Resources dialog's.
-
-/**
- * Turn resource hashes into Civitai versions, a round at a time.
- *
- * The server asks Civitai about a bounded number per request and hands the
- * rest back as `deferred`, so a big image is resolved over several requests
- * instead of one that runs for minutes. onRound is called after each round
- * that leaves work outstanding, so the panel can show what is known so far.
- *
- * Returns every answer the server gave: hash -> { version_id, ... }, where a
- * null version_id means Civitai does not know that hash. A hash missing from
- * the result was never answered - its lookup failed.
- */
-export async function resolveResourceHashes(hashes, onRound) {
-    const resolved = {};
-    let pending = hashes;
-
-    while (pending.length) {
-        let data;
-        try {
-            const response = await fetch('/model-manager/resolve-hashes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'hashes=' + encodeURIComponent(pending.join(',')),
-            });
-            data = await response.json();
-        } catch (e) {
-            console.warn('[ModelManager] Could not resolve resource hashes:', e);
-            break;
-        }
-        if (!data.success) break;
-
-        Object.assign(resolved, data.resolved || {});
-        const deferred = data.deferred || [];
-        // A round that gets nowhere would loop for ever; stop instead.
-        if (deferred.length >= pending.length) break;
-        pending = deferred;
-        if (pending.length && onRound) onRound(resolved, pending.length);
-    }
-
-    return resolved;
-}
-
-// Every hash answer this page has seen: hash -> { version_id, ... }, as
-// resolveResourceHashes() returns them. The answers are the server's too -
-// it keeps them - so this only saves asking again within a page load.
-export const knownHashes = {};
-
-/** An image's legacy resource hashes, lower-cased and each once. */
-export function imageResourceHashes(img) {
-    const legacy = (img.meta || {}).resources || [];
-    return [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
-}
-
-// Version id (as the image names it) -> { state, percent, target, versionName,
-// substituted, error }: state is downloading, installed or error.
-export const resourceDownloads = {};
 
 // ------------------------------------------------------------ resource chips
 // A send puts the image's LoRAs and embeddings under the target tab's
@@ -412,8 +354,7 @@ async function downloadChip(chip) {
         redrawResourceChips();
         return;
     }
-    // The Resources dialog's download, which the Model Manager offers (#90 brings it here).
-    await call('modelManager.downloadResource', chip.versionId, chip.modelId);
+    await downloadResource(chip.versionId, chip.modelId);
 }
 
 /**
@@ -682,3 +623,12 @@ function keepResourceChips() {
 }
 
 if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
+
+// The Resources dialog's downloads (resources.mjs): each step redraws the
+// chips, and one in the library has them look again.
+if (typeof window !== 'undefined') {
+    window.addEventListener?.('mm-resource-downloads', (event) => {
+        if (event.detail?.installed) refreshResourceChips();
+        else redrawResourceChips();
+    });
+}

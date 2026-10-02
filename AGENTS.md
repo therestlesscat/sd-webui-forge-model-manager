@@ -77,9 +77,10 @@ version (see "The WebUI's rules"):
 | `your_generations` | selecting your images to delete, and rating one |
 | `downloads` | a version's Download button, and the downloads panel both tabs show |
 | `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
-| `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, the chips on the page, and the hash lookups and resource downloads they share with the Model Manager's Resources dialog |
+| `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
+| `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
 | `wan` | a video's frames and size as Wan makes them |
-| `settings`, `viewer` | the settings window, and the image viewer every gallery opens |
+| `settings`, `viewer` | the settings window, and the image viewer every gallery opens - with the modal the metadata and Resources windows open in |
 
 ## What the pieces assume about each other
 
