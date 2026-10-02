@@ -20,9 +20,15 @@
  * A button with data-viewer-close, or a gallery's Send (.mm-send-btn), closes
  * the viewer as it is pressed: the page goes to txt2img or img2img.
  *
- * It imports nothing, so a tab importing it under its own version (see the
- * top of civitai_browser.mjs) needs nothing else versioned with it.
+ * It imports common.mjs, for its escapeHtml, under the version it was itself
+ * asked for under (see the top of civitai_browser.mjs): the tabs' copy.
  */
+
+// common.mjs under the version this module was asked for under - the copy the
+// tabs loaded. A plain import would be another URL, and another copy of it.
+const common = new URL('./common.mjs', import.meta.url);
+common.search = new URL(import.meta.url).search;
+const { escapeHtml } = await import(common.href);
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -46,8 +52,6 @@ function writePanelClosed(closed) {
     } catch (e) { /* this visit only */ }
 }
 
-const escapeAttr = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
  * Whether a question or a dialog is showing over the page - one that is
@@ -188,8 +192,8 @@ function render() {
     const playUrl = media.video && source.videoUrl
         ? source.videoUrl(media, { width: frame.clientWidth, height: frame.clientHeight }) : media.url;
     frame.innerHTML = media.video
-        ? `<video class="mm-viewer-image" src="${escapeAttr(playUrl)}" controls autoplay muted loop playsinline></video>`
-        : `<img class="mm-viewer-image" src="${escapeAttr(media.url)}" alt="Image">`;
+        ? `<video class="mm-viewer-image" src="${escapeHtml(playUrl)}" controls autoplay muted loop playsinline></video>`
+        : `<img class="mm-viewer-image" src="${escapeHtml(media.url)}" alt="Image">`;
     element.querySelector('.mm-viewer-actions').innerHTML = source.buttons(index) || '';
     element.querySelector('.mm-viewer-where').textContent = source.where?.(index) || '';
     element.querySelector('.mm-viewer-info').innerHTML = source.details(index) || '';
@@ -308,7 +312,7 @@ export function askToDelete(question, n = 1) {
         backdrop.className = 'mm-dialog-backdrop';
         backdrop.innerHTML = `
             <div class="mm-dialog mm-delete-dialog">
-                <h3>${escapeAttr(question)}</h3>
+                <h3>${escapeHtml(question)}</h3>
                 <label class="mm-delete-files">
                     <input type="checkbox" data-files>
                     Also delete the image file${n === 1 ? '' : 's'} from disk

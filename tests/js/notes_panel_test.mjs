@@ -7,7 +7,7 @@
 // Manager's "Run Scan Disk once" note opens Scan Disk with "Re-evaluate file
 // headers" ticked.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -41,9 +41,9 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-// A second copy of the shared module, as the other tabs import it under
-// their own ?mtime: one click must still dismiss a note once.
-await import(`file:///${ROOT}/javascript/shared/common.mjs?copy=2`);
+// The other tabs import the shared module too - under the same version, so
+// the same copy (#53): one click dismisses a note once.
+await sharedModule('common.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const panel = () => document.getElementById('mm_notes');

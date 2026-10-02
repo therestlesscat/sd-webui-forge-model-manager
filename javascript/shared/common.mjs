@@ -88,8 +88,8 @@ const apiKeyBanners = new Set();
 
 /**
  * Forget what the page was told by ui-options, after the settings window
- * saved: the API key banner and the NSFW note are asked again. Each tab has
- * its own copy of this module, and each calls this for its own.
+ * saved: the API key banner and the NSFW note are asked again - for every
+ * tab, which share this module's one copy (#53).
  */
 export function refreshUiOptions() {
     uiOptionsRequest = null;
@@ -249,12 +249,14 @@ export async function saveSearch(tab, filters) {
 // the next start the tab is not created at all), and each model's gallery
 // shows only its Civitai images. What was recorded is kept. Known from
 // ui-options, and again when the setting is saved, in the settings window or
-// on the Settings page. Once for the page, on window: each tab has its copy
-// of this module.
+// on the Settings page. Once for the page: the tabs share one copy of this
+// module, under one version (#53).
+
+let generationsOn;          // undefined until the server says
 
 /** Whether your generations are shown: false only once the server said so. */
 export function generationsEnabled() {
-    return window.mmGenerationsEnabled !== false;
+    return generationsOn !== false;
 }
 
 function tabButton(label) {
@@ -275,14 +277,13 @@ function applyGenerationsEnabled() {
 
 /** Take a new answer: hide or show, and tell the tabs (the gallery listens). */
 export function setGenerationsEnabled(enabled) {
-    const changed = window.mmGenerationsEnabled !== undefined && window.mmGenerationsEnabled !== enabled;
-    window.mmGenerationsEnabled = enabled;
+    const changed = generationsOn !== undefined && generationsOn !== enabled;
+    generationsOn = enabled;
     applyGenerationsEnabled();
     if (changed) window.dispatchEvent(new CustomEvent('mm-generations-enabled', { detail: { enabled } }));
 }
 
-if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGenerationsWatched) {
-    window.mmGenerationsWatched = true;
+if (typeof window !== 'undefined' && typeof fetch === 'function') {
     uiOptions().then((data) => {
         if (data && typeof data.generations_enabled === 'boolean') setGenerationsEnabled(data.generations_enabled);
     });
@@ -311,8 +312,10 @@ if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmGe
 const UPDATE_SETTING = 'model_manager_check_updates';
 const UPDATE_HELP = 'To update: Extensions -> Check for updates, then Apply and restart UI.';
 
+let update = null;          // the server's last answer
+
 function showUpdate() {
-    const found = window.mmUpdate;
+    const found = update;
     document.querySelectorAll('.mm-header-actions').forEach((actions) => {
         const version = actions.querySelector('.mm-version');
         let notice = actions.querySelector('.mm-update');
@@ -340,13 +343,12 @@ function showUpdate() {
 function askForUpdate() {
     return fetch('/model-manager/update')
         .then((response) => response.json())
-        .then((data) => { window.mmUpdate = data && data.success ? data : null; })
-        .catch(() => { window.mmUpdate = null; })
+        .then((data) => { update = data && data.success ? data : null; })
+        .catch(() => { update = null; })
         .then(showUpdate);
 }
 
-if (typeof window !== 'undefined' && typeof fetch === 'function' && !window.mmUpdateWatched) {
-    window.mmUpdateWatched = true;
+if (typeof window !== 'undefined' && typeof fetch === 'function') {
     askForUpdate();
     setInterval(askForUpdate, 60 * 60 * 1000);
     // Turned on, the server checks at once: ask again once it has had a moment.
@@ -381,6 +383,8 @@ const NOTE_ORDER = { intro: -2, action: 0, warning: 1, feature: 2 };
 // How many edges show under the top note, however many notes there are.
 const NOTE_EDGES = 2;
 const noteTabs = {};        // tab -> { containerId, notes }
+const notePiles = {};       // tab -> { index, spread }
+const notesDismissed = new Set();
 
 /**
  * Show a tab's notes in its container, once the server has said which -
@@ -390,9 +394,6 @@ const noteTabs = {};        // tab -> { containerId, notes }
 export function showNotes(tab, containerId) {
     if (!noteTabs[tab]) {
         noteTabs[tab] = { containerId, notes: null };
-        // The page-wide click handler redraws a tab's pile through this: the
-        // tab's copy of this module is the one that holds its notes.
-        window.mmNoteRedraw[tab] = () => drawNotes(tab);
         fetch(`/model-manager/notes?tab=${encodeURIComponent(tab)}`)
             .then((response) => response.json())
             .then((data) => { noteTabs[tab].notes = (data && data.success && data.notes) || []; })
@@ -412,11 +413,11 @@ function drawNotes(tab, attempt = 0) {
     }
     const rank = (note) => (note.kind === 'intro' ? NOTE_ORDER.intro
         : note.important ? -1 : NOTE_ORDER[note.kind] ?? NOTE_ORDER.feature);
-    const shown = state.notes.filter((note) => !window.mmNotesDismissed.has(note.id))
+    const shown = state.notes.filter((note) => !notesDismissed.has(note.id))
         .map((note, at) => ({ note, at }))
         .sort((a, b) => rank(a.note) - rank(b.note) || a.at - b.at)
         .map(({ note }) => note);
-    const pile = (window.mmNotePiles[tab] ||= { index: 0, spread: false });
+    const pile = (notePiles[tab] ||= { index: 0, spread: false });
     pile.index = Math.max(0, Math.min(pile.index, shown.length - 1));
     if (!shown.length) {
         box.innerHTML = '';
@@ -476,25 +477,21 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
         </div>`;
 }
 
-// Once for the page, not once per copy of this module: a click would
-// otherwise dismiss a note once for every tab.
-if (typeof window !== 'undefined' && !window.mmNotesDismissed) {
-    window.mmNotesDismissed = new Set();
-    window.mmNotePiles = {};        // tab -> { index, spread }
-    window.mmNoteRedraw = {};       // tab -> redraw its pile
-    const redrawAll = () => Object.values(window.mmNoteRedraw).forEach((redraw) => redraw());
+// One click handler for every tab's notes - this module runs once a page.
+if (typeof window !== 'undefined') {
+    const redrawAll = () => Object.keys(noteTabs).forEach((tab) => drawNotes(tab));
     document.addEventListener?.('click', (event) => {
         const target = event.target;
         const pileTab = target.closest?.('[data-note-pile]')?.dataset.notePile;
-        const pile = pileTab && (window.mmNotePiles[pileTab] ||= { index: 0, spread: false });
+        const pile = pileTab && (notePiles[pileTab] ||= { index: 0, spread: false });
         if (pile && target.closest('[data-note-step]')) {
             pile.index += Number(target.closest('[data-note-step]').dataset.noteStep);
-            window.mmNoteRedraw[pileTab]?.();
+            drawNotes(pileTab);
             return;
         }
         if (pile && target.closest('[data-note-spread]')) {
             pile.spread = target.closest('[data-note-spread]').dataset.noteSpread === 'true';
-            window.mmNoteRedraw[pileTab]?.();
+            drawNotes(pileTab);
             return;
         }
         const note = target.closest?.('[data-note]');
@@ -506,7 +503,7 @@ if (typeof window !== 'undefined' && !window.mmNotesDismissed) {
         }
         if (!target.closest('[data-note-dismiss]')) return;
         const id = note.dataset.note;
-        window.mmNotesDismissed.add(id);
+        notesDismissed.add(id);
         redrawAll();                // the next note comes up; in other tabs too
         fetch('/model-manager/notes/dismiss', {
             method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -576,7 +573,9 @@ export function setTitle(element, title) {
 }
 
 export function escapeHtml(text) {
-    if (!text) return '';
+    // Nothing is empty; a 0 is "0" - the settings window shows a number
+    // field's 0 through this. The one escape for every module (#93).
+    if (text === null || text === undefined) return '';
     return String(text).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
@@ -960,8 +959,8 @@ export function mediaShape(img) {
     return width > 0 && height > 0 ? `style="aspect-ratio: ${width} / ${height}"` : '';
 }
 
-// The handler itself, on window: the markup is strings, and each tab imports
-// this module under its own ?mtime, so a module-level function would be two.
+// The handler itself, on window: the markup is strings, and an inline
+// onerror reaches only what is global.
 if (typeof window !== 'undefined' && !window.mmMediaFallback) {
     window.mmMediaFallback = (node) => {
         const original = node.getAttribute('data-original');
@@ -1882,10 +1881,7 @@ export function showChosenFile(prefix, modelId, version, file) {
 // A download takes minutes, and neither tab should make anyone stay in it to
 // see how it is going. So there is one list, polled once, and each tab draws
 // it in a panel of its own: a download started in either shows in both.
-//
-// Each tab imports this module under its own ?mtime (see the top of either
-// tab script), so the two get separate copies of it and module state would
-// not be shared. The list lives on window instead.
+// The tabs share this module's one copy (#53), so the list is its own.
 
 /**
  * Tell the WebUI about newly downloaded files.
@@ -2283,8 +2279,9 @@ function createDownloads() {
     return store;
 }
 
+let downloadsPanel = null;
+
 /** The downloads both tabs show. See above. */
 export function downloads() {
-    if (!window.mmDownloads) window.mmDownloads = createDownloads();
-    return window.mmDownloads;
+    return (downloadsPanel ||= createDownloads());
 }

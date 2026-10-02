@@ -3,7 +3,7 @@
 // The server measures them (DownloadProgress.rate, download_test.py); the page
 // only words them - "stalled" rather than 0 B/s, and nothing at all while
 // there is nothing to say, or the download is not downloading.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -40,8 +40,9 @@ check('nothing measured yet: nothing said', rate(null, null), '');
 check('not downloading: nothing said, whatever else', rate(12 * MB, 10, { status: 'pending' }), '');
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+const { downloads } = await sharedModule('common.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
-window.mmDownloads.track(server[0]);
+downloads().track(server[0]);
 const line = (id) => Array.from(document.querySelectorAll('#mm_download_list .mm-download-item'))
     .find((item) => item.textContent.includes(`v${id}.safetensors`))
     ?.querySelector('.mm-download-percent')?.textContent.replace(/\s+/g, ' ').trim();

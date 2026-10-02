@@ -102,10 +102,9 @@ sidecar the first time the panel asks.
 
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/common.mjs` polls once and draws into each tab's panel. It
-lives on `window`: each tab used to import the shared module under its own
-`?mtime`, so module state would have been one copy per tab (it is one since
-0.44.6, when the server's answer arrives; #93 makes it module state). The
-list's order is the server's - the order downloads were added in, which ↑/↓
+is module state: the tabs share one copy of the module (see "The WebUI's
+rules"), and so do the notes, the update notice, the Your generations switch
+and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓
 change - and a state never moves a row; the page keeps that order apart
 (`sequence`), as an object's number keys come out sorted. It asks for the list
 when the page loads, and draws it again once Gradio has drawn the panel: a
@@ -225,7 +224,11 @@ facade.
   for the newest mtime among the shared files, once a page (`window.
   mmSharedVersion`), and import every shared module with it: one URL, so each
   shared module also **runs once**, not once per tab. Without an answer, the
-  tab's own version, as before.
+  tab's own version, as before - then one copy per tab, page state included.
+  A shared module that needs another imports it the same way, under its own
+  `import.meta.url`'s version (`settings.mjs` and `viewer.mjs` take
+  `escapeHtml` from `common.mjs` so): a plain `import` is a URL without the
+  version, and a second copy (`page_state_test.mjs` fails on one).
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.

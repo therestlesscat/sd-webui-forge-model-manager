@@ -6,7 +6,7 @@
 // there is something to pause or resume.
 // Each asks the server (/download/control) and takes the list it answers.
 // The server's side: download_test.py.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -54,6 +54,7 @@ const panelNext = panelBox.nextSibling;
 panelBox.remove();
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+const { downloads } = await sharedModule('common.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await new Promise((resolve) => setTimeout(resolve, 100));
 panelPlace.insertBefore(panelBox, panelNext);                 // Gradio draws the tab
@@ -75,7 +76,7 @@ check('after a restart, the paused download is in the panel, though the panel ca
 
 // Then downloads running and waiting too, as the poll brings them.
 server = structuredClone(ALL);
-window.mmDownloads.track(server[1]);
+downloads().track(server[1]);
 await waitFor('the whole list', () => rows().length === 5);
 
 const names = () => rows().map((r) => r.querySelector('.mm-download-name').textContent.replace('.safetensors', ''));

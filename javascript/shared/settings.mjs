@@ -1,9 +1,7 @@
 /**
  * The settings window, opened from the gear in either tab.
  *
- * One window for both tabs. Each tab imports this module under its own
- * ?mtime, so there are two copies of the module - but only one window: it is
- * built once and kept on `window`, as downloads() in common.mjs is.
+ * One window for both tabs: the tabs share this module's one copy (#53).
  *
  * The settings are the WebUI's, under Settings -> Model Manager. The window
  * shows them grouped and with only what applies, and edits the same values:
@@ -17,6 +15,12 @@
  * of them back - so without this, applying anything there would quietly undo
  * what was saved here.
  */
+
+// common.mjs under the version this module was asked for under - the copy the
+// tabs loaded. A plain import would be another URL, and another copy of it.
+const common = new URL('./common.mjs', import.meta.url);
+common.search = new URL(import.meta.url).search;
+const { escapeHtml } = await import(common.href);
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -131,11 +135,6 @@ const CARD_PREVIEW_MOST = 30;
 const PREVIEW_WAIT_MS = 300;
 const FOLDER_PLACEHOLDERS = ['{baseModel}', '{modelName}', '{creator}', '{modelId}'];
 
-function esc(text) {
-    return String(text ?? '').replace(/[&<>"']/g, (c) => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 function same(a, b) {
     return a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9);
 }
@@ -240,9 +239,9 @@ function createSettings() {
         const shown = (section) => (openedFor.section ? section.id === openedFor.section
             : (section.tabs || []).includes(openedFor.tab));
         body.innerHTML = whatsNewSection() + sectionsWithKeys().map((section) => `
-            <details class="mm-settings-section" data-section="${esc(section.id)}" ${shown(section) ? 'open' : ''}>
-                <summary class="mm-dialog-heading">${esc(section.title)}</summary>
-                ${section.intro && modules ? `<div class="mm-settings-help">${esc(section.intro)}</div>` : ''}
+            <details class="mm-settings-section" data-section="${escapeHtml(section.id)}" ${shown(section) ? 'open' : ''}>
+                <summary class="mm-dialog-heading">${escapeHtml(section.title)}</summary>
+                ${section.intro && modules ? `<div class="mm-settings-help">${escapeHtml(section.intro)}</div>` : ''}
                 <div class="mm-settings-fields">
                     ${section.keys.map(renderField).join('')}
                 </div>
@@ -278,11 +277,11 @@ function createSettings() {
         }
         const versions = [...new Set(notes.map((n) => n.version))];
         box.innerHTML = versions.map((version) => `
-            <div class="mm-settings-notes-version">${esc(version)}</div>
+            <div class="mm-settings-notes-version">${escapeHtml(version)}</div>
             ${notes.filter((n) => n.version === version).map((n) => `
-                <div class="mm-settings-note" data-settings-note="${esc(n.id)}">
-                    <strong>${n.important ? '[Important] ' : ''}${esc(n.title)}</strong>
-                    <div class="mm-settings-help">${esc(n.text)}</div>
+                <div class="mm-settings-note" data-settings-note="${escapeHtml(n.id)}">
+                    <strong>${n.important ? '[Important] ' : ''}${escapeHtml(n.title)}</strong>
+                    <div class="mm-settings-help">${escapeHtml(n.text)}</div>
                 </div>`).join('')}`).join('') || 'Nothing yet.';
     }
 
@@ -295,22 +294,22 @@ function createSettings() {
         const inline = control.kind === 'bool';
         const head = inline ? '' : `
             <div class="mm-settings-label-row">
-                <label for="${id}" class="mm-settings-label">${esc(label)}</label>
+                <label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>
                 ${resetButton(key)}
             </div>`;
         return `
-            <div class="mm-settings-field" data-key="${esc(key)}"
-                 data-search="${esc((label + ' ' + s.label + ' ' + (s.info || '')).toLowerCase())}">
+            <div class="mm-settings-field" data-key="${escapeHtml(key)}"
+                 data-search="${escapeHtml((label + ' ' + s.label + ' ' + (s.info || '')).toLowerCase())}">
                 ${head}
                 ${renderControl(key, control, id, label)}
-                <div class="mm-settings-extra" data-extra="${esc(key)}"></div>
-                ${s.info ? `<div class="mm-settings-help">${esc(s.info)}</div>` : ''}
-                <div class="mm-settings-error" data-error="${esc(key)}"></div>
+                <div class="mm-settings-extra" data-extra="${escapeHtml(key)}"></div>
+                ${s.info ? `<div class="mm-settings-help">${escapeHtml(s.info)}</div>` : ''}
+                <div class="mm-settings-error" data-error="${escapeHtml(key)}"></div>
             </div>`;
     }
 
     function resetButton(key) {
-        return `<button type="button" class="mm-settings-reset" data-reset="${esc(key)}"
+        return `<button type="button" class="mm-settings-reset" data-reset="${escapeHtml(key)}"
                         title="Back to the default">Reset</button>`;
     }
 
@@ -321,8 +320,8 @@ function createSettings() {
             return `
                 <div class="mm-settings-label-row">
                     <label class="mm-settings-check">
-                        <input type="checkbox" id="${id}" data-key="${esc(key)}" ${v ? 'checked' : ''}>
-                        <span class="mm-settings-label">${esc(label)}</span>
+                        <input type="checkbox" id="${id}" data-key="${escapeHtml(key)}" ${v ? 'checked' : ''}>
+                        <span class="mm-settings-label">${escapeHtml(label)}</span>
                     </label>
                     ${resetButton(key)}
                 </div>`;
@@ -330,9 +329,9 @@ function createSettings() {
             return `<div class="mm-settings-choices" role="radiogroup" id="${id}">
                 ${c.choices.map(([text, value], i) => `
                     <label class="mm-dialog-option">
-                        <input type="radio" name="${id}" data-key="${esc(key)}" data-index="${i}"
+                        <input type="radio" name="${id}" data-key="${escapeHtml(key)}" data-index="${i}"
                                ${same(value, v) ? 'checked' : ''}>
-                        <span>${esc(text)}</span>
+                        <span>${escapeHtml(text)}</span>
                     </label>`).join('')}
             </div>`;
         case 'number': {
@@ -340,16 +339,16 @@ function createSettings() {
                 .filter(([name]) => c[name] !== undefined)
                 .map(([name, attr]) => `${attr}="${c[name]}"`).join(' ');
             const range = c.minimum !== undefined && c.maximum !== undefined
-                ? `<input type="range" class="mm-settings-range" data-key="${esc(key)}" ${bounds}
-                          value="${esc(v)}" aria-label="${esc(label)}">`
+                ? `<input type="range" class="mm-settings-range" data-key="${escapeHtml(key)}" ${bounds}
+                          value="${escapeHtml(v)}" aria-label="${escapeHtml(label)}">`
                 : '';
             return `<div class="mm-settings-number">${range}
                 <input type="number" id="${id}" class="mm-settings-input mm-settings-num"
-                       data-key="${esc(key)}" ${bounds} value="${esc(v)}"></div>`;
+                       data-key="${escapeHtml(key)}" ${bounds} value="${escapeHtml(v)}"></div>`;
         }
         case 'secret':
             return `<div class="mm-settings-secret">
-                <input type="password" id="${id}" class="mm-settings-input" data-key="${esc(key)}"
+                <input type="password" id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}"
                        autocomplete="off" spellcheck="false"
                        placeholder="${c.has_value ? 'A key is saved - type a new one to replace it' : 'Paste your Civitai API key'}">
                 <button type="button" class="mm-btn mm-btn-small" data-act="reveal">Show</button>
@@ -361,42 +360,42 @@ function createSettings() {
         case 'cardsize': {
             const [w, h] = parseCardSize(v);
             return `<div class="mm-settings-cardsize" id="${id}">
-                <input type="number" class="mm-settings-input mm-settings-num" data-card="${esc(key)}"
+                <input type="number" class="mm-settings-input mm-settings-num" data-card="${escapeHtml(key)}"
                        data-side="w" min="10" max="9999" value="${w}" aria-label="Width">
                 <span>&times;</span>
-                <input type="number" class="mm-settings-input mm-settings-num" data-card="${esc(key)}"
+                <input type="number" class="mm-settings-input mm-settings-num" data-card="${escapeHtml(key)}"
                        data-side="h" min="10" max="9999" value="${h}" aria-label="Height">
                 <span class="mm-settings-unit">px</span>
                 ${CARD_PRESETS.map(([name, pw, ph]) => `
-                    <button type="button" class="mm-btn mm-btn-small" data-card-preset="${esc(key)}"
+                    <button type="button" class="mm-btn mm-btn-small" data-card-preset="${escapeHtml(key)}"
                             data-w="${pw}" data-h="${ph}">${name}</button>`).join('')}
-                <button type="button" class="mm-btn mm-btn-small" data-card-show="${esc(key)}">${
+                <button type="button" class="mm-btn mm-btn-small" data-card-show="${escapeHtml(key)}">${
                     previewOpen.has(key) ? 'Hide preview' : 'Show preview'}</button>
             </div>
-            <div class="mm-settings-card-note" data-card-note="${esc(key)}"></div>
-            <div class="mm-settings-card-row" data-card-row="${esc(key)}"
+            <div class="mm-settings-card-note" data-card-note="${escapeHtml(key)}"></div>
+            <div class="mm-settings-card-row" data-card-row="${escapeHtml(key)}"
                  ${previewOpen.has(key) ? '' : 'hidden'}></div>`;
         }
         case 'folder':
             return `<div class="mm-settings-folder">
-                <input type="text" id="${id}" class="mm-settings-input" data-key="${esc(key)}"
-                       value="${esc(v)}" spellcheck="false" placeholder="${esc(c.placeholder || '')}">
+                <input type="text" id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}"
+                       value="${escapeHtml(v)}" spellcheck="false" placeholder="${escapeHtml(c.placeholder || '')}">
                 <div class="mm-settings-chips">
                     ${FOLDER_PLACEHOLDERS.map((p) => `
-                        <button type="button" class="mm-settings-chip" data-insert="${esc(p)}"
-                                data-into="${esc(key)}">${esc(p)}</button>`).join('')}
+                        <button type="button" class="mm-settings-chip" data-insert="${escapeHtml(p)}"
+                                data-into="${escapeHtml(key)}">${escapeHtml(p)}</button>`).join('')}
                 </div>
             </div>`;
         case 'words':
-            return `<textarea id="${id}" class="mm-settings-input" data-key="${esc(key)}" rows="3"
-                              spellcheck="false" placeholder="comma-separated words">${esc(v)}</textarea>`;
+            return `<textarea id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}" rows="3"
+                              spellcheck="false" placeholder="comma-separated words">${escapeHtml(v)}</textarea>`;
         default: {
             if (c.lines && c.lines > 1) {
-                return `<textarea id="${id}" class="mm-settings-input" data-key="${esc(key)}"
-                                  rows="${c.lines}">${esc(v)}</textarea>`;
+                return `<textarea id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}"
+                                  rows="${c.lines}">${escapeHtml(v)}</textarea>`;
             }
-            return `<input type="text" id="${id}" class="mm-settings-input" data-key="${esc(key)}"
-                           value="${esc(v)}" spellcheck="false" placeholder="${esc(c.placeholder || '')}">`;
+            return `<input type="text" id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}"
+                           value="${escapeHtml(v)}" spellcheck="false" placeholder="${escapeHtml(c.placeholder || '')}">`;
         }
         }
     }
@@ -435,49 +434,49 @@ function createSettings() {
         const search = [m.label, ...m.classes, ...m.rows.flatMap((r) => [r.label, ...r.candidates.map((c) => c.label)])]
             .join(' ').toLowerCase();
         const body = m.text
-            ? `<input type="text" class="mm-settings-input" data-key="${esc(key)}" value="${esc(draft[key])}"
-                      spellcheck="false" placeholder="file names, separated by commas" aria-label="${esc(m.label)}">`
+            ? `<input type="text" class="mm-settings-input" data-key="${escapeHtml(key)}" value="${escapeHtml(draft[key])}"
+                      spellcheck="false" placeholder="file names, separated by commas" aria-label="${escapeHtml(m.label)}">`
             : `<div class="mm-settings-module-rows">${m.rows.map((row) => renderModuleRow(key, m, row)).join('')}</div>
                ${m.kept.length ? `<div class="mm-settings-chips">${m.kept.map((k, i) => `
-                   <span class="mm-settings-kept" title="Kept in the setting as written: ${esc(k.why)}">
-                       ${esc(k.name)} <em>${esc(k.why)}</em>
-                       <button type="button" data-kept-remove="${esc(key)}" data-index="${i}"
-                               aria-label="Remove ${esc(k.name)}">&times;</button>
+                   <span class="mm-settings-kept" title="Kept in the setting as written: ${escapeHtml(k.why)}">
+                       ${escapeHtml(k.name)} <em>${escapeHtml(k.why)}</em>
+                       <button type="button" data-kept-remove="${escapeHtml(key)}" data-index="${i}"
+                               aria-label="Remove ${escapeHtml(k.name)}">&times;</button>
                    </span>`).join('')}</div>` : ''}`;
         return `
-            <div class="mm-settings-field mm-settings-modules" data-key="${esc(key)}" data-search="${esc(search)}">
+            <div class="mm-settings-field mm-settings-modules" data-key="${escapeHtml(key)}" data-search="${escapeHtml(search)}">
                 <div class="mm-settings-label-row">
-                    <span class="mm-settings-label mm-settings-module-title">${esc(m.label)}</span>
+                    <span class="mm-settings-label mm-settings-module-title">${escapeHtml(m.label)}</span>
                     <span>
-                        <button type="button" class="mm-settings-link" data-modules-text="${esc(key)}">${
+                        <button type="button" class="mm-settings-link" data-modules-text="${escapeHtml(key)}">${
                             m.text ? 'Use the table' : 'Edit as text'}</button>
                         ${resetButton(key)}
                     </span>
                 </div>
-                ${m.note ? `<div class="mm-settings-help">${esc(m.note)}</div>` : ''}
+                ${m.note ? `<div class="mm-settings-help">${escapeHtml(m.note)}</div>` : ''}
                 ${body}
-                <div class="mm-settings-extra">${esc(m.message)}</div>
-                <div class="mm-settings-error" data-error="${esc(key)}"></div>
+                <div class="mm-settings-extra">${escapeHtml(m.message)}</div>
+                <div class="mm-settings-error" data-error="${escapeHtml(key)}"></div>
             </div>`;
     }
 
     function renderModuleRow(key, m, row) {
         const forWhom = m.classes.length > 1
-            ? `<span class="mm-settings-module-for">${esc(row.used_by.join(', '))}</span>` : '';
+            ? `<span class="mm-settings-module-for">${escapeHtml(row.used_by.join(', '))}</span>` : '';
         const choice = row.candidates.length
-            ? `<select class="mm-dialog-select mm-settings-module-select" data-module="${esc(key)}"
-                       data-file="${esc(row.file)}" aria-label="${esc(`${m.label}: ${row.label}`)}">
+            ? `<select class="mm-dialog-select mm-settings-module-select" data-module="${escapeHtml(key)}"
+                       data-file="${escapeHtml(row.file)}" aria-label="${escapeHtml(`${m.label}: ${row.label}`)}">
                    <option value="" ${row.selected ? '' : 'selected'}>Automatic${
-                       row.automatic ? `: ${esc(row.automatic)}` : ''}</option>
+                       row.automatic ? `: ${escapeHtml(row.automatic)}` : ''}</option>
                    ${row.candidates.map((c) => `
-                       <option value="${esc(c.label)}" ${c.label === row.selected ? 'selected' : ''}>${
-                           esc(c.label)}${c.precision ? ` (${esc(c.precision)})` : ''}</option>`).join('')}
+                       <option value="${escapeHtml(c.label)}" ${c.label === row.selected ? 'selected' : ''}>${
+                           escapeHtml(c.label)}${c.precision ? ` (${escapeHtml(c.precision)})` : ''}</option>`).join('')}
                </select>`
             : `<span class="mm-settings-warning">None installed.</span> Download: ${row.links.map(([name, url]) =>
-                  `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(name)}</a>`).join(', ')}`;
+                  `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`).join(', ')}`;
         return `
-            <div class="mm-settings-module-row" data-file="${esc(row.file)}">
-                <div class="mm-settings-module-name">${esc(row.label)}${forWhom}</div>
+            <div class="mm-settings-module-row" data-file="${escapeHtml(row.file)}">
+                <div class="mm-settings-module-name">${escapeHtml(row.label)}${forWhom}</div>
                 <div class="mm-settings-module-choice">${choice}</div>
             </div>`;
     }
@@ -653,7 +652,7 @@ function createSettings() {
             const wanted = (draft[K.database] || '').trim();
             const differs = wanted ? wanted.toLowerCase() !== inUse.toLowerCase()
                                    : meta.settings[K.database].value.trim() !== '';
-            db.innerHTML = `In use: <code>${esc(inUse || 'unknown')}</code>`
+            db.innerHTML = `In use: <code>${escapeHtml(inUse || 'unknown')}</code>`
                 + (differs ? ' <span class="mm-settings-badge">Takes effect after a restart</span>' : '');
         }
 
@@ -665,9 +664,9 @@ function createSettings() {
                 .then((data) => {
                     if (asked !== folderAsked || !data?.success) return;
                     folder.innerHTML = `A model would be saved under: <code>&lt;its type's folder&gt;${
-                        data.subfolder ? esc('\\' + data.subfolder.replace(/\//g, '\\')) : ''}</code>`
+                        data.subfolder ? escapeHtml('\\' + data.subfolder.replace(/\//g, '\\')) : ''}</code>`
                         + (data.unknown.length
-                            ? ` <span class="mm-settings-warning">Not a placeholder: ${esc(data.unknown.join(', '))}</span>`
+                            ? ` <span class="mm-settings-warning">Not a placeholder: ${escapeHtml(data.unknown.join(', '))}</span>`
                             : '');
                 })
                 .catch(() => {});
@@ -892,7 +891,7 @@ function createSettings() {
             renderBody();
         } catch (e) {
             meta = null;
-            body.innerHTML = `<div class="mm-settings-error">Could not read the settings: ${esc(e.message)}</div>`;
+            body.innerHTML = `<div class="mm-settings-error">Could not read the settings: ${escapeHtml(e.message)}</div>`;
             root.querySelector('#mm_settings_save').disabled = true;
         }
     }
@@ -1098,13 +1097,15 @@ function createRestampNotice() {
     return { watch, check };
 }
 
+let notice = null;
+
 /** The one notice, for whichever tab asks first. */
 export function restampNotice() {
-    if (!window.mmRestampNotice) {
-        window.mmRestampNotice = createRestampNotice();
-        window.mmRestampNotice.check();
+    if (!notice) {
+        notice = createRestampNotice();
+        notice.check();
     }
-    return window.mmRestampNotice;
+    return notice;
 }
 
 // ------------------------------------------------------------------------
@@ -1164,10 +1165,11 @@ function followSettingsPage() {
     }, true);
 }
 
+let theWindow = null;
+
 /** The one settings window, for whichever tab asks first. */
 export function settingsWindow() {
-    if (!window.mmSettingsWindow) window.mmSettingsWindow = createSettings();
-    return window.mmSettingsWindow;
+    return (theWindow ||= createSettings());
 }
 
 window.mmOpenSettings ||= (options) => settingsWindow().open(options);
