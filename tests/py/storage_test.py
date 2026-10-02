@@ -90,6 +90,26 @@ check('and its name', getattr(model_info, 'name', None), 'Subject')
 check('and the version', version is not None, True)
 check('with its base model', getattr(version, 'base_model', None), 'SDXL 1.0')
 
+# How explicit it is, by nsfw.py's rule, as numbers (#58). models.py had a
+# second rule: it meant an nsfw flag of true as R and false as PG - as
+# nsfw.py does - but a bool is an int, so its integer branch caught the flag
+# first: true read as bitmask 1, PG, and false as Unknown. It also took the
+# flag over nsfwLevel, the finer of the two when a payload has both. 25 of 25
+# models sampled from a real library disagreed with the database's level.
+flagged = dict(FULL, nsfw=True, nsfwLevel=28)
+model_info, version = storage.parse_civitai_info(flagged, 'subject.safetensors')
+check('a model\'s level is its nsfwLevel, as a number - not its nsfw flag',
+      getattr(model_info, 'nsfw', None), 28)
+check('a version\'s too', getattr(version, 'nsfw', None), 1)
+check('an image\'s its browsingLevel',
+      storage.parse_civitai_info(dict(FULL, modelVersions=[dict(FULL['modelVersions'][0],
+          images=[{'id': 9, 'url': 'u', 'browsingLevel': 8}])]), 'subject.safetensors')[1].images[0].nsfw, 8)
+only_flag = {k: v for k, v in dict(FULL, nsfw=True).items() if k != 'nsfwLevel'}
+check('with no nsfwLevel, the flag means what it was meant to: true is R',
+      storage.parse_civitai_info(only_flag, 'subject.safetensors')[0].nsfw, 4)
+check('and false is PG',
+      storage.parse_civitai_info(dict(only_flag, nsfw=False), 'subject.safetensors')[0].nsfw, 1)
+
 empty_model, empty_version = storage.parse_civitai_info({}, 'subject.safetensors')
 check('parsing nothing yields nothing', (empty_model, empty_version), (None, None))
 
@@ -98,6 +118,12 @@ model_info, version, images = storage.load_model_metadata(MODEL)
 check('loading gathers the model', model_info is not None, True)
 check('and the version', version is not None, True)
 check('and the images', len(images), 2)
+
+# An .images.json written before 0.44 holds the old enum's names.
+io.open(os.path.splitext(MODEL)[0] + '.images.json', 'w', encoding='utf-8').write(
+    json.dumps({'images': [{'id': 1, 'url': 'u', 'nsfw': 'X'}, {'id': 2, 'url': 'v', 'nsfw': 16}]}))
+check('an old .images.json\'s level names are read as the levels they name',
+      [i.nsfw for i in storage.load_model_metadata(MODEL)[2]], [8, 16])
 
 absent = storage.load_model_metadata(os.path.join(WORK, 'absent.safetensors'))
 check('loading an absent model yields empties', (absent[0], absent[1], list(absent[2])),
