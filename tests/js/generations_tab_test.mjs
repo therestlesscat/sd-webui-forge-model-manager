@@ -7,7 +7,7 @@
 // one whose file is gone says so and opens nothing. Send pastes the
 // generation's own infotext, as Forge's PNG Info does, and Delete removes the
 // record - and the files only with the box beside it ticked.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -126,7 +126,7 @@ const cards = () => document.querySelectorAll('#mm_images .mm-generation-card');
 check('the model opens on its Civitai images, the tab beside them counting its generations',
       tabs(), [['Civitai images', true], ['Your generations (2)', false]]);
 
-await window.mmShowGalleryTab('generations');
+await act('modelManager.showGalleryTab', { tab: 'generations' });
 await waitFor('the cards', () => cards().length === 2);
 check('opened, it asks for the open model\'s generations',
       asked.some((u) => u.includes('/generations/page') && u.includes('a.safetensors')), true);
@@ -155,7 +155,7 @@ const buttons = (card) => Array.from(card.querySelectorAll('.mm-image-actions bu
 check('a generation shown whole has no "Show images"', buttons(cards()[0]).some((b) => b.startsWith('Show images')), false);
 check('one with more than its preview has, with how many', buttons(cards()[1]).includes('Show images (6)'), true);
 const firstGeneration = cards()[0];
-await window.mmShowAllGeneration(2);
+await act('modelManager.showAllGeneration', { generation: 2 });
 check('only that card is drawn again: the others stay as they were',
       [cards()[0] === firstGeneration, firstGeneration.isConnected], [true, true]);
 check('which shows all of them, in the card',
@@ -167,7 +167,7 @@ await waitFor('the Resources button', () => buttons(cards()[0]).includes('Resour
 check('a card whose images used a LoRA offers Resources, counting it; one that used none, nothing',
       [buttons(cards()[0]).includes('Resources (1)'), buttons(cards()[1]).some((b) => b.startsWith('Resources'))],
       [true, false]);
-await window.mmShowGenerationResources(1);
+await act('modelManager.showGenerationResources', { generation: 1 });
 const modal = document.querySelector('.mm-resources-modal');
 check('which opens the Resources dialog on them, as a Civitai image\'s does',
       Array.from(modal?.querySelectorAll('.mm-res-name') || []).map((n) => n.textContent.trim()), ['Add Detail v1']);
@@ -201,7 +201,7 @@ check('a Send from the viewer saves where the gallery was, and closes it',
       [localStorage.getItem('mm_scroll_position'), viewer()], ['1234', null]);
 const intoView = [];
 window.HTMLElement.prototype.scrollIntoView = function() { intoView.push(this); };
-window.mmRestoreScrollPosition();
+act('modelManager.restoreScrollPosition');
 check('and Previous Position brings back the image sent, not the one the viewer opened on',
       [sentId !== '11', intoView.map((el) => el.getAttribute('data-view-generation-image'))], [true, [sentId]]);
 Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
@@ -211,11 +211,11 @@ pasted.img2img = 0;
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
-await window.mmSendGeneration(1);
+await act('modelManager.sendGeneration', { generation: 1 });
 check('Send pastes the generation\'s own infotext, and presses paste',
       [document.querySelector('#txt2img_prompt textarea').value, pasted.txt2img],
       ['a lighthouse 1\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Karras', 1]);
-await window.mmSendGeneration(2);
+await act('modelManager.sendGeneration', { generation: 2 });
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
 check('saying its source image is not kept',
@@ -228,32 +228,33 @@ CARDS.push({ id: 3, created_at: '2026-09-28T16:00:00', mode: 'txt2img', image_co
              matching_count: 1, infotext: 'a pier', images: [image(31, 3)] });
 check('the header offers Refresh on your generations',
       !!document.querySelector('#mm_images .mm-refresh-generations'), true);
-await window.mmRefreshGenerations();
+await act('modelManager.refreshGenerations');
 check('which shows what was generated since, and counts it in the tab\'s label',
       [cards().length, tabs()[1][0]], [3, 'Your generations (3)']);
 CARDS.pop();
 const askedBefore = asked.length;
-await window.mmShowGalleryTab('civitai');
+await act('modelManager.showGalleryTab', { tab: 'civitai' });
 check('Civitai\'s tab has no Refresh', !!document.querySelector('#mm_images .mm-refresh-generations'), false);
-await window.mmShowGalleryTab('generations');
+await act('modelManager.showGalleryTab', { tab: 'generations' });
 check('and opening your generations again fetches them again',
       asked.slice(askedBefore).some((u) => u.includes('/generations/page')), true);
 await waitFor('the cards again', () => cards().length === 2);
 
 cards()[0].querySelector('input[type="checkbox"]').checked = true;
 const remaining = cards()[1];
-await window.mmDeleteGeneration(1);
+await act('modelManager.deleteGeneration', { generation: 1 });
 check('Delete, with the box ticked, asks for the files to go too', deleteBody, 'delete_files=true');
 await waitFor('the card gone', () => cards().length === 1);
 check('and its card goes where it was: the rest are not drawn again, and the tab counts one fewer',
       [cards()[0] === remaining, tabs()[1][0]], [true, 'Your generations (1)']);
 check('the card left still names its own generation, not its old place',
-      cards()[0].querySelector('.mm-send-btn').getAttribute('onclick'), 'window.mmSendGeneration(2)');
+      ['action', 'generation'].map((key) => cards()[0].querySelector('.mm-send-btn').dataset[key]),
+      ['modelManager.sendGeneration', '2']);
 
 // "Rate": a row of NSFW levels on each card, and on each image "Show images"
 // shows - a card's rates every image of it this gallery shows.
 check('the tab offers "Rate", unticked', document.getElementById('mm_rate_generations')?.checked, false);
-window.mmSetRatingGenerations(true);
+tick('modelManager.rateGenerations', true);
 const cardRow = () => cards()[0].querySelector('.mm-image-left .mm-rate');
 check('ticked, a card has a row of levels under its images',
       Array.from(cardRow()?.querySelectorAll('.mm-rate-chip') || []).map((c) => c.textContent.trim()),
@@ -267,13 +268,13 @@ check('and the cards loaded again, the rating marked as yours',
       [asked.filter((u) => u.includes('/generations/page')).length > pagesBefore,
        cardRow()?.querySelector('.mm-rate-mine')?.textContent.trim()], [true, 'R']);
 // (The stand-in hands back the same card objects, so it may still be open from above.)
-if (!cards()[0].querySelector('.mm-generation-all')) await window.mmShowAllGeneration(2);
+if (!cards()[0].querySelector('.mm-generation-all')) await act('modelManager.showAllGeneration', { generation: 2 });
 const imageRows = () => cards()[0].querySelectorAll('.mm-generation-rated .mm-rate');
 check('each image "Show images" shows has its own row', imageRows().length, 6);
 await act('modelManager.rateGeneration', { generation: 2, level: 8, image: 23 });
 check('an image rated X there, with NSFW hidden, leaves the card at once',
       [ratings.at(-1).image_id, ratings.at(-1).level, imageRows().length], ['23', '8', 5]);
-window.mmSetRatingGenerations(false);
+tick('modelManager.rateGenerations', false);
 check('unticked, the rows go', [!!cardRow(), imageRows().length], [false, 0]);
 
 await act('modelManager.selectModel', { index: 1 });

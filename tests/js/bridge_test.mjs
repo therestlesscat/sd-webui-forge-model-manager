@@ -355,7 +355,7 @@ globalThis.fetch = async (url, init) => {
     return fetchBefore(url, init);
 };
 const badge = () => document.querySelector('#cb_downloads .cb-download-status-badge')?.textContent.trim();
-const showInManager = () => !!document.querySelector('#cb_details [onclick*="cbShowInModelManager"]');
+const showInManager = () => !!document.querySelector('#cb_details [data-action="civitaiBrowser.showInModelManager"]');
 // One of the page's progress polls (TIMING.poll, shortened above), and a margin.
 const poll = () => new Promise((r) => setTimeout(r, 250));
 

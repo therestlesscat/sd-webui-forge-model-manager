@@ -274,12 +274,9 @@ const UI = resolve(ROOT, '..', 'model_manager', 'ui').replace(/\\/g, '/');
 const shown = (f) => (f.startsWith(UI) ? f.replace(UI, 'model_manager/ui') : f.replace(ROOT, ''));
 const markup = new Map([...sources,
     ...readdirSync(UI).filter((f) => f.endsWith('.py')).map((f) => [`${UI}/${f}`, readFileSync(`${UI}/${f}`, 'utf8')])]);
-// The tabs' own templates move in #95's second step.
-const NOT_YET = new Set(['model_manager.mjs', 'civitai_browser.mjs', 'generations.mjs'].map((f) => `${ROOT}/${f}`));
 const areas = new Set([...provided].map((name) => name.split('.')[0]));
 for (const [f, src] of markup) {
-    const inline = NOT_YET.has(f) ? []
-        : [...src.matchAll(/\son([a-z]+)=\\?["']|setAttribute\(\s*['"]on([a-z]+)/g)].map((m) => `on${m[1] || m[2]}`);
+    const inline = [...src.matchAll(/\son([a-z]+)=\\?["']|setAttribute\(\s*['"]on([a-z]+)/g)].map((m) => `on${m[1] || m[2]}`);
     if (inline.length) {
         console.log(`FAIL ${shown(f)}: markup with an inline handler (${[...new Set(inline)].join(', ')})`
                     + ' - name what it does in data-action, provided in shared/calls.mjs');
@@ -294,6 +291,17 @@ for (const [f, src] of markup) {
         console.log(`FAIL ${shown(f)}: names ${[...unknown].join(', ')}, which no file provides`);
         failures += unknown.size;
     }
+}
+
+// And with nothing in markup to reach them, no window globals: what a file
+// offers it provides. The one left is the version the shared modules are
+// asked for under, which every tab needs before the registry has loaded.
+const PAGE_GLOBALS = new Set(['mmSharedVersion']);
+for (const [name, owners] of definedIn) {
+    if (PAGE_GLOBALS.has(name)) continue;
+    console.log(`FAIL ${[...owners].map(shown).join(', ')}: defines window.${name}`
+                + ' - provide it in shared/calls.mjs, or name it in data-action');
+    failures += 1;
 }
 
 console.log(`${files.length} modules checked — ` +

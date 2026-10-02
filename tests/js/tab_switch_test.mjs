@@ -87,7 +87,7 @@ check('and is searched for once that tab shows - not while it is hidden',
 
 // ------------------------------- the Model Manager, from the browser's button
 await new Promise((r) => setTimeout(r, SHOW_AFTER + 50));
-window.cbShowInModelManager(12345);
+call('civitaiBrowser.showInModelManager', { modelId: 12345 });     // the details' button, not drawn here
 await waitFor('the Model Manager\'s search', () => searches.some((s) => s.tab === 'modelManager'), 30);
 check('"Show in Model Manager" switches to the Model Manager', selected(), 'tab_model_manager_tab-button');
 check('and searches once it shows',

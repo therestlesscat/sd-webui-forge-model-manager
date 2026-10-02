@@ -38,7 +38,7 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, escapeHtml, safeId, sanitizeHtml, formatNumber, formatBytes: formatFileSize,
+    onReady, apiCall, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes: formatFileSize,
     formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
@@ -714,7 +714,7 @@ function renderVersionSelector() {
             + `${version.owned_locally ? '\n(Owned)' : ''}${paidNote ? '\n' + paidNote : ''}`;
 
         return `<button class="mm-version-pill ${activeClass} ${ownedClass} ${paidClass}"
-                       onclick="window.cbSelectVersion(${index})"
+                       data-action="civitaiBrowser.selectVersion" data-index="${index}"
                        title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${ownedIndicator}</button>`;
     }).join('');
 
@@ -770,7 +770,7 @@ function renderModelDetails() {
         ? `<div class="detail-section">
              <h4>Description</h4>
              <div class="mm-description collapsed" id="cb_description_content">${sanitizeHtml(description)}</div>
-             <button class="mm-description-toggle" id="cb_description_toggle" onclick="window.cbToggleDescription()">
+             <button class="mm-description-toggle" id="cb_description_toggle" data-action="civitaiBrowser.toggleDescription">
                  Show more
              </button>
            </div>`
@@ -791,7 +791,7 @@ function renderModelDetails() {
     // Lives on the header row so it stays reachable while scrolling the
     // details panel, rather than only at the very bottom.
     const showInManagerBtn = model.owned_locally
-        ? `<button class="mm-btn secondary mm-btn-small header-action" onclick="window.cbShowInModelManager(${safeId(model.id)})" title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+        ? `<button class="mm-btn secondary mm-btn-small header-action" data-action="civitaiBrowser.showInModelManager"${dataAttributes({ modelId: safeId(model.id) })} title="Open this model in the Model Manager tab">Show in Model Manager</button>`
         : '';
 
     container.innerHTML = `
@@ -799,7 +799,7 @@ function renderModelDetails() {
             <div class="detail-header">
                 <h3>${escapeHtml(model.name)}</h3>
                 ${showInManagerBtn}
-                <button class="close-details" onclick="window.cbCloseDetails()">×</button>
+                <button class="close-details" data-action="civitaiBrowser.closeDetails">×</button>
             </div>
 
             ${versionSelectorHtml}
@@ -853,7 +853,7 @@ function renderModelDetails() {
 }
 
 // Toggle description expand/collapse
-window.cbToggleDescription = function() {
+function toggleDescription() {
     const content = document.getElementById('cb_description_content');
     const toggle = document.getElementById('cb_description_toggle');
     if (content && toggle) {
@@ -866,7 +866,7 @@ window.cbToggleDescription = function() {
             toggle.textContent = 'Show more';
         }
     }
-};
+}
 
 // Select version
 /**
@@ -1656,8 +1656,6 @@ function goToPage(page) {
         searchModels(page);
     }
 }
-window.cbCloseDetails = closeDetails;
-window.cbSelectVersion = selectVersion;
 // Show a model here, asked for from another tab: this tab first, once it
 // shows - the grid measures itself, and a hidden tab measures nothing - and
 // a search of its own, so the saved search stands aside. The mirror of the
@@ -1681,13 +1679,13 @@ async function showModel(query) {
 provide('civitaiBrowser.showModel', showModel);
 
 // Open this model over in the Model Manager tab, which shows itself.
-window.cbShowInModelManager = function(modelId) {
+function showInModelManager(modelId) {
     if (!ready('modelManager.showModel')) {
         updateStatus('Model Manager tab has not initialised yet - open it once and try again.');
         return;
     }
     call('modelManager.showModel', 'model:' + modelId);
-};
+}
 
 
 // ---------------------------------------------------------------- markup
@@ -1706,6 +1704,10 @@ provide('civitaiBrowser.download', ({ modelId, versionId, fileId }) =>
 provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
 provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));
+provide('civitaiBrowser.selectVersion', ({ index }) => selectVersion(Number(index)));
+provide('civitaiBrowser.toggleDescription', () => toggleDescription());
+provide('civitaiBrowser.showInModelManager', ({ modelId }) => showInModelManager(safeId(modelId)));
+provide('civitaiBrowser.closeDetails', () => closeDetails());
 
 // Initialize when ready
 onReady(init);

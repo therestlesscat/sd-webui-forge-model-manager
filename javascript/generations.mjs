@@ -157,7 +157,7 @@ document.addEventListener('click', (event) => {
     const pick = target.closest?.('[data-group-pick]');
     if (pick && list.contains(pick)) {
         closeGroupMenu();
-        window.genSetGroupBy(pick.dataset.groupPick);
+        setGroupBy(pick.dataset.groupPick);
         return;
     }
     const item = target.closest?.('.gen-group-item');
@@ -322,7 +322,7 @@ function watchEnd() {
  * level is kept as it is - its tiles and where the page was scrolled - for
  * Back.
  */
-window.genOpen = async function(index) {
+async function openTile(index) {
     // Selecting, a batch's click ticks it (the listener beside Select); a group still opens.
     if (selecting && tileKey(tiles[index])) return;
     clearSelection();
@@ -347,14 +347,14 @@ window.genOpen = async function(index) {
     scope = null;
     window.scrollTo?.(0, topOfTab());
     await reload();
-};
+}
 
 /**
  * Back to the level above, where it was left: the same tiles, drawn again, and
  * the page scrolled where it was. Loaded again only if something was deleted
  * inside - and then as far as it had been, so the place is the same.
  */
-window.genBack = async function() {
+async function goBack() {
     clearSelection();
     if (!levels.length) return;
     closeViewer();
@@ -371,7 +371,7 @@ window.genBack = async function() {
     renderPath();
     setStatus(tiles.length ? '' : emptyText());
     window.scrollTo?.(0, above.scrollY);
-};
+}
 
 /** Something above this level may have changed: it loads again on Back. */
 function markAboveChanged() {
@@ -426,7 +426,7 @@ function renderPath() {
     }
     path.innerHTML = `
         <div class="gen-path">
-            <button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genBack()"
+            <button type="button" class="mm-btn secondary mm-btn-small" data-action="generations.back"
                     title="Back to where you were (Esc)">← Back</button>
             <div class="gen-path-text">
                 <div class="gen-path-trail">${trail.map((t) => `<span>${escapeHtml(t)}</span>`).join(' <span class="gen-path-sep">›</span> ')}</div>
@@ -452,7 +452,7 @@ function tileHtml(tile, index) {
         const what = tile.kind === 'group' ? 'group' : 'generation';
         media = `
             <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview gen-openable"
-                 onclick="window.genOpen(${index})" title="Open this ${what}: all ${tile.matching_count} images">
+                 data-action="generations.open" data-tile="${index}" title="Open this ${what}: all ${tile.matching_count} images">
                 ${preview.map((img) => generationImageHtml(img)).join('')}
             </div>
             <span class="gen-count">×${tile.matching_count}</span>`;
@@ -462,7 +462,7 @@ function tileHtml(tile, index) {
                 + `${escapeHtml(tile.group.value || emptyGroupValue(by))}</span>`;
         }
     } else {
-        media = `<div class="gen-viewable" onclick="window.genView(${index}, 0)" title="View">${generationImageHtml(image)}</div>`;
+        media = `<div class="gen-viewable" data-action="generations.view" data-tile="${index}" title="View">${generationImageHtml(image)}</div>`;
     }
 
     // Select's tick: a batch or an image, never a group - open it, and pick inside.
@@ -477,7 +477,7 @@ function tileHtml(tile, index) {
     // More, behind ⋯ - while there is anything to offer.
     if (tileMenu(tile).length) {
         media += `<button type="button" class="gen-menu-btn" title="More"
-                          onclick="event.stopPropagation(); window.genMenu(${index}, this)">⋯</button>`;
+                          data-action="generations.menu" data-tile="${index}">⋯</button>`;
     }
 
     // When, and its size: a group's newest image's, a batch's first's.
@@ -500,8 +500,8 @@ function tileHtml(tile, index) {
           + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
         : `<div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
-                        onclick="window.genSend(${index})">${mode}</button>
-                <button type="button" class="mm-btn secondary mm-btn-small" onclick="window.genDelete(${index})">Delete</button>
+                        data-action="generations.send" data-tile="${index}">${mode}</button>
+                <button type="button" class="mm-btn secondary mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
             </div>`;
     return `
         <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
@@ -539,7 +539,6 @@ function spanFor(ratio, columnWidth, gap, imageHeight, columns) {
     const ideal = Math.round((imageHeight * ratio + gap) / (columnWidth + gap));
     return Math.min(Math.max(2, Math.min(ideal, MAX_SPAN)), Math.max(columns, 1));
 }
-window.genSpanFor = spanFor;            // for tests
 
 /**
  * Give every wide tile its columns, as the grid now is: its column width,
@@ -667,11 +666,11 @@ function postRating(fields) {
 }
 
 /** Send a tile's image - a batch's first - back to the tab it was made in. Not a group's. */
-window.genSend = async function(index) {
+async function sendTile(index) {
     const tile = tiles[index];
     if (!tile?.images?.[0] || tile.kind === 'group') return;
     await sendImage(tile, tile.images[0]);
-};
+}
 
 async function sendImage(tile, image) {
     if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
@@ -967,10 +966,10 @@ function showItem(label, file) {
         : { label, disabled: true, title: `${file.name} is not in the library: deleted, moved, or never scanned` };
 }
 
-window.genMenu = function(index, button) {
+function openTileMenu(index, button) {
     const tile = tiles[index];
     if (tile) openMenu(button, tileMenu(tile));
-};
+}
 
 let menu = null;
 
@@ -1114,11 +1113,11 @@ const viewerSource = {
 };
 
 /** Open the viewer on image `image` of tile `index`. */
-window.genView = function(index, image = 0) {
+function viewTile(index, image = 0) {
     if (selecting && tileKey(tiles[index])) return;          // a click ticks it instead
     const at = viewerImages().findIndex((place) => place.t === index && place.i === image);
     if (at >= 0) openViewer(viewerSource, at);
-};
+}
 
 /**
  * The keys this tab has besides the viewer's: Esc closes the ⋯ menu, or -
@@ -1134,7 +1133,7 @@ function onKey(event) {
     if (viewerIsOpen()) return;
     if (event.key === 'Escape' && levels.length && byId('gen_grid')?.offsetParent !== null) {
         event.preventDefault?.();
-        window.genBack();
+        goBack();
     }
 }
 
@@ -1201,7 +1200,7 @@ async function deleteFromViewer() {
  * and whether the files go too. A group is not deleted from here: its images
  * are of any number of generations.
  */
-window.genDelete = async function(index) {
+async function deleteTile(index) {
     const tile = tiles[index];
     if (!tile || tile.kind === 'group') return;
     if (tile.matching_count <= 1 || tile.kind === 'image') {
@@ -1216,7 +1215,7 @@ window.genDelete = async function(index) {
         markAboveChanged();
         await refreshTotals();
     }
-};
+}
 
 /** Delete one image, asking first; true once it is gone, from the grid too. */
 async function deleteImage(index, image) {
@@ -1285,7 +1284,7 @@ function switchPreserveOrder(checked) {
 }
 
 /** Group by something else, or nothing: the tab starts again from its top level. */
-window.genSetGroupBy = function(value) {
+function setGroupBy(value) {
     groupBy = groupChain(value).length ? value : '';
     writeFlag(GROUP_BY_KEY, groupBy);
     showGroupChoice();
@@ -1294,7 +1293,7 @@ window.genSetGroupBy = function(value) {
     title = '';
     scope = null;
     return reload();
-};
+}
 
 function showNsfw(checked) {
     hideNsfw = !checked;
@@ -1307,9 +1306,6 @@ const refresh = () => {
     markAboveChanged();
     return reload();
 };
-
-/** For tests, and anything else that wants the next part now. */
-window.genLoadMore = () => loadNext();
 
 // ---------------------------------------------------------------- markup
 // What this tab's markup does, by name: a tile, a button or a field says it
@@ -1324,6 +1320,17 @@ provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
 provide('generations.selectAll', () => selectAll());
 provide('generations.selectClear', () => selectClear());
 provide('generations.deleteSelected', () => deleteSelected());
+provide('generations.back', () => goBack());
+provide('generations.open', ({ tile }) => openTile(Number(tile)));
+provide('generations.view', ({ tile, image = 0 }) => viewTile(Number(tile), Number(image)));
+provide('generations.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
+provide('generations.send', ({ tile }) => sendTile(Number(tile)));
+provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
+// Not markup's: for code, and tests - grouping by a chain, the next part now,
+// and how many columns a wide image spans.
+provide('generations.groupBy', (value) => setGroupBy(value));
+provide('generations.loadMore', () => loadNext());
+provide('generations.spanFor', spanFor);
 
 /**
  * The tab's markup, once Gradio has drawn it. The script runs when the page

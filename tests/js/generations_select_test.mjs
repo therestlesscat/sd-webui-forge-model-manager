@@ -4,7 +4,7 @@
 // generations, how many of them the NSFW filter hides - in one request. A
 // batch's tick is the whole generation, as its own Delete. Select and Rate
 // are not on together. The server's side: generations_test.py.
-import { ROOT, act, checker, mountTab, press, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, press, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -57,19 +57,10 @@ const bar = () => $('gen_select_bar');
 const count = () => bar()?.querySelector('.mm-select-count')?.textContent;
 const buttons = () => Array.from(bar()?.querySelectorAll('button') || []);
 const button = (text) => buttons().find((b) => b.textContent.trim() === text);
-// This DOM does not run inline handlers: the tick's own label's is run here,
-// as a browser would, so one that stops the click before the page counts it fails.
-const runInline = (box) => {
-    const label = box.closest('label');
-    const code = label?.getAttribute('onclick');
-    if (code && !label.inlineRun) {
-        label.addEventListener('click', new Function('event', code));
-        label.inlineRun = true;
-    }
-};
+// The tick's click reaches the page's listener, which counts it: no markup
+// holds a handler that could stop it (check_js_references.mjs).
 const pick = (i, shift = false) => {
     const box = ticks()[i];
-    runInline(box);
     box.checked = !box.checked;
     box.dispatchEvent(Object.assign(new window.Event('click', { bubbles: true }), { shiftKey: shift }));
 };
@@ -102,9 +93,10 @@ check('nor, on a batch, the batch: it is ticked', [ticks()[0].checked, !document
       [true, true]);
 clickImage(1);
 check('a second click unticks it', ticks()[1].checked, false);
-// (This DOM does not run the image's own inline click; were it to get through, it does nothing.)
-window.genView(1, 0);
-await window.genOpen(0);
+// (In a browser Select takes the click on the way down, before the image's action; this DOM has no
+// way down, and the action runs too - doing nothing while selecting, as asked here outright.)
+act('generations.view', { tile: 1 });
+await act('generations.open', { tile: 0 });
 check('selecting, the viewer and a batch do not open, however asked',
       [!!document.querySelector('.mm-viewer'), !document.querySelector('#gen_path .mm-btn')], [false, true]);
 act('generations.selectClear');
@@ -136,16 +128,16 @@ check('Rate turns Select off', [$('gen_select').checked, ticks().length, bar().h
 tick('generations.selecting', true);
 check('and Select turns Rate off', $('gen_rate').checked, false);
 
-window.genSetGroupBy('size');
+call('generations.groupBy', 'size');
 await waitFor('the groups', () => document.querySelector('#gen_grid .gen-grouping'));
 check('grouped, the top level is only groups, which have no tick: Select is hidden there, and off',
       [$('gen_select').closest('label').hidden, $('gen_select').checked, ticks().length, bar().hidden],
       [true, false, 0, true]);
 tiles = TILES;
-await window.genOpen(0);
+await act('generations.open', { tile: 0 });
 await waitFor('the group opened', () => document.querySelectorAll('#gen_grid .gen-tile').length === 3);
 check('opened, a group\'s batches can be picked: Select is back', $('gen_select').closest('label').hidden, false);
-await window.genBack();
+await act('generations.back');
 check('and hidden again back at the top', $('gen_select').closest('label').hidden, true);
 
 done();

@@ -902,7 +902,7 @@ function updateImagesCountCell() {
 }
 
 // Switch to a different version within the same model group
-window.mmSelectVersion = async function(versionIndex) {
+async function selectVersion(versionIndex) {
     if (versionIndex < 0 || versionIndex >= currentVersions.length) return;
     if (versionIndex === selectedVersionIndex) return;
 
@@ -926,7 +926,7 @@ window.mmSelectVersion = async function(versionIndex) {
     // Load details for new version - its gallery saying so meanwhile.
     if (document.getElementById('mm_images')?.style.display !== 'none') showGalleryLoading('mm_images');
     await loadVersionDetails(version.file_path);
-};
+}
 
 // Update version selector pills UI
 function updateVersionSelectorUI() {
@@ -1107,7 +1107,7 @@ function renderVersionSelector() {
             const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}\nNot downloaded`
                 + `${paidNote ? '\n' + paidNote : ''}`;
             return `<button class="mm-version-pill ${activeClass} ${isPaid(version) ? 'paid' : ''}" data-pill="${index}"
-                           onclick="window.mmSelectPill(${index})"
+                           data-action="modelManager.selectPill" data-index="${index}"
                            title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${isPaid(version) ? ' ⬥' : ''}</button>`;
         }
         const version = locals[entry.local];
@@ -1119,7 +1119,7 @@ function renderVersionSelector() {
         const owned = anyRemote ? ' owned' : '';
 
         return `<button class="mm-version-pill ${activeClass}${owned}" data-pill="${index}"
-                       onclick="window.mmSelectPill(${index})"
+                       data-action="modelManager.selectPill" data-index="${index}"
                        title="${escapeHtml(tooltip)}">${escapeHtml(displayName)}${anyRemote ? ' ✓' : ''}</button>`;
     }).join('');
 
@@ -1142,7 +1142,7 @@ function renderVersionSelector() {
  * A pill was clicked. A local version is shown as it always was; one not in
  * the library is shown as the Civitai Browser shows it, with a Download.
  */
-window.mmSelectPill = async function(index) {
+async function selectPill(index) {
     const entry = pillEntries[index];
     if (!entry) return;
     if (entry.local === null) {
@@ -1173,11 +1173,11 @@ window.mmSelectPill = async function(index) {
             await loadVersionDetails(model.file_path);
             return;
         }
-        await window.mmSelectVersion(wanted);
+        await selectVersion(wanted);
         return;
     }
-    await window.mmSelectVersion(entry.local);
-};
+    await selectVersion(entry.local);
+}
 
 function resetImageState() {
     imageGallery.images = [];
@@ -1203,7 +1203,7 @@ function renderDetailHeader(model, { deletable = true } = {}) {
     const modelId = model.model_id || model.civitai_model_id;
     const isBookmarked = model.is_bookmarked || false;
     const bookmarkBtn = modelId
-        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" onclick="window.mmToggleBookmark(${safeId(modelId)})" title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
+        ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="modelManager.toggleBookmark"${dataAttributes({ modelId: safeId(modelId) })} title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
         : '';
     // The card's pin: the grid's model, whichever version the panel shows.
     const pin = pinButton(currentModels[selectedModelIndex], selectedModelIndex, 'mm-bookmark-btn mm-pin-toggle');
@@ -1213,7 +1213,7 @@ function renderDetailHeader(model, { deletable = true } = {}) {
     // Deleting sits with the other actions on the model, in the header. With
     // several versions, the one shown and all of them are separate choices.
     const deleteButton = (scope, label, title) =>
-        `<button class="mm-btn danger mm-btn-small header-action" onclick="window.mmDeleteModel('${scope}')" title="${title}">${label}</button>`;
+        `<button class="mm-btn danger mm-btn-small header-action" data-action="modelManager.deleteModel" data-scope="${scope}" title="${title}">${label}</button>`;
     const deleteButtons = !deletable ? ''
         : currentVersions.length > 1
         ? deleteButton('version', 'Delete Current Model Version', 'Delete the version shown here, and its files')
@@ -1225,9 +1225,9 @@ function renderDetailHeader(model, { deletable = true } = {}) {
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
                 ${pinBtn}
-                ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" onclick="window.mmForceSyncModel()" title="Force sync this model">Sync</button>` : ''}
+                ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" data-action="modelManager.syncModel" title="Force sync this model">Sync</button>` : ''}
                 ${deleteButtons}
-                <button class="close-details" onclick="window.mmCloseDetails()">×</button>
+                <button class="close-details" data-action="modelManager.closeDetails">×</button>
             </div>`;
 }
 
@@ -1368,10 +1368,10 @@ async function versionDownloaded(dl) {
     if (shown === dl.version_id) {
         const arrived = currentVersions.findIndex((v) => v.id === dl.version_id);
         remoteVersionId = null;
-        selectedVersionIndex = -1;   // so that mmSelectVersion does not think it is shown
+        selectedVersionIndex = -1;   // so that selectVersion does not think it is shown
         renderModelDetails(model);
         if (arrived >= 0) {
-            await window.mmSelectVersion(arrived);
+            await selectVersion(arrived);
         } else {
             currentModelPath = model.file_path;
             resetImageState();
@@ -1471,7 +1471,7 @@ function renderModelDetails(model, fullDetails = null) {
 
             <div class="detail-section detail-actions">
                 ${civitaiLink}
-                <button class="action-btn secondary" onclick="window.mmResyncImages()">Resync Images</button>
+                <button class="action-btn secondary" data-action="modelManager.resyncImages">Resync Images</button>
             </div>
         </div>
     `;
@@ -1487,7 +1487,7 @@ function updateDescription(description) {
             <div class="detail-section">
                 <h4>Description</h4>
                 <div class="mm-description collapsed" id="mm_description_content">${sanitizeHtml(description)}</div>
-                <button class="mm-description-toggle" id="mm_description_toggle" onclick="window.mmToggleDescription()">
+                <button class="mm-description-toggle" id="mm_description_toggle" data-action="modelManager.toggleDescription">
                     Show more
                 </button>
             </div>
@@ -1508,7 +1508,7 @@ function updateDescription(description) {
 }
 
 // Toggle description expand/collapse
-window.mmToggleDescription = function() {
+function toggleDescription() {
     const content = document.getElementById('mm_description_content');
     const toggle = document.getElementById('mm_description_toggle');
     if (content && toggle) {
@@ -1521,10 +1521,10 @@ window.mmToggleDescription = function() {
             toggle.textContent = 'Show more';
         }
     }
-};
+}
 
 // Resync images for current version
-window.mmResyncImages = async function() {
+async function resyncImages() {
     if (!currentVersionId) {
         setStatus('No version selected or version has no Civitai data', true);
         return;
@@ -1553,7 +1553,7 @@ window.mmResyncImages = async function() {
         console.error('[ModelManager] Resync error:', error);
         setStatus('Resync error: ' + error.message, true);
     }
-};
+}
 
 // Show sync loading overlay
 function showSyncOverlay(message) {
@@ -1589,7 +1589,7 @@ function hideSyncOverlay() {
 }
 
 // Force sync model and all versions
-window.mmForceSyncModel = async function() {
+async function forceSyncModel() {
     const model = currentModels[selectedModelIndex];
     if (!model) {
         setStatus('No model selected', true);
@@ -1630,7 +1630,7 @@ window.mmForceSyncModel = async function() {
     } finally {
         hideSyncOverlay();
     }
-};
+}
 
 /**
  * Pin the grid's card `index`, or unpin it: a Civitai model by its id, a file
@@ -1677,7 +1677,7 @@ async function togglePin(index) {
 }
 
 // Toggle bookmark status for a model
-window.mmToggleBookmark = async function(modelId) {
+async function toggleBookmark(modelId) {
     if (!modelId) {
         setStatus('Cannot bookmark: No Civitai model ID', true);
         return;
@@ -1736,13 +1736,13 @@ window.mmToggleBookmark = async function(modelId) {
         console.error('[ModelManager] Bookmark error:', error);
         setStatus('Bookmark error: ' + error.message, true);
     }
-};
+}
 
 // Delete a model's files, and it from the library: the version shown, or
 // ('all') every version of it here. The version shown, not the grid card's -
 // deleting used to take the card's row, which after picking another version
 // in the details panel was a different file from the one on screen.
-window.mmDeleteModel = async function(scope = 'version') {
+async function deleteModel(scope = 'version') {
     const model = currentModels[selectedModelIndex];
     if (!model) return;
 
@@ -1787,7 +1787,7 @@ window.mmDeleteModel = async function(scope = 'version') {
     // The grid reloads first: its own status line would otherwise replace
     // this one, and a failure would go unsaid.
     if (failed.length < targets.length) {
-        window.mmCloseDetails();
+        closeDetails();
         await loadModels(currentPage);
     }
     if (failed.length) {
@@ -1796,7 +1796,7 @@ window.mmDeleteModel = async function(scope = 'version') {
         setStatus(all ? `Deleted all ${targets.length} versions of ${model.display_name}`
                       : `Deleted: ${model.display_name}${deletedName}`);
     }
-};
+}
 
 
 // Render model images - new list layout
@@ -1873,17 +1873,17 @@ function imagesHeaderHtml(countText = '') {
     const refresh = galleryTab === 'generations'
         ? `<label class="mm-rate-switch" title="Rate each image's NSFW level: a row of levels on every card">
                <input type="checkbox" id="mm_rate_generations" ${rateGenerations ? 'checked' : ''}
-                      onchange="window.mmSetRatingGenerations(this.checked)"> Rate</label>
+                      data-action="modelManager.rateGenerations"> Rate</label>
            <label class="mm-rate-switch" title="Tick generations, then delete them all at once. A tick is the whole generation">
                <input type="checkbox" id="mm_select_generations" ${selectingGenerations ? 'checked' : ''}
-                      onchange="window.mmSetSelectingGenerations(this.checked)"> Select</label>
+                      data-action="modelManager.selectGenerations"> Select</label>
            ${selectingGenerations ? `<span class="mm-select-bar">${selectBarHtml(pickedSummary().images, PICK_ACTIONS)}</span>` : ''}
-           <button class="mm-btn secondary mm-refresh-generations" onclick="window.mmRefreshGenerations()"
+           <button class="mm-btn secondary mm-refresh-generations" data-action="modelManager.refreshGenerations"
                    title="Show images generated since this was drawn">Refresh</button>`
         : '';
     const tab = (key, label) => `
         <button class="mm-gallery-tab ${galleryTab === key ? 'active' : ''}" role="tab"
-                aria-selected="${galleryTab === key}" onclick="window.mmShowGalleryTab('${key}')">${label}</button>`;
+                aria-selected="${galleryTab === key}" data-action="modelManager.showGalleryTab" data-tab="${key}">${label}</button>`;
     return `
         <div class="mm-images-header">
             <div class="mm-gallery-tabs" role="tablist">
@@ -1909,7 +1909,7 @@ function resetGenerations() {
     generationsRequest += 1;
 }
 
-window.mmShowGalleryTab = async function(tab) {
+async function showGalleryTab(tab) {
     if (tab === galleryTab) return;
     galleryTab = tab;
     if (tab === 'generations') {
@@ -1920,14 +1920,14 @@ window.mmShowGalleryTab = async function(tab) {
         return;
     }
     renderModelImages();
-};
+}
 
 // "Your generations" turned off or on: the gallery's tab goes or comes back at
 // once - off while it shows, to the Civitai images.
 window.addEventListener('mm-generations-enabled', (event) => {
     if (!document.querySelector('#mm_images .mm-images-header')) return;
     if (!event.detail.enabled && galleryTab === 'generations') {
-        window.mmShowGalleryTab('civitai');
+        showGalleryTab('civitai');
         return;
     }
     if (galleryTab === 'generations') renderGenerations();
@@ -1938,12 +1938,12 @@ window.addEventListener('mm-generations-enabled', (event) => {
 // image "Show images" shows. Not remembered.
 let rateGenerations = false;
 
-window.mmSetRatingGenerations = function(checked) {
+function setRatingGenerations(checked) {
     rateGenerations = !!checked;
     if (rateGenerations) selectingGenerations = false;
     clearPickedGenerations();
     renderGenerations();
-};
+}
 
 // "Select" on your generations, as in the Generations tab: a tick on each
 // card - its generation whole, as its Delete - and one Delete for all. The
@@ -1984,12 +1984,12 @@ function showGenerationTicks() {
     updateGenerationSelectBar();
 }
 
-window.mmSetSelectingGenerations = function(checked) {
+function setSelectingGenerations(checked) {
     selectingGenerations = !!checked;
     if (selectingGenerations) rateGenerations = false;
     clearPickedGenerations();
     renderGenerations();
-};
+}
 
 document.addEventListener('click', (event) => {
     const box = event.target.closest?.('#mm_images [data-mm-pick]');
@@ -2096,7 +2096,6 @@ function refreshGenerations() {
     return loadGenerationsPage(1);
 }
 
-window.mmRefreshGenerations = refreshGenerations;
 
 /**
  * Fetch page `number` of the open model's generations, through the gallery's
@@ -2145,7 +2144,7 @@ async function loadGenerationsPage(number, { append = false } = {}) {
     }
 }
 
-window.mmShowMoreGenerations = async function() {
+async function showMoreGenerations() {
     const last = generationPages[generationPages.length - 1];
     if (loadingGenerationPage || !last || !last.more) return;
     loadingGenerationPage = true;
@@ -2156,7 +2155,7 @@ window.mmShowMoreGenerations = async function() {
         loadingGenerationPage = false;
         refreshGenerationsChrome();
     }
-};
+}
 
 /** How many images the generation cards draw now: previews, or all of one. */
 function drawnGenerationImages() {
@@ -2321,7 +2320,7 @@ function generationsFooterHtml() {
         ? `<div class="mm-page-note">${escapeHtml(generationPageError)}</div>` : '';
     if (!last || !last.more) return error;
     return `${error}<div class="mm-load-more">
-             <button class="mm-btn secondary" id="mm_show_more_generations_btn" onclick="window.mmShowMoreGenerations()"
+             <button class="mm-btn secondary" id="mm_show_more_generations_btn" data-action="modelManager.showMoreGenerations"
                      ${loadingGenerationPage ? 'disabled' : ''}>
                ${loadingGenerationPage ? 'Loading...' : 'Load More Generations'}
              </button>
@@ -2398,7 +2397,7 @@ const generationViewerSource = {
             : `${at} of ${count} in this generation`;
     },
     more: () => !!generationPages[generationPages.length - 1]?.more,
-    loadMore: () => window.mmShowMoreGenerations(),
+    loadMore: () => showMoreGenerations(),
     onClick: (event, index) => {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return false;
@@ -2498,16 +2497,16 @@ function renderGenerationCard(card, index) {
                 <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
                 ${imageTextHtml(first)}
                 <div class="mm-image-actions">
-                    <button class="mm-btn primary mm-send-btn" onclick="window.mmSendGeneration(${Number(card.id)})">
+                    <button class="mm-btn primary mm-send-btn" data-action="modelManager.sendGeneration" data-generation="${Number(card.id)}">
                         Send to ${sendTab(card)}
                     </button>
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
                     ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-generation="${Number(card.id)}"
-                        onclick="window.mmShowGenerationResources(${Number(card.id)})">${resourcesLabel}</button>` : ''}
-                    ${moreThanShown || card.all ? `<button class="mm-btn secondary" onclick="window.mmShowAllGeneration(${Number(card.id)})">
+                        data-action="modelManager.showGenerationResources" data-generation="${Number(card.id)}">${resourcesLabel}</button>` : ''}
+                    ${moreThanShown || card.all ? `<button class="mm-btn secondary" data-action="modelManager.showAllGeneration" data-generation="${Number(card.id)}">
                         ${card.all ? 'Hide images' : 'Show images'} (${card.matching_count})</button>` : ''}
                     <span class="mm-generation-delete">
-                        <button class="mm-btn secondary" onclick="window.mmDeleteGeneration(${Number(card.id)})">Delete</button>
+                        <button class="mm-btn secondary" data-action="modelManager.deleteGeneration" data-generation="${Number(card.id)}">Delete</button>
                         <label title="Also delete the image files from disk; off, only the record goes">
                             <input type="checkbox" id="mm_generation_delete_files_${card.id}"> also delete image files
                         </label>
@@ -2528,7 +2527,7 @@ function renderGenerationCard(card, index) {
  * An img2img generation's source image is not kept, so img2img gets its
  * settings and a word to add an image.
  */
-window.mmSendGeneration = async function(id) {
+async function sendGeneration(id) {
     const { card } = drawnGeneration(id);
     const first = card?.images?.[0];
     const infotext = card?.infotext || first?.infotext;
@@ -2540,10 +2539,10 @@ window.mmSendGeneration = async function(id) {
     if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
-};
+}
 
 /** Show every image of a generation this gallery has, in the card; or hide them again. */
-window.mmShowAllGeneration = async function(id) {
+async function showAllGeneration(id) {
     const { card } = drawnGeneration(id);
     if (!card) return;
     if (card.all) {
@@ -2563,10 +2562,10 @@ window.mmShowAllGeneration = async function(id) {
     } catch (error) {
         console.error('[ModelManager] Failed to load a generation\'s images:', error);
     }
-};
+}
 
 /** Delete a generation's record, and its image files when the box beside Delete is ticked. */
-window.mmDeleteGeneration = async function(id) {
+async function deleteGeneration(id) {
     const { card } = drawnGeneration(id);
     if (!card) return;
     const withFiles = !!document.getElementById(`mm_generation_delete_files_${card.id}`)?.checked;
@@ -2587,7 +2586,7 @@ window.mmDeleteGeneration = async function(id) {
         : 'Deleted the generation\'s record; its image files are still on disk', failed.length > 0);
     removeGenerationCard(card.id);
     await refreshGenerationTotals();
-};
+}
 
 
 // How wide the gallery draws a card's image, measured as each list is drawn.
@@ -2641,10 +2640,10 @@ function showResources(imageIndex) {
  * One of your generations' resources, in the same dialog: its LoRAs and
  * embeddings, as its images list them (api/generations.image_resources).
  */
-window.mmShowGenerationResources = function(id) {
+function showGenerationResources(id) {
     const { card } = drawnGeneration(id);
     return card ? showImageResources(generationResourcesImage(card), currentVersionId) : undefined;
-};
+}
 
 /**
  * A generation card's resources as one image's: every LoRA and embedding of
@@ -2766,7 +2765,7 @@ async function showFile(path) {
     if (!path) return;
     await showModel(`path:${path}`);
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
-    if (wanted >= 0) await window.mmSelectVersion(wanted);
+    if (wanted >= 0) await selectVersion(wanted);
 }
 provide('modelManager.showFile', showFile);
 
@@ -2780,7 +2779,7 @@ async function showVersion(versionId) {
     if (!id) return;
     await showModel(`version:${id}`);
     const wanted = currentVersions.findIndex((v) => Number(v.id) === id);
-    if (wanted >= 0) await window.mmSelectVersion(wanted);
+    if (wanted >= 0) await selectVersion(wanted);
 }
 provide('modelManager.showVersion', showVersion);
 
@@ -2791,7 +2790,7 @@ provide('modelManager.showVersion', showVersion);
  */
 function showInCivitaiRow() {
     return `<tr class="mm-show-in-cb-row"><td colspan="2">`
-        + `<button class="mm-btn secondary mm-btn-small" onclick="window.mmShowInCivitaiBrowser()" `
+        + `<button class="mm-btn secondary mm-btn-small" data-action="modelManager.showInCivitaiBrowser" `
         + `title="Open this version in the Civitai Browser tab">Show in Civitai Browser</button></td></tr>`;
 }
 
@@ -2804,9 +2803,9 @@ function civitaiBrowserQuery() {
     return versionId ? `model:${modelId} version:${versionId}` : `model:${modelId}`;
 }
 
-window.mmShowInCivitaiBrowser = function() {
+function showInCivitaiBrowser() {
     openInCivitaiBrowser(civitaiBrowserQuery());
-};
+}
 
 /** "model:<id> version:<id>" in the Civitai Browser tab, which shows itself. */
 function openInCivitaiBrowser(query) {
@@ -2818,7 +2817,7 @@ function openInCivitaiBrowser(query) {
     call('civitaiBrowser.showModel', query);
 }
 
-window.mmCloseDetails = function() {
+function closeDetails() {
     const detailsContainer = document.getElementById('mm_details');
     const imagesContainer = document.getElementById('mm_images');
 
@@ -2827,7 +2826,7 @@ window.mmCloseDetails = function() {
 
     document.querySelectorAll('.model-card').forEach(card => card.classList.remove('selected'));
     selectedModelIndex = null;
-};
+}
 
 // Utility functions
 
@@ -2911,7 +2910,7 @@ function updateScrollRestoreButton() {
                 btn.className = 'mm-btn secondary mm-scroll-restore-btn';
                 btn.innerHTML = '↓ Previous Position';
                 btn.title = 'Scroll to previous position. Right-click to clear.';
-                btn.onclick = window.mmRestoreScrollPosition;
+                btn.dataset.action = 'modelManager.restoreScrollPosition';
                 btn.oncontextmenu = function(e) {
                     e.preventDefault();
                     localStorage.removeItem('mm_scroll_position');
@@ -2936,7 +2935,7 @@ function updateScrollRestoreButton() {
     }
 }
 
-window.mmRestoreScrollPosition = function() {
+function restoreScrollPosition() {
     const target = localStorage.getItem('mm_scroll_target');
     let sent = null;
     try {
@@ -2953,7 +2952,7 @@ window.mmRestoreScrollPosition = function() {
         window.scrollTo({ top: pos, behavior: 'smooth' });
         console.log('[ModelManager] Restored scroll position:', pos);
     }
-};
+}
 
 // Save Search: one set of filters, in the database (savedSearch in
 // filters.mjs) - it was in this browser's storage, and is moved from there the
@@ -3323,6 +3322,24 @@ provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
 provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
 provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
+provide('modelManager.selectPill', ({ index }) => selectPill(Number(index)));
+provide('modelManager.toggleBookmark', ({ modelId }) => toggleBookmark(safeId(modelId)));
+provide('modelManager.deleteModel', ({ scope }) => deleteModel(scope));
+provide('modelManager.syncModel', () => forceSyncModel());
+provide('modelManager.closeDetails', () => closeDetails());
+provide('modelManager.resyncImages', () => resyncImages());
+provide('modelManager.toggleDescription', () => toggleDescription());
+provide('modelManager.rateGenerations', (data, box) => setRatingGenerations(box.checked));
+provide('modelManager.selectGenerations', (data, box) => setSelectingGenerations(box.checked));
+provide('modelManager.refreshGenerations', () => refreshGenerations());
+provide('modelManager.showGalleryTab', ({ tab }) => showGalleryTab(tab));
+provide('modelManager.showMoreGenerations', () => showMoreGenerations());
+provide('modelManager.sendGeneration', ({ generation }) => sendGeneration(Number(generation)));
+provide('modelManager.showGenerationResources', ({ generation }) => showGenerationResources(Number(generation)));
+provide('modelManager.showAllGeneration', ({ generation }) => showAllGeneration(Number(generation)));
+provide('modelManager.deleteGeneration', ({ generation }) => deleteGeneration(Number(generation)));
+provide('modelManager.showInCivitaiBrowser', () => showInCivitaiBrowser());
+provide('modelManager.restoreScrollPosition', () => restoreScrollPosition());
 
 onReady(init);
 onReady(setupScrollToTop);

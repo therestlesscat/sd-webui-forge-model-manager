@@ -73,8 +73,8 @@ the test's own (`DownloadService.store`), so no suite can reach a real
 `harness.mjs` gives a tab its markup and the WebUI's globals in linkedom, which
 is close to a browser and not one:
 
-- **No inline handlers run.** The page's markup has none (#95; the tabs' own
-  templates in its second step): it names an action in `data-action`, and a
+- **No inline handlers run.** The page's markup has none (#95): it names an
+  action in `data-action`, and a
   suite presses what the page draws - `act(name, data)`, `tick(name, on)`,
   `choose(name, value)`, `press(element)` in `harness.mjs` - which dispatches a
   real click or change to the page's one listener (`shared/calls.mjs`) and
@@ -104,7 +104,7 @@ is close to a browser and not one:
 | | |
 |---|---|
 | `check_python_references.py` | relative imports name real attributes; facade methods exist with matching arity; call sites fit the signatures they call |
-| `check_js_references.mjs` | every imported and destructured name is exported; every called name is declared; no `window.*` read but never assigned; no file reads a `window.*` another file defines, and every name called through `shared/calls.mjs` is provided; a tab's `SHARED_MODULES` is what it awaits; markup holds no inline handler, and every action it names - in the modules and the tabs' Python - is provided |
+| `check_js_references.mjs` | every imported and destructured name is exported; every called name is declared; no `window.*` read but never assigned; no file reads a `window.*` another file defines, and every name called through `shared/calls.mjs` is provided; a tab's `SHARED_MODULES` is what it awaits; markup holds no inline handler, and every action it names - in the modules and the tabs' Python - is provided; no file defines a `window.*` global but the shared modules' version |
 | `check_api_contract.py` | the parameters the browser sends are the ones the endpoints declare, both directions |
 | `check_forge_imports.py` | nothing in the package but `forge_host.py` (and `ui/settings.py`) imports Forge, or reaches it by name |
 | `check_import_cycles.py` | the extension's package imports without a cycle, counting imports inside functions |

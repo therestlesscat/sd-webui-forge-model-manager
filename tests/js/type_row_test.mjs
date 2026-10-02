@@ -59,7 +59,7 @@ check('with what decided it on hover', cell().getAttribute('title'),
       'Read from the file: a vae_wan21 by its shapes');
 
 await waitFor('the version pills', () => document.querySelectorAll('.mm-version-pill').length === 2);
-await window.mmSelectVersion(1);
+await act('modelManager.selectPill', { index: 1 });
 check('picking the other version shows that file\'s type',
       cell().textContent.replace(/\s+/g, ' ').trim(), 'Text Encoder (listed on Civitai as Checkpoint)');
 check('and what decided it', cell().getAttribute('title'), 'Read from the file: a qwen25_7b by its shapes');
