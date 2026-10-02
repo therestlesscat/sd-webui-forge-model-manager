@@ -2,8 +2,6 @@
 Sync service for fetching model data from Civitai.
 """
 import os
-import hashlib
-import zlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,11 +19,12 @@ from .civitai import (
     generation_ids_needing_lookup,
     keep_generation_data,
 )
-from .hashing import BLAKE3_AVAILABLE, HashResult, ModelHasher
+from .hashing import HashResult, ModelHasher
 from .model_dirs import gone_from_disk, library_dirs
+from .payload_rows import model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
 from .architecture import record_architecture
-from .nsfw import UNKNOWN, version_covers
+from .nsfw import version_covers
 from .db import get_models_db
 from .gallery import gallery_page_size
 
@@ -458,59 +457,15 @@ class SyncService:
             versions = civitai_data.get("modelVersions", [])
 
             if model_id and versions:
-                # Full model response - extract and save model-level data
-                stats = civitai_data.get("stats", {})
-                creator = civitai_data.get("creator", {})
-
-                # Calculate rating from thumbs
-                thumbs_up = stats.get("thumbsUpCount", 0)
-                thumbs_down = stats.get("thumbsDownCount", 0)
-                rating = 0
-                if thumbs_up + thumbs_down > 0:
-                    rating = round((thumbs_up / (thumbs_up + thumbs_down)) * 5, 2)
-
-                civitai_model = {
-                    "id": model_id,
-                    "name": civitai_data.get("name", ""),
-                    "description": civitai_data.get("description"),
-                    # None, not a guess: upsert_civitai_model() stores
-                    # it as Unknown, which keeps a type already known.
-                    "type": civitai_data.get("type"),
-                    "nsfw": civitai_data.get("nsfw", False),
-                    "nsfw_level": civitai_data.get("nsfwLevel", UNKNOWN),
-                    "tags": civitai_data.get("tags", []),
-                    "creator_username": creator.get("username") if creator else None,
-                    "creator_image_url": creator.get("image") if creator else None,
-                    "stats_download_count": stats.get("downloadCount", 0),
-                    "stats_thumbs_up": thumbs_up,
-                    "stats_thumbs_down": thumbs_down,
-                    "stats_rating": rating,
-                    "allow_no_credit": civitai_data.get("allowNoCredit"),
-                    "allow_commercial_use": civitai_data.get("allowCommercialUse"),
-                    "allow_derivatives": civitai_data.get("allowDerivatives"),
-                    "allow_different_license": civitai_data.get("allowDifferentLicense"),
-                    "supports_generation": civitai_data.get("supportsGeneration"),
-                    "versions": versions,
-                }
+                civitai_model = model_row(civitai_data)
                 db.upsert_civitai_model(civitai_model, from_civitai=True)
 
                 # Find the matched version (first in list since we reordered it)
                 matched_version = versions[0] if versions else None
 
                 if matched_version:
-                    version_stats = matched_version.get("stats", {})
                     version_data = {
-                        "id": matched_version.get("id"),
-                        "model_id": model_id,
-                        "version_name": matched_version.get("name"),
-                        "base_model": matched_version.get("baseModel"),
-                        "published_at": matched_version.get("publishedAt"),
-                        "created_at": matched_version.get("createdAt"),
-                        "nsfw_level": matched_version.get("nsfwLevel", UNKNOWN),
-                        "trained_words": matched_version.get("trainedWords", []),
-                        "description": matched_version.get("description"),
-                        "stats_download_count": version_stats.get("downloadCount", 0),
-                        "stats_thumbs_up": version_stats.get("thumbsUpCount", 0),
+                        **version_row(matched_version, model_id),
                         "file_path": model_path,
                         "file_name": file_name,
                         "file_size": file_size,
@@ -528,22 +483,8 @@ class SyncService:
 
             else:
                 # Version-only response (model fetch failed)
-                version_id = civitai_data.get("id")
-                version_model_id = civitai_data.get("modelId")
-                version_stats = civitai_data.get("stats", {})
-
                 version_data = {
-                    "id": version_id,
-                    "model_id": version_model_id,
-                    "version_name": civitai_data.get("name"),
-                    "base_model": civitai_data.get("baseModel"),
-                    "published_at": civitai_data.get("publishedAt"),
-                    "created_at": civitai_data.get("createdAt"),
-                    "nsfw_level": civitai_data.get("nsfwLevel", UNKNOWN),
-                    "trained_words": civitai_data.get("trainedWords", []),
-                    "description": civitai_data.get("description"),
-                    "stats_download_count": version_stats.get("downloadCount", 0),
-                    "stats_thumbs_up": version_stats.get("thumbsUpCount", 0),
+                    **version_row(civitai_data, civitai_data.get("modelId")),
                     "file_path": model_path,
                     "file_name": file_name,
                     "file_size": file_size,

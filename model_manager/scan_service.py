@@ -15,6 +15,7 @@ from .db import get_models_db
 from .architecture import needs_check, store_architecture
 from .file_identity import identify
 from .model_dirs import gone_from_disk, library_dirs, proper_place, relocate
+from .payload_rows import model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -201,41 +202,7 @@ class ScanService:
         model_id = data.get("id")
 
         if model_id:
-            # Extract model-level data
-            stats = data.get("stats", {})
-            creator = data.get("creator", {})
-
-            # Calculate rating from thumbs
-            thumbs_up = stats.get("thumbsUpCount", 0)
-            thumbs_down = stats.get("thumbsDownCount", 0)
-            rating = 0
-            if thumbs_up + thumbs_down > 0:
-                rating = round((thumbs_up / (thumbs_up + thumbs_down)) * 5, 2)
-
-            civitai_model = {
-                "id": model_id,
-                "name": data.get("name", ""),
-                "description": data.get("description"),
-                # Civitai's type, as Civitai gave it. What the file really
-                # is comes from the file itself (file_identity.py).
-                "type": data.get("type"),
-                "nsfw": data.get("nsfw", False),
-                "nsfw_level": data.get("nsfwLevel", UNKNOWN),
-                "tags": data.get("tags", []),
-                "creator_username": creator.get("username") if creator else None,
-                "creator_image_url": creator.get("image") if creator else None,
-                "stats_download_count": stats.get("downloadCount", 0),
-                "stats_thumbs_up": stats.get("thumbsUpCount", 0),
-                "stats_thumbs_down": stats.get("thumbsDownCount", 0),
-                "stats_rating": rating,
-                "allow_no_credit": data.get("allowNoCredit"),
-                "allow_commercial_use": data.get("allowCommercialUse"),
-                "allow_derivatives": data.get("allowDerivatives"),
-                "allow_different_license": data.get("allowDifferentLicense"),
-                "supports_generation": data.get("supportsGeneration"),
-                "versions": data.get("modelVersions"),
-            }
-
+            civitai_model = model_row(data)
             version_data["model_id"] = model_id
 
         # Find the matching version in modelVersions
@@ -261,18 +228,7 @@ class ScanService:
                 matched_version = versions[0]
 
         if matched_version:
-            version_stats = matched_version.get("stats", {})
-
-            version_data["id"] = matched_version.get("id")
-            version_data["version_name"] = matched_version.get("name")
-            version_data["base_model"] = matched_version.get("baseModel")
-            version_data["published_at"] = matched_version.get("publishedAt")
-            version_data["created_at"] = matched_version.get("createdAt")
-            version_data["nsfw_level"] = matched_version.get("nsfwLevel", UNKNOWN)
-            version_data["trained_words"] = matched_version.get("trainedWords", [])
-            version_data["description"] = matched_version.get("description")
-            version_data["stats_download_count"] = version_stats.get("downloadCount", 0)
-            version_data["stats_thumbs_up"] = version_stats.get("thumbsUpCount", 0)
+            version_data.update(version_row(matched_version, None))
 
             # The cover only if this sidecar provably kept its non-PG images;
             # older syncs, and some other tools, wrote stripped ones.
