@@ -6,7 +6,7 @@
 // poll, so the next download brought every dismissed one back. Dismiss now
 // asks the server to forget it; the list follows the server's; and "Dismiss
 // all" takes every finished one off at once, leaving what is still running.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -38,6 +38,7 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+const { downloads } = await sharedModule('common.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);
@@ -46,7 +47,7 @@ const listed = () => Array.from(document.querySelectorAll('#mm_download_list .mm
 const dismissAll = () => $('mm_downloads_dismiss_all');
 const polls = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 30)); };
 
-window.mmDownloads.track(server[0]);
+downloads().track(server[0]);
 await waitFor('the list', () => listed().length === 4);
 check('finished downloads are listed beside the running one',
       listed(), ['v1.safetensors', 'v2.safetensors', 'v3.safetensors', 'v4.safetensors']);
@@ -78,7 +79,7 @@ forgets = true;
 
 // The same version downloaded again is a new download, and is shown.
 server = server.map((d) => (d.version_id === 5 ? download(5, 'downloading') : d));
-window.mmDownloads.track(download(5, 'downloading'));
+downloads().track(download(5, 'downloading'));
 await polls();
 check('one dismissed and started again is listed again', listed().includes('v5.safetensors'), true);
 

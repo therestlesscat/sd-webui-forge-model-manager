@@ -22,6 +22,19 @@ export const ROOT = process.env.MM_ROOT
     : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..').replace(/\\/g, '/');
 
 /**
+ * A shared module (common.mjs, settings.mjs, viewer.mjs) as the tabs loaded it.
+ *
+ * @param {string} name - the module's file name in javascript/shared/.
+ */
+export async function sharedModule(name) {
+    // The tabs ask for the shared modules under the server's version, or
+    // their own when it does not answer - here, with tab scripts imported
+    // under none, none. The same URL is the same copy, its state the page's.
+    const version = (await globalThis.window?.mmSharedVersion) || '';
+    return import(`file:///${ROOT}/javascript/shared/${name}${version}`);
+}
+
+/**
  * Put a tab's markup and the globals it needs in place.
  *
  * @param {string} tabFile - the tab's Python file, relative to the extension.

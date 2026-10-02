@@ -2,7 +2,7 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The Settings page's result line is watched for; linkedom has the observer,
@@ -353,10 +353,10 @@ check('as if typed there, so Gradio takes them',
       heard.includes('input:setting_model_manager_page_size'), true);
 
 // ------------------------------------------------ one window, both tabs
-const before = window.mmSettingsWindow;
-await import(`file:///${ROOT}/javascript/shared/settings.mjs?another-tab`);
-check('a second copy of the module - the other tab\'s - uses the same window',
-      window.mmSettingsWindow, before);
+// The tabs share the module's one copy (#53), so one window.
+const before = (await sharedModule('settings.mjs')).settingsWindow();
+check('the other tab, importing the module too, gets the same window',
+      (await sharedModule('settings.mjs')).settingsWindow(), before);
 await window.mmOpenSettings();
 check('which is drawn once', document.querySelectorAll('#mm_settings').length, 1);
 check('and opens with what the server has now', field('model_manager_page_size')
@@ -527,7 +527,7 @@ check('a save that changes nothing about judging shows no notice',
 // left - recorded on a real Settings page:
 //   3.48s "0.0s   2 settings changed: model_manager_image_browsing, model_manager_nsfw_detection."
 //   3.58s "1 settings changed: model_manager_nsfw_detection."
-const { changedOnSettingsPage, restampNotice } = await import(`file:///${ROOT}/javascript/shared/settings.mjs?another-tab`);
+const { changedOnSettingsPage, restampNotice } = await sharedModule('settings.mjs');
 check('the Settings page\'s result line is read for what it changed', [
     changedOnSettingsPage('2 settings changed: model_manager_nsfw_detection, sd_vae.'),
     changedOnSettingsPage('1 settings changed without save: model_manager_nsfw_prompt_words.'),
