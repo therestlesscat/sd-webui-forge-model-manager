@@ -196,11 +196,8 @@ def folder_example(template: str) -> Dict[str, Any]:
     code a download uses - and any placeholder it does not know, which a
     download would leave in the path as written.
     """
-    from ..download_service import DownloadService
-    # apply_folder_template reads nothing from the service; it is a method
-    # only by where it lives, and a service would start its workers.
-    subfolder = DownloadService.apply_folder_template(
-        None, template or "", _SAMPLE_MODEL, _SAMPLE_VERSION)
+    from ..download_service import apply_folder_template
+    subfolder = apply_folder_template(template or "", _SAMPLE_MODEL, _SAMPLE_VERSION)
     return {"success": True, "subfolder": subfolder,
             "unknown": sorted(set(_PLACEHOLDER.findall(subfolder)))}
 

@@ -690,7 +690,7 @@ def register(app: FastAPI):
         can take any time.
 
         A version's name is its file's, as a download names it: the file
-        DownloadService.pick_file_index() would take, from Civitai's model
+        download_service.pick_file_index() would take, from Civitai's model
         payload - one request per hundred models (/models?ids), where nearly
         every resource of Civitai's list carries its model id. A resource the
         infotext names by hash alone is turned into a version first: from the

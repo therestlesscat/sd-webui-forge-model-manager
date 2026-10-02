@@ -1761,7 +1761,7 @@ export function isPaid(version) {
 /**
  * Index of the file a download of this version will produce.
  *
- * Mirrors DownloadService.pick_file_index: files[0] is often the full
+ * Mirrors download_service.pick_file_index: files[0] is often the full
  * fp32 weights, roughly twice the size of the pruned file Civitai marks
  * primary, so the primary one is the default rather than the first.
  */

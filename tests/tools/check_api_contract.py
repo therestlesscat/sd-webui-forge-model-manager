@@ -92,7 +92,7 @@ print('\n--- fields the JS reads out of the estimate ---')
 read = set(re.findall(r'estimate\.(\w+)', js)) | \
        {'requests.' + k for k in re.findall(r'requests\.(\w+)', js)} | \
        {'seconds.' + k for k in re.findall(r'seconds\.(\w+)', js)}
-sync_src = io.open('model_manager/sync_service.py', encoding='utf-8').read()
+sync_src = io.open('model_manager/sync_estimates.py', encoding='utf-8').read()
 returned = set(re.findall(r'"(\w+)":', sync_src))
 missing = sorted(k for k in read if k.split('.')[-1] not in returned)
 print('   reads   : %s' % ', '.join(sorted(read)))

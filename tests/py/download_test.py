@@ -111,7 +111,7 @@ for status in ('pending', 'finishing', 'complete', 'error', 'cancelled'):
 FILES = [{'id': 11, 'name': 'full.safetensors'},
          {'id': 22, 'name': 'pruned.safetensors', 'primary': True},
          {'id': 33, 'name': 'other.safetensors'}]
-pick = DownloadService.pick_file_index
+pick = ds.pick_file_index
 check('an id wins, wherever it sits in the list', pick(FILES, file_id=33), 2)
 check('an id beats an index too', pick(FILES, file_index=0, file_id=33), 2)
 check('an id nobody has falls back to the index', pick(FILES, file_index=0, file_id=99), 0)
@@ -127,23 +127,23 @@ service = DownloadService(max_concurrent=2)
 MODEL = {'id': 42, 'name': 'A Model: Mk/2', 'creator': {'username': 'some one'}}
 VERSION = {'baseModel': 'SDXL 1.0'}
 
-check('no template, no subfolder', service.apply_folder_template('', MODEL, VERSION), '')
+check('no template, no subfolder', ds.apply_folder_template('', MODEL, VERSION), '')
 check('the placeholders are filled and made safe',
-      service.apply_folder_template('{baseModel}/{modelName}', MODEL, VERSION),
+      ds.apply_folder_template('{baseModel}/{modelName}', MODEL, VERSION),
       os.path.join('SDXL_1.0', 'A_Model_Mk_2'))
 check('the creator too',
-      service.apply_folder_template('{creator}', MODEL, VERSION), 'some_one')
+      ds.apply_folder_template('{creator}', MODEL, VERSION), 'some_one')
 check('and the id, which needs no sanitising',
-      service.apply_folder_template('{modelId}', MODEL, VERSION), '42')
+      ds.apply_folder_template('{modelId}', MODEL, VERSION), '42')
 check('a model with no creator still lands somewhere',
-      service.apply_folder_template('{creator}', {'id': 1, 'name': 'n'}, VERSION),
+      ds.apply_folder_template('{creator}', {'id': 1, 'name': 'n'}, VERSION),
       'Unknown')
 check('and one with no base model',
-      service.apply_folder_template('{baseModel}', MODEL, {}), 'Unknown')
+      ds.apply_folder_template('{baseModel}', MODEL, {}), 'Unknown')
 check('backslashes and doubled slashes collapse',
-      service.apply_folder_template('a\\\\b//c/', MODEL, VERSION),
+      ds.apply_folder_template('a\\\\b//c/', MODEL, VERSION),
       os.path.join('a', 'b', 'c'))
-long_name = service.apply_folder_template('{modelName}', {'name': 'x' * 300}, VERSION)
+long_name = ds.apply_folder_template('{modelName}', {'name': 'x' * 300}, VERSION)
 check('an absurd name is cut to something a filesystem will take',
       len(long_name), 100)
 

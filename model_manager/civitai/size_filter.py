@@ -23,7 +23,7 @@ def primary_file_size_kb(model: Dict[str, Any]) -> Optional[float]:
 
     Civitai lists versions newest first, so the latest is modelVersions[0].
     The primary file is the one Civitai marks primary, else the first - the
-    rule DownloadService.pick_file_index and primaryFileIndex() in the
+    rule download_service.pick_file_index and primaryFileIndex() in the
     browser apply when nothing has been picked.
     """
     versions = model.get("modelVersions") or []
