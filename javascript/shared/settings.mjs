@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml } = await shared('core.mjs');
+const { escapeHtml, holdPage } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 
 const K = {
@@ -873,7 +873,7 @@ function createSettings() {
         openedFor = { tab, section };
         if (!root) build();
         root.style.display = 'flex';
-        document.body.classList.add('mm-modal-open');
+        holdPage('settings', true);
         const body = root.querySelector('#mm_settings_body');
         body.innerHTML = '<div class="mm-settings-loading">Loading settings...</div>';
         root.querySelector('#mm_settings_search').value = '';
@@ -901,7 +901,7 @@ function createSettings() {
         const n = changedKeys().length;
         if (n && !window.confirm(`Discard ${n} unsaved change${n === 1 ? '' : 's'}?`)) return;
         root.style.display = 'none';
-        document.body.classList.remove('mm-modal-open');
+        holdPage('settings', false);
     }
 
     async function save() {
@@ -933,7 +933,7 @@ function createSettings() {
             if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
             take(answer);
             root.style.display = 'none';
-            document.body.classList.remove('mm-modal-open');
+            holdPage('settings', false);
             window.dispatchEvent(new CustomEvent('mm-settings-saved', {
                 detail: { changed: answer.changed || [], settings: answer.settings },
             }));

@@ -66,6 +66,23 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'
  * again - forever, four times a second, and every extension's callbacks with
  * it (quiet_updates_test.mjs).
  */
+// What holds the page still - something open over it - by name. Each of them
+// took the class off as it closed, whatever was still open: Show All closed
+// over the viewer let the page under it scroll (#122). One set for the page:
+// the shared modules are one copy a page.
+const holding = new Set();
+
+/**
+ * Hold the page still while `who` is open over it, or let it go: the page
+ * scrolls again only once nothing holds it. `who`: 'viewer', 'dialog' (the
+ * metadata and Resources window), 'settings'.
+ */
+export function holdPage(who, held) {
+    if (held) holding.add(who);
+    else holding.delete(who);
+    document.body.classList.toggle('mm-modal-open', holding.size > 0);
+}
+
 export function setText(element, text) {
     if (element && element.textContent !== text) element.textContent = text;
 }
