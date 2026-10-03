@@ -27,7 +27,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | | |
 |---|---|
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations`; the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
-| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing` |
+| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
 | `sync_service.py` | identifying files and refreshing their metadata |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate and its staleness-window counts |
@@ -644,6 +644,13 @@ real time once.
   ignoring case: 0.44.8 did that for the upserts alone, and every other read
   and write by path missed a file a walk spelt another way, which a sync then
   hashed and looked up on every run (#120).
+- **Civitai's search has no random order, and pages by cursor alone** - `page`
+  is ignored. A fair random draw goes by model ids (`random_draw.py`): `ids`
+  takes about 4,000 in one request, bounded by the URL's length (some 32 KB),
+  not their number - so its commas go unencoded, as `%2C` they made 3,500 ids
+  35 KB and a 431. Civitai's own filters apply to the ids; a text query
+  ignores them. More than 100 matches come back as the first 100 by the sort,
+  with a cursor: a draw that kept only those favoured the most downloaded.
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.

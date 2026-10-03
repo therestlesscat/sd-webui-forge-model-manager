@@ -141,6 +141,7 @@ SAMPLES = {
     ('GET', '/model-manager/scan/progress'): {},
     ('POST', '/model-manager/scan/cancel'): {},
     ('GET', '/model-manager/civitai/models/stream'): {'params': {'query': 'x'}},
+    ('GET', '/model-manager/civitai/models/random'): {'params': {'types': 'LORA'}},
     ('GET', '/model-manager/civitai/download/progress'): {},
     ('POST', '/model-manager/civitai/download/cancel'): {'data': {'version_id': '0'}},
     ('POST', '/model-manager/civitai/download/control'): {'data': {'action': 'pause_all'}},

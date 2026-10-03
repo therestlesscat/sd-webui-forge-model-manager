@@ -7,7 +7,7 @@ import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List, Dict, Any, Tuple
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from ..forge_host import setting
 
@@ -228,7 +228,7 @@ class CivitaiClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[Any] = None,
         absolute_url: Optional[str] = None
     ) -> Any:
         """
@@ -237,7 +237,7 @@ class CivitaiClient:
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (e.g., "/models/123")
-            params: Query parameters
+            params: Query parameters, or a query string already encoded
             absolute_url: Full URL to use instead of BASE_URL + endpoint.
 
         Returns:
@@ -421,7 +421,8 @@ class CivitaiClient:
         tag: str = "",
         checkpoint_type: str = "",
         limit: int = 10,
-        cursor: Optional[str] = None
+        cursor: Optional[str] = None,
+        ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Search models on Civitai using cursor-based pagination.
@@ -438,6 +439,9 @@ class CivitaiClient:
                 rejects anything else, so an empty value is left off.
             limit: Results per page.
             cursor: Cursor for pagination (from previous response's nextCursor).
+            ids: Only these models, of those the filters allow. Civitai takes
+                about 4,000 in one request - the URL's length, some 32 KB, is
+                the bound, not the number - and a text query ignores them.
 
         Returns:
             Dict with 'items' (models), 'metadata', and 'nextCursor'.
@@ -462,8 +466,13 @@ class CivitaiClient:
             params["tag"] = tag
         if checkpoint_type in ("Trained", "Merge"):
             params["checkpointType"] = checkpoint_type
-
-        data = self._request("GET", "/models", params)
+        if ids:
+            params["ids"] = ",".join(str(i) for i in ids)
+            # With its commas as they are: requests sends each as %2C, and
+            # 3,500 ids came to 35 KB of URL, which Civitai refused (431).
+            data = self._request("GET", "/models", urlencode(params, safe=","))
+        else:
+            data = self._request("GET", "/models", params)
         metadata = data.get("metadata", {}) or {}
 
         return {

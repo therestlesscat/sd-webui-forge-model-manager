@@ -1,5 +1,17 @@
 [
   {
+    "id": "feeling-lucky",
+    "version": "0.45.0",
+    "kind": "feature",
+    "audience": "everyone",
+    "important": true,
+    "tabs": [
+      "civitai_browser"
+    ],
+    "title": "I'm feeling lucky: a page of models at random",
+    "text": "Tick “I'm feeling lucky”, beside Save Search, and Search becomes Draw: a page of models picked at random from all of Civitai, every model your filters allow as likely as any other. Type, Checkpoint Type, Base Model, Tag, Period and Include NSFW models still apply; the search text, the sort and the post-processing options are greyed out while it is ticked. Each Draw is a fresh page."
+  },
+  {
     "id": "rescan-0-44",
     "version": "0.44.23",
     "kind": "action",

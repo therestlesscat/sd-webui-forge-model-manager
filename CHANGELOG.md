@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.45 - I'm feeling lucky
+
+*2 October 2026*
+
+The Civitai Browser can show you models you would never have searched for. Tick "I'm feeling lucky" and Search becomes Draw: a page of models picked at random from all of Civitai, every model your filters allow as likely as any other - the obscure as often as the famous.
+
+- **0.45.0** (build 339) - "I'm feeling lucky", beside Save Search in the Civitai Browser. It keeps the filters Civitai applies itself - Type, Checkpoint Type, Base Model, Tag, Period and Include NSFW models - and greys out the rest while it is ticked: the search text, which Civitai's search cannot combine with a draw, the sort, and the post-processing options, which would cost a request per model. Each Draw is a fresh page. A draw asks Civitai about random model numbers, thousands in one request, so it usually takes one or two requests; when few models match - Checkpoint and Week, say - it lists them all and picks from those, and the status line says how many there were.
+
 ## 0.44 - Sounder foundations
 
 *1 October 2026*

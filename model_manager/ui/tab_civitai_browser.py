@@ -165,8 +165,14 @@ def create_civitai_browser_ui():
                             </div>
                         </div>
                     </details>
-                    <!-- The same row the Model Manager puts its actions on. -->
+                    <!-- The same row the Model Manager puts its actions on. "I'm
+                         feeling lucky" turns Search into Draw, and greys out what a draw
+                         cannot use (syncLucky in civitai_browser.mjs). -->
                     <div class="filter-buttons-row">
+                        <label class="mm-checkbox-label" id="cb_lucky_label"
+                               title="Search becomes Draw: a page of models drawn at random from all of Civitai, every model the filters allow equally likely. It uses Type, Checkpoint Type, Base Model, Tag, Period and Include NSFW models; the search text, the sort and the post-processing options are set aside while it is ticked.">
+                            <input type="checkbox" id="cb_lucky" data-action="civitaiBrowser.feelingLucky"> I'm feeling lucky
+                        </label>
                         <button type="button" id="cb_save_search_btn" class="mm-btn secondary"
                                 title="Save these filters as the search this tab opens with. Right-click to clear it.">Save Search</button>
                         <button type="button" id="cb_search_btn" class="cb-btn primary" data-action="civitaiBrowser.search">Search</button>

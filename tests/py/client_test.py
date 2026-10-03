@@ -19,6 +19,8 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 webui_stub.install()
 
+from urllib.parse import parse_qs                         # noqa: E402
+
 from model_manager.civitai import (                      # noqa: E402
     CivitaiClient, CivitaiAPIError, CivitaiNotFoundError,
     CivitaiRateLimitError, TokenBucketRateLimiter,
@@ -123,6 +125,18 @@ c.search_models(checkpoint_type='Trained', nsfw='true', sort='Newest')
 check('and every filter it is given',
       (c.asked[0][1].get('checkpointType'), c.asked[0][1].get('sort')),
       ('Trained', 'Newest'))
+
+c = Stub([{'items': []}])
+c.search_models(ids=[3, 1, 2], types=['Checkpoint', 'LORA'], base_models=['SD 1.5'], limit=100)
+# The URL's length bounds how many ids go in one request, so the commas
+# between them are sent as they are, not as %2C.
+query = c.asked[0][1]
+check('ids go as one list, its commas not encoded', 'ids=3,1,2' in query, True)
+check('with the filters, encoded as ever', parse_qs(query)['types'], ['Checkpoint,LORA'])
+check('spaces and all', parse_qs(query)['baseModels'], ['SD 1.5'])
+c = Stub([{'items': []}])
+c.search_models(types=['LORA'])
+check('and are left off when there are none', 'ids' in c.asked[0][1], False)
 
 c = Stub([{'items': [{'name': 'anime'}, {'name': 'realistic'}]}])
 check('tags answer', len(c.search_tags('an')), 2)

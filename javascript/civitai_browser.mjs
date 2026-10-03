@@ -255,6 +255,7 @@ function describeFilterStats(stats) {
 
 // What a filtered search is doing, before it has found anything.
 function filteringMessage() {
+    if (feelingLucky()) return 'Drawing models at random...';
     if (requirePromptEnabled()) return 'Checking models for usable prompts...';
     if (sfwOnlyEnabled()) return 'Checking models for SFW images...';
     return 'Looking for models in the size range...';
@@ -264,11 +265,12 @@ function filteringMessage() {
  * Is "Only Show Models with SFW images" ticked and in force?
  *
  * It means nothing while NSFW models are included, so it is greyed out then,
- * keeps its tick for when it applies again, and is not sent.
+ * keeps its tick for when it applies again, and is not sent. A draw does
+ * not use it either.
  */
 function sfwOnlyEnabled() {
     const nsfw = document.getElementById('cb_nsfw')?.checked || false;
-    return !nsfw && (document.getElementById('cb_sfw_only')?.checked || false);
+    return !nsfw && !feelingLucky() && (document.getElementById('cb_sfw_only')?.checked || false);
 }
 
 // Grey out "Only Show Models with SFW images" while NSFW models are included, saying why,
@@ -287,12 +289,13 @@ function syncSfwOnlyEnabled() {
     if (!box || !label) return;
 
     if (label.dataset.title === undefined) label.dataset.title = label.title;
-    const applies = !(document.getElementById('cb_nsfw')?.checked || false);
+    const nsfw = document.getElementById('cb_nsfw')?.checked || false;
+    const applies = !nsfw && !feelingLucky();
     box.disabled = !applies;
     label.classList.toggle('filter-disabled', !applies);
-    setTitle(label, applies
-        ? label.dataset.title
-        : 'Only applies while Include NSFW models is unticked. ' + label.dataset.title);
+    setTitle(label, applies ? label.dataset.title
+        : `${feelingLucky() ? NOT_IN_A_DRAW : 'Only applies while Include NSFW models is unticked.'} `
+            + label.dataset.title);
 
     const banner = document.getElementById('cb_sfw_only_banner');
     const text = document.getElementById('cb_sfw_only_banner_text');
@@ -309,10 +312,80 @@ function requirePromptEnabled() {
     return document.getElementById('cb_require_prompt')?.checked || false;
 }
 
+// ------------------------------------------------------- I'm feeling lucky
+// Ticked, Search becomes Draw: a page of models drawn at random from those
+// Civitai's own filters allow, every one equally likely (#102,
+// civitai/random_draw.py). What a draw cannot use is greyed out, keeping
+// what it holds for when the box is unticked: the text - Civitai's text
+// search ignores the ids a draw asks for - the sort, and the checks made
+// here, which cost requests per model.
+const NOT_IN_A_DRAW = "Not used while I'm feeling lucky is ticked.";
+
+function feelingLucky() {
+    return document.getElementById('cb_lucky')?.checked || false;
+}
+
+/** Grey out a control a draw does not use, or bring it back; `holder` carries the look and the tooltip. */
+function setAside(holder, controls, aside) {
+    if (!holder) return;
+    if (holder.dataset.title === undefined) holder.dataset.title = holder.title || '';
+    for (const control of controls) {
+        if (control && control.disabled !== aside) control.disabled = aside;
+    }
+    holder.classList.toggle('filter-disabled', aside);
+    setTitle(holder, aside ? `${NOT_IN_A_DRAW} ${holder.dataset.title}`.trim() : holder.dataset.title);
+}
+
+function syncLucky() {
+    const lucky = feelingLucky();
+    const byId = (id) => document.getElementById(id);
+    const group = (id) => byId(id)?.closest('.filter-group');
+    setAside(group('cb_search'), [byId('cb_search')], lucky);
+    setAside(group('cb_sort'), [byId('cb_sort')], lucky);
+    setAside(group('cb_min_size'), [byId('cb_min_size'), byId('cb_max_size')], lucky);
+    setAside(byId('cb_require_prompt')?.closest('label'), [byId('cb_require_prompt')], lucky);
+    syncSfwOnlyEnabled();
+    const button = byId('cb_search_btn');
+    setText(button, lucky ? 'Draw' : 'Search');
+    setTitle(button, lucky ? 'Draw a page of models at random from those the filters allow' : '');
+}
+if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncLucky);
+
 // Update status
 function updateStatus(message) {
     const status = document.getElementById('cb_status');
     if (status) status.textContent = message;
+}
+
+/**
+ * Read a stream of newline-delimited JSON, handing each event to `handle` as
+ * it comes: the filtered search's, and a draw's. What `handle` throws ends it.
+ */
+async function readEvents(response, handle) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();          // keep any partial line
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            let evt;
+            try {
+                evt = JSON.parse(line);
+            } catch (e) {
+                console.warn('[CivitaiBrowser] Bad stream line:', line);
+                continue;
+            }
+            handle(evt);
+        }
+    }
 }
 
 // Search with the prompt or size filter, rendering models as they are found.
@@ -355,68 +428,46 @@ async function searchModelsStreaming(page, cursor) {
         );
         if (!response.ok) throw new Error('HTTP ' + response.status);
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();          // keep any partial line
-
-            for (const line of lines) {
-                if (!line.trim()) continue;
-                let evt;
-                try {
-                    evt = JSON.parse(line);
-                } catch (e) {
-                    console.warn('[CivitaiBrowser] Bad stream line:', line);
-                    continue;
+        await readEvents(response, (evt) => {
+            if (evt.type === 'meta') {
+                if (evt.cardWidth && evt.cardHeight) {
+                    cardSize.apply(evt.cardWidth, evt.cardHeight);
+                }
+                pageSize = evt.pageSize || pageSize;
+            } else if (evt.type === 'model') {
+                currentModels.push(evt.model);
+                renderGrid();
+                updateStatus(`Found ${currentModels.length} of ${pageSize}...`);
+            } else if (evt.type === 'progress') {
+                // Every model looked at was taken or passed over by one filter.
+                const seen = evt.found + (evt.dropped || 0) + (evt.unsafe || 0)
+                    + (evt.failed || 0) + (evt.rejected || 0);
+                const passed = [evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
+                                evt.dropped ? `${evt.dropped} without usable prompts` : '',
+                                evt.rejected ? `${evt.rejected} outside the size range` : '',
+                                evt.failed ? `${evt.failed} could not be checked` : '']
+                    .filter(Boolean).join(', ');
+                updateStatus(`Looked through ${seen} models, found ${evt.found} of ${pageSize}`
+                    + (passed ? ` (${passed})` : ''));
+            } else if (evt.type === 'done') {
+                finished = true;
+                if (evt.nextCursor) {
+                    cursors[page] = evt.nextCursor;
+                    hasMorePages = true;
+                } else {
+                    hasMorePages = false;
                 }
 
-                if (evt.type === 'meta') {
-                    if (evt.cardWidth && evt.cardHeight) {
-                        cardSize.apply(evt.cardWidth, evt.cardHeight);
-                    }
-                    pageSize = evt.pageSize || pageSize;
-                } else if (evt.type === 'model') {
-                    currentModels.push(evt.model);
-                    renderGrid();
-                    updateStatus(`Found ${currentModels.length} of ${pageSize}...`);
-                } else if (evt.type === 'progress') {
-                    // Every model looked at was taken or passed over by one filter.
-                    const seen = evt.found + (evt.dropped || 0) + (evt.unsafe || 0)
-                        + (evt.failed || 0) + (evt.rejected || 0);
-                    const passed = [evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
-                                    evt.dropped ? `${evt.dropped} without usable prompts` : '',
-                                    evt.rejected ? `${evt.rejected} outside the size range` : '',
-                                    evt.failed ? `${evt.failed} could not be checked` : '']
-                        .filter(Boolean).join(', ');
-                    updateStatus(`Looked through ${seen} models, found ${evt.found} of ${pageSize}`
-                        + (passed ? ` (${passed})` : ''));
-                } else if (evt.type === 'done') {
-                    finished = true;
-                    if (evt.nextCursor) {
-                        cursors[page] = evt.nextCursor;
-                        hasMorePages = true;
-                    } else {
-                        hasMorePages = false;
-                    }
-
-                    const stats = evt.filterStats || {};
-                    const status = `Showing ${currentModels.length} models (page ${page})`
-                        + describeFilterStats(stats);
-                    isStreaming = false;
-                    renderGrid();
-                    updateStatus(status);
-                } else if (evt.type === 'error') {
-                    throw new Error(evt.error);
-                }
+                const stats = evt.filterStats || {};
+                const status = `Showing ${currentModels.length} models (page ${page})`
+                    + describeFilterStats(stats);
+                isStreaming = false;
+                renderGrid();
+                updateStatus(status);
+            } else if (evt.type === 'error') {
+                throw new Error(evt.error);
             }
-        }
+        });
     } catch (e) {
         if (e.name === 'AbortError') return;        // superseded by a newer search
         console.error('[CivitaiBrowser] Stream error:', e);
@@ -425,6 +476,98 @@ async function searchModelsStreaming(page, cursor) {
         if (activeStream === controller) activeStream = null;
         if (!finished) {
             // stream cut short - show whatever arrived rather than nothing
+            isStreaming = false;
+            renderGrid();
+        }
+    }
+}
+
+/** What a draw is doing, on the status line: it can take a dozen requests, at 0.5 a second without an API key. */
+function describeDrawProgress(evt) {
+    if (evt.listing) return `Few models match: listing all of them to draw from (${evt.listing.toLocaleString()} so far)...`;
+    if (!evt.asked) return 'Drawing models at random...';
+    return `Drawing models at random: asked Civitai about ${evt.asked.toLocaleString()} ids, `
+        + `found ${Math.min(evt.found, pageSize)} of ${pageSize}...`;
+}
+
+/** What a draw came back with, and what it cost. */
+function describeDraw(count, draw) {
+    let text;
+    if (draw.listed && !draw.matches) {
+        text = 'No models match these filters.';
+    } else if (draw.listed && count >= draw.matches) {
+        text = `All ${count.toLocaleString()} models these filters match, in random order`;
+    } else if (draw.listed) {
+        text = `Drew ${count} models at random from all ${draw.matches.toLocaleString()} these filters match`;
+    } else {
+        text = `Drew ${count} models at random`
+            + (draw.matches ? ` from about ${draw.matches.toLocaleString()} that match` : '')
+            + ` - ${draw.asked.toLocaleString()} ids asked in ${draw.requests} `
+            + `request${draw.requests === 1 ? '' : 's'}`;
+    }
+    if (draw.rate_limited) {
+        text += '. Civitai is limiting requests, so the draw stopped early; wait a moment, then press Draw again.';
+    } else if (draw.stopped) {
+        text += `. Stopped after ${draw.requests} requests; press Draw to try again.`;
+    }
+    return text;
+}
+
+/**
+ * Draw a page of models at random (I'm feeling lucky), streamed: the status
+ * line follows the draw, and the page comes at the end, shuffled. Another
+ * Draw or a Search supersedes it.
+ */
+async function drawModels() {
+    if (activeStream) activeStream.abort();
+    const controller = new AbortController();
+    activeStream = controller;
+
+    // Civitai's own filters, and nothing a draw cannot use.
+    const { types, checkpoint_type, base_models, nsfw, tag, period } = getFilters();
+    const params = new URLSearchParams();
+    Object.entries({ types, checkpoint_type, base_models, nsfw, tag, period }).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '' && v !== false) params.append(k, v);
+    });
+
+    currentModels = [];
+    currentPage = 1;
+    // A draw is one page: nothing comes before or after it.
+    cursors = [""];
+    hasMorePages = false;
+    isStreaming = true;
+    renderGrid();
+    closeDetails();
+    updateStatus('Drawing models at random...');
+
+    let finished = false;
+    try {
+        const response = await fetch('/model-manager/civitai/models/random?' + params.toString(),
+                                     { signal: controller.signal });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        await readEvents(response, (evt) => {
+            if (evt.type === 'meta') {
+                if (evt.cardWidth && evt.cardHeight) cardSize.apply(evt.cardWidth, evt.cardHeight);
+                pageSize = evt.pageSize || pageSize;
+            } else if (evt.type === 'progress') {
+                updateStatus(describeDrawProgress(evt));
+            } else if (evt.type === 'done') {
+                finished = true;
+                currentModels = evt.models || [];
+                isStreaming = false;
+                renderGrid();
+                updateStatus(describeDraw(currentModels.length, evt.draw || {}));
+            } else if (evt.type === 'error') {
+                throw new Error(evt.error);
+            }
+        });
+    } catch (e) {
+        if (e.name === 'AbortError') return;        // superseded by another draw or a search
+        console.error('[CivitaiBrowser] Draw error:', e);
+        updateStatus(`Error: ${e.message}`);
+    } finally {
+        if (activeStream === controller) activeStream = null;
+        if (!finished) {
             isStreaming = false;
             renderGrid();
         }
@@ -505,6 +648,8 @@ async function searchModels(page = 1) {
     }
 
     if (isLoading) return;
+    // A draw still coming would land over this search.
+    if (activeStream) activeStream.abort();
 
     // A targeted lookup is not a search: it names the model outright, so the
     // filters, the cursors and the prompt filter all have nothing to say.
@@ -1507,6 +1652,7 @@ function init() {
 
     syncSfwOnlyEnabled();
     loadNsfwDetection().then(syncSfwOnlyEnabled);
+    syncLucky();
 
     const saveBtn = document.getElementById('cb_save_search_btn');
     if (saveBtn) {
@@ -1654,6 +1800,10 @@ function search() {
     initTagInput();
     loadEnums();
     commitTypedTag();
+    if (feelingLucky()) {
+        drawModels();
+        return;
+    }
     // A search starts at page 1 with only the pages it has been to: a
     // filtered page's cursor holds what the filters found then, not now.
     cursors = [""];
@@ -1694,6 +1844,10 @@ async function showModel(query) {
     syncSfwOnlyEnabled();
     const requirePrompt = document.getElementById('cb_require_prompt');
     if (requirePrompt) requirePrompt.checked = false;
+    // The query goes in the search box, which a draw greys out.
+    const lucky = document.getElementById('cb_lucky');
+    if (lucky) lucky.checked = false;
+    syncLucky();
 
     await searchModels(1);
 }
@@ -1713,6 +1867,7 @@ function showInModelManager(modelId) {
 // What this tab's markup does, by name: a card, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
 provide('civitaiBrowser.search', () => search());
+provide('civitaiBrowser.feelingLucky', () => syncLucky());
 provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
 provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
 provide('civitaiBrowser.prevPage', () => prevPage());

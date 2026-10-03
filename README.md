@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.45 - I'm feeling lucky.** The Civitai Browser can show you what you would never have
+searched for: tick "I'm feeling lucky" and Search becomes Draw - a page of models picked at
+random from all of Civitai, every model your filters allow as likely as any other. Type,
+base model, tag, period and NSFW still apply; what a draw cannot use is greyed out while
+the box is ticked.
+
 **0.44 - Sounder foundations.** A review of how the extension's parts depend on each other,
 worked through one finding at a time: bugs that lose or misstate what your library knows,
 fixed one by one - the first, Scan Disk lowering a version's NSFW level to PG when its

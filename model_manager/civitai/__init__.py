@@ -5,6 +5,7 @@ Talking to Civitai.
   prompt_filter.py  finding models whose images carry a usable prompt
   size_filter.py    finding models whose download is a given size
   licensing.py      whether a version has to be paid for
+  random_draw.py    a random draw of models, every match equally likely
 
 Import what you need from here; the split behind it is about what the code is
 for, not about what callers should know.
@@ -29,6 +30,7 @@ from .prompt_filter import (
     keep_generation_data,
     search_models_with_usable_prompts,
 )
+from .random_draw import iter_random_models
 from .size_filter import primary_file_size_kb, size_range_check
 
 __all__ = [
@@ -39,5 +41,6 @@ __all__ = [
     "enrich_images_with_generation_data", "generation_ids_needing_lookup",
     "keep_generation_data",
     "iter_models_with_usable_prompts", "search_models_with_usable_prompts",
+    "iter_random_models",
     "primary_file_size_kb", "size_range_check",
 ]
