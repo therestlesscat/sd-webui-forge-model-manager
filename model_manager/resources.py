@@ -20,8 +20,9 @@ import os
 import re
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from .file_identity import NAMED_IN_PROMPTS
+from .file_identity import LORA_FAMILY, NAMED_IN_PROMPTS
 from .hashing import names_this_file
+from .model_dirs import folder_of, lora_folders
 from .remembered import Remembered
 
 # What a missing resource's file will be called once downloaded, by version
@@ -58,7 +59,7 @@ def _forge_walk_order(row) -> tuple:
     return (_natural(os.path.dirname(path)), _natural(os.path.basename(path)))
 
 
-def files_by_name(db, named, by_hash) -> dict:
+def files_by_name(db, named, by_hash, loadable=None) -> dict:
     """
     The library's file for each resource an image names, by the file's name,
     where the resource's hash - if the image gives one - found nothing.
@@ -70,17 +71,29 @@ def files_by_name(db, named, by_hash) -> dict:
     Forge's <lora:name>: the whole name, never a part of one, and of several
     files with it, the one Forge would load.
 
+    No file has the name, a LoRA whose alias it is: Forge indexes a LoRA by
+    its alias too, and puts it in a prompt so. Exactly, as Forge matches one,
+    and only an alias one file has: Forge forbids one two files share, and
+    looks the name up by file name alone.
+
     Args:
         named: [{name, hash}], from the image.
         by_hash: what the hashes already found, lower-case hash -> row.
+        loadable: (path, file type) -> whether the running WebUI would load
+            the file (_loadable_here); None for every file.
     """
+    here = (lambda r: loadable(r.get("file_path"), r.get("file_type"))) if loadable else (lambda r: True)
     wanted = [(str(n.get("name") or "").strip(), str(n.get("hash") or "").strip().lower())
               for n in named if isinstance(n, dict)]
     wanted = [(name, h) for name, h in wanted if name and not (h and h in by_hash)]
     rows = db.local_versions_by_name([name for name, _ in wanted])
+    aliased = db.local_versions_by_alias([name for name, _ in wanted])
     found = {}
     for name, image_hash in wanted:
-        candidates = [r for r in rows.get(name.lower(), []) if r.get("file_type") in _NAMED_TYPES]
+        candidates = [r for r in rows.get(name.lower(), []) if r.get("file_type") in _NAMED_TYPES and here(r)]
+        if not candidates:
+            by_alias = [r for r in aliased.get(name, []) if r.get("file_type") in LORA_FAMILY and here(r)]
+            candidates = by_alias if len(by_alias) == 1 else []
         if image_hash:
             match = next((r for r in candidates
                           if names_this_file(r.get("file_hashes"), r.get("file_path"), image_hash)), None)
@@ -105,15 +118,44 @@ def _as_file(row: Dict[str, Any]) -> Dict[str, Any]:
             "file_type": row.get("file_type")}
 
 
+def _loadable_here(folders: Optional[List[str]]) -> Callable[[str, Optional[str]], bool]:
+    """
+    Whether the running WebUI would load a file as a LoRA, by its path and
+    what it is: a chip says "in library" only for one it would (#11). A LoRA
+    - or a file no scan has read, unless it sits with the embeddings - only
+    in the folders Forge walks for <lora:name>; anything else, as before.
+    With the folders not known, every file.
+    """
+    roots = [os.path.normcase(f).rstrip("\\/") + os.sep for f in folders or ()]
+
+    def loadable(path: str, file_type: Optional[str] = None) -> bool:
+        if not roots or (file_type is not None and file_type not in LORA_FAMILY):
+            return True
+        where = os.path.normcase(os.path.abspath(path or ""))
+        if any(where.startswith(root) for root in roots):
+            return True
+        return file_type is None and folder_of(path)[0] == "TextualInversion"
+    return loadable
+
+
 def image_files(db, version_ids: List[int], hashes: List[str],
                 named: List[Dict[str, Any]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """
     Which local file each of an image's resources is, from the library alone:
     {versions: version id -> file, hashes: hash (lower case) -> file,
-    names: name (lower case) -> file, found by its file name}.
+    names: name (lower case) -> file, found by its file name or its alias}.
+    Only files the running WebUI would load (_loadable_here).
     """
-    by_id, by_hash = db.local_versions_by_key(version_ids, hashes)
-    by_name = files_by_name(db, named, by_hash)
+    loadable = _loadable_here(lora_folders())
+    types = {}
+
+    def usable(path: str) -> bool:
+        # The key lookup knows paths; what each file is, its row says.
+        if path not in types:
+            types[path] = (db.get_version(path) or {}).get("file_type")
+        return loadable(path, types[path])
+    by_id, by_hash = db.local_versions_by_key(version_ids, hashes, usable)
+    by_name = files_by_name(db, named, by_hash, loadable)
     return {"versions": {str(k): _as_file(v) for k, v in by_id.items()},
             "hashes": {k: _as_file(v) for k, v in by_hash.items()},
             "names": {k: _as_file(v) for k, v in by_name.items()}}

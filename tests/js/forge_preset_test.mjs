@@ -415,6 +415,13 @@ check('a text-to-video model still goes to txt2img',
       [true, false, true]);
 check('with no denoising strength of its own',
       promptBox.querySelector('textarea').value.includes('Denoising strength'), false);
+// Forge's paste renames each LoRA "Lora hashes" lists to its own choice of
+// name - the alias, with "Alias from file" - over the file names Send gives.
+IMAGE.meta = { ...IMAGE.meta, 'Lora hashes': 'add_detail: 0123456789ab, other: ba9876543210' };
+await send();
+check('an image\'s Lora hashes are not pasted: Forge would rename its LoRAs by them',
+      promptBox.querySelector('textarea').value.includes('Lora hashes'), false);
+delete IMAGE.meta['Lora hashes'];
 
 // ---------------------------------------------------------- resource chips
 // A send puts the image's LoRAs and embeddings under the negative prompt as
@@ -662,10 +669,20 @@ check('and a hash Civitai does not know is said so, at once',
 // Downloaded: the same name, the same place.
 chipProgress[77] = { version_id: 77, percent: 100, status: 'complete', synced: true };
 library.versions[77] = { version_id: 77, file_stem: 'future_file', file_type: 'LORA' };
+// The sync after a download stores the file's hashes: the image's finds it.
+library.hashes.eeee = library.versions[77];
+const promptLine = () => positiveBox.value.split('\n')[0];
+check('before, the prompt names it as the image did', promptLine(), 'a cat, <lora:uploader_name:0.7>');
 click(chip('future_file'));
 await waitFor('the download to land', () => chip('future_file') && !chip('future_file').classList.contains('missing'), 5000);
 check('once downloaded, the chip keeps its name and its place', names(), ['flux', 'add_detail', 'future_file', 'unknown_lora']);
+// Send renames a LoRA it finds to its file; one found after, the same - or
+// the prompt and its chip name one LoRA two ways.
+check('and the prompt\'s tag for it is renamed to the file, weight kept, as Send would have',
+      promptLine(), 'a cat, <lora:future_file:0.7>');
+check('so its chip is lit', chip('future_file').classList.contains('active'), true);
 delete library.versions[77];
+delete library.hashes.eeee;
 
 // An answer that comes after the row was cleared, or after another send, is dropped.
 missingGate = new Promise((resolve) => { releaseMissing = resolve; });

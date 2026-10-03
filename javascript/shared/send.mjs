@@ -70,17 +70,22 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // An earlier send's chips would stay; this one's come from its own record.
     showResourceChips(tab, []);
     const image = { meta };
-    const filesAsked = meta.resources?.length ? fetchImageFiles(image) : null;
+    // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
+    // the server gives your images a Civitai image's `resources`. A LoRA the
+    // prompt names otherwise than its file - by its alias, as Forge writes it
+    // with "Alias from file" - is pasted under the file's name, as there: its
+    // chip names the file, and is lit only by a tag with that name.
+    const files = meta.resources?.length ? await fetchImageFiles(image) : null;
+    const resources = files ? collectResourceChips(meta, files, null) : null;
+    if (resources) {
+        infotext = resources.renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), infotext);
+    }
     const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
     if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste })) return false;
     showGenerationTab(tab);
-    // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
-    // the server gives your images a Civitai image's `resources`.
-    if (filesAsked) {
-        const files = await filesAsked;
-        const { chips } = collectResourceChips(meta, files, null);
+    if (resources) {
         resourceChipSources[tab] = { img: image, gallery: null, files };
-        showResourceChips(tab, arrangeChips(chips, resourceChipSources[tab]));
+        showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
     }
     if (tab === 'img2img') {
@@ -935,10 +940,11 @@ function buildInfotext(meta, { denoisingStrength = null } = {}) {
     }
 
     // Add any other parameters from meta that we haven't explicitly handled
+    // Lora hashes are not pasted: see withoutLoraHashes().
     const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'Schedule type', 'cfgScale', 'seed',
                         'Size', 'Model', 'Model hash', 'VAE', 'Denoising strength', 'Clip skip',
                         'Hires upscale', 'Hires upscaler', 'Hires steps', 'Hires resize-1', 'Hires resize-2',
-                        'resources', 'civitaiResources'];
+                        'resources', 'civitaiResources', 'Lora hashes'];
 
     // Check if ADetailer fields exist - toggle "ADetailer enable" accordingly
     // This is required for ADetailer's paste handler to auto-enable/disable the checkbox
@@ -1018,6 +1024,23 @@ export function whenSendSettled() {
  *
  * @returns {boolean} whether the paste could be made at all
  */
+/**
+ * An infotext without its Lora hashes. Forge's paste renames each LoRA they
+ * list to its own choice of name for the file - its alias, with "Alias from
+ * file" - over the file names Send has given them, which the chips name
+ * (sd_forge_lora's infotext_pasted, the same in both WebUIs). Forge's own
+ * settings let a paste ignore the field ("Ignore fields when reading
+ * infotext"); this does so for a Send. Forge quotes the value - it holds
+ * colons - and it is a field of the last line, the settings.
+ */
+function withoutLoraHashes(infotext) {
+    const lines = String(infotext || '').split('\n');
+    const last = lines.length - 1;
+    lines[last] = lines[last].replace(/(^|,\s*)Lora hashes: "(?:[^"\\]|\\.)*"(\s*,\s*)?/,
+                                      (match, before, after) => (before && after ? ', ' : ''));
+    return lines.join('\n');
+}
+
 function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {}) {
     // Both tabs' paste buttons are id="paste"; each sits in its own tab's
     // tools row.
@@ -1037,7 +1060,7 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {
         return false;
     }
 
-    promptTextarea.value = infotext;
+    promptTextarea.value = withoutLoraHashes(infotext);
     promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
     pasteButton.click();
 

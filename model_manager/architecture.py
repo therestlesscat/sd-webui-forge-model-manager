@@ -101,6 +101,7 @@ class Architecture:
     bundled_vae: bool             # its VAE is inside the file
     file_type: str = "Checkpoint"  # what the file is: see file_identity.py
     note: str = ""                # what decided it, for the details panel
+    alias: Optional[str] = None   # a LoRA's ss_output_name, which Forge also loads it by
 
 
 def preset_for_base_model(base_model: Optional[str]) -> Optional[str]:
@@ -113,12 +114,10 @@ def preset_for_base_model(base_model: Optional[str]) -> Optional[str]:
     return None
 
 
-def read_safetensors_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str]]]:
+def _read_safetensors_header(path: str) -> Optional[Dict[str, Any]]:
     """
-    A .safetensors file's tensors, as name -> (shape, dtype), from its header.
-
-    The file starts with the header's length (8 bytes, little-endian) and the
-    header itself, JSON. Nothing past it is read.
+    A .safetensors file's header: the file starts with its length (8 bytes,
+    little-endian) and the header itself, JSON. Nothing past it is read.
     """
     try:
         with open(path, "rb") as f:
@@ -130,6 +129,27 @@ def read_safetensors_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ..
                 return None
             header = json.loads(f.read(length))
     except (OSError, ValueError):
+        return None
+    return header if isinstance(header, dict) else None
+
+
+def read_safetensors_alias(path: str) -> Optional[str]:
+    """
+    A LoRA's alias: `ss_output_name` from its metadata, which Forge indexes
+    it under beside its file name (network.NetworkOnDisk, both WebUIs), and
+    puts in a prompt when "Alias from file" is chosen. None without one.
+    """
+    if not path.lower().endswith(".safetensors"):     # Forge reads no other's
+        return None
+    metadata = (_read_safetensors_header(path) or {}).get("__metadata__")
+    alias = metadata.get("ss_output_name") if isinstance(metadata, dict) else None
+    return alias if isinstance(alias, str) and alias else None
+
+
+def read_safetensors_shapes(path: str) -> Optional[Dict[str, Tuple[Tuple[int, ...], str]]]:
+    """A .safetensors file's tensors, as name -> (shape, dtype), from its header."""
+    header = _read_safetensors_header(path)
+    if header is None:
         return None
     header.pop("__metadata__", None)
     return {name: (tuple(info.get("shape", ())), info.get("dtype", "F16"))

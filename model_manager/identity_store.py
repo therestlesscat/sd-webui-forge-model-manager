@@ -47,6 +47,7 @@ def store_architecture(db, path: str, found: Optional[Architecture],
         modified,
         file_type=found.file_type if found else "Unknown",
         note=found.note if found else "",
+        alias=found.alias if found else None,
     )
 
 

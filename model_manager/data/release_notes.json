@@ -1,5 +1,45 @@
 [
   {
+    "id": "rescan-0-45",
+    "version": "0.45.3",
+    "kind": "action",
+    "audience": "update",
+    "important": true,
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Run Scan Disk once after this update",
+    "text": "The chips under the prompt now find a LoRA by the other name Forge knows it by - its alias, such as the training_… names Civitai's trainer gives - and Scan Disk reads each LoRA's alias. It also now sees through a .civitai.info that names no version, which another tool may have left beside a file: such a file was shown as identified and skipped by every sync. Run Scan Disk once, with “Re-evaluate file headers” ticked; it reads only each file's header, so it is quick.",
+    "action": {
+      "id": "reread_headers",
+      "label": "Open Scan Disk"
+    },
+    "replaces": [
+      "rescan-0-44"
+    ]
+  },
+  {
+    "id": "shared-database-0-45",
+    "version": "0.45.3",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. An older copy does not know the changes: it would keep reading and writing the database the old way, without the fixes since. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database"
+    ]
+  },
+  {
     "id": "feeling-lucky",
     "version": "0.45.0",
     "kind": "feature",

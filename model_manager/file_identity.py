@@ -33,7 +33,7 @@ import threading
 from typing import Callable, Dict, Optional, Tuple
 
 from .architecture import (Architecture, PRESET_BY_CLASS, detect_shapes,
-                           read_shapes)
+                           read_safetensors_alias, read_shapes)
 from .forge_modules import NEEDS
 
 Shapes = Dict[str, Tuple[Tuple[int, ...], str]]
@@ -43,9 +43,12 @@ FILE_TYPES = ("Checkpoint", "LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Fu
               "TextualInversion", "Hypernetwork", "Controlnet", "VAE", "Text Encoder", "Upscaler",
               "Unknown")
 
+# The LoRA family: what Forge loads for <lora:name>.
+LORA_FAMILY = ("LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full")
+
 # The types a prompt names by file name: <lora:name> for the LoRA family, the
 # bare name for an embedding.
-NAMED_IN_PROMPTS = ("LORA", "LoCon", "LoHa", "LoKr", "DoRA", "LyCORIS Full", "TextualInversion")
+NAMED_IN_PROMPTS = LORA_FAMILY + ("TextualInversion",)
 
 # The context width of an SD-family cross-attention -> preset. SD 2.x has no
 # Forge Neo preset.
@@ -75,7 +78,11 @@ def identify(path: str, guess: Callable = None) -> Architecture:
     if not shapes:
         return Architecture(None, None, False, False, "Unknown",
                             "not a format whose header can be read")
-    return identify_shapes(shapes, guess)
+    found = identify_shapes(shapes, guess)
+    # Forge loads a LoRA by its alias too, and a prompt may name it so.
+    if found.file_type in LORA_FAMILY:
+        found.alias = read_safetensors_alias(path)
+    return found
 
 
 def identify_shapes(shapes: Shapes, guess: Callable = None) -> Architecture:

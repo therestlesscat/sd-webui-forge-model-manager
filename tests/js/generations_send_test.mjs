@@ -75,4 +75,29 @@ check('and presses that tab\'s paste, once', [pasted.txt2img, pasted.img2img], [
 check('and shows the tab', shown, ['tab_txt2img-button']);
 check('having asked how the generation was made', asked.some((href) => href.includes('/generations/1/send-plan')), true);
 
+// A LoRA the prompt names by its alias - as Forge writes it, "Alias from
+// file" chosen - is pasted under its file's name, as a Civitai image's Send
+// does: its chip names the file, and is lit only by a tag with that name.
+// Image 1031's chip named the file, and its prompt the alias. Nor are its
+// Lora hashes pasted: Forge's paste renames each LoRA they list to its own
+// choice of name - the alias again (image 1006).
+const ALIASED = 'a flower, <lora:training_6485327-20260725085836447:1>\n'
+    + 'Steps: 20, Seed: 7, Lora hashes: "training_6485327-20260725085836447: 426e6c6522db", Version: neo';
+Object.assign(image, {
+    infotext: ALIASED,
+    meta: { prompt: 'a flower, <lora:training_6485327-20260725085836447:1>', steps: 20,
+            resources: [{ type: 'lora', name: 'training_6485327-20260725085836447', hash: '426e6c6522db', weight: 1 }] },
+});
+const fetchBefore = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => (String(url).includes('/model-manager/image-resources')
+    ? { ok: true, json: async () => ({ success: true, versions: {}, names: {},
+        hashes: { '426e6c6522db': { version_id: 5, file_stem: 'Anime_Girl-Flower_ill_epoch_10', file_type: 'LORA' } } }) }
+    : fetchBefore(url, ...rest));
+await act('generations.send', { tile: 0 });
+await waitFor('the second paste', () => pasted.txt2img > 1);
+check('a LoRA its prompt names by alias is pasted under its file\'s name, weight kept, and no Lora hashes',
+      document.querySelector('#txt2img_prompt textarea').value,
+      'a flower, <lora:Anime_Girl-Flower_ill_epoch_10:1>\nSteps: 20, Seed: 7, Version: neo');
+globalThis.fetch = fetchBefore;
+
 done();

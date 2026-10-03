@@ -32,7 +32,7 @@ from ..model_dirs import file_modified
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 
 class ModelsDatabase:
@@ -196,22 +196,23 @@ class ModelsDatabase:
                          model_class: Optional[str],
                          bundled_text_encoder: bool, bundled_vae: bool,
                          checked: Optional[str], file_type: Optional[str] = None,
-                         note: Optional[str] = None):
+                         note: Optional[str] = None, alias: Optional[str] = None):
         """
         Record what a model file's own contents say it is. See file_identity.py.
 
         `checked` is the file's modified time when it was read, so a scan can
         skip files unchanged since - including ones whose model could not be
         told, which are recorded with preset None rather than read again.
+        `alias` is a LoRA's ss_output_name, which Forge loads it by too.
         """
         with self._cursor() as cursor:
             cursor.execute(
                 "UPDATE model_versions SET architecture = ?, architecture_class = ?,"
                 " bundled_text_encoder = ?, bundled_vae = ?, architecture_checked = ?,"
-                " file_type = ?, identified_by = ?"
+                " file_type = ?, identified_by = ?, lora_alias = ?"
                 " WHERE file_path = ?",
                 (preset, model_class, int(bool(bundled_text_encoder)), int(bool(bundled_vae)),
-                 checked, file_type, note, _stored_spelling(cursor, file_path))
+                 checked, file_type, note, alias, _stored_spelling(cursor, file_path))
             )
 
     def count_lookup_failed(self) -> int:
@@ -294,10 +295,10 @@ class ModelsDatabase:
         """Local versions an image's resources name, by hash or version id."""
         return self._models.versions_named_by(version_ids, hashes)
 
-    def local_versions_by_key(self, version_ids: List[int], hashes: List[str]
+    def local_versions_by_key(self, version_ids: List[int], hashes: List[str], usable=None
                               ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """The local file each resource names: ({version id: row}, {hash: row})."""
-        return self._models.local_versions_by_key(version_ids, hashes)
+        return self._models.local_versions_by_key(version_ids, hashes, usable)
 
     def normalize_version_paths(self) -> int:
         """Store each file's path as a scan finds it. See ModelsOps.normalize_version_paths()."""
@@ -310,6 +311,10 @@ class ModelsDatabase:
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""
         return self._models.local_versions_by_name(names)
+
+    def local_versions_by_alias(self, aliases: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """The local files with each of these LoRA aliases. See ModelsOps.local_versions_by_alias()."""
+        return self._models.local_versions_by_alias(aliases)
 
     def hashes_from_local_models(self, hashes: List[str]) -> Dict[str, Dict[str, Any]]:
         """Resolve what we can from our own rows, before asking Civitai."""

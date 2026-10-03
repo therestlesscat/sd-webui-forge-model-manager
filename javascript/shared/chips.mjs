@@ -468,9 +468,25 @@ export async function refreshResourceChips() {
     for (const [tab, source] of Object.entries(resourceChipSources)) {
         if (!resourceChips[tab] || resourceChipsPending[tab]) continue;
         source.files = await fetchImageFiles(source.img);
-        const { chips } = collectResourceChips(source.img.meta, source.files, source.gallery, source.missing);
+        const { chips, renames } = collectResourceChips(source.img.meta, source.files, source.gallery, source.missing);
+        renameInPrompts(tab, renames);
         showResourceChips(tab, arrangeChips(chips, source));
         checkMissingChips(tab);
+    }
+}
+
+/**
+ * The prompts' tags for a LoRA named otherwise than its file, renamed to the
+ * file, as Send renames one it finds - for one found after it, downloaded
+ * from its chip: else the prompt names the LoRA one way and its chip another.
+ */
+function renameInPrompts(tab, renames) {
+    for (const box of Object.values(promptBoxes(tab))) {
+        if (!box) continue;
+        const renamed = renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), box.value);
+        if (renamed === box.value) continue;
+        box.value = renamed;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
     }
 }
 

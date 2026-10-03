@@ -1295,6 +1295,27 @@ def _migrate_to_v30(cursor):
     print("[ModelManager] Migration to v30 complete")
 
 
+def _migrate_to_v31(cursor):
+    """
+    A LoRA's alias - ss_output_name from its metadata - which Forge loads it
+    by beside its file name, and puts in a prompt when "Alias from file" is
+    chosen. A chip looks a LoRA up by it (#11).
+
+    Every LoRA-family file is marked unread, so the next Scan Disk reads each
+    one's alias; nothing else is read again. The family is written out here,
+    not imported: a migration keeps the rule it was written with.
+    """
+    print("[ModelManager] Migrating to v31: a LoRA's alias...")
+    cursor.execute("PRAGMA table_info(model_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if columns and "lora_alias" not in columns:
+        cursor.execute("ALTER TABLE model_versions ADD COLUMN lora_alias TEXT")
+    if {"file_type", "architecture_checked"} <= columns:
+        cursor.execute("UPDATE model_versions SET architecture_checked = NULL WHERE file_type IN "
+                       "('LORA', 'LoCon', 'LoHa', 'LoKr', 'DoRA', 'LyCORIS Full')")
+    print("[ModelManager] Migration to v31 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`."""
@@ -1387,6 +1408,9 @@ def run_migrations(cursor, from_version: int, to_version: int,
 
     if from_version < 30:
         _migrate_to_v30(cursor)
+
+    if from_version < 31:
+        _migrate_to_v31(cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

@@ -182,6 +182,7 @@ VERSION_COLUMNS_ELSEWHERE = {
     "architecture_checked": "set_architecture()",
     "file_type": "set_architecture()",
     "identified_by": "set_architecture()",
+    "lora_alias": "set_architecture()",
 }
 
 
@@ -934,24 +935,28 @@ class ModelsOps:
             rows = self._whole_rows(cursor, by_hash + [p for paths in by_id.values() for p in paths])
         return [rows[p] for p in by_hash] + [rows[p] for i in ids for p in by_id.get(i, [])]
 
-    def local_versions_by_key(self, version_ids: List[int], hashes: List[str]
+    def local_versions_by_key(self, version_ids: List[int], hashes: List[str],
+                              usable: Optional[Callable[[str], bool]] = None
                               ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
         """
         The local file each of an image's resources names, keyed by what named
         it: {version id: row} and {hash: row}, the first file in table order.
         versions_named_by() answers "which files", this "which file for which
-        resource" - what a per-resource answer needs.
+        resource" - what a per-resource answer needs. `usable`, given a path,
+        says which files may answer at all: of two copies, the one it takes.
         """
         wanted = {hash_key(h) for h in hashes if h}
         ids = [int(i) for i in version_ids if str(i).isdigit()]
+        take = usable or (lambda path: True)
         with self._cursor() as cursor:
             id_paths: Dict[int, str] = {}
             for version_id, path in self._paths_of_versions(cursor, ids):
-                id_paths.setdefault(version_id, path)
+                if take(path):
+                    id_paths.setdefault(version_id, path)
             hash_paths: Dict[str, str] = {}
             for path, _, stored in (self._hashed_files(cursor) if wanted else ()):
                 for value in stored.values():
-                    if value in wanted:
+                    if value in wanted and take(path):
                         hash_paths.setdefault(value, path)
             rows = self._whole_rows(cursor, list(id_paths.values()) + list(hash_paths.values()))
         return ({i: rows[p] for i, p in id_paths.items()},
@@ -999,6 +1004,26 @@ class ModelsOps:
                     named.setdefault(stem, []).append(row["file_path"])
             rows = self._whole_rows(cursor, [p for paths in named.values() for p in paths])
         return {stem: [rows[p] for p in paths] for stem, paths in named.items()}
+
+    def local_versions_by_alias(self, aliases: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        The local files whose LoRA alias is each of these: {alias: [row, ...]}.
+        Exactly, case and all - as Forge matches an alias, where a file name
+        is matched as Windows spells it (local_versions_by_name).
+        """
+        wanted = sorted({str(a) for a in aliases if a})
+        if not wanted:
+            return {}
+        with self._cursor() as cursor:
+            named: Dict[str, List[str]] = {}
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start:start + 500]
+                cursor.execute("SELECT file_path, lora_alias FROM model_versions WHERE lora_alias IN (%s) "
+                               "AND file_path IS NOT NULL ORDER BY rowid" % ",".join("?" * len(chunk)), chunk)
+                for row in cursor.fetchall():
+                    named.setdefault(row["lora_alias"], []).append(row["file_path"])
+            rows = self._whole_rows(cursor, [p for paths in named.values() for p in paths])
+        return {alias: [rows[p] for p in paths] for alias, paths in named.items()}
 
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
@@ -1108,4 +1133,5 @@ class ModelsOps:
             "architecture_checked": row["architecture_checked"] if "architecture_checked" in row.keys() else None,
             "file_type": row["file_type"] if "file_type" in row.keys() else None,
             "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
+            "lora_alias": row["lora_alias"] if "lora_alias" in row.keys() else None,
         }

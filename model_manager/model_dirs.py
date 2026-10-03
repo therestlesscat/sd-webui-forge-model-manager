@@ -111,6 +111,20 @@ def download_dir(model_type: str, cmd_opts=None, models_path: Optional[str] = No
     return named[0] if named else os.path.join(models_path, "embeddings")
 
 
+def lora_folders(cmd_opts=None) -> Optional[List[str]]:
+    """
+    The folders the running WebUI loads <lora:name> from, as its own walk
+    takes them (networks.process_network_files): --lora-dir, then Neo's
+    --lora-dirs. Not the library's Lora folders: a library two WebUIs share
+    holds the other's too, which this one never walks. None outside a WebUI,
+    or one without its LoRA extension, where they are not known.
+    """
+    if cmd_opts is None:
+        cmd_opts, _ = model_folders()
+    folders = option_dirs(cmd_opts, *FOLDERS["LORA"].options)
+    return [os.path.abspath(f) for f in folders] or None
+
+
 def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
     """
     Every folder the library walks, as absolute paths: each one an option
