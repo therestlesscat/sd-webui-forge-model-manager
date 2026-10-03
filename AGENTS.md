@@ -231,13 +231,16 @@ which ids are Trained, then which are Merge, and takes the answer from set
 membership — discarding any batch whose answer does not partition the request,
 because that would mean the assumption no longer holds.
 
-**A refresh replaces a gallery with Civitai's first page.** Resync Images, a
-sync of one model and the metadata sync "with images" fetch one batch (the
-gallery page size, 100) and replace every stored image of the version with it,
+**A refresh replaces a gallery whole, as many images as it is asked for.**
+A model's Sync button, the metadata sync "with images" and a force sync
+fetch either the first page (the gallery page size) or as many images as
+the version has stored - the person chooses, told what each costs and how
+many stored images the first would delete (#103; `refresh_size`,
+`fetch_gallery`) - and replace every stored image of the version with them,
 in one transaction (`db.replace_first_page`): Civitai's order changes, so old
 pages kept beside a fresh first one would duplicate and leave gaps. Pages past
-the first are fetched again when someone pages there. #103 asks a refresh to
-keep as many images as the gallery had.
+what was fetched come again when someone pages there. A download's sync takes
+the first page: nothing is stored to keep.
 
 **A version's stored NSFW level means two things.** After a sync it is
 Civitai's rating; after Scan Disk, which stores no images, the higher of that

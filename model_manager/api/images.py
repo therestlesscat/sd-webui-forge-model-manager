@@ -17,9 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 from ..db import get_models_db
 from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
-from ..civitai import (
-    CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
-)
+from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..gallery import filter_images, gallery_page_size
 from .common import failed, streams_status
 
@@ -256,65 +254,6 @@ def register(app: FastAPI):
     included - waits until Civitai answers. FastAPI runs a plain `def` handler
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
-    @app.post("/model-manager/images/resync")
-    @streams_status
-    def resync_images(version_id: int = Form(default=0)):
-        """
-        Replace a version's images with a fresh first page, at the page size.
-
-        The stored gallery is replaced only once the fetch has worked, and
-        the generation data it held is carried over to the fresh copies, so
-        a lookup that fails does not lose prompts.
-
-        Args:
-            version_id: Civitai version ID.
-
-        Returns:
-            New images and cursor state.
-        """
-        try:
-            if not version_id:
-                return JSONResponse(
-                    {"success": False, "error": "version_id is required"},
-                    status_code=400
-                )
-
-            from ..civitai import CivitaiClient
-
-            db = get_models_db()
-
-            # Fetch fresh images from Civitai (first batch, no cursor). The
-            # stored gallery is only replaced once this has worked: clearing
-            # it first left a model with no images whenever Civitai failed.
-            client = CivitaiClient.from_settings()
-            try:
-                result = client.get_model_images(version_id, cursor=None, limit=gallery_page_size())
-                images = result.get("images", [])
-                # /images returns meta: null. Keep the generation data already
-                # stored, then look up the rest - a lookup that fails, or
-                # cannot run without an API key, no longer loses prompts.
-                keep_generation_data(images, db.get_images(version_id))
-                enrich_images_with_generation_data(client, images)
-            finally:
-                client.close()
-
-            next_cursor = result.get("next_cursor")
-
-            db.replace_first_page(version_id, images, next_cursor)
-
-            print(f"[ModelManager] Resynced {len(images)} images for version {version_id} "
-                  f"(has_more: {next_cursor is not None})")
-
-            return JSONResponse({
-                "success": True,
-                "images": stamp_levels(images),
-                "next_cursor": next_cursor,
-                "fetched_count": len(images)
-            })
-
-        except Exception as e:
-            return failed(e, "Resync images error")
-
     @app.get("/model-manager/images/gallery-page")
     @streams_status
     def get_gallery_page(version_id: int, page: int = 1,

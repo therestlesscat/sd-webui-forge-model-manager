@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .civitai import CivitaiClient
 from .db import get_models_db
+from .gallery import IMAGES_PER_REQUEST, refresh_size
 from .sync_service import SyncService
 
 
@@ -39,7 +40,8 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
                            synced_before: Optional[str] = None,
                            downloaded_after: Optional[str] = None,
                            include_images: bool = False,
-                           include_prompts: bool = True) -> Dict[str, Any]:
+                           include_prompts: bool = True,
+                           keep_image_count: bool = False) -> Dict[str, Any]:
     """
     What a metadata sync would cost, before anyone commits to it.
 
@@ -65,6 +67,9 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         downloaded_after: Only versions downloaded since this ISO timestamp.
         include_images: Whether galleries would be refetched.
         include_prompts: Whether generation data would be looked up.
+        keep_image_count: Whether they would come back as many as each has
+            stored, rather than a first page - the dialog's choice (#103).
+            Both are costed in `image_options`, the choice in `requests`.
 
     Returns:
         How much is in scope, and how many requests each part would take.
@@ -87,20 +92,12 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     checkpoint_ids = {v["model_id"] for v in versions if v.get("model_id")} \
         & set(db.checkpoint_model_ids())
     checkpoint_requests = (2 * math.ceil(len(checkpoint_ids) / 100)) if checkpoint_ids else 0
-    image_requests = sum(1 for v in versions if v.get("id")) if include_images else 0
-
-    prompt_requests = 0
-    images_total = 0
-    if include_images and include_prompts:
-        counts = db.count_images_by_version()
-        average = round(sum(counts.values()) / len(counts)) if counts else 0
-        per_version = [counts.get(v["id"]) or average
-                       for v in versions if v.get("id")]
-        images_total = sum(per_version)
-        # Pooled per chunk, exactly as _refresh_galleries does it.
-        for start in range(0, len(per_version), SyncService.GALLERY_CHUNK):
-            chunk = per_version[start:start + SyncService.GALLERY_CHUNK]
-            prompt_requests += math.ceil(sum(chunk) / CivitaiClient.GENERATION_DATA_BATCH)
+    image_options = gallery_refresh_options(db, [v["id"] for v in versions if v.get("id")],
+                                            include_prompts) if include_images else None
+    chosen = (image_options or {}).get("kept" if keep_image_count else "first") or {}
+    image_requests = chosen.get("requests", 0)
+    prompt_requests = chosen.get("prompts", 0)
+    images_total = chosen.get("images", 0)
 
     total = metadata_requests + checkpoint_requests + image_requests + prompt_requests
     return {
@@ -110,6 +107,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         "all_versions": len(db.get_linked_versions()),
         "models": models,
         "images": images_total,
+        "image_options": image_options,
         "requests": {
             "metadata": metadata_requests,
             "checkpoints": checkpoint_requests,
@@ -118,6 +116,38 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
             "total": total,
         },
     }
+
+
+def gallery_refresh_options(db, version_ids: List[int], include_prompts: bool = True) -> Dict[str, Any]:
+    """
+    What refreshing these versions' galleries costs either way (#103): their
+    first page each - "first" - or as many images as each has stored -
+    "kept" - in requests for the images and, with them, their prompts; and
+    how many stored images the first page would delete, from how many
+    versions; and the page size, which the dialog names the first by. A
+    version never cached is taken at the library's average.
+    """
+    counts = db.count_images_by_version()
+    average = round(sum(counts.values()) / len(counts)) if counts else 0
+    page = refresh_size(0, False)
+    options = {}
+    for name, keep in (("first", False), ("kept", True)):
+        sizes = [refresh_size(counts.get(v, 0), keep) for v in version_ids]
+        # What comes back: no more than Civitai has, which the stored count
+        # is the only guide to.
+        fetched = [min(size, counts.get(v) or average) for v, size in zip(version_ids, sizes)]
+        prompts = 0
+        if include_prompts:
+            # Pooled per chunk, exactly as _refresh_galleries does it.
+            for start in range(0, len(fetched), SyncService.GALLERY_CHUNK):
+                chunk = fetched[start:start + SyncService.GALLERY_CHUNK]
+                prompts += math.ceil(sum(chunk) / CivitaiClient.GENERATION_DATA_BATCH)
+        options[name] = {"requests": sum(max(1, math.ceil(size / IMAGES_PER_REQUEST)) for size in sizes),
+                         "prompts": prompts, "images": sum(fetched)}
+    over = [counts.get(v, 0) - page for v in version_ids if counts.get(v, 0) > page]
+    options["deletes"] = {"images": sum(over), "models": len(over)}
+    options["page"] = page
+    return options
 
 
 def sync_window_counts(model_paths: Optional[List[str]] = None,

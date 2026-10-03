@@ -45,7 +45,7 @@ let scanPollInterval = null;
  * `targets` picks which of the files on disk to read: all of them, only the
  * ones that already resolve to a Civitai model, or only the ones that do not.
  */
-async function startSync(targets = 'all') {
+async function startSync(targets = 'all', keepImageCount = false) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -53,7 +53,7 @@ async function startSync(targets = 'all') {
     setStatus(`Starting force sync (${targets})...`);
 
     try {
-        const bodyData = `force=true&targets=${encodeURIComponent(targets)}`;
+        const bodyData = `force=true&targets=${encodeURIComponent(targets)}&keep_image_count=${keepImageCount}`;
         console.log('[ModelManager] Sending sync request with body:', bodyData);
 
         const response = await fetch('/model-manager/sync', {
@@ -214,6 +214,8 @@ function syncDialogChoice() {
             : 0,
         images: document.getElementById('mm_sync_images')?.checked || false,
         prompts: document.getElementById('mm_sync_prompts')?.checked || false,
+        // As many images as each model has, unless the first page is chosen (#103).
+        keepImageCount: document.querySelector('input[name="mm_sync_images_count"]:checked')?.value !== 'first',
         // A force sync reads files rather than asking about ids, so it is a
         // scope of its own rather than a depth.
         forceMode: scope === 'force'
@@ -255,6 +257,14 @@ function refreshSyncEstimate() {
                     + ' the database yet, so the real number may be higher.';
             }
             if (startBtn) startBtn.disabled = false;
+            // Its images, fetched either way, are costed in requests.
+            try {
+                const data = await apiCall({ endpoint: '/model-manager/sync/estimate',
+                                             params: { force_mode: choice.forceMode || 'all' } });
+                if (data && data.success) showImageOptions(data.force_images, choice.keepImageCount);
+            } catch (error) {
+                console.error('[ModelManager] Sync estimate failed:', error);
+            }
             return;
         }
 
@@ -262,6 +272,7 @@ function refreshSyncEstimate() {
             const params = {
                 include_images: choice.images,
                 include_prompts: choice.images && choice.prompts,
+                keep_image_count: choice.keepImageCount,
                 stale_days: choice.staleDays,
                 downloaded_days: choice.downloadedDays,
             };
@@ -296,6 +307,7 @@ function refreshSyncEstimate() {
             cost('mm_cost_metadata', requests.metadata + (requests.checkpoints || 0));
             cost('mm_cost_images', requests.images);
             cost('mm_cost_prompts', requests.prompts, true);
+            showImageOptions(choice.images ? estimate.image_options : null, choice.keepImageCount);
             const totalApproximate = requests.prompts > 0;
 
             syncUnidentified = data.unidentified || null;
@@ -325,6 +337,106 @@ function refreshSyncEstimate() {
             console.error('[ModelManager] Sync estimate failed:', error);
         }
     }, TIMING.estimate);
+}
+
+/**
+ * The Images choice (#103): what each way of refetching costs, and the
+ * notice above the buttons. `options` is the server's (image_options, or
+ * force_images for a force sync); null hides them, images not being asked for.
+ */
+function showImageOptions(options, keep) {
+    const group = document.getElementById('mm_sync_images_count');
+    const notice = document.getElementById('mm_sync_images_notice');
+    if (group) group.hidden = !options;
+    if (notice) notice.hidden = !options;
+    if (!options) return;
+    const req = (option) => `${(option?.requests || 0).toLocaleString()} req`;
+    setText(document.getElementById('mm_cost_images_kept'), req(options.kept));
+    setText(document.getElementById('mm_cost_images_first'), req(options.first));
+    setText(document.getElementById('mm_sync_images_first_label'), `First ${options.page} images per model`);
+    setText(notice, imageCountNotice(options, keep));
+}
+
+/**
+ * What refetching images will do (#103), in words: with the first page, how
+ * many stored images go - and that they can still be seen, Load More
+ * fetching them again - and, either way, that what comes back may not be
+ * what is there now. `one` words it for a single model: its Sync button.
+ */
+export function imageCountNotice(options, keep, { one = false } = {}) {
+    const said = [];
+    const { images = 0, models = 0 } = options?.deletes || {};
+    if (!keep && images) {
+        said.push(one
+            ? `This deletes ${images.toLocaleString()} of this model's stored images, past the first ${options.page} of each version.`
+            : `This deletes ${images.toLocaleString()} stored images from your library: `
+              + `${models.toLocaleString()} ${models === 1 ? 'model holds' : 'models hold'} more than ${options.page}.`);
+        said.push('You can still see them as usual - Load More fetches them from Civitai again; only the stored copies go.');
+    }
+    said.push("The images synced won't necessarily be the ones you have now: Civitai's order changes as new images arrive.");
+    return said.join(' ');
+}
+
+/**
+ * The question a model's Sync asks first (#103): as many images as each of
+ * its versions has - chosen to start with - or the first page of each;
+ * each costed in requests, the images' and their prompts', with the notice
+ * of what the choice does. Resolves to { keep }, or null for Cancel.
+ * `options` is the estimate's image_options over the model's files.
+ */
+export function askImageCount(options) {
+    return new Promise((resolve) => {
+        let answer = null;
+        const cost = (option) => `~${((option?.requests || 0) + (option?.prompts || 0)).toLocaleString()} req`;
+        const backdrop = document.createElement('div');
+        backdrop.className = 'mm-dialog-backdrop';
+        backdrop.innerHTML = `
+            <div class="mm-dialog mm-dialog-narrow mm-image-count-dialog" role="dialog" aria-modal="true">
+                <h3>Sync this model</h3>
+                <div class="mm-dialog-section">
+                    <label class="mm-dialog-option">
+                        <input type="radio" name="mm_sync_model_count" value="kept" checked>
+                        <span>As many images as it has now</span>
+                        <span class="mm-dialog-cost">${escapeHtml(cost(options.kept))}</span>
+                    </label>
+                    <label class="mm-dialog-option">
+                        <input type="radio" name="mm_sync_model_count" value="first">
+                        <span>First ${escapeHtml(String(options.page))} images of each version</span>
+                        <span class="mm-dialog-cost">${escapeHtml(cost(options.first))}</span>
+                    </label>
+                </div>
+                <div class="mm-dialog-notice"></div>
+                <div class="mm-dialog-actions">
+                    <button type="button" class="mm-btn secondary" data-close>Cancel</button>
+                    <button type="button" class="mm-btn primary" data-confirm>Sync</button>
+                </div>
+            </div>`;
+        const keep = () => backdrop.querySelector('input[name="mm_sync_model_count"]:checked')?.value !== 'first';
+        const say = () => setText(backdrop.querySelector('.mm-dialog-notice'), imageCountNotice(options, keep(), { one: true }));
+        const close = () => {
+            if (!backdrop.isConnected) return;
+            backdrop.remove();
+            document.removeEventListener('keydown', onEscape, true);
+            resolve(answer);
+        };
+        const onEscape = (event) => {
+            if (event.key !== 'Escape') return;
+            event.stopPropagation();
+            close();
+        };
+        backdrop.addEventListener('change', say);
+        backdrop.addEventListener('click', (event) => {
+            if (event.target.closest?.('[data-confirm]')) {
+                answer = { keep: keep() };
+                close();
+            } else if (event.target === backdrop || event.target.closest?.('[data-close]')) {
+                close();
+            }
+        });
+        document.addEventListener('keydown', onEscape, true);
+        say();
+        document.body.appendChild(backdrop);
+    });
 }
 
 /** A window dropdown, each option carrying how many models it would take. */
@@ -459,7 +571,7 @@ async function startSyncFromDialog() {
     closeSyncDialog();
 
     if (choice.scope === 'force') {
-        startSync(choice.forceMode || 'all');
+        startSync(choice.forceMode || 'all', choice.keepImageCount);
         return;
     }
 
@@ -467,13 +579,14 @@ async function startSyncFromDialog() {
     startMetadataSync({
         includeImages: choice.images,
         includePrompts: choice.images && choice.prompts,
+        keepImageCount: choice.keepImageCount,
         staleDays: choice.staleDays,
         downloadedDays: choice.downloadedDays,
         paths,
     });
 }
 
-async function startMetadataSync({ includeImages = false, includePrompts = true,
+async function startMetadataSync({ includeImages = false, includePrompts = true, keepImageCount = false,
                                    staleDays = 0, downloadedDays = 0,
                                    paths = null } = {}) {
     if (isSyncing) return;
@@ -488,6 +601,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
         const body = new URLSearchParams({
             include_images: String(includeImages),
             include_prompts: String(includePrompts),
+            keep_image_count: String(keepImageCount),
             stale_days: String(staleDays),
             downloaded_days: String(downloadedDays),
         });

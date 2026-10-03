@@ -116,7 +116,16 @@ const ESTIMATE = {
         // As the server sends it: the checkpoint trained/merged check is its
         // own figure, counted in the total.
         requests: { metadata: 7, checkpoints: 10, images: 745, prompts: 2245, total: 3007 },
+        // Both ways of refetching the images (#103): the first page each, or
+        // as many as each has - and what the first would delete.
+        image_options: { page: 100, first: { requests: 745, prompts: 2245, images: 67230 },
+                         kept: { requests: 1187, prompts: 2539, images: 76050 },
+                         deletes: { images: 8820, models: 40 } },
     },
+    // A force sync's, over the files it would read.
+    force_images: { page: 100, first: { requests: 1193, prompts: 0, images: 0 },
+                    kept: { requests: 1635, prompts: 0, images: 0 },
+                    deletes: { images: 8820, models: 40 } },
     windows: [
         { label: '1 day', days: 1, versions: 0 },
         { label: '2 days', days: 2, versions: 0 },
@@ -360,6 +369,33 @@ check('and the request says so',
     [lastEstimateQuery.get('include_images'), lastEstimateQuery.get('include_prompts')],
     ['true', 'true']);
 
+// How many images come back (#103): as many as each model has, by default -
+// nothing deleted - or the first page, which deletes what was stored past it.
+const countChoice = (value) => window.document.querySelector(`input[name="mm_sync_images_count"][value="${value}"]`);
+const notice = () => $('mm_sync_images_notice');
+check('images offer two ways, each with its cost, as many as each has chosen',
+    [$('mm_sync_images_count').hidden, countChoice('kept').checked,
+     $('mm_cost_images_kept').textContent, $('mm_sync_images_first_label').textContent,
+     $('mm_cost_images_first').textContent],
+    [false, true, '1,187 req', 'First 100 images per model', '745 req']);
+check('and the estimate is asked for that way', lastEstimateQuery.get('keep_image_count'), 'true');
+check('the notice above the buttons says the images may not be these',
+    [notice().hidden, notice().textContent.includes('won\'t necessarily be the ones you have now'),
+     notice().textContent.includes('deletes')], [false, true, false]);
+countChoice('first').checked = true;
+change(countChoice('first'));
+await settle();
+check('the first page says what it deletes, and that they can still be seen',
+    [notice().textContent.includes('This deletes 8,820 stored images from your library'),
+     notice().textContent.includes('40 models hold more than 100'),
+     notice().textContent.includes('Load More fetches them from Civitai again'),
+     notice().textContent.includes('won\'t necessarily be the ones you have now')],
+    [true, true, true, true]);
+check('and is asked for so', lastEstimateQuery.get('keep_image_count'), 'false');
+countChoice('kept').checked = true;
+change(countChoice('kept'));
+await settle();
+
 // Force sync is a scope, not a depth: it names which files to read.
 const imagesBefore = $('mm_sync_images').checked;
 const forceRadio = window.document.querySelector('input[name="mm_sync_scope"][value="force"]');
@@ -384,6 +420,11 @@ check('and claims no duration',
 check('every depth option is on', [$('mm_sync_images').checked, $('mm_sync_prompts').checked],
     [true, true]);
 check('and locked', [$('mm_sync_images').disabled, $('mm_sync_prompts').disabled], [true, true]);
+check('but how many images come back is still a choice, costed over the files',
+    [$('mm_sync_images_count').hidden, countChoice('kept').disabled, countChoice('first').disabled,
+     $('mm_cost_images_kept').textContent, $('mm_cost_images_first').textContent, notice().hidden],
+    [false, false, false, '1,635 req', '1,193 req', false]);
+check('asked for with the mode', lastEstimateQuery.get('force_mode'), 'unidentified');
 
 $('mm_sync_force_mode').value = 'all';
 change($('mm_sync_force_mode'));
@@ -406,6 +447,7 @@ check('a force sync posts to the identifying endpoint',
     posts[posts.length - 1].url, '/model-manager/sync');
 const forceBody = new URLSearchParams(posts[posts.length - 1].body);
 check('with the chosen mode', forceBody.get('targets'), 'identified');
+check('and how many images come back', forceBody.get('keep_image_count'), 'true');
 check('and forces', forceBody.get('force'), 'true');
 posts.length = 0;
 
@@ -468,6 +510,7 @@ const body = new URLSearchParams(posts[0].body);
 check('posted to the metadata sync', posts[0].url, '/model-manager/sync/metadata');
 check('with images', body.get('include_images'), 'true');
 check('with prompts', body.get('include_prompts'), 'true');
+check('as many images as each has', body.get('keep_image_count'), 'true');
 check('with the 47 paths', body.get('paths').split(',').length, 47);
 check('and no window, since the scope is results', body.get('stale_days'), '0');
 check('nor a download window', body.get('downloaded_days'), '0');

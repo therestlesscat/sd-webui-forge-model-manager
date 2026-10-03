@@ -15,7 +15,8 @@ Where a gallery's images come from is its own business, not this module's.
 
 Kept apart from api/ and ui/, which both read it, so neither imports the other.
 """
-from typing import Any, Dict, List, Sequence, Tuple
+import math
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .forge_host import DEFAULTS, setting
 from .nsfw import SFW_MAX, image_level
@@ -35,6 +36,46 @@ def gallery_page_size() -> int:
     except (TypeError, ValueError):
         size = DEFAULTS[PAGE_SIZE_SETTING]
     return min(max(size, 1), MAX_PAGE_SIZE)
+
+
+# The most images Civitai's /images gives to one request: the client asks
+# for no more, whatever it is passed.
+IMAGES_PER_REQUEST = 100
+
+
+def refresh_size(stored: int, keep_count: bool) -> int:
+    """
+    How many images a refresh of a gallery fetches (#103): a page, at the
+    size the settings give, or as many as the version has stored - never
+    fewer than a page. A refresh replaces the stored gallery whole, so the
+    first deletes what was stored past it.
+    """
+    page = gallery_page_size()
+    return max(page, stored) if keep_count else page
+
+
+def fetch_gallery(client, version_id: int, count: int) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    A version's first `count` images from Civitai, and the cursor to what
+    follows them: batches of IMAGES_PER_REQUEST, Civitai's cursor followed
+    until there are enough or it has no more - in no more requests than
+    that many batches, which is what the sync dialog says it costs. What
+    the client raises, it raises: a refresh replaces the gallery only once
+    all of it has come.
+    """
+    images: List[Dict[str, Any]] = []
+    cursor = None
+    for _ in range(max(1, math.ceil(count / IMAGES_PER_REQUEST))):
+        if len(images) >= count:
+            break
+        result = client.get_model_images(version_id, cursor=cursor,
+                                         limit=min(IMAGES_PER_REQUEST, count - len(images)))
+        batch = result.get("images") or []
+        images.extend(batch)
+        cursor = result.get("next_cursor") or None
+        if not batch or not cursor:
+            break
+    return images, cursor
 
 
 def switch_counts(items: Sequence[Any], safe: Sequence[bool], readable: Sequence[bool],

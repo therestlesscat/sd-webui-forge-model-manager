@@ -215,14 +215,13 @@ try:
 finally:
     civitai_api.CivitaiClient = real_client
 
-# The Model Manager's gallery and Resync stream the same way.
+# The Model Manager's gallery streams the same way.
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 db, facts = fixtures.build(os.path.join(TESTS, 'work', 'gallery_status'))
 dbmod._db_instance = db
 for label, ask in (('the Model Manager\'s gallery', lambda h: web.get(
-                        '/model-manager/images/gallery-page', params={'version_id': facts['version_ids'][0]}, headers=h)),
-                   ('Resync Images', lambda h: web.post('/model-manager/images/resync', data={'version_id': 0}, headers=h))):
+                        '/model-manager/images/gallery-page', params={'version_id': facts['version_ids'][0]}, headers=h)),):
     plain = ask({})
     streamed = ask({'Accept': 'application/x-ndjson'})
     lines = [json.loads(line) for line in streamed.text.splitlines() if line.strip()]

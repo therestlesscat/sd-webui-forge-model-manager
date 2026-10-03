@@ -407,7 +407,7 @@ def register(app: FastAPI):
             return failed(e, "Filters error")
 
     @app.post("/model-manager/models/force-sync")
-    def force_sync_model(model_id: int = Form(...)):
+    def force_sync_model(model_id: int = Form(...), keep_image_count: str = Form(default="false")):
         """
         Force sync a model and all its local versions.
 
@@ -416,6 +416,9 @@ def register(app: FastAPI):
 
         Args:
             model_id: Civitai model ID.
+            keep_image_count: "true" to refetch as many images as each
+                version's gallery has stored, rather than its first page
+                - the question the Sync button asks first (#103).
 
         Returns:
             Success status and count of synced versions.
@@ -434,6 +437,7 @@ def register(app: FastAPI):
 
             # Create sync service and sync each version
             sync_service = SyncService()
+            sync_service.keep_image_count = str(keep_image_count).lower() in ("true", "1", "yes")
             synced_count = 0
             errors = []
 

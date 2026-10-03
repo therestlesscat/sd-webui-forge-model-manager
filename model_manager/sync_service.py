@@ -25,7 +25,7 @@ from .identity_store import record_architecture
 from .nsfw import version_covers
 from .db import get_models_db
 from .forge_host import DEFAULTS, setting
-from .gallery import gallery_page_size
+from .gallery import fetch_gallery, refresh_size
 
 
 
@@ -82,6 +82,10 @@ class SyncService:
             client: CivitaiClient instance. If None, creates from settings.
         """
         self.client = client or CivitaiClient.from_settings()
+        # A refreshed gallery: its first page, or as many images as it has
+        # stored (#103). The syncs the dialog starts set it; a download's
+        # and one model's take the first page, as before.
+        self.keep_image_count = False
         self._cancel_requested = False
         self._progress = SyncProgress()
         # sync_all() and sync_metadata() each replace this with a fresh lock,
@@ -302,16 +306,15 @@ class SyncService:
             # opening the model needs no request of its own
             if version_id:
                 print(f"[ModelManager] Fetching images for {model_name}...")
-                images_result = self.client.get_model_images(
-                    version_id, cursor=None, limit=gallery_page_size())
-                images = images_result.get("images", [])
                 db = get_models_db()
+                stored = db.count_images_by_version([version_id]).get(version_id, 0)
+                images, next_cursor = fetch_gallery(self.client, version_id,
+                                                    refresh_size(stored, self.keep_image_count))
                 # /images returns meta: null - generation data comes from a
                 # separate endpoint. Keep what is stored, then look up the
                 # rest; without both, a re-sync replaced prompts with nulls.
                 keep_generation_data(images, db.get_images(version_id))
                 enrich_images_with_generation_data(self.client, images)
-                next_cursor = images_result.get("next_cursor")
                 result.image_count = len(images)
 
                 db.replace_first_page(version_id, images, next_cursor)
@@ -518,7 +521,8 @@ class SyncService:
         force: bool = False,
         targets: str = "all",
         callback: Optional[Callable[[SyncProgress], None]] = None,
-        max_workers: Optional[int] = None
+        max_workers: Optional[int] = None,
+        keep_image_count: bool = False
     ) -> SyncProgress:
         """
         Sync multiple models with Civitai using multiple threads.
@@ -536,12 +540,15 @@ class SyncService:
                 setting. Hashing is bound by reading and hashing bytes, and
                 both scale with threads, so this is the dial that matters for
                 a full sync.
+            keep_image_count: Refetch as many images as each gallery has
+                stored, rather than its first page (refresh_size).
 
         Returns:
             Final SyncProgress with summary.
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
+        self.keep_image_count = keep_image_count
 
         if max_workers is None:
             max_workers = configured_hash_threads()
@@ -664,7 +671,8 @@ class SyncService:
         synced_before: Optional[str] = None,
         downloaded_after: Optional[str] = None,
         callback: Optional[Callable[[SyncProgress], None]] = None,
-        max_workers: Optional[int] = None
+        max_workers: Optional[int] = None,
+        keep_image_count: bool = False
     ) -> SyncProgress:
         """
         Refresh Civitai data for models that already resolve, without hashing.
@@ -696,6 +704,8 @@ class SyncService:
             max_workers: Threads used for the per-version work. None derives
                 it from the configured request rate, which is what actually
                 bounds the sync - a thread beyond that only waits for a token.
+            keep_image_count: With images, refetch as many as each gallery
+                has stored, rather than its first page (refresh_size).
 
         Returns:
             Final SyncProgress with summary.
@@ -703,6 +713,7 @@ class SyncService:
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
 
+        self.keep_image_count = keep_image_count
         if max_workers is None:
             max_workers = self._workers_for_rate()
 
@@ -882,10 +893,13 @@ class SyncService:
                            callback: Optional[Callable[[SyncProgress], None]],
                            max_workers: int,
                            include_prompts: bool = True) -> None:
-        """Replace each version's cached gallery with a fresh first page."""
+        """Replace each version's cached gallery with a fresh one (refresh_size)."""
         db = get_models_db()
         # Read once: a setting changed mid-sync would give one sync two sizes
-        page_size = gallery_page_size()
+        stored = db.count_images_by_version([v["id"] for v in versions if v.get("id")])
+        sizes = {version_id: refresh_size(stored.get(version_id, 0), self.keep_image_count)
+                 for version_id in stored}
+        page_size = refresh_size(0, False)
 
         for start in range(0, len(versions), self.GALLERY_CHUNK):
             if self._cancel_requested:
@@ -905,11 +919,8 @@ class SyncService:
                 with self._progress_lock:
                     self._progress.current_model = f"Images: {name}"
                 try:
-                    result = self.client.get_model_images(
-                        version["id"], cursor=None, limit=page_size
-                    )
-                    images = result.get("images", [])
-                    next_cursor = result.get("next_cursor")
+                    images, next_cursor = fetch_gallery(self.client, version["id"],
+                                                        sizes.get(version["id"], page_size))
                 except Exception as e:
                     with self._progress_lock:
                         self._progress.errors += 1

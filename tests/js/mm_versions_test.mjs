@@ -137,8 +137,9 @@ check('5. a paid version says so, and offers no Download',
       [row('Access'), !!button(), details().querySelector('.detail-actions button[disabled]')?.textContent],
       ['Paid', false, 'Paid']);
 const paidLabel = () => details().querySelector('.detail-actions button[disabled]');
-const viewOnCivitai = () => details().querySelector('.detail-actions a[href*="civitai.com/models/"]');
-check('   saying why - the account has not bought it - with View on Civitai beside it',
+// View on Civitai is in the header, for whichever version is shown.
+const viewOnCivitai = () => details().querySelector('.detail-header a[href*="civitai.com/models/"]');
+check('   saying why - the account has not bought it - with View on Civitai in the header, for this version',
       [/has not bought it/.test(paidLabel()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('href')],
       [true, 'https://civitai.com/models/4001?modelVersionId=502']);
 
@@ -148,8 +149,11 @@ check('   Show in Civitai Browser is the table\'s first row, not in the header, 
 
 await click(pill('v1'));
 check('6. back to the local version: its panel, gallery and all',
-      [active(), !!details().querySelector('[data-action="modelManager.resyncImages"]'), detailsAsked.at(-1)],
+      [active(), !!details().querySelector('.file-path-cell'), detailsAsked.at(-1)],
       [['v1 ✓'], true, 'C:/models/v1.safetensors']);
+check('   View on Civitai in its header, for this version, and no buttons at the bottom',
+      [viewOnCivitai()?.getAttribute('href') || '', !!details().querySelector('.detail-actions')],
+      ['https://civitai.com/models/4001?modelVersionId=501', false]);
 
 // ------------------------------------------------------------ downloading
 await click(pill('v3'));

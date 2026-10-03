@@ -2849,6 +2849,22 @@ body.mm-modal-open {
     gap: 8px;
 }
 
+/* What the choice made will do to the library, above the button that starts
+   it (#103): a refresh replaces a gallery, and may delete images. */
+.mm-dialog-notice {
+    border-left: 3px solid #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.mm-dialog-notice[hidden] {
+    display: none;
+}
+
 /* The Scan Disk confirmation: a lead line and a few points, nothing more. */
 .mm-dialog-narrow {
     max-width: min(50%, 800px);

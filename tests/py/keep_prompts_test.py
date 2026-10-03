@@ -5,7 +5,7 @@ Replacing a gallery keeps the prompts it already had.
 separate lookup, which a sync can skip and which fails without an API key.
 Every path that replaced a stored gallery wrote it back with only what
 /images said, so a sync without "Image prompts", or a lookup that failed,
-erased every prompt the gallery held. Resync Images also cleared the gallery
+erased every prompt the gallery held. Resync Images (gone since) also cleared the gallery
 before fetching, so a fetch that failed left the model with no images.
 
 Now the fresh images replace everything but the generation data, which each
@@ -35,10 +35,9 @@ except ImportError:
     sys.exit(0)
 
 import fixtures                                          # noqa: E402
-import model_manager.civitai as civitai_pkg              # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
-from model_manager.api import setup_api                  # noqa: E402
-from model_manager.civitai import keep_generation_data   # noqa: E402
+from model_manager.civitai import TokenBucketRateLimiter, keep_generation_data  # noqa: E402
+from model_manager.sync_service import SyncService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'keep_prompts')
 
@@ -66,24 +65,32 @@ check('an image never stored has nothing to take', fresh[3]['meta'], None)
 check('nothing stored, nothing kept', keep_generation_data([{'id': 9, 'meta': None}], None), 0)
 
 
-# ---------------------------------------------------------- Resync Images
+# ------------------------------------------------- a model's Sync, its file
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
-client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
 version = facts['version_ids'][3]
+path = db.get_version_by_id(version)['file_path']
 before = {img['id']: img['meta'] for img in db.get_images(version)}
+payload = {'id': version, 'modelId': 60, 'name': 'v1', 'files': [{'name': os.path.basename(path)}]}
 
 
 class Civitai:
-    """Answers /images with the stored ids at a new url; generation data as told."""
+    """Knows the file; answers /images with the stored ids at a new url; generation data as told."""
 
     images_fail = False
     generation = {}
     limits = []
+    api_key = 'a-key'
+    rate_limiter = TokenBucketRateLimiter(1000.0, 100)
 
-    @classmethod
-    def from_settings(cls):
-        return cls()
+    def get_model_by_hash(self, value):
+        return payload
+
+    def get_model(self, model_id):
+        return {'id': 60, 'name': 'M', 'type': 'LORA', 'modelVersions': [payload]}
+
+    def get_checkpoint_types(self, ids):
+        return {}
 
     def get_model_images(self, version_id, cursor=None, limit=None):
         Civitai.limits.append(limit)
@@ -101,14 +108,20 @@ class Civitai:
         pass
 
 
-civitai_pkg.CivitaiClient = Civitai
+def sync():
+    """A force sync of the file, as a model's Sync runs it: whether it worked."""
+    try:
+        return SyncService(client=Civitai()).sync_model(path, force=True).success
+    except Exception:
+        return False
+
 
 Civitai.generation = None            # the lookup fails
 opts.model_manager_gallery_page_size = 50
-r = client.post('/model-manager/images/resync', data={'version_id': version})
+worked = sync()
 opts.model_manager_gallery_page_size = 100
-check('a resync asks for the first page at the gallery page size set', Civitai.limits, [50])
-check('a resync whose prompt lookup fails still succeeds', r.json().get('success'), True)
+check('a sync asks for the first page at the gallery page size set', Civitai.limits, [50])
+check('a sync whose prompt lookup fails still succeeds', worked, True)
 after = {img['id']: img for img in db.get_images(version)}
 check('and every image keeps the prompt it had',
       {i: after[i]['meta'] for i in before}, before)
@@ -117,8 +130,7 @@ check('while taking the fresh copy of everything else',
 check('and a new image comes in', 777777 in after)
 
 Civitai.images_fail = True
-r = client.post('/model-manager/images/resync', data={'version_id': version})
-check('a resync whose fetch fails says so', r.json().get('success'), False)
+check('a sync whose fetch fails says so', sync(), False)
 check('and leaves the gallery as it was, rather than empty',
       sorted(img['id'] for img in db.get_images(version)), sorted(after))
 

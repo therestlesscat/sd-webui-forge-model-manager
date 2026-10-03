@@ -142,8 +142,9 @@ check('and is labelled by its heading', 'aria-labelledby="mm_sync_dialog_title"'
 # scope: four mutually exclusive choices, one group
 scopes = re.findall(r'name="mm_sync_scope" value="(\w+)"', dialog)
 check('the five scopes', scopes, ['all', 'results', 'stale', 'downloaded', 'force'])
+# Of the scopes alone: how many images come back is a choice of its own (#103).
 check('exactly one is preselected',
-      dialog.count('name="mm_sync_scope"') - dialog.count('checked>'), len(scopes) - 1)
+      len(re.findall(r'name="mm_sync_scope" value="\w+" checked>', dialog)), 1)
 check('the staleness windows live in a select', 'id="mm_sync_stale_days"' in dialog)
 check('and the download windows in their own',
       'id="mm_sync_downloaded_days"' in dialog)

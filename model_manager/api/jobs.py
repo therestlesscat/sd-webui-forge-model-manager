@@ -6,14 +6,15 @@ a background thread and reports progress until it finishes or is cancelled.
 Which job runs, and how far along it is, is model_manager.jobs': a full sync
 and a metadata sync are both the "sync", one at a time, beside one "scan".
 """
-from typing import Optional
+from typing import Any, Optional
 from fastapi import Body, FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..jobs import jobs
 from ..scan_service import ScanService, misplaced_files
-from ..sync_estimates import estimate_metadata_sync, sync_window_counts, window_cutoff
+from ..sync_estimates import (estimate_metadata_sync, gallery_refresh_options, sync_window_counts,
+                              window_cutoff)
 from ..sync_service import SyncService
 from .common import failed
 
@@ -41,13 +42,19 @@ def _cancel(kind: str) -> JSONResponse:
     return JSONResponse({"success": True, "message": "Cancel requested"})
 
 
+def _yes(value: Any) -> bool:
+    """A form's "true" - it sends strings."""
+    return str(value).lower() in ("true", "1", "yes")
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.post("/model-manager/sync")
     async def start_sync(
         force: str = Form(default="false"),  # Form data comes as string
         targets: str = Form(default="all"),
-        paths: str = Form(default="")  # Comma-separated paths, empty = all models
+        paths: str = Form(default=""),  # Comma-separated paths, empty = all models
+        keep_image_count: str = Form(default="false"),
     ):
         """
         Start syncing models with Civitai, identifying each file by its hash.
@@ -58,6 +65,8 @@ def register(app: FastAPI):
                 files on disk to work on. Anything but "all" implies force,
                 since picking a set is the point of asking.
             paths: Comma-separated model paths, or empty for all.
+            keep_image_count: "true" to refetch as many images as each
+                gallery has stored, rather than its first page (#103).
 
         Returns immediately. Poll /model-manager/sync/progress for status.
         """
@@ -74,7 +83,8 @@ def register(app: FastAPI):
 
         return _start("sync", SyncService,
                       lambda sync: sync.sync_all(model_paths=model_paths, force=force_bool,
-                                                 targets=target_set),
+                                                 targets=target_set,
+                                                 keep_image_count=_yes(keep_image_count)),
                       "Sync started")
 
     @app.post("/model-manager/sync/metadata")
@@ -83,7 +93,8 @@ def register(app: FastAPI):
         include_prompts: str = Form(default="true"),
         stale_days: int = Form(default=0),
         downloaded_days: int = Form(default=0),
-        paths: str = Form(default="")  # Comma-separated paths, empty = all models
+        paths: str = Form(default=""),  # Comma-separated paths, empty = all models
+        keep_image_count: str = Form(default="false"),
     ):
         """
         Refresh Civitai data for models that already resolve, without hashing.
@@ -103,6 +114,8 @@ def register(app: FastAPI):
             downloaded_days: Only versions downloaded within this many days.
                 0 means every version, however long ago it arrived.
             paths: Comma-separated model paths, or empty for all.
+            keep_image_count: With images, "true" to refetch as many as each
+                gallery has stored, rather than its first page (#103).
 
         Shares the progress and cancel endpoints with the full sync. Returns
         immediately; poll /model-manager/sync/progress.
@@ -121,7 +134,8 @@ def register(app: FastAPI):
                                                       include_images=with_images,
                                                       include_prompts=with_prompts,
                                                       synced_before=synced_before,
-                                                      downloaded_after=downloaded_after),
+                                                      downloaded_after=downloaded_after,
+                                                      keep_image_count=_yes(keep_image_count)),
                       "Metadata sync started" + (" (with images)" if with_images else ""))
 
     @app.get("/model-manager/sync/estimate")
@@ -130,7 +144,9 @@ def register(app: FastAPI):
         include_prompts: str = "true",
         stale_days: int = 0,
         downloaded_days: int = 0,
-        paths: str = ""
+        paths: str = "",
+        keep_image_count: str = "false",
+        force_mode: str = "",
     ):
         """
         What a metadata sync would cost, before anyone starts one.
@@ -142,6 +158,9 @@ def register(app: FastAPI):
 
         Returns the estimate for the current selection, plus how many versions
         each staleness window would take - the numbers shown beside them.
+        `force_mode` - all, identified, unidentified - costs a force sync's
+        galleries instead (`force_images`): its files are counted, not its
+        requests, but either way of refetching the images is (#103).
         """
         try:
             with_images = str(include_images).lower() in ('true', '1', 'yes')
@@ -154,7 +173,20 @@ def register(app: FastAPI):
                 downloaded_after=window_cutoff(downloaded_days) if downloaded_days > 0 else None,
                 include_images=with_images,
                 include_prompts=with_prompts,
+                keep_image_count=_yes(keep_image_count),
             )
+            unidentified = get_models_db().count_unidentified()
+            force_images = None
+            if force_mode in ("all", "identified", "unidentified"):
+                db = get_models_db()
+                ids = ([v["id"] for v in db.get_linked_versions() if v.get("id")]
+                       if force_mode != "unidentified" else [])
+                force_images = gallery_refresh_options(db, ids, include_prompts=False)
+                # A file not identified yet has no gallery stored: its first
+                # page, either way.
+                extra = unidentified.get("unidentified", 0) if force_mode != "identified" else 0
+                for option in ("first", "kept"):
+                    force_images[option]["requests"] += extra
             return JSONResponse({
                 "success": True,
                 "estimate": estimate,
@@ -163,7 +195,8 @@ def register(app: FastAPI):
                 # For the hashing option, which is costed in files rather than
                 # in requests. From the database, so opening the dialog does
                 # not walk the disk; the sync itself will, and may find more.
-                "unidentified": get_models_db().count_unidentified(),
+                "unidentified": unidentified,
+                "force_images": force_images,
             })
         except Exception as e:
             return failed(e)

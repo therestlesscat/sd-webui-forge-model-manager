@@ -1,5 +1,16 @@
 [
   {
+    "id": "sync-asks-images",
+    "version": "0.45.6",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Resync Images is now part of a model's Sync",
+    "text": "The Sync button in a model's header now asks how many images to fetch: as many as the model has now, or the first page of each version - the first deletes the images stored past it, which Load More fetches again. Resync Images, which only refetched the first page, is gone. The sync dialog asks the same when Images is ticked."
+  },
+  {
     "id": "rescan-0-45",
     "version": "0.45.3",
     "kind": "action",

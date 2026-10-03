@@ -570,8 +570,9 @@ sync, client = service(
 sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
 check('a sync asks for each gallery at the page size set', client.limits, [30, 30])
 
-# Civitai answers at most 200 images to a request; a size set by hand above
-# that is kept to it, rather than failing every gallery's fetch.
+# A size set by hand above 200 is kept to it, rather than failing every
+# gallery's fetch; and Civitai is asked for at most 100 a request - the
+# client asks for no more - so it comes in batches (#103).
 opts.model_manager_gallery_page_size = 300
 sync, client = service(
     models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
@@ -579,7 +580,7 @@ sync, client = service(
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': None})
 sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
-check('a page size above what Civitai gives is asked for at 200', client.limits, [200, 200])
+check('a page size above what Civitai gives is asked for in batches of 100', client.limits, [100, 100])
 opts.model_manager_gallery_page_size = 100
 stored = db.get_images(rows[0]['id'])
 check('the gallery replaced what was there', len(stored), 1)

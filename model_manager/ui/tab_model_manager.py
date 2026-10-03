@@ -266,11 +266,23 @@ def create_ui():
                                 <span>Metadata</span>
                                 <span class="mm-dialog-cost" id="mm_cost_metadata"></span>
                             </label>
-                            <label class="mm-dialog-option" title="Refetch each model's example images">
+                            <label class="mm-dialog-option" title="Refetch each model's images">
                                 <input type="checkbox" id="mm_sync_images">
-                                <span>Example images</span>
+                                <span>Images</span>
                                 <span class="mm-dialog-cost" id="mm_cost_images"></span>
                             </label>
+                            <div class="mm-dialog-sub" id="mm_sync_images_count" hidden>
+                                <label class="mm-dialog-option" title="Each model gets back as many images as it has now: none of its stored images is deleted.">
+                                    <input type="radio" name="mm_sync_images_count" value="kept" checked>
+                                    <span>As many as each model has now</span>
+                                    <span class="mm-dialog-cost" id="mm_cost_images_kept"></span>
+                                </label>
+                                <label class="mm-dialog-option" title="Each model gets back its first page of images: the ones stored past it are deleted, and Load More fetches them again.">
+                                    <input type="radio" name="mm_sync_images_count" value="first">
+                                    <span id="mm_sync_images_first_label">First page of images per model</span>
+                                    <span class="mm-dialog-cost" id="mm_cost_images_first"></span>
+                                </label>
+                            </div>
                             <label class="mm-dialog-option" id="mm_sync_prompts_row" title="The prompt and settings behind each image. Civitai serves these one small batch at a time, so this is most of a full sync.">
                                 <input type="checkbox" id="mm_sync_prompts" disabled>
                                 <span>Image prompts</span>
@@ -279,6 +291,7 @@ def create_ui():
                         </div>
 
                         <div class="mm-dialog-estimate" id="mm_sync_estimate">Estimating...</div>
+                        <div class="mm-dialog-notice" id="mm_sync_images_notice" hidden></div>
 
                         <div class="mm-dialog-actions">
                             <button id="mm_sync_dialog_cancel" class="mm-btn secondary">Cancel</button>

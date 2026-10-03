@@ -91,7 +91,7 @@ const {
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
-const { connectJobs, bindJobControls, checkOngoingProcesses } = await shared('jobs.mjs');
+const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
 const { sendInfotext, sendTab, sendGalleryImage } = await shared('send.mjs');
@@ -1199,9 +1199,16 @@ function pinButton(model, index, cls) {
                            : 'Pin: show first whenever it matches the filters' };
 }
 
-/** The header's buttons: the same for any version, but deleting needs a file. */
-function renderDetailHeader(model, { deletable = true } = {}) {
+/**
+ * The header's buttons: the same for any version, but deleting needs a file.
+ * View on Civitai opens the version shown, `versionId`, on the model's page.
+ */
+function renderDetailHeader(model, { deletable = true, versionId = null } = {}) {
     const modelId = model.model_id || model.civitai_model_id;
+    const civitaiLink = modelId
+        ? `<a class="mm-btn secondary mm-btn-small header-action" href="https://civitai.com/models/${safeId(modelId)}`
+          + `${versionId ? `?modelVersionId=${safeId(versionId)}` : ''}" target="_blank" rel="noopener">View on Civitai</a>`
+        : '';
     const isBookmarked = model.is_bookmarked || false;
     const bookmarkBtn = modelId
         ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="modelManager.toggleBookmark"${dataAttributes({ modelId: safeId(modelId) })} title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
@@ -1226,6 +1233,7 @@ function renderDetailHeader(model, { deletable = true } = {}) {
                 <h3>${escapeHtml(model.display_name)}</h3>
                 ${bookmarkBtn}
                 ${pinBtn}
+                ${civitaiLink}
                 ${modelId ? `<button class="mm-btn primary mm-btn-small header-action" data-action="modelManager.syncModel" title="Force sync this model">Sync</button>` : ''}
                 ${deleteButtons}
                 <button class="close-details" data-action="modelManager.closeDetails">×</button>
@@ -1276,7 +1284,7 @@ function renderRemoteVersion() {
 
     container.innerHTML = `
         <div class="model-details-content">
-            ${renderDetailHeader(model, { deletable: false })}
+            ${renderDetailHeader(model, { deletable: false, versionId: version.id })}
 
             ${renderVersionSelector()}
 
@@ -1305,7 +1313,6 @@ function renderRemoteVersion() {
             ${descriptionHtml}
 
             <div class="detail-section detail-actions">
-                <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(modelId)}?modelVersionId=${safeId(version.id)}" target="_blank">View on Civitai</a>
                 ${renderDownloadControls({ controls: DOWNLOAD_CONTROLS, modelId, version, fileIndex, owned: false })}
             </div>
             <div class="mm-versions-note">Not downloaded, so there are no example images here yet.
@@ -1384,7 +1391,8 @@ async function versionDownloaded(dl) {
     // the header, whose delete buttons count the local versions.
     selectedVersionIndex = Math.max(0, currentVersions.findIndex((v) => v.file_path === previous.file_path));
     const header = document.querySelector('#mm_details .detail-header');
-    if (header) header.outerHTML = renderDetailHeader(model, { deletable: remoteVersionId === null });
+    if (header) header.outerHTML = renderDetailHeader(model, { deletable: remoteVersionId === null,
+                                                               versionId: remoteVersionId ?? model.id });
     const selector = document.querySelector('#mm_details .mm-version-selector');
     const fresh = renderVersionSelector();
     if (selector) selector.outerHTML = fresh;
@@ -1416,11 +1424,7 @@ function renderModelDetails(model, fullDetails = null) {
            </div>`
         : '';
 
-    // Use model_id for Civitai link (the parent model ID)
     const modelId = model.model_id || model.civitai_model_id;
-    const civitaiLink = modelId
-        ? `<a class="action-btn secondary" href="https://civitai.com/models/${safeId(modelId)}" target="_blank">View on Civitai</a>`
-        : '';
 
     // Get description from full details if available
     const description = fullDetails?.civitai_model?.description || '';
@@ -1436,7 +1440,7 @@ function renderModelDetails(model, fullDetails = null) {
 
     container.innerHTML = `
         <div class="model-details-content">
-            ${renderDetailHeader(model)}
+            ${renderDetailHeader(model, { versionId: model.id })}
 
             ${versionSelectorHtml}
 
@@ -1469,11 +1473,6 @@ function renderModelDetails(model, fullDetails = null) {
             ${trainedWords}
             ${tags}
             ${descriptionHtml}
-
-            <div class="detail-section detail-actions">
-                ${civitaiLink}
-                <button class="action-btn secondary" data-action="modelManager.resyncImages">Resync Images</button>
-            </div>
         </div>
     `;
 
@@ -1524,37 +1523,6 @@ function toggleDescription() {
     }
 }
 
-// Resync images for current version
-async function resyncImages() {
-    if (!currentVersionId) {
-        setStatus('No version selected or version has no Civitai data', true);
-        return;
-    }
-
-    // What it waits on, on the status line it says it is resyncing on (#132).
-    const status = statusSayer((text) => setStatus(`Resyncing images: ${text}`));
-    try {
-        setStatus('Resyncing images...');
-
-        const data = await apiCallTelling({ endpoint: '/model-manager/images/resync',
-                                            form: { version_id: currentVersionId }, onStatus: status.say });
-        status.done();
-
-        if (data.success) {
-            setStatus(`Resynced ${data.fetched_count} images`);
-            // The gallery again from its first page, through the switches:
-            // the answer holds every image fetched, filtered or not.
-            await loadGalleryPage(1);
-        } else {
-            setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
-        }
-    } catch (error) {
-        status.done();
-        console.error('[ModelManager] Resync error:', error);
-        setStatus('Resync error: ' + error.message, true);
-    }
-}
-
 // Show sync loading overlay
 function showSyncOverlay(message) {
     // Remove existing overlay if any
@@ -1602,13 +1570,31 @@ async function forceSyncModel() {
         return;
     }
 
+    // How many images come back is asked first, each way costed, over the
+    // model's files (#103): the first page deletes the images stored past it.
+    let options = null;
+    try {
+        const paths = currentVersions.map((v) => v.file_path).filter(Boolean);
+        const costs = await apiCall({ endpoint: '/model-manager/sync/estimate', params: {
+            include_images: true, include_prompts: true, paths: (paths.length ? paths : [model.file_path]).join(',') } });
+        options = costs?.success ? costs.estimate?.image_options : null;
+    } catch (error) {
+        console.error('[ModelManager] Sync estimate failed:', error);
+    }
+    if (!options) {
+        setStatus('Sync failed: could not tell what it would fetch', true);
+        return;
+    }
+    const answer = await askImageCount(options);
+    if (!answer) return;
+
     try {
         showSyncOverlay('Syncing model data...');
 
         const response = await fetch('/model-manager/models/force-sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `model_id=${modelId}`
+            body: `model_id=${modelId}&keep_image_count=${answer.keep}`
         });
 
         const data = await response.json();
@@ -3329,7 +3315,6 @@ provide('modelManager.toggleBookmark', ({ modelId }) => toggleBookmark(safeId(mo
 provide('modelManager.deleteModel', ({ scope }) => deleteModel(scope));
 provide('modelManager.syncModel', () => forceSyncModel());
 provide('modelManager.closeDetails', () => closeDetails());
-provide('modelManager.resyncImages', () => resyncImages());
 provide('modelManager.toggleDescription', () => toggleDescription());
 provide('modelManager.rateGenerations', (data, box) => setRatingGenerations(box.checked));
 provide('modelManager.selectGenerations', (data, box) => setSelectingGenerations(box.checked));

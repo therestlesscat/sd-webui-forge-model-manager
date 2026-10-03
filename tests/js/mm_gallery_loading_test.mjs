@@ -31,18 +31,30 @@ const streamed = (lines, gate) => new Response(new ReadableStream({
 const OVERLOADED = { type: 'status', text: 'Civitai: overloaded. Trying again (1 of 3)', wait: 3 };
 let streamNext = null;     // a gate: the next answer comes as a stream, held there
 const accepts = [];
+const syncs = [];          // the model's Sync, as posted
+const estimates = [];      // what was asked of the estimate
 let release = null;
 let failNext = false;
 globalThis.fetch = async (url, init) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
-    if (streamNext && (href.includes('/images/gallery-page') || href.includes('/images/resync'))) {
+    if (href.includes('/models/force-sync')) {
+        syncs.push(new URLSearchParams(String(init?.body || '')));
+        return reply({ success: true, synced_count: 1, total_versions: 1 });
+    }
+    if (href.includes('/sync/estimate')) {
+        estimates.push(new URL(href).searchParams);
+        // This model's gallery, refetched either way (#103).
+        return reply({ success: true, estimate: { versions: 1, image_options: {
+            page: 100, first: { requests: 1, prompts: 4, images: 100 },
+            kept: { requests: 4, prompts: 12, images: 350 }, deletes: { images: 250, models: 1 } } } });
+    }
+    if (streamNext && href.includes('/images/gallery-page')) {
         const gate = streamNext;
         streamNext = null;
         accepts.push(init?.headers?.Accept);
-        const answer = href.includes('/resync') ? { success: true, fetched_count: 2 }
-            : { success: true, images: [image(1), image(2)], images_state: STATE,
-                page: { number: 1, count: 2, shown: 2, more: false } };
+        const answer = { success: true, images: [image(1), image(2)], images_state: STATE,
+                         page: { number: 1, count: 2, shown: 2, more: false } };
         return streamed([OVERLOADED, 'GATE', { type: 'result', result: answer }], gate);
     }
     if (href.includes('/images/gallery-page')) {
@@ -129,16 +141,40 @@ await waiting;
 await waitFor('the images', () => cards().length === 2);
 check('then its images, and the line is gone', line() === undefined, true);
 
-// Resync Images says it on the status line, as it says it is resyncing.
-streamNext = new Promise((resolve) => { open = resolve; });
-const resyncing = act('modelManager.resyncImages');
-await waitFor('what Resync waits on', () => $('mm_status')?.textContent.includes('overloaded'));
-check('Resync Images says what it waits on, on the status line',
-      $('mm_status').textContent, 'Resyncing images: Civitai: overloaded. Trying again (1 of 3) · 3 s');
-open();
-await waitFor('the resync', () => $('mm_status')?.textContent.startsWith('Resynced'), 60);
+// The model's Sync asks first how many images come back (#103): as many as
+// each version has, by default, or the first page - which deletes the rest,
+// and says so, and that they can still be seen. Either may bring other
+// images. (Resync Images, which asked it of one version, is gone.)
+const question = () => document.querySelector('.mm-image-count-dialog');
+const choice = (value) => question()?.querySelector(`input[value="${value}"]`);
+const said = () => question()?.querySelector('.mm-dialog-notice')?.textContent || '';
+check('no Resync Images button any more', !!document.querySelector('[data-action="modelManager.resyncImages"]'), false);
+let asking = act('modelManager.syncModel');
+await waitFor('the question', () => !!question());
+check('Sync asks how many images come back, each way costed, as many as each has chosen',
+      [choice('kept')?.checked, Array.from(question().querySelectorAll('.mm-dialog-cost')).map((c) => c.textContent),
+       question().querySelector('[data-confirm]')?.textContent.trim()],
+      [true, ['~16 req', '~5 req'], 'Sync']);
+check('over the model\'s files', estimates.at(-1)?.get('paths'), 'C:/m/a.safetensors');
+check('saying the images may not be these, and deleting nothing',
+      [said().includes('won\'t necessarily be the ones you have now'), said().includes('deletes')], [true, false]);
+choice('first').checked = true;
+choice('first').dispatchEvent(new window.Event('change', { bubbles: true }));
+check('the first page says how many of the model\'s stored images go, and that they can still be seen',
+      [said().includes('This deletes 250 of this model\'s stored images'),
+       said().includes('Load More fetches them from Civitai again')], [true, true]);
+question().querySelector('[data-close]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await asking;
+check('Cancel syncs nothing', [!!question(), syncs.length], [false, 0]);
+
+const syncing = act('modelManager.syncModel');
+await waitFor('the question', () => !!question());
+question().querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the sync', () => syncs.length === 1);
+check('Sync syncs the model, as many images as each has',
+      [syncs[0].get('model_id'), syncs[0].get('keep_image_count')], ['4001', 'true']);
 await waitFor('the page after it', () => release !== null);
 release();
-await resyncing;
+await syncing;
 
 done();
