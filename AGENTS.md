@@ -287,8 +287,14 @@ levels, the setting keys it reads - it keeps a copy of, once (`nsfw.mjs`), and
   releases that touched shared/). They now ask `/model-manager/asset-version`
   for the newest mtime among the shared files, once a page (`window.
   mmSharedVersion`), and import every shared module with it: one URL, so each
-  shared module also **runs once**, not once per tab. Without an answer, the
-  tab's own version, as before - then one copy per tab, page state included.
+  shared module also **runs once**, not once per tab. It is asked until it
+  answers: both WebUIs serve the page, then add their own routes (the
+  `/internal/ping` a restarted page waits on), and only then run the
+  extensions' `app_started`, which adds ours - a page reloaded by "Apply and
+  restart UI" asked too early, fell back to each tab's own version, and ran a
+  copy of every shared module per tab, page state and all, for the session
+  (#121). A 404 or no connection is waited out; any other answer is taken, one
+  without a version as the first tab's own, for every tab.
   A shared module that needs another imports it the same way, under its own
   `import.meta.url`'s version. Both go through one line, `const shared =
   (name) => import(...)`, and `await shared('core.mjs')`: a plain `import` is

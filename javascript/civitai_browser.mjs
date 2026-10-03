@@ -17,14 +17,35 @@
 // they used to take, stayed the same when only a shared file changed, and
 // Gradio's file route sends no Cache-Control, so a browser could keep the
 // copy it held. All three tabs share the one answer, so each shared module is
-// one URL and runs once, not once per tab. Without an answer, this script's
-// own version, as before. A dynamic import is the only way to build that URL
-// at runtime, which is why this is not a plain import statement.
-window.mmSharedVersion ||= fetch('/model-manager/asset-version', { cache: 'no-store' })
-    .then((response) => (response.ok ? response.json() : null))
-    .then((body) => (/^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}` : null))
-    .catch(() => null);
-const sharedVersion = (await window.mmSharedVersion) || new URL(import.meta.url).search;
+// one URL and runs once, not once per tab. It is asked until it is answered:
+// a page reloaded by "Apply and restart UI" comes back as soon as the WebUI's
+// own routes answer, before the extensions' app_started adds ours, and each
+// tab fell back to a version of its own - a copy of every shared module per
+// tab, and a downloads list and a note pile each, for the session (#121). A
+// dynamic import is the only way to build that URL at runtime, which is why
+// this is not a plain import statement.
+window.mmSharedVersion ||= (async () => {
+    let waiting = false;
+    for (;;) {
+        try {
+            // Not there yet - 404, the extension's app_started not run - is
+            // waited out. Any other answer is taken, one without a version as
+            // this tab's own, for every tab: still one copy.
+            const response = await fetch('/model-manager/asset-version', { cache: 'no-store' });
+            if (response.status !== 404) {
+                const body = response.ok ? await response.json().catch(() => null) : null;
+                return /^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}`
+                    : new URL(import.meta.url).search;
+            }
+        } catch (e) { /* the server is not answering at all */ }
+        if (!waiting) {
+            waiting = true;
+            console.log("[ModelManager] waiting for the Model Manager's API...");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+})();
+const sharedVersion = await window.mmSharedVersion;
 const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below. Awaited in turn, each
