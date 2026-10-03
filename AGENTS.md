@@ -610,7 +610,11 @@ real time once.
   first only lost those hashes, and a LoRA came out as two chips.
 - **Forge and the library spell one path two ways** - case, which Windows
   ignores and SQL does not. Compare paths with `COLLATE NOCASE`
-  (`library_spelling`), never `=`.
+  (`library_spelling`), never `=`. A version's row by its path goes through
+  `_stored_spelling` (`db/models_ops.py`) - the exact spelling first, then
+  ignoring case: 0.44.8 did that for the upserts alone, and every other read
+  and write by path missed a file a walk spelt another way, which a sync then
+  hashed and looked up on every run (#120).
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.

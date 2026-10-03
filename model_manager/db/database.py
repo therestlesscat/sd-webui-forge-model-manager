@@ -23,7 +23,7 @@ from typing import Optional, List, Dict, Any, Set, Tuple
 from contextlib import contextmanager
 
 from .migrations import run_migrations
-from .models_ops import ModelsOps
+from .models_ops import ModelsOps, _stored_spelling
 from .query import GridQuery
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
@@ -189,7 +189,7 @@ class ModelsDatabase:
         with self._cursor() as cursor:
             cursor.execute(
                 "UPDATE model_versions SET civitai_lookup_failed_at = ? WHERE file_path = ?",
-                (stamp, file_path)
+                (stamp, _stored_spelling(cursor, file_path))
             )
 
     def set_architecture(self, file_path: str, preset: Optional[str],
@@ -211,7 +211,7 @@ class ModelsDatabase:
                 " file_type = ?, identified_by = ?"
                 " WHERE file_path = ?",
                 (preset, model_class, int(bool(bundled_text_encoder)), int(bool(bundled_vae)),
-                 checked, file_type, note, file_path)
+                 checked, file_type, note, _stored_spelling(cursor, file_path))
             )
 
     def count_lookup_failed(self) -> int:
@@ -242,7 +242,7 @@ class ModelsDatabase:
                 UPDATE model_versions
                 SET downloaded_at = ?
                 WHERE file_path = ? AND downloaded_at IS NULL
-            """, (downloaded_at, file_path))
+            """, (downloaded_at, _stored_spelling(cursor, file_path)))
 
     def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get a version by file path."""
