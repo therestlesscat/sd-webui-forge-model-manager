@@ -516,6 +516,13 @@ real time once.
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
   found inside a refactor becomes its own issue unless the owner folds it in.
+- **This library is one of many.** The repository is public and has users.
+  A count from the live database says how this library is, not how much a
+  bug matters: #131 was ranked down for touching 0 of 1,196 sidecars here,
+  and is a bug in every library where another tool wrote stubs. Weigh a bug
+  by what it does where the case exists, and fix what it has already written
+  into those databases, not only what it would write next - a user does not
+  read the issue, or know to Force sync.
 - **"mm" means the Model Manager tab**, not the `model_manager/` package.
 - **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
   made from the local `dev`, which held commits not yet pushed, and had to be
