@@ -8,7 +8,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml } = await shared('core.mjs');
+const { escapeHtml, setText } = await shared('core.mjs');
 const { setupLazyMedia } = await shared('media.mjs');
 
 // ------------------------------------------------------ loading a gallery
@@ -36,8 +36,54 @@ export function dimGalleryWhileLoading(containerId, on) {
     if (!container) return;
     container.classList.toggle('mm-gallery-loading', on);
     container.querySelector(':scope > .mm-loading-bar')?.remove();
+    if (!on) container.querySelector(':scope > .mm-images-loading')?.remove();
     if (on) container.insertAdjacentHTML('afterbegin', LOADING_BAR);
     container.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.disabled = on; });
+}
+
+/**
+ * What a gallery's page waits on (#132) - a turn at Civitai's rate, a retry
+ * in Civitai's words - said where its loading shows: under the bar over an
+ * emptied gallery, or over the dimmed one while a switch's page comes. The
+ * images replace it when they are drawn; undimming takes it away.
+ */
+export function sayGalleryLoading(containerId, text) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    let line = container.querySelector(':scope > .mm-images-loading');
+    if (!line) {
+        const bar = container.querySelector(':scope > .mm-loading-bar');
+        if (!bar) return;                       // nothing is loading
+        bar.insertAdjacentHTML('afterend', '<div class="mm-images-loading"></div>');
+        line = container.querySelector(':scope > .mm-images-loading');
+    }
+    setText(line, text);
+}
+
+/**
+ * Each status a request sends (apiCallTelling), put up by `show(text)`, its
+ * wait counted down a second at a time: { say(status), done() }.
+ */
+export function statusSayer(show) {
+    let timer = null;
+    const stop = () => {
+        clearInterval(timer);
+        timer = null;
+    };
+    return {
+        say: ({ text, wait }) => {
+            stop();
+            const until = wait ? Date.now() + wait * 1000 : 0;
+            const draw = () => {
+                const left = until ? Math.max(0, Math.ceil((until - Date.now()) / 1000)) : 0;
+                show(left ? `${text} · ${left} s` : text);
+                if (!left) stop();
+            };
+            draw();
+            if (until) timer = setInterval(draw, 1000);
+        },
+        done: stop,
+    };
 }
 
 /**
@@ -172,6 +218,7 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
         pages: [],
         error: '',
         loading: false,
+        status: '',                 // what Load More waits on, under its button
 
         /** The page last added, if any. */
         last: () => gallery.pages[gallery.pages.length - 1],
@@ -220,7 +267,16 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
                      ${gallery.loading ? 'disabled' : ''}>
                ${gallery.loading ? 'Loading...' : 'Load More Images'}
              </button>
-           </div>`;
+           </div>${gallery.loading && gallery.status
+               ? `<div class="mm-page-note mm-images-status">${escapeHtml(gallery.status)}</div>` : ''}`;
+        },
+
+        /** Say what Load More waits on, under its button (#132): the foot, not the images. */
+        say: (text) => {
+            gallery.status = text;
+            const line = document.getElementById(containerId)?.querySelector('.mm-images-footer .mm-images-status');
+            if (line) setText(line, text);
+            else gallery.refreshChrome();
         },
 
         /**
@@ -263,6 +319,7 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
             if (gallery.loading || !last || !last.more) return;
             gallery.loading = true;
             gallery.error = '';
+            gallery.status = '';
             gallery.refreshChrome();
             try {
                 await loadPage(last.number + 1);
@@ -271,6 +328,7 @@ export function createPagedGallery({ containerId, bannerClass, loadMoreId, loadM
                 gallery.error = `Page ${last.number + 1} could not be loaded: ${e.message}`;
             } finally {
                 gallery.loading = false;
+                gallery.status = '';
                 gallery.refreshChrome();
             }
         },

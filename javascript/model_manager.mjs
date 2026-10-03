@@ -59,7 +59,8 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes, formatDay, setText,
+    onReady, apiCall, apiCallTelling, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes,
+    formatDay, setText,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
@@ -72,8 +73,8 @@ const {
     savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
 } = await shared('filters.mjs');
 const {
-    showGalleryLoading, dimGalleryWhileLoading, pageSeparator, pageNoteHtml, renderFilterBanner,
-    createPagedGallery, scrollToImagesTop,
+    showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, pageSeparator, pageNoteHtml,
+    renderFilterBanner, createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
@@ -839,11 +840,19 @@ async function loadGalleryPage(number, { append = false } = {}) {
         return false;
     }
     const request = ++imagesRequest;
+    // What it waits on, where its loading shows: Load More's under its
+    // button, a first page's over the gallery - this request's alone (#132).
+    const status = statusSayer((text) => {
+        if (request !== imagesRequest) return;
+        if (append) imageGallery.say(text);
+        else sayGalleryLoading('mm_images', text);
+    });
     try {
-        const data = await apiCall({ endpoint: '/model-manager/images/gallery-page', params: {
+        const data = await apiCallTelling({ endpoint: '/model-manager/images/gallery-page', params: {
             version_id: versionId, page: number,
             hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
-        } });
+        }, onStatus: status.say });
+        status.done();
         if (request !== imagesRequest || versionId !== currentVersionId) return false;
         if (!data.success) {
             console.error('[ModelManager] Failed to load images:', data.error);
@@ -859,6 +868,7 @@ async function loadGalleryPage(number, { append = false } = {}) {
         updateImagesCountCell();
         return true;
     } catch (error) {
+        status.done();
         console.error('[ModelManager] Failed to load images:', error);
         if (append) imageGallery.error = `Page ${number} could not be loaded: ${error.message}`;
         else sayGalleryFailed(error.message);
@@ -1521,16 +1531,14 @@ async function resyncImages() {
         return;
     }
 
+    // What it waits on, on the status line it says it is resyncing on (#132).
+    const status = statusSayer((text) => setStatus(`Resyncing images: ${text}`));
     try {
         setStatus('Resyncing images...');
 
-        const response = await fetch('/model-manager/images/resync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `version_id=${currentVersionId}`
-        });
-
-        const data = await response.json();
+        const data = await apiCallTelling({ endpoint: '/model-manager/images/resync',
+                                            form: { version_id: currentVersionId }, onStatus: status.say });
+        status.done();
 
         if (data.success) {
             setStatus(`Resynced ${data.fetched_count} images`);
@@ -1541,6 +1549,7 @@ async function resyncImages() {
             setStatus('Resync failed: ' + (data.error || 'Unknown error'), true);
         }
     } catch (error) {
+        status.done();
         console.error('[ModelManager] Resync error:', error);
         setStatus('Resync error: ' + error.message, true);
     }

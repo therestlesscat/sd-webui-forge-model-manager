@@ -1,12 +1,14 @@
 """
 Civitai API client with rate limiting and retry logic.
 """
+import contextlib
+import contextvars
 import json
 import time
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Callable, Iterator, Tuple
 from urllib.parse import quote, urlencode
 
 from ..forge_host import setting
@@ -15,6 +17,35 @@ from ..forge_host import setting
 class CivitaiAPIError(Exception):
     """Base exception for Civitai API errors."""
     pass
+
+
+# Who hears what the request being served is waiting on - a turn at the
+# rate, a retry, a slow step - so a page can say it while it waits (#132):
+# it saw "Loading images..." through every retry, and learnt only the last
+# error. A context variable, so nothing between an endpoint and the client
+# passes it along; nobody listening, nothing is told.
+_listener: contextvars.ContextVar = contextvars.ContextVar("civitai_listener", default=None)
+
+
+@contextlib.contextmanager
+def telling(listener: Callable[[Dict[str, Any]], None]) -> Iterator[None]:
+    """Tell `listener` {text, wait} of each wait, in this context, while it lasts."""
+    token = _listener.set(listener)
+    try:
+        yield
+    finally:
+        _listener.reset(token)
+
+
+def tell(text: str, wait: Optional[float] = None) -> None:
+    """Say what is being waited on, and for how many seconds when it is known."""
+    listener = _listener.get()
+    if listener is None:
+        return
+    try:
+        listener({"text": text, "wait": wait})
+    except Exception as e:                  # the page's, never the request's
+        print(f"[ModelManager] Could not say what Civitai is waited on: {e}")
 
 
 def _civitai_says(response) -> str:
@@ -264,8 +295,17 @@ class CivitaiClient:
             label = endpoint or url.split("?")[0]
         print(f"[ModelManager] Request: {method} {label} (auth={'yes' if has_auth else 'no'})")
 
+        def again(why: str, wait: float, attempt: int) -> None:
+            # A sentence, whoever wrote it: Civitai's words may end without a stop.
+            why = why if why.endswith((".", "!", "?")) else why + "."
+            tell(f"{why} Trying again ({attempt + 1} of {self.MAX_RETRIES})", wait)
+
         for attempt in range(self.MAX_RETRIES + 1):
-            # Wait for rate limiter
+            # Wait for rate limiter - shared by every request at this rate
+            turn = self.rate_limiter.wait_time()
+            if turn >= 1.0:
+                tell(f"Waiting for a turn: Civitai is asked at most "
+                     f"{self.rate_limiter.tokens_per_second:g} times a second", turn)
             if not self.rate_limiter.acquire(timeout=120.0):
                 raise CivitaiRateLimitError(60)
 
@@ -289,6 +329,9 @@ class CivitaiClient:
                     retry_after = int(response.headers.get("Retry-After", 60))
                     if self.wait_on_rate_limit and attempt < self.MAX_RETRIES:
                         print(f"[ModelManager] Rate limited, waiting {retry_after}s...")
+                        said = _civitai_says(response)
+                        again(f"Civitai is limiting requests{': ' + said if said else '.'}",
+                              retry_after, attempt)
                         time.sleep(retry_after)
                         continue
                     raise CivitaiRateLimitError(retry_after)
@@ -303,6 +346,8 @@ class CivitaiClient:
                         wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
                         print(f"[ModelManager] Server error {response.status_code}"
                               f"{': ' + said if said else ''}, retrying in {wait_time}s...")
+                        again(f"Civitai: {said}" if said else f"Civitai answered {response.status_code}.",
+                              wait_time, attempt)
                         time.sleep(wait_time)
                         continue
                     raise CivitaiAPIError(f"Civitai: {said} ({response.status_code})" if said
@@ -318,6 +363,7 @@ class CivitaiClient:
                 if attempt < self.MAX_RETRIES:
                     wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
                     print(f"[ModelManager] Timeout, retrying in {wait_time}s...")
+                    again(f"Civitai did not answer within {self.REQUEST_TIMEOUT} s.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue
 
@@ -326,6 +372,7 @@ class CivitaiClient:
                 if attempt < self.MAX_RETRIES:
                     wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
                     print(f"[ModelManager] Connection error, retrying in {wait_time}s...")
+                    again("Could not reach Civitai.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue
 
@@ -338,6 +385,7 @@ class CivitaiClient:
                 last_error = CivitaiAPIError(f"Request failed: {e}")
                 if attempt < self.MAX_RETRIES:
                     wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
+                    again(f"The request to Civitai failed: {e}.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue
 
@@ -669,6 +717,7 @@ class CivitaiClient:
         if cursor:
             params["cursor"] = cursor
 
+        tell("Asking Civitai for images...")
         try:
             data = self._request("GET", "/images", params)
         except CivitaiNotFoundError:
@@ -719,6 +768,7 @@ class CivitaiClient:
 
         chunks = [ids[start:start + self.GENERATION_DATA_BATCH]
                   for start in range(0, len(ids), self.GENERATION_DATA_BATCH)]
+        tell(f"Asking Civitai for the prompts of {len(ids)} images...")
 
         def fetch(chunk):
             procedures = ",".join([self.GENERATION_DATA_PROC] * len(chunk))
@@ -734,8 +784,11 @@ class CivitaiClient:
                 return chunk, None, e
 
         if workers > 1 and len(chunks) > 1:
+            # Each in a copy of this context: whoever hears this request's
+            # waits hears the workers' too (tell).
             with ThreadPoolExecutor(max_workers=min(workers, len(chunks))) as executor:
-                answers = list(executor.map(fetch, chunks))
+                futures = [executor.submit(contextvars.copy_context().run, fetch, chunk) for chunk in chunks]
+                answers = [future.result() for future in futures]
         else:
             answers = [fetch(chunk) for chunk in chunks]
 

@@ -21,7 +21,7 @@ from ..civitai import (
     CivitaiClient, enrich_images_with_generation_data, keep_generation_data,
 )
 from ..gallery import filter_images, gallery_page_size
-from .common import failed
+from .common import failed, streams_status
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
 # while every one holds only images already stored.
@@ -257,6 +257,7 @@ def register(app: FastAPI):
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
     @app.post("/model-manager/images/resync")
+    @streams_status
     def resync_images(version_id: int = Form(default=0)):
         """
         Replace a version's images with a fresh first page, at the page size.
@@ -315,6 +316,7 @@ def register(app: FastAPI):
             return failed(e, "Resync images error")
 
     @app.get("/model-manager/images/gallery-page")
+    @streams_status
     def get_gallery_page(version_id: int, page: int = 1,
                          hide_nsfw_images: Optional[bool] = None,
                          hide_promptless_images: Optional[bool] = None):

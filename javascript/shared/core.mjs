@@ -43,6 +43,66 @@ export async function apiCall({ endpoint, params = {} }) {
 }
 
 /**
+ * Read a stream of newline-delimited JSON, handing each event to `handle` as
+ * it comes: the Civitai Browser's filtered search and draw, and every
+ * gallery's page (apiCallTelling). What `handle` throws ends it.
+ */
+export async function readEvents(response, handle) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();          // keep any partial line
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            let evt;
+            try {
+                evt = JSON.parse(line);
+            } catch (e) {
+                console.warn('[ModelManager] Bad stream line:', line);
+                continue;
+            }
+            handle(evt);
+        }
+    }
+}
+
+/**
+ * apiCall, for an endpoint that says what it waits on before it answers
+ * (streams_status, api/common.py): each {text, wait} to `onStatus` as it
+ * comes - a turn at Civitai's rate, a retry in Civitai's words - and the
+ * answer at the end. `form` sends a POST's fields. A reply that is no
+ * stream is read as apiCall reads one.
+ */
+export async function apiCallTelling({ endpoint, params = {}, form = null, onStatus = () => {} }) {
+    const url = new URL(endpoint, window.location.origin);
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            url.searchParams.append(key, value);
+        }
+    });
+    const response = await fetch(url, form
+        ? { method: 'POST', body: new URLSearchParams(form).toString(),
+            headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/x-www-form-urlencoded' } }
+        : { headers: { Accept: 'application/x-ndjson' } });
+    if (!String(response.headers?.get?.('content-type') || '').includes('ndjson')) return response.json();
+    let answer;
+    await readEvents(response, (event) => {
+        if (event.type === 'status') onStatus(event);
+        else if (event.type === 'result') answer = event.result;
+    });
+    if (answer === undefined) throw new Error('the answer stopped before it was complete');
+    return answer;
+}
+
+/**
  * Make text safe to place in HTML - as content, or inside a quoted attribute.
  *
  * This used to serialize a text node, which escapes & < > and, per the HTML

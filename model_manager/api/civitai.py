@@ -35,7 +35,7 @@ from .images import PAGE_FETCHES
 # 150, 200 and 201 all came back as 100.
 CIVITAI_IMAGES_PER_REQUEST = 100
 from .prompts import PROMPT_CHECK_WORKERS, inspect_models
-from .common import card_size, failed
+from .common import card_size, failed, streams_status
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -423,6 +423,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai get model error")
 
     @app.get("/model-manager/civitai/versions/{version_id}/images")
+    @streams_status
     def civitai_get_version_images(
         version_id: int,
         page: int = 1,

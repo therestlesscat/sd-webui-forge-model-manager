@@ -59,8 +59,8 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes: formatFileSize,
-    formatDay: formatDate, setText, setTitle,
+    onReady, apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber,
+    formatBytes: formatFileSize, formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
@@ -72,7 +72,8 @@ const {
     savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
 } = await shared('filters.mjs');
 const {
-    showGalleryLoading, dimGalleryWhileLoading, renderFilterBanner, createPagedGallery, scrollToImagesTop,
+    showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, renderFilterBanner,
+    createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
@@ -355,37 +356,6 @@ if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncLucky);
 function updateStatus(message) {
     const status = document.getElementById('cb_status');
     if (status) status.textContent = message;
-}
-
-/**
- * Read a stream of newline-delimited JSON, handing each event to `handle` as
- * it comes: the filtered search's, and a draw's. What `handle` throws ends it.
- */
-async function readEvents(response, handle) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();          // keep any partial line
-
-        for (const line of lines) {
-            if (!line.trim()) continue;
-            let evt;
-            try {
-                evt = JSON.parse(line);
-            } catch (e) {
-                console.warn('[CivitaiBrowser] Bad stream line:', line);
-                continue;
-            }
-            handle(evt);
-        }
-    }
 }
 
 // Search with the prompt or size filter, rendering models as they are found.
@@ -1078,16 +1048,28 @@ async function fetchImagesPage(number) {
     const version = getSelectedVersion();
     if (!version?.id) return null;
     const request = ++imagesRequest;
-    const result = await apiCall({
-        endpoint: `/model-manager/civitai/versions/${version.id}/images`,
-        params: {
-            page: number, cursor: number > 1 ? (nextImagesCursor || '') : '',
-            hide_nsfw_images: !showAllNsfwImages,
-            hide_promptless_images: !showPromptlessImages,
-        },
+    // What it waits on, where its loading shows: page 1's over the gallery -
+    // a model opened, a switch changed - Load More's under its button (#132).
+    const status = statusSayer((text) => {
+        if (request !== imagesRequest) return;
+        if (number > 1) imageGallery.say(text);
+        else sayGalleryLoading('cb_images', text);
     });
-    if (request !== imagesRequest || getSelectedVersion() !== version) return null;
-    return result;
+    try {
+        const result = await apiCallTelling({
+            endpoint: `/model-manager/civitai/versions/${version.id}/images`,
+            params: {
+                page: number, cursor: number > 1 ? (nextImagesCursor || '') : '',
+                hide_nsfw_images: !showAllNsfwImages,
+                hide_promptless_images: !showPromptlessImages,
+            },
+            onStatus: status.say,
+        });
+        if (request !== imagesRequest || getSelectedVersion() !== version) return null;
+        return result;
+    } finally {
+        status.done();
+    }
 }
 
 /** Every loaded page's counts added up: what the banner states. */

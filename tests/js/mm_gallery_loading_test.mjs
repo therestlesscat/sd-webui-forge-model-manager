@@ -16,11 +16,35 @@ const MODEL = {
 const image = (id) => ({ id, url: `https://example.invalid/${id}.jpeg`, mm_level: 1, meta: { prompt: 'a lighthouse' } });
 const STATE = { version_id: 5001, total_count: 2, filtered_count: 2, hide_nsfw_images: false,
                 hide_promptless_images: false };
+// What a gallery waits on, as a server asked for a stream sends it (#132):
+// its status lines, then - once the gate opens - its answer.
+const streamed = (lines, gate) => new Response(new ReadableStream({
+    async start(controller) {
+        const encoder = new TextEncoder();
+        for (const line of lines) {
+            if (line === 'GATE') await gate;
+            else controller.enqueue(encoder.encode(JSON.stringify(line) + '\n'));
+        }
+        controller.close();
+    },
+}), { headers: { 'content-type': 'application/x-ndjson' } });
+const OVERLOADED = { type: 'status', text: 'Civitai: overloaded. Trying again (1 of 3)', wait: 3 };
+let streamNext = null;     // a gate: the next answer comes as a stream, held there
+const accepts = [];
 let release = null;
 let failNext = false;
-globalThis.fetch = async (url) => {
+globalThis.fetch = async (url, init) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
+    if (streamNext && (href.includes('/images/gallery-page') || href.includes('/images/resync'))) {
+        const gate = streamNext;
+        streamNext = null;
+        accepts.push(init?.headers?.Accept);
+        const answer = href.includes('/resync') ? { success: true, fetched_count: 2 }
+            : { success: true, images: [image(1), image(2)], images_state: STATE,
+                page: { number: 1, count: 2, shown: 2, more: false } };
+        return streamed([OVERLOADED, 'GATE', { type: 'result', result: answer }], gate);
+    }
     if (href.includes('/images/gallery-page')) {
         await new Promise((resolve) => { release = resolve; });
         release = null;
@@ -87,5 +111,34 @@ check('a first page that fails is said in the gallery, which is undimmed again',
       [gallery().querySelector('.mm-images-error')?.textContent.includes('temporarily overloaded'),
        gallery().classList.contains('mm-gallery-loading'), !!bar()],
       [true, false, false]);
+
+// ---------------------------------------------- what it waits on (#132)
+// Civitai overloaded: the page used to say nothing but wait. Now the gallery
+// says what it waits on, in Civitai's words, and counts the seconds down.
+const line = () => gallery().querySelector(':scope > .mm-images-loading')?.textContent;
+let open;
+streamNext = new Promise((resolve) => { open = resolve; });
+const waiting = call('modelManager.showNsfwImages', {}, { checked: false });
+await waitFor('what it waits on', () => line()?.includes('overloaded'));
+check('a switch\'s page that waits on Civitai says why over the dimmed images, counting down',
+      [line(), gallery().classList.contains('mm-gallery-loading')],
+      ['Civitai: overloaded. Trying again (1 of 3) · 3 s', true]);
+check('having asked for a stream', accepts.at(-1), 'application/x-ndjson');
+open();
+await waiting;
+await waitFor('the images', () => cards().length === 2);
+check('then its images, and the line is gone', line() === undefined, true);
+
+// Resync Images says it on the status line, as it says it is resyncing.
+streamNext = new Promise((resolve) => { open = resolve; });
+const resyncing = act('modelManager.resyncImages');
+await waitFor('what Resync waits on', () => $('mm_status')?.textContent.includes('overloaded'));
+check('Resync Images says what it waits on, on the status line',
+      $('mm_status').textContent, 'Resyncing images: Civitai: overloaded. Trying again (1 of 3) · 3 s');
+open();
+await waitFor('the resync', () => $('mm_status')?.textContent.startsWith('Resynced'), 60);
+await waitFor('the page after it', () => release !== null);
+release();
+await resyncing;
 
 done();

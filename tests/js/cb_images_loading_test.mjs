@@ -13,12 +13,37 @@ const { check, waitFor, done } = checker();
 const image = (id) => ({ id, url: `https://example.invalid/${id}.jpeg`, nsfwLevel: 1, browsingLevel: 1,
     mm_level: 1, mm_level_from_prompt: false, meta: { prompt: 'a lighthouse by the sea' } });
 const IMAGES = { 70: [image(1), image(2)], 80: [image(3)] };
+// What a gallery waits on, as a server asked for a stream sends it (#132):
+// its status lines, then - once the gate opens - its answer.
+const streamed = (lines, gate) => new Response(new ReadableStream({
+    async start(controller) {
+        const encoder = new TextEncoder();
+        for (const line of lines) {
+            if (line === 'GATE') await gate;
+            else controller.enqueue(encoder.encode(JSON.stringify(line) + '\n'));
+        }
+        controller.close();
+    },
+}), { headers: { 'content-type': 'application/x-ndjson' } });
+const OVERLOADED = { type: 'status', text: 'Civitai: overloaded. Trying again (1 of 3)', wait: 3 };
+let streamNext = null;     // a gate: the next answer comes as a stream, held there
+const accepts = [];
 let release = null;        // the images request, held back while a test looks
 let failNext = false;
-globalThis.fetch = async (url) => {
+let moreNext = false;      // the next answer says Civitai has more
+globalThis.fetch = async (url, init) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     const version = href.match(/versions\/(\d+)\/images/);
+    if (version && streamNext) {
+        const gate = streamNext;
+        streamNext = null;
+        accepts.push(init?.headers?.Accept);
+        const more = moreNext;
+        moreNext = false;
+        return streamed([OVERLOADED, 'GATE', { type: 'result',
+            result: browserGalleryAnswer(href, IMAGES[version[1]], {}, { more, size: 2 }) }], gate);
+    }
     if (version) {
         await new Promise((resolve) => { release = resolve; });
         release = null;
@@ -98,5 +123,32 @@ await held();
 release();
 await another;
 await waitFor('its images', () => cards().length === 1);
+
+// ---------------------------------------------- what it waits on (#132)
+const line = () => gallery().querySelector(':scope > .mm-images-loading')?.textContent;
+let open;
+streamNext = new Promise((resolve) => { open = resolve; });
+moreNext = true;
+const opened = act('civitaiBrowser.openModel', { index: 0 });
+await waitFor('what it waits on', () => line()?.includes('overloaded'));
+check('opening a model whose images wait on Civitai says why, in its words, counting down',
+      line(), 'Civitai: overloaded. Trying again (1 of 3) · 3 s');
+check('having asked for a stream', accepts.at(-1), 'application/x-ndjson');
+open();
+await opened;
+await waitFor('the images', () => cards().length === 2);
+
+const status = () => gallery().querySelector('.mm-images-footer .mm-images-status')?.textContent;
+streamNext = new Promise((resolve) => { open = resolve; });
+const more = act('civitaiBrowser.loadMoreImages');
+await waitFor('what Load More waits on', () => status()?.includes('overloaded'));
+check('Load More says what it waits on under its button',
+      [status(), gallery().querySelector('.mm-images-footer button')?.textContent.trim()],
+      ['Civitai: overloaded. Trying again (1 of 3) · 3 s', 'Loading...']);
+open();
+await more;
+check('and the line goes with the page, the button back',
+      [status() === undefined, gallery().querySelector('.mm-images-footer button')?.textContent.trim() ?? 'no more'],
+      [true, 'no more']);
 
 done();
