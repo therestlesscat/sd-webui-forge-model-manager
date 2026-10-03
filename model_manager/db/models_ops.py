@@ -14,8 +14,9 @@ from typing import Optional, List, Dict, Any, Set, Tuple, Callable, NamedTuple
 
 # Whether the disk ignores case, as Windows does. file_path is unique as SQL
 # compares it, case and all, so a walk spelling a stored file another way
-# made a second row for it (#99). Where case matters, two spellings are two
-# files and are left apart.
+# made a second row for it (#99), and every other read or write by path found
+# nothing for it (#120): each finds the stored row through _stored_spelling.
+# Where case matters, two spellings are two files and are left apart.
 _CASE_BLIND = os.path.normcase("A") == os.path.normcase("a")
 
 
@@ -532,6 +533,7 @@ class ModelsOps:
         downloaded, its pin, and its generations' link to it.
         """
         with self._cursor() as cursor:
+            old_path = _stored_spelling(cursor, old_path)
             cursor.execute("UPDATE model_versions SET file_path = ?, file_name = ? WHERE file_path = ?",
                            (new_path, os.path.basename(new_path), old_path))
             cursor.execute("UPDATE pins SET file_path = ? WHERE file_path = ?", (new_path, old_path))
@@ -541,12 +543,12 @@ class ModelsOps:
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""
         with self._cursor() as cursor:
-            cursor.execute("DELETE FROM model_versions WHERE file_path = ?", (file_path,))
+            cursor.execute("DELETE FROM model_versions WHERE file_path = ?", (_stored_spelling(cursor, file_path),))
 
     def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get a version by file path."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE file_path = ?", (file_path,))
+            cursor.execute("SELECT * FROM model_versions WHERE file_path = ?", (_stored_spelling(cursor, file_path),))
             row = cursor.fetchone()
             if row:
                 return self._version_row_to_dict(row)
