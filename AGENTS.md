@@ -671,6 +671,11 @@ real time once.
   before `main` existed follows - Forge updates a copy from its own branch
   (`origin/<branch>`), so they stay on `dev`.
 - **`rc`** is for trying a release before it goes out; it is pushed first.
+  GitHub acts on "Fixes #N" only on `main`, so a push to `rc` labels each
+  open issue a commit there fixes `fixed-in-rc`, with a comment naming the
+  commit (`.github/workflows/fixed-in-rc.yml`): an open issue with the label
+  is done and waiting for a release, and closes when it reaches `main`.
+  "Refs #N" names an issue without either.
 - **Whenever `main` is updated, `dev` is updated at the same time, to the
   same commit** - one push, never one without the other:
   `git push origin dev dev:main`. A release on `main` alone leaves every
