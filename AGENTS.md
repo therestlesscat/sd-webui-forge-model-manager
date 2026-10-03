@@ -421,6 +421,61 @@ So:
 `tests/py/css_test.py` fails when a `cb-` rule and an `mm-` rule say the same
 thing, so the next component that would have been copied has to be shared.
 
+### Light and dark, every style
+
+**Every style covers light mode and dark mode. No exceptions.** A colour, a
+background, a border, a shade, a shadow: each is decided for both, and seen
+in both before it is done. Until 0.45.7 the tabs were drawn for dark mode
+alone, and light mode had black text boxes, grey cards, dark dropdowns, and
+ticked checkboxes that looked empty.
+
+- **Take the theme's colour where there is one** - `--body-text-color`,
+  `--background-fill-primary`, `--border-color-primary`,
+  `--checkbox-background-color-selected` - with a fallback. Where it does
+  not do in one mode, give that mode its own rule. This theme leaves
+  `--input-background-fill` white even in dark mode, which is why the dark
+  was once set outright, for both.
+- **A colour of its own for one mode goes under `.dark`**: the light rule
+  first, `.dark .x { ... }` after it. A `.dark` rule outweighs a later
+  `:hover`, `.active` or `[data-state]` rule of the same weight, so it goes
+  before them, or names the state itself (`.dark .x:hover`).
+- **A shade is not a colour.** `rgba(0, 0, 0, 0.2)` darkens a dark page and
+  greys a light one: a light mode gets a lighter shade (0.03-0.06), and the
+  dark one moves under `.dark`.
+- **Text on a dark badge over an image** - a date, a count, a button on a
+  tile - is dark in both modes, and says its own text colour.
+
+**What the WebUI does to our markup, and what wins against it:**
+
+- **Gradio colours every element in an HTML block** -
+  `.gradio-container-4-40-0 .prose * { color: var(--body-text-color) }` -
+  at a weight one class cannot beat. A colour of ours is set with
+  `!important`, and so is every state rule that sets a colour on the same
+  element, so their order among themselves holds. Without it, a white date
+  on a dark badge was black in light mode, and a blue type badge showed the
+  theme's text colour in both.
+- **Gradio's form reset draws every checkbox in its container itself**
+  (`appearance: none`, and once ticked a white tick) with no fill: a ticked
+  box is filled in our tabs (`#model_manager_app [type="checkbox"]:checked`
+  and the other two roots). The settings window and the dialogs are added to
+  the page's body, outside the container, and keep native controls.
+- **It resets a `<button>`'s font, and not a link's.** A link dressed as a
+  button did not look like the buttons beside it, and two CSS fixes did not
+  make it: a button that opens a page is a `<button data-open-url>`
+  (`core.mjs`), not an `<a>`.
+
+**Seen in both modes, in a real browser, before it is done.** linkedom has
+no layout and no cascade worth the name: headless Edge (`tests/README.md`,
+and the probes under `tests/work/`) on a page that loads what the WebUI
+loads - Gradio's `assets/index-*.css`, **the running theme** (Windows'
+`curl.exe http://127.0.0.1:<port>/theme.css`), the WebUI's `style.css` and
+**every extension's**, in the page's order (the page's own `<link>`s list
+them) - with one copy of the markup in light mode and one under `.dark`.
+Measure what the change is about with `getComputedStyle`, against the
+stylesheet before it (`git show HEAD:style.css`): what should not move, in
+either mode, must come out the same. A probe without the theme or the other
+extensions' styles measured buttons the same that were not.
+
 ## Conventions
 
 - Comments explain **why**, not what. If a line needs saying twice, the second
