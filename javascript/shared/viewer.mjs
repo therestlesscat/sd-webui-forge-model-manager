@@ -28,7 +28,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml } = await shared('core.mjs');
+const { escapeHtml, holdPage } = await shared('core.mjs');
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -120,7 +120,7 @@ export function openViewer(source, index = 0) {
     const pageScroll = window.scrollY || document.documentElement?.scrollTop || 0;
     document.body.appendChild(element);
     // The page under it stays where it is: the wheel is the viewer's.
-    document.body.classList.add('mm-modal-open');
+    holdPage('viewer', true);
     current = { source, index: 0, element, wheel: 0, wheelAt: 0, pageScroll };
     showImage(index);
     return current;
@@ -133,7 +133,7 @@ export function closeViewer() {
     current = null;
     element.remove();
     document.removeEventListener('keydown', onKey);
-    document.body.classList.remove('mm-modal-open');
+    holdPage('viewer', false);
     source.onClose?.(index);
 }
 
@@ -359,7 +359,7 @@ export function askToDelete(question, n = 1) {
 export function openMetaModal(modalHtml) {
     document.getElementById('mm_meta_modal')?.remove();
     document.body.insertAdjacentHTML('beforeend', modalHtml);
-    document.body.classList.add('mm-modal-open');
+    holdPage('dialog', true);
     const modal = document.getElementById('mm_meta_modal');
     if (!modal) return;
     closeOnEscape(modal, closeMetaModal);
@@ -372,6 +372,6 @@ function closeMetaModal() {
     const modal = document.getElementById('mm_meta_modal');
     if (modal) {
         modal.remove();
-        document.body.classList.remove('mm-modal-open');
+        holdPage('dialog', false);
     }
 }
