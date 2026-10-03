@@ -531,14 +531,29 @@ class ModelsOps:
         it follow, in one transaction. A scan would otherwise take the old
         path for a file gone and the new for a new one - losing when it was
         downloaded, its pin, and its generations' link to it.
+
+        A row already naming the new path, in any spelling, is of a file gone
+        since - nothing is moved onto a file (model_dirs.relocate) - which the
+        scan's diff would forget anyway, and it is replaced: it once stopped
+        the row following its file (#126). What is kept by that path - a
+        pin, generations' links - stays, and the moved file's join it, one of
+        each: as when a download lands on the path, and, where the file was
+        moved there by hand and back, its own.
         """
         with self._cursor() as cursor:
             old_path = _stored_spelling(cursor, old_path)
+            there = _stored_spelling(cursor, new_path)
+            if there != old_path:
+                cursor.execute("DELETE FROM model_versions WHERE file_path = ?", (there,))
             cursor.execute("UPDATE model_versions SET file_path = ?, file_name = ? WHERE file_path = ?",
                            (new_path, os.path.basename(new_path), old_path))
-            cursor.execute("UPDATE pins SET file_path = ? WHERE file_path = ?", (new_path, old_path))
-            cursor.execute("UPDATE generation_files SET file_path = ? WHERE file_path = ?",
-                           (new_path, old_path))
+            for path in dict.fromkeys((old_path, there)):
+                if path == new_path:
+                    continue
+                for table in ("pins", "generation_files"):
+                    cursor.execute(f"UPDATE OR IGNORE {table} SET file_path = ? WHERE file_path = ?",
+                                   (new_path, path))
+                    cursor.execute(f"DELETE FROM {table} WHERE file_path = ?", (path,))
 
     def delete_version(self, file_path: str):
         """Delete a version record by file path."""

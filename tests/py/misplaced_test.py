@@ -27,6 +27,7 @@ import model_manager.db.database as dbmod                # noqa: E402
 from modules import paths                                # noqa: E402  (webui_stub's)
 from model_manager import model_dirs                     # noqa: E402
 from model_manager.architecture import Architecture     # noqa: E402
+from model_manager.hashing import read_hashes           # noqa: E402
 from model_manager.identity_store import store_architecture  # noqa: E402
 from model_manager.model_dirs import file_modified      # noqa: E402
 from model_manager.scan_service import ScanService, misplaced_files  # noqa: E402
@@ -124,6 +125,87 @@ check('none of them is moved, or written over', [os.path.exists(p) for p in (sam
 check('and the scan says so', (progress.moved, sorted(os.path.basename(p) for p in progress.not_moved)),
       (0, ['loose.safetensors', 'namesake.safetensors', 'twin.safetensors']))
 check('the count reaches the page', progress.to_dict()['not_moved'], 3)
+
+# ------------------------------------------------------------ a row left for a file gone since (#126)
+# A file deleted outside the app keeps its row until a scan's diff - which
+# runs after the move. Moving onto its path is no clash, as nothing is there;
+# its row once stopped the moved file's row following it, the file moved and
+# its row, pin and generations left under the old path.
+def link(path, *images):
+    raw = sqlite3.connect(facts['db_path'])
+    raw.executemany('INSERT INTO generation_files (file_path, image_id, generation_id) VALUES (?, ?, 1)',
+                    [(path, image) for image in images])
+    raw.commit()
+    raw.close()
+
+
+def under(path):
+    """What names `path`, in any case: rows, pins, generations' images."""
+    raw = sqlite3.connect(facts['db_path'])
+    found = [[r[0] for r in raw.execute(f'SELECT {column} FROM {table} WHERE file_path = ? COLLATE NOCASE '
+                                        f'ORDER BY 1', (path,))]
+             for table, column in (('model_versions', 'file_path'), ('pins', 'file_path'),
+                                   ('generation_files', 'image_id'))]
+    raw.close()
+    return found
+
+
+gone = place('VAE', 'hand_moved.safetensors', 'VAE', sha='F' * 64)
+os.remove(gone)
+db.set_pin(None, gone, True)
+link(gone, 2, 3)
+moving = place('Stable-diffusion', 'hand_moved.safetensors', 'VAE', sha='E' * 64)
+db.set_pin(None, moving, True)
+link(moving, 3, 4)
+check('a row whose file is gone is no clash', [f['clash'] for f in misplaced_files(db) if f['path'] == moving],
+      [None])
+progress = scan.scan_models(move_misplaced=True)
+check('the file is moved onto it', (os.path.exists(gone), os.path.exists(moving)), (True, False))
+check('counted, and nothing failed', (progress.moved, [e for e in progress.errors if 'could not move' in e]),
+      (1, []))
+check('one row, one pin, and the generations of both - the image both used, once',
+      under(gone), [[gone], [gone], [2, 3, 4]])
+check('the row is the moved file\'s', read_hashes((db.get_version(gone) or {}).get('file_hashes')).get('sha256'),
+      'e' * 64)
+check('nothing is left under the old path', under(moving), [[], [], []])
+
+if model_dirs.os.path.normcase('A') == model_dirs.os.path.normcase('a'):
+    other_case = place('VAE', 'Spelt.safetensors', 'VAE', sha='G' * 64)
+    os.remove(other_case)
+    link(other_case, 5)
+    moving = place('Stable-diffusion', 'spelt.safetensors', 'VAE', sha='H' * 64)
+    to = os.path.join(models, 'VAE', 'spelt.safetensors')
+    progress = scan.scan_models(move_misplaced=True)
+    check('where case is ignored, a row spelt another way is the same path: one row is left, the moved file\'s',
+          [under(to)[0], under(to)[2], read_hashes((db.get_version(to) or {}).get('file_hashes')).get('sha256')],
+          [[to], [5], 'h' * 64])
+
+# ------------------------------------------------------------ a row that cannot follow
+# The file moves first, then its row. When the database refuses - locked by
+# the other WebUI sharing it - the file goes back, rather than sit where no
+# row names it.
+locked = place('Stable-diffusion', 'locked.safetensors', 'VAE', sidecars=('.preview.png',))
+locked_to = os.path.join(models, 'VAE', 'locked.safetensors')
+
+
+def refuse(old_path, new_path):
+    if old_path == locked:
+        raise sqlite3.OperationalError('database is locked')
+    return type(db).move_version(db, old_path, new_path)
+
+
+db.move_version = refuse
+try:
+    progress = scan.scan_models(move_misplaced=True)
+finally:
+    del db.move_version
+check('the file and its preview are back where they were',
+      [os.path.exists(p) for p in (locked, os.path.splitext(locked)[0] + '.preview.png', locked_to,
+                                   os.path.splitext(locked_to)[0] + '.preview.png')],
+      [True, True, False, False])
+check('its row never left', (bool(db.get_version(locked)), db.get_version(locked_to)), (True, None))
+check('and the scan says it could not move it',
+      [e for e in progress.errors if 'could not move' in e], ['locked.safetensors: could not move it: database is locked'])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

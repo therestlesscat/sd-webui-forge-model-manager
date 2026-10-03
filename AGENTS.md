@@ -195,15 +195,17 @@ returned either, and a cover changed between loads. Anything that picks one of
 several needs an order that cannot tie.
 
 **Deleting rows needs evidence.** Two kinds, and they are not equally safe.
-*Direct*: this file was about to be refreshed and is not there — sound in any
-scope. *By diff*: these rows name files a walk never found — sound only when
-the walk covered the whole disk, so it runs before any target filter, never
-with an explicit path list, and never when the walk came back empty (that is an
-unmounted drive, not an emptied library). And only for a file that is not on
-disk (`model_dirs.gone_from_disk`): a walk looks for model files in the
-library's folders, and a download can land elsewhere - a wildcard's `.zip`, a
-folder template pointing outside. Every folder a download files into is one
-the library walks; both come from one table in `model_dirs.py`.
+*Direct*: this file was about to be refreshed and is not there, or another has
+just been moved onto its path, where nothing was (`move_version`, #126) —
+sound in any scope. *By diff*: these rows name files a walk never found —
+sound only when the walk covered the whole disk, so it runs before any target
+filter, never with an explicit path list, and never when the walk came back
+empty (that is an unmounted drive, not an emptied library). And only for a
+file that is not on disk (`model_dirs.gone_from_disk`): a walk looks for model
+files in the library's folders, and a download can land elsewhere - a
+wildcard's `.zip`, a folder template pointing outside. Every folder a download
+files into is one the library walks; both come from one table in
+`model_dirs.py`.
 
 **Civitai's model type is not the file's role.** A checkpoint model can ship a
 VAE as one of its versions, and that file inherits "Checkpoint"; text encoders
