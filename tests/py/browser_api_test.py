@@ -257,6 +257,48 @@ check('a stream that fails says so in the stream', lines[-1]['type'], 'error')
 check('rather than as a status code', response.status_code, 200)
 check('with the reason', lines[-1]['error'], 'stream broke')
 
+# ---------------------------------------------------------- a random draw
+# The draw itself is random_draw_test.py's; here, what the endpoint hands it
+# and what it makes of the answer.
+drawn_with = []
+def fake_draw(civitai_client, filters, page_size):
+    drawn_with.append((filters, page_size, civitai_client.wait_on_rate_limit))
+    yield 'progress', {'asked': 250, 'found': 0, 'requests': 1, 'listing': 0}
+    yield 'done', {'models': [remote(90001, 90002), remote(OWNED_MODEL, OWNED_VERSION)],
+                   'asked': 250, 'requests': 2, 'listed': False, 'matches': 600000,
+                   'rate_limited': False, 'stopped': False}
+
+real_draw = endpoints.iter_random_models
+endpoints.iter_random_models = fake_draw
+Stub.wait_on_rate_limit = True
+civitai()
+with client.stream('GET', '/model-manager/civitai/models/random', params={
+        'types': 'Checkpoint', 'base_models': 'Pony, SDXL 1.0', 'nsfw': 'true', 'tag': 'anime',
+        'checkpoint_type': 'Merge', 'period': 'Week', 'query': 'ignored', 'sort': 'Newest',
+        'require_prompt': 'true', 'min_size_gb': '2', 'limit': 7}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+kinds = [line['type'] for line in lines]
+check('a draw streams: its metadata, progress, then what it drew', kinds, ['meta', 'progress', 'done'])
+check('the page size it was asked for', (lines[0]['pageSize'], drawn_with[0][1]), (7, 7))
+check('Civitai\'s own filters are handed on, and nothing else',
+      drawn_with[0][0], {'types': ['Checkpoint'], 'base_models': ['Pony', 'SDXL 1.0'], 'nsfw': True,
+                         'tag': 'anime', 'checkpoint_type': 'Merge', 'period': 'Week'})
+check('a 429 is not sat out: the draw stops with what it found', drawn_with[0][2], False)
+check('the models drawn come marked up with local ownership',
+      [m['owned_locally'] for m in lines[-1]['models']], [False, True])
+check('with what the draw cost', (lines[-1]['draw']['requests'], lines[-1]['draw']['matches']), (2, 600000))
+check('the client was closed', ('close',) in Stub.calls, True)
+
+def broken_draw(civitai_client, filters, page_size):
+    raise RuntimeError('draw broke')
+    yield
+endpoints.iter_random_models = broken_draw
+with client.stream('GET', '/model-manager/civitai/models/random') as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('a draw that fails says so in the stream', (lines[-1]['type'], lines[-1]['error']),
+      ('error', 'draw broke'))
+endpoints.iter_random_models = real_draw
+
 # ------------------------------------------------- searching by file size
 # Civitai cannot filter on size, so the endpoint checks each result's
 # latest version's primary file and fills the page from what fits.

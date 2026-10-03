@@ -21,6 +21,7 @@ from ..civitai import (
     decode_filter_token,
     enrich_images_with_generation_data,
     iter_models_with_usable_prompts,
+    iter_random_models,
     search_models_with_usable_prompts,
     size_range_check,
 )
@@ -327,6 +328,68 @@ def register(app: FastAPI):
             media_type="application/x-ndjson",
             # proxies and buffering layers would otherwise hold the whole
             # response back, defeating the point of streaming
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/model-manager/civitai/models/random")
+    async def civitai_random_models(
+        types: str = "",
+        base_models: str = "",
+        nsfw: bool = False,
+        period: str = "AllTime",
+        tag: str = "",
+        checkpoint_type: str = "",
+        limit: int = 0,
+    ):
+        """
+        "I'm feeling lucky": a page of models drawn at random from those
+        Civitai's own filters allow (civitai/random_draw.py), streamed as the
+        draw goes, since a narrow filter can take a dozen requests:
+
+            {"type": "meta",     ...}                       once, first
+            {"type": "progress", "asked", "found", ...}     before each request
+            {"type": "done",     "models", "draw": {...}}   once, last
+            {"type": "error",    "error": "..."}            on failure
+
+        It takes no text query and no sort - a query ignores the ids a draw
+        asks for - and none of the filters checked here (prompts, SFW images,
+        file size), which would cost requests per model.
+        """
+        search = _search(query="", types=types, base_models=base_models, nsfw=nsfw, sort="",
+                         period=period, tag=tag, checkpoint_type=checkpoint_type,
+                         min_size_gb=0, max_size_gb=0, limit=limit)
+        filters = {name: value for name, value in search.params.items() if name not in ("query", "sort")}
+
+        def generate():
+            client = CivitaiClient.from_settings()
+            # A 429 ends the draw with what it found, rather than sitting out
+            # Retry-After with the page saying nothing.
+            client.wait_on_rate_limit = False
+            try:
+                yield json.dumps({
+                    "type": "meta",
+                    "pageSize": search.limit,
+                    "cardWidth": search.card_width,
+                    "cardHeight": search.card_height,
+                }) + "\n"
+                for kind, payload in iter_random_models(client, filters, search.limit):
+                    if kind == "progress":
+                        yield json.dumps({"type": "progress", **payload}) + "\n"
+                    elif kind == "done":
+                        models = payload.pop("models")
+                        _annotate(models)
+                        yield json.dumps({"type": "done", "models": models, "draw": payload}) + "\n"
+            except Exception as e:
+                import traceback
+                print(f"[ModelManager] Civitai random draw error: {e}")
+                traceback.print_exc()
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+            finally:
+                client.close()
+
+        return StreamingResponse(
+            generate(),
+            media_type="application/x-ndjson",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 

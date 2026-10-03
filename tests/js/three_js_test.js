@@ -93,6 +93,7 @@ check('isPaid true for both',
 
 // --- getFilters: checkpoint_type only for checkpoints ------------------------
 // getFilters reads the size boxes through sizeBound, which filters.mjs, loaded above, has.
+sandbox.feelingLucky = lift('feelingLucky');       // which asks whether a draw is on
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 const getFilters = lift('getFilters');
 const group = makeGroup();
