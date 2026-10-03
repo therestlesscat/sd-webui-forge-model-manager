@@ -219,10 +219,11 @@ another type is moved to that type's folder (`_file_by_what_it_is`) - never
 over a file. Files already in another type's folder are listed in Scan Disk's
 dialog and moved only when its own box is ticked - never by a note's button,
 which ticks "Re-evaluate file headers" - with their row, pin and generations
-(`move_version`). A Checkpoint is moved only when Forge's detector took it
-(`model_dirs.filed_as`): one known by its layer names alone is something
-UNet-shaped Forge did not take, which it could not load from Stable-diffusion
-either - a ControlNet was, and is now told first (#118).
+(`move_version`), or put back when the row cannot follow (#126). A Checkpoint
+is moved only when Forge's detector took it (`model_dirs.filed_as`): one known
+by its layer names alone is something UNet-shaped Forge did not take, which it
+could not load from Stable-diffusion either - a ControlNet was, and is now
+told first (#118).
 
 **`checkpointType` is inferred, not read.** Civitai accepts it as a filter and
 returns it on neither the model nor the version. `get_checkpoint_types()` asks
@@ -422,7 +423,9 @@ thing, so the next component that would have been copied has to be shared.
 - Comments explain **why**, not what. If a line needs saying twice, the second
   one is not a comment.
 - A commit message says what was wrong and what it now does, with the numbers
-  that justify it.
+  that justify it - counted from the diff, not remembered: two messages in the
+  0.44 round said 219 lines for 147 and 27 handlers for 28, and had to be
+  amended.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 
@@ -526,6 +529,11 @@ real time once.
   query read every image through an index, so the plan looked innocent. What
   told them apart was work: SQLite's virtual machine steps before and after
   adding images the page does not show.
+- **Make sure the old code is what ran.** In WSL's zsh a swap failed without a
+  word - `noclobber` refused `git show HEAD:<file> > <file>`, and an
+  interactive `cp` waited for an answer that never came - and the "old code"
+  run passed, on the new code. Write with `>|` and `command cp -f`, and see
+  `git diff --stat` show the file back at HEAD before reading the run.
 - **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
   source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
   is the same size, a swap reproduced the timestamp, and the stale bytecode
@@ -585,6 +593,19 @@ real time once.
   Civitai's order from JSON: for every version, +13.6 ms a grid query;
   counting ties with a window, +25 ms; asked only where an indexed `EXISTS`
   finds a tie, +3 ms. Time each part.
+- **Compare a round of changes as a whole, after it.** Every refactor of the
+  0.44 round passed its suites. Comparing the code before the round (dc67df9)
+  with after it (cce6e8f), with seven reviewers in parallel, found nine
+  regressions none had caught - a ControlNet filed as a checkpoint, a
+  resource's Download refused as "already downloading", a reloaded page
+  running two copies of its shared modules (#118-#126).
+- **A finding is a claim until it is surveyed.** Of those nine, six were
+  fixed; three were closed once read against the code and the library: a
+  re-download that could not happen (#124), a click that now closes a dropdown
+  as every other click did (#123), and a level that concerned no file of 1,196
+  sidecars and was not hidden by the default filter (#125). Survey each - the
+  code, a count from the real data - and put it to the owner with a
+  recommendation.
 
 ### The data
 
@@ -651,6 +672,10 @@ real time once.
   their type's folder got a box of its own, never ticked for anyone.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
+- **A wait for the server ends on every answer but the one it waits out.**
+  #121's first loop waited on any answer without a version; four suites, whose
+  fetch stand-ins answer `{success: true}`, hung until their processes were
+  killed. It waits out a 404 or no connection now, and takes anything else.
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show.
@@ -661,6 +686,18 @@ real time once.
   directly; Windows' own `curl.exe` can.
 - Run the tests with the WebUI's own Python - it has FastAPI and torch - and
   Windows `node.exe` for the browser suites.
+- WSL's shell here is zsh: `noclobber` is on and `cp` asks before overwriting
+  (see "Make sure the old code is what ran"), and `echo` turns a Windows
+  path's backslashes into escapes - keep a path in a variable, or use
+  `printf`.
+- Windows' Python cannot lock a SQLite file on a WSL path: a throwaway
+  database goes under `tests/work/`, on the Windows drive.
+- To run Neo's detector outside the WebUI, put Neo's root and its
+  `modules_forge/packages` on `sys.path`: with the packages alone, every
+  checkpoint came out without a class.
+- `gh` is Windows' `gh.exe`, and cannot tell the repository from `origin`,
+  which goes through an SSH host alias: pass `--repo
+  therestlesscat/sd-webui-forge-model-manager`.
 
 ## Branches
 
@@ -675,7 +712,9 @@ real time once.
   open issue a commit there fixes `fixed-in-rc`, with a comment naming the
   commit (`.github/workflows/fixed-in-rc.yml`): an open issue with the label
   is done and waiting for a release, and closes when it reaches `main`.
-  "Refs #N" names an issue without either.
+  "Refs #N" names an issue without either, and each issue needs its own
+  word - `Fixes #84, fixes #85`: four refactor issues said "Refs", and an
+  empty commit (7f9e228) had to name them for `main` to close them.
 - **Whenever `main` is updated, `dev` is updated at the same time, to the
   same commit** - one push, never one without the other:
   `git push origin dev dev:main`. A release on `main` alone leaves every
@@ -688,8 +727,9 @@ real time once.
 python tests/run.py --all
 ```
 
-Sixty-seven Python suites, sixty-two browser suites and six static checks, run
-four at a time: about a minute. Not wider - each is a process of its own, and
+A hundred and fifty-one, as the runner counts them - 71 Python, 74 browser and
+6 static checks, six of them skipped unless asked - run four at a time: about a
+minute. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,
 `--changed` runs only the suites the uncommitted changes need. See
 `tests/README.md` for what they cover, how the choice is made, and how to add
