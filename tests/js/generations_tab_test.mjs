@@ -184,6 +184,9 @@ check('with its own Send, Resources and Delete, and its rating row, below it',
       [Array.from(viewer().querySelectorAll('.mm-viewer-actions > button')).map((b) => b.textContent.trim()),
        viewer().querySelectorAll('.mm-viewer-actions .mm-rate-chip').length],
       [['Send to txt2img', 'Resources (1)', 'Delete'], 5]);
+// Its id, to name one image when reporting what it did.
+check('its details say the image\'s id',
+      viewer().querySelector('.mm-viewer-info .mm-generation-when')?.textContent.trim().endsWith('Image ID 11'), true);
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'ArrowRight' }));
 check('→ the next card\'s images', viewer()?.querySelector('.mm-viewer-where')?.textContent, '1 of 6 in this generation');
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));

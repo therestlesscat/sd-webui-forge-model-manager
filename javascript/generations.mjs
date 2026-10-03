@@ -1165,6 +1165,8 @@ function infoHtml(tile, image, url) {
     const checkpoint = (generation.checkpoint_path || '').split(/[\\/]/).pop();
     const rows = [
         ['Made', [formatWhen(generation.created_at, 'medium'), generation.mode].filter(Boolean).join(' · ')],
+        // To name one image when reporting what it did.
+        ['Image ID', image.id ?? ''],
         ['Checkpoint', checkpoint],
         ['Size', image.width && image.height ? `${image.width}×${image.height}` : ''],
         ['Seed', image.seed ?? ''],

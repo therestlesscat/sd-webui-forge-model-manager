@@ -349,6 +349,10 @@ check('a small turn is not yet a step', [wheel(-20), shownId()], [true, '12']);
 await new Promise((resolve) => setTimeout(resolve, 200));
 wheel(120); await settle();
 check('turned down, on an image', shownId(), '13');
+// Its id, to name one image when reporting what it did.
+const field = (name) => Array.from(viewer().querySelectorAll('.mm-viewer-info .gen-info-field'))
+    .find((f) => f.querySelector('.gen-info-heading')?.textContent === name)?.querySelector('.gen-info-value')?.textContent;
+check('its details say the image\'s id', field('Image ID'), '13');
 click(viewer().querySelector('[data-panel]'));
 check('the details fold away, and that is remembered',
       [viewer().classList.contains('mm-viewer-collapsed'),

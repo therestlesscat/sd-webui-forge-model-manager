@@ -2368,7 +2368,9 @@ const generationViewerSource = {
         const when = card.created_at
             ? new Date(card.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
         const url = new URL(image.url, window.location.origin).href;
-        return `<div class="mm-generation-when">${escapeHtml([when, card.mode].filter(Boolean).join(' · '))}</div>
+        // Its id, to name one image when reporting what it did.
+        const id = image.id !== undefined && image.id !== null ? `Image ID ${image.id}` : '';
+        return `<div class="mm-generation-when">${escapeHtml([when, card.mode, id].filter(Boolean).join(' · '))}</div>
             ${imageTextHtml(image)}
             <div class="mm-dialog-buttons">
                 ${image.infotext ? `<button type="button" class="mm-btn secondary mm-btn-small"
