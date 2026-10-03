@@ -398,17 +398,30 @@ class ScanService:
     def _move_misplaced(self, db) -> None:
         for item in misplaced_files(db):
             path, to = item["path"], item["to"]
+            relocated = False
             try:
                 if item["clash"] or not relocate(path, to):
                     self._progress.not_moved.append(path)
                     print(f"[ModelManager] Not moved: {path} - {to} is already there")
                     continue
+                relocated = True
                 db.move_version(path, to)
                 self._progress.moved += 1
                 print(f"[ModelManager] Moved, as a {item['file_type']}: {path} -> {to}")
             except Exception as e:
-                self._progress.errors.append(f"{os.path.basename(path)}: could not move it: {e}")
-                print(f"[ModelManager] Could not move {path}: {e}")
+                problem = str(e)
+                # The file moved first, and its row could not follow - the
+                # database locked by the other WebUI sharing it. Where no row
+                # names it, the next scan would forget its row, pin and
+                # generations, and take it for a new file. So it goes back.
+                if relocated:
+                    try:
+                        if not relocate(to, path):
+                            problem += f"; left at {to}"
+                    except OSError as back:
+                        problem += f"; left at {to}: {back}"
+                self._progress.errors.append(f"{os.path.basename(path)}: could not move it: {problem}")
+                print(f"[ModelManager] Could not move {path}: {problem}")
 
     def _get_model_directories(self) -> List[str]:
         """Every folder the library walks - see model_dirs."""
