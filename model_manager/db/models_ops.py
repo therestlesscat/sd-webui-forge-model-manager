@@ -126,9 +126,17 @@ MODEL_COLUMNS_ELSEWHERE = {
     "versions_synced_at": "_store_versions(): when a sync wrote the list",
 }
 
+# A row is identified by its Civitai version id, and only by it (#131): a
+# stub sidecar another tool left - an error, a model id alone - once flagged a
+# row with none, tied it to a model, and kept it so, as the flag never comes
+# down. Without a version id, what the writer says now stands.
+_NO_VERSION_ID = "COALESCE(excluded.id, model_versions.id) IS NULL"
+
 VERSION_COLUMNS = (
     Column("id", keep),
-    Column("model_id", keep),
+    Column("model_id", written_as(
+        f"CASE WHEN {_NO_VERSION_ID} THEN excluded.model_id "
+        "ELSE COALESCE(excluded.model_id, model_versions.model_id) END")),
     Column("version_name", keep),
     Column("base_model", keep),
     Column("published_at", keep),
@@ -149,9 +157,11 @@ VERSION_COLUMNS = (
     Column("file_modified", overwrite),
     Column("file_extension", overwrite),
     # Identified stays identified: a scan that finds no sidecar has not
-    # learned the file is unknown to Civitai.
+    # learned the file is unknown to Civitai. A row without a version id was
+    # never identified.
     Column("has_civitai_data", written_as(
-        "MAX(excluded.has_civitai_data, COALESCE(model_versions.has_civitai_data, 0))")),
+        f"CASE WHEN {_NO_VERSION_ID} THEN 0 ELSE "
+        "MAX(excluded.has_civitai_data, COALESCE(model_versions.has_civitai_data, 0)) END")),
     Column("scanned_at", overwrite),
     # NULL is "this source cannot say" (a stripped showcase has no reliable
     # cover); '' is "has none", and is kept.
@@ -456,7 +466,9 @@ class ModelsOps:
                 "file_hashes": file_hashes,
                 "file_modified": version_data.get("file_modified"),
                 "file_extension": version_data.get("file_extension"),
-                "has_civitai_data": 1 if version_data.get("has_civitai_data") else 0,
+                # A new row has no stored id: without its own, it is not
+                # identified (_NO_VERSION_ID).
+                "has_civitai_data": 1 if version_data.get("has_civitai_data") and version_data.get("id") else 0,
                 "scanned_at": datetime.now().isoformat(),
                 "cover_url": version_data.get("cover_url"),
                 "safe_cover_url": version_data.get("safe_cover_url"),
@@ -622,7 +634,9 @@ class ModelsOps:
             One dict per version, each with its stored hashes, when it was
             downloaded, and when its model was last refreshed (None if never).
         """
-        where = "v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
+        # A model id without a version id is no identification (#131): the
+        # refresh would file the file as the model's newest version.
+        where = "v.id IS NOT NULL AND v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
         params: List[Any] = []
         if synced_before:
             where += " AND (m.civitai_synced_at IS NULL OR m.civitai_synced_at < ?)"

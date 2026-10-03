@@ -24,6 +24,12 @@ from .nsfw import (
 from .storage import read_model_payload
 
 
+def _names_a_version(payload: Optional[Dict[str, Any]]) -> bool:
+    """Whether a sidecar, in the model format, names a version by its id."""
+    versions = (payload or {}).get("modelVersions") or []
+    return any(isinstance(v, dict) and v.get("id") for v in versions)
+
+
 def misplaced_files(db) -> List[Dict[str, Any]]:
     """
     Every file in the library sitting in a folder for another type - a VAE
@@ -139,11 +145,15 @@ class ScanService:
             version_data["file_size"] = 0
             version_data["file_modified"] = None
 
-        # Read .civitai.info
+        # Read .civitai.info. One that names no version - an error another
+        # tool wrote, a stub with a model id alone - is no identification,
+        # and is read as no sidecar (#131): taken for one, it flagged the
+        # row, a sync skipped the file for ever, and a stub's name went over
+        # the model's.
         civitai_data = read_model_payload(model_path)
         civitai_model = None
 
-        if civitai_data:
+        if _names_a_version(civitai_data):
             version_data["has_civitai_data"] = True
             civitai_model = self._extract_civitai_metadata(civitai_data, version_data, model_path)
         else:
