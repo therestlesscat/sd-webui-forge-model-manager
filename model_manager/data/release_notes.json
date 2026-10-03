@@ -1,5 +1,67 @@
 [
   {
+    "id": "rescan-0-44",
+    "version": "0.44.23",
+    "kind": "action",
+    "audience": "update",
+    "important": true,
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Run Scan Disk once after this update",
+    "text": "Scan Disk now looks in every folder a download can go to - upscalers, ControlNets, hypernetworks, motion modules, poses, wildcards - so the models already there join your library, and it tells a ControlNet from a checkpoint by reading the file. Run it once with “Re-evaluate file headers” ticked, so the files already in your library are read again by the new rules; it reads only each file's header, so it is quick. Its dialog also lists files sitting in another type's folder - a VAE in Stable-diffusion, where Forge offers it as a checkpoint - and moves them, with their pins and generations, only if you tick “Move files into their type's folder”.",
+    "action": {
+      "id": "reread_headers",
+      "label": "Open Scan Disk"
+    },
+    "replaces": [
+      "reread-headers"
+    ]
+  },
+  {
+    "id": "downloads-filed-by-file",
+    "version": "0.44.10",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "civitai_browser"
+    ],
+    "title": "A download goes in the folder for what the file is",
+    "text": "The type Civitai shows is the uploader's: VAEs and text encoders are often shared as a “Checkpoint”, and landed in Stable-diffusion, where Forge offered them as checkpoints. Now each download's file is read once it arrives, and it goes to the folder for what it is - its row in the downloads panel says where. Nothing is written over: if the same file is already there, the new copy is removed, and if a different file has that name, the download stays where it landed."
+  },
+  {
+    "id": "one-request-rate",
+    "version": "0.44.2",
+    "kind": "warning",
+    "audience": "update",
+    "tabs": [
+      "civitai_browser"
+    ],
+    "title": "While a sync runs, browsing waits its turn",
+    "text": "Everything that asks Civitai - a sync, downloads, searches, pages of images - now keeps to the one request rate in the settings, together; each used to have a budget of its own, so a sync and browsing at once went past it. So while a sync runs, a search or a page of images here can take a while to come. Without a Civitai API key that is one request every two seconds; with one, six a second, or the rate you set.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "connection"
+    }
+  },
+  {
+    "id": "generations-own-nsfw-default",
+    "version": "0.44.12",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "generations"
+    ],
+    "title": "This tab has its own setting for hiding explicit images",
+    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Generations tab: hide explicit images by default”, under Your generations - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "generations"
+    }
+  },
+  {
     "id": "intro-model-manager",
     "version": "0.41.4",
     "kind": "intro",
