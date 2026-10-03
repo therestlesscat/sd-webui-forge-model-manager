@@ -281,7 +281,7 @@ check('a failure is not remembered as an answer', _Counter.asked, ['cccccccccc']
 
 # Civitai is asked about a bounded number per request; the rest come back
 # deferred, to be sent again. Answers already known are never deferred.
-from model_manager.api.models import MAX_HASH_LOOKUPS            # noqa: E402
+from model_manager.resources import MAX_HASH_LOOKUPS             # noqa: E402
 
 many = ['%010x' % (0xf00000 + n) for n in range(MAX_HASH_LOOKUPS + 7)]
 _Counter.answers = {}
@@ -801,6 +801,16 @@ try:
     check('asked again, answered from what was learned: the hash remembered, the name kept',
           (_Missing.asked, body.get('versions', {}).get('7001', {}).get('file_stem'), body.get('hashes')),
           ([], 'sharp_eyes', {'abcdef0123': 7001}))
+    # Civitai is asked about the same number of hashes per request as
+    # /resolve-hashes asks (#109); the rest are left out, for the page to ask
+    # about through it.
+    _Missing.asked = []
+    many = ['%010x' % (0xe00000 + n) for n in range(MAX_HASH_LOOKUPS + 7)]
+    code, body = post('/model-manager/missing-resources', hashes=','.join(many))
+    check('Civitai is asked about no more hashes than the cap in one request',
+          len([a for a in _Missing.asked if a[0] == 'hash']), MAX_HASH_LOOKUPS)
+    check('a hash not asked about this time is left out of the answer',
+          sorted(body.get('hashes', {})), many[:MAX_HASH_LOOKUPS])
     _Missing.broken = True
     code, body = post('/model-manager/missing-resources',
                       versions=json.dumps([{'version_id': 7555, 'model_id': 755}]))

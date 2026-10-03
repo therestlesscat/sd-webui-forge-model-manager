@@ -458,7 +458,8 @@ export async function lookUpMissingChips(tab) {
     // the library's chips first as they are shown.
     source.order = null;
     showResourceChips(tab, arrangeChips(named, source));
-    // A hash the answer leaves out could not be asked about: asked as before.
+    // A hash the answer leaves out was past the server's cap, or could not be
+    // asked about: asked through /resolve-hashes, a round at a time.
     checkMissingChips(tab);
 }
 

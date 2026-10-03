@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 The Civitai Browser can show you models you would never have searched for. Tick "I'm feeling lucky" and Search becomes Draw: a page of models picked at random from all of Civitai, every model your filters allow as likely as any other - the obscure as often as the famous.
 
+- **0.45.1** (build 340) - After Send to txt2img, looking up what an image's missing resources are called asks Civitai about at most 20 unknown hashes at a time, as the Resources dialog does, and the chips ask about the rest in rounds. An image naming hundreds of hashes no longer holds every other Civitai request up for minutes.
 - **0.45.0** (build 339) - "I'm feeling lucky", beside Save Search in the Civitai Browser. It keeps the filters Civitai applies itself - Type, Checkpoint Type, Base Model, Tag, Period and Include NSFW models - and greys out the rest while it is ticked: the search text, which Civitai's search cannot combine with a draw, the sort, and the post-processing options, which would cost a request per model. Each Draw is a fresh page. A draw asks Civitai about random model numbers, thousands in one request, so it usually takes one or two requests; when few models match - Checkpoint and Week, say - it lists them all and picks from those, and the status line says how many there were.
 
 ## 0.44 - Sounder foundations

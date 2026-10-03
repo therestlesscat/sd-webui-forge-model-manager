@@ -24,11 +24,6 @@ from ..model_dirs import COMPANIONS, file_modified
 from .. import resources
 
 
-# The most resource hashes /resolve-hashes asks Civitai about in one request.
-# Each is its own request with no batch endpoint behind it, and without an API
-# key the rate limit makes each one about two seconds.
-MAX_HASH_LOOKUPS = 20
-
 def register(app: FastAPI):
     """Attach this module's endpoints to the app.
 
@@ -637,7 +632,8 @@ def register(app: FastAPI):
                 model_type, view_url, download_url}. A hash Civitai does not
                 know is present with a null version_id, so the caller can tell
                 "unknown" from "not asked".
-            deferred: hashes not asked about this time, past MAX_HASH_LOOKUPS.
+            deferred: hashes not asked about this time, past
+                resources.MAX_HASH_LOOKUPS.
                 Send them again for the rest.
         """
         try:
@@ -650,16 +646,15 @@ def register(app: FastAPI):
             if not wanted:
                 return JSONResponse({"success": True, "resolved": {}, "deferred": []})
 
-            # Civitai is asked about at most MAX_HASH_LOOKUPS of them per
-            # request; anything past that comes back as `deferred`, to be asked
-            # again. Answers from the library or the cache are free and never
-            # deferred, so a big image whose hashes are mostly known still
-            # resolves in one go. Without an API key a lookup is two seconds,
-            # so an uncapped request for one image's 234 hashes took minutes
-            # with nothing to show for it until the end.
+            # Civitai is asked about at most resources.MAX_HASH_LOOKUPS of them
+            # per request; anything past that comes back as `deferred`, to be
+            # asked again. Answers from the library or the cache are free and
+            # never deferred, so a big image whose hashes are mostly known
+            # still resolves in one go.
             with resources.lazy_client(CivitaiClient.from_settings) as civitai:
-                known, deferred = resources.resolve_hashes(get_models_db(), wanted, civitai,
-                                                           limit=0 if local_only else MAX_HASH_LOOKUPS)
+                known, deferred = resources.resolve_hashes(
+                    get_models_db(), wanted, civitai,
+                    limit=0 if local_only else resources.MAX_HASH_LOOKUPS)
 
             resolved = {}
             for value, row in known.items():
@@ -707,7 +702,9 @@ def register(app: FastAPI):
                 that version - a download then takes the newest. Absent when
                 Civitai could not be asked.
             hashes: hash -> version id, or null when Civitai does not know it.
-                Absent when it could not be asked.
+                Absent when it could not be asked, or was not this time: at
+                most resources.MAX_HASH_LOOKUPS are asked of Civitai per
+                request, and the page asks /resolve-hashes about the rest.
         """
         try:
             wanted = [item for item in json.loads(versions or "[]") if isinstance(item, dict)]

@@ -135,8 +135,15 @@ def lazy_client(make: Callable[[], Any]) -> Iterator[Callable[[], Any]]:
             made[0].close()
 
 
+# The most hashes one lookup asks Civitai about. Each is its own request, with
+# no batch endpoint behind it, and without an API key the rate limit makes each
+# one about two seconds: uncapped, one image's 234 hashes took minutes, and held
+# the rate every other Civitai request shares. A caller asks again for the rest.
+MAX_HASH_LOOKUPS = 20
+
+
 def resolve_hashes(db, hashes: List[str], civitai: Callable[[], Any],
-                   limit: Optional[int] = None) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+                   limit: Optional[int] = MAX_HASH_LOOKUPS) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
     """
     What each hash is: {hash: {hash, version_id, model_id, name, version_name,
     model_type}}, and the hashes not asked about this time.
@@ -144,9 +151,10 @@ def resolve_hashes(db, hashes: List[str], civitai: Callable[[], Any],
     Answered cheapest first: this library's own rows, where a version id and
     an AutoV2 hash already sit together; what an earlier lookup recorded; and
     last Civitai, one request per hash - it has no batch endpoint for them -
-    and at most `limit` of them (None: every one). Everything Civitai says is
-    recorded, that it has never heard of a hash included, so a dead hash is
-    asked about once. A hash Civitai could not be asked about is left out.
+    and at most `limit` of them (0: none; None: every one). Everything
+    Civitai says is recorded, that it has never heard of a hash included, so
+    a dead hash is asked about once. A hash Civitai could not be asked about
+    is left out.
 
     Args:
         hashes: lower-case hashes, each once.
@@ -188,8 +196,9 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     download_service.pick_file_index() would take, from Civitai's model
     payload - one request per hundred models (/models?ids), where nearly every
     resource of Civitai's list carries its model id. A resource named by hash
-    alone is turned into a version first (resolve_hashes). What could not be
-    asked is absent.
+    alone is turned into a version first (resolve_hashes), at most
+    MAX_HASH_LOOKUPS of them asked of Civitai. What could not be asked, or was
+    not this time, is absent.
 
     Args:
         wanted: [{version_id, model_id}]; model_id may be None.
@@ -197,7 +206,6 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     """
     from .download_service import pick_file_index
 
-    # Every hash at once: #109 asks for a bound, as resolve-hashes has.
     known, _ = resolve_hashes(db, hash_list, civitai)
     wanted = list(wanted)
     by_hash = {}
