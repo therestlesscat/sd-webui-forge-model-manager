@@ -137,10 +137,12 @@ check('5. a paid version says so, and offers no Download',
       [row('Access'), !!button(), details().querySelector('.detail-actions button[disabled]')?.textContent],
       ['Paid', false, 'Paid']);
 const paidLabel = () => details().querySelector('.detail-actions button[disabled]');
-// View on Civitai is in the header, for whichever version is shown.
-const viewOnCivitai = () => details().querySelector('.detail-header a[href*="civitai.com/models/"]');
+// View on Civitai is in the header, for whichever version is shown - a
+// button, as its neighbours are, so it looks like them: a link beside them
+// did not, whatever its classes.
+const viewOnCivitai = () => details().querySelector('.detail-header button[data-open-url*="civitai.com/models/"]');
 check('   saying why - the account has not bought it - with View on Civitai in the header, for this version',
-      [/has not bought it/.test(paidLabel()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('href')],
+      [/has not bought it/.test(paidLabel()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('data-open-url')],
       [true, 'https://civitai.com/models/4001?modelVersionId=502']);
 
 check('   Show in Civitai Browser is the table\'s first row, not in the header, and sends this version',
@@ -152,8 +154,15 @@ check('6. back to the local version: its panel, gallery and all',
       [active(), !!details().querySelector('.file-path-cell'), detailsAsked.at(-1)],
       [['v1 ✓'], true, 'C:/models/v1.safetensors']);
 check('   View on Civitai in its header, for this version, and no buttons at the bottom',
-      [viewOnCivitai()?.getAttribute('href') || '', !!details().querySelector('.detail-actions')],
+      [viewOnCivitai()?.getAttribute('data-open-url') || '', !!details().querySelector('.detail-actions')],
       ['https://civitai.com/models/4001?modelVersionId=501', false]);
+const opened = [];
+const openBefore = window.open;
+window.open = (...args) => { opened.push(args); return null; };
+viewOnCivitai()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+window.open = openBefore;
+check('   and a click opens it, in a new tab', opened,
+      [['https://civitai.com/models/4001?modelVersionId=501', '_blank', 'noopener']]);
 
 // ------------------------------------------------------------ downloading
 await click(pill('v3'));

@@ -1202,12 +1202,16 @@ function pinButton(model, index, cls) {
 /**
  * The header's buttons: the same for any version, but deleting needs a file.
  * View on Civitai opens the version shown, `versionId`, on the model's page.
+ * It is a button, as its neighbours are: a link beside them, with the same
+ * classes, did not look like them (data-open-url opens it, in core.mjs).
  */
 function renderDetailHeader(model, { deletable = true, versionId = null } = {}) {
     const modelId = model.model_id || model.civitai_model_id;
-    const civitaiLink = modelId
-        ? `<a class="mm-btn secondary mm-btn-small header-action" href="https://civitai.com/models/${safeId(modelId)}`
-          + `${versionId ? `?modelVersionId=${safeId(versionId)}` : ''}" target="_blank" rel="noopener">View on Civitai</a>`
+    const civitaiUrl = modelId ? `https://civitai.com/models/${safeId(modelId)}`
+        + (versionId ? `?modelVersionId=${safeId(versionId)}` : '') : '';
+    const civitaiLink = civitaiUrl
+        ? `<button class="mm-btn secondary mm-btn-small header-action" data-open-url="${escapeHtml(civitaiUrl)}"
+                   title="Open this version on Civitai">View on Civitai</button>`
         : '';
     const isBookmarked = model.is_bookmarked || false;
     const bookmarkBtn = modelId

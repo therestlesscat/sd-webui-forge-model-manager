@@ -12,6 +12,17 @@ body.mm-modal-open {
     --mm-card-height: 280px;
 }
 
+/* A ticked checkbox, filled. Gradio's form reset draws every checkbox in its
+   container itself - appearance none, and once ticked a white tick - with no
+   fill behind the tick: on a dark page it showed by luck, on a light one a
+   ticked box looked empty. Filled as Gradio's own checkboxes are. */
+#model_manager_app [type="checkbox"]:checked,
+#civitai_browser_app [type="checkbox"]:checked,
+#generations_app [type="checkbox"]:checked {
+    background-color: var(--checkbox-background-color-selected, #2563eb);
+    border-color: var(--checkbox-background-color-selected, #2563eb);
+}
+
 
 
 /* Header: the tab's name, and the settings gear at the far right. */
@@ -146,9 +157,19 @@ body.mm-modal-open {
     font-size: 0.9em;
 }
 
+/* The theme's input colours, and the dark ones only in dark mode: this
+   theme leaves --input-background-fill white even under .dark, so the dark
+   was set outright - and the boxes were black in light mode too. */
 .filter-group input[type="text"],
 .filter-group input[type="number"],
 .filter-group input[type="search"] {
+    background: var(--input-background-fill, #fff) !important;
+    color: var(--body-text-color, #111827) !important;
+}
+
+.dark .filter-group input[type="text"],
+.dark .filter-group input[type="number"],
+.dark .filter-group input[type="search"] {
     background: #111827 !important;
     color: #fff !important;
 }
@@ -333,11 +354,16 @@ body.mm-modal-open {
     right: 0;
     margin-top: 4px;
     padding: 8px;
-    background-color: #1f2937 !important;
+    background-color: var(--background-fill-primary, #fff) !important;
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 6px;
     z-index: 10;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Dark only in dark mode: it was dark in light mode too. */
+.dark .mm-multiselect-panel {
+    background-color: #1f2937 !important;
 }
 
 .mm-multiselect-panel.open {
@@ -651,6 +677,11 @@ body.mm-modal-open {
     width: 100%;
     aspect-ratio: 1;
     overflow: hidden;
+    background: rgba(0, 0, 0, 0.06);
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .model-card-image {
     background: #111;
 }
 
@@ -661,6 +692,10 @@ body.mm-modal-open {
     object-fit: cover;
 }
 
+/* Text on a dark badge over an image says its colour with !important:
+   Gradio colours every element in an HTML block (.prose *) with the
+   theme's text colour, at a weight one class cannot beat - white in dark
+   mode, so it looked right, and black on the dark badge in light mode. */
 .no-data-overlay {
     position: absolute;
     bottom: 0;
@@ -668,7 +703,7 @@ body.mm-modal-open {
     right: 0;
     padding: 4px 8px;
     background: rgba(0, 0, 0, 0.7);
-    color: #ff9800;
+    color: #ff9800 !important;
     font-size: 0.7em;
     text-align: center;
 }
@@ -708,11 +743,11 @@ body.mm-modal-open {
 }
 
 .mm-thumbs-up {
-    color: #6ee7b7;
+    color: #6ee7b7 !important;
 }
 
 .mm-thumbs-down {
-    color: #fca5a5;
+    color: #fca5a5 !important;
 }
 
 /* Badges */
@@ -726,12 +761,12 @@ body.mm-modal-open {
 
 .type-badge {
     background: rgba(33, 150, 243, 0.2);
-    color: #2196f3;
+    color: #2196f3 !important;
 }
 
 .base-model {
     background: rgba(156, 39, 176, 0.2);
-    color: #ce93d8;
+    color: #ce93d8 !important;
 }
 
 /* NSFW level indicators: top-left, the card's top-right being its pin's. */
@@ -900,7 +935,7 @@ body.mm-modal-open {
     top: 4px;
     left: 4px;
     background: rgba(0, 0, 0, 0.7);
-    color: #f59e0b;
+    color: #f59e0b !important;
     font-size: 1em;
     padding: 2px 5px;
     border-radius: 4px;
@@ -956,7 +991,7 @@ body.mm-modal-open {
     display: inline-block;
     padding: 3px 8px;
     background: rgba(76, 175, 80, 0.2);
-    color: #81c784;
+    color: #81c784 !important;
     border-radius: 4px;
     font-size: 0.8em;
     cursor: pointer;
@@ -994,10 +1029,15 @@ body.mm-modal-open {
 .file-path {
     font-family: monospace;
     font-size: 0.75em;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.04);
     padding: 8px;
     border-radius: 4px;
     word-break: break-all;
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .file-path {
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .file-path-cell {
@@ -1013,9 +1053,14 @@ body.mm-modal-open {
     line-height: 1.5;
     color: var(--body-text-color, #fff);
     padding: 10px;
-    background: rgba(0, 0, 0, 0.15);
+    background: rgba(0, 0, 0, 0.03);
     border-radius: 6px;
     overflow: hidden;
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .mm-description {
+    background: rgba(0, 0, 0, 0.15);
 }
 
 .mm-description.collapsed {
@@ -1197,12 +1242,12 @@ body.mm-modal-open {
 .mm-images-error {
     text-align: center;
     padding: 40px 20px;
-    color: var(--body-text-color-subdued, #9ca3af);
+    color: var(--body-text-color-subdued, #9ca3af) !important;
     font-size: 0.95em;
 }
 
 .mm-images-error {
-    color: #ef4444;
+    color: #ef4444 !important;
 }
 
 /* Image list container */
@@ -1221,16 +1266,26 @@ body.mm-modal-open {
     --mm-card-image-width: 200px;
 }
 
+/* A shade of what is behind it. Dark mode's darkens a dark page; on a light
+   one the same shade was a grey card, so light mode takes a lighter one. */
 .mm-image-card {
     display: flex;
     gap: 15px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.03);
     border-radius: 8px;
     padding: 12px;
     transition: background 0.2s;
 }
 
 .mm-image-card:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.dark .mm-image-card {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.dark .mm-image-card:hover {
     background: rgba(0, 0, 0, 0.3);
 }
 
@@ -1263,7 +1318,7 @@ body.mm-modal-open {
     right: 6px;
     padding: 2px 6px;
     background: rgba(244, 67, 54, 0.9);
-    color: white;
+    color: white !important;
     font-size: 0.7em;
     font-weight: 500;
     border-radius: 3px;
@@ -1309,22 +1364,22 @@ body.mm-modal-open {
 
 .mm-resource-lora {
     background: rgba(156, 39, 176, 0.25);
-    color: #ce93d8;
+    color: #ce93d8 !important;
 }
 
 .mm-resource-vae {
     background: rgba(33, 150, 243, 0.25);
-    color: #64b5f6;
+    color: #64b5f6 !important;
 }
 
 .mm-resource-embed {
     background: rgba(255, 152, 0, 0.25);
-    color: #ffb74d;
+    color: #ffb74d !important;
 }
 
 .mm-resource-other {
     background: rgba(158, 158, 158, 0.25);
-    color: #bdbdbd;
+    color: #bdbdbd !important;
 }
 
 .mm-resource-type {
@@ -1363,17 +1418,21 @@ body.mm-modal-open {
 .mm-image-params {
     color: var(--body-text-color-subdued, #9ca3af);
     padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.04);
     border-radius: 4px;
 }
 
+.dark .mm-image-params {
+    background: rgba(0, 0, 0, 0.2);
+}
+
 .mm-image-hires {
-    color: #81c784;
+    color: #81c784 !important;
     font-style: italic;
 }
 
 .mm-image-adetailer {
-    color: #64b5f6;
+    color: #64b5f6 !important;
     font-style: italic;
 }
 
@@ -1550,6 +1609,10 @@ body.mm-modal-open {
     padding: 2px 10px;
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 999px;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.dark .mm-page-separator span {
     background: rgba(0, 0, 0, 0.2);
 }
 
@@ -1827,9 +1890,14 @@ body.mm-modal-open {
     white-space: pre-wrap;
     max-height: 200px;
     overflow-y: auto;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.04);
     padding: 12px;
     border-radius: 6px;
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .mm-meta-table td.mm-meta-prompt {
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .mm-meta-table tr:last-child th,
@@ -1857,6 +1925,11 @@ body.mm-modal-open {
 .mm-resources-table th {
     font-weight: 600;
     color: var(--body-text-color-subdued, #9ca3af);
+    background: rgba(0, 0, 0, 0.04);
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .mm-resources-table th {
     background: rgba(0, 0, 0, 0.2);
 }
 
@@ -1897,22 +1970,22 @@ body.mm-modal-open {
 
 /* Resource lookup states */
 .mm-res-loading {
-    color: #60a5fa;
+    color: #60a5fa !important;
     font-style: italic;
 }
 
 .mm-res-not-found {
-    color: #9ca3af;
+    color: #9ca3af !important;
     font-style: italic;
 }
 
 .mm-res-error {
-    color: #f87171;
+    color: #f87171 !important;
     font-style: italic;
 }
 
 .mm-res-no-hash {
-    color: #6b7280;
+    color: #6b7280 !important;
     font-style: italic;
     font-size: 0.85em;
 }
@@ -1976,8 +2049,8 @@ body.mm-modal-open {
     padding: 6px 14px !important;
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 16px;
-    background: #111827 !important;
-    color: #fff !important;
+    background: var(--input-background-fill, #fff) !important;
+    color: var(--body-text-color, #111827) !important;
     font-size: 0.85em;
     cursor: pointer;
     transition: all 0.2s;
@@ -1990,6 +2063,12 @@ body.mm-modal-open {
     display: inline-flex !important;
     align-items: center !important;
     box-sizing: border-box;
+}
+
+/* Dark only in dark mode: it was dark in light mode too. */
+.dark .mm-version-pill {
+    background: #111827 !important;
+    color: #fff !important;
 }
 
 .mm-version-pill:hover {
@@ -2011,6 +2090,11 @@ body.mm-modal-open {
 .mm-version-pill.owned {
     border-color: #10b981;
     background: rgba(16, 185, 129, 0.15) !important;
+    color: #047857 !important;
+}
+
+/* Mint reads on dark; on light it all but vanished. */
+.dark .mm-version-pill.owned {
     color: #6ee7b7 !important;
 }
 
@@ -2080,7 +2164,7 @@ body.mm-modal-open {
     height: 48px;
     border-radius: 50%;
     background: var(--primary-500, #3b82f6);
-    color: #fff;
+    color: #fff !important;
     border: none;
     cursor: pointer;
     display: flex;
@@ -2161,7 +2245,7 @@ body.mm-modal-open {
     padding: 3px 4px 3px 10px;
     border-radius: 999px;
     background: var(--primary-600, #2563eb);
-    color: #fff;
+    color: #fff !important;
     font-size: 0.85em;
     line-height: 1.2;
 }
@@ -2233,7 +2317,7 @@ body.mm-modal-open {
     padding: 3px 10px;
     border: 1px solid var(--mm-chip);
     background: transparent;
-    color: var(--mm-chip);
+    color: var(--mm-chip) !important;
     cursor: pointer;
 }
 
@@ -2247,7 +2331,7 @@ body.mm-modal-open {
 
 .mm-resource-chips .mm-resource-chip.active {
     background: var(--mm-chip);
-    color: var(--mm-chip-on);
+    color: var(--mm-chip-on) !important;
 }
 
 /* One width for every mark, so a chip keeps its width as its mark changes. */
@@ -2350,7 +2434,7 @@ body.mm-modal-open {
     left: 0;
     right: 0;
     margin-top: 2px;
-    background: #1f2937;
+    background: var(--background-fill-primary, #fff);
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 6px;
     max-height: 200px;
@@ -2368,6 +2452,12 @@ body.mm-modal-open {
     padding: 8px 12px;
     cursor: pointer;
     font-size: 0.9em;
+    background: var(--background-fill-primary, #fff);
+}
+
+/* Dark only in dark mode: it was dark in light mode too. */
+.dark .cb-tag-dropdown,
+.dark .cb-tag-dropdown-item {
     background: #1f2937;
 }
 
@@ -2907,7 +2997,7 @@ body.mm-modal-open {
     margin-top: 1px;
     border-radius: 50%;
     background: var(--mm-banner-accent, #f59e0b);
-    color: #1f2937;
+    color: #1f2937 !important;
     font-weight: 700;
     font-size: 12px;
     text-align: center;
@@ -3260,11 +3350,11 @@ body.mm-modal-open {
 .mm-settings-error {
     margin-top: 6px;
     font-size: 12px;
-    color: #ef4444;
+    color: #ef4444 !important;
 }
 
 .mm-settings-warning {
-    color: #f59e0b;
+    color: #f59e0b !important;
 }
 
 .mm-settings-badge {
@@ -3273,7 +3363,7 @@ body.mm-modal-open {
     padding: 1px 6px;
     border-radius: 4px;
     background: rgba(245, 158, 11, 0.18);
-    color: #f59e0b;
+    color: #f59e0b !important;
     font-size: 11px;
 }
 
@@ -3637,10 +3727,15 @@ textarea.mm-settings-input {
     flex-direction: column;
     gap: 6px;
     padding: var(--gen-tile-padding);
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.03);
     border: var(--gen-tile-border) solid transparent;
     border-radius: 8px;
     min-width: 0;
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .gen-tile {
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .gen-tile.gen-wide {
@@ -3815,7 +3910,7 @@ textarea.mm-settings-input {
     border: none;
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.6) !important;
-    color: #fff;
+    color: #fff !important;
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
@@ -3940,7 +4035,7 @@ textarea.mm-settings-input {
     bottom: 6px;
     padding: 2px 7px;
     background: rgba(79, 70, 229, 0.9);
-    color: #fff;
+    color: #fff !important;
     font-size: 0.8em;
     font-weight: 600;
     border-radius: 10px;
@@ -3956,7 +4051,7 @@ textarea.mm-settings-input {
     bottom: 6px;
     padding: 1px 6px;
     background: rgba(0, 0, 0, 0.6);
-    color: #fff;
+    color: #fff !important;
     font-size: 0.72em;
     border-radius: 4px;
     pointer-events: none;
@@ -4011,7 +4106,7 @@ textarea.mm-settings-input {
     top: 0;
     padding: 4px 6px;
     background: linear-gradient(rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
-    color: #fff;
+    color: #fff !important;
     font-size: 0.75em;
     line-height: 1.3;
     display: -webkit-box;
@@ -4028,8 +4123,13 @@ textarea.mm-settings-input {
     gap: 12px;
     margin-bottom: 12px;
     padding: 10px 12px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.04);
     border-radius: 6px;
+}
+
+/* Dark only in dark mode: on a light page it was a grey or black box. */
+.dark .gen-path {
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .gen-path-text {
@@ -4068,7 +4168,7 @@ textarea.mm-settings-input {
     border: none;
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.6) !important;
-    color: #fff;
+    color: #fff !important;
     font-size: 15px;
     line-height: 1;
     cursor: pointer;
@@ -4159,7 +4259,7 @@ textarea.mm-settings-input {
     align-self: stretch;
     border: none;
     background: transparent;
-    color: #fff;
+    color: #fff !important;
     font-size: 48px;
     cursor: pointer;
     opacity: 0.6;
@@ -4181,7 +4281,7 @@ textarea.mm-settings-input {
     left: 12px;
     border: none;
     background: transparent;
-    color: #fff;
+    color: #fff !important;
     font-size: 32px;
     line-height: 1;
     cursor: pointer;
