@@ -670,7 +670,18 @@ real time once.
 - **Measure; do not estimate.** A restamp guessed at 10-20 s took 3-6. The grid
   was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
   by timing each part of the query, not by reading it.
+- **A trace settles a delay.** #112's viewer "closed late": the owner's
+  DevTools trace (Performance, Save profile: a `.json.gz`) showed our click
+  handler at 3.0 ms and the frame on screen 8.2 ms after the release - the
+  65 ms was the button held. Event Timing's `duration` runs from the input to
+  the frame on screen. A trace may open with a focusing click: anchor on the
+  input being measured. Esc, read the same way, was 19.6 ms.
 - **Check what a timed call returned**, not only how long it took.
+- **Wait for what is shown, not what is drawn.** A closed list keeps its
+  items: `tag_chip_test` waited for three suggestions in the markup, found the
+  last round's, and pressed Esc before the answer came - the fix looked
+  broken. Wait on what says shown (`.show`). And a synthetic event bubbles
+  only if told to: the suite's `key()` sends a keydown no page listener hears.
 - **The test DOM is not the WebUI.** linkedom runs no inline handlers: a tick's
   `onclick="event.stopPropagation()"` kept every click from the page's
   listener, and the suite never saw it - markup holds none now (#95). It
@@ -764,7 +775,9 @@ real time once.
   as every other click did (#123), and a level that concerned no file of 1,196
   sidecars and was not hidden by the default filter (#125). Survey each - the
   code, a count from the real data - and put it to the owner with a
-  recommendation.
+  recommendation. #128's cause, read from Gradio's Tabs bundle (the clicked
+  button replaced before the click reaches the document), did not happen: a
+  click on the tab ran the saved search (2026-10-04).
 
 ### The data
 
@@ -873,7 +886,8 @@ real time once.
 - WSL's shell here is zsh: `noclobber` is on and `cp` asks before overwriting
   (see "Make sure the old code is what ran"), and `echo` turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
-  `printf`.
+  `printf`. A word starting with `=` is looked up as a command: `echo ======`
+  fails ("= not found"); use `printf -- '-----\n'`.
 - Windows' Python cannot lock a SQLite file on a WSL path: a throwaway
   database goes under `tests/work/`, on the Windows drive.
 - To run Neo's detector outside the WebUI, put Neo's root and its
@@ -898,7 +912,9 @@ real time once.
   is done and waiting for a release, and closes when it reaches `main`.
   "Refs #N" names an issue without either, and each issue needs its own
   word - `Fixes #84, fixes #85`: four refactor issues said "Refs", and an
-  empty commit (7f9e228) had to name them for `main` to close them.
+  empty commit (7f9e228) had to name them for `main` to close them. A fix
+  for two issues names both: #129, fixed by f769b6f under "Fixes #11", needed
+  an empty commit too (581c84a).
 - **Whenever `main` is updated, `dev` is updated at the same time, to the
   same commit** - one push, never one without the other:
   `git push origin dev dev:main`. A release on `main` alone leaves every
