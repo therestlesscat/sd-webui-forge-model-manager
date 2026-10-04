@@ -371,6 +371,38 @@ check('an image naming its checkpoint by hash alone can be sent', button.disable
 IMAGE.meta = named;
 await sendButton();
 
+// An upscaler's gallery: that upscaler goes in as Hires fix's, after the
+// paste - which sets the image's own - by the name the server says Forge
+// lists it under. Hires fix itself stays as the image had it.
+const hires = document.createElement('div');
+hires.id = 'txt2img_hr_upscaler';
+hires.innerHTML = '<input>';
+const hiresBox = document.createElement('div');
+hiresBox.id = 'txt2img_hr-checkbox';
+hiresBox.innerHTML = '<input type="checkbox">';
+document.body.append(hires, hiresBox);
+hiresBox.querySelector('input').checked = true;            // left on from the last generation
+MODEL.model_type = 'Upscaler';
+plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [],
+         checkpoint: 'anima-preview2.safetensors [635cf338]', upscaler: '4x-UltraSharp' };
+await send();
+check('an upscaler\'s gallery sets Hires fix\'s upscaler to it, and loads the image\'s checkpoint',
+      [hires.querySelector('input').value, events.includes('checkpoint:anima-preview2.safetensors [635cf338]')],
+      ['4x-UltraSharp', true]);
+check('Hires fix stays as the image had it: off, as it used none', hiresBox.querySelector('input').checked, false);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+hires.querySelector('input').value = 'Latent';
+plan = { ...plan, upscaler: null, upscaler_not_listed: '4x-UltraSharp.pth' };
+await send();
+check('one Forge does not list is said, and Hires fix\'s left as the paste set it',
+      [document.querySelector('.mm-notice')?.textContent.includes('4x-UltraSharp.pth'),
+       hires.querySelector('input').value], [true, 'Latent']);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+MODEL.model_type = 'LORA';
+delete plan.upscaler_not_listed;
+hires.remove();
+hiresBox.remove();
+
 // ------------------------------------------- an image-to-video model
 // Sent to txt2img it failed in the sampler: an I2V model starts from an
 // image, and txt2img has none to give. It goes to img2img instead, with the

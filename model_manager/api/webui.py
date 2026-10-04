@@ -125,6 +125,8 @@ def register(app: FastAPI):
             listed yet, {reason: not_checkpoint} - and the page sends nothing.
             From a VAE's or a text encoder's, that file is in `target` in its
             kind's place; own_not_listed, its name when Forge does not list it.
+            From an upscaler's, upscaler: the name Forge lists it under, for
+            Hires fix's; upscaler_not_listed, its file's when Forge does not.
         """
         from ..db import get_models_db
         from ..file_identity import classify_file
@@ -147,10 +149,15 @@ def register(app: FastAPI):
                   "manage_modules": preset not in (None, "sd", "xl"),
                   "select": [], "missing": [], "needed": [], "not_found": [],
                   "target": [], "vae_not_found": None, "bundled": [],
-                  "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None}
+                  "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
+                  "upscaler": None, "upscaler_not_listed": None}
         gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
         if gallery_type != "Checkpoint":
             answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name))
+        if gallery_type == "Upscaler":
+            from ..forge_host import upscaler_name
+            answer["upscaler"] = upscaler_name(file_path)
+            answer["upscaler_not_listed"] = None if answer["upscaler"] else os.path.basename(file_path)
 
         # The gallery's own VAE or text encoder, as Forge lists it: the
         # primary, which nothing picked for the image takes the place of.

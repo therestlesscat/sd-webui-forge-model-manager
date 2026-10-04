@@ -97,6 +97,26 @@ try:
 finally:
     sys.modules['modules'] = held
 
+# An upscaler is named as Forge lists it (#134): by its file name in both
+# WebUIs, but for the original Forge's built-ins ("R-ESRGAN 4x+"), and only
+# once Forge has read it - at startup. So Forge is asked, by the file.
+class Scaler:
+    def __init__(self, name, data_path):
+        self.name, self.data_path = name, data_path
+
+
+shared = sys.modules['modules.shared']
+ultrasharp = os.path.join(TESTS, 'work', 'ESRGAN', '4x-UltraSharp.pth')
+shared.sd_upscalers = [Scaler('None', None), Scaler('Lanczos', None),
+                       Scaler('R-ESRGAN 4x+', 'https://github.com/xinntao/RealESRGAN_x4plus.pth'),
+                       Scaler('4x-UltraSharp', ultrasharp)]
+check('an upscaler is named as Forge lists it, found by its file, case aside',
+      host.upscaler_name(ultrasharp.upper()), '4x-UltraSharp')
+check('one Forge does not list has no name',
+      host.upscaler_name(os.path.join(TESTS, 'work', 'ESRGAN', 'added-since.pth')), None)
+del shared.sd_upscalers
+check('nor does any, with no list to ask', host.upscaler_name(ultrasharp), None)
+
 # ----------------------------------------------------- every name asked for
 # setting(KEY) with KEY a literal, or a module constant holding one. A name
 # built at run time (a preset's, a card size's) is checked where it is built.

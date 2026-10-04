@@ -321,6 +321,23 @@ body = sent_from(lora_path, version_ids=str(db.get_version(own_vae)['id']))
 check('what it names as a checkpoint is not one: said so',
       body.get('checkpoint_problem'), {'reason': 'not_checkpoint'})
 check('and an image that names none: nothing to say yet', sent_from(lora_path).get('checkpoint_problem'), None)
+
+# An upscaler's gallery: that upscaler, as Hires fix's, by the name Forge
+# lists it under (forge_host.upscaler_name); one it does not list is said.
+upscaler_path = facts['linked_paths'][5]
+db.set_architecture(upscaler_path, None, None, False, False, '9999', file_type='Upscaler')
+upscalers = {upscaler_path: '4x-UltraSharp'}
+host.upscaler_name = lambda path: upscalers.get(path)
+body = sent_from(upscaler_path, version_ids=str(flux_id))
+check('an upscaler\'s gallery: Forge\'s name for it, and the image\'s checkpoint as from any other',
+      (body.get('upscaler'), body.get('upscaler_not_listed'), (body.get('checkpoint_problem') or {}).get('reason')),
+      ('4x-UltraSharp', None, 'elsewhere'))
+upscalers.clear()
+body = sent_from(upscaler_path, version_ids=str(flux_id))
+check('one Forge does not list: said, by its file', (body.get('upscaler'), body.get('upscaler_not_listed')),
+      (None, os.path.basename(upscaler_path)))
+check('and any other gallery has no upscaler to set',
+      (sent_from(lora_path).get('upscaler'), sent_from(lora_path).get('upscaler_not_listed')), (None, None))
 host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
 

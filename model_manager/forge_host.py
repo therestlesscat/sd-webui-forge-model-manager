@@ -163,6 +163,29 @@ def checkpoint_name(path: str) -> Optional[str]:
     return None
 
 
+def upscaler_name(path: str) -> Optional[str]:
+    """
+    The name Forge lists an upscaler file under, for txt2img's Hires
+    "Upscaler", or None if it does not list it (#134). Both WebUIs name a
+    file by its name less its extension, the original Forge's built-ins
+    apart ("R-ESRGAN 4x+"), and read their upscalers once, at startup: one
+    added since is not offered until a restart. Found by the file.
+    """
+    if not path:
+        return None
+    try:
+        from modules import shared
+        wanted = os.path.normcase(os.path.abspath(path))
+        for scaler in getattr(shared, "sd_upscalers", None) or []:
+            listed = getattr(scaler, "data_path", None)
+            if listed and not str(listed).startswith("http") \
+                    and os.path.normcase(os.path.abspath(listed)) == wanted:
+                return scaler.name
+    except Exception as e:
+        print(f"[ModelManager] Could not ask Forge for its upscalers: {e}")
+    return None
+
+
 def closest_checkpoint(name: str):
     """The checkpoint Forge means by a name as its UI writes one - with a
     hash, or without its folder - or None."""

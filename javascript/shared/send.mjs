@@ -677,6 +677,11 @@ async function applyPlannedModules(plan, vaeName) {
                       + `and VAE") name ${plan.not_found.join(', ')} for ${plan.preset} models, but Forge does not `
                       + 'list it: check the name, or put the file in Forge\'s VAE or text_encoder folder.');
     }
+    if (plan.upscaler_not_listed) {
+        problems.push(`Forge does not list the upscaler ${plan.upscaler_not_listed}, so Hires fix keeps the image's: `
+                      + 'it is in a folder this WebUI does not load, or was added since Forge started - '
+                      + 'Forge reads its upscalers once, at startup.');
+    }
     if (plan.own_not_listed) {
         problems.push(`Forge does not list ${plan.own_not_listed} in "VAE / Text Encoder", so it is not selected: `
                       + 'it is in a folder this WebUI does not load, or was added since Forge started.');
@@ -1251,6 +1256,9 @@ export async function sendGalleryImage({ img, model, version }) {
             hasHiresFix,
             afterPaste: () => {
                 updateResourceChipStates(tab);
+                // An upscaler's gallery: that upscaler as Hires fix's, over the
+                // image's the paste set. Hires fix stays as the image had it.
+                if (plan?.upscaler && tab === 'txt2img') setGradioDropdown('txt2img_hr_upscaler', plan.upscaler);
                 // After the paste: it re-renders much of the page, and it never
                 // touches the modules itself - Neo reads "Module 1"/"Module 2"
                 // from an infotext, not the "VAE:" line we write. A model whose
