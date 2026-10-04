@@ -284,6 +284,64 @@ check('its hashes - the model resource\'s and the infotext\'s - and its name',
       [planAsked[0]?.get('hashes'), planAsked[0]?.get('model_name')],
       ['635cf338c923,aaaa111122', 'anima-preview2']);
 
+// The image's checkpoint, which a gallery that is not a checkpoint's never
+// loaded (#134): selected by the name the server says Forge lists it under,
+// after the preset - a preset change brings back the preset's own.
+plan = { success: true, preset: 'qwen', manage_modules: true, select: [], target: [], missing: [],
+         checkpoint: 'anima-preview2.safetensors [635cf338]', checkpoint_problem: null };
+await send();
+check('a LoRA\'s gallery selects the image\'s checkpoint, after the preset and before the paste',
+      events.filter((e) => /^(preset|checkpoint|paste)/.test(e)),
+      ['preset:qwen', 'checkpoint:anima-preview2.safetensors [635cf338]', 'paste']);
+plan.preset = 'flux';
+
+// One the library lacks is the one thing a send cannot go without: nothing
+// is set, and the image's Resources open, saying why.
+const resourcesNote = () => document.querySelector('.mm-resources-modal .mm-banner')?.textContent.replace(/^\s*!\s*/, '').trim();
+const closeResources = () => document.querySelectorAll('.mm-modal-overlay').forEach((m) => m.remove());
+plan = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'anima-preview2' } };
+await send();
+check('a checkpoint the library lacks: nothing is set or pasted',
+      events.filter((e) => /^(preset|checkpoint|paste|module)/.test(e)), []);
+check('and the Resources dialog says which, to download it there',
+      resourcesNote(), 'The checkpoint this image was made with, anima-preview2, is not in your library. '
+      + 'Download it here, then send the image again.');
+closeResources();
+plan = { ...plan, checkpoint_problem: { reason: 'elsewhere', name: 'anima.safetensors',
+                                        path: 'D:/other-webui/models/Stable-diffusion/anima.safetensors' } };
+await send();
+check('one only in a folder this WebUI does not load: where it is, and nothing moved',
+      [events.filter((e) => /^(preset|checkpoint|paste)/.test(e)), resourcesNote()],
+      [[], 'The checkpoint this image was made with, anima.safetensors, is in your library at '
+           + 'D:/other-webui/models/Stable-diffusion/anima.safetensors, a folder this WebUI does not load. '
+           + 'Move it into this WebUI\'s models folder, or download it here; then send the image again.']);
+closeResources();
+plan = { ...plan, checkpoint_problem: { reason: 'not_checkpoint' } };
+await send();
+check('what it names as a checkpoint is not one: said so, nothing sent',
+      [events.includes('paste'), resourcesNote()],
+      [false, 'This image does not say which checkpoint it was made with: what it names as one is not a '
+              + 'checkpoint, in your library or on Civitai.']);
+closeResources();
+
+// A VAE's or text encoder's gallery: its file is in the plan's target, which
+// the send already holds the control to; one Forge does not list is said.
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+plan = { ...plan, checkpoint: null, checkpoint_problem: null, own_not_listed: 'ae_own.safetensors' };
+await send();
+check('a gallery\'s VAE Forge does not list is said, by name',
+      document.querySelector('.mm-notice')?.textContent.includes('ae_own.safetensors'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+delete plan.own_not_listed;
+
+// A checkpoint's gallery loads its own, whatever the plan says of others.
+MODEL.model_type = 'Checkpoint';
+plan = { ...plan, checkpoint_problem: { reason: 'missing', name: 'anima-preview2' } };
+await send();
+check('a checkpoint\'s gallery is never stopped for the image\'s checkpoint',
+      [events.includes('paste'), resourcesNote()], [true, undefined]);
+MODEL.model_type = 'LORA';
+
 // ------------------------------------------- an image-to-video model
 // Sent to txt2img it failed in the sampler: an I2V model starts from an
 // image, and txt2img has none to give. It goes to img2img instead, with the

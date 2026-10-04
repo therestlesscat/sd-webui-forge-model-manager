@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.47 - Send sets up the gallery's model.** Send to txt2img from a LoRA's, a VAE's or an
+embedding's gallery loads the checkpoint the image was made with, where Forge used to keep
+whatever it had; one your library lacks opens the image's Resources instead, to download it
+there. From a VAE's or a text encoder's gallery, that file is the one selected.
+
 **0.46 - One version, its files under it.** A Civitai version is one version in the
 library, however many of its files you have - an fp16 and an fp32, a `.safetensors` and a
 `.pt`. A model's details show it as one pill, with a list of its files and which one Send

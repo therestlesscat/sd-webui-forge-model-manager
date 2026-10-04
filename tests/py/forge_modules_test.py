@@ -247,6 +247,83 @@ body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustr
 check('and SD or SDXL, which always bring their own, are not said to', body['bundled'], [])
 db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
 
+# The gallery's own file is the primary (#134): sent from a VAE's gallery,
+# that VAE is selected, whatever would have been picked; from a text
+# encoder's, that encoder in its kind's place. The rest is picked as ever.
+own_vae, own_sd_vae, own_te, lora_path = facts['linked_paths'][:4]
+db.set_architecture(own_vae, None, None, False, False, '9999', file_type='VAE')
+db.set_architecture(own_sd_vae, None, None, False, False, '9999', file_type='VAE')
+db.set_architecture(own_te, None, None, False, False, '9999', file_type='Text Encoder')
+db.set_architecture(lora_path, 'flux', None, False, False, '9999', file_type='LORA')
+OWN = {own_vae: ('ae_own.safetensors', ('vae_ae', 1)), own_sd_vae: ('sd_own.safetensors', ('vae_sd', 2)),
+       own_te: ('t5_own.safetensors', ('t5xxl', 1))}
+listed = {label: label for label in MODULES}
+listed.update({label: path for path, (label, _) in OWN.items()})
+kinds = {**MODULES, **{path: kind for path, (_, kind) in OWN.items()}}
+host.installed_modules = lambda: dict(listed)
+fi.classify_file = lambda path: kinds[path]
+flux_id = db.get_version(flux_path)['id']
+host.checkpoint_name = lambda path: None          # no Forge here to list checkpoints
+
+
+def sent_from(path, **params):
+    return client.get('/model-manager/forge-modules', params={'file_path': path, **params}).json()
+
+
+body = sent_from(own_vae, version_ids=str(flux_id))
+check('a VAE\'s gallery, a Flux image: that VAE, in place of the one picked, the rest as picked',
+      (body['preset'], body['target']),
+      ('flux', ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae_own.safetensors']))
+body = sent_from(own_sd_vae, version_ids=str(flux_id))
+check('a VAE takes the VAE\'s place whatever kind it is: the gallery\'s is the one asked for',
+      (body['target'], body['missing']),
+      (['clip_l.safetensors', 't5xxl_fp16.safetensors', 'sd_own.safetensors'], []))
+body = sent_from(own_te, version_ids=str(flux_id))
+check('a text encoder\'s gallery: that encoder, in its kind\'s place',
+      body['target'], ['clip_l.safetensors', 't5_own.safetensors', 'ae.safetensors'])
+body = sent_from(own_sd_vae, base_model='Illustrious', vae='sdxl_vae')
+check('an SDXL image from a VAE\'s gallery: that VAE, not the one the image names',
+      (body['preset'], body['target'], body['vae_not_found']), ('xl', ['sd_own.safetensors'], None))
+del listed['ae_own.safetensors']
+body = sent_from(own_vae, version_ids=str(flux_id))
+check('a gallery\'s file Forge does not list is said, and the rest picked as ever',
+      (body.get('own_not_listed'), body['target']),
+      (os.path.basename(own_vae), ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+listed['ae_own.safetensors'] = own_vae
+
+# And the image's checkpoint, which a gallery that is not a checkpoint's
+# never loaded: by the name Forge lists it under - or, where it cannot be
+# loaded, why, for the page to say rather than send.
+import model_manager.model_dirs as dirs                    # noqa: E402
+import model_manager.send_plan as sp                       # noqa: E402
+names = {flux_path: 'flux.safetensors [abcd1234]'}
+host.checkpoint_name = lambda path: names.get(path)
+body = sent_from(lora_path, version_ids=str(flux_id))
+check('a LoRA\'s gallery, the image\'s checkpoint in the library: Forge\'s name for it, nothing wrong',
+      (body.get('checkpoint'), body.get('checkpoint_problem')), ('flux.safetensors [abcd1234]', None))
+check('a checkpoint\'s gallery loads its own, and is told of no other',
+      (sent_from(flux_path).get('checkpoint'), sent_from(flux_path).get('checkpoint_problem')), (None, None))
+names.clear()
+body = sent_from(lora_path, version_ids=str(flux_id))
+check('one Forge does not list, outside this WebUI\'s folders: where it is',
+      (body.get('checkpoint'), body.get('checkpoint_problem')),
+      (None, {'reason': 'elsewhere', 'name': os.path.basename(flux_path), 'path': flux_path}))
+here = dirs.folder_of
+dirs.folder_of = sp.folder_of = lambda path, *a, **k: ('Checkpoint', os.path.dirname(path))
+body = sent_from(lora_path, version_ids=str(flux_id))
+check('one in this WebUI\'s folders that Forge does not list yet: said so',
+      (body.get('checkpoint_problem') or {}).get('reason'), 'not_listed')
+dirs.folder_of = sp.folder_of = here
+body = sent_from(lora_path, model_name='a_checkpoint_i_lack', hashes='0123456789')
+check('one the library lacks: missing, by its name',
+      body.get('checkpoint_problem'), {'reason': 'missing', 'name': 'a_checkpoint_i_lack'})
+body = sent_from(lora_path, version_ids=str(db.get_version(own_vae)['id']))
+check('what it names as a checkpoint is not one: said so',
+      body.get('checkpoint_problem'), {'reason': 'not_checkpoint'})
+check('and an image that names none: nothing to say yet', sent_from(lora_path).get('checkpoint_problem'), None)
+host.installed_modules = lambda: {label: label for label in MODULES}
+fi.classify_file = lambda path: MODULES[path]
+
 labels = ['sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', 'ae.safetensors']
 check('a VAE name is matched as the file, the file less its extension, or the start of one',
       [fm.match_vae(n, labels) for n in ('ae.safetensors', 'SDXL_VAE', 'vae-ft-mse-840000', 'nope', '')],

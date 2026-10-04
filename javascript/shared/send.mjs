@@ -24,6 +24,7 @@ const {
     showResourceChips, lookUpMissingChips, updateResourceChipStates,
 } = await shared('chips.mjs');
 const { videoFrames, videoSize } = await shared('wan.mjs');
+const { showImageResources } = await shared('resources.mjs');
 const { splitSamplerScheduler } = await shared('samplers.mjs');
 
 /** Where a generation's settings go: back to the tab it was made in. */
@@ -655,6 +656,10 @@ async function applyPlannedModules(plan, vaeName) {
                       + `and VAE") name ${plan.not_found.join(', ')} for ${plan.preset} models, but Forge does not `
                       + 'list it: check the name, or put the file in Forge\'s VAE or text_encoder folder.');
     }
+    if (plan.own_not_listed) {
+        problems.push(`Forge does not list ${plan.own_not_listed} in "VAE / Text Encoder", so it is not selected: `
+                      + 'it is in a folder this WebUI does not load, or was added since Forge started.');
+    }
     if (plan.vae_not_found) {
         console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
     }
@@ -688,6 +693,28 @@ async function applyRecordedModules(plan) {
         showNotice(`This generation was made with ${gone.join(' and ')}, which Forge does not list any more: `
                    + 'the rest is sent, and the current choice is kept for what is missing.');
     }
+}
+
+/**
+ * A send stopped for the image's checkpoint: said at the top of the image's
+ * Resources dialog, where a missing one can be downloaded - or, for an image
+ * with no resources to list, in a notice. Nothing is moved or downloaded by
+ * itself.
+ */
+async function stopForCheckpoint(img, version, problem) {
+    const made = `The checkpoint this image was made with, ${problem.name}`;
+    const note = {
+        missing: `${made}, is not in your library. Download it here, then send the image again.`,
+        elsewhere: `${made}, is in your library at ${problem.path}, a folder this WebUI does not load. `
+                   + 'Move it into this WebUI\'s models folder, or download it here; then send the image again.',
+        not_listed: `${made}, is in your library at ${problem.path}, but Forge does not list it yet: `
+                    + 'refresh Forge\'s checkpoint list, then send the image again.',
+        not_checkpoint: 'This image does not say which checkpoint it was made with: what it names as one is '
+                        + 'not a checkpoint, in your library or on Civitai.',
+    }[problem.reason];
+    if (!note) return;
+    console.log('[ModelManager] Not sent:', note);
+    if (!await showImageResources(img, version?.id, { note })) showNotice(note);
 }
 
 /** A short message in the corner of the page, gone after a while. */
@@ -1122,6 +1149,16 @@ export async function sendGalleryImage({ img, model, version }) {
         const filesAsked = fetchImageFiles(img);
         const plan = await fetchForgePlan(model, version, img, vaeFromMeta(meta));
 
+        // The gallery's own file is loaded when it is a checkpoint - by what
+        // the file is, so a VAE Civitai files as a "Checkpoint" is not. Any
+        // other gallery's image needs its own checkpoint, the one thing a
+        // send cannot go without: one Forge cannot load stops it (#134).
+        const galleryIsCheckpoint = !!version && fileTypeOf(version, model) === 'Checkpoint';
+        if (!galleryIsCheckpoint && plan?.checkpoint_problem) {
+            await stopForCheckpoint(img, version, plan.checkpoint_problem);
+            return;
+        }
+
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to
         // img2img, with the image. Fetched meanwhile: the preset takes time.
@@ -1131,12 +1168,10 @@ export async function sendGalleryImage({ img, model, version }) {
 
         if (plan && plan.preset) await switchForgePreset(plan.preset);
 
-        // The gallery's own file is loaded when it is a checkpoint - by what
-        // the file is, so a VAE Civitai files as a "Checkpoint" is not.
-        let checkpointPath = null;
-        if (version && fileTypeOf(version, model) === 'Checkpoint') {
-            checkpointPath = getDropdownPath(version.file_path, 'Checkpoint');
-        }
+        // After the preset, which brings back a checkpoint of its own: the
+        // gallery's, or the image's by the name Forge lists it under.
+        const checkpointPath = galleryIsCheckpoint
+            ? getDropdownPath(version.file_path, 'Checkpoint') : plan?.checkpoint || null;
 
         const vaePath = vaeFromMeta(meta);
 

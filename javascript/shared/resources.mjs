@@ -229,14 +229,24 @@ export async function learnResourceHashes(images) {
     }
 }
 
-/** The Resources dialog for an image - a Civitai image, or one of your own. */
-export async function showImageResources(img, exclude) {
-    if (!img || !img.meta) return;
+// What the open dialog says above its list, if anything: why a send opened it.
+let resourcesNote = '';
+
+/**
+ * The Resources dialog for an image - a Civitai image, or one of your own.
+ * `note`, if given, is said at the top: a send stopped for a checkpoint the
+ * library lacks opens it, to download it there (#134).
+ *
+ * @returns {Promise<boolean>} whether there was anything to show
+ */
+export async function showImageResources(img, exclude, { note = '' } = {}) {
+    if (!img || !img.meta) return false;
 
     const civitai = img.meta.civitaiResources || [];
     const legacy = img.meta.resources || [];
-    if (civitai.length === 0 && legacy.length === 0) return;
+    if (civitai.length === 0 && legacy.length === 0) return false;
 
+    resourcesNote = note;
     const request = ++resourcesRequest;
     const stillWanted = () => request === resourcesRequest
         && !!document.querySelector('.mm-resources-modal');
@@ -247,7 +257,7 @@ export async function showImageResources(img, exclude) {
     const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
     renderResourcesModal(first, hashes.length);
     checkInstalledResources(first.known);
-    if (!hashes.length) return;
+    if (!hashes.length) return true;
 
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
         Object.assign(knownHashes, partial);
@@ -262,6 +272,7 @@ export async function showImageResources(img, exclude) {
         renderResourcesModal(merged, 0);
         checkInstalledResources(merged.known);
     }
+    return true;
 }
 
 function renderResourcesModal(resources, pending = 0) {
@@ -305,6 +316,8 @@ function renderResourcesModal(resources, pending = 0) {
                     <button class="mm-modal-close">&times;</button>
                 </div>
                 <div class="mm-modal-body">
+                    ${resourcesNote ? `<div class="mm-banner"><span class="mm-banner-icon">!</span>`
+                        + `<span>${escapeHtml(resourcesNote)}</span></div>` : ''}
                     <table class="mm-resources-table">
                         <thead>
                             <tr>

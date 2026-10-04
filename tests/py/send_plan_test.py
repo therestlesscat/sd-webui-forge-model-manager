@@ -167,5 +167,38 @@ check('   a checkpoint only Civitai knows: the baseModel Civitai gave it',
       video(file_path=vae, version_ids=[9004], base_model='Wan Video 2.2 T2V-A14B'), 'i2v')
 check('8. anything not Wan is not video', video(file_path=other_ckpt), None)
 
+
+# The checkpoint an image names, for a send from a gallery that is not a
+# checkpoint's (#134): the plan found it and took only its preset, and Forge
+# kept whatever it had loaded. The checkpoint is the one thing a send cannot
+# do without: one the library lacks is said, not sent around.
+def named(**kw):
+    sp._remembered.clear()
+    asked.clear()
+    return sp.image_checkpoint(db, lookup=civitai, **kw)
+
+
+is_(image_ckpt, 'Checkpoint', 'flux', 'Flux', hashes={'autov2': 'AAAA111122'})
+is_(other_ckpt, 'Checkpoint', 'zit', 'ZImage')
+check('9. the image\'s checkpoint, when the library has it',
+      named(file_path=lora, version_ids=[version_id(image_ckpt)]), {'path': image_ckpt})
+is_(other_ckpt, 'Checkpoint', 'flux', 'Flux', hashes={'autov2': 'AAAA111122'})
+check('   of two copies, the one in this WebUI\'s folders',
+      named(file_path=lora, hashes=['aaaa111122'], here=lambda p: p == other_ckpt), {'path': other_ckpt})
+check('   and with neither there, still the first - for the page to say where it is',
+      named(file_path=lora, hashes=['aaaa111122'], here=lambda p: False)['path'] in (image_ckpt, other_ckpt))
+is_(other_ckpt, 'Checkpoint', 'zit', 'ZImage', hashes={})
+check('   not one the library lacks, by the name the image gives it',
+      named(file_path=lora, version_ids=[9002], model_name='anima-preview2'), {'missing': 'anima-preview2'})
+check('   or the name Civitai gives its file',
+      named(file_path=lora, version_ids=[9003]), {'missing': 'other.safetensors'})
+check('   or, with no name anywhere, its hash', named(file_path=lora, hashes=['ffffeeee0000']),
+      {'missing': 'ffffeeee0000'})
+check('   what it names as checkpoints, all something else on Civitai, is no checkpoint',
+      named(file_path=lora, version_ids=[9001]), {'not_checkpoint': True})
+check('   as is a VAE of this library\'s filed as one - and Civitai is not asked',
+      (named(file_path=lora, version_ids=[version_id(vae)]), asked), ({'not_checkpoint': True}, []))
+check('   and an image that names none names none', named(file_path=lora), {})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

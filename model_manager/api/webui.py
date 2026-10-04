@@ -38,6 +38,41 @@ def shared_version() -> str:
     return str(int(newest))
 
 
+def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str) -> dict:
+    """
+    The image's checkpoint for a send from a gallery that is not a
+    checkpoint's: {checkpoint: Forge's name for it} or {checkpoint_problem}.
+    See forge_modules_for().
+    """
+    from ..forge_host import checkpoint_name
+    from ..model_dirs import folder_of
+    from ..send_plan import image_checkpoint
+    try:
+        found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name)
+    except Exception as e:
+        print(f"[ModelManager] Could not work out the image's checkpoint: {e}")
+        return {}
+    path = found.get("path")
+    if path:
+        name = checkpoint_name(path)
+        if name:
+            return {"checkpoint": name}
+        reason = "not_listed" if folder_of(path)[0] is not None else "elsewhere"
+        return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path}}
+    if found.get("missing"):
+        return {"checkpoint_problem": {"reason": "missing", "name": found["missing"]}}
+    if found.get("not_checkpoint"):
+        return {"checkpoint_problem": {"reason": "not_checkpoint"}}
+    return {}
+
+
+def _listed_label(path: str, installed: dict):
+    """The label Forge lists a module file under, by its path; None if it does not list it."""
+    wanted = os.path.normcase(os.path.abspath(path))
+    return next((label for label, listed in installed.items()
+                 if listed and os.path.normcase(os.path.abspath(listed)) == wanted), None)
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/asset-version")
@@ -81,6 +116,15 @@ def register(app: FastAPI):
             kinds the model needs that the checkpoint carries itself, and so
             are not selected - for the page to say so, as an empty control
             otherwise reads as a send that failed.
+
+            From a gallery that is not a checkpoint's (#134): checkpoint, the
+            name Forge lists the image's checkpoint under, to select; or
+            checkpoint_problem, why it cannot be - {reason: missing, name},
+            {reason: elsewhere | not_listed, name, path} for one the library
+            has in a folder this WebUI does not load, or that Forge has not
+            listed yet, {reason: not_checkpoint} - and the page sends nothing.
+            From a VAE's or a text encoder's, that file is in `target` in its
+            kind's place; own_not_listed, its name when Forge does not list it.
         """
         from ..db import get_models_db
         from ..file_identity import classify_file
@@ -88,8 +132,9 @@ def register(app: FastAPI):
         from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_vae, pick, preferred_modules
         from ..send_plan import SendModel, plan_model
 
+        db = get_models_db()
         try:
-            found = plan_model(get_models_db(), file_path, base_model,
+            found = plan_model(db, file_path, base_model,
                                version_ids.split(","), hashes.split(","), model_name)
         except Exception as e:
             print(f"[ModelManager] Could not work out the architecture: {e}")
@@ -101,13 +146,26 @@ def register(app: FastAPI):
                   "source": source, "video": found.video,
                   "manage_modules": preset not in (None, "sd", "xl"),
                   "select": [], "missing": [], "needed": [], "not_found": [],
-                  "target": [], "vae_not_found": None, "bundled": []}
+                  "target": [], "vae_not_found": None, "bundled": [],
+                  "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None}
+        gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
+        if gallery_type != "Checkpoint":
+            answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name))
+
+        # The gallery's own VAE or text encoder, as Forge lists it: the
+        # primary, which nothing picked for the image takes the place of.
         installed = installed_modules()
+        own = None
+        if gallery_type in ("VAE", "Text Encoder"):
+            own = _listed_label(file_path, installed)
+            answer["own_not_listed"] = None if own else os.path.basename(file_path)
+        own_vae = gallery_type == "VAE"
+
         if not answer["manage_modules"]:
             # SD and SDXL bring their own: the image's VAE, if it names one
-            named = match_vae(vae.strip(), installed)
-            answer["target"] = [named] if named else []
-            answer["vae_not_found"] = vae.strip() if vae.strip() and not named else None
+            named = None if own and own_vae else match_vae(vae.strip(), installed)
+            answer["target"] = [label for label in (named, own) if label]
+            answer["vae_not_found"] = vae.strip() if vae.strip() and not named and not (own and own_vae) else None
             return JSONResponse(answer)
 
         # What the checkpoint brings itself, of what its model needs: seen to
@@ -118,7 +176,7 @@ def register(app: FastAPI):
                              + ([vae_kind] if vae_kind and bundled_vae else []))
         modules = {label: classify_file(path) for label, path in installed.items()}
         answer.update(pick(model_class, preset, bundled_te, bundled_vae,
-                           modules, saved_modules(preset), preferred_modules(preset)))
+                           modules, saved_modules(preset), preferred_modules(preset), own, own_vae))
         answer["target"] = list(answer["select"])
         return JSONResponse(answer)
 

@@ -116,26 +116,73 @@ def plan_model(db, file_path: str = "", base_model: str = "",
     if gallery.get("file_type") == "Checkpoint" and gallery.get("architecture"):
         return _from_row(gallery, "file", base_model)
 
-    for row in db.versions_named_by(list(version_ids), list(hashes)):
-        if row.get("file_path") == file_path:
-            continue
-        row = _read(db, row["file_path"])
-        if row.get("file_type") == "Checkpoint" and row.get("architecture"):
-            return _from_row(row, "image")
+    row = _local_checkpoint(db, file_path, version_ids, hashes)
+    if row:
+        return _from_row(row, "image")
 
     gallery_base = base_model or gallery.get("base_model")
     if gallery.get("architecture"):
         return SendModel(preset=gallery["architecture"], source="gallery",
                          video=_video(gallery["architecture"], named=gallery_base))
 
-    preset, named = _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
-                                                 lookup or _ask_civitai)
+    preset, named, _ = _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
+                                                    lookup or _ask_civitai)
     if preset:
         return SendModel(preset=preset, source="image_civitai", video=_video(preset, named=named))
 
     preset = preset_for_base_model(gallery_base)
     return SendModel(preset=preset, source="civitai" if preset else None,
                      video=_video(preset, named=gallery_base))
+
+
+def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashes: List[str] = (),
+                     model_name: str = "", lookup: Callable[[str, str], Optional[dict]] = None,
+                     here: Callable[[str], bool] = None) -> Dict[str, Any]:
+    """
+    The checkpoint an image names, for a send from a gallery that is not a
+    checkpoint's (#134) - the one thing such a send cannot go without.
+
+    Returns {"path": file} when the library has it; {"missing": name} when it
+    names one the library lacks - by the name the image gives it, the name
+    Civitai gives its file, or its hash; {"not_checkpoint": True} when what
+    it names as checkpoints is something else, here or on Civitai (a VAE or
+    a text encoder filed as one); {} when it names none.
+    """
+    version_ids = [int(i) for i in version_ids if str(i).strip().isdigit()]
+    hashes = [h.strip() for h in hashes if h and h.strip()]
+    row = _local_checkpoint(db, file_path, version_ids, hashes, here)
+    if row:
+        return {"path": row["file_path"]}
+    if model_name.strip():
+        return {"missing": model_name.strip()}
+    if not (version_ids or hashes):
+        return {}
+    preset, _, name = _image_checkpoint_on_civitai(db, version_ids, hashes, "", lookup or _ask_civitai)
+    if preset and name:
+        return {"missing": name}
+    if hashes:
+        # A model hash is the checkpoint's, whatever Civitai knows of it.
+        return {"missing": hashes[0]}
+    return {"not_checkpoint": True}
+
+
+def _local_checkpoint(db, file_path: str, version_ids, hashes, here: Callable[[str], bool] = None) -> dict:
+    """
+    The library's checkpoint the image names, read as a scan reads it: one in
+    this WebUI's folders before another's - a library shared with the other
+    WebUI holds its copies too - else the first. {} for none.
+    """
+    here = here or (lambda path: folder_of(path)[0] is not None)
+    found = []
+    for row in db.versions_named_by(list(version_ids), list(hashes)):
+        if row.get("file_path") == file_path:
+            continue
+        row = _read(db, row["file_path"])
+        if row.get("file_type") == "Checkpoint" and row.get("architecture"):
+            if here(row["file_path"]):
+                return row
+            found.append(row)
+    return found[0] if found else {}
 
 
 def _read(db, path: str) -> dict:
@@ -178,10 +225,10 @@ def _video(preset: Optional[str], path: str = "", named: str = "") -> Optional[s
 
 
 def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
-                                 lookup) -> Tuple[Optional[str], str]:
+                                 lookup) -> Tuple[Optional[str], str, str]:
     """
-    The preset of a checkpoint the image names that this library lacks, and
-    the baseModel Civitai gave it.
+    The preset of a checkpoint the image names that this library lacks, the
+    baseModel Civitai gave it, and the name of its file there.
 
     Several can answer: an image's "checkpoints" include VAEs and encoders
     uploaded as one, whose baseModel is usually "Other" and maps to nothing.
@@ -193,7 +240,7 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
            [("v", str(i)) for i in version_ids if i not in local_ids]
     stem = os.path.splitext(os.path.basename(model_name or ""))[0].lower()
 
-    first = (None, "")
+    first = (None, "", "")
     for key in keys[:MAX_LOOKUPS]:
         answer = _remember(key, lookup)
         if not answer:
@@ -201,9 +248,10 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
         preset = preset_for_base_model(answer[0])
         if not preset:
             continue
-        if stem and any(os.path.splitext(name)[0].lower() == stem for name in answer[1]):
-            return preset, answer[0]
-        first = first if first[0] else (preset, answer[0])
+        named = [name for name in answer[1] if os.path.splitext(name)[0].lower() == stem]
+        if stem and named:
+            return preset, answer[0], named[0]
+        first = first if first[0] else (preset, answer[0], next(iter(answer[1]), ""))
     return first
 
 

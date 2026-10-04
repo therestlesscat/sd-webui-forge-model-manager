@@ -229,7 +229,8 @@ def _match(name: str, labels) -> Optional[str]:
 def pick(model_class: Optional[str], preset: Optional[str],
          bundled_text_encoder: bool, bundled_vae: bool,
          modules: Dict[str, Tuple[Optional[str], int]],
-         saved: List[str], preferred: List[str] = ()) -> Dict[str, object]:
+         saved: List[str], preferred: List[str] = (),
+         own: Optional[str] = None, own_vae: bool = False) -> Dict[str, object]:
     """
     The modules to select for a model, and what could not be found.
 
@@ -246,6 +247,11 @@ def pick(model_class: Optional[str], preset: Optional[str],
             Chroma. One this cannot identify is selected anyway, the person
             knowing better, and then nothing is reported missing, since it
             may well be what is.
+        own: the label of the gallery's own file, sent from a VAE's or a
+            text encoder's gallery (#134): it takes its place whatever else
+            would - a VAE (own_vae) the VAE's, of whatever kind, since it is
+            the one asked for; a text encoder its kind's - and is selected
+            beside the rest where it has no place.
 
     Returns:
         needed: the kinds looked for; select: the labels to select, one per
@@ -267,8 +273,12 @@ def pick(model_class: Optional[str], preset: Optional[str],
             chosen.append(label)
     unknown = [label for label in chosen if modules[label][0] is None]
 
+    own_kind = modules.get(own, (None, 0))[0] if own else None
     select, missing = [], []
     for kind in needed:
+        if own and own not in select and (kind == own_kind or (own_vae and kind.startswith("vae"))):
+            select.append(own)
+            continue
         candidates = [label for label, (k, _) in modules.items() if k == kind]
         if not candidates:
             missing.append(kind)
@@ -282,8 +292,10 @@ def pick(model_class: Optional[str], preset: Optional[str],
         ))
         select.append(candidates[0])
     if needed and unknown:
-        select += unknown
+        select += [label for label in unknown if label not in select]
         missing = []
+    if own and own not in select:
+        select.append(own)
     return {"needed": needed, "select": select, "missing": missing, "not_found": not_found}
 
 
