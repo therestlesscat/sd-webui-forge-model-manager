@@ -121,5 +121,24 @@ type('dogs');
 check('text typed and never chosen still filters the search', await search(), 'dogs');
 check('and is shown as a chip once it does', [$('cb_tag_chip_name').textContent, chipShown()],
       ['dogs', true]);
+$('cb_tag_chip_remove').dispatchEvent(new window.Event('click', { bubbles: true }));
+
+// ------------------------------------------------- Esc: suggestions, then the model
+// One Esc closes one thing (#127). The box's own listener emptied the list
+// first, so the page's found none showing and closed the model with them.
+// The key bubbles, as a real one does, to the page's listener.
+const escape = () => input.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }),
+    { key: 'Escape', preventDefault() {} }));
+const detailsShown = () => $('cb_details').style.display !== 'none';
+// Showing, not only drawn: a closed list keeps its last items.
+const listShown = () => $('cb_tag_dropdown').classList.contains('show');
+$('cb_details').style.display = 'block';
+type('anim');
+await waitFor('the suggestions', () => listShown() && suggestions().length === 3);
+escape();
+check('with suggestions showing, Esc in the box closes them', listShown(), false);
+check('and leaves the open model open', detailsShown(), true);
+escape();
+check('the next Esc closes the model', detailsShown(), false);
 
 done();

@@ -1577,10 +1577,10 @@ function initTagInput() {
                 tagSuggestions = [];
                 renderTagDropdown();
             }
-        } else if (e.key === 'Escape') {
-            tagSuggestions = [];
-            renderTagDropdown();
         }
+        // Escape is the page's listener's (init): it closes the suggestions,
+        // or else the open model. Emptied here first, it found none showing
+        // and closed both (#127).
     });
 
     document.getElementById('cb_tag_chip_remove')?.addEventListener('click', () => selectTag(''));
