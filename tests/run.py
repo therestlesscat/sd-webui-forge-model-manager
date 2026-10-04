@@ -7,6 +7,7 @@ Run everything, and say what could not be run and why.
     python tests/run.py -j 8            at most 8 suites at a time (default: 4)
     python tests/run.py --changed       only the suites the uncommitted changes need
     python tests/run.py --all           everything, said outright (what a bare run does)
+    python tests/run.py --tools         those, plus the suites of tools run by hand (TOOLS)
 
 A run of everything also records which of the extension's files each suite
 uses, in tests/work/test_map.json; --changed reads it to pick the suites a
@@ -35,6 +36,12 @@ ONLINE = {'enums_test.js', 'picker_test.js', 'thumbs_test.js'}
 # Suites that compare against a commit, to show a refactor changed nothing.
 # They are history rather than a statement about today's code.
 HISTORICAL = {'smoke.js', 'primary_file_test.js', 'card_parity_test.mjs'}
+
+# Suites of tools run rarely and by hand - the NSFW prompt model's trainer,
+# last run for the model that ships. A full run skips them; --tools runs
+# them, and --changed when a file each covers changes: a skipped suite is
+# never traced, so the map cannot say.
+TOOLS = {'nsfw_trainer_test.py': ('tools/train_nsfw_model.py', 'model_manager/nsfw.py')}
 
 
 def discover():
@@ -169,8 +176,12 @@ def choose(suites, known):
     if known is None:
         return {name: 'no map yet: this run records it' for _, _, name in suites}, changed, True
     for kind, path, name in suites:
-        if name not in known and kind != 'check':
+        if name not in known and kind != 'check' and name not in TOOLS:
             chosen[name] = 'not in the map yet'
+    for name, covers in TOOLS.items():
+        for f in changed:
+            if f in covers and any(name == n for _, _, n in suites):
+                chosen.setdefault(name, 'a tool\'s suite: %s changed' % f)
     for f in changed:
         base = os.path.basename(f)
         if f.startswith(('tests/py/', 'tests/js/')):
@@ -187,7 +198,7 @@ def choose(suites, known):
                 # Code no recorded run used: new, or reached only in a way
                 # the trace does not see. Everything that could use it runs.
                 for kind, _, name in suites:
-                    if kind != 'check':
+                    if kind != 'check' and name not in TOOLS:
                         chosen.setdefault(name, 'no suite recorded as using %s' % f)
             for name in users:
                 if any(name == n for _, _, n in suites):
@@ -199,7 +210,7 @@ def choose(suites, known):
     return chosen, changed, False
 
 
-def plan(wanted, online, node, linkedom):
+def plan(wanted, online, node, linkedom, tools=False):
     """
     What to run, in the order failures are worth reading: (label, command,
     environment) for each run, or (label, reason) for each suite skipped.
@@ -214,6 +225,8 @@ def plan(wanted, online, node, linkedom):
             reason = 'needs Civitai; pass --online'
         elif name in HISTORICAL:
             reason = 'compares against a commit; run it by hand'
+        elif name in TOOLS and not tools:
+            reason = 'a tool run by hand; pass --tools'
         elif path.endswith(('.js', '.mjs')) and not node:
             reason = 'node is not installed'
         elif name == 'dialog_test.mjs' and not linkedom:
@@ -259,7 +272,8 @@ def main(argv):
               if not a.startswith('-') and not (i and argv[i - 1] in ('-j', '--jobs'))]
     changed_only = '--changed' in argv
 
-    runs, skips = plan(wanted, online, have_node(), have_linkedom())
+    # --changed decides for itself whether a tool's suite runs (choose()).
+    runs, skips = plan(wanted, online, have_node(), have_linkedom(), '--tools' in argv or changed_only)
     started = time.time()
 
     known = None

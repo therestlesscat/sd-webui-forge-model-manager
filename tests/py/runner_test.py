@@ -59,5 +59,28 @@ check('with no map at all, everything runs, and records one',
 check('the runner itself is not something a suite uses',
       [run.relative(os.path.join(run.ROOT, 'tests', 'trace_run.py')) in run.RUNNER], [True])
 
+# A tool's suite (TOOLS) - the NSFW model's trainer: a full run skips it, so
+# it is never traced, and the map cannot say what it uses. It runs when a
+# file it covers changes, and for nothing else.
+TOOL_SUITES = SUITES + [('py', 'x', 'nsfw_trainer_test.py')]
+
+
+def runs_trainer(*changed):
+    run.changed_files = lambda: list(changed)
+    return 'nsfw_trainer_test.py' in run.choose(TOOL_SUITES, MAP)[0]
+
+
+check('a tool\'s suite runs when the tool changes', runs_trainer('tools/train_nsfw_model.py'), True)
+check('   or nsfw.py, whose features the trainer writes', runs_trainer('model_manager/nsfw.py'), True)
+check('   and not otherwise, though the map does not know it', runs_trainer('README.md'), False)
+check('   not even for code no suite was seen using', runs_trainer('model_manager/brand_new.py'), False)
+runs, skips = run.plan(['nsfw_trainer'], False, True, True)
+check('a full run skips it, saying how to run it',
+      ([label.split()[-1] for label, _ in skips], [reason for _, reason in skips], runs),
+      (['nsfw_trainer_test.py'], ['a tool run by hand; pass --tools'], []))
+check('   and --tools runs it',
+      [label.split()[-1] for label, *_ in run.plan(['nsfw_trainer'], False, True, True, tools=True)[0]],
+      ['nsfw_trainer_test.py'])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

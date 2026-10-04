@@ -46,7 +46,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from model_manager import nsfw   # noqa: E402
 
-BITS = 20
+BITS = 20                # weights kept under a CRC of their feature, in this many bits; the model says
 REGULARISATION = 2.0
 PRUNE_BELOW = 0.05       # measured: 46k weights of 497k, and no loss in recall
 CLEAN_PERCENT = 2        # suspected mis-ratings left out of the final training
@@ -73,13 +73,13 @@ def read_library(path):
     return rows
 
 
-def matrix(rows):
+def matrix(rows, bits=BITS):
     indices, pointers = [], [0]
     for _, meta, _ in rows:
-        indices.extend(sorted({nsfw.feature_hash(f, BITS) for f in nsfw.image_features(meta, FEATURES)}))
+        indices.extend(sorted({nsfw.feature_hash(f, bits) for f in nsfw.image_features(meta, FEATURES)}))
         pointers.append(len(indices))
     return sparse.csr_matrix((np.ones(len(indices), np.float32), indices, pointers),
-                             shape=(len(rows), 1 << BITS))
+                             shape=(len(rows), 1 << bits))
 
 
 def train(x, y):
@@ -94,20 +94,21 @@ def train(x, y):
     return w[:-1], w[-1]
 
 
-def build_model(rows, clean=CLEAN_PERCENT):
+def build_model(rows, clean=CLEAN_PERCENT, bits=BITS):
     """
     Train on rows from read_library(): the calibration out-of-fold, the model
     that ships on everything but the suspected mis-ratings - the `clean`
     percent of PG/PG-13 the out-of-fold models find most explicit; 0 keeps
     them all. Returns the model as it is written, with what was measured in
-    model["about"].
+    model["about"]. `bits`: how many weights, 2 ** bits - every step of the
+    training works on all of them, however few the prompts.
     """
     levels = np.array([r[0] for r in rows])
     explicit, safe = np.isin(levels, (nsfw.X, nsfw.XXX)), np.isin(levels, (nsfw.PG, nsfw.PG13))
     learn = explicit | safe
     print(f"{len(rows):,} prompts: {explicit.sum():,} X/XXX, {safe.sum():,} PG/PG-13, "
           f"{(levels == nsfw.R).sum():,} R")
-    x = matrix(rows)
+    x = matrix(rows, bits)
 
     # Out-of-fold scores, by post, for the calibration.
     fold = np.array([zlib.crc32(str(r[2]).encode()) % 2 for r in rows])
@@ -132,7 +133,7 @@ def build_model(rows, clean=CLEAN_PERCENT):
     w, b = train(x[learn & ~suspect], explicit[learn & ~suspect].astype(float))
     keep = np.flatnonzero(np.abs(w) >= PRUNE_BELOW)
     return {
-        "format": 1, "features": FEATURES, "bits": BITS, "bias": round(float(b), 4),
+        "format": 1, "features": FEATURES, "bits": bits, "bias": round(float(b), 4),
         "keys": [int(i) for i in keep], "values": [round(float(w[i]), 4) for i in keep],
         "calibration": calibration,
         "about": {
@@ -161,8 +162,10 @@ def main():
     parser.add_argument("--out", default=DEFAULT_OUT)
     parser.add_argument("--clean", type=float, default=CLEAN_PERCENT,
                         help="percent of PG/PG-13 left out as suspected mis-ratings; 0 for none")
+    parser.add_argument("--bits", type=int, default=BITS,
+                        help=f"2 ** bits weights (default {BITS}); fewer train faster, and collide more")
     args = parser.parse_args()
-    write_model(build_model(read_library(args.db), args.clean), args.out)
+    write_model(build_model(read_library(args.db), args.clean, args.bits), args.out)
 
 
 if __name__ == "__main__":

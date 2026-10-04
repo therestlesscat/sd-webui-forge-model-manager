@@ -4,6 +4,7 @@
 python tests/run.py --all           the offline suites and the static checks
 python tests/run.py --changed       only the suites the uncommitted changes need
 python tests/run.py --online        those, plus the ones that call Civitai
+python tests/run.py --tools         those, plus the suites of tools run by hand (TOOLS: the NSFW trainer)
 python tests/run.py nsfw hash       only suites matching these words
 python tests/run.py -j 8            at most 8 at a time (default: 4)
 python tests/py/hash_test.py        any suite, on its own, always
