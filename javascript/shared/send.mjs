@@ -25,6 +25,7 @@ const {
 } = await shared('chips.mjs');
 const { videoFrames, videoSize } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
+const { refreshWebUiModelList } = await shared('downloads.mjs');
 const { splitSamplerScheduler } = await shared('samplers.mjs');
 
 /** Where a generation's settings go: back to the tab it was made in. */
@@ -721,26 +722,46 @@ async function applyRecordedModules(plan) {
     }
 }
 
+// Why a send waits for its checkpoint, as the dialog's Send says it.
+const CHECKPOINT_WAITS = {
+    missing: 'The checkpoint is not in your library yet.',
+    elsewhere: 'The checkpoint is in a folder this WebUI does not load.',
+    not_listed: 'Forge does not list the checkpoint yet.',
+    not_checkpoint: 'The image names no checkpoint.',
+};
+
 /**
  * A send stopped for the image's checkpoint: said at the top of the image's
  * Resources dialog, where a missing one can be downloaded - or, for an image
- * with no resources to list, in a notice. Nothing is moved or downloaded by
- * itself.
+ * with no resources to list, in a notice. The dialog's own Send works once
+ * the server says the checkpoint can be loaded. Nothing is moved or
+ * downloaded by itself; one Forge does not list yet gets Forge's refresh.
  */
-async function stopForCheckpoint(img, version, problem) {
+async function stopForCheckpoint(img, model, version, problem) {
     const made = `The checkpoint this image was made with, ${problem.name}`;
     const note = {
-        missing: `${made}, is not in your library. Download it here, then send the image again.`,
+        missing: `${made}, is not in your library. Download it here, then press Send.`,
         elsewhere: `${made}, is in your library at ${problem.path}, a folder this WebUI does not load. `
-                   + 'Move it into this WebUI\'s models folder, or download it here; then send the image again.',
-        not_listed: `${made}, is in your library at ${problem.path}, but Forge does not list it yet: `
-                    + 'refresh Forge\'s checkpoint list, then send the image again.',
+                   + 'Move it into this WebUI\'s models folder, or download it here; then press Send.',
+        not_listed: `${made}, is in your library at ${problem.path}, but Forge does not list it yet. `
+                    + 'Its checkpoint list is being refreshed; Send works once it is.',
         not_checkpoint: 'This image does not say which checkpoint it was made with: what it names as one is '
                         + 'not a checkpoint, in your library or on Civitai.',
     }[problem.reason];
     if (!note) return;
     console.log('[ModelManager] Not sent:', note);
-    if (!await showImageResources(img, version?.id, { note })) showNotice(note);
+    const waits = (answer) => (answer?.checkpoint_problem
+        ? CHECKPOINT_WAITS[answer.checkpoint_problem.reason] || CHECKPOINT_WAITS.missing : '');
+    const send = {
+        why: CHECKPOINT_WAITS[problem.reason],
+        check: problem.reason === 'not_checkpoint' ? null
+            : async () => waits(await fetchForgePlan(model, version, img, vaeFromMeta(img.meta))
+                                 || { checkpoint_problem: problem }),
+        run: () => sendGalleryImage({ img, model, version }),
+    };
+    const listing = problem.reason === 'not_listed';
+    if (listing) refreshWebUiModelList();
+    if (!await showImageResources(img, version?.id, { note, send, recheck: listing })) showNotice(note);
 }
 
 /** A short message in the corner of the page, gone after a while. */
@@ -1187,7 +1208,7 @@ export async function sendGalleryImage({ img, model, version }) {
         // cannot go without: one Forge cannot load stops it (#134).
         const checkpointGallery = galleryIsCheckpoint(model, version);
         if (!checkpointGallery && plan?.checkpoint_problem) {
-            await stopForCheckpoint(img, version, plan.checkpoint_problem);
+            await stopForCheckpoint(img, model, version, plan.checkpoint_problem);
             return;
         }
 

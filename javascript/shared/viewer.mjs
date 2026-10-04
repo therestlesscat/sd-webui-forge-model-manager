@@ -368,7 +368,7 @@ export function openMetaModal(modalHtml) {
 }
 
 // Close metadata modal
-function closeMetaModal() {
+export function closeMetaModal() {
     const modal = document.getElementById('mm_meta_modal');
     if (modal) {
         modal.remove();

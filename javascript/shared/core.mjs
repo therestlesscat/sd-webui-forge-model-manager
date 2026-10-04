@@ -20,6 +20,8 @@ export const TIMING = Object.freeze({
     modulesCheck: 300,    // between asks whether Forge took a VAE / Text Encoder change
     modulesCheckMax: 3000, // and how long it is given to
     tabShown: 2000,       // a tab asked to show, at most: Gradio shows it in a moment
+    sendRecheck: 1000,    // between asks whether a stopped send's checkpoint can be loaded now
+    sendRecheckMax: 10000, // and for how long: Forge lists a download once its refresh is done
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

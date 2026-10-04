@@ -15,7 +15,7 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
-                    modulesCheck: 20, modulesCheckMax: 200 };
+                    modulesCheck: 20, modulesCheckMax: 200, sendRecheck: 20, sendRecheckMax: 200 };
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page
@@ -305,7 +305,13 @@ check('a checkpoint the library lacks: nothing is set or pasted',
       events.filter((e) => /^(preset|checkpoint|paste|module)/.test(e)), []);
 check('and the Resources dialog says which, to download it there',
       resourcesNote(), 'The checkpoint this image was made with, anima-preview2, is not in your library. '
-      + 'Download it here, then send the image again.');
+      + 'Download it here, then press Send.');
+// Its Send, at the bottom: disabled until the server says the checkpoint
+// can be loaded - asked again once downloads land.
+const dialogSend = () => document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
+check('the dialog\'s Send waits for the checkpoint, saying why',
+      [dialogSend()?.disabled, dialogSend()?.getAttribute('title')],
+      [true, 'The checkpoint is not in your library yet.']);
 closeResources();
 plan = { ...plan, checkpoint_problem: { reason: 'elsewhere', name: 'anima.safetensors',
                                         path: 'D:/other-webui/models/Stable-diffusion/anima.safetensors' } };
@@ -314,7 +320,7 @@ check('one only in a folder this WebUI does not load: where it is, and nothing m
       [events.filter((e) => /^(preset|checkpoint|paste)/.test(e)), resourcesNote()],
       [[], 'The checkpoint this image was made with, anima.safetensors, is in your library at '
            + 'D:/other-webui/models/Stable-diffusion/anima.safetensors, a folder this WebUI does not load. '
-           + 'Move it into this WebUI\'s models folder, or download it here; then send the image again.']);
+           + 'Move it into this WebUI\'s models folder, or download it here; then press Send.']);
 closeResources();
 plan = { ...plan, checkpoint_problem: { reason: 'not_checkpoint' } };
 await send();
@@ -322,7 +328,35 @@ check('what it names as a checkpoint is not one: said so, nothing sent',
       [events.includes('paste'), resourcesNote()],
       [false, 'This image does not say which checkpoint it was made with: what it names as one is not a '
               + 'checkpoint, in your library or on Civitai.']);
+check('and its Send stays disabled: no download helps', dialogSend()?.disabled, true);
 closeResources();
+
+// One Forge does not list yet: the dialog presses Forge's own refresh, asks
+// the server again, and its Send works once Forge lists it.
+const refresh = document.createElement('button');
+refresh.id = 'forge_refresh_checkpoint';
+let listed = false;
+refresh.addEventListener('click', () => { events.push('refresh'); setTimeout(() => { listed = true; }, 50); });
+document.body.appendChild(refresh);
+const notListed = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'not_listed', name: 'anima.safetensors',
+                                                                       path: 'C:/models/Stable-diffusion/anima.safetensors' } };
+const listedNow = { ...plan, checkpoint: 'anima.safetensors [635cf338]', checkpoint_problem: null };
+plan = notListed;
+const planNow = setInterval(() => { plan = listed ? listedNow : notListed; }, 5);
+await send();
+check('a checkpoint Forge does not list yet: Forge\'s refresh pressed, nothing sent',
+      [events.includes('refresh'), events.includes('paste')], [true, false]);
+await waitFor('the dialog\'s Send', () => dialogSend() && !dialogSend().disabled);
+check('once Forge lists it, the dialog\'s Send works', dialogSend()?.hasAttribute('title'), false);
+events.length = 0;
+await act('resources.sendAgain', {});
+await whenSendSettled();
+clearInterval(planNow);
+check('pressed, the dialog closes and the image is sent, with its checkpoint',
+      [document.querySelector('.mm-resources-modal'), events.filter((e) => /^(checkpoint|paste)/.test(e))],
+      [null, ['checkpoint:anima.safetensors [635cf338]', 'paste']]);
+refresh.remove();
+plan = { ...listedNow };
 
 // A VAE's or text encoder's gallery: its file is in the plan's target, which
 // the send already holds the control to; one Forge does not list is said.

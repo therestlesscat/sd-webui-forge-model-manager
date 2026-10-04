@@ -13,10 +13,10 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
 const { downloads, onItsWay } = await shared('downloads.mjs');
 const { provide } = await shared('calls.mjs');
-const { openMetaModal } = await shared('viewer.mjs');
+const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 
 // ------------------------------------------- an image's resources, looked up
 // Which Civitai versions an image's resource hashes are, and the downloads of
@@ -232,14 +232,22 @@ export async function learnResourceHashes(images) {
 // What the open dialog says above its list, if anything: why a send opened it.
 let resourcesNote = '';
 
+// A send stopped for its checkpoint (send.mjs), as the dialog's own Send:
+// { why, check, run, ready }. `why` says why it waits; `check()` asks the
+// server again, resolving to '' once the checkpoint can be loaded, else a
+// new why; `run()` sends. No `check`: nothing the dialog offers can help.
+let resourcesSend = null;
+
 /**
  * The Resources dialog for an image - a Civitai image, or one of your own.
  * `note`, if given, is said at the top: a send stopped for a checkpoint the
- * library lacks opens it, to download it there (#134).
+ * library lacks opens it, to download it there (#134). `send` adds a Send
+ * at the bottom, disabled until the checkpoint can be loaded - asked again
+ * once downloads land, or at once with `recheck`.
  *
  * @returns {Promise<boolean>} whether there was anything to show
  */
-export async function showImageResources(img, exclude, { note = '' } = {}) {
+export async function showImageResources(img, exclude, { note = '', send = null, recheck = false } = {}) {
     if (!img || !img.meta) return false;
 
     const civitai = img.meta.civitaiResources || [];
@@ -247,6 +255,7 @@ export async function showImageResources(img, exclude, { note = '' } = {}) {
     if (civitai.length === 0 && legacy.length === 0) return false;
 
     resourcesNote = note;
+    resourcesSend = send ? { ...send, ready: false } : null;
     const request = ++resourcesRequest;
     const stillWanted = () => request === resourcesRequest
         && !!document.querySelector('.mm-resources-modal');
@@ -257,6 +266,7 @@ export async function showImageResources(img, exclude, { note = '' } = {}) {
     const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
     renderResourcesModal(first, hashes.length);
     checkInstalledResources(first.known);
+    if (recheck) recheckSend();
     if (!hashes.length) return true;
 
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
@@ -330,6 +340,7 @@ function renderResourcesModal(resources, pending = 0) {
                             ${rows}${stillLooking}${nothingKnown}${unknownRows}
                         </tbody>
                     </table>
+                    ${sendAgainButton()}
                 </div>
             </div>
         </div>
@@ -337,6 +348,59 @@ function renderResourcesModal(resources, pending = 0) {
 
     openMetaModal(modalHtml);
 }
+
+/** The dialog's Send, for a send it stopped: disabled, saying why, until ready. */
+function sendAgainButton() {
+    if (!resourcesSend) return '';
+    const { ready, why } = resourcesSend;
+    return `<div class="mm-dialog-buttons mm-resources-send">
+                <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
+                    ready ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
+            </div>`;
+}
+
+/**
+ * Ask the server again whether the stopped send's checkpoint can be loaded,
+ * and redraw the dialog's Send: at once, then every TIMING.sendRecheck for
+ * TIMING.sendRecheckMax - Forge lists a download only once its refresh is
+ * done. Stops when the dialog closes or is opened for another image.
+ */
+async function recheckSend() {
+    const wanted = resourcesSend;
+    if (!wanted?.check || wanted.ready || wanted.checking) return;
+    wanted.checking = true;
+    const until = Date.now() + TIMING.sendRecheckMax;
+    try {
+        while (resourcesSend === wanted && document.querySelector('.mm-resources-modal')) {
+            let why = wanted.why;
+            try {
+                why = await wanted.check();
+            } catch (error) {
+                console.warn('[ModelManager] Could not ask again about the checkpoint:', error);
+            }
+            if (resourcesSend !== wanted) return;
+            Object.assign(wanted, { why, ready: !why });
+            const box = document.querySelector('.mm-resources-modal .mm-resources-send');
+            if (box) box.outerHTML = sendAgainButton();
+            if (!why || Date.now() >= until) return;
+            await new Promise((resolve) => setTimeout(resolve, TIMING.sendRecheck));
+        }
+    } finally {
+        wanted.checking = false;
+    }
+}
+// Downloads landed, and Forge's list refreshed (downloads.mjs): the
+// checkpoint may be one of them.
+downloads().onBatchDone(() => recheckSend());
+
+// The dialog's Send: closed, and the image sent again, through every check.
+provide('resources.sendAgain', () => {
+    const send = resourcesSend;
+    if (!send?.ready) return undefined;
+    closeMetaModal();
+    resourcesSend = null;
+    return send.run();
+});
 
 // ------------------------------------------- downloading from the dialog
 // The dialog's Download used to be a link to Civitai's download URL: the
@@ -439,6 +503,7 @@ function finishResourceDownload(versionId) {
     resourceDownloads[versionId].state = 'installed';
     installedResourceVersions.add(versionId);
     announceDownloads({ installed: true });
+    recheckSend();
 }
 
 /**
