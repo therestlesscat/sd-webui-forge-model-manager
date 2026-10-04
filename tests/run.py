@@ -107,7 +107,11 @@ def traced(kind, path, name, command, env):
     env = dict(env or os.environ)
     if kind == 'py':
         return [sys.executable, os.path.join(HERE, 'trace_run.py'), path, out], env, out
-    env['NODE_V8_COVERAGE'] = os.path.join(TRACE, name + '.cov')
+    # Node adds a report per run and never removes one: kept, they piled up
+    # to 4.6 GB, every run read them all, and old runs' files stayed "used".
+    coverage = os.path.join(TRACE, name + '.cov')
+    shutil.rmtree(coverage, ignore_errors=True)
+    env['NODE_V8_COVERAGE'] = coverage
     env['MM_TRACE_OUT'] = out
     return [command[0], '--require', os.path.join(HERE, 'trace_node.cjs')] + command[1:], env, out
 
@@ -235,7 +239,11 @@ def run_one(command, env, suite=None, record=False):
     started = time.time()
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, env=env)
     took = time.time() - started
-    return result, took, (files_used(suite[0], suite[2], out) if out else None)
+    if not out:
+        return result, took, None
+    files = files_used(suite[0], suite[2], out)
+    shutil.rmtree(os.path.join(TRACE, suite[2] + '.cov'), ignore_errors=True)    # read; a megabyte or more
+    return result, took, files
 
 
 def main(argv):

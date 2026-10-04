@@ -10,7 +10,7 @@ python tests/py/hash_test.py        any suite, on its own, always
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`, four at a time: about a minute for all of them. Not one per CPU:
+`tests/work/`, four at a time: under 40 s for all of them. Not one per CPU:
 32 processes beside two running WebUIs left Windows out of memory. A failing suite's tail is
 printed after the list, its name in the last line, and its whole output kept
 in `tests/work/last_failures.log` until the next run.

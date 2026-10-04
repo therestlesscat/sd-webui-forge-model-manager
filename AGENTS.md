@@ -881,8 +881,8 @@ python tests/run.py --all
 ```
 
 A hundred and fifty-two, as the runner counts them - 72 Python, 74 browser and
-6 static checks, six of them skipped unless asked - run four at a time: about a
-minute. Not wider - each is a process of its own, and
+6 static checks, six of them skipped unless asked - run four at a time: under
+40 s. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,
 `--changed` runs only the suites the uncommitted changes need. See
 `tests/README.md` for what they cover, how the choice is made, and how to add
