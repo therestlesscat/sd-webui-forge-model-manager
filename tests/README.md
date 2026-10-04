@@ -8,6 +8,7 @@ python tests/run.py --tools         those, plus the suites of tools run by hand 
 python tests/run.py nsfw hash       only suites matching these words
 python tests/run.py -j 8            at most 8 at a time (default: 4)
 python tests/py/hash_test.py        any suite, on its own, always
+python tests/coverage.py            line coverage, by hand: tests/work/coverage/report.txt
 ```
 
 The suites run side by side, each in its own process with its own folder under
