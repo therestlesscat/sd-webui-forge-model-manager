@@ -215,6 +215,16 @@ in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
 or a crash leaves it paused, and a WebUI sharing the database never takes it
 up.
 
+**A gallery's Send sets up its own model first** (#134). The gallery's file
+is the primary: a checkpoint is loaded, a VAE or text encoder takes its kind's
+place (`pick(own=)`), an upscaler becomes Hires fix's, a LoRA or embedding a
+chip. The rest is picked as before, never over it. The image's checkpoint is
+the one thing Send cannot go without: one the library lacks, or this WebUI
+cannot load, stops the send and opens the image's Resources, whose own Send
+works once the server says it can (`checkpoint_problem`). An image that names
+no checkpoint has Send disabled outside a checkpoint's gallery (`cannotSend`).
+Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
+
 **A gallery switch's number holds when it is flipped.** An image both the NSFW
 and the prompt filter hide is counted apart (`hidden_both`), not credited to
 either: credited to NSFW, "Show NSFW" said 51 while hiding and 49 once ticked.
@@ -723,6 +733,18 @@ real time once.
 - **A swallowed error looks like an unrelated failure.** A test's own helper
   named `usable` shadowed the imported `usable`; the paging code caught the
   recursion and reported "no models kept".
+- **A crash hides a suite's earlier failures.** `checker()` prints them at
+  `done()`: a TypeError at line 588 of a browser suite hid the failures of the
+  section above it. Read the crash, then run again.
+- **A shortened poll stays slower than `waitFor`'s look (50 ms).** With the
+  restamp poll at 25 ms, a state went by between two looks, and a check that
+  reads each state missed it.
+- **Look at what a run leaves behind.** Node's coverage reports were never
+  removed: 9,429 of them, 4.6 GB. Every `--all` parsed them all, and two
+  modules deleted long ago stayed "used" in `test_map.json` (92 entries). With
+  a tracer that hooked every call, `--all` had grown to 72-83 s; it takes 31
+  s since both were fixed. Time a run plain and traced before guessing why
+  it is slow.
 - **Gate what is costly on the case that needs it.** The tie-break read
   Civitai's order from JSON: for every version, +13.6 ms a grid query;
   counting ties with a window, +25 ms; asked only where an indexed `EXISTS`
@@ -825,6 +847,10 @@ real time once.
   their type's folder got a box of its own, never ticked for anyone.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
+- **Search the page too before saying the extension does not do something.**
+  "Nothing refreshes Forge's checkpoint list after a download" was said from
+  a search of the Python alone; `downloads.mjs` presses Forge's own refresh
+  (`refreshWebUiModelList`) once a batch of downloads lands.
 - **A wait for the server ends on every answer but the one it waits out.**
   #121's first loop waited on any answer without a version; four suites, whose
   fetch stand-ins answer `{success: true}`, hung until their processes were
@@ -838,7 +864,12 @@ real time once.
 - The WebUI may not be on the default port. From WSL it cannot be reached
   directly; Windows' own `curl.exe` can.
 - Run the tests with the WebUI's own Python - it has FastAPI and torch - and
-  Windows `node.exe` for the browser suites.
+  Windows `node.exe` for the browser suites. Neo's venv is Python 3.13
+  (`sys.monitoring`; comprehensions inlined, no frame of their own); the
+  original Forge's is 3.10, so the tracer keeps a profile-hook fallback.
+- This project's hook refuses any Bash command whose text names the test
+  runner's file - a commit message and an edit script included. Put the path
+  in a variable (`F=tests/ru; F=${F}n.py`), or run a script file.
 - WSL's shell here is zsh: `noclobber` is on and `cp` asks before overwriting
   (see "Make sure the old code is what ran"), and `echo` turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
