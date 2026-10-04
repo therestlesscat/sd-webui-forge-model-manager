@@ -5,6 +5,9 @@ import { readFileSync } from 'fs';
 import { ROOT, call, checker, mountTab, sharedModule, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The page's waits, shortened (TIMING): the preview's, the restamp's poll, a redraw's.
+// The restamp's poll stays slower than waitFor's look (50 ms), which reads each state it passes through.
+window.mmTiming = { previewWait: 30, restampPoll: 120, drawRetry: 25 };
 // The Settings page's result line is watched for; linkedom has the observer,
 // the harness does not make it global.
 globalThis.MutationObserver = window.MutationObserver;
@@ -292,7 +295,7 @@ check('a card size preset sets both sides',
 // only as many models asked for as that.
 const row = () => field('model_manager_card_size').querySelector('.mm-settings-card-row');
 const cardCount = () => row().querySelectorAll('.model-card').length;
-const settle = () => new Promise((r) => setTimeout(r, 400));
+const settle = () => new Promise((r) => setTimeout(r, 80));     // the preview's wait, and a margin
 check('there is no preview until asked for', [row().hidden, cardCount()], [true, 0]);
 const rowWidth = 700;       // what the dialog gives the row; linkedom lays nothing out
 Object.defineProperty(Object.getPrototypeOf(row()), 'clientWidth', {
@@ -518,7 +521,7 @@ await call('settings.open');
 type(field('model_manager_page_size').querySelector('input[type="number"]'), '40');
 $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 4);
-await new Promise((r) => setTimeout(r, 400));
+await new Promise((r) => setTimeout(r, 250));          // two restamp polls: none would come
 check('a save that changes nothing about judging shows no notice',
       [noticeShown, notice()?.style.display], ['', 'none']);
 
@@ -560,7 +563,7 @@ check('Apply that changes how images are judged shows the notice, though the las
 notice().style.display = 'none';
 restampStates = [{ state: 'done', changed: 7, total: 100000 }];
 applied('1 settings changed: sd_vae.');
-await new Promise((r) => setTimeout(r, 600));
+await new Promise((r) => setTimeout(r, 300));          // over two restamp polls: none would come
 check('and Apply that changes something else does not, though the last line named it',
       notice().style.display, 'none');
 

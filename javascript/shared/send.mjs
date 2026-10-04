@@ -169,7 +169,7 @@ function getModulesControl() {
     return null;
 }
 
-function nextFrame(ms = 60) {
+function nextFrame(ms = TIMING.frame) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -634,14 +634,14 @@ function watchForgeCalls() {
  */
 async function presetTaken(preset, callsBefore = forgeCalls.started) {
     const start = Date.now();
-    for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(100);
+    for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(TIMING.presetFrame);
     while (Date.now() - start < FORGE_PRESET_MAX_MS) {
         const called = forgeCalls.started > callsBefore;
         if (called && forgeCalls.inFlight === 0 && Date.now() - forgeCalls.last >= FORGE_PRESET_QUIET_MS) break;
         if (!called && Date.now() - start >= FORGE_PRESET_SETTLE_MS) break;
         await nextFrame(50);
     }
-    await nextFrame(100);   // Gradio writes the last answer into the page after it arrives
+    await nextFrame(TIMING.presetFrame);   // Gradio writes the last answer into the page after it arrives
     console.log('[ModelManager] Forge UI preset now:', currentForgePreset(),
                 `(${forgeCalls.started - callsBefore} server calls, ${Date.now() - start} ms)`);
     return currentForgePreset() === preset;
@@ -1159,7 +1159,7 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {
         }
         await Promise.resolve(pending).catch(() => {});
         settled();
-    }, 100));
+    }, TIMING.pasteSettle));
     return true;
 }
 

@@ -138,7 +138,8 @@ const searches = () => asked.filter((u) => /\/civitai\/models\?/.test(u));
 
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
-window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
+window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
+                    scrollSettle: 20 };
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 await settle();

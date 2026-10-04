@@ -9,6 +9,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
+const { TIMING } = await shared('core.mjs');
 const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
 
 /**
@@ -97,7 +98,7 @@ export function showApiKeyBanner(bannerId, attempt = 0) {
     const banner = document.getElementById(bannerId);
     if (apiKeyMissing === null || !banner) {
         if (attempt < API_KEY_BANNER_TRIES) {
-            setTimeout(() => showApiKeyBanner(bannerId, attempt + 1), 250);
+            setTimeout(() => showApiKeyBanner(bannerId, attempt + 1), TIMING.drawRetry);
         }
         return;
     }

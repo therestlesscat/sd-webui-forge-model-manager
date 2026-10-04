@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml, holdPage } = await shared('core.mjs');
+const { TIMING, escapeHtml, holdPage } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 
 const K = {
@@ -133,7 +133,6 @@ const CARD_PRESETS = [['Small', 160, 224], ['Medium', 200, 280], ['Large', 260, 
 const CARD_GAP = 15;
 const CARD_PREVIEW_MIN = 50;
 const CARD_PREVIEW_MOST = 30;
-const PREVIEW_WAIT_MS = 300;
 const FOLDER_PLACEHOLDERS = ['{baseModel}', '{modelName}', '{creator}', '{modelId}'];
 
 function same(a, b) {
@@ -587,7 +586,7 @@ function createSettings() {
     // ------------------------------------------------------ card preview
     function schedulePreview(key) {
         clearTimeout(previewTimers[key]);
-        previewTimers[key] = setTimeout(() => drawPreview(key), PREVIEW_WAIT_MS);
+        previewTimers[key] = setTimeout(() => drawPreview(key), TIMING.previewWait);
     }
 
     /**
@@ -1005,7 +1004,6 @@ export function syncSettingsPage(values) {
 // The settings that change how images are judged: saving one has the server
 // judge every stored image again (prompt_levels.py).
 const NSFW_KEYS = [K.words, K.detection, K.percent];
-const RESTAMP_POLL_MS = 250;
 const RESTAMP_DONE_MS = 6000;
 
 /**
@@ -1063,7 +1061,7 @@ function createRestampNotice() {
             } else {
                 show('Reading stored images...', null);
             }
-            polling = setTimeout(poll, RESTAMP_POLL_MS);
+            polling = setTimeout(poll, TIMING.restampPoll);
             return;
         }
         polling = null;

@@ -15,7 +15,8 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
-                    modulesCheck: 20, modulesCheckMax: 200, sendRecheck: 20, sendRecheckMax: 200 };
+                    modulesCheck: 20, modulesCheckMax: 200, sendRecheck: 20, sendRecheckMax: 200,
+                    pasteSettle: 10, frame: 5, presetFrame: 10 };
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page

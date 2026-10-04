@@ -148,6 +148,7 @@ const sandbox = {
     Event: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } },
     MouseEvent: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } },
     Array, Object, String,
+    TIMING: { frame: 5 },       // send.mjs's waits (core.mjs), the frame nextFrame() waits by default
 };
 sandbox.window = sandbox;
 sandbox.gradioApp = () => control.doc;

@@ -22,6 +22,13 @@ export const TIMING = Object.freeze({
     tabShown: 2000,       // a tab asked to show, at most: Gradio shows it in a moment
     sendRecheck: 1000,    // between asks whether a stopped send's checkpoint can be loaded now
     sendRecheckMax: 10000, // and for how long: Forge lists a download once its refresh is done
+    pasteSettle: 100,     // after Forge's paste, before what it does not set: scheduler, modules, hires
+    frame: 60,            // a frame of Gradio's: a dropdown opened, an option pressed
+    presetFrame: 100,     // between looks at Forge's UI preset while it switches
+    scrollSettle: 500,    // a smooth scroll to a gallery's top, at most
+    drawRetry: 250,       // between looks for markup Gradio has not drawn yet
+    previewWait: 300,     // the settings' card preview, drawn once a field stops changing
+    restampPoll: 250,     // a restamp of stored image levels' progress
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

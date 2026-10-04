@@ -10,7 +10,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml } = await shared('core.mjs');
+const { TIMING, escapeHtml } = await shared('core.mjs');
 const { call } = await shared('calls.mjs');
 const { showSyncDialog, showScanDialog } = await shared('jobs.mjs');
 
@@ -58,7 +58,7 @@ function drawNotes(tab, attempt = 0) {
     if (!state || !state.notes) return;
     const box = document.getElementById(state.containerId);
     if (!box) {
-        if (attempt < DRAW_TRIES) setTimeout(() => drawNotes(tab, attempt + 1), 250);
+        if (attempt < DRAW_TRIES) setTimeout(() => drawNotes(tab, attempt + 1), TIMING.drawRetry);
         return;
     }
     const rank = (note) => (note.kind === 'intro' ? NOTE_ORDER.intro
