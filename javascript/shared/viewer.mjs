@@ -3,7 +3,7 @@
  * window, ← and → (and the wheel) through the gallery's images and on into
  * its next page, the gallery's own buttons below it, and its details beside
  * it in a panel that folds away. Esc, ×, or a click around the image closes
- * it.
+ * it - gone from the screen as the button goes down.
  *
  * What the viewer shows is the gallery's to say, through a source:
  *
@@ -35,6 +35,9 @@ const PANEL_KEY = 'mm_viewer_panel_closed';
 // The wheel: how far it has to turn for one image, and how soon the next.
 const WHEEL_STEP = 50;
 const WHEEL_PAUSE_MS = 150;
+// Around the image - not on it, a button or the details: a click there closes it.
+const AROUND = '.mm-viewer, .mm-viewer-stage, .mm-viewer-main, .mm-viewer-frame, '
+    + '.mm-viewer-bar, .mm-viewer-where';
 
 let current = null;      // { source, index, element, wheel, wheelAt, pageScroll }
 
@@ -112,6 +115,7 @@ export function openViewer(source, index = 0) {
             <div class="mm-viewer-info"></div>
         </aside>
         <button type="button" class="mm-viewer-close" data-close title="Close (Esc)">×</button>`;
+    element.addEventListener('pointerdown', onPress);
     element.addEventListener('click', onClick);
     element.addEventListener('wheel', onWheel, { passive: false });
     document.addEventListener('keydown', onKey);
@@ -226,9 +230,29 @@ function onClick(event) {
         setTimeout(closeViewer, 0);
         return;
     }
-    // Around the image - not on it, a button or the details - closes it.
-    if (target.matches?.('.mm-viewer, .mm-viewer-stage, .mm-viewer-main, .mm-viewer-frame, '
-                         + '.mm-viewer-bar, .mm-viewer-where')) closeViewer();
+    if (target.matches?.(AROUND)) closeViewer();
+}
+
+/**
+ * A press around the image hides the viewer at once; the click on release
+ * closes it. Closed on the click alone, it stayed on screen for as long as
+ * the button was held - 65 ms in a trace (#112). It is not removed on the
+ * press: the release would land on the page under it, and a card there would
+ * take the click. A press that ends in no click shows it again.
+ */
+function onPress(event) {
+    if (!current || event.button !== 0 || !event.target.matches?.(AROUND)) return;
+    const { element } = current;
+    element.style.opacity = '0';
+    // The click comes in the same task as the release: after it, the viewer
+    // is closed, or the press came to nothing.
+    const settle = () => {
+        window.removeEventListener('pointerup', settle);
+        window.removeEventListener('pointercancel', settle);
+        setTimeout(() => { element.style.opacity = ''; }, 0);
+    };
+    window.addEventListener('pointerup', settle);
+    window.addEventListener('pointercancel', settle);
 }
 
 /**
