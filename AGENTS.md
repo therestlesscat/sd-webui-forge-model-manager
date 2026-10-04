@@ -138,6 +138,24 @@ and the page draws one pill per version, with a Files list under it to read,
 not to pick from. Which of a version's files Send uses is decided by what each
 is and where it is (`send_plan.send_files`), and the list says which.
 
+**A file is known by its path; Civitai's id for it is a fact about it.**
+`files` is keyed by `file_path`: what Forge loads, what a scan walks, and what
+`pins` and `generation_files` name - on purpose, so a pin or a generation's
+link outlives the file going and coming back. `civitai_file_id` (with
+Civitai's type for the file, fp, size, format, primary) is matched by hash,
+else by name (`payload_rows.file_row`), by every sync, a download and a scan.
+It is no key: a file Civitai does not know has none, one Civitai file can be
+on disk twice (in both WebUIs' folders), and it is learned late and can be
+corrected - a key that changes is rewritten wherever it is named.
+
+**A path is shown from where Forge was told to look.** Under a folder the
+WebUI was given on the command line, by that option (`--lora-dir\x`); else
+from the WebUI's own folder (`models\text_encoder\y`); else whole - the
+other WebUI's file, in a folder this one was not given, which it cannot load
+(`model_dirs.shown_roots`, `shownPath` in `ui_options.mjs`). Cut at
+`\models\` alone, an embedding - not under it - showed its whole path, and
+the other WebUI's file read as this one's.
+
 **A model's version list is Civitai's, as of the last sync.**
 `models.versions` holds every version Civitai lists, local or not, so
 the details panel can offer the rest for download without asking Civitai. A
@@ -401,6 +419,13 @@ v32 a copy refuses a database newer than it knows (`_init_db`), and v32
 dropped `model_versions` and renamed `civitai_models` to `models`, so a copy
 from before it fails rather than writes the old shape. Update both before starting either.
 
+**A shared library holds the other WebUI's files.** Its scan files them in
+the same `files`; this WebUI may not have been given their folders and
+cannot load them. Anything that acts on a file - Send's choice of a version's
+file, the chips' "in library" - takes one in this WebUI's folders
+(`model_dirs.folder_of`); anything that shows one says whose it is (a whole
+path).
+
 To see the original Forge's behaviour without starting it, run the code under
 its Python with its packages on `sys.path` (`webui`,
 `webui\repositories\huggingface_guess`, `webui\packages_3rdparty`): that is
@@ -600,6 +625,14 @@ real time once.
   by what it does where the case exists, and fix what it has already written
   into those databases, not only what it would write next - a user does not
   read the issue, or know to Force sync.
+- **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
+  this folder, and the database is the live one, shared: a migration not yet
+  committed runs on it at the next restart (v32 did, three times, in #133).
+  Say so before a schema change; once it has run, a further change to that
+  migration reaches the live database only from its backup - delete the
+  `-wal` and `-shm` beside it first, or the old log is replayed into the
+  restored file. Before saying a restore is needed, read the live schema
+  (`mode=ro`): one was asked for after the owner had already done it.
 - **"mm" means the Model Manager tab**, not the `model_manager/` package.
 - **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
   made from the local `dev`, which held commits not yet pushed, and had to be
@@ -647,7 +680,17 @@ real time once.
   three releases, which no suite could.
 - **A test passes for the wrong reason when something else rescues it.** The
   downloads test had a running download, whose poll redrew the panel; the
-  bug was a panel of paused downloads only, which nothing polls.
+  bug was a panel of paused downloads only, which nothing polls. And a sync
+  test listed one of a model's two versions, so the first file was refiled as
+  the second: it counted two galleries only because galleries were fetched
+  per file - the bug #133 fixed - and failed once they were not.
+- **A stand-in server answers with copies.** One that hands the page the
+  test's own objects lets the page's changes - renaming a card's file after a
+  delete - rewrite the test's fixtures; a fetch never shares objects. Answer
+  with `structuredClone`.
+- **An action a suite presses returns its promise.** `deleteFile` did not, so
+  `press` went on at once and the checks read the panel before the delete was
+  done; one passed by the request alone.
 - **No test reaches a database.** A service that saves through
   `get_models_db()` takes a store the test can set
   (`DownloadService.store`), and saves nothing when there is nothing to keep.
@@ -656,7 +699,11 @@ real time once.
   compare every field: R13 found the enum it removed had been wrong for 25 of
   25 models; R18 found nothing changed. Then make one deliberate change and
   see the comparison catch it (a rating rounded differently: 395 differ) - a
-  comparison that cannot fail proves nothing.
+  comparison that cannot fail proves nothing. A schema change the same way:
+  HEAD's package beside the tree's, on an in-memory copy of the live tables,
+  the migration's backup pointed at memory (`tests/work/r133/compare.py`).
+  It found what every suite passed: v32 turned a version's Unknown level into
+  PG and its unsaid stats into 0, for versions of one file.
 - **A test that pins an incidental fact breaks on every change.** "The schema
   is at 29" failed the moment v30 came; assert what the test is about.
 - **A check that fails once is run twenty times on HEAD before it is blamed
@@ -670,13 +717,19 @@ real time once.
   import inside a function, twice (the match was an indented copy); a "cut
   to the next method" took a module's tail with the last method. After any
   scripted edit, parse every changed file and compare its function count.
+  A rename by regex: grep for the old name afterwards, in every quoting - one
+  that kept off a JSON key of the same name skipped `_upsert("civitai_versions")`,
+  and 45 suites failed.
 - **A swallowed error looks like an unrelated failure.** A test's own helper
   named `usable` shadowed the imported `usable`; the paging code caught the
   recursion and reported "no models kept".
 - **Gate what is costly on the case that needs it.** The tie-break read
   Civitai's order from JSON: for every version, +13.6 ms a grid query;
   counting ties with a window, +25 ms; asked only where an indexed `EXISTS`
-  finds a tie, +3 ms. Time each part.
+  finds a tie, +3 ms. Time each part. A window sorts every row it numbers,
+  with every column: numbering a version's files in the grid's wide rows took
+  a 50-card page from 40 ms to 70; the same count from a narrow grouped CTE,
+  joined, to 43.
 - **Compare a round of changes as a whole, after it.** Every refactor of the
   0.44 round passed its suites. Comparing the code before the round (dc67df9)
   with after it (cce6e8f), with seven reviewers in parallel, found nine
@@ -755,6 +808,15 @@ real time once.
   a page of images; across the grid's queries it was 2.7 s against 4 ms.
 - **Choose the page, then look up its details.** Filter, group, sort and limit
   first; per-row lookups after. With an index in the order the lookups read.
+- **A table holding another source's facts is built from that source's
+  fields, not from the old table's columns.** v32 split `model_versions` into
+  what it held, and Civitai's own id for each file - which a sync, a download
+  and a scan all had in hand - was found missing only once a column wanted it.
+- **Saying nothing is not a value, in a merge or a view.** v32's merge of a
+  version's copies took "the first that says something", and a version whose
+  only copy said Unknown came out NULL - read as PG; `LIBRARY` defaulted every
+  NULL stat to 0, meant only for a file with no version. Where no copy says
+  more, keep what they hold; default only the rows the default is for.
 - **A bool is an int.** An enum checked `isinstance(value, int)` before
   `bool`, so a model's `nsfw: true` read as bitmask 1 - PG - and its own
   branch for booleans never ran. Test for `bool` first.
