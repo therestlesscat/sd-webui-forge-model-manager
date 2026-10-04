@@ -1316,101 +1316,233 @@ def _migrate_to_v31(cursor):
     print("[ModelManager] Migration to v31 complete")
 
 
+# The columns of a file, and of the version its files share (#133): what
+# model_versions held together, one copy of a version per file. Written out,
+# not read from the code: a migration keeps the shape it was written with.
+_V32_FILE_COLUMNS = (
+    "file_path", "file_name", "file_size", "file_hashes", "file_modified", "file_extension",
+    "scanned_at", "downloaded_at", "civitai_lookup_failed_at", "architecture",
+    "architecture_class", "bundled_text_encoder", "bundled_vae", "architecture_checked",
+    "file_type", "identified_by", "lora_alias",
+)
+_V32_VERSION_COLUMNS = (
+    "model_id", "version_name", "base_model", "published_at", "created_at", "nsfw_level",
+    "trained_words", "description", "stats_download_count", "stats_thumbs_up",
+    "cover_url", "safe_cover_url",
+)
+# What a copy says nothing with, beside NULL: an empty list of words, a level
+# of Unknown (64, as nsfw.py had it). '' in a cover column says "has none".
+_V32_SAYS_NOTHING = {"trained_words": ("[]",), "nsfw_level": (64,)}
+_V32_HIGHEST = ("stats_download_count", "stats_thumbs_up")
+
+
+def _create_v32_tables(cursor):
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS versions (
+            id INTEGER PRIMARY KEY,
+            model_id INTEGER,
+            version_name TEXT,
+            base_model TEXT,
+            published_at TEXT,
+            created_at TEXT,
+            nsfw_level INTEGER DEFAULT 64,
+            trained_words TEXT DEFAULT '[]',
+            description TEXT,
+            stats_download_count INTEGER DEFAULT 0,
+            stats_thumbs_up INTEGER DEFAULT 0,
+            cover_url TEXT,
+            safe_cover_url TEXT,
+            next_images_cursor TEXT DEFAULT NULL,
+            images_sync_last_date TEXT DEFAULT NULL,
+            FOREIGN KEY (model_id) REFERENCES models(id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS files (
+            file_path TEXT PRIMARY KEY NOT NULL,
+            version_id INTEGER,
+            file_name TEXT NOT NULL,
+            file_size INTEGER,
+            file_hashes TEXT DEFAULT NULL,
+            file_modified TEXT,
+            file_extension TEXT,
+            scanned_at TEXT,
+            downloaded_at TEXT DEFAULT NULL,
+            civitai_lookup_failed_at TEXT,
+            architecture TEXT,
+            architecture_class TEXT,
+            bundled_text_encoder INTEGER,
+            bundled_vae INTEGER,
+            architecture_checked TEXT,
+            file_type TEXT,
+            identified_by TEXT,
+            lora_alias TEXT,
+            civitai_file_id INTEGER,
+            civitai_file_type TEXT,
+            fp TEXT,
+            size TEXT,
+            format TEXT,
+            civitai_primary INTEGER,
+            FOREIGN KEY (version_id) REFERENCES versions(id)
+        )
+    """)
+    for sql in (
+        "CREATE INDEX IF NOT EXISTS idx_versions_model_published ON versions(model_id, published_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_versions_base_model ON versions(base_model)",
+        "CREATE INDEX IF NOT EXISTS idx_versions_nsfw_level ON versions(nsfw_level)",
+        "CREATE INDEX IF NOT EXISTS idx_versions_published_at ON versions(published_at)",
+        "CREATE INDEX IF NOT EXISTS idx_files_version ON files(version_id)",
+        "CREATE INDEX IF NOT EXISTS idx_files_path_nocase ON files(file_path COLLATE NOCASE)",
+        "CREATE INDEX IF NOT EXISTS idx_files_file_modified ON files(file_modified)",
+        "CREATE INDEX IF NOT EXISTS idx_files_scanned_at ON files(scanned_at)",
+        "CREATE INDEX IF NOT EXISTS idx_files_downloaded_at ON files(downloaded_at)",
+        "CREATE INDEX IF NOT EXISTS idx_files_lookup_failed ON files(civitai_lookup_failed_at)",
+        "CREATE INDEX IF NOT EXISTS idx_files_civitai_file ON files(civitai_file_id)",
+    ):
+        cursor.execute(sql)
+
+
+def _v32_merge(copies):
+    """
+    One version from its copies, one per file. The copy whose gallery was
+    synced last speaks first - its cursor and the date it was written go
+    together - then the others, for whatever it says nothing about; the stats,
+    each copy as of its own last sync, take the highest.
+    """
+    # Newest gallery sync first, then the undated, newest scan first.
+    dated = sorted((c for c in copies if c["images_sync_last_date"]),
+                   key=lambda c: (c["images_sync_last_date"], c["scanned_at"] or ""), reverse=True)
+    undated = sorted((c for c in copies if not c["images_sync_last_date"]),
+                     key=lambda c: c["scanned_at"] or "", reverse=True)
+    copies = dated + undated
+    merged = {"next_images_cursor": copies[0]["next_images_cursor"],
+              "images_sync_last_date": copies[0]["images_sync_last_date"]}
+    for column in _V32_VERSION_COLUMNS:
+        held = [c[column] for c in copies if c[column] is not None]
+        saying = [v for v in held if v not in _V32_SAYS_NOTHING.get(column, ())]
+        if column in _V32_HIGHEST and saying:
+            merged[column] = max(saying)
+        else:
+            # Where no copy says more, what they hold: Unknown stays Unknown.
+            merged[column] = (saying or held or [None])[0]
+    return merged
+
+
+def _v32_civitai_files(cursor, models_table: str):
+    """
+    Each file's id on Civitai and what Civitai says of it - its type there,
+    fp, size, format, whether primary - from its version's files in the
+    version list kept on its model (v26), by name, its case aside: what a
+    library holds of them before a sync matches each by its hash. A file the
+    list does not name - renamed on disk - is left for the sync.
+    """
+    listed = {}
+    for (versions,) in cursor.execute(f"SELECT versions FROM {models_table} WHERE versions IS NOT NULL").fetchall():
+        try:
+            for version in json.loads(versions):
+                if isinstance(version, dict) and version.get("id") is not None:
+                    listed[version["id"]] = [f for f in version.get("files") or [] if isinstance(f, dict)]
+        except (TypeError, ValueError):
+            continue
+    rows = []
+    for path, name, version_id in cursor.execute(
+            "SELECT file_path, file_name, version_id FROM files WHERE version_id IS NOT NULL").fetchall():
+        found = next((f for f in listed.get(version_id, ())
+                      if str(f.get("name") or "").lower() == str(name or "").lower()), None)
+        if found is None:
+            continue
+        meta = found.get("metadata") if isinstance(found.get("metadata"), dict) else {}
+        primary = found.get("primary")
+        rows.append((found.get("id"), found.get("type"), meta.get("fp"), meta.get("size"), meta.get("format"),
+                     None if primary is None else (1 if primary else 0), path))
+    cursor.executemany("UPDATE files SET civitai_file_id = ?, civitai_file_type = ?, fp = ?, size = ?, "
+                       "format = ?, civitai_primary = ? WHERE file_path = ?", rows)
+
+
+def _migrate_to_v32(cursor, db_path: str):
+    """
+    A version is one row, and its files rows of their own (#133).
+
+    model_versions held one row per file, with its own copy of the version's
+    data: a version with two files was fetched, counted and read as two, and
+    its copies drifted - in one library, 26 of 36 such versions had copies
+    disagreeing on their gallery's cursor. Its rows become a file each in
+    `files`, and each version one row in `versions`, merged from its copies
+    (_v32_merge). A file Civitai does not know has no version, and no model:
+    it is a row of `files` alone. So no table is named for Civitai, and
+    civitai_models becomes `models`.
+
+    model_versions is dropped, not kept beside: a copy of the extension from
+    before this version, sharing the database, finds no table to read or
+    write, and fails rather than writes the old shape. The database is backed
+    up first, beside it, as v25 did.
+
+    The tables are made outside the copy's transaction: while model_versions
+    is there, the split is not done, and is done again from it.
+    """
+    print("[ModelManager] Migrating to schema v32 (a version's files apart from it)...")
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    copies = {}
+    if "model_versions" in tables:
+        if cursor.execute("SELECT EXISTS (SELECT 1 FROM model_versions)").fetchone()[0]:
+            if cursor.connection.in_transaction:
+                cursor.connection.commit()
+            backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup = sqlite3.connect(backup_path)
+            try:
+                cursor.connection.backup(backup)
+            finally:
+                backup.close()
+            print(f"[ModelManager] Backed up the database to {backup_path}")
+        cursor.execute("DROP TABLE IF EXISTS files")
+        cursor.execute("DROP TABLE IF EXISTS versions")
+    _create_v32_tables(cursor)
+
+    if "model_versions" in tables:
+        names = ", ".join(_V32_FILE_COLUMNS)
+        # In table order, which decides between files that share a hash or an id.
+        cursor.execute(f"INSERT INTO files ({names}, version_id) "
+                       f"SELECT {names}, id FROM model_versions ORDER BY rowid")
+        columns = _V32_VERSION_COLUMNS + ("id", "next_images_cursor", "images_sync_last_date", "scanned_at")
+        for row in cursor.execute(f"SELECT {', '.join(columns)} FROM model_versions "
+                                  "WHERE id IS NOT NULL ORDER BY rowid").fetchall():
+            copy = dict(zip(columns, row))
+            copies.setdefault(copy["id"], []).append(copy)
+        written = ("id",) + _V32_VERSION_COLUMNS + ("next_images_cursor", "images_sync_last_date")
+        cursor.executemany(
+            f"INSERT INTO versions ({', '.join(written)}) VALUES ({', '.join('?' * len(written))})",
+            [tuple({"id": version_id, **_v32_merge(group)}[c] for c in written)
+             for version_id, group in copies.items()])
+        _v32_civitai_files(cursor, "civitai_models" if "civitai_models" in tables else "models")
+        cursor.execute("DROP TABLE model_versions")
+
+    if "civitai_models" in tables and "models" not in tables:
+        cursor.execute("ALTER TABLE civitai_models RENAME TO models")
+    print(f"[ModelManager] Migration to v32 complete: {len(copies)} versions")
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
-    """Bring a database from `from_version` up to `to_version`."""
+    """Bring a database from `from_version` up to `to_version`, and no further."""
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
-    if from_version < 2:
-        # Only v4 takes the path and the directory; it makes a backup first.
-        _migrate_to_v2(cursor)
-
-    if from_version < 3:
-        _migrate_to_v3(cursor)
-
-    if from_version < 4:
-        _migrate_to_v4(cursor, db_path, db_dir)
-
-    if from_version < 5:
-        _migrate_to_v5(cursor)
-
-    if from_version < 6:
-        _migrate_to_v6(cursor)
-
-    if from_version < 7:
-        _migrate_to_v7(cursor)
-
-    if from_version < 8:
-        _migrate_to_v8(cursor)
-
-    if from_version < 9:
-        _migrate_to_v9(cursor)
-
-    if from_version < 10:
-        _migrate_to_v10(cursor)
-
-    if from_version < 11:
-        _migrate_to_v11(cursor)
-
-    if from_version < 12:
-        _migrate_to_v12(cursor)
-
-    if from_version < 13:
-        _migrate_to_v13(cursor)
-
-    if from_version < 14:
-        _migrate_to_v14(cursor)
-
-    if from_version < 15:
-        _migrate_to_v15(cursor)
-
-    if from_version < 16:
-        _migrate_to_v16(cursor)
-
-    if from_version < 17:
-        _migrate_to_v17(cursor)
-
-    if from_version < 18:
-        _migrate_to_v18(cursor)
-
-    if from_version < 19:
-        _migrate_to_v19(cursor)
-
-    if from_version < 20:
-        _migrate_to_v20(cursor)
-
-    if from_version < 21:
-        _migrate_to_v21(cursor)
-
-    if from_version < 22:
-        _migrate_to_v22(cursor)
-
-    if from_version < 23:
-        _migrate_to_v23(cursor)
-
-    if from_version < 24:
-        _migrate_to_v24(cursor)
-
-    if from_version < 25:
-        _migrate_to_v25(cursor, db_path)
-
-    if from_version < 26:
-        _migrate_to_v26(cursor)
-
-    if from_version < 27:
-        _migrate_to_v27(cursor)
-
-    if from_version < 28:
-        _migrate_to_v28(cursor)
-
-    if from_version < 29:
-        _migrate_to_v29(cursor)
-
-    if from_version < 30:
-        _migrate_to_v30(cursor)
-
-    if from_version < 31:
-        _migrate_to_v31(cursor)
+    # Only v4, v25 and v32 take the path; v4 the directory too. Each makes a
+    # backup first.
+    steps = {
+        2: _migrate_to_v2, 3: _migrate_to_v3,
+        4: lambda c: _migrate_to_v4(c, db_path, db_dir),
+        5: _migrate_to_v5, 6: _migrate_to_v6, 7: _migrate_to_v7, 8: _migrate_to_v8,
+        9: _migrate_to_v9, 10: _migrate_to_v10, 11: _migrate_to_v11, 12: _migrate_to_v12,
+        13: _migrate_to_v13, 14: _migrate_to_v14, 15: _migrate_to_v15, 16: _migrate_to_v16,
+        17: _migrate_to_v17, 18: _migrate_to_v18, 19: _migrate_to_v19, 20: _migrate_to_v20,
+        21: _migrate_to_v21, 22: _migrate_to_v22, 23: _migrate_to_v23, 24: _migrate_to_v24,
+        25: lambda c: _migrate_to_v25(c, db_path),
+        26: _migrate_to_v26, 27: _migrate_to_v27, 28: _migrate_to_v28, 29: _migrate_to_v29,
+        30: _migrate_to_v30, 31: _migrate_to_v31,
+        32: lambda c: _migrate_to_v32(c, db_path),
+    }
+    for version in sorted(steps):
+        if from_version < version <= to_version:
+            steps[version](cursor)
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",

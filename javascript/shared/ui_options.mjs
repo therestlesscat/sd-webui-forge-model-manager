@@ -157,9 +157,37 @@ export function setGenerationsEnabled(enabled) {
     if (changed) window.dispatchEvent(new CustomEvent('mm-generations-enabled', { detail: { enabled } }));
 }
 
+// ------------------------------------------------------------- paths shown
+// A file's path as the pages show it, the same for every kind of file: under
+// a folder Forge was given on the command line, from that option -
+// --lora-dir\x.safetensors - else from Forge's own folder -
+// models\text_encoder\y.safetensors. Only what follows \models\ was shown,
+// and an embedding, not under it, showed its whole path. A path under none -
+// the other WebUI's, sharing the database, in a folder this Forge was not
+// given - shows whole: cut, it would read as this Forge's. The folders are
+// the server's (model_dirs.shown_roots), longest first.
+
+let pathRoots = [];         // [label, folder]; none until the server says
+
+export function shownPath(path) {
+    if (!path) return '';
+    const lower = path.toLowerCase();
+    for (const [label, folder] of pathRoots) {
+        const base = String(folder || '').replace(/[\\/]+$/, '');
+        if (!base || lower.slice(0, base.length) !== base.toLowerCase()) continue;
+        if (path.length === base.length) return label || path;
+        const separator = path.charAt(base.length);
+        if (separator !== '\\' && separator !== '/') continue;
+        const rest = path.slice(base.length + 1);
+        return label ? label + separator + rest : rest;
+    }
+    return path;
+}
+
 if (typeof window !== 'undefined' && typeof fetch === 'function') {
     uiOptions().then((data) => {
         if (data && typeof data.generations_enabled === 'boolean') setGenerationsEnabled(data.generations_enabled);
+        if (data && Array.isArray(data.path_roots)) pathRoots = data.path_roots;
     });
     // Saved in the settings window: its answer says the setting's new value.
     window.addEventListener?.('mm-settings-saved', (event) => {

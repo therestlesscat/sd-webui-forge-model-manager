@@ -32,6 +32,7 @@ def check(label, got, want=True):
 # ----------------------------------------------------------- HashResult reuse
 from model_manager.hashing import HashResult
 from model_manager.sync_service import SyncService
+from model_manager.db.library import LIBRARY
 
 stored = {"sha256": "AA" * 32, "autov2": "AABBCCDDEE", "crc32": "12345678",
           "blake3": "BB" * 32, "autov1": "DEADBEEF", "tensor_sha256": "CC" * 32,
@@ -79,9 +80,9 @@ if True:
 
     linked = db.get_linked_versions()
     raw = sqlite3.connect(DB)
-    total = raw.execute('SELECT COUNT(*) FROM model_versions').fetchone()[0]
+    total = raw.execute('SELECT COUNT(*) FROM files').fetchone()[0]
     with_model = raw.execute(
-        'SELECT COUNT(*) FROM model_versions WHERE model_id IS NOT NULL AND file_path IS NOT NULL'
+        f'SELECT COUNT(*) FROM {LIBRARY} WHERE model_id IS NOT NULL AND file_path IS NOT NULL'
     ).fetchone()[0]
 
     print('  versions in library        : %d' % total)
@@ -127,9 +128,9 @@ if True:
     check('batching is a real saving', batches < len(distinct) / 10)
 
     # The columns a metadata sync must never touch.
-    before = raw.execute("""
+    before = raw.execute(f"""
         SELECT id, downloaded_at, next_images_cursor, images_sync_last_date
-        FROM model_versions WHERE downloaded_at IS NOT NULL LIMIT 5
+        FROM {LIBRARY} WHERE downloaded_at IS NOT NULL LIMIT 5
     """).fetchall()
     print('  rows with downloaded_at    : %d sampled' % len(before))
     check('upsert_version leaves downloaded_at out of its SET list',

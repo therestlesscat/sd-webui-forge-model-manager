@@ -672,7 +672,7 @@ try:
     EMPTY = facts['version_ids'][4]
     db.clear_version_images(EMPTY)
     with db._cursor() as cursor:
-        cursor.execute("UPDATE model_versions SET next_images_cursor = NULL, "
+        cursor.execute("UPDATE versions SET next_images_cursor = NULL, "
                        "images_sync_last_date = NULL WHERE id = ?", (EMPTY,))
     civitai_pages = Pages({None: ([98001, 98002, 98003], None)})
     body = get('/model-manager/images/gallery-page', version_id=EMPTY, page=1,
@@ -713,7 +713,7 @@ real_client = models_api.CivitaiClient
 models_api.CivitaiClient = NoCivitai
 try:
     with db._cursor() as cursor:
-        cursor.execute("SELECT file_hashes FROM model_versions WHERE file_hashes IS NOT NULL LIMIT 1")
+        cursor.execute("SELECT file_hashes FROM files WHERE file_hashes IS NOT NULL LIMIT 1")
         local_hash = json.loads(cursor.fetchone()[0])['autov2'].lower()
     code, body = post('/model-manager/resolve-hashes',
                       hashes=local_hash + ',ffffffffff', local_only='true')

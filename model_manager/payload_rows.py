@@ -10,11 +10,12 @@ scan, the showcase's images in the version's level (#104).
 """
 from typing import Any, Dict, Optional
 
+from .hashing import read_hashes
 from .nsfw import UNKNOWN
 
 
 def model_row(data: Dict[str, Any]) -> Dict[str, Any]:
-    """A civitai_models row from a model payload (its id, name, stats, licence...)."""
+    """A row of `models` from a model payload (its id, name, stats, licence...)."""
     stats = data.get("stats") or {}
     creator = data.get("creator") or {}
     thumbs_up = stats.get("thumbsUpCount", 0)
@@ -46,7 +47,7 @@ def model_row(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def version_row(version: Dict[str, Any], model_id: Optional[int]) -> Dict[str, Any]:
-    """The Civitai part of a model_versions row, from a version payload."""
+    """A row of `versions`, from a version payload."""
     stats = version.get("stats") or {}
     row = {
         "id": version.get("id"),
@@ -63,3 +64,40 @@ def version_row(version: Dict[str, Any], model_id: Optional[int]) -> Dict[str, A
     if model_id is not None:
         row["model_id"] = model_id
     return row
+
+
+# What Civitai's list says of one file, as columns of `files` (#133).
+FILE_FIELDS = ("civitai_file_id", "civitai_file_type", "fp", "size", "format", "civitai_primary")
+
+
+def file_row(version: Dict[str, Any], file_name: Optional[str],
+             hashes: Any = None) -> Dict[str, Any]:
+    """
+    One file of a version as Civitai lists it - its id, its type there
+    (Model, VAE, Pruned Model...), fp / size / format, whether primary - as
+    columns of `files`: the file a hash of one kind names in both (a sync's,
+    a download's - sure), else the one of its name, its case aside (a sidecar
+    beside a file nobody has hashed). Nothing, for a file the list does not
+    name: renamed on disk, or replaced on Civitai since.
+    """
+    files = [f for f in version.get("files") or [] if isinstance(f, dict)]
+    ours = read_hashes(hashes)
+
+    def same_hash(listed: Dict[str, Any]) -> bool:
+        theirs = read_hashes(listed.get("hashes"))
+        return any(ours.get(kind) == value for kind, value in theirs.items())
+
+    found = next((f for f in files if ours and same_hash(f)), None)
+    if found is None and file_name:
+        found = next((f for f in files if str(f.get("name") or "").lower() == file_name.lower()), None)
+    if found is None:
+        return {}
+    meta = found.get("metadata") or {}
+    return {
+        "civitai_file_id": found.get("id"),
+        "civitai_file_type": found.get("type"),
+        "fp": meta.get("fp"),
+        "size": meta.get("size"),
+        "format": meta.get("format"),
+        "civitai_primary": None if found.get("primary") is None else bool(found.get("primary")),
+    }

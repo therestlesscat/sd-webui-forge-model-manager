@@ -45,6 +45,7 @@ os.makedirs(FAKE, exist_ok=True)
 from model_manager.db import ModelsDatabase
 import model_manager.db.database as dbmod
 import model_manager.sync_service as ss
+from model_manager.db.library import LIBRARY
 
 dbmod._db_instance = db
 ss.write_civitai_info = lambda path, payload: True
@@ -53,7 +54,7 @@ ss.write_civitai_info = lambda path, payload: True
 def rows():
     raw = sqlite3.connect(DB)
     out = {r[0] for r in raw.execute(
-        'SELECT file_path FROM model_versions WHERE file_path IS NOT NULL')}
+        'SELECT file_path FROM files WHERE file_path IS NOT NULL')}
     raw.close()
     return out
 
@@ -74,7 +75,7 @@ check('and they are all there', set(newcomers) <= rows())
 
 raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
-row = raw.execute('SELECT * FROM model_versions WHERE file_path = ?', (newcomers[0],)).fetchone()
+row = raw.execute(f'SELECT * FROM {LIBRARY} WHERE file_path = ?', (newcomers[0],)).fetchone()
 check('the row carries the file size', row['file_size'], 1000)
 from model_manager.model_dirs import file_modified      # noqa: E402
 check('and its modified time, as file_modified() writes it', row['file_modified'], file_modified(newcomers[0]))
@@ -84,7 +85,7 @@ check('and is visible to the grid rather than Unknown', row['nsfw_level'], 1)
 
 # recording again must not duplicate, nor disturb an identified row
 identified = raw.execute(
-    'SELECT file_path, id, model_id FROM model_versions'
+    f'SELECT file_path, id, model_id FROM {LIBRARY}'
     ' WHERE model_id IS NOT NULL LIMIT 1').fetchone()
 raw.close()
 
@@ -94,7 +95,7 @@ check('an identified file is not re-inserted', added_again, 0)
 
 raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
-after = raw.execute('SELECT id, model_id FROM model_versions WHERE file_path = ?',
+after = raw.execute(f'SELECT id, model_id FROM {LIBRARY} WHERE file_path = ?',
                     (identified['file_path'],)).fetchone()
 raw.close()
 check('and keeps its Civitai ids',
@@ -155,12 +156,12 @@ check('an explicit path list deletes nothing', len(rows()), survivors)
 raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
 linked = raw.execute(
-    "SELECT file_path FROM model_versions"
+    f"SELECT file_path FROM {LIBRARY}"
     " WHERE model_id IS NOT NULL AND file_path LIKE 'F:%' LIMIT 1").fetchone()['file_path']
 vanished = os.path.join(FAKE, 'deleted_since.safetensors')
-raw.execute('UPDATE model_versions SET file_path = ? WHERE file_path = ?', (vanished, linked))
+raw.execute('UPDATE files SET file_path = ? WHERE file_path = ?', (vanished, linked))
 raw.commit()
-moved = raw.execute('SELECT COUNT(*) FROM model_versions WHERE file_path = ?',
+moved = raw.execute('SELECT COUNT(*) FROM files WHERE file_path = ?',
                     (vanished,)).fetchone()[0]
 raw.close()
 check('a linked row now points at a file that is not there', moved, 1)

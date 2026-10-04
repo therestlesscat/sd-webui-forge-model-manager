@@ -1,10 +1,10 @@
 """
-Every column of civitai_models and model_versions is accounted for (#69).
+Every column of `models`, `versions` and `files` is accounted for (#69).
 
 The upserts are generated from a list of columns per table, each with how an
-update treats it (models_ops.MODEL_COLUMNS, VERSION_COLUMNS). A column the
-upsert does not write is named, with what does (MODEL_COLUMNS_ELSEWHERE,
-VERSION_COLUMNS_ELSEWHERE). What is checked, on a database migrated to the
+update treats it (models_ops.MODEL_COLUMNS, VERSION_COLUMNS, FILE_COLUMNS). A
+column the upsert does not write is named, with what does (the _ELSEWHERE
+tables). What is checked, on a database migrated to the
 newest schema: every column is in exactly one of the two, so a migration's
 new column cannot be left out of both - written on insert and never again,
 or never written at all, and nobody deciding which.
@@ -36,8 +36,9 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(WORK)
 tables = {
-    'civitai_models': (models_ops.MODEL_COLUMNS, models_ops.MODEL_COLUMNS_ELSEWHERE),
-    'model_versions': (models_ops.VERSION_COLUMNS, models_ops.VERSION_COLUMNS_ELSEWHERE),
+    'models': (models_ops.MODEL_COLUMNS, models_ops.MODEL_COLUMNS_ELSEWHERE),
+    'versions': (models_ops.VERSION_COLUMNS, models_ops.VERSION_COLUMNS_ELSEWHERE),
+    'files': (models_ops.FILE_COLUMNS, models_ops.FILE_COLUMNS_ELSEWHERE),
 }
 with db._cursor() as cursor:
     for table, (written, elsewhere) in tables.items():
@@ -52,7 +53,8 @@ with db._cursor() as cursor:
         check('%s: none listed twice' % table, len(upserted), len(set(upserted)))
         check('%s: one key, the row is found by' % table,
               [column.name for column in written if column.update is models_ops.KEY],
-              [{'civitai_models': 'id', 'model_versions': 'file_path'}[table]])
+              [{'models': 'id', 'versions': 'id',
+                'files': 'file_path'}[table]])
         check('%s: each written elsewhere says by what' % table,
               [name for name, what in elsewhere.items() if not what], [])
 

@@ -21,6 +21,7 @@ for _p in (ROOT, TESTS):
         sys.path.insert(0, _p)
 
 import fixtures                                       # noqa: E402
+from model_manager.db.library import LIBRARY          # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'clobber_test')
 import json
@@ -71,7 +72,7 @@ db.upsert_version(RICH)
 def row():
     raw = sqlite3.connect(DB)
     raw.row_factory = sqlite3.Row
-    r = raw.execute('SELECT * FROM model_versions WHERE file_path = ?', (PATH,)).fetchone()
+    r = raw.execute(f'SELECT * FROM {LIBRARY} WHERE file_path = ?', (PATH,)).fetchone()
     raw.close()
     return r
 

@@ -12,6 +12,7 @@ import json
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ..prompt_rules import trimmed_sql
+from .library import LIBRARY
 
 _GENERATION_COLUMNS = (
     "created_at", "mode", "forge", "prompt", "negative_prompt", "styles",
@@ -68,8 +69,8 @@ class GenerationsOps:
         with self._cursor() as cursor:
             for path in {p for p in paths if p}:
                 cursor.execute(
-                    "SELECT v.id, v.model_id, m.name FROM model_versions v "
-                    "LEFT JOIN civitai_models m ON m.id = v.model_id "
+                    f"SELECT v.id, v.model_id, m.name FROM {LIBRARY} v "
+                    "LEFT JOIN models m ON m.id = v.model_id "
                     "WHERE v.file_path = ? COLLATE NOCASE LIMIT 1", (path,))
                 row = cursor.fetchone()
                 if row:
@@ -78,7 +79,7 @@ class GenerationsOps:
 
     def library_spelling(self, paths: Iterable[str]) -> Dict[str, str]:
         """
-        Each path as model_versions spells it, for the files it holds.
+        Each path as the library spells it, for the files it holds.
 
         Forge and the library can spell one file two ways - case, above all,
         which Windows ignores and SQL does not - and generation_files is
@@ -87,7 +88,7 @@ class GenerationsOps:
         found: Dict[str, str] = {}
         with self._cursor() as cursor:
             for path in set(paths):
-                cursor.execute("SELECT file_path FROM model_versions "
+                cursor.execute("SELECT file_path FROM files "
                                "WHERE file_path = ? COLLATE NOCASE LIMIT 1", (path,))
                 row = cursor.fetchone()
                 if row:
@@ -157,14 +158,14 @@ class GenerationsOps:
         version; the file alone when it has no version.
         """
         with self._cursor() as cursor:
-            cursor.execute("SELECT id, file_path FROM model_versions "
+            cursor.execute("SELECT version_id, file_path FROM files "
                            "WHERE file_path = ? COLLATE NOCASE", (path,))
             row = cursor.fetchone()
             if not row:
                 return [path]
             if row[0] is None:
                 return [row[1]]
-            cursor.execute("SELECT file_path FROM model_versions WHERE id = ?", (row[0],))
+            cursor.execute("SELECT file_path FROM files WHERE version_id = ?", (row[0],))
             return [r[0] for r in cursor.fetchall()]
 
     def gallery_images(self, files: Optional[List[str]]) -> List[Dict[str, Any]]:
@@ -205,7 +206,7 @@ class GenerationsOps:
             # a comparison that ignores case cannot use the index.
             bases: Dict[str, Optional[str]] = {}
             for path in {r["checkpoint_path"] for r in rows if r["checkpoint_path"]}:
-                cursor.execute("SELECT base_model FROM model_versions WHERE file_path = ? COLLATE NOCASE "
+                cursor.execute(f"SELECT base_model FROM {LIBRARY} WHERE file_path = ? COLLATE NOCASE "
                                "AND COALESCE(base_model, '') <> '' LIMIT 1", (path,))
                 found = cursor.fetchone()
                 bases[path] = found[0] if found else None

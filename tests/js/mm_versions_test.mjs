@@ -45,6 +45,10 @@ let refuse = null;               // an error the download request is answered wi
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
+    // Forge given C:/models/lora on the command line, its own folder C:/forge.
+    if (href.includes('/model-manager/ui-options')) {
+        return reply({ success: true, path_roots: [['--lora-dir', 'C:/models/lora'], ['', 'C:/forge']] });
+    }
     if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: structuredClone(progress) });
     if (href.includes('/civitai/download')) {
         posted.push(Object.fromEntries(init.body.entries()));
@@ -247,5 +251,49 @@ civitaiVersions = () => [];
 localVersions = [local(501, 'v1')];
 await act('modelManager.selectModel', { index: 0 });
 check('9. with one version on disk and no list recorded, no selector - as before', pills().length, 0);
+
+// ------------------------------------------------ a version of two files
+// An fp16 and an fp32 of one version are one version (#133): one pill, and
+// its files listed under it - what each is, and the one Send uses. Nothing
+// to pick: the galleries are the version's.
+const fp32 = { ...local(501, 'v1'), file_path: 'C:/forge/models/Lora/v1_fp32.safetensors', file_name: 'v1_fp32.safetensors',
+               file_type: 'LORA', send_uses: false, civitai_file_id: null };
+civitaiVersions = listed;
+localVersions = [{ ...local(501, 'v1'), file_type: 'LORA', send_uses: true, civitai_file_id: 9011 }, fp32];
+await act('modelManager.selectModel', { index: 0 });
+const versionPills = () => Array.from(details().querySelectorAll('.mm-version-selector .mm-version-pill'))
+    .map((p) => p.textContent.trim());
+const cells = (selector) => Array.from(details().querySelectorAll(`.mm-files-slot ${selector}`))
+    .map((tr) => Array.from(tr.children).map((cell) => cell.textContent.trim()));
+check('13. a version with two files here is one pill', versionPills(), ['v3', 'v2 ⬥', 'v1 ✓']);
+check('    counted once', details().querySelector('.mm-version-selector h4')?.textContent.trim(),
+      'Versions (3, 1 downloaded)');
+check('    its files in a table under it, a column a fact, delete last',
+      [details().querySelector('.mm-files-slot h4')?.textContent.trim(), cells('thead tr')[0]],
+      ['Files (2)', ['Type', 'Name', 'Size', 'Modified', 'Folder', 'Send', 'File ID', '']]);
+const rows = cells('tbody tr');
+check('    what each is, the one Send uses, Civitai\'s id for it - none for a file it does not name',
+      rows.map((row) => [row[0], row[1], row[5], row[6]]),
+      [['LORA', 'v1.safetensors', '✓', '9011'], ['LORA', 'v1_fp32.safetensors', '', '—']]);
+check('    each file\'s folder from Forge\'s own - one outside it, whole', rows.map((row) => row[4]),
+      ['C:/models', 'models/Lora']);
+const fp16 = { ...local(501, 'v1'), file_path: 'C:/models/lora/sdxl/v1_fp16.safetensors', file_name: 'v1_fp16.safetensors',
+               file_type: 'LORA' };
+localVersions = [...localVersions, fp16];
+await act('modelManager.selectModel', { index: 0 });
+check('    one in a folder given on the command line, from its option',
+      cells('tbody tr').map((row) => row[4]), ['C:/models', 'models/Lora', '--lora-dir/sdxl']);
+localVersions = localVersions.slice(0, 2);
+await act('modelManager.selectModel', { index: 0 });
+check('    and its delete in the last column',
+      Array.from(details().querySelectorAll('.mm-files-slot tbody tr')).map((tr) =>
+          tr.lastElementChild.querySelector('[data-action="modelManager.deleteFile"]') !== null), [true, true]);
+check('    nothing in it to pick', details().querySelectorAll('.mm-files-slot .mm-version-pill, .mm-files-slot [data-action="modelManager.selectPill"]').length, 0);
+check('    and the Information table says nothing of one file',
+      Array.from(details().querySelectorAll('.mm-file-fact')).map((tr) => tr.style.display), ['none', 'none', 'none']);
+await click(pill('v1'));
+await call('modelManager.showVersion', 501, 'C:/forge/models/Lora/v1_fp32.safetensors');
+check('14. a version shown from another tab opens the file it names', detailsAsked.at(-1),
+      'C:/forge/models/Lora/v1_fp32.safetensors');
 
 done();

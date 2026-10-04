@@ -11,9 +11,9 @@ Every folder a download can write to is one the library walks.
 import os
 import shutil
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from .forge_host import model_folders
+from .forge_host import model_folders, webui_root
 
 
 class Folder:
@@ -162,6 +162,34 @@ def _roots(cmd_opts, models_path):
             named.append(os.path.join(models_path, folder.default))
         roots.extend((kind, os.path.abspath(d)) for d in named if d)
     return sorted(roots, key=lambda r: -len(r[1]))
+
+
+def shown_roots(cmd_opts=None, root: Optional[str] = None) -> List[Tuple[str, str]]:
+    """
+    What a path the pages show is read from (shownPath, ui_options.mjs), as
+    (label, folder), the longest folder first so the innermost names a path:
+    each folder the WebUI was given on the command line, by its option -
+    --lora-dir\\x.safetensors - then the WebUI's own folder, unnamed -
+    models\\text_encoder\\y.safetensors. A path under neither - the other
+    WebUI's, sharing the database, in a folder this one was not given - is
+    shown whole. An option's folder inside the WebUI's own - the embeddings'
+    default, set whether or not it was given - goes by the WebUI's folder.
+    """
+    if cmd_opts is None and root is None:
+        cmd_opts, _ = model_folders()
+        root = webui_root()
+    root = os.path.abspath(root) if root else ""
+    inside = os.path.normcase(root).rstrip("\\/") + os.sep if root else None
+    roots = {}
+    for folder in FOLDERS.values():
+        for name in folder.options:
+            for path in option_dirs(cmd_opts, name):
+                path = os.path.abspath(path)
+                if inside and (os.path.normcase(path) + os.sep).startswith(inside):
+                    continue
+                roots.setdefault(os.path.normcase(path), ("--" + name.replace("_", "-"), path))
+    found = sorted(roots.values(), key=lambda r: -len(r[1]))
+    return found + ([("", root)] if root else [])
 
 
 def folder_of(path: str, cmd_opts=None, models_path: Optional[str] = None):

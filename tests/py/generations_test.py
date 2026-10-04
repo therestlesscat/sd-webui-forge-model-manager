@@ -27,6 +27,7 @@ opts = webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager import generations                    # noqa: E402
 from model_manager.nsfw import PG, PROMPT_LEVEL          # noqa: E402
 
@@ -479,7 +480,7 @@ if has_fastapi:
     # By base model: the checkpoint's, as the library holds it - what the
     # Model Manager's Base Model filter reads (#35).
     library_base = db._get_connection().execute(
-        'SELECT base_model FROM model_versions WHERE file_path = ? COLLATE NOCASE',
+        f'SELECT base_model FROM {LIBRARY} WHERE file_path = ? COLLATE NOCASE',
         (db.get_generation(generation_id)['checkpoint_path'],)
     ).fetchone()
     check('by base model, the checkpoint\'s in the library',

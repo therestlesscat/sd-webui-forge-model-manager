@@ -63,13 +63,14 @@ if True:
     DB = facts['db_path']
 
     raw = sqlite3.connect(DB)
-    total = raw.execute('SELECT COUNT(*) FROM model_versions').fetchone()[0]
+    total = raw.execute('SELECT COUNT(*) FROM files').fetchone()[0]
 
     def truth(column):
         rows = raw.execute("""
             SELECT CASE WHEN m.%s IS NULL THEN 'unknown'
                         WHEN m.%s = 1 THEN 'true' ELSE 'false' END, COUNT(*)
-            FROM model_versions v LEFT JOIN civitai_models m ON v.model_id = m.id
+            FROM files f LEFT JOIN versions v ON v.id = f.version_id
+            LEFT JOIN models m ON v.model_id = m.id
             GROUP BY 1
         """ % (column, column)).fetchall()
         return dict(rows)

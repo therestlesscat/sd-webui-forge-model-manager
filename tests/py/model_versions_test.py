@@ -158,13 +158,15 @@ if FastAPI:
     check('   with the local versions as before', [v['file_path'] for v in answer.get('versions', [])],
           [v['file_path'] for v in db.get_versions_for_model(local['model_id'])])
     check('   and when Civitai listed them', bool(answer.get('versions_synced_at')), True)
+    check('   each with its Civitai file id as stored - none, for a file the sync could not match (#133)',
+          [v.get('civitai_file_id') for v in answer.get('versions', []) if v['file_path'] == path], [None])
 
     # A library synced before the list was kept: the column is empty, and the
     # sidecar beside the file has it.
     other = facts['linked_paths'][-1]
     lv = db.get_version(other)
     with db._cursor() as cursor:
-        cursor.execute('UPDATE civitai_models SET versions = NULL, versions_synced_at = NULL WHERE id = ?',
+        cursor.execute('UPDATE models SET versions = NULL, versions_synced_at = NULL WHERE id = ?',
                        (lv['model_id'],))
     fixtures.sidecar(other, {'id': lv['model_id'], 'name': 'Old', 'modelVersions': [
         version(lv['id'], index=0), version(880001, index=1, paidAccess={'permanent': True})]})

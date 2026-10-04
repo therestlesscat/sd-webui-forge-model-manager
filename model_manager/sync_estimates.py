@@ -127,6 +127,8 @@ def gallery_refresh_options(db, version_ids: List[int], include_prompts: bool = 
     versions; and the page size, which the dialog names the first by. A
     version never cached is taken at the library's average.
     """
+    # A version's files share its gallery: it is fetched once (#133).
+    version_ids = list(dict.fromkeys(version_ids))
     counts = db.count_images_by_version()
     average = round(sum(counts.values()) / len(counts)) if counts else 0
     page = refresh_size(0, False)

@@ -59,7 +59,7 @@ db.upsert_civitai_model(RICH, from_civitai=True)
 def row():
     raw = sqlite3.connect(DB)
     raw.row_factory = sqlite3.Row
-    r = raw.execute('SELECT * FROM civitai_models WHERE id = ?', (MODEL_ID,)).fetchone()
+    r = raw.execute('SELECT * FROM models WHERE id = ?', (MODEL_ID,)).fetchone()
     raw.close()
     return r
 
@@ -109,7 +109,7 @@ FRESH = {"id": MODEL_ID + 1, "name": "Never synced", "type": "LORA"}
 db.upsert_civitai_model(FRESH)
 raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
-fresh = raw.execute('SELECT * FROM civitai_models WHERE id = ?', (MODEL_ID + 1,)).fetchone()
+fresh = raw.execute('SELECT * FROM models WHERE id = ?', (MODEL_ID + 1,)).fetchone()
 raw.close()
 check('an unsaid flag is NULL, not a guess', fresh['allow_derivatives'], None)
 check('which the licence filter can ask for as "unknown"',

@@ -137,6 +137,7 @@ def register(app: FastAPI):
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
         from ..forge_host import samplers, schedulers, setting
+        from ..model_dirs import shown_roots
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
@@ -167,6 +168,8 @@ def register(app: FastAPI):
                 "hide_promptless_images": hide_promptless_images,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_enabled": generations_on,
+                # What the paths the pages show are read from (shownPath, ui_options.mjs).
+                "path_roots": shown_roots(),
             })
 
         except Exception as e:

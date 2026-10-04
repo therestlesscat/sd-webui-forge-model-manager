@@ -46,7 +46,8 @@ def row_for(model_id):
 
 def set_type(model_id, file_type):
     with db._cursor() as cursor:
-        cursor.execute("UPDATE model_versions SET file_type = ?, identified_by = ? WHERE model_id = ?",
+        cursor.execute("UPDATE files SET file_type = ?, identified_by = ? WHERE version_id IN "
+                       "(SELECT id FROM versions WHERE model_id = ?)",
                        (file_type, 'a vae_sd by its shapes', model_id))
 
 
@@ -66,7 +67,7 @@ check('a file not read yet still shows Civitai\'s type', row_for(a_checkpoint)['
 # A file Civitai does not know had no type at all - every one was Unknown.
 local = facts['local_only_paths'][0]
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET file_type = 'LoCon' WHERE file_path = ?", (local,))
+    cursor.execute("UPDATE files SET file_type = 'LoCon' WHERE file_path = ?", (local,))
 rows, _ = db.query_models_grouped(GridQuery(model_type='LoCon', limit=500))
 check('a file Civitai does not know gets its own type',
       [(r['file_path'], r['model_type'], r['civitai_type']) for r in rows], [(local, 'LoCon', None)])

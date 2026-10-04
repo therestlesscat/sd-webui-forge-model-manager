@@ -351,7 +351,8 @@ def register(app: FastAPI):
             model_id: Civitai model ID.
 
         Returns:
-            versions: the local versions, newest first.
+            versions: the local files, newest version first, each with its
+                version's data and `send_uses`: whether Send uses that file.
             civitai_versions: Civitai's, in Civitai's order, each with `local`
                 and `paid_access`; empty when none are known.
             versions_synced_at: when Civitai itself last listed them; null
@@ -367,6 +368,12 @@ def register(app: FastAPI):
                     if payload.get("id") == model_id:
                         db.store_civitai_versions(model_id, payload.get("modelVersions") or [])
                 listed, synced_at = db.get_civitai_versions(model_id)
+
+            # Which of a version's files Send uses, shown in its Files list.
+            from ..send_plan import send_files
+            sent = send_files(versions)
+            for version in versions:
+                version["send_uses"] = version["file_path"] in sent
 
             local_ids = {v["id"] for v in versions if v.get("id")}
             civitai_versions = [
@@ -435,9 +442,11 @@ def register(app: FastAPI):
                     "error": "No local versions found for this model"
                 }, status_code=404)
 
-            # Create sync service and sync each version
+            # Create sync service and sync each file, each version's
+            # gallery once
             sync_service = SyncService()
             sync_service.keep_image_count = str(keep_image_count).lower() in ("true", "1", "yes")
+            sync_service.galleries_fetched = set()
             synced_count = 0
             errors = []
 

@@ -68,7 +68,7 @@ def grid(write=None, **options):
 def a_sync_adds_a_file():
     path = os.path.join(WORK, 'arrived', 'new_%d.safetensors' % len(written))
     other = sqlite3.connect(db.db_path, timeout=5)
-    other.execute("INSERT INTO model_versions (file_path, file_name, has_civitai_data) VALUES (?, ?, 0)",
+    other.execute("INSERT INTO files (file_path, file_name) VALUES (?, ?)",
                   (path, os.path.basename(path)))
     other.commit()
     other.close()

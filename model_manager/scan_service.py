@@ -16,7 +16,7 @@ from .file_identity import identify
 from .identity_store import needs_check, store_architecture
 from .hashing import read_hashes
 from .model_dirs import file_modified, filed_as, forget_gone, library_dirs, proper_place, relocate
-from .payload_rows import model_row, version_row
+from .payload_rows import file_row, model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
     version_covers,
@@ -229,6 +229,8 @@ class ScanService:
                             k.lower(): v for k, v in civitai_hashes.items()
                         }
                     break
+            version_data.update(file_row(matched_version, version_data["file_name"],
+                                         read_hashes(version_data.get("file_hashes"))))
 
         # Calculate effective NSFW level considering images
         self._calculate_nsfw_level(data, version_data)

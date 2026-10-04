@@ -20,10 +20,12 @@ const version = (id, name) => ({
 let versions = [version(501, 'v1'), version(502, 'v2')];
 const deleted = [];
 let refuse = null;
+let gridAsked = 0;
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
-    const reply = (body) => ({ ok: true, json: async () => body });
+    // A copy, as an answer off the network is: the page changes what it is given.
+    const reply = (body) => ({ ok: true, json: async () => structuredClone(body) });
     if (href.includes('/model-manager/models/delete')) {
         const path = new URLSearchParams(String(init.body || '')).get('path');
         if (path === refuse) return reply({ success: false, error: 'Not a model in the library' });
@@ -33,6 +35,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions });
     if (href.includes('/model-manager/models/details')) return reply({ success: true, model: { images: [] } });
     if (href.includes('/model-manager/models')) {
+        gridAsked++;
         return reply({ success: true, total: 1, page: 1, page_size: 20, models: [versions[0]] });
     }
     return reply({ success: true });
@@ -94,5 +97,35 @@ await open();
 check('with one version, one button: Delete Model', buttons(), ['Delete Model']);
 await pressLabelled('Delete Model');
 check('deleting that version', deleted, ['C:/models/v1.safetensors']);
+
+// ------------------------------------------------- one version, two files
+// An fp16 and an fp32 of one version (#133): one model, one version - and
+// either file can go alone, from the version's Files list.
+versions = [version(501, 'v1'), { ...version(501, 'v1'), file_path: 'C:/models/v1_fp32.safetensors',
+                                  file_name: 'v1_fp32.safetensors' }];
+deleted.length = 0;
+await open();
+check('with one version of two files, the header deletes the model', buttons(), ['Delete Model']);
+const fileBins = () => Array.from(document.querySelectorAll('#mm_details .mm-files-slot [data-action="modelManager.deleteFile"]'));
+check('and each file has its own delete in the Files list', fileBins().length, 2);
+const askedBefore = gridAsked;
+await press(fileBins()[1]);
+check('that file, alone', deleted, ['C:/models/v1_fp32.safetensors']);
+check('named as a file', confirmText.includes('the file v1_fp32.safetensors'), true);
+check('its row goes, and nothing else: the panel stays open, the grid is not asked again',
+      [!!header(), fileBins().length, gridAsked - askedBefore], [true, 0, 0]);
+check('the one file left is shown as a version of one',
+      [document.querySelector('#mm_details .file-path-cell')?.textContent.trim(),
+       Array.from(document.querySelectorAll('#mm_details .mm-file-fact')).map((tr) => tr.style.display)],
+      ['C:/models/v1.safetensors', ['', '', '']]);
+await open();
+await press(fileBins()[0]);
+check('deleting the file shown shows the other, the panel still open',
+      [!!header(), document.querySelector('#mm_details .file-path-cell')?.textContent.trim()],
+      [true, 'C:/models/v1_fp32.safetensors']);
+deleted.length = 0;
+await open();
+await pressLabelled('Delete Model');
+check('the model, both its files', deleted, ['C:/models/v1.safetensors', 'C:/models/v1_fp32.safetensors']);
 
 done();

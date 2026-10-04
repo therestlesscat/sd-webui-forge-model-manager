@@ -26,7 +26,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 
 | | |
 |---|---|
-| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations`; the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
+| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
 | `sync_service.py` | identifying files and refreshing their metadata |
@@ -113,16 +113,33 @@ what they hold when handed `NULL`, `'[]'`, `0` or Unknown. A scan reading a
 thin `.civitai.info` cannot tell "this model has no trigger words" from "this
 file does not mention any", and it used to write the second over the first —
 blanking trigger words, dates, licences, vote counts and stored hashes. Both
-are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS` in
-`db/models_ops.py`), each column with how an update treats it - overwritten,
+are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS`,
+`FILE_COLUMNS` in `db/models_ops.py`), each column with how an update treats it - overwritten,
 kept when the new value says nothing, or a rule of its own - and given its
 value by name. Adding a column means an entry there, or in the list of
 columns written elsewhere; `upsert_columns_test.py` fails on one in neither.
 It used to be four places by hand, and a column missed from the `SET` list
 was written once and never updated.
 
+**A version is one row; its files are rows of their own** (#133).
+`versions` holds a Civitai version once - its details, its gallery's cursor
+- and `files` each file, naming its version by `version_id`, NULL for a file
+Civitai does not know, which has no row anywhere else: no table is named for
+Civitai (`models`, `versions`, `files`). `model_versions` held
+both in one row per file: a version with an fp16 and an fp32 was fetched,
+counted and read as two, and the copies drifted - 26 of one library's 36
+such versions disagreed on their gallery's cursor, and the gallery read
+whichever copy came first. Reads that want a file with its version go
+through `db/library.py`'s `LIBRARY`, which gives the row `model_versions`
+did; writes go to the table that holds the column. What is per version -
+a gallery, its cursor, a card's count - is done once per version: a sync
+over several files fetches a version's gallery once (`galleries_fetched`),
+and the page draws one pill per version, with a Files list under it to read,
+not to pick from. Which of a version's files Send uses is decided by what each
+is and where it is (`send_plan.send_files`), and the list says which.
+
 **A model's version list is Civitai's, as of the last sync.**
-`civitai_models.versions` holds every version Civitai lists, local or not, so
+`models.versions` holds every version Civitai lists, local or not, so
 the details panel can offer the rest for download without asking Civitai. A
 sync replaces it; a sidecar only adds to it, and not at all once a sync has
 written it - a sidecar is as old as its file, and would bring back a version
@@ -188,7 +205,7 @@ unusable prompt (`promptless_total`). The database's counts, a page's, the
 Civitai Browser's and your generations' are kept to the same meanings.
 
 **A card shows one version, chosen in one fixed order:** newest published, then
-Civitai's own order (`index` in `civitai_models.versions`, whose first its page
+Civitai's own order (`index` in `models.versions`, whose first its page
 shows), then version id and file (`SHOWN_ORDER` in `db/query.py`). Versions
 share a date to the millisecond, or have none; without the tie-break SQLite
 returned either, and a cover changed between loads. Anything that picks one of
@@ -378,9 +395,11 @@ Where they differ, and what the extension does about it - on the server, in
 **They can share one database** (Settings -> Model Manager -> database
 path), and do here: Neo's setting points at the file in the original Forge's
 copy of the extension. The two copies of the extension must then be at the
-same version. An older copy does not migrate a newer database - it runs its
-old queries and writes against the newer schema, without the fixes since.
-Update both before starting either.
+same version. An older copy does not migrate a newer database - it ran its
+old queries and writes against the newer schema, without the fixes since. From
+v32 a copy refuses a database newer than it knows (`_init_db`), and v32
+dropped `model_versions` and renamed `civitai_models` to `models`, so a copy
+from before it fails rather than writes the old shape. Update both before starting either.
 
 To see the original Forge's behaviour without starting it, run the code under
 its Python with its packages on `sys.path` (`webui`,
@@ -540,7 +559,7 @@ only by the owner.
 ## Known gaps
 
 - **Local-only models cannot be bookmarked.** They have a row now, but
-  bookmarking is keyed on a `civitai_models` id and they have none.
+  bookmarking is keyed on a `models` id and they have none.
 - **They also show as blank cards** — the grid takes previews only from the
   cached Civitai images, and never looks at the `.preview.png` beside the file,
   though the delete path knows about it.
@@ -799,7 +818,7 @@ real time once.
 python tests/run.py --all
 ```
 
-A hundred and fifty-one, as the runner counts them - 71 Python, 74 browser and
+A hundred and fifty-two, as the runner counts them - 72 Python, 74 browser and
 6 static checks, six of them skipped unless asked - run four at a time: about a
 minute. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,

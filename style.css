@@ -971,6 +971,40 @@ body.mm-modal-open {
     width: 90px;
 }
 
+/* A version's files (#133): a row a file, a column a fact. Colours from the
+   theme, so light and dark alike; Gradio colours every element in an HTML
+   block, so the header's is !important. A name and a folder may wrap. */
+.mm-files-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.mm-files-table th,
+.mm-files-table td {
+    text-align: left;
+    padding: 5px 8px 5px 0;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.mm-files-table th {
+    font-weight: normal;
+    color: var(--body-text-color-subdued, #9ca3af) !important;
+}
+
+.mm-files-table td:nth-child(2),
+.mm-files-table td:nth-child(5) {
+    white-space: normal;
+    word-break: break-all;
+}
+
+/* The delete, in the last column: apart from the cell before it. Gradio's
+   reset takes a button's margin. */
+.mm-file-delete {
+    margin-left: 10px !important;
+}
+
 /* A row that is one control, not a label and a value. */
 .detail-table td[colspan] {
     width: auto;
@@ -2055,7 +2089,6 @@ body.mm-modal-open {
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
-    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     height: 32px !important;

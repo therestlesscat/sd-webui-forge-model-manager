@@ -112,7 +112,7 @@ class ImagesOps:
                 "UPDATE images SET effective_nsfw_level = ? WHERE id = ? AND version_id = ?",
                 changed)
             cursor.execute(
-                "UPDATE model_versions SET safe_cover_url = '' WHERE safe_cover_url IN"
+                "UPDATE versions SET safe_cover_url = '' WHERE safe_cover_url IN"
                 " (SELECT url FROM images WHERE effective_nsfw_level > ?)", (SFW_MAX,))
             covers = cursor.rowcount
         return len(changed), len(rows), covers

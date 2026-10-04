@@ -32,7 +32,7 @@ from ..model_dirs import file_modified
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 
 
 class ModelsDatabase:
@@ -102,6 +102,15 @@ class ModelsDatabase:
             cursor.execute("SELECT value FROM schema_info WHERE key = 'version'")
             row = cursor.fetchone()
             current_version = int(row[0]) if row else 0
+
+            # A newer copy of the extension, sharing this database, has
+            # changed its shape: this one's queries and writes are for the old
+            # one. It used to run them anyway.
+            if current_version > SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"[ModelManager] The database {self.db_path} is at schema v{current_version}, "
+                    f"newer than this copy of the extension knows (v{SCHEMA_VERSION}). "
+                    "Update this copy - another WebUI sharing the database has been updated.")
 
             if current_version < SCHEMA_VERSION:
                 run_migrations(cursor, current_version, SCHEMA_VERSION,
@@ -188,7 +197,7 @@ class ModelsDatabase:
         stamp = datetime.now().isoformat() if failed else None
         with self._cursor() as cursor:
             cursor.execute(
-                "UPDATE model_versions SET civitai_lookup_failed_at = ? WHERE file_path = ?",
+                "UPDATE files SET civitai_lookup_failed_at = ? WHERE file_path = ?",
                 (stamp, _stored_spelling(cursor, file_path))
             )
 
@@ -207,7 +216,7 @@ class ModelsDatabase:
         """
         with self._cursor() as cursor:
             cursor.execute(
-                "UPDATE model_versions SET architecture = ?, architecture_class = ?,"
+                "UPDATE files SET architecture = ?, architecture_class = ?,"
                 " bundled_text_encoder = ?, bundled_vae = ?, architecture_checked = ?,"
                 " file_type = ?, identified_by = ?, lora_alias = ?"
                 " WHERE file_path = ?",
@@ -219,7 +228,7 @@ class ModelsDatabase:
         """How many files a sync will skip because Civitai did not know them."""
         with self._cursor() as cursor:
             cursor.execute(
-                "SELECT COUNT(*) FROM model_versions WHERE civitai_lookup_failed_at IS NOT NULL"
+                "SELECT COUNT(*) FROM files WHERE civitai_lookup_failed_at IS NOT NULL"
             )
             return cursor.fetchone()[0]
 
@@ -240,7 +249,7 @@ class ModelsDatabase:
 
         with self._cursor() as cursor:
             cursor.execute("""
-                UPDATE model_versions
+                UPDATE files
                 SET downloaded_at = ?
                 WHERE file_path = ? AND downloaded_at IS NULL
             """, (downloaded_at, _stored_spelling(cursor, file_path)))
@@ -349,7 +358,7 @@ class ModelsDatabase:
         return self._generations.library_files(paths)
 
     def library_spelling(self, paths) -> Dict[str, str]:
-        """Each path as model_versions spells it. See db/generations_ops.py."""
+        """Each path as the library spells it. See db/generations_ops.py."""
         return self._generations.library_spelling(paths)
 
     def record_generation(self, generation: Dict[str, Any], images: List[Dict[str, Any]],
@@ -466,11 +475,7 @@ class ModelsDatabase:
         with self._cursor() as cursor:
             cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
             self._images.insert_images(cursor, version_id, 1, images)
-            cursor.execute("""
-                UPDATE model_versions
-                SET next_images_cursor = ?, images_sync_last_date = CURRENT_TIMESTAMP
-                WHERE id = ?
-            """, (next_cursor, version_id))
+            self._set_images_state(cursor, version_id, next_cursor, True)
 
     def clear_version_images(self, version_id: int):
         """Clear all cached images for a version."""
@@ -486,24 +491,30 @@ class ModelsDatabase:
         Update image sync state for a version.
 
         Args:
-            version_id: Civitai version ID (the 'id' column in model_versions).
+            version_id: Civitai version ID.
             next_cursor: Next cursor for pagination (None if all loaded).
             update_sync_date: Whether to update images_sync_last_date.
         """
         with self._cursor() as cursor:
-            if update_sync_date:
-                cursor.execute("""
-                    UPDATE model_versions
-                    SET next_images_cursor = ?,
-                        images_sync_last_date = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (next_cursor, version_id))
-            else:
-                cursor.execute("""
-                    UPDATE model_versions
-                    SET next_images_cursor = ?
-                    WHERE id = ?
-                """, (next_cursor, version_id))
+            self._set_images_state(cursor, version_id, next_cursor, update_sync_date)
+
+    def _set_images_state(self, cursor, version_id: int, next_cursor: Optional[str], dated: bool):
+        """
+        Where a version's gallery stops, on the version's own row. A sync
+        stores a file's gallery before it writes the file as the version's,
+        and the version may have no row yet: it is made here, for the upsert
+        that follows to fill (#133). Kept on the file's row, the cursor missed
+        a file not yet identified, and its copy of the version kept none.
+        """
+        cursor.execute("INSERT INTO versions (id) VALUES (?) ON CONFLICT(id) DO NOTHING",
+                       (version_id,))
+        if dated:
+            cursor.execute("UPDATE versions SET next_images_cursor = ?, "
+                           "images_sync_last_date = CURRENT_TIMESTAMP WHERE id = ?",
+                           (next_cursor, version_id))
+        else:
+            cursor.execute("UPDATE versions SET next_images_cursor = ? WHERE id = ?",
+                           (next_cursor, version_id))
 
     def get_version_by_id(self, version_id: int) -> Optional[Dict[str, Any]]:
         """Get a version record by its Civitai version ID."""

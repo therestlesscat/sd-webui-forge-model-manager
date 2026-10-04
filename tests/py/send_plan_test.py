@@ -45,7 +45,7 @@ def is_(path, file_type, preset, cls=None, hashes=None):
     db.set_architecture(path, preset, cls, False, False, '1', file_type=file_type)
     if hashes is not None:
         with db._cursor() as cursor:
-            cursor.execute("UPDATE model_versions SET file_hashes = ? WHERE file_path = ?",
+            cursor.execute("UPDATE files SET file_hashes = ? WHERE file_path = ?",
                            (__import__('json').dumps(hashes), path))
 
 

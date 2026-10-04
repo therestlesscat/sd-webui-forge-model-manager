@@ -251,7 +251,6 @@ else:
 # read then has to be read again, once, for its type. One already read for
 # its type is not.
 import sqlite3                                            # noqa: E402
-import model_manager.db.database as dbmod                 # noqa: E402
 from model_manager.db.migrations import run_migrations    # noqa: E402
 path22 = os.path.join(WORK, 'v22.db')
 if os.path.exists(path22):
@@ -263,7 +262,7 @@ cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY
             "architecture TEXT, architecture_checked TEXT)")
 cur.executemany("INSERT INTO model_versions VALUES (?, ?, ?, ?)",
                 [(1, 'sdxl.safetensors', 'xl', '2026-01-01'), (2, 'a_lora.safetensors', None, '2026-01-01')])
-run_migrations(cur, 22, dbmod.SCHEMA_VERSION, path22, WORK)
+run_migrations(cur, 22, 31, path22, WORK)
 columns = [row[1] for row in cur.execute("PRAGMA table_info(model_versions)")]
 check('v23 adds the file\'s type and what decided it',
       ('file_type' in columns, 'identified_by' in columns), (True, True))
@@ -271,7 +270,7 @@ check('and marks every file read before as unread, so the next scan reads it for
       cur.execute("SELECT architecture_checked FROM model_versions").fetchall(), [(None,), (None,)])
 # A VAE: v31 marks every LoRA unread once more, for its alias.
 cur.execute("UPDATE model_versions SET file_type = 'VAE', architecture_checked = 'x' WHERE id = 2")
-run_migrations(cur, 22, dbmod.SCHEMA_VERSION, path22, WORK)
+run_migrations(cur, 22, 31, path22, WORK)
 check('run again, it leaves a file already read for its type alone',
       cur.execute("SELECT architecture_checked FROM model_versions WHERE id = 2").fetchone(), ('x',))
 conn.close()

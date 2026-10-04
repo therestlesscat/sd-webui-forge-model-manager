@@ -6,7 +6,7 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
-from typing import Optional, List, Dict, Any, Callable, Tuple
+from typing import Optional, List, Dict, Any, Callable, Set, Tuple
 
 from .civitai import (
     CivitaiClient,
@@ -19,7 +19,7 @@ from .civitai import (
 )
 from .hashing import HashResult, ModelHasher
 from .model_dirs import file_modified, forget_gone, library_dirs
-from .payload_rows import model_row, version_row
+from .payload_rows import file_row, model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
 from .identity_store import record_architecture
 from .nsfw import version_covers
@@ -92,6 +92,23 @@ class SyncService:
         # but sync_model() can be called on its own - after a download, say -
         # and _classify_checkpoints() takes it either way.
         self._progress_lock = threading.Lock()
+        # The versions whose gallery this run has fetched, while one runs over
+        # several files (sync_all, a model's Sync): a version's files share
+        # one gallery, and it was fetched once per file (#133). None fetches
+        # every time, as one file's sync does.
+        self.galleries_fetched: Optional[Set[int]] = None
+        self._galleries_lock = threading.Lock()
+
+    def _first_for_gallery(self, version_id: int) -> bool:
+        """Whether this run is still to fetch this version's gallery - and,
+        if so, that it now has."""
+        with self._galleries_lock:
+            if self.galleries_fetched is None:
+                return True
+            if version_id in self.galleries_fetched:
+                return False
+            self.galleries_fetched.add(version_id)
+            return True
 
     def calculate_hashes(self, file_path: str) -> HashResult:
         """
@@ -304,7 +321,7 @@ class SyncService:
 
             # The first page of the gallery, at the size it is paged in, so
             # opening the model needs no request of its own
-            if version_id:
+            if version_id and self._first_for_gallery(version_id):
                 print(f"[ModelManager] Fetching images for {model_name}...")
                 db = get_models_db()
                 stored = db.count_images_by_version([version_id]).get(version_id, 0)
@@ -458,6 +475,7 @@ class SyncService:
                 if matched_version:
                     version_data = {
                         **version_row(matched_version, model_id),
+                        **file_row(matched_version, file_name, self._hashes_to_dict(hashes)),
                         "file_path": model_path,
                         "file_name": file_name,
                         "file_size": file_size,
@@ -477,6 +495,7 @@ class SyncService:
                 # Version-only response (model fetch failed)
                 version_data = {
                     **version_row(civitai_data, civitai_data.get("modelId")),
+                    **file_row(civitai_data, file_name, self._hashes_to_dict(hashes)),
                     "file_path": model_path,
                     "file_name": file_name,
                     "file_size": file_size,
@@ -578,6 +597,7 @@ class SyncService:
         print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
 
         synced_model_ids = set()
+        self.galleries_fetched = set()
 
         def process_model(path: str) -> tuple:
             """Process a single model and return (path, result)."""
@@ -626,6 +646,8 @@ class SyncService:
                             # Keep only last 10 errors
                             if len(self._progress.error_messages) > 10:
                                 self._progress.error_messages = self._progress.error_messages[-10:]
+
+        self.galleries_fetched = None
 
         # One question for everything that was identified, rather than two
         # requests per file. Only the checkpoints among them are asked about.
@@ -736,10 +758,11 @@ class SyncService:
         if missing:
             print(f"[ModelManager] Removed {len(missing)} model(s) no longer on disk")
 
-        # With images this runs twice over the list - metadata, then galleries
+        # With images this runs twice - over the files for their metadata, then
+        # over their versions for the galleries, which a version's files share
         # - so the bar counts both passes rather than filling up halfway.
-        passes = 2 if include_images else 1
-        self._progress = SyncProgress(total=len(versions) * passes)
+        galleries = len({v["id"] for v in versions}) if include_images else 0
+        self._progress = SyncProgress(total=len(versions) + galleries)
         self._progress.removed = len(missing)
         for version in missing:
             self._progress.error_messages.append(
@@ -893,7 +916,13 @@ class SyncService:
                            callback: Optional[Callable[[SyncProgress], None]],
                            max_workers: int,
                            include_prompts: bool = True) -> None:
-        """Replace each version's cached gallery with a fresh one (refresh_size)."""
+        """
+        Replace each version's cached gallery with a fresh one (refresh_size):
+        once a version, however many of its files are in `versions`.
+        """
+        seen: Set[int] = set()
+        versions = [v for v in versions
+                    if v.get("id") and not (v["id"] in seen or seen.add(v["id"]))]
         db = get_models_db()
         # Read once: a setting changed mid-sync would give one sync two sizes
         stored = db.count_images_by_version([v["id"] for v in versions if v.get("id")])

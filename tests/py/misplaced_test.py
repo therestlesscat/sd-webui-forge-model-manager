@@ -144,7 +144,7 @@ def under(path):
     raw = sqlite3.connect(facts['db_path'])
     found = [[r[0] for r in raw.execute(f'SELECT {column} FROM {table} WHERE file_path = ? COLLATE NOCASE '
                                         f'ORDER BY 1', (path,))]
-             for table, column in (('model_versions', 'file_path'), ('pins', 'file_path'),
+             for table, column in (('files', 'file_path'), ('pins', 'file_path'),
                                    ('generation_files', 'image_id'))]
     raw.close()
     return found

@@ -173,7 +173,7 @@ def download_more(db, version: Dict[str, Any]) -> Dict[str, Any]:
     not stored already, on a page of their own after the last.
 
     Args:
-        version: The version's model_versions row, for its id and cursor.
+        version: The version's library row, for its id and cursor.
 
     Returns:
         images (the new ones, judged), next_cursor, downloaded_count, and a

@@ -30,6 +30,7 @@ webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager.civitai import (                      # noqa: E402
     CivitaiNotFoundError, TokenBucketRateLimiter,
 )
@@ -60,16 +61,9 @@ def model_file(name, sidecar):
 def row(path):
     raw = sqlite3.connect(facts['db_path'])
     raw.row_factory = sqlite3.Row
-    found = raw.execute('SELECT * FROM model_versions WHERE file_path = ?', (path,)).fetchone()
+    found = raw.execute(f'SELECT * FROM {LIBRARY} WHERE file_path = ?', (path,)).fetchone()
     raw.close()
     return found
-
-
-def raw_sql(statement, *params):
-    raw = sqlite3.connect(facts['db_path'])
-    raw.execute(statement, params)
-    raw.commit()
-    raw.close()
 
 
 ERROR = model_file('error_left.safetensors', {'error': 'Model not found'})
@@ -105,13 +99,9 @@ check('the real sidecar is stored as identified',
 check("the stub does not write its name over the model's",
       db.get_civitai_model(5)['name'], 'The Real Name')
 
-# ---------------------------------------------- what an earlier scan wrote
-# As the scan before this fix left a stub's row: flagged, and tied to the
-# stub's model. A scan now puts it right.
-raw_sql('UPDATE model_versions SET has_civitai_data = 1, model_id = 5 WHERE file_path = ?', STUB)
-scan.scan_models(directories=[models_dir])
-check('a scan lowers the flag an earlier scan set on a stub, and unties it',
-      (row(STUB)['has_civitai_data'], row(STUB)['model_id']), (0, None))
+# What an earlier scan wrote - a stub's row flagged and tied to its model -
+# a file without a version cannot hold since v32: the migration leaves it
+# with none (version_files_test.py).
 
 # The rule is the upsert's, whoever writes: no version id, no identification.
 db.upsert_version({'file_path': STUB, 'file_name': 'stub_left.safetensors',
@@ -152,7 +142,6 @@ check('it looks the file up', bool(client.asked) and client.asked[0][0], 'by_has
 
 # A metadata sync refreshes what has a version id: a row tied to a model
 # without one would be filed as that model's newest version.
-raw_sql('UPDATE model_versions SET model_id = 5 WHERE file_path = ?', NO_IDS)
 linked = [v['file_path'] for v in db.get_linked_versions()]
 check('a row with no version id is not refreshed by a metadata sync', NO_IDS in linked, False)
 check('one with a version id is', REAL in linked, True)

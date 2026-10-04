@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.46 - One version, its files under it
+
+*3 October 2026*
+
+A Civitai version is one version in the library, however many of its files you have - an fp16 and an fp32, a `.safetensors` and a `.pt`, the same file in two WebUIs' folders. Each file used to be a version of its own, with its own copy of the version's details, and the copies drifted apart.
+
+- **0.46.0** (build 349) - A version with several files is one version: one pill in a model's details, and counted once on its card and by the "versions" filter. Under its pill, a table of its files says what each is - type, name, size, date, folder, its file id on Civitai - which one Send uses, and deletes one alone; there is nothing to pick, as the galleries are the version's. A sync fetches its gallery once, not once per file, and the sync dialog costs it once; Load More reads where the version's gallery stopped, which the copy of one file could have lost. Showing a generation's model from the Generations tab opens the file it used. The database changes shape on the first start, after a backup beside it; a WebUI sharing the database needs this version too - an older copy can no longer open it, and from now on a copy older than its database says so rather than use it.
+
 ## 0.45 - I'm feeling lucky
 
 *2 October 2026*

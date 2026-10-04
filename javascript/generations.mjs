@@ -1033,7 +1033,7 @@ function showModel(file) {
         setStatus('The Model Manager tab has not started yet: open it once and try again.');
         return;
     }
-    if (byVersion) call('modelManager.showVersion', file.version_id);
+    if (byVersion) call('modelManager.showVersion', file.version_id, file.path);
     else call('modelManager.showFile', file.path);
 }
 

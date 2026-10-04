@@ -32,6 +32,7 @@ webui_stub.install()
 import fixtures                                          # noqa: E402
 from model_manager.db import GridQuery                 # noqa: E402
 from model_manager.db import query as grid               # noqa: E402
+from model_manager.db.library import LIBRARY             # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'grid_query')
 
@@ -56,7 +57,7 @@ for n, version in enumerate(versions):
                                  {'id': 1000 * n + 5, 'url': f'https://e.invalid/{n}-safe.jpeg',
                                   'browsingLevel': 2}])
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET cover_url = NULL, safe_cover_url = NULL WHERE id IN (%s)"
+    cursor.execute("UPDATE versions SET cover_url = NULL, safe_cover_url = NULL WHERE id IN (%s)"
                    % ",".join("?" * len(versions)), versions)
 
 
@@ -162,7 +163,7 @@ check('the counts follow the filters', counts, {'pinned': 0, 'others': len(vae_b
 # unpinning the model takes that pin too.
 checkpoint = facts['checkpoint_ids'][0]
 with db._cursor() as cursor:
-    cursor.execute("SELECT file_path FROM model_versions WHERE model_id = ? ORDER BY file_path DESC LIMIT 1",
+    cursor.execute(f"SELECT file_path FROM {LIBRARY} WHERE model_id = ? ORDER BY file_path DESC LIMIT 1",
                    (checkpoint,))
     second_file = cursor.fetchone()[0]
 db.set_pin(None, second_file, True)
@@ -238,11 +239,11 @@ with db._cursor() as cursor:
 # The newest published; two with one date - Deep Negative's V1 75T and V1 64T,
 # to the millisecond - went to whichever SQLite returned, so a cover could
 # change between loads. A tie goes as Civitai orders versions (`index` in
-# civitai_models.versions, whose first a model's page shows), then the higher
+# models.versions, whose first a model's page shows), then the higher
 # version id: always the same one.
 import json                                              # noqa: E402
 with db._cursor() as cursor:
-    cursor.execute("SELECT model_id, published_at, MIN(id), MAX(id) FROM model_versions "
+    cursor.execute("SELECT model_id, published_at, MIN(id), MAX(id) FROM versions "
                    "WHERE model_id IS NOT NULL GROUP BY model_id, published_at HAVING COUNT(DISTINCT id) = 2 LIMIT 1")
     model_id, published, low, high = cursor.fetchone()
 
@@ -253,13 +254,13 @@ def card_version():
 
 def civitai_order(*ids):
     with db._cursor() as cursor:
-        cursor.execute("UPDATE civitai_models SET versions = ? WHERE id = ?",
+        cursor.execute("UPDATE models SET versions = ? WHERE id = ?",
                        (json.dumps([{'id': v, 'index': i} for i, v in enumerate(ids)]), model_id))
 
 
 civitai_order()
 with db._cursor() as cursor:
-    cursor.execute("UPDATE civitai_models SET versions = NULL WHERE id = ?", (model_id,))
+    cursor.execute("UPDATE models SET versions = NULL WHERE id = ?", (model_id,))
 check('two versions of one date, Civitai\'s order unknown: the higher id, every time',
       [card_version() for _ in range(3)], [high] * 3)
 civitai_order(low, high)
@@ -267,22 +268,22 @@ check('Civitai lists the other first: that one, as Civitai\'s page shows it', ca
 civitai_order(high, low)
 check('and the other way round', card_version(), high)
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET published_at = '2099-01-01T00:00:00Z' WHERE id = ?", (low,))
+    cursor.execute("UPDATE versions SET published_at = '2099-01-01T00:00:00Z' WHERE id = ?", (low,))
 check('the date still comes first: a newer version is shown, wherever Civitai lists it', card_version(), low)
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET published_at = NULL WHERE id IN (?, ?)", (low, high))
+    cursor.execute("UPDATE versions SET published_at = NULL WHERE id IN (?, ?)", (low, high))
 civitai_order(low, high)
 check('two with no date at all tie too, and go as Civitai lists them', card_version(), low)
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET published_at = ? WHERE id IN (?, ?)", (published, low, high))
+    cursor.execute("UPDATE versions SET published_at = ? WHERE id IN (?, ?)", (published, low, high))
 
 # ----------------------------------------------------- by file size (#40)
 # In GB of 1024^3 bytes, either end open. A model shows if any of its local
 # files is in range, with the newest that is - as with every version filter.
 GB = 1024 ** 3
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET file_size = ? WHERE id = ?", (2 * GB, low))
-    cursor.execute("UPDATE model_versions SET file_size = ? WHERE id = ?", (6 * GB, high))
+    cursor.execute("UPDATE files SET file_size = ? WHERE version_id = ?", (2 * GB, low))
+    cursor.execute("UPDATE files SET file_size = ? WHERE version_id = ?", (6 * GB, high))
 
 
 def sized(**kw):

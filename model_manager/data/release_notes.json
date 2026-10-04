@@ -1,5 +1,37 @@
 [
   {
+    "id": "shared-database-0-46",
+    "version": "0.46.0",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version stores a model's versions and their files apart, and an older copy cannot open the database any more: its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database-0-45"
+    ]
+  },
+  {
+    "id": "version-files",
+    "version": "0.46.0",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "A version with several files is one version",
+    "text": "An fp16 and an fp32 of one version, or the same file in two WebUIs' folders, are one version now: one pill in a model's details, with a list of its files and which one Send uses, and counted once on its card. A sync fetches its gallery once, not once per file."
+  },
+  {
     "id": "sync-asks-images",
     "version": "0.45.6",
     "kind": "feature",

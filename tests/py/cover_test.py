@@ -37,6 +37,7 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 from model_manager.civitai import CivitaiClient          # noqa: E402
 from model_manager.hashing import HashResult             # noqa: E402
@@ -97,7 +98,7 @@ def shown_version(model_id):
 
 def set_covers(model_id, cover, safe_cover):
     with db._cursor() as cursor:
-        cursor.execute("UPDATE model_versions SET cover_url = ?, safe_cover_url = ? WHERE id = ?",
+        cursor.execute("UPDATE versions SET cover_url = ?, safe_cover_url = ? WHERE id = ?",
                        (cover, safe_cover, shown_version(model_id)))
 
 
@@ -145,7 +146,7 @@ check('with only a safe cover known, NSFW allowed shows that rather than guess',
 def covers_of(path):
     """What is stored, read from the row itself."""
     with db._cursor() as cursor:
-        cursor.execute("SELECT cover_url, safe_cover_url FROM model_versions WHERE file_path = ?",
+        cursor.execute(f"SELECT cover_url, safe_cover_url FROM {LIBRARY} WHERE file_path = ?",
                        (path,))
         return tuple(cursor.fetchone())
 
@@ -190,7 +191,7 @@ cur.execute("CREATE TABLE model_versions (id INTEGER, file_path TEXT PRIMARY KEY
             "cover_url TEXT, pg_cover_url TEXT)")
 cur.executemany("INSERT INTO model_versions VALUES (?, ?, ?, ?)",
                 [(1, 'a', 'c1', 'pg1'), (2, 'b', 'c2', ''), (3, 'c', None, None)])
-run_migrations(cur, 20, dbmod.SCHEMA_VERSION, path20, WORK)
+run_migrations(cur, 20, 31, path20, WORK)
 columns = [row[1] for row in cur.execute("PRAGMA table_info(model_versions)")]
 check('v21 renames the column to what it now holds',
       ('safe_cover_url' in columns, 'pg_cover_url' in columns), (True, False))
@@ -198,7 +199,7 @@ check('keeping stored first-PG images, which are safe, and clearing "no PG image
       'which is not "no safe image"',
       cur.execute("SELECT id, safe_cover_url FROM model_versions ORDER BY id").fetchall(),
       [(1, 'pg1'), (2, None), (3, None)])
-run_migrations(cur, 20, dbmod.SCHEMA_VERSION, path20, WORK)
+run_migrations(cur, 20, 31, path20, WORK)
 check('and can run twice', [row[1] for row in cur.execute(
       "PRAGMA table_info(model_versions)")].count('safe_cover_url'), 1)
 conn.close()

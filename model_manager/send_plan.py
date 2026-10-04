@@ -32,11 +32,13 @@ and its mask. Where no file can be read, Civitai's baseModel names it.
 import os
 import re
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from .architecture import preset_for_base_model, read_shapes
+from .file_identity import LORA_FAMILY
 from .hashing import hash_key
 from .identity_store import record_architecture
+from .model_dirs import folder_of
 from .remembered import Remembered
 
 # At most this many Civitai lookups for one send: an image can name a dozen
@@ -46,6 +48,29 @@ MAX_LOOKUPS = 4
 # A Wan model's patch embedding input width -> what it generates. Wan 2.2 5B
 # (48) is neither: Neo's detector does not know it.
 _WAN_INPUT = {16: "t2v", 36: "i2v"}
+
+
+# What Send uses of a gallery's own file, by what the file is: the checkpoint
+# it loads, the LoRA or embedding a chip names, the VAE or text encoder it
+# selects (#134). An upscaler, a ControlNet, a hypernetwork, it does not.
+SENT_TYPES = frozenset(("Checkpoint", "TextualInversion", "VAE", "Text Encoder") + LORA_FAMILY)
+
+
+def send_files(files: Iterable[Dict[str, Any]],
+               here: Callable[[str], bool] = lambda path: folder_of(path)[0] is not None) -> Set[str]:
+    """
+    Of a model's local files, the one Send uses for each version, by path: of
+    a type it uses, in this WebUI's folders - a version's copy in another
+    WebUI's, sharing the database, is not one this Forge lists - the first
+    by path. None for a version with no such file (#133).
+    """
+    chosen: Dict[Any, str] = {}
+    for f in sorted(files, key=lambda f: f.get("file_path") or ""):
+        path = f.get("file_path")
+        key = f.get("id") if f.get("id") is not None else path
+        if path and key not in chosen and f.get("file_type") in SENT_TYPES and here(path):
+            chosen[key] = path
+    return set(chosen.values())
 
 
 @dataclass

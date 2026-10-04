@@ -146,6 +146,15 @@ def model_payload(model_id, version_ids, model_type='Checkpoint', **extra):
     return payload
 
 
+
+def payloads(rows):
+    """Each model's payload, listing every version of it among these rows: a
+    model listing one of two leaves the other's file to be filed as it."""
+    ids = {}
+    for r in rows:
+        ids.setdefault(r['model_id'], []).append(r['id'])
+    return {model_id: model_payload(model_id, versions) for model_id, versions in ids.items()}
+
 def service(**answers):
     """A SyncService with an injected client, so nothing reaches the network."""
     client = Client(**answers)
@@ -547,7 +556,7 @@ sys.modules['model_manager.sync_service'].write_civitai_info = real_write
 TWO_PATHS = facts['linked_paths'][:2]
 rows = [db.get_version(p) for p in TWO_PATHS]
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images=lambda version_id: {
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': None},
@@ -563,7 +572,7 @@ check('and the prompts behind them in one pooled request',
 # the model after a sync needs no request of its own. It was always 100.
 opts.model_manager_gallery_page_size = 30
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images=lambda version_id: {
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': None})
@@ -575,7 +584,7 @@ check('a sync asks for each gallery at the page size set', client.limits, [30, 3
 # client asks for no more - so it comes in batches (#103).
 opts.model_manager_gallery_page_size = 300
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images=lambda version_id: {
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': None})
@@ -591,7 +600,7 @@ check('with the prompt that was looked up',
 # Without it "Download More Images" asked for this first page again, and
 # showed nothing new until a second click.
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images=lambda version_id: {
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': 'after-%d' % version_id})
@@ -607,7 +616,7 @@ check('and when the gallery was synced', bool(kept['images_sync_last_date']), Tr
 # own version and its own gallery.
 KEEP_PATHS = facts['linked_paths'][4:6]
 keep_rows = [db.get_version(p) for p in KEEP_PATHS]
-KEEP_MODELS = {r['model_id']: model_payload(r['model_id'], [r['id']]) for r in keep_rows}
+KEEP_MODELS = payloads(keep_rows)
 first = keep_rows[0]['id']
 
 
@@ -653,7 +662,7 @@ check('and both end up with theirs',
 
 held = sorted(img['id'] for img in db.get_images(kept['id']))
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images_raises=RuntimeError('gallery gone'))
 progress = sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
 check('a gallery that will not load is an error per version', progress.errors, 2)
@@ -666,7 +675,7 @@ check('while the metadata half still succeeded', progress.synced, 2)
 # a callback sees the work happen
 seen = []
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows})
+    models=payloads(rows))
 sync.sync_metadata(model_paths=TWO_PATHS, callback=lambda p: seen.append(p.processed))
 # Once before the models are fetched, then once per version.
 check('the callback is told before it starts and after each version',
@@ -676,7 +685,7 @@ check('the callback is told before it starts and after each version',
 # As with sync_all, the flag is cleared on entry, so the cancel has to arrive
 # while the sync is running - here from the callback, after the first version.
 sync, client = service(
-    models={r['model_id']: model_payload(r['model_id'], [r['id']]) for r in rows},
+    models=payloads(rows),
     images={'images': [], 'next_cursor': None})
 progress = sync.sync_metadata(model_paths=TWO_PATHS, include_images=True,
                               callback=lambda p: sync.cancel())

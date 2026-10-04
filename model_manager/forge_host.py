@@ -133,6 +133,15 @@ def model_folders():
         return None, ""
 
 
+def webui_root() -> str:
+    """The WebUI's own folder, which the pages show paths from; empty outside it."""
+    try:
+        from modules import paths
+        return getattr(paths, "script_path", "") or ""
+    except ImportError:
+        return ""
+
+
 # ---------------------------------------------------------------- checkpoints
 
 def checkpoint_name(path: str) -> Optional[str]:

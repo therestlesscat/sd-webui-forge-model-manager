@@ -65,7 +65,7 @@ const {
 const { provide, ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
 const {
-    showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions,
+    showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -960,6 +960,91 @@ async function selectVersion(versionIndex) {
     await loadVersionDetails(version.file_path);
 }
 
+/**
+ * A version's files, when it has several - an fp16 and an fp32, a .pt and a
+ * .safetensors, one file in two WebUIs' folders: a row each, a column a fact,
+ * the one Send uses (send_plan.send_files) marked, and a delete. Nothing to
+ * pick: the galleries are the version's, and which file Send uses is decided
+ * by what each is and where it is (#133).
+ */
+function renderFilesSection(shown) {
+    const files = versionFiles(shown);
+    if (files.length < 2) return '';
+    const model = currentModels[selectedModelIndex] || {};
+    const rows = files.map((f) => {
+        const folder = shortenFilePath((f.file_path || '').replace(/[\\/][^\\/]*$/, ''));
+        return `<tr>
+            <td>${escapeHtml(f.file_type || model.civitai_type || 'Unknown')}</td>
+            <td title="${escapeHtml(f.file_path)}">${escapeHtml(f.file_name)}</td>
+            <td>${formatFileSize(f.file_size)}</td>
+            <td>${formatDate(f.file_modified)}</td>
+            <td title="${escapeHtml(f.file_path)}">${escapeHtml(folder)}</td>
+            <td>${f.send_uses ? '<span title="Send to txt2img uses this file">✓</span>' : ''}</td>
+            <td>${f.civitai_file_id ? escapeHtml(String(f.civitai_file_id)) : '—'}</td>
+            <td><button class="mm-btn danger mm-btn-small mm-file-delete" data-action="modelManager.deleteFile"
+                        data-index="${currentVersions.indexOf(f)}"
+                        title="Delete this file, and its metadata files">🗑</button></td>
+        </tr>`;
+    }).join('');
+    return `<div class="detail-section"><h4>Files (${files.length})</h4>
+                <table class="mm-files-table">
+                    <thead><tr><th>Type</th><th>Name</th><th>Size</th><th>Modified</th><th>Folder</th>
+                               <th>Send</th><th>File ID</th><th></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+}
+
+/** What the panel says of the shown version's files: its Files list, or the rows about its one file. */
+function updateFileFacts(version) {
+    const pathCell = document.querySelector('#mm_details .file-path-cell');
+    if (pathCell) pathCell.textContent = shortenFilePath(version.file_path);
+    document.querySelectorAll('#mm_details .mm-file-fact').forEach((row) => {
+        const label = row.querySelector('td:first-child')?.textContent;
+        const value = row.querySelector('td:last-child');
+        if (label === 'File Size') value.textContent = formatFileSize(version.file_size);
+        else if (label === 'Modified') value.textContent = formatDate(version.file_modified);
+    });
+    const filesSlot = document.querySelector('#mm_details .mm-files-slot');
+    if (filesSlot) filesSlot.innerHTML = renderFilesSection(version);
+    showFileFacts(version);
+}
+
+/**
+ * One file of a version of several, deleted: its row goes and nothing else
+ * changes - the version, its galleries, the card and the panel stay open.
+ * Shown, its sibling is shown instead; the grid's entry, if it named it,
+ * names the sibling, so the card's actions find a file there.
+ */
+function forgetFile(file) {
+    const model = currentModels[selectedModelIndex];
+    const sibling = currentVersions.find((f) => f !== file && sameVersion(f, file));
+    if (!model || !sibling) return false;
+    const shown = shownVersion(model);
+    currentVersions = currentVersions.filter((f) => f !== file);
+    if (model.file_path === file.file_path) {
+        for (const key of ['file_path', 'file_name', 'file_size', 'file_modified', 'file_extension', 'file_hashes',
+                           'file_type', 'identified_by', 'architecture']) model[key] = sibling[key];
+    }
+    if (currentVersions.length < 2) currentVersions = [];
+    const now = shown === file ? sibling : shown;
+    selectedVersionIndex = currentVersions.length ? currentVersions.indexOf(now) : 0;
+    if (shown === file) currentModelPath = sibling.file_path;
+    // The pills point into currentVersions by place: drawn again.
+    const selector = document.querySelector('#mm_details .mm-version-selector');
+    if (selector) selector.outerHTML = renderVersionSelector();
+    updateFileFacts(shownVersion(model));
+    return true;
+}
+
+/** The Information table's rows about one file, drawn for a version of one. */
+function showFileFacts(version) {
+    const single = versionFiles(version).length < 2;
+    document.querySelectorAll('#mm_details .mm-file-fact').forEach((row) => {
+        const display = single ? '' : 'none';
+        if (row.style.display !== display) row.style.display = display;
+    });
+}
+
 // Update version selector pills UI
 function updateVersionSelectorUI() {
     document.querySelectorAll('#mm_details .mm-version-pill').forEach((pill) => {
@@ -989,23 +1074,13 @@ function typeTitle(entry) {
 
 // Update version-specific info in details panel
 function updateVersionInfo(version) {
-    // Update file path
-    const pathCell = document.querySelector('.file-path-cell');
-    if (pathCell) {
-        pathCell.textContent = shortenFilePath(version.file_path);
-    }
+    updateFileFacts(version);
 
-    // Update file size, modified date, published date
+    // Update the published date
     document.querySelectorAll('.detail-table tr').forEach(row => {
         const label = row.querySelector('td:first-child');
         const value = row.querySelector('td:last-child');
-        if (!label || !value) return;
-
-        if (label.textContent === 'File Size') {
-            value.textContent = formatFileSize(version.file_size);
-        } else if (label.textContent === 'Modified') {
-            value.textContent = formatDate(version.file_modified);
-        } else if (label.textContent === 'Published' && version.published_at) {
+        if (label?.textContent === 'Published' && value && version.published_at) {
             value.textContent = formatDate(version.published_at);
         }
     });
@@ -1046,38 +1121,60 @@ function expandNsfwLevel(level) {
     return labels.length > 0 ? labels.join(', ') : 'Unknown';
 }
 
-// Shorten file path - remove everything before \models or /models
+/** A path as the page shows it: from Forge's own folder (shownPath). */
 function shortenFilePath(path) {
-    if (!path) return '';
-    const match = path.match(/[\\\/]models[\\\/].*/i);
-    return match ? match[0] : path;
+    return shownPath(path);
+}
+
+/** The model's files here: currentVersions, or the grid's entry when it has one. */
+function localFiles() {
+    return currentVersions.length ? currentVersions : [currentModels[selectedModelIndex] || {}];
+}
+
+/** Two files of one version: the same file, or two of one Civitai version (#133). */
+function sameVersion(a, b) {
+    return a.file_path === b.file_path || (a.id != null && a.id === b.id);
+}
+
+/** The files of the version `file` is of: an fp16 and an fp32, a .safetensors and a .pt. */
+function versionFiles(file) {
+    return localFiles().filter((f) => sameVersion(f, file));
+}
+
+/** How many versions these files are: a version's files count once. */
+function versionCount(files) {
+    return new Set(files.map((f) => f.id ?? f.file_path)).size;
 }
 
 /**
  * The version pills: every version Civitai lists, in Civitai's order, with
  * the local ones marked; then any local version it does not list. With no
- * list recorded, the local versions alone, as before there was one.
+ * list recorded, the local versions alone, as before there was one. One pill
+ * a version, however many files it has here.
  *
- * `local` is the version's index in currentVersions - or 0 for a model with
- * one local version, which is the grid's entry itself - and null for one not
- * in the library.
+ * `local` is the index in currentVersions of the version's first file - or 0
+ * for a model with one local file, which is the grid's entry itself - and
+ * null for one not in the library.
  */
 function versionPills() {
-    const model = currentModels[selectedModelIndex] || {};
-    const locals = currentVersions.length ? currentVersions : [model];
+    const locals = localFiles();
     const entries = civitaiVersions.map((version) => {
         const local = locals.findIndex((l) => l.id != null && l.id === version.id);
         return { id: version.id, local: local >= 0 ? local : null, version };
     });
     locals.forEach((l, i) => {
-        if (!entries.some((e) => e.local === i)) entries.push({ id: l.id, local: i, version: null });
+        if (!entries.some((e) => e.local !== null && sameVersion(locals[e.local], l))) {
+            entries.push({ id: l.id, local: i, version: null });
+        }
     });
     return entries;
 }
 
 function isShownPill(entry) {
     if (remoteVersionId !== null) return entry.local === null && entry.id === remoteVersionId;
-    return entry.local === (currentVersions.length ? selectedVersionIndex : 0);
+    const locals = localFiles();
+    const shown = locals[currentVersions.length ? selectedVersionIndex : 0];
+    return entry.local !== null && !!shown && sameVersion(locals[entry.local], shown);
 }
 
 /** "As Civitai listed them on ...": the list is only as fresh as the last sync. */
@@ -1095,8 +1192,7 @@ function renderVersionSelector() {
     pillEntries = versionPills();
     if (pillEntries.length <= 1) return '';
 
-    const model = currentModels[selectedModelIndex] || {};
-    const locals = currentVersions.length ? currentVersions : [model];
+    const locals = localFiles();
     const anyRemote = pillEntries.some((e) => e.local === null);
 
     const pills = pillEntries.map((entry, index) => {
@@ -1115,7 +1211,8 @@ function renderVersionSelector() {
         const versionName = version.version_name || `v${index + 1}`;
         const fileName = version.file_name ? version.file_name.replace(/\.(safetensors|sft|gguf|ckpt|pt|pth|bin)$/i, '') : '';
         const displayName = version.version_name ? versionName : fileName;
-        const tooltip = `${versionName}\n${version.file_name}\n${formatFileSize(version.file_size)}`;
+        const tooltip = [versionName, ...versionFiles(version).map((f) =>
+            `${f.file_name} (${formatFileSize(f.file_size)})`)].join('\n');
         // Only worth marking when some are not downloaded.
         const owned = anyRemote ? ' owned' : '';
 
@@ -1125,7 +1222,7 @@ function renderVersionSelector() {
     }).join('');
 
     const heading = anyRemote
-        ? `Versions (${pillEntries.length}, ${locals.length} downloaded)`
+        ? `Versions (${pillEntries.length}, ${versionCount(locals)} downloaded)`
         : `Local Versions (${pillEntries.length})`;
 
     return `
@@ -1223,14 +1320,16 @@ function renderDetailHeader(model, { deletable = true, versionId = null } = {}) 
         ? `<button class="${pin.cls}" data-action="${pin.action}"${dataAttributes(pin.data)} title="${escapeHtml(pin.title)}">${pin.text}</button>` : '';
 
     // Deleting sits with the other actions on the model, in the header. With
-    // several versions, the one shown and all of them are separate choices.
+    // several versions, the one shown and all of them are separate choices;
+    // one file of a version of several is deleted from its Files list.
     const deleteButton = (scope, label, title) =>
         `<button class="mm-btn danger mm-btn-small header-action" data-action="modelManager.deleteModel" data-scope="${scope}" title="${title}">${label}</button>`;
+    const versions = versionCount(localFiles());
     const deleteButtons = !deletable ? ''
-        : currentVersions.length > 1
+        : versions > 1
         ? deleteButton('version', 'Delete Current Model Version', 'Delete the version shown here, and its files')
-          + deleteButton('all', 'Delete All Model Versions', `Delete all ${currentVersions.length} versions of this model, and their files`)
-        : deleteButton('version', 'Delete Model', 'Delete this model, and its files');
+          + deleteButton('all', 'Delete All Model Versions', `Delete all ${versions} versions of this model, and their files`)
+        : deleteButton('all', 'Delete Model', 'Delete this model, and its files');
 
     return `
             <div class="detail-header">
@@ -1375,7 +1474,7 @@ async function versionDownloaded(dl) {
     currentVersions = (data.versions || []).length > 1 ? data.versions : [];
     civitaiVersions = data.civitai_versions || [];
     versionsSyncedAt = data.versions_synced_at || null;
-    model.local_version_count = (data.versions || []).length;
+    model.local_version_count = versionCount(data.versions || []);
 
     if (shown === dl.version_id) {
         const arrived = currentVersions.findIndex((v) => v.id === dl.version_id);
@@ -1400,6 +1499,12 @@ async function versionDownloaded(dl) {
     const selector = document.querySelector('#mm_details .mm-version-selector');
     const fresh = renderVersionSelector();
     if (selector) selector.outerHTML = fresh;
+    // A file of the version shown may have just arrived.
+    const filesSlot = document.querySelector('#mm_details .mm-files-slot');
+    if (filesSlot && remoteVersionId === null) {
+        filesSlot.innerHTML = renderFilesSection(shownVersion(model));
+        showFileFacts(shownVersion(model));
+    }
 }
 
 downloads().addPanel('mm');
@@ -1448,6 +1553,8 @@ function renderModelDetails(model, fullDetails = null) {
 
             ${versionSelectorHtml}
 
+            <div class="mm-files-slot">${renderFilesSection(shownVersion(model))}</div>
+
             <div class="detail-section">
                 <h4>Information</h4>
                 <table class="detail-table">
@@ -1459,8 +1566,8 @@ function renderModelDetails(model, fullDetails = null) {
                     <tr><td rowspan="3" class="nsfw-label-cell">NSFW Level</td><td>Model: ${expandNsfwLevel(model.civitai_model?.nsfw_level)}</td></tr>
                     <tr><td>Version: ${expandNsfwLevel(model.nsfw_level)}</td></tr>
                     <tr><td>Highest Image: ${expandNsfwLevel(model.max_image_nsfw)}</td></tr>
-                    <tr><td>File Size</td><td>${formatFileSize(model.file_size)}</td></tr>
-                    <tr><td>Modified</td><td>${formatDate(model.file_modified)}</td></tr>
+                    <tr class="mm-file-fact"><td>File Size</td><td>${formatFileSize(model.file_size)}</td></tr>
+                    <tr class="mm-file-fact"><td>Modified</td><td>${formatDate(model.file_modified)}</td></tr>
                     ${model.published_at ? `<tr><td>Published</td><td>${formatDate(model.published_at)}</td></tr>` : ''}
                     ${model.creator ? `<tr><td>Creator</td><td>${escapeHtml(model.creator)}</td></tr>` : ''}
                     ${model.rating > 0 ? `<tr><td>Rating</td><td>★ ${model.rating.toFixed(1)} (${formatNumber(model.download_count)} downloads)</td></tr>` : ''}
@@ -1469,7 +1576,7 @@ function renderModelDetails(model, fullDetails = null) {
                     <tr><td>Derivatives: ${model.civitai_model.allow_derivatives ? 'Yes' : 'No'}</td></tr>
                     <tr><td>Different License: ${model.civitai_model.allow_different_license ? 'Yes' : 'No'}</td></tr>
                     ` : ''}
-                    <tr><td>File</td><td class="file-path-cell">${escapeHtml(shortenFilePath(model.file_path))}</td></tr>
+                    <tr class="mm-file-fact"><td>File</td><td class="file-path-cell">${escapeHtml(shortenFilePath(model.file_path))}</td></tr>
                     <tr id="mm_images_count_row"><td>Images</td><td id="mm_images_count_cell">Loading...</td></tr>
                 </table>
             </div>
@@ -1479,6 +1586,7 @@ function renderModelDetails(model, fullDetails = null) {
             ${descriptionHtml}
         </div>
     `;
+    showFileFacts(shownVersion(model));
 
     container.style.display = 'block';
 }
@@ -1606,7 +1714,7 @@ async function forceSyncModel() {
         if (data.success) {
             const synced = data.synced_count || 0;
             const total = data.total_versions || 0;
-            setStatus(`Synced ${synced}/${total} versions successfully`);
+            setStatus(`Synced ${synced}/${total} files successfully`);
             // Reload the current model to show updated data
             if (selectedModelIndex >= 0) {
                 selectModel(selectedModelIndex);
@@ -1728,23 +1836,27 @@ async function toggleBookmark(modelId) {
     }
 }
 
-// Delete a model's files, and it from the library: the version shown, or
-// ('all') every version of it here. The version shown, not the grid card's -
-// deleting used to take the card's row, which after picking another version
-// in the details panel was a different file from the one on screen.
-async function deleteModel(scope = 'version') {
+// Delete a model's files, and them from the library: one file of a version
+// of several ('file', from its Files list), every file of the version shown
+// ('version'), or every file of the model here ('all'). The version shown,
+// not the grid card's - deleting used to take the card's row, which after
+// picking another version in the details panel was a different file from
+// the one on screen.
+async function deleteModel(scope = 'version', file = null) {
     const model = currentModels[selectedModelIndex];
     if (!model) return;
 
-    const all = scope === 'all' && currentVersions.length > 1;
-    const targets = all ? currentVersions.slice() : [shownVersion(model)];
+    const shown = file || shownVersion(model);
+    const targets = scope === 'all' ? localFiles().slice()
+        : scope === 'file' ? [shown] : versionFiles(shown);
+    const all = targets.length > 1;
+    const versions = versionCount(localFiles());
     const name = (v) => v.version_name || v.file_name || 'this version';
-    const what = all
-        ? `all ${targets.length} versions of "${model.display_name}":\n`
-          + targets.map((v) => `• ${name(v)} (${v.file_name})`).join('\n')
-        : currentVersions.length > 1
-            ? `version "${name(targets[0])}" of "${model.display_name}" (${targets[0].file_name})`
-            : `"${model.display_name}"`;
+    const listed = all ? ':\n' + targets.map((v) => `• ${name(v)} (${v.file_name})`).join('\n') : '';
+    const what = (scope === 'file' ? `the file ${shown.file_name} of "${model.display_name}"`
+        : scope === 'all' && versions > 1 ? `all ${versions} versions of "${model.display_name}"`
+        : versions > 1 ? `version "${name(shown)}" of "${model.display_name}"`
+        : `"${model.display_name}"`) + listed;
 
     const confirmed = confirm(
         `Are you sure you want to delete ${what}?\n\n` +
@@ -1756,7 +1868,7 @@ async function deleteModel(scope = 'version') {
     );
     if (!confirmed) return;
 
-    setStatus(all ? `Deleting ${targets.length} versions...` : 'Deleting model...');
+    setStatus(all ? `Deleting ${targets.length} files...` : 'Deleting model...');
     const failed = [];
     for (const version of targets) {
         try {
@@ -1773,7 +1885,12 @@ async function deleteModel(scope = 'version') {
         }
     }
 
-    const deletedName = currentVersions.length > 1 && !all ? ` (${name(targets[0])})` : '';
+    const deletedName = versions > 1 && scope !== 'all' ? ` (${name(shown)})` : '';
+    // One file of several: its row goes, and the rest stays as it is.
+    if (scope === 'file' && !failed.length && forgetFile(shown)) {
+        setStatus(`Deleted: ${shown.file_name}`);
+        return;
+    }
     // The grid reloads first: its own status line would otherwise replace
     // this one, and a failure would go unsaid.
     if (failed.length < targets.length) {
@@ -1783,7 +1900,7 @@ async function deleteModel(scope = 'version') {
     if (failed.length) {
         setStatus(`Delete failed for ${failed.join('; ')}`, true);
     } else {
-        setStatus(all ? `Deleted all ${targets.length} versions of ${model.display_name}`
+        setStatus(all ? `Deleted ${targets.length} files of ${model.display_name}${deletedName}`
                       : `Deleted: ${model.display_name}${deletedName}`);
     }
 }
@@ -2667,6 +2784,16 @@ function shownVersion(model) {
     return (currentVersions.length && currentVersions[selectedVersionIndex]) || model;
 }
 
+/**
+ * The file of `shown`'s version Send uses - the one its Files list marks
+ * (send_plan.send_files) - or `shown` for a version of one file, or of none
+ * Send uses: the galleries are the version's, whichever file is shown.
+ */
+function sentFile(shown) {
+    const files = versionFiles(shown);
+    return (files.length > 1 && files.find((f) => f.send_uses)) || shown;
+}
+
 async function sendToTxt2img(imageIndex) {
     const img = imageGallery.images[imageIndex];
     if (!img || !img.meta) {
@@ -2678,7 +2805,7 @@ async function sendToTxt2img(imageIndex) {
     rememberScrollPosition(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
 
     const model = currentModels[selectedModelIndex];
-    await sendGalleryImage({ img, model, version: model ? shownVersion(model) : null });
+    await sendGalleryImage({ img, model, version: model ? sentFile(shownVersion(model)) : null });
 }
 
 // Close details panel
@@ -2763,15 +2890,17 @@ provide('modelManager.showFile', showFile);
 
 /**
  * Show one version here, from another tab, by its id - this tab, its model,
- * and that version. What the Generations tab asks for: a path was passed
- * about before, and printed back as "path:F:\..." when nothing was found.
+ * and that version: the file `path` names, of a version with several, else
+ * its first. What the Generations tab asks for: a path was passed about
+ * before, and printed back as "path:F:\..." when nothing was found.
  */
-async function showVersion(versionId) {
+async function showVersion(versionId, path) {
     const id = Number(versionId);
     if (!id) return;
     await showModel(`version:${id}`);
-    const wanted = currentVersions.findIndex((v) => Number(v.id) === id);
-    if (wanted >= 0) await selectVersion(wanted);
+    const files = currentVersions.filter((v) => Number(v.id) === id);
+    const file = files.find((v) => path && (v.file_path || '').toLowerCase() === path.toLowerCase()) || files[0];
+    if (file) await selectVersion(currentVersions.indexOf(file));
 }
 provide('modelManager.showVersion', showVersion);
 
@@ -3315,6 +3444,10 @@ provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
 provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
 provide('modelManager.selectPill', ({ index }) => selectPill(Number(index)));
+provide('modelManager.deleteFile', ({ index }) => {
+    const file = currentVersions[Number(index)];
+    return file ? deleteModel('file', file) : undefined;
+});
 provide('modelManager.toggleBookmark', ({ modelId }) => toggleBookmark(safeId(modelId)));
 provide('modelManager.deleteModel', ({ scope }) => deleteModel(scope));
 provide('modelManager.syncModel', () => forceSyncModel());

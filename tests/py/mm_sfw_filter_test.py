@@ -74,7 +74,7 @@ def set_levels(version_id, *levels):
 
 def versions_of(model_id):
     with db._cursor() as cursor:
-        cursor.execute("SELECT id FROM model_versions WHERE model_id = ? ORDER BY id", (model_id,))
+        cursor.execute("SELECT id FROM versions WHERE model_id = ? ORDER BY id", (model_id,))
         return [row['id'] for row in cursor.fetchall()]
 
 
@@ -133,7 +133,8 @@ check('so the box only ever takes away', kept < everything, True)
 r = client.get('/model-manager/models', params={'sfw_only': 'true', 'paths_only': 'true'})
 paths = r.json().get('paths', [])
 with db._cursor() as cursor:
-    cursor.execute("SELECT file_path FROM model_versions WHERE model_id = ?", (racy,))
+    cursor.execute("SELECT f.file_path FROM files f "
+                   "JOIN versions cv ON cv.id = f.version_id WHERE cv.model_id = ?", (racy,))
     racy_paths = {row['file_path'] for row in cursor.fetchall()}
 check('a sync of "these results" leaves out what the grid left out',
       bool(racy_paths & set(paths)), False)

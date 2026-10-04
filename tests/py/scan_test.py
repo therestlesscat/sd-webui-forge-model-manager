@@ -307,9 +307,9 @@ if os.path.normcase('A') == os.path.normcase('a'):
     check('and the second meeting landed on it', db.get_version(spelt)['id'], 82001)
     with db._cursor() as cursor:
         plan = ' '.join(str(row[-1]) for row in cursor.execute(
-            "EXPLAIN QUERY PLAN SELECT file_path FROM model_versions WHERE file_path = ? COLLATE NOCASE",
+            "EXPLAIN QUERY PLAN SELECT file_path FROM files WHERE file_path = ? COLLATE NOCASE",
             (spelt,)).fetchall())
-    check('looked up through an index, not a scan of every row', 'idx_version_path_nocase' in plan, True)
+    check('looked up through an index, not a scan of every row', 'idx_files_path_nocase' in plan, True)
 
 # ------------------------------------------------- every folder a download uses
 # Downloads are filed into ESRGAN, ControlNet, Poses, Wildcards and more; the
@@ -347,6 +347,25 @@ _paths.models_path = ''
 scan.cancel()
 check('cancelling is remembered', scan._cancel_requested, True)
 check('and progress is readable', isinstance(scan.progress.to_dict(), dict), True)
+
+# ------------------------------------------------- what a path is shown from
+# The pages show a path from the folder Forge was given for it on the command
+# line, by its option, else from Forge's own folder (#133). Neo here is given
+# the original Forge's folders; its embeddings' default is inside it.
+import types                                              # noqa: E402
+from model_manager.model_dirs import shown_roots          # noqa: E402
+OTHER = os.path.join(WORK, 'other', 'webui')
+NEO = os.path.join(WORK, 'neo')
+given = types.SimpleNamespace(ckpt_dir=os.path.join(OTHER, 'models', 'Stable-diffusion'),
+                              lora_dir=os.path.join(OTHER, 'models', 'Lora'),
+                              lora_dirs=[os.path.join(OTHER, 'models', 'Lora', 'more')],
+                              embeddings_dir=os.path.join(NEO, 'embeddings'))
+check('each folder Forge was given, by its option, the longest first - an inner before its outer - then its own, unnamed',
+      shown_roots(given, NEO),
+      [('--ckpt-dir', os.path.abspath(os.path.join(OTHER, 'models', 'Stable-diffusion'))),
+       ('--lora-dirs', os.path.abspath(os.path.join(OTHER, 'models', 'Lora', 'more'))),
+       ('--lora-dir', os.path.abspath(os.path.join(OTHER, 'models', 'Lora'))),
+       ('', os.path.abspath(NEO))])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

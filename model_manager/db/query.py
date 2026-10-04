@@ -7,9 +7,9 @@ of it has to become a single grouped query, because the grid shows one card
 per Civitai model while the library stores one row per local file.
 
 The grouping is the reason this is not a simple SELECT. A model with four
-local versions is one card, and the card has to show the newest version, the
-least NSFW preview and a count - so the query picks a representative version
-per group rather than returning all four.
+local files is one card, and the card has to show the newest version, the
+least NSFW preview and how many versions it has - so the query picks a
+representative file per group rather than returning all four.
 
 Kept apart from models_ops.py because reading rows and composing a query out
 of user choices are different jobs; this one changes whenever the filter bar
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
 from .images_ops import GALLERY_ORDER
+from .library import LIBRARY
 
 # How many of a version's images "Only Show Models with SFW images" looks at - the same
 # sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
@@ -76,22 +77,35 @@ def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
 # share the date to the millisecond (Deep Negative's V1 75T and V1 64T), and
 # SQLite then returned either, so a card's cover could change between loads
 # (#25). Ties go as Civitai orders versions - the creator's order, `index` in
-# civitai_models.versions, whose first a model's page and card show - then by
+# models.versions, whose first a model's page and card show - then by
 # version id and file, so the choice is always the same. The index is read
 # from the JSON only for a version another of its model shares the date with
 # - no date at all included, which is a tie too - found through
-# idx_version_model_published: read for every version it cost
+# idx_cv_model_published: read for every version it cost
 # 13.6 ms a query, and counting ties with a window 25 ms, in a 1,161-version
-# library.
+# library. Two files of one version are told apart by their paths.
 SHOWN_ORDER = """fv.published_at DESC NULLS LAST,
-                             CASE WHEN EXISTS (SELECT 1 FROM model_versions tie
+                             CASE WHEN EXISTS (SELECT 1 FROM versions tie
                                                WHERE tie.model_id = fv.model_id
                                                AND tie.published_at IS fv.published_at AND tie.id <> fv.id)
                              THEN (SELECT COALESCE(json_extract(j.value, '$.index'), CAST(j.key AS INTEGER))
-                                   FROM civitai_models cm2, json_each(cm2.versions) j
+                                   FROM models cm2, json_each(cm2.versions) j
                                    WHERE cm2.id = fv.model_id AND json_extract(j.value, '$.id') = fv.id)
                              END ASC NULLS LAST,
                              fv.id DESC, fv.file_path"""
+
+
+# A card counts its versions, not its files: a version with an fp16 and an
+# fp32 file is one (#133) - and a file Civitai does not know, a version of
+# its own. SQLite has no COUNT(DISTINCT) over a window, so the matching files
+# are counted per card apart, from their ids alone, and joined: numbering
+# each version's files with a window sorted every matching row, model and
+# all, and took a 50-card page from 40 ms to 70.
+VERSION_COUNTS = """version_counts AS (
+            SELECT COALESCE(model_id, file_path) AS card,
+                   COUNT(DISTINCT COALESCE(id, file_path)) AS local_version_count
+            FROM filtered_versions GROUP BY 1
+        )"""
 
 
 @dataclass
@@ -384,13 +398,15 @@ def query_models_grouped(
                 m.updated_at as cm_updated_at,
                 (EXISTS (SELECT 1 FROM pins WHERE pins.model_id = v.model_id)
                  OR EXISTS (SELECT 1 FROM pins WHERE pins.file_path = v.file_path)) as file_pinned
-            FROM model_versions v
-            LEFT JOIN civitai_models m ON v.model_id = m.id
+            FROM {LIBRARY} v
+            LEFT JOIN models m ON v.model_id = m.id
             WHERE {where_clause}
         ),
+        {VERSION_COUNTS},
         ranked AS (
             SELECT
                 fv.*,
+                vc.local_version_count,
                 -- The card is pinned if its model is, or any file of it:
                 -- one pinned by its path before Civitai knew it still is.
                 MAX(fv.file_pinned) OVER (
@@ -400,9 +416,6 @@ def query_models_grouped(
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                     ORDER BY {SHOWN_ORDER}
                 ) as rn,
-                COUNT(*) OVER (
-                    PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                ) as local_version_count,
                 -- Newest acquisition across every version of this model.
                 -- The row shown for a group is its latest *published*
                 -- version, which is frequently not the one most recently
@@ -412,6 +425,7 @@ def query_models_grouped(
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                 ) as group_acquired_at
             FROM filtered_versions fv
+            JOIN version_counts vc ON vc.card = COALESCE(fv.model_id, fv.file_path)
         ),
         page AS (
             SELECT * FROM ranked WHERE {outer_where}
@@ -437,10 +451,11 @@ def query_models_grouped(
                 v.published_at,
                 (EXISTS (SELECT 1 FROM pins WHERE pins.model_id = v.model_id)
                  OR EXISTS (SELECT 1 FROM pins WHERE pins.file_path = v.file_path)) as file_pinned
-            FROM model_versions v
-            LEFT JOIN civitai_models m ON v.model_id = m.id
+            FROM {LIBRARY} v
+            LEFT JOIN models m ON v.model_id = m.id
             WHERE {where_clause}
         ),
+        {VERSION_COUNTS},
         ranked AS (
             SELECT
                 fv.id,          -- the outer filters may ask about the shown version
@@ -449,13 +464,12 @@ def query_models_grouped(
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                     ORDER BY {SHOWN_ORDER}
                 ) as rn,
-                COUNT(*) OVER (
-                    PARTITION BY COALESCE(fv.model_id, fv.file_path)
-                ) as local_version_count,
+                vc.local_version_count,
                 MAX(fv.file_pinned) OVER (
                     PARTITION BY COALESCE(fv.model_id, fv.file_path)
                 ) as is_pinned
             FROM filtered_versions fv
+            JOIN version_counts vc ON vc.card = COALESCE(fv.model_id, fv.file_path)
         )
         SELECT COUNT(*), COALESCE(SUM(is_pinned), 0) FROM ranked WHERE {count_where}
     """

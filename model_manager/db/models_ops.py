@@ -1,13 +1,14 @@
 """
 Internal module for model and version table operations.
 
-This module handles civitai_models and model_versions tables.
+This module handles the `models`, `versions` and `files` tables.
 Used by ModelsDatabase facade - do not import directly.
 """
 import os
 import json
 from datetime import datetime, timezone
 from ..hashing import hash_key, read_hashes
+from .library import LIBRARY
 from .query import GridQuery, query_models_grouped
 from ..nsfw import UNKNOWN
 from typing import Optional, List, Dict, Any, Set, Tuple, Callable, NamedTuple
@@ -24,7 +25,7 @@ def _stored_spelling(cursor, path: Optional[str]) -> Optional[str]:
     """The path as the library already spells this file, if it holds it; else the path."""
     if not path or not _CASE_BLIND:
         return path
-    row = cursor.execute("SELECT file_path FROM model_versions WHERE file_path = ? COLLATE NOCASE "
+    row = cursor.execute("SELECT file_path FROM files WHERE file_path = ? COLLATE NOCASE "
                          "ORDER BY file_path = ? DESC LIMIT 1", (path, path)).fetchone()
     return row[0] if row else path
 
@@ -83,11 +84,6 @@ def keep_unless(nothing: str) -> Callable[[str, str], str]:
     return rule
 
 
-def written_as(sql: str) -> Callable[[str, str], str]:
-    """A rule of its own, in SQL."""
-    return lambda table, column: sql
-
-
 class Column(NamedTuple):
     name: str
     update: Optional[Callable[[str, str], str]]
@@ -126,43 +122,21 @@ MODEL_COLUMNS_ELSEWHERE = {
     "versions_synced_at": "_store_versions(): when a sync wrote the list",
 }
 
-# A row is identified by its Civitai version id, and only by it (#131): a
-# stub sidecar another tool left - an error, a model id alone - once flagged a
-# row with none, tied it to a model, and kept it so, as the flag never comes
-# down. Without a version id, what the writer says now stands.
-_NO_VERSION_ID = "COALESCE(excluded.id, model_versions.id) IS NULL"
-
+# A version is one row, found by its Civitai id, and written only when the
+# writer has one (#131): a stub sidecar another tool left - an error, a model
+# id alone - once flagged a file with none, tied it to a model, and kept it so.
 VERSION_COLUMNS = (
-    Column("id", keep),
-    Column("model_id", written_as(
-        f"CASE WHEN {_NO_VERSION_ID} THEN excluded.model_id "
-        "ELSE COALESCE(excluded.model_id, model_versions.model_id) END")),
+    Column("id", KEY),
+    Column("model_id", keep),
     Column("version_name", keep),
     Column("base_model", keep),
     Column("published_at", keep),
     Column("created_at", keep),
-    # A file with no Civitai data comes in as PG, to be visible when new;
-    # that is no reading of the level.
-    Column("nsfw_level", written_as(
-        "CASE WHEN excluded.has_civitai_data = 0 THEN model_versions.nsfw_level "
-        f"ELSE COALESCE(NULLIF(excluded.nsfw_level, {UNKNOWN}), model_versions.nsfw_level) END")),
+    Column("nsfw_level", keep_unless(f"{UNKNOWN}")),
     Column("trained_words", keep_unless("'[]'")),
     Column("description", keep),
     Column("stats_download_count", keep_unless("0")),
     Column("stats_thumbs_up", keep_unless("0")),
-    Column("file_path", KEY),
-    Column("file_name", overwrite),
-    Column("file_size", overwrite),
-    Column("file_hashes", keep),
-    Column("file_modified", overwrite),
-    Column("file_extension", overwrite),
-    # Identified stays identified: a scan that finds no sidecar has not
-    # learned the file is unknown to Civitai. A row without a version id was
-    # never identified.
-    Column("has_civitai_data", written_as(
-        f"CASE WHEN {_NO_VERSION_ID} THEN 0 ELSE "
-        "MAX(excluded.has_civitai_data, COALESCE(model_versions.has_civitai_data, 0)) END")),
-    Column("scanned_at", overwrite),
     # NULL is "this source cannot say" (a stripped showcase has no reliable
     # cover); '' is "has none", and is kept.
     Column("cover_url", keep),
@@ -171,9 +145,32 @@ VERSION_COLUMNS = (
 # Written by flows of their own, which an upsert must not touch - the image
 # paging during a sync is written before the upsert runs.
 VERSION_COLUMNS_ELSEWHERE = {
-    "downloaded_at": "set_downloaded_at(): once, from the download",
     "next_images_cursor": "update_version_images_state(): image syncing",
     "images_sync_last_date": "update_version_images_state(): image syncing",
+}
+
+FILE_COLUMNS = (
+    Column("file_path", KEY),
+    # Identified stays identified: a scan that finds no sidecar has not
+    # learned the file is unknown to Civitai.
+    Column("version_id", keep),
+    Column("file_name", overwrite),
+    Column("file_size", overwrite),
+    Column("file_hashes", keep),
+    Column("file_modified", overwrite),
+    Column("file_extension", overwrite),
+    Column("scanned_at", overwrite),
+    # What Civitai's list says of the file (payload_rows.file_row): a source
+    # that cannot match it - a renamed file, a stripped sidecar - says nothing.
+    Column("civitai_file_id", keep),
+    Column("civitai_file_type", keep),
+    Column("fp", keep),
+    Column("size", keep),
+    Column("format", keep),
+    Column("civitai_primary", keep),
+)
+FILE_COLUMNS_ELSEWHERE = {
+    "downloaded_at": "set_downloaded_at(): once, from the download",
     "civitai_lookup_failed_at": "set_lookup_failed(): the sync, either side of the upsert",
     "architecture": "set_architecture(): what the file itself is (identity_store.py)",
     "architecture_class": "set_architecture()",
@@ -205,8 +202,9 @@ def _row(columns: Tuple[Column, ...], values: Dict[str, Any]) -> Tuple[Any, ...]
     return tuple(values[column.name] for column in columns)
 
 
-_MODEL_UPSERT = _upsert("civitai_models", MODEL_COLUMNS)
-_VERSION_UPSERT = _upsert("model_versions", VERSION_COLUMNS)
+_MODEL_UPSERT = _upsert("models", MODEL_COLUMNS)
+_VERSION_UPSERT = _upsert("versions", VERSION_COLUMNS)
+_FILE_UPSERT = _upsert("files", FILE_COLUMNS)
 
 
 # What the details panel shows of a version it does not hold, and what a
@@ -239,7 +237,7 @@ def _civitai_order(versions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 class ModelsOps:
     """
-    Operations for civitai_models and model_versions tables.
+    Operations for the `models`, `versions` and `files` tables.
 
     Receives a cursor factory from the parent facade.
     """
@@ -336,11 +334,11 @@ class ModelsOps:
             return False
         if from_civitai:
             cursor.execute(
-                "UPDATE civitai_models SET versions = ?, versions_synced_at = ? WHERE id = ?",
+                "UPDATE models SET versions = ?, versions_synced_at = ? WHERE id = ?",
                 (json.dumps(_civitai_order(incoming)), now, model_id))
             return cursor.rowcount > 0
 
-        cursor.execute("SELECT versions, versions_synced_at FROM civitai_models WHERE id = ?",
+        cursor.execute("SELECT versions, versions_synced_at FROM models WHERE id = ?",
                        (model_id,))
         row = cursor.fetchone()
         if row is None or row[1]:
@@ -354,7 +352,7 @@ class ModelsOps:
         if held:
             # The index of one sidecar says nothing about another's.
             merged = [{k: v for k, v in version.items() if k != "index"} for version in merged]
-        cursor.execute("UPDATE civitai_models SET versions = ? WHERE id = ?",
+        cursor.execute("UPDATE models SET versions = ? WHERE id = ?",
                        (json.dumps(_civitai_order(merged)), model_id))
         return True
 
@@ -364,7 +362,7 @@ class ModelsOps:
         (None, None) when nothing has recorded them yet.
         """
         with self._cursor() as cursor:
-            cursor.execute("SELECT versions, versions_synced_at FROM civitai_models WHERE id = ?",
+            cursor.execute("SELECT versions, versions_synced_at FROM models WHERE id = ?",
                            (model_id,))
             row = cursor.fetchone()
         if not row or not row[0]:
@@ -374,7 +372,7 @@ class ModelsOps:
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """Get a Civitai model by ID."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM civitai_models WHERE id = ?", (model_id,))
+            cursor.execute("SELECT * FROM models WHERE id = ?", (model_id,))
             row = cursor.fetchone()
             if row:
                 return self._civitai_model_row_to_dict(row)
@@ -384,7 +382,7 @@ class ModelsOps:
         """Set bookmark status for a model. Returns True if updated."""
         with self._cursor() as cursor:
             cursor.execute(
-                "UPDATE civitai_models SET is_bookmarked = ? WHERE id = ?",
+                "UPDATE models SET is_bookmarked = ? WHERE id = ?",
                 (1 if bookmarked else 0, model_id)
             )
             return cursor.rowcount > 0
@@ -403,7 +401,9 @@ class ModelsOps:
                 if model_id:
                     cursor.execute("""
                         DELETE FROM pins WHERE model_id = ?
-                           OR file_path IN (SELECT file_path FROM model_versions WHERE model_id = ?)
+                           OR file_path IN (SELECT f.file_path FROM files f
+                                            JOIN versions cv ON cv.id = f.version_id
+                                            WHERE cv.model_id = ?)
                     """, (model_id, model_id))
                 if file_path:
                     cursor.execute("DELETE FROM pins WHERE file_path = ?", (file_path,))
@@ -418,18 +418,19 @@ class ModelsOps:
 
     def upsert_version(self, version_data: Dict[str, Any]):
         """
-        Insert or update a model version record.
+        Insert or update a file, and the version it is of - a row of each, in
+        one transaction. A file with no Civitai version id writes no version.
 
-        Updates only the columns of VERSION_COLUMNS. INSERT OR REPLACE would
-        delete the existing row and insert a fresh one, silently resetting
-        every other column - downloaded_at, and the image pagination state -
-        so a scan or a re-sync would erase when a model was obtained and how
-        far its gallery had been fetched. VERSION_COLUMNS_ELSEWHERE names them,
-        and what writes each.
+        Updates only the columns of FILE_COLUMNS and VERSION_COLUMNS. INSERT
+        OR REPLACE would delete the existing row and insert a fresh one,
+        silently resetting every other column - downloaded_at, and the image
+        pagination state - so a scan or a re-sync would erase when a model was
+        obtained and how far its gallery had been fetched. The _ELSEWHERE
+        tables name them, and what writes each.
 
-        ADDING A COLUMN: an entry in VERSION_COLUMNS - how an update treats it
-        - and its value below, by name. upsert_columns_test.py fails on a
-        column of the table in neither list.
+        ADDING A COLUMN: an entry in FILE_COLUMNS or VERSION_COLUMNS - how an
+        update treats it - and its value below, by name.
+        upsert_columns_test.py fails on a column of a table in no list.
 
         The metadata columns keep what they hold when the incoming value says
         nothing - NULL, '[]', 0, or Unknown. A caller that knows a value has
@@ -438,6 +439,7 @@ class ModelsOps:
         sync reading whatever Civitai returned, and neither can tell an absent
         field from a cleared one.
         """
+        version_id = version_data.get("id")
         with self._cursor() as cursor:
             # The row the library already has for this file, however it is spelt.
             file_path = _stored_spelling(cursor, version_data.get("file_path"))
@@ -449,36 +451,43 @@ class ModelsOps:
             if isinstance(file_hashes, dict):
                 file_hashes = json.dumps(file_hashes)
 
-            cursor.execute(_VERSION_UPSERT, _row(VERSION_COLUMNS, {
-                "id": version_data.get("id"),
-                "model_id": version_data.get("model_id"),
-                "version_name": version_data.get("version_name"),
-                "base_model": version_data.get("base_model"),
-                "published_at": version_data.get("published_at"),
-                "created_at": version_data.get("created_at"),
-                "nsfw_level": version_data.get("nsfw_level", UNKNOWN),
-                "trained_words": json.dumps(version_data.get("trained_words", [])),
-                "description": version_data.get("description"),
-                "stats_download_count": version_data.get("stats_download_count", 0),
-                "stats_thumbs_up": version_data.get("stats_thumbs_up", 0),
+            if version_id is not None:
+                cursor.execute(_VERSION_UPSERT, _row(VERSION_COLUMNS, {
+                    "id": version_id,
+                    "model_id": version_data.get("model_id"),
+                    "version_name": version_data.get("version_name"),
+                    "base_model": version_data.get("base_model"),
+                    "published_at": version_data.get("published_at"),
+                    "created_at": version_data.get("created_at"),
+                    "nsfw_level": version_data.get("nsfw_level", UNKNOWN),
+                    "trained_words": json.dumps(version_data.get("trained_words", [])),
+                    "description": version_data.get("description"),
+                    "stats_download_count": version_data.get("stats_download_count", 0),
+                    "stats_thumbs_up": version_data.get("stats_thumbs_up", 0),
+                    "cover_url": version_data.get("cover_url"),
+                    "safe_cover_url": version_data.get("safe_cover_url"),
+                }))
+            cursor.execute(_FILE_UPSERT, _row(FILE_COLUMNS, {
                 "file_path": file_path,
+                "version_id": version_id,
                 "file_name": file_name,
                 "file_size": version_data.get("file_size"),
                 "file_hashes": file_hashes,
                 "file_modified": version_data.get("file_modified"),
                 "file_extension": version_data.get("file_extension"),
-                # A new row has no stored id: without its own, it is not
-                # identified (_NO_VERSION_ID).
-                "has_civitai_data": 1 if version_data.get("has_civitai_data") and version_data.get("id") else 0,
                 "scanned_at": datetime.now().isoformat(),
-                "cover_url": version_data.get("cover_url"),
-                "safe_cover_url": version_data.get("safe_cover_url"),
+                "civitai_file_id": version_data.get("civitai_file_id"),
+                "civitai_file_type": version_data.get("civitai_file_type"),
+                "fp": version_data.get("fp"),
+                "size": version_data.get("size"),
+                "format": version_data.get("format"),
+                "civitai_primary": _flag(version_data.get("civitai_primary")),
             }))
 
     def prune_orphans(self) -> Tuple[int, int]:
         """
-        Forget what only files that are gone kept: gallery images of
-        versions no longer on disk, and models none of whose files are.
+        Forget what only files that are gone kept: versions no longer on
+        disk and their gallery images, and models none of whose files are.
 
         A bookmarked model is kept: the bookmark is the person's, not
         Civitai's, and comes back with the model if it is downloaded again.
@@ -488,14 +497,17 @@ class ModelsOps:
         """
         with self._cursor() as cursor:
             cursor.execute("""
-                DELETE FROM images WHERE version_id NOT IN
-                    (SELECT id FROM model_versions WHERE id IS NOT NULL)
+                DELETE FROM versions WHERE id NOT IN
+                    (SELECT version_id FROM files WHERE version_id IS NOT NULL)
+            """)
+            cursor.execute("""
+                DELETE FROM images WHERE version_id NOT IN (SELECT id FROM versions)
             """)
             images = cursor.rowcount
             cursor.execute("""
-                DELETE FROM civitai_models
+                DELETE FROM models
                 WHERE COALESCE(is_bookmarked, 0) = 0
-                  AND id NOT IN (SELECT model_id FROM model_versions WHERE model_id IS NOT NULL)
+                  AND id NOT IN (SELECT model_id FROM versions WHERE model_id IS NOT NULL)
             """)
             return cursor.rowcount, images
 
@@ -512,13 +524,13 @@ class ModelsOps:
         """
         changed = 0
         with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM model_versions WHERE file_path IS NOT NULL")
+            cursor.execute("SELECT file_path FROM files WHERE file_path IS NOT NULL")
             stored = [row[0] for row in cursor.fetchall()]
             taken = set(stored)
             for path in stored:
                 clean = os.path.abspath(path)
                 if clean != path and clean not in taken:
-                    cursor.execute("UPDATE model_versions SET file_path = ? WHERE file_path = ?",
+                    cursor.execute("UPDATE files SET file_path = ? WHERE file_path = ?",
                                    (clean, path))
                     taken.add(clean)
                     changed += 1
@@ -531,7 +543,7 @@ class ModelsOps:
         """
         with self._cursor() as cursor:
             cursor.execute("SELECT file_path, file_type, identified_by, architecture_class, file_hashes "
-                           "FROM model_versions "
+                           "FROM files "
                            "WHERE file_type IS NOT NULL AND file_type <> 'Unknown' AND file_path IS NOT NULL")
             return [{"file_path": r["file_path"], "file_type": r["file_type"],
                      "identified_by": r["identified_by"], "architecture_class": r["architecture_class"],
@@ -557,8 +569,8 @@ class ModelsOps:
             old_path = _stored_spelling(cursor, old_path)
             there = _stored_spelling(cursor, new_path)
             if there != old_path:
-                cursor.execute("DELETE FROM model_versions WHERE file_path = ?", (there,))
-            cursor.execute("UPDATE model_versions SET file_path = ?, file_name = ? WHERE file_path = ?",
+                cursor.execute("DELETE FROM files WHERE file_path = ?", (there,))
+            cursor.execute("UPDATE files SET file_path = ?, file_name = ? WHERE file_path = ?",
                            (new_path, os.path.basename(new_path), old_path))
             for path in dict.fromkeys((old_path, there)):
                 if path == new_path:
@@ -569,34 +581,42 @@ class ModelsOps:
                     cursor.execute(f"DELETE FROM {table} WHERE file_path = ?", (path,))
 
     def delete_version(self, file_path: str):
-        """Delete a version record by file path."""
+        """Forget a file. Its version stays until prune_orphans(), with its gallery."""
         with self._cursor() as cursor:
-            cursor.execute("DELETE FROM model_versions WHERE file_path = ?", (_stored_spelling(cursor, file_path),))
+            cursor.execute("DELETE FROM files WHERE file_path = ?",
+                           (_stored_spelling(cursor, file_path),))
 
     def get_version(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get a version by file path."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE file_path = ?", (_stored_spelling(cursor, file_path),))
+            cursor.execute(f"SELECT * FROM {LIBRARY} WHERE file_path = ?", (_stored_spelling(cursor, file_path),))
             row = cursor.fetchone()
             if row:
                 return self._version_row_to_dict(row)
         return None
 
     def get_versions_for_model(self, model_id: int) -> List[Dict[str, Any]]:
-        """Get all local versions for a Civitai model, ordered by published_at desc."""
+        """
+        Every local file of a Civitai model, each with its version: newest
+        published first, a version's files together, in a fixed order.
+        """
         with self._cursor() as cursor:
-            cursor.execute("""
-                SELECT * FROM model_versions
+            cursor.execute(f"""
+                SELECT * FROM {LIBRARY}
                 WHERE model_id = ?
-                ORDER BY published_at DESC
+                ORDER BY published_at DESC, id DESC, file_path
             """, (model_id,))
             rows = cursor.fetchall()
             return [self._version_row_to_dict(row) for row in rows]
 
     def get_version_by_id(self, version_id: int) -> Optional[Dict[str, Any]]:
-        """Get a version by its Civitai version ID (the 'id' column)."""
+        """
+        A version the library has a file of, by its Civitai id: its first
+        file's row, in table order. None when no file of it is held.
+        """
         with self._cursor() as cursor:
-            cursor.execute("SELECT * FROM model_versions WHERE id = ?", (version_id,))
+            cursor.execute(f"SELECT * FROM {LIBRARY} WHERE id = ? ORDER BY file_order LIMIT 1",
+                           (version_id,))
             row = cursor.fetchone()
             if row:
                 return self._version_row_to_dict(row)
@@ -632,11 +652,10 @@ class ModelsOps:
                 into every window.
 
         Returns:
-            One dict per version, each with its stored hashes, when it was
-            downloaded, and when its model was last refreshed (None if never).
+            One dict per file, each with its version id, its stored hashes,
+            when it was downloaded, and when its model was last refreshed
+            (None if never). A version with two files is in it twice.
         """
-        # A model id without a version id is no identification (#131): the
-        # refresh would file the file as the model's newest version.
         where = "v.id IS NOT NULL AND v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
         params: List[Any] = []
         if synced_before:
@@ -648,12 +667,12 @@ class ModelsOps:
             params.append(downloaded_after)
 
         with self._cursor() as cursor:
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT v.id, v.model_id, v.file_path, v.file_hashes,
                        v.downloaded_at,
                        m.civitai_synced_at AS model_synced_at
-                FROM model_versions v
-                LEFT JOIN civitai_models m ON m.id = v.model_id
+                FROM {LIBRARY} v
+                LEFT JOIN models m ON m.id = v.model_id
                 WHERE %s
             """ % where, params)
             return [
@@ -688,19 +707,18 @@ class ModelsOps:
 
         now = datetime.now().isoformat()
         with self._cursor() as cursor:
-            before = cursor.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
+            before = cursor.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             cursor.executemany("""
-                INSERT INTO model_versions (
-                    file_path, file_name, file_extension, file_size, file_modified,
-                    has_civitai_data, nsfw_level, scanned_at
-                ) VALUES (?, ?, ?, ?, ?, 0, 1, ?)
+                INSERT INTO files (
+                    file_path, file_name, file_extension, file_size, file_modified, scanned_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(file_path) DO NOTHING
             """, [
                 (_stored_spelling(cursor, r.get("file_path")), r.get("file_name"), r.get("file_extension"),
                  r.get("file_size"), r.get("file_modified"), now)
                 for r in rows if r.get("file_path")
             ])
-            after = cursor.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
+            after = cursor.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             return after - before
 
     def set_checkpoint_types(self, types: Dict[int, str]) -> int:
@@ -721,7 +739,7 @@ class ModelsOps:
             return 0
         with self._cursor() as cursor:
             cursor.executemany(
-                "UPDATE civitai_models SET checkpoint_type = ? WHERE id = ?",
+                "UPDATE models SET checkpoint_type = ? WHERE id = ?",
                 [(value, model_id) for model_id, value in types.items()]
             )
             return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else len(types)
@@ -731,9 +749,10 @@ class ModelsOps:
         with self._cursor() as cursor:
             cursor.execute("""
                 SELECT DISTINCT m.id
-                FROM civitai_models m
-                JOIN model_versions v ON v.model_id = m.id
-                WHERE m.type = 'Checkpoint' AND v.file_path IS NOT NULL
+                FROM models m
+                JOIN versions cv ON cv.model_id = m.id
+                JOIN files f ON f.version_id = cv.id
+                WHERE m.type = 'Checkpoint'
             """)
             return [row["id"] for row in cursor.fetchall()]
 
@@ -750,11 +769,11 @@ class ModelsOps:
             cursor.execute("""
                 SELECT
                     COUNT(*) AS total,
-                    SUM(CASE WHEN has_civitai_data = 1 THEN 1 ELSE 0 END) AS identified,
-                    SUM(CASE WHEN COALESCE(has_civitai_data, 0) = 0
+                    SUM(CASE WHEN version_id IS NOT NULL THEN 1 ELSE 0 END) AS identified,
+                    SUM(CASE WHEN version_id IS NULL
                               AND civitai_lookup_failed_at IS NOT NULL
                              THEN 1 ELSE 0 END) AS asked_not_found
-                FROM model_versions
+                FROM files
                 WHERE file_path IS NOT NULL
             """)
             row = cursor.fetchone()
@@ -849,9 +868,9 @@ class ModelsOps:
     @staticmethod
     def _hashed_files(cursor) -> List[Tuple[str, Optional[int], Dict[str, str]]]:
         """(file path, version id, {kind: hash}) for every file with stored hashes."""
-        cursor.execute("SELECT file_path, id, file_hashes FROM model_versions "
+        cursor.execute("SELECT file_path, version_id, file_hashes FROM files "
                        "WHERE file_path IS NOT NULL AND file_hashes IS NOT NULL ORDER BY rowid")
-        return [(row["file_path"], row["id"], read_hashes(row["file_hashes"]))
+        return [(row["file_path"], row["version_id"], read_hashes(row["file_hashes"]))
                 for row in cursor.fetchall()]
 
     @staticmethod
@@ -861,9 +880,10 @@ class ModelsOps:
         found = []
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
-            cursor.execute("SELECT rowid, id, file_path FROM model_versions WHERE file_path IS NOT NULL"
-                           " AND id IN (%s)" % ",".join("?" * len(chunk)), chunk)
-            found += [(row[0], row["id"], row["file_path"]) for row in cursor.fetchall()]
+            cursor.execute("SELECT rowid, version_id, file_path FROM files"
+                           " WHERE file_path IS NOT NULL AND version_id IN (%s)" % ",".join("?" * len(chunk)),
+                           chunk)
+            found += [(row[0], row["version_id"], row["file_path"]) for row in cursor.fetchall()]
         return [(version_id, path) for _, version_id, path in sorted(found)]
 
     def _whole_rows(self, cursor, paths) -> Dict[str, Dict[str, Any]]:
@@ -872,7 +892,7 @@ class ModelsOps:
         found = {}
         for start in range(0, len(paths), 500):
             chunk = paths[start:start + 500]
-            cursor.execute("SELECT * FROM model_versions WHERE file_path IN (%s)"
+            cursor.execute(f"SELECT * FROM {LIBRARY} WHERE file_path IN (%s)"
                            % ",".join("?" * len(chunk)), chunk)
             for row in cursor.fetchall():
                 found[row["file_path"]] = self._version_row_to_dict(row)
@@ -899,10 +919,10 @@ class ModelsOps:
             if not named:
                 return {}
             paths = list(dict.fromkeys(named.values()))
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT v.file_path, v.id, v.model_id, v.version_name, m.name, m.type
-                FROM model_versions v
-                LEFT JOIN civitai_models m ON m.id = v.model_id
+                FROM {LIBRARY} v
+                LEFT JOIN models m ON m.id = v.model_id
                 WHERE v.file_path IN (%s)
             """ % ",".join("?" * len(paths)), paths)
             rows = {row["file_path"]: row for row in cursor.fetchall()}
@@ -978,7 +998,7 @@ class ModelsOps:
                 if not ids:
                     continue
                 cursor.execute(
-                    f"SELECT DISTINCT model_id, id FROM model_versions "
+                    f"SELECT DISTINCT model_id, id FROM {LIBRARY} "
                     f"WHERE {column} IN ({','.join('?' * len(ids))})", list(ids))
                 for row in cursor.fetchall():
                     owned_models.add(row["model_id"])
@@ -996,7 +1016,7 @@ class ModelsOps:
         if not wanted:
             return {}
         with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM model_versions WHERE file_path IS NOT NULL ORDER BY rowid")
+            cursor.execute("SELECT file_path FROM files WHERE file_path IS NOT NULL ORDER BY rowid")
             named: Dict[str, List[str]] = {}
             for row in cursor.fetchall():
                 stem = os.path.splitext(os.path.basename(row["file_path"]))[0].lower()
@@ -1018,7 +1038,7 @@ class ModelsOps:
             named: Dict[str, List[str]] = {}
             for start in range(0, len(wanted), 500):
                 chunk = wanted[start:start + 500]
-                cursor.execute("SELECT file_path, lora_alias FROM model_versions WHERE lora_alias IN (%s) "
+                cursor.execute("SELECT file_path, lora_alias FROM files WHERE lora_alias IN (%s) "
                                "AND file_path IS NOT NULL ORDER BY rowid" % ",".join("?" * len(chunk)), chunk)
                 for row in cursor.fetchall():
                     named.setdefault(row["lora_alias"], []).append(row["file_path"])
@@ -1028,16 +1048,16 @@ class ModelsOps:
     def get_all_version_paths(self) -> List[str]:
         """Get all version file paths in the database."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM model_versions")
+            cursor.execute("SELECT file_path FROM files")
             return [row[0] for row in cursor.fetchall()]
 
     def get_distinct_values(self, column: str) -> List[str]:
         """Get distinct values for a column (for filter dropdowns)."""
         column_mapping = {
-            "model_type": ("civitai_models", "type"),
-            "type": ("civitai_models", "type"),
-            "base_model": ("model_versions", "base_model"),
-            "creator": ("civitai_models", "creator_username"),
+            "model_type": ("models", "type"),
+            "type": ("models", "type"),
+            "base_model": (LIBRARY, "base_model"),
+            "creator": ("models", "creator_username"),
         }
 
         if column not in column_mapping:
@@ -1056,13 +1076,13 @@ class ModelsOps:
     def get_stats(self) -> Dict[str, Any]:
         """Get database statistics."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM model_versions")
+            cursor.execute("SELECT COUNT(*) FROM files")
             total_versions = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM model_versions WHERE has_civitai_data = 1")
+            cursor.execute("SELECT COUNT(*) FROM files WHERE version_id IS NOT NULL")
             with_civitai = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM civitai_models")
+            cursor.execute("SELECT COUNT(*) FROM models")
             total_models = cursor.fetchone()[0]
 
         return {
@@ -1075,7 +1095,7 @@ class ModelsOps:
     # ==================== Row Converters ====================
 
     def _civitai_model_row_to_dict(self, row) -> Dict[str, Any]:
-        """Convert a civitai_models row to a dictionary."""
+        """Convert a models row to a dictionary."""
         return {
             "id": row["id"],
             "name": row["name"],
@@ -1101,7 +1121,7 @@ class ModelsOps:
         }
 
     def _version_row_to_dict(self, row) -> Dict[str, Any]:
-        """Convert a model_versions row to a dictionary."""
+        """Convert a LIBRARY row - a file with its version - to a dictionary."""
         return {
             "id": row["id"],
             "model_id": row["model_id"],
@@ -1134,4 +1154,10 @@ class ModelsOps:
             "file_type": row["file_type"] if "file_type" in row.keys() else None,
             "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
             "lora_alias": row["lora_alias"] if "lora_alias" in row.keys() else None,
+            "civitai_file_id": row["civitai_file_id"],
+            "civitai_file_type": row["civitai_file_type"],
+            "fp": row["fp"],
+            "size": row["size"],
+            "format": row["format"],
+            "civitai_primary": None if row["civitai_primary"] is None else bool(row["civitai_primary"]),
         }

@@ -35,8 +35,8 @@ DB = facts['db_path']
 from model_manager.db import ModelsDatabase, SCHEMA_VERSION
 
 raw = sqlite3.connect(DB)
-before_cols = {r[1] for r in raw.execute('PRAGMA table_info(model_versions)')}
-before_rows = raw.execute('SELECT COUNT(*) FROM model_versions').fetchone()[0]
+before_cols = {r[1] for r in raw.execute('PRAGMA table_info(files)')}
+before_rows = raw.execute('SELECT COUNT(*) FROM files').fetchone()[0]
 # The source database may already be migrated; what matters is the end state
 # and that re-running is harmless, both checked below.
 print('source database already has the column:', 'civitai_lookup_failed_at' in before_cols)
@@ -45,13 +45,13 @@ raw.close()
 # already open, from the fixture
 
 raw = sqlite3.connect(DB)
-cols = {r[1] for r in raw.execute('PRAGMA table_info(model_versions)')}
+cols = {r[1] for r in raw.execute('PRAGMA table_info(files)')}
 check('schema version bumped',
       raw.execute("SELECT value FROM schema_info WHERE key='version'").fetchone()[0], str(SCHEMA_VERSION))
 check('column added', 'civitai_lookup_failed_at' in cols)
-check('rows preserved', raw.execute('SELECT COUNT(*) FROM model_versions').fetchone()[0], before_rows)
+check('rows preserved', raw.execute('SELECT COUNT(*) FROM files').fetchone()[0], before_rows)
 check('index created',
-      any('idx_version_lookup_failed' == r[1] for r in raw.execute("PRAGMA index_list(model_versions)")))
+      any('idx_files_lookup_failed' == r[1] for r in raw.execute("PRAGMA index_list(files)")))
 # The column starts empty when it is first added, but this library has been
 # recording failures for a while, so what matters is that they are readable
 # and that reopening does not disturb them.
@@ -138,7 +138,7 @@ check('recorded before returning not_found',
 
 # --- what this saves on the real library ------------------------------------
 n, nbytes = raw.execute(
-    'SELECT COUNT(*), COALESCE(SUM(file_size),0) FROM model_versions WHERE model_id IS NULL'
+    'SELECT COUNT(*), COALESCE(SUM(file_size),0) FROM files WHERE version_id IS NULL'
 ).fetchone()
 print('  once marked, a plain sync stops re-reading %d files, %.1f GB' % (n, nbytes / 1073741824))
 check('there is something worth saving', nbytes > 0)

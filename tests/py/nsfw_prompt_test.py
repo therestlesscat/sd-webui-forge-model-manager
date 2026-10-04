@@ -113,18 +113,20 @@ check('so a gallery with NSFW hidden leaves it out',
 # The words change: "snib" is added. Its image was stored as PG.
 prompt_levels.bring_up_to_date(db)            # the current words, recorded
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET safe_cover_url = ? WHERE file_path = ?",
+    cursor.execute("UPDATE versions SET safe_cover_url = ? WHERE id = "
+                   "(SELECT version_id FROM files WHERE file_path = ?)",
                    ('https://example.invalid/snib.jpeg', path))
 opts.model_manager_nsfw_prompt_words = 'snib'
 changed = prompt_levels.bring_up_to_date(db)
 check('a change of words restamps what is stored', (changed >= 1, stored(9101)), (True, nsfw.X))
 with db._cursor() as cursor:
-    cursor.execute("SELECT safe_cover_url FROM model_versions WHERE file_path = ?", (path,))
+    cursor.execute("SELECT safe_cover_url FROM versions WHERE id = "
+                   "(SELECT version_id FROM files WHERE file_path = ?)", (path,))
     check('a safe cover no longer safe is cleared', cursor.fetchone()[0], '')
 # The card shows its model's newest version: this one, made so - the fixture's
 # two share a date, which a tie decides (grid_query_test.py).
 with db._cursor() as cursor:
-    cursor.execute("UPDATE model_versions SET published_at = '2026-06-01T00:00:00Z' WHERE id = ?", (version,))
+    cursor.execute("UPDATE versions SET published_at = '2026-06-01T00:00:00Z' WHERE id = ?", (version,))
 rows, _ = db.query_models_grouped(GridQuery(limit=500))
 preview = next(r for r in rows if r['id'] == version)['preview_url']
 check('and the grid shows the version\'s first image still safe', preview,

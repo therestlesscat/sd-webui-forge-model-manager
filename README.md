@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.46 - One version, its files under it.** A Civitai version is one version in the
+library, however many of its files you have - an fp16 and an fp32, a `.safetensors` and a
+`.pt`. A model's details show it as one pill, with a list of its files and which one Send
+uses; its card counts it once, and a sync fetches its gallery once.
+
 **0.45 - I'm feeling lucky.** The Civitai Browser can show you what you would never have
 searched for: tick "I'm feeling lucky" and Search becomes Draw - a page of models picked at
 random from all of Civitai, every model your filters allow as likely as any other. Type,

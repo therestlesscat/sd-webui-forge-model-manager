@@ -109,7 +109,7 @@ db.set_checkpoint_types({})          # a no-op, and proof that it is one
 spare = [i for i in ids if i != facts['unclassified_checkpoint_id']][0]
 import sqlite3 as _s
 _raw = _s.connect(DB)
-_raw.execute('UPDATE civitai_models SET checkpoint_type = NULL WHERE id = ?', (spare,))
+_raw.execute('UPDATE models SET checkpoint_type = NULL WHERE id = ?', (spare,))
 _raw.commit(); _raw.close()
 
 blank = [i for i in ids if not (db.get_civitai_model(i) or {}).get('checkpoint_type')]
