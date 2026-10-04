@@ -15,7 +15,7 @@ from .db import get_models_db
 from .file_identity import identify
 from .identity_store import needs_check, store_architecture
 from .hashing import read_hashes
-from .model_dirs import file_modified, filed_as, forget_gone, library_dirs, proper_place, relocate
+from .model_dirs import file_modified, find_model_files, forget_gone, library_dirs, move_misplaced_files
 from .payload_rows import file_row, model_row, version_row
 from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
@@ -28,30 +28,6 @@ def _names_a_version(payload: Optional[Dict[str, Any]]) -> bool:
     """Whether a sidecar, in the model format, names a version by its id."""
     versions = (payload or {}).get("modelVersions") or []
     return any(isinstance(v, dict) and v.get("id") for v in versions)
-
-
-def misplaced_files(db) -> List[Dict[str, Any]]:
-    """
-    Every file in the library sitting in a folder for another type - a VAE
-    in Stable-diffusion, where Forge offers it as a checkpoint - with where
-    it belongs, what its header says and what said so, and whether a file
-    of its name is already there: "same" (the library holds both, with one
-    SHA-256), "different" (two SHA-256s), or "exists" (a file it cannot
-    compare). Files whose type is Unknown are never among them.
-    """
-    found = []
-    for row in db.files_with_types():
-        to = proper_place(row["file_path"], filed_as(row["file_type"], row["architecture_class"]))
-        if not to:
-            continue
-        clash = None
-        if os.path.exists(to):
-            mine = read_hashes(row["file_hashes"]).get("sha256", "")
-            theirs = read_hashes((db.get_version(to) or {}).get("file_hashes")).get("sha256", "")
-            clash = ("same" if mine == theirs else "different") if mine and theirs else "exists"
-        found.append({"path": row["file_path"], "to": to, "file_type": row["file_type"],
-                      "identified_by": row["identified_by"], "clash": clash})
-    return found
 
 
 @dataclass
@@ -89,31 +65,10 @@ class ScanService:
     Service for scanning models and populating the database.
     """
 
-    # Model file extensions
-    # .gguf: quantized models Forge loads directly (Flux, Wan, Z-Image...),
-    # which were never indexed. .sft: safetensors under a short name.
-    MODEL_EXTENSIONS = {".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin"}
-
     def __init__(self):
         self._cancel_requested = False
         self._progress = ScanProgress()
         self._progress_lock = threading.Lock()
-
-    def find_model_files(self, directories: List[str]) -> List[str]:
-        """Find all model files in the given directories."""
-        model_files = []
-
-        for directory in directories:
-            if not os.path.isdir(directory):
-                continue
-
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in self.MODEL_EXTENSIONS:
-                        model_files.append(os.path.join(root, file))
-
-        return model_files
 
     def extract_metadata(self, model_path: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -292,7 +247,7 @@ class ScanService:
 
         # Find all model files
         print(f"[ModelManager] Scanning directories: {directories}")
-        model_files = self.find_model_files(directories)
+        model_files = find_model_files(directories)
 
         self._progress = ScanProgress(total=len(model_files))
         print(f"[ModelManager] Found {len(model_files)} model files")
@@ -375,7 +330,10 @@ class ScanService:
         # unasked, never over a file, and with their row, pin and
         # generations. Before the diff, which then finds them where they are.
         if move_misplaced and not self._cancel_requested:
-            self._move_misplaced(db)
+            moves = move_misplaced_files(db)
+            self._progress.moved += moves.moved
+            self._progress.not_moved.extend(moves.not_moved)
+            self._progress.errors.extend(moves.errors)
 
         # Forget files that are gone from disk - and only those. It used to
         # forget every file this pass had not stored, so a cancelled scan
@@ -406,34 +364,6 @@ class ScanService:
               f"{stats['total_civitai_models']} unique models)")
 
         return self._progress
-
-    def _move_misplaced(self, db) -> None:
-        for item in misplaced_files(db):
-            path, to = item["path"], item["to"]
-            relocated = False
-            try:
-                if item["clash"] or not relocate(path, to):
-                    self._progress.not_moved.append(path)
-                    print(f"[ModelManager] Not moved: {path} - {to} is already there")
-                    continue
-                relocated = True
-                db.move_version(path, to)
-                self._progress.moved += 1
-                print(f"[ModelManager] Moved, as a {item['file_type']}: {path} -> {to}")
-            except Exception as e:
-                problem = str(e)
-                # The file moved first, and its row could not follow - the
-                # database locked by the other WebUI sharing it. Where no row
-                # names it, the next scan would forget its row, pin and
-                # generations, and take it for a new file. So it goes back.
-                if relocated:
-                    try:
-                        if not relocate(to, path):
-                            problem += f"; left at {to}"
-                    except OSError as back:
-                        problem += f"; left at {to}: {back}"
-                self._progress.errors.append(f"{os.path.basename(path)}: could not move it: {problem}")
-                print(f"[ModelManager] Could not move {path}: {problem}")
 
     def _get_model_directories(self) -> List[str]:
         """Every folder the library walks - see model_dirs."""

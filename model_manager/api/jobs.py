@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..jobs import jobs
-from ..scan_service import ScanService, misplaced_files
+from ..model_dirs import misplaced_files
+from ..scan_service import ScanService
 from ..sync_estimates import (estimate_metadata_sync, gallery_refresh_options, sync_window_counts,
                               window_cutoff)
 from ..sync_service import SyncService

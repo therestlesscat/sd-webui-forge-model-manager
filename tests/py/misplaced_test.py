@@ -29,8 +29,8 @@ from model_manager import model_dirs                     # noqa: E402
 from model_manager.architecture import Architecture     # noqa: E402
 from model_manager.hashing import read_hashes           # noqa: E402
 from model_manager.identity_store import store_architecture  # noqa: E402
-from model_manager.model_dirs import file_modified      # noqa: E402
-from model_manager.scan_service import ScanService, misplaced_files  # noqa: E402
+from model_manager.model_dirs import file_modified, misplaced_files  # noqa: E402
+from model_manager.scan_service import ScanService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'misplaced')
 

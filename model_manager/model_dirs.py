@@ -11,9 +11,10 @@ Every folder a download can write to is one the library walks.
 import os
 import shutil
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from .forge_host import model_folders, webui_root
+from .hashing import read_hashes
 
 
 class Folder:
@@ -153,6 +154,24 @@ def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
     return result
 
 
+# .gguf: quantized models Forge loads directly (Flux, Wan, Z-Image...),
+# which were never indexed. .sft: safetensors under a short name.
+MODEL_EXTENSIONS = {".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".bin"}
+
+
+def find_model_files(directories: List[str]) -> List[str]:
+    """Every model file under these folders. A folder that is not there gives none."""
+    model_files = []
+    for directory in directories:
+        if not os.path.isdir(directory):
+            continue
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if os.path.splitext(file)[1].lower() in MODEL_EXTENSIONS:
+                    model_files.append(os.path.join(root, file))
+    return model_files
+
+
 def _roots(cmd_opts, models_path):
     """Every folder of each kind, as (kind, absolute path), longest first."""
     roots = []
@@ -258,6 +277,74 @@ def relocate(path: str, to: str) -> bool:
     for source, destination in moves:
         shutil.move(source, destination)   # a rename, or a copy across drives
     return True
+
+
+def misplaced_files(db) -> List[Dict[str, Any]]:
+    """
+    Every file in the library sitting in a folder for another type - a VAE
+    in Stable-diffusion, where Forge offers it as a checkpoint - with where
+    it belongs, what its header says and what said so, and whether a file
+    of its name is already there: "same" (the library holds both, with one
+    SHA-256), "different" (two SHA-256s), or "exists" (a file it cannot
+    compare). Files whose type is Unknown are never among them.
+    """
+    found = []
+    for row in db.files_with_types():
+        to = proper_place(row["file_path"], filed_as(row["file_type"], row["architecture_class"]))
+        if not to:
+            continue
+        clash = None
+        if os.path.exists(to):
+            mine = read_hashes(row["file_hashes"]).get("sha256", "")
+            theirs = read_hashes((db.get_version(to) or {}).get("file_hashes")).get("sha256", "")
+            clash = ("same" if mine == theirs else "different") if mine and theirs else "exists"
+        found.append({"path": row["file_path"], "to": to, "file_type": row["file_type"],
+                      "identified_by": row["identified_by"], "clash": clash})
+    return found
+
+
+class Moves(NamedTuple):
+    """What move_misplaced_files() did."""
+    moved: int
+    # Left where they are, though another type's: something of that name is
+    # already in their own folder.
+    not_moved: List[str]
+    errors: List[str]
+
+
+def move_misplaced_files(db) -> Moves:
+    """
+    Move each of misplaced_files() into its own folder, with its row, pin
+    and generations: never over a file. Only ever asked for by its own box.
+    """
+    moved, not_moved, errors = 0, [], []
+    for item in misplaced_files(db):
+        path, to = item["path"], item["to"]
+        relocated = False
+        try:
+            if item["clash"] or not relocate(path, to):
+                not_moved.append(path)
+                print(f"[ModelManager] Not moved: {path} - {to} is already there")
+                continue
+            relocated = True
+            db.move_version(path, to)
+            moved += 1
+            print(f"[ModelManager] Moved, as a {item['file_type']}: {path} -> {to}")
+        except Exception as e:
+            problem = str(e)
+            # The file moved first, and its row could not follow - the
+            # database locked by the other WebUI sharing it. Where no row
+            # names it, the next walk would forget its row, pin and
+            # generations, and take it for a new file. So it goes back.
+            if relocated:
+                try:
+                    if not relocate(to, path):
+                        problem += f"; left at {to}"
+                except OSError as back:
+                    problem += f"; left at {to}: {back}"
+            errors.append(f"{os.path.basename(path)}: could not move it: {problem}")
+            print(f"[ModelManager] Could not move {path}: {problem}")
+    return Moves(moved, not_moved, errors)
 
 
 def file_modified(path: str) -> Optional[str]:

@@ -35,7 +35,7 @@ import model_manager.architecture as arch                # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.identity_store as store             # noqa: E402
 import model_manager.scan_service as scan_module         # noqa: E402
-from model_manager.model_dirs import file_modified       # noqa: E402
+from model_manager.model_dirs import file_modified, find_model_files  # noqa: E402
 import model_manager.sync_service as sync_module         # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'architecture')
@@ -181,8 +181,8 @@ finally:
 # GGUF checkpoints (quantized Flux, Wan, Z-Image) were never indexed at all.
 for name in ('quantized_flux.gguf', 'ae_short_name.sft'):
     open(os.path.join(facts['models_dir'], 'Stable-diffusion', name), 'wb').write(b'\0' * 64)
-indexed = {os.path.basename(p) for p in scan_module.ScanService().find_model_files([facts['models_dir']])}
-check('Scan Disk indexes .gguf and .sft files', {'quantized_flux.gguf', 'ae_short_name.sft'} <= indexed)
+indexed = {os.path.basename(p) for p in find_model_files([facts['models_dir']])}
+check('the walk finds .gguf and .sft files', {'quantized_flux.gguf', 'ae_short_name.sft'} <= indexed)
 
 scanned = []
 real_scan_detect = scan_module.identify

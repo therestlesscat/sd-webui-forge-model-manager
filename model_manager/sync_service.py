@@ -18,7 +18,7 @@ from .civitai import (
     keep_generation_data,
 )
 from .hashing import HashResult, ModelHasher
-from .model_dirs import file_modified, forget_gone, library_dirs
+from .model_dirs import file_modified, find_model_files, forget_gone, library_dirs
 from .payload_rows import file_row, model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
 from .identity_store import record_architecture
@@ -575,9 +575,7 @@ class SyncService:
         # Get all models if not specified
         walked = model_paths is None
         if walked:
-            from .scan_service import ScanService
-            scan_svc = ScanService()
-            model_paths = scan_svc.find_model_files(library_dirs())
+            model_paths = find_model_files(library_dirs())
 
         # Both of these rest on having seen the whole disk, so they run before
         # `targets` narrows the list: the complete set is the evidence, not

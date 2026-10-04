@@ -41,8 +41,7 @@ from model_manager import architecture                   # noqa: E402
 from model_manager.architecture import Architecture     # noqa: E402
 from model_manager.download_service import DownloadProgress, DownloadService  # noqa: E402
 from model_manager.identity_store import store_architecture  # noqa: E402
-from model_manager.scan_service import misplaced_files  # noqa: E402
-from model_manager.model_dirs import file_modified      # noqa: E402
+from model_manager.model_dirs import file_modified, misplaced_files  # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'controlnet')
 

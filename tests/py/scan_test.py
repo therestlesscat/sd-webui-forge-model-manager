@@ -23,6 +23,7 @@ webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.model_dirs import find_model_files    # noqa: E402
 from model_manager.scan_service import ScanService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'scan')
@@ -39,19 +40,19 @@ models_dir = facts['models_dir']
 scan = ScanService()
 
 # --------------------------------------------------------------- what it finds
-found = scan.find_model_files([models_dir])
+found = find_model_files([models_dir])
 check('it finds every model the fixture wrote', len(found), fixtures.VERSIONS)
 check('and nothing that is not a model',
       all(f.lower().endswith(('.safetensors', '.ckpt', '.pt', '.pth', '.bin'))
           for f in found), True)
 
 io.open(os.path.join(models_dir, 'VAE', 'notes.txt'), 'w').write('not a model')
-check('a text file beside them is ignored', len(scan.find_model_files([models_dir])),
+check('a text file beside them is ignored', len(find_model_files([models_dir])),
       fixtures.VERSIONS)
 
 check('a directory that does not exist yields nothing',
-      scan.find_model_files([os.path.join(WORK, 'nowhere')]), [])
-check('and no directories at all yields nothing', scan.find_model_files([]), [])
+      find_model_files([os.path.join(WORK, 'nowhere')]), [])
+check('and no directories at all yields nothing', find_model_files([]), [])
 
 # ------------------------------------------------ Civitai's type is Civitai's
 # What a file is comes from the file itself (file_identity_test.py). The
