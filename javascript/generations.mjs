@@ -462,14 +462,18 @@ function tileHtml(tile, index) {
     const folded = tile.kind === 'group' || (tile.kind === 'generation' && tile.matching_count > 1);
     const mode = generation.mode === 'img2img' ? 'img2img' : 'txt2img';
     const image = tile.images?.[0] || {};
+    // Selecting, a click on a batch or an image ticks it (the listener beside
+    // Select): it says so, and no zoom-in cursor says it opens the viewer (#114).
+    const key = tileKey(tile);
+    const picks = selecting && key;
 
     let media;
     if (folded) {
         const preview = tile.images.slice(0, 4);
         const what = tile.kind === 'group' ? 'group' : 'generation';
         media = `
-            <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview gen-openable"
-                 data-action="generations.open" data-tile="${index}" title="Open this ${what}: all ${tile.matching_count} images">
+            <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview ${picks ? 'gen-pickable' : 'gen-openable'}"
+                 data-action="generations.open" data-tile="${index}" title="${picks ? 'Select' : 'Open'} this ${what}: all ${tile.matching_count} images">
                 ${preview.map((img) => generationImageHtml(img)).join('')}
             </div>
             <span class="gen-count">×${tile.matching_count}</span>`;
@@ -479,14 +483,13 @@ function tileHtml(tile, index) {
                 + `${escapeHtml(tile.group.value || emptyGroupValue(by))}</span>`;
         }
     } else {
-        media = `<div class="gen-viewable" data-action="generations.view" data-tile="${index}" title="View">${generationImageHtml(image)}</div>`;
+        media = `<div class="${picks ? 'gen-pickable' : 'gen-viewable'}" data-action="generations.view" data-tile="${index}" title="${picks ? 'Select' : 'View'}">${generationImageHtml(image)}</div>`;
     }
 
     // Select's tick: a batch or an image, never a group - open it, and pick inside.
     // Its click has to reach the page's listener, which counts it: nothing
     // stops it here, and the tile's own click does nothing while selecting.
-    const key = tileKey(tile);
-    if (selecting && key) {
+    if (picks) {
         media += `<label class="mm-select-tick" title="Select">
                       <input type="checkbox" data-gen-pick="${index}" ${selected.has(key) ? 'checked' : ''}></label>`;
     }

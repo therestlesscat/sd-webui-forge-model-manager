@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Send to txt2img from any gallery sets Forge up for the model the gallery is of, and for the checkpoint the image was made with. From a LoRA's, a VAE's or an embedding's gallery, the image's checkpoint is loaded, where Forge used to keep whatever it had; one your library lacks stops the send and opens the image's Resources, to download it there. From a VAE's or a text encoder's gallery, that file is the one selected.
 
+- **0.47.6** (build 363) - In the Generations tab's Select mode, an image no longer shows the magnifying-glass cursor: a click there ticks it, and the cursor and the image's title (and a batch's) say "Select". Out of Select mode they are as before.
 - **0.47.5** (build 362) - A click around an image in the viewer closes it as the mouse button goes down, in every gallery. It used to stay on screen until the button was released.
 - **0.47.4** (build 361) - In the Civitai Browser, Esc in the tag box with suggestions showing closes the suggestions alone; the next Esc closes the open model. One Esc used to close both.
 - **0.47.3** (build 354) - When Send stops for a missing checkpoint, the Resources dialog it opens has a Send to txt2img of its own. It stays greyed out, saying why, until the checkpoint can be loaded; once a download lands, it is asked again, and works without closing the dialog. A checkpoint Forge does not list yet gets Forge's checkpoint list refreshed.

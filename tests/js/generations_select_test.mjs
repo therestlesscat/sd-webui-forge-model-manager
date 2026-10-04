@@ -68,10 +68,22 @@ await waitFor('the tiles', () => document.querySelectorAll('#gen_grid .gen-tile'
 
 check('Select is off to start: no ticks, no bar', [$('gen_select').checked, ticks().length, bar().hidden],
       [false, 0, true]);
+// What a tile's image says a click does (#114): its cursor's class, and its title.
+const looks = (i) => {
+    const media = document.querySelectorAll('#gen_grid .gen-tile')[i]
+        .querySelector('[data-action="generations.view"], [data-action="generations.open"]');
+    return [['gen-viewable', 'gen-openable', 'gen-pickable'].filter((c) => media.classList.contains(c)),
+            media.title];
+};
+const viewing = [[['gen-openable'], 'Open this generation: all 4 images'], [['gen-viewable'], 'View']];
+check('off: an image says a click views it, a batch that it opens', [looks(0), looks(1)], viewing);
 tick('generations.selecting', true);
 check('on: a tick on every batch and image, and a bar with nothing to delete yet',
       [ticks().length, bar().hidden, count(), button('Clear').disabled, button('Delete...').disabled],
       [3, false, '0 images selected', true, true]);
+check('on: an image and a batch say a click selects them, with no zoom-in cursor',
+      [looks(0), looks(1)],
+      [[['gen-pickable'], 'Select this generation: all 4 images'], [['gen-pickable'], 'Select']]);
 
 pick(0);
 check('a batch\'s tick is the whole generation - its hidden image too', count(), '5 images selected');
@@ -125,6 +137,7 @@ await act('generations.refresh');
 await waitFor('the tiles again', () => document.querySelectorAll('#gen_grid .gen-tile').length === 3);
 tick('generations.rating', true);
 check('Rate turns Select off', [$('gen_select').checked, ticks().length, bar().hidden], [false, 0, true]);
+check('and the images say a click views them again', [looks(0), looks(1)], viewing);
 tick('generations.selecting', true);
 check('and Select turns Rate off', $('gen_rate').checked, false);
 

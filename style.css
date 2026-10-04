@@ -4127,6 +4127,11 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
+/* Selecting, a click on a batch or an image ticks it. */
+.gen-pickable {
+    cursor: pointer;
+}
+
 /* A group: its own colour, and what it is, over its images. */
 .gen-tile.gen-grouping {
     border-color: rgba(16, 185, 129, 0.7);
