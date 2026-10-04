@@ -462,6 +462,27 @@ function fileTypeOf(entry, model) {
 }
 
 /**
+ * Whether a gallery is a checkpoint's - by what its file is, so a VAE Civitai
+ * files as a "Checkpoint" is not. Its Send loads that checkpoint.
+ */
+export function galleryIsCheckpoint(model, version) {
+    return !!version && fileTypeOf(version, model) === 'Checkpoint';
+}
+
+/**
+ * Why an image cannot be sent from a gallery, or '': from any gallery but a
+ * checkpoint's, Send needs the checkpoint the image was made with, and an
+ * image that names none - no Model, no model hash, no checkpoint among its
+ * resources - gives it nothing to load (#134). Its Send is drawn disabled.
+ */
+export function cannotSend(img, model, version) {
+    if (galleryIsCheckpoint(model, version)) return '';
+    const named = imageCheckpoint(img);
+    if (named.versionIds.length || named.hashes.length || named.name) return '';
+    return 'This image does not say which checkpoint it was made with, which Send needs.';
+}
+
+/**
  * The checkpoint an image names: the Civitai version ids of its resources
  * filed as checkpoints, the hashes its generation data gives the model, and
  * the model's name. The server matches them against the library, and asks
@@ -1146,15 +1167,21 @@ export async function sendGalleryImage({ img, model, version }) {
     try {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
+        // Its Send is disabled; pressed regardless - the viewer's copy of a
+        // card drawn before - it is said, and nothing is asked.
+        const blocked = cannotSend(img, model, version);
+        if (blocked) {
+            showNotice(blocked);
+            return;
+        }
         const filesAsked = fetchImageFiles(img);
         const plan = await fetchForgePlan(model, version, img, vaeFromMeta(meta));
 
-        // The gallery's own file is loaded when it is a checkpoint - by what
-        // the file is, so a VAE Civitai files as a "Checkpoint" is not. Any
-        // other gallery's image needs its own checkpoint, the one thing a
-        // send cannot go without: one Forge cannot load stops it (#134).
-        const galleryIsCheckpoint = !!version && fileTypeOf(version, model) === 'Checkpoint';
-        if (!galleryIsCheckpoint && plan?.checkpoint_problem) {
+        // The gallery's own file is loaded when it is a checkpoint. Any other
+        // gallery's image needs its own checkpoint, the one thing a send
+        // cannot go without: one Forge cannot load stops it (#134).
+        const checkpointGallery = galleryIsCheckpoint(model, version);
+        if (!checkpointGallery && plan?.checkpoint_problem) {
             await stopForCheckpoint(img, version, plan.checkpoint_problem);
             return;
         }
@@ -1170,7 +1197,7 @@ export async function sendGalleryImage({ img, model, version }) {
 
         // After the preset, which brings back a checkpoint of its own: the
         // gallery's, or the image's by the name Forge lists it under.
-        const checkpointPath = galleryIsCheckpoint
+        const checkpointPath = checkpointGallery
             ? getDropdownPath(version.file_path, 'Checkpoint') : plan?.checkpoint || null;
 
         const vaePath = vaeFromMeta(meta);

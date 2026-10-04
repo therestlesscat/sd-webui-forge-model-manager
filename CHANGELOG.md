@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Send to txt2img from any gallery sets Forge up for the model the gallery is of, and for the checkpoint the image was made with. From a LoRA's, a VAE's or an embedding's gallery, the image's checkpoint is loaded, where Forge used to keep whatever it had; one your library lacks stops the send and opens the image's Resources, to download it there. From a VAE's or a text encoder's gallery, that file is the one selected.
 
+- **0.47.1** (build 352) - An image that does not say which checkpoint it was made with - no model name, no model hash, no checkpoint among its resources - cannot be sent from a gallery that is not a checkpoint's: its Send to txt2img is greyed out, on the card and in the viewer, and says why. From a checkpoint's gallery it sends as before, with that checkpoint.
 - **0.47.0** (build 351) - Send to txt2img from a gallery that is not a checkpoint's - a LoRA's, a VAE's, an embedding's - loads the checkpoint the image was made with, where it used to keep whatever Forge had loaded. One your library lacks stops the send: the image's Resources open, saying which, to download it there; one in a folder this WebUI does not load is said, with where it is, and nothing is moved. From a VAE's or a text encoder's gallery, that file is selected in "VAE / Text Encoder" in place of the one Send would have picked, the rest picked as before.
 
 ## 0.46 - One version, its files under it

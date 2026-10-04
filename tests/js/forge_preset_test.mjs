@@ -342,6 +342,35 @@ check('a checkpoint\'s gallery is never stopped for the image\'s checkpoint',
       [events.includes('paste'), resourcesNote()], [true, undefined]);
 MODEL.model_type = 'LORA';
 
+// An image that names no checkpoint - no Model, no model hash, no checkpoint
+// among its resources - cannot be sent from a gallery that is not a
+// checkpoint's: its Send is disabled, saying why, before anything is asked.
+const named = IMAGE.meta;
+IMAGE.meta = { prompt: 'a lighthouse at dusk', steps: 20, sampler: 'Euler', cfgScale: 3.5, seed: 1,
+               civitaiResources: [{ type: 'lora', modelVersionId: 5 }] };
+const sendButton = async () => {
+    await act('modelManager.selectModel', { index: 0 });
+    await waitFor('the gallery', () => document.querySelector('#mm_images .mm-send-btn'));
+    return document.querySelector('#mm_images .mm-send-btn');
+};
+let button = await sendButton();
+check('a LoRA\'s gallery, an image naming no checkpoint: Send disabled, saying why',
+      [button.disabled, button.getAttribute('title')],
+      [true, 'This image does not say which checkpoint it was made with, which Send needs.']);
+plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [] };
+await send();
+check('and pressed anyway, nothing is asked or sent', [planAsked.length, events.includes('paste')], [0, false]);
+MODEL.model_type = 'Checkpoint';
+button = await sendButton();
+check('a checkpoint\'s gallery sends it, its checkpoint the gallery\'s',
+      [button.disabled, button.hasAttribute('title')], [false, false]);
+MODEL.model_type = 'LORA';
+IMAGE.meta = { ...IMAGE.meta, 'Model hash': 'aaaa111122' };
+button = await sendButton();
+check('an image naming its checkpoint by hash alone can be sent', button.disabled, false);
+IMAGE.meta = named;
+await sendButton();
+
 // ------------------------------------------- an image-to-video model
 // Sent to txt2img it failed in the sampler: an I2V model starts from an
 // image, and txt2img has none to give. It goes to img2img instead, with the
@@ -415,7 +444,7 @@ const C = 'https://image.civitai.com/acct/8c0dc66f';
 plan = { success: true, preset: 'wan', manage_modules: true, select: [], missing: [], video: 'i2v' };
 IMAGE.url = `${C}/original=true/8c0dc66f.mp4`;
 IMAGE.type = 'video';
-IMAGE.meta = { prompt: 'waves roll in', steps: 4, sampler: 'Euler', cfgScale: 1, seed: 7 };
+IMAGE.meta = { prompt: 'waves roll in', steps: 4, sampler: 'Euler', cfgScale: 1, seed: 7, Model: 'wan_i2v' };
 IMAGE.width = 1080;
 IMAGE.height = 1920;
 given.length = 0;
@@ -535,7 +564,7 @@ const chipProgress = {};
 plan = { success: true, preset: 'flux', manage_modules: false, select: [], missing: [] };
 IMAGE.meta = {
     prompt: 'a cat, <lora:UploaderName_v2:0.8>', negativePrompt: 'easynegative, blurry',
-    steps: 20, sampler: 'Euler', cfgScale: 3.5, seed: 1,
+    steps: 20, sampler: 'Euler', cfgScale: 3.5, seed: 1, Model: 'a_checkpoint',
     civitaiResources: [{ type: 'lora', modelVersionId: 11, name: 'Detail Tweaker', weight: 0.8 },
                        { type: 'lora', modelVersionId: 99, name: 'Not Here' }],
     resources: [{ type: 'lora', name: 'UploaderName_v2', hash: 'AAAA', weight: 0.8 },
@@ -703,7 +732,7 @@ globalThis.fetch = async (url, ...rest) => {
 const names = () => Array.from(row()?.querySelectorAll('.mm-resource-chip-name') || []).map((b) => b.textContent.trim());
 const loading = () => row()?.querySelector('.mm-resource-chips-loading')?.textContent;
 IMAGE.meta = {
-    prompt: 'a cat, <lora:uploader_name:0.7>', steps: 20,
+    prompt: 'a cat, <lora:uploader_name:0.7>', steps: 20, Model: 'a_checkpoint',
     civitaiResources: [{ type: 'lora', modelVersionId: 11, name: 'Detail Tweaker', weight: 0.8 },
                        { type: 'lora', modelVersionId: 77, modelId: 76, name: 'A Very Different Civitai Title' }],
     resources: [{ type: 'lora', name: 'uploader_name', hash: 'eeee', weight: 0.7 },

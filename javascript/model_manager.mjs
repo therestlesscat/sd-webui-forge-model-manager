@@ -94,7 +94,7 @@ const {
 const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
-const { sendInfotext, sendTab, sendGalleryImage } = await shared('send.mjs');
+const { sendInfotext, sendTab, sendGalleryImage, cannotSend } = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -2702,11 +2702,15 @@ async function deleteGeneration(id) {
 let galleryWidth = null;
 
 // A Civitai image's card, as both tabs draw it (shared/image_card.mjs): this
-// tab's Send, Show All and Resources, and the version its gallery is of.
+// tab's Send - disabled for an image it cannot send from this gallery - Show
+// All and Resources, and the version its gallery is of.
 const IMAGE_ACTIONS = { send: 'modelManager.sendImage', showAll: 'modelManager.showImageMeta',
                         resources: 'modelManager.showResources' };
 function renderImageCard(img, index) {
-    return sharedImageCard(img, index, { width: galleryWidth, exclude: currentVersionId, actions: IMAGE_ACTIONS });
+    const model = currentModels[selectedModelIndex];
+    const sendBlocked = cannotSend(img, model, model ? sentFile(shownVersion(model)) : null);
+    return sharedImageCard(img, index, { width: galleryWidth, exclude: currentVersionId, actions: IMAGE_ACTIONS,
+                                         sendBlocked });
 }
 
 // Show All, the same window in both tabs.

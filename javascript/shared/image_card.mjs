@@ -116,9 +116,9 @@ export function imageTextHtml(img) {
  * gallery draws a card's image; `exclude` the version the gallery is of,
  * which its Resources leave out; `actions` what the tab's buttons do
  * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
- * alone), `showAll`, `resources`.
+ * alone), `showAll`, `resources`; `sendBlocked`, why Send is disabled, if it is.
  */
-export function renderImageCard(img, index, { width, exclude, actions }) {
+export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '' }) {
     const src = img.url || '';
 
     const meta = img.meta || {};
@@ -177,7 +177,8 @@ export function renderImageCard(img, index, { width, exclude, actions }) {
                 ${resourcesHtml}
                 ${imageTextHtml(img)}
                 <div class="mm-image-actions">
-                    ${actions.send ? `<button class="mm-btn primary mm-send-btn" data-action="${escapeHtml(actions.send)}" data-index="${index}">
+                    ${actions.send ? `<button class="mm-btn primary mm-send-btn" data-action="${escapeHtml(actions.send)}" data-index="${index}"${
+                        sendBlocked ? ` disabled title="${escapeHtml(sendBlocked)}"` : ''}>
                         Send to txt2img
                     </button>` : ''}
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
