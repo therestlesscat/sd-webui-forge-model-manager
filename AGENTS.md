@@ -635,7 +635,8 @@ Then, in the same commit:
    `javascript/shared/notes.mjs`). Most releases need none.
 
 After committing, tag it `vMAJOR.MINOR.PATCH`. Tags, like commits, are pushed
-only by the owner.
+only when the owner asks - and every push to `dev` and `main` takes them all
+(see "Branches").
 
 ## Known gaps
 
@@ -995,10 +996,13 @@ real time once.
   for two issues names both: #129, fixed by f769b6f under "Fixes #11", needed
   an empty commit too (581c84a).
 - **Whenever `main` is updated, `dev` is updated at the same time, to the
-  same commit** - one push, never one without the other:
-  `git push origin dev dev:main`. A release on `main` alone leaves every
-  `dev` install behind and told of nothing; on `dev` alone, new installs
+  same commit** - one push, never one without the other, and every tag with
+  it: `git push origin dev dev:main --tags`. A release on `main` alone leaves
+  every `dev` install behind and told of nothing; on `dev` alone, new installs
   miss it and its issues stay open.
+- **"Push to dev/main" means everything: both branches and every tag.** The
+  tags are lightweight, so `--follow-tags` leaves them behind. Pushes of the
+  branches alone left 52 tags local (v0.44.0-v0.48.6), pushed apart later.
 
 ## Before you push
 
