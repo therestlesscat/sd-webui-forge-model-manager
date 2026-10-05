@@ -398,6 +398,10 @@ class ModelsDatabase:
         """Every generated image filed under these files, newest first, briefly."""
         return self._generations.gallery_images(files)
 
+    def search_generation_images(self, words: List[str], task_id: Optional[int] = None) -> Set[int]:
+        """The images a Generations search finds; see GenerationsOps.matching_images()."""
+        return self._generations.matching_images(words, task_id)
+
     def count_generations(self, files: Optional[List[str]]) -> int:
         """How many generations used any of these files - or at all, for None."""
         return self._generations.count_generations(files)

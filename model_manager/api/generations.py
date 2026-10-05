@@ -13,6 +13,7 @@ only what was recorded can be opened.
 import hashlib
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Form
@@ -340,16 +341,39 @@ def group_id(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
 
 
+def search_terms(text: str) -> Tuple[List[str], Optional[int]]:
+    """
+    What a Generations search asks for: the words an image's prompt or
+    negative prompt must each hold - a "quoted phrase" as one - and, with
+    task:<number>, the Queue's task whose run made it. Nothing else is a key:
+    a prompt's own "(red:1.2)" is searched for as typed.
+    """
+    words: List[str] = []
+    task = None
+    for quoted, plain in re.findall(r'"([^"]*)"|(\S+)', text or ""):
+        found = re.fullmatch(r"task:(\d+)", plain, re.IGNORECASE)
+        if found:
+            task = int(found.group(1))
+        elif (quoted or plain).strip():
+            words.append(quoted or plain)
+    return words, task
+
+
 def _scoped(db, hide_nsfw: bool, group: str = "", in_group: str = "",
-            generation: Optional[int] = None,
-            in_subgroup: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+            generation: Optional[int] = None, in_subgroup: str = "",
+            search: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
     The images a level of the Generations tab holds - inside a group, one of
     its groups when grouped twice, a generation, or these together - that the
-    NSFW switch lets through, and the counts over them all.
+    search finds and the NSFW switch lets through, and the counts over them
+    all.
     """
     chain = grouping_chain(group)
     rows = db.generation_gallery_images(None)
+    words, task = search_terms(search)
+    if words or task is not None:
+        found = db.search_generation_images(words, task)
+        rows = [r for r in rows if r["id"] in found]
     for key, opened in zip(chain, (in_group, in_subgroup)):
         if opened:
             value_of = GROUPINGS[key][1]
@@ -361,7 +385,7 @@ def _scoped(db, hide_nsfw: bool, group: str = "", in_group: str = "",
 
 def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
                 in_group: str = "", generation: Optional[int] = None,
-                in_subgroup: str = "") -> Dict[str, Any]:
+                in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
     """
     Part `page` of a level of the Generations tab, newest first. The top level
     is a tile per generation - its first images and how many it has - or, with
@@ -390,7 +414,7 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     size = gallery_page_size()
     page = max(1, int(page or 1))
     chain = grouping_chain(group)
-    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation, in_subgroup)
+    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation, in_subgroup, search)
 
     # The grouping this level's groups are by, if it is a level of groups:
     # the first at the top - or, grouped twice, the second, in sections of the
@@ -506,7 +530,8 @@ def register(app: FastAPI):
     @app.get("/model-manager/generations/browse")
     def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
                               group: str = "", in_group: str = "",
-                              generation: Optional[int] = None, in_subgroup: str = ""):
+                              generation: Optional[int] = None, in_subgroup: str = "",
+                              search: str = ""):
         """
         Part `page` of a level of the Generations tab, through the NSFW switch
         - the tab's own setting decides it when not sent. See browse_page().
@@ -517,11 +542,12 @@ def register(app: FastAPI):
             in_group: the group opened, by its id.
             in_subgroup: grouped twice, the group opened inside that one.
             generation: the generation opened.
+            search: what the images must match (search_terms()).
         """
         try:
             hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
             return JSONResponse({"success": True, **browse_page(
-                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup)})
+                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup, search)})
         except Exception as e:
             return failed(e, "Generations page error")
 
@@ -621,7 +647,8 @@ def register(app: FastAPI):
                               in_subgroup: str = Form(default=""),
                               generation: Optional[int] = Form(default=None), path: str = Form(default=""),
                               hide_nsfw_images: bool = Form(default=True),
-                              hide_promptless_images: bool = Form(default=False)):
+                              hide_promptless_images: bool = Form(default=False),
+                              search: str = Form(default="")):
         """
         Rate your own images' NSFW level - `level` one of nsfw.USER_LEVELS, or
         empty to clear the rating, back to what the prompt gives. Which images:
@@ -631,7 +658,7 @@ def register(app: FastAPI):
           images that gallery shows, through both its switches;
         - `generation`: a batch of the Generations tab - within the group
           `in_group` (and `in_subgroup`), if opened from one - its images the tab shows, through
-          the NSFW switch.
+          its search and the NSFW switch.
 
         Only what the page showed is rated: an image a switch hid, nobody saw.
         A group is not rated whole: its images are of any number of prompts
@@ -655,7 +682,7 @@ def register(app: FastAPI):
                 ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, hide_promptless_images)[0]]
             elif generation is not None:
                 ids = [r["id"] for r in _scoped(db, hide_nsfw_images, group, in_group, generation,
-                                                in_subgroup)[0]]
+                                                in_subgroup, search)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
             rated = db.set_generation_image_levels(ids, chosen)

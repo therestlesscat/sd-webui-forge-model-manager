@@ -10,7 +10,9 @@
  * large, with ← and → through the images the grid shows and its information
  * beside it. Each image sends its own infotext back to the tab it was made
  * in, or is deleted. The grid scrolls: the next part loads as its end comes
- * near. Only the NSFW switch applies; nothing is hidden here for its prompt.
+ * near. A search narrows it to the images whose prompt or negative prompt
+ * holds its words, or that a task of the Queue made (task:17). Only the NSFW
+ * switch hides; nothing is hidden here for its prompt.
  *
  * The server does the filtering, the grouping and the parts
  * (api/generations.browse_page). The paste into txt2img or img2img is
@@ -216,6 +218,8 @@ const selected = new Set();
 let lastPicked = -1;
 let groupBy = groupChain(readSetting(GROUP_BY_KEY, '')).length ? readSetting(GROUP_BY_KEY, '') : '';
 let hideNsfw = true;
+// What the images must match: words in their prompts, or task:<id>. Not remembered.
+let search = '';
 // The level shown: its tiles, as loaded, and where it is. The levels above it
 // are kept whole in `levels`, so Back draws them again as they were left.
 let tiles = [];          // each {kind, generation, group, images, matching_count}
@@ -275,7 +279,7 @@ async function loadNext() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
-            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation,
+            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, search,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -302,6 +306,7 @@ async function loadNext() {
 
 function emptyText() {
     if (levels.length) return 'Nothing left here.';
+    if (search && !(state && state.total)) return 'No image matches the search.';
     if (state && state.total) return 'Every image is hidden by the NSFW filter.';
     return 'Nothing recorded yet: images you generate from now on appear here.';
 }
@@ -669,6 +674,8 @@ function renderBanner() {
         matching: state.filtered || 0,
         total: state.total || 0,
         onScreen,
+        // Searching, the total is what the search found, not all that is stored.
+        word: search ? 'found by the search' : 'stored',
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
         switches: [{
@@ -716,7 +723,7 @@ async function rateTile(index, value) {
     }
     const level = tile.user_level === value ? '' : value;
     const scope = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup,
-                    generation: tile.generation.id };
+                    generation: tile.generation.id, search };
     if (await postRating({ ...scope, level })) {
         markAboveChanged();
         await reloadKeepingPlace();
@@ -1283,7 +1290,7 @@ async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group,
-            in_subgroup: at.in_subgroup, generation: at.generation,
+            in_subgroup: at.in_subgroup, generation: at.generation, search,
         } });
         if (data.success) {
             state = data.state;
@@ -1317,6 +1324,19 @@ function setGroupBy(value) {
     return reload();
 }
 
+/** Search, or show everything again: the tab starts again from its top level. */
+function setSearch(value) {
+    const text = String(value || '').trim();
+    if (text === search) return undefined;
+    search = text;
+    levels.length = 0;
+    at = {};
+    title = '';
+    scope = null;
+    window.scrollTo?.(0, 0);
+    return reload();
+}
+
 function showNsfw(checked) {
     hideNsfw = !checked;
     markAboveChanged();
@@ -1336,6 +1356,7 @@ provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.chec
 provide('generations.rating', (data, box) => switchRating(box.checked));
 provide('generations.selecting', (data, box) => switchSelecting(box.checked));
 provide('generations.refresh', () => refresh());
+provide('generations.search', (data, box) => setSearch(box.value));
 provide('generations.showNsfw', (data, box) => showNsfw(box.checked));
 provide('generations.rate', ({ tile, level }) => rateTile(Number(tile), Number(level)));
 provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
@@ -1385,6 +1406,13 @@ onReady(async () => {
     if (rate) rate.checked = false;
     const select = byId('gen_select');
     if (select) select.checked = false;
+    // The search starts empty, whatever the browser kept in the box. Its ×
+    // empties it without a change, which a search event tells.
+    const box = byId('gen_search');
+    if (box) {
+        box.value = '';
+        box.addEventListener('search', () => setSearch(box.value));
+    }
     showGroupChoice();
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
     try {

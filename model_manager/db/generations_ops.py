@@ -9,7 +9,7 @@ is stamped again, and the user's own rating set. See migrations._migrate_to_v27.
 Used by ModelsDatabase facade - do not import directly.
 """
 import json
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..prompt_rules import trimmed_sql
 from .library import LIBRARY
@@ -213,6 +213,27 @@ class GenerationsOps:
             for row in rows:
                 row["base_model"] = bases.get(row["checkpoint_path"])
             return rows
+
+    def matching_images(self, words: List[str], task_id: Optional[int] = None) -> Set[int]:
+        """
+        The images a Generations search finds: each of `words` in the
+        image's prompt or negative prompt - as generated, or as typed -
+        ignoring case; with `task_id`, only those the task's run made.
+        """
+        fields = ("gi.prompt", "gi.negative_prompt", "g.prompt", "g.negative_prompt")
+        where, args = [], []
+        for word in words:
+            # A word is matched as typed: % and _ mean themselves.
+            pattern = "%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            where.append("(" + " OR ".join(f"{f} LIKE ? ESCAPE '\\'" for f in fields) + ")")
+            args += [pattern] * len(fields)
+        if task_id is not None:
+            where.append("gi.generation_id IN (SELECT generation_id FROM task_generations WHERE task_id = ?)")
+            args.append(task_id)
+        with self._cursor() as cursor:
+            cursor.execute("SELECT gi.id FROM generation_images gi JOIN generations g ON g.id = gi.generation_id"
+                           + (" WHERE " + " AND ".join(where) if where else ""), args)
+            return {r[0] for r in cursor.fetchall()}
 
     def count_generations(self, files: Optional[List[str]]) -> int:
         """How many generations used any of these files - or at all, for None."""

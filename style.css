@@ -145,6 +145,7 @@ body.mm-modal-open {
 .filter-group input:not([type="checkbox"]),
 .filter-group select,
 .gen-toolbar select,
+.gen-toolbar input[type="search"],
 .filter-group .mm-multiselect-display,
 .filter-group .mm-checkbox-label,
 .filter-group .cb-checkbox-label,
@@ -165,14 +166,16 @@ body.mm-modal-open {
    was set outright - and the boxes were black in light mode too. */
 .filter-group input[type="text"],
 .filter-group input[type="number"],
-.filter-group input[type="search"] {
+.filter-group input[type="search"],
+.gen-toolbar input[type="search"] {
     background: var(--input-background-fill, #fff) !important;
     color: var(--body-text-color, #111827) !important;
 }
 
 .dark .filter-group input[type="text"],
 .dark .filter-group input[type="number"],
-.dark .filter-group input[type="search"] {
+.dark .filter-group input[type="search"],
+.dark .gen-toolbar input[type="search"] {
     background: #111827 !important;
     color: #fff !important;
 }
@@ -180,7 +183,8 @@ body.mm-modal-open {
 /* Gradio paints placeholders in the same colour as typed text, so a hint
    reads as content someone already entered. Dim it back. The colour is a
    literal because the rule above sets the text colour to one too. */
-.filter-group input::placeholder {
+.filter-group input::placeholder,
+.gen-toolbar input::placeholder {
     color: #9ca3af !important;
     /* Firefox dims placeholders with opacity on top of the colour. */
     opacity: 1;
@@ -188,7 +192,8 @@ body.mm-modal-open {
 
 .filter-group input:focus,
 .filter-group select:focus,
-.gen-toolbar select:focus {
+.gen-toolbar select:focus,
+.gen-toolbar input:focus {
     outline: none;
     border-color: var(--primary-500, #3b82f6);
 }
@@ -3738,6 +3743,12 @@ textarea.mm-settings-input {
 
 .gen-toolbar-fill {
     flex: 1;
+}
+
+/* The search: wide enough for a few words, and it gives way first. */
+.gen-search {
+    flex: 0 1 280px;
+    min-width: 140px;
 }
 
 .gen-view-switch {
