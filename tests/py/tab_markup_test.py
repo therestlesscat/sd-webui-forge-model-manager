@@ -45,7 +45,7 @@ class Blocks(contextlib.nullcontext):
 gr.Blocks = Blocks
 gr.HTML = lambda value='', **kwargs: drawn.append(value)
 
-from model_manager.ui import header, tab_civitai_browser, tab_generations, tab_model_manager  # noqa: E402
+from model_manager.ui import header, tab_civitai_browser, tab_generations, tab_model_manager, tab_queue  # noqa: E402
 
 fails = []
 def check(label, got, want=True):
@@ -60,7 +60,7 @@ def draw(make):
 
 
 TABS = {'model_manager': tab_model_manager.create_ui, 'civitai_browser': tab_civitai_browser.create_civitai_browser_ui,
-        'generations': tab_generations.create_generations_ui}
+        'generations': tab_generations.create_generations_ui, 'queue': tab_queue.create_queue_ui}
 pages = {tab: draw(make) for tab, make in TABS.items()}
 
 gears = {tab: re.findall(r'<button[^>]*class="mm-settings-btn"[^>]*>', page) for tab, page in pages.items()}

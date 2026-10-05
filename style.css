@@ -18,7 +18,8 @@ body.mm-modal-open {
    ticked box looked empty. Filled as Gradio's own checkboxes are. */
 #model_manager_app [type="checkbox"]:checked,
 #civitai_browser_app [type="checkbox"]:checked,
-#generations_app [type="checkbox"]:checked {
+#generations_app [type="checkbox"]:checked,
+#queue_app [type="checkbox"]:checked {
     background-color: var(--checkbox-background-color-selected, #2563eb);
     border-color: var(--checkbox-background-color-selected, #2563eb);
 }
@@ -28,7 +29,8 @@ body.mm-modal-open {
 /* Header: the tab's name, and the settings gear at the far right. */
 .model-manager-header,
 .cb-header,
-.gen-header {
+.gen-header,
+.queue-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -38,7 +40,8 @@ body.mm-modal-open {
 
 .model-manager-header h2,
 .cb-header h2,
-.gen-header h2 {
+.gen-header h2,
+.queue-header h2 {
     margin: 0;
 }
 
@@ -4501,4 +4504,267 @@ textarea.mm-settings-input {
 
 .mm-misplaced-why {
     color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* ================================================================ Queue tab
+   The generation queue (#156-#158): a status line with the queue's controls,
+   then the Active and History lists, a row per task. Colours that mean a
+   state are set for light mode, then under .dark; Gradio colours every
+   element of an HTML block, so each is !important. */
+
+#queue_app {
+    padding: 10px;
+}
+
+/* The queue's state, the task it is on, its counts, and its controls. */
+.queue-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color-primary, #d1d5db);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.dark .queue-bar {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.queue-bar-fill {
+    flex: 1;
+}
+
+/* A button's own display outweighs the hidden attribute's. */
+.queue-bar [hidden],
+.queue-message[hidden] {
+    display: none !important;
+}
+
+.queue-state {
+    font-weight: 600;
+}
+
+.queue-state[data-state="running"] {
+    color: #15803d !important;
+}
+
+.queue-state[data-state="pausing"],
+.queue-state[data-state="paused"],
+.queue-state[data-state="stopping"] {
+    color: #b45309 !important;
+}
+
+.dark .queue-state[data-state="running"] {
+    color: #4ade80 !important;
+}
+
+.dark .queue-state[data-state="pausing"],
+.dark .queue-state[data-state="paused"],
+.dark .queue-state[data-state="stopping"] {
+    color: #fbbf24 !important;
+}
+
+.queue-now,
+.queue-counts,
+.queue-list-count,
+.queue-empty,
+.queue-mode,
+.queue-id,
+.queue-script,
+.queue-copy,
+.queue-facts,
+.queue-more {
+    color: var(--body-text-color-subdued, #6b7280) !important;
+}
+
+.queue-now,
+.queue-counts {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Why the queue stopped, or inputs a task ran at their defaults. */
+.queue-message {
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(234, 179, 8, 0.12);
+}
+
+.dark .queue-message {
+    background: rgba(234, 179, 8, 0.16);
+}
+
+.queue-list-title {
+    margin: 14px 0 6px;
+    font-size: 1.05em;
+}
+
+.queue-list-count {
+    font-weight: normal;
+}
+
+.queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.queue-empty {
+    padding: 10px;
+}
+
+/* A task: what it asks for at the left, its first images at the right. */
+.queue-task {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color-primary, #e5e7eb);
+    border-radius: 8px;
+    background: var(--background-fill-primary, #fff);
+}
+
+.queue-task-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.queue-task-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.9em;
+}
+
+.queue-status {
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.85em;
+    font-weight: 600;
+    background: rgba(107, 114, 128, 0.15);
+    color: #374151 !important;
+}
+
+.queue-status[data-status="running"] {
+    background: rgba(59, 130, 246, 0.15);
+    color: #1d4ed8 !important;
+}
+
+.queue-status[data-status="completed"] {
+    background: rgba(34, 197, 94, 0.15);
+    color: #15803d !important;
+}
+
+.queue-status[data-status="stopped"] {
+    background: rgba(245, 158, 11, 0.18);
+    color: #b45309 !important;
+}
+
+.queue-status[data-status="failed"] {
+    background: rgba(239, 68, 68, 0.15);
+    color: #b91c1c !important;
+}
+
+.dark .queue-status {
+    color: #d1d5db !important;
+}
+
+.dark .queue-status[data-status="running"] {
+    color: #93c5fd !important;
+}
+
+.dark .queue-status[data-status="completed"] {
+    color: #86efac !important;
+}
+
+.dark .queue-status[data-status="stopped"] {
+    color: #fcd34d !important;
+}
+
+.dark .queue-status[data-status="failed"] {
+    color: #fca5a5 !important;
+}
+
+.queue-requeued {
+    color: #7c3aed !important;
+}
+
+.dark .queue-requeued {
+    color: #c4b5fd !important;
+}
+
+/* The prompt, in two lines at most; whole on hover. */
+.queue-prompt {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+}
+
+.queue-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    font-size: 0.85em;
+}
+
+.queue-fact {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.queue-error {
+    font-size: 0.9em;
+    color: #b91c1c !important;
+}
+
+.dark .queue-error {
+    color: #fca5a5 !important;
+}
+
+.queue-images {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+}
+
+.queue-images .mm-generation-tile img {
+    display: block;
+    width: 72px;
+    height: 72px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.queue-more {
+    padding: 0 4px;
+    font-size: 0.85em;
+}
+
+/* Start's question: the tasks whose extensions are gone. */
+.queue-missing {
+    max-height: 40vh;
+    margin: 8px 0;
+    overflow: auto;
+}
+
+.queue-missing-names {
+    display: block;
+    color: #b45309 !important;
+}
+
+.dark .queue-missing-names {
+    color: #fbbf24 !important;
 }

@@ -33,7 +33,7 @@ registerHooks({
 });
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
-for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
+for (const tab of ['tab_civitai_browser.py', 'tab_generations.py', 'tab_queue.py']) {
     document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
 const { check, done } = checker();
@@ -51,13 +51,14 @@ globalThis.fetch = async (url) => ({ ok: true, json: async () => (String(url).in
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 await import(`file:///${ROOT}/javascript/generations.mjs`);
+await import(`file:///${ROOT}/javascript/queue.mjs`);
 
 const shared = readdirSync(`${ROOT}/javascript/shared`).filter((name) => name.endsWith('.mjs')).sort();
 check('every shared module is loaded by the tabs', [...urls.keys()].sort(), shared);
 check('each under one URL, with the server\'s version',
       Object.fromEntries(shared.map((name) => [name, [...(urls.get(name) || [])]])),
       Object.fromEntries(shared.map((name) => [name, ['v=1700000123']])));
-check('so ui_options.mjs ran once, though all three tabs import it', copies, 1);
+check('so ui_options.mjs ran once, though all three tabs that use it import it', copies, 1);
 check('the first tab asked for every module it needs before any of them ran', askedBeforeOneRan, shared);
 
 const { downloads } = await sharedModule('downloads.mjs');

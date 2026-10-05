@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
 
+- **0.50.4** (build 380) - The Queue tab shows the queue: what it is doing, with Start, Pause, Resume and Stop; and the Active and History lists, each task with what it asks for and the first images its run made. The lists follow the queue as tasks start and end.
 - **0.50.3** (build 379) - The queue can now be driven and read: its state, Start, Stop, Pause and Resume; the Active and History lists, a task's details and the images its run made; Retry, Delete and Clear history. The Queue tab that uses them comes next.
 - **0.50.2** (build 378) - Queued tasks can now be run: one at a time, in the order queued, each as Generate would run it, with the checkpoint and VAE it was queued with. A task that fails or is interrupted ends alone, and the queue goes on. Nothing starts the queue yet: its controls come next.
 - **0.50.1** (build 377) - A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, with its images, and generates nothing. A Queue tab appears before Generations; it will list and run the tasks.

@@ -1,14 +1,19 @@
 """
 The Queue tab's markup (#156): where the generation queue is managed.
 
-For now its frame alone. Building it also wires the Queue buttons beside
-each Generate (scheduler/capture.py): a click must be wired inside a Blocks
-the page renders, and this tab is ours, built after Forge has wired
-Generate. Its page comes with the queue's endpoints.
+Static HTML only, as the other tabs: javascript/queue.mjs fills it from the
+queue's endpoints (api/scheduler.py). A status line with the queue's
+controls, then the Active list, in the order the tasks will run, and History,
+newest first.
+
+Building it also wires the Queue buttons beside each Generate
+(scheduler/capture.py): a click must be wired inside a Blocks the page
+renders, and this tab is ours, built after Forge has wired Generate.
 """
 import gradio as gr
 
 from ..scheduler.capture import wire_queue_buttons
+from .header import header_actions
 
 
 def create_queue_ui():
@@ -18,10 +23,39 @@ def create_queue_ui():
             <div id="queue_app">
                 <div class="queue-header">
                     <h2>Queue</h2>
+                    <!-- actions -->
                 </div>
-                <p class="queue-note">Tasks you queue with the Queue button beside Generate
-                are kept. This page will list and run them.</p>
+
+                <!-- Notes to the user per release: filled by shared/notes.mjs -->
+                <div id="queue_notes" class="mm-notes"></div>
+
+                <!-- The queue's state, the task it is on, and its controls -->
+                <div class="queue-bar">
+                    <span id="queue_state" class="queue-state" data-state="stopped" title="What the queue is doing">Stopped</span>
+                    <span id="queue_task" class="queue-now"></span>
+                    <span id="queue_counts" class="queue-counts"></span>
+                    <span class="queue-bar-fill"></span>
+                    <button type="button" class="mm-btn primary" id="queue_start" data-action="queue.start"
+                            title="Run the pending tasks, one at a time, in the order they were queued">Start</button>
+                    <button type="button" class="mm-btn secondary" id="queue_pause" data-action="queue.pause"
+                            title="Let the running task finish, then start no other" hidden>Pause</button>
+                    <button type="button" class="mm-btn secondary" id="queue_resume" data-action="queue.resume"
+                            title="Go on with the next pending task" hidden>Resume</button>
+                    <button type="button" class="mm-btn danger" id="queue_stop" data-action="queue.stop"
+                            title="End the running task, and start no other. It keeps the images it made"
+                            disabled>Stop</button>
+                    <button type="button" class="mm-btn secondary" data-action="queue.refresh"
+                            title="Read both lists again">Refresh</button>
+                </div>
+                <!-- What the queue is saying: an error, inputs that ran at their defaults -->
+                <div id="queue_message" class="queue-message" hidden></div>
+
+                <h3 class="queue-list-title">Active <span id="queue_active_count" class="queue-list-count"></span></h3>
+                <div id="queue_active" class="queue-list"><div class="queue-empty">Loading…</div></div>
+
+                <h3 class="queue-list-title">History <span id="queue_history_count" class="queue-list-count"></span></h3>
+                <div id="queue_history" class="queue-list"><div class="queue-empty">Loading…</div></div>
             </div>
-        """, elem_id="queue_container")
+        """.replace("<!-- actions -->", header_actions("queue")), elem_id="queue_container")
         wire_queue_buttons()
     return queue_tab

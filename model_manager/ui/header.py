@@ -45,7 +45,7 @@ SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" data-action="
 def header_actions(tab: str) -> str:
     """
     The version and the settings gear, together at the right of a header.
-    `tab`: "model_manager", "civitai_browser" or "generations".
+    `tab`: "model_manager", "civitai_browser", "generations" or "queue".
     """
     gear = SETTINGS_BUTTON.replace("{tab}", html.escape(tab))
     return f'<span class="mm-header-actions">{version_link()}{gear}</span>'
