@@ -35,7 +35,7 @@ import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.civitai import (                      # noqa: E402
     CivitaiAPIError, CivitaiNotFoundError, TokenBucketRateLimiter,
 )
-from model_manager.hashing import HashResult             # noqa: E402
+from model_manager.hashing import HashResult, ModelHasher  # noqa: E402
 from model_manager.sync_estimates import (               # noqa: E402
     SYNC_WINDOWS, estimate_metadata_sync, sync_window_counts, window_cutoff,
 )
@@ -165,9 +165,9 @@ def service(**answers):
 sync, client = service()
 hashes = sync.calculate_hashes(LINKED)
 check('a file is hashed', len(hashes.sha256 or ''), 64)
-check('with the kinds Civitai might know',
-      all(getattr(hashes, kind) for kind in ('sha256', 'crc32', 'blake3', 'autov2')),
+check('first, SHA-256 and what comes free with it', all(getattr(hashes, kind) for kind in ('sha256', 'autov2')),
       True)
+check('and nothing that costs a read of its own until it is needed', (hashes.blake3, hashes.crc32), (None, None))
 check('and they survive the round trip to the database',
       HashResult.from_stored(sync._hashes_to_dict(hashes)).sha256, hashes.sha256)
 
@@ -179,13 +179,16 @@ check('the first hash that answers wins', kind, 'sha256')
 check('carrying the version', data['id'], 70001)
 check('and the value that matched', value, hashes.sha256)
 
-sync, client = service(by_hash={hashes.crc32: found})
-data, kind, _ = sync._lookup_by_hash_with_fallback(LINKED, hashes)
-check('a later kind is tried when the first does not answer', kind, 'crc32')
-# AutoV3 reads the safetensors header, which the fixture's zero-filled files
-# do not have, so there is no value to try and it is skipped rather than asked.
-check('having tried the earlier ones it had a value for',
-      [a[1] for a in client.asked], [hashes.sha256, hashes.crc32])
+full = ModelHasher.calculate_all(LINKED)
+first = sync.calculate_hashes(LINKED)
+sync, client = service(by_hash={full.crc32: found})
+data, kind, _ = sync._lookup_by_hash_with_fallback(LINKED, first)
+check('a later kind is tried when none of the first answers', kind, 'crc32')
+# AutoV1 needs more than a megabyte, and AutoV3 a safetensors header, which
+# the fixture's zero-filled files have neither of: no value, so not asked.
+check('having tried the first ones it had a value for, then the rest, read from the file',
+      [a[1] for a in client.asked], [full.sha256, full.autov2, full.blake3, full.crc32])
+check('which it now holds', (first.blake3, first.crc32), (full.blake3, full.crc32))
 
 sync, client = service()
 check('a file Civitai knows nothing about answers nothing',

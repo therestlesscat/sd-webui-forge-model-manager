@@ -303,5 +303,92 @@ db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': 'LORA'})
 db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': None})
 check('and a typeless one never overwrites a type already known', db.get_civitai_model(31337)['type'], 'LORA')
 
+# ------------------------------------------------- SHA-256 first, the rest if needed
+# A file is read for SHA-256 first, with AutoV1 and AutoV2, which come free;
+# AutoV3, BLAKE3 and CRC32 - each about as costly - only when none of those is
+# known, or Civitai's list for the file does not say them. Hashing every kind
+# up front ran at half the speed the disk could read.
+from model_manager.hashing import ModelHasher            # noqa: E402
+
+def safetensors(name, seed):
+    """A real safetensors file, past a megabyte: it has an AutoV1 and an AutoV3."""
+    header = json.dumps({'__metadata__': {'seed': seed}}).encode()
+    path = os.path.join(models, 'Lora', name)
+    with io.open(path, 'wb') as f:
+        f.write(len(header).to_bytes(8, 'little') + header + bytes([seed]) * (1300 * 1024))
+    db.insert_missing_versions([{'file_path': path, 'file_name': name}])
+    return path, ModelHasher.calculate_all(path)
+
+reads = []
+real_read = ModelHasher._read.__func__
+
+def counted_read(cls, file_path, result, full, tensor, blake, crc):
+    reads.append(os.path.basename(file_path))
+    return real_read(cls, file_path, result, full, tensor, blake, crc)
+
+def listed(full, *kinds):
+    names = {'sha256': 'SHA256', 'autov1': 'AutoV1', 'autov2': 'AutoV2', 'autov3': 'AutoV3',
+             'blake3': 'BLAKE3', 'crc32': 'CRC32'}
+    return {names[k]: getattr(full, k) for k in kinds}
+
+def civitai(model_id, name, hashes):
+    version = {'id': model_id + 1, 'modelId': model_id, 'name': 'v1', 'baseModel': 'SDXL 1.0',
+               'files': [{'id': model_id * 10, 'name': name, 'hashes': hashes}]}
+    return version, {'id': model_id, 'name': name, 'type': 'LORA', 'modelVersions': [dict(version)]}
+
+ALL = ('sha256', 'autov1', 'autov2', 'autov3', 'blake3', 'crc32')
+ModelHasher._read = classmethod(counted_read)
+try:
+    # Found by its SHA-256, Civitai's list saying the rest: one read.
+    A, full_a = safetensors('order_a.safetensors', 1)
+    version, model = civitai(7100, 'order_a.safetensors', listed(full_a, *ALL))
+    reads.clear()
+    sync = service(by_hash={full_a.sha256: version}, models={7100: model})
+    sync.sync_model(A)
+    stored = read_hashes(row(A).get('file_hashes'))
+    check('found by its SHA-256, the file is read once', reads, ['order_a.safetensors'])
+    check('asked about by its SHA-256 alone', [a for a in sync.client.asked if a[0] == 'by_hash'],
+          [('by_hash', full_a.sha256)])
+    check('the rest taken from Civitai\'s list for the file - the same bytes, so the same hashes',
+          [stored.get(k) for k in ('autov3', 'blake3', 'crc32')],
+          [full_a.autov3.lower(), full_a.blake3.lower(), full_a.crc32.lower()])
+    check('and marked as the file\'s own', row(A).get('hashes_checked'), fingerprint(A))
+
+    # Found by its SHA-256, the list silent on AutoV3: read again, for it alone.
+    B, full_b = safetensors('order_b.safetensors', 2)
+    version, model = civitai(7200, 'order_b.safetensors', listed(full_b, 'sha256', 'autov2', 'blake3', 'crc32'))
+    reads.clear()
+    service(by_hash={full_b.sha256: version}, models={7200: model}).sync_model(B)
+    check('a list without AutoV3 has it read from the file: images name LoRAs by it',
+          (reads, read_hashes(row(B).get('file_hashes')).get('autov3')),
+          (['order_b.safetensors'] * 2, full_b.autov3.lower()))
+
+    # Found by AutoV1 - part of the file - its list is not taken.
+    C, full_c = safetensors('order_c.safetensors', 3)
+    version, model = civitai(7300, 'order_c.safetensors', dict(listed(full_c, 'autov1'), BLAKE3='NOT THIS FILE\'S'))
+    reads.clear()
+    sync = service(by_hash={full_c.autov1: version}, models={7300: model})
+    sync.sync_model(C)
+    check('found by AutoV1, after the SHA-256', [a[1] for a in sync.client.asked if a[0] == 'by_hash'],
+          [full_c.sha256, full_c.autov1])
+    check('a match on part of the file takes nothing from the list: the rest are read',
+          (reads, read_hashes(row(C).get('file_hashes')).get('blake3')),
+          (['order_c.safetensors'] * 2, full_c.blake3.lower()))
+
+    # Known by nothing: every kind, the costly ones only after the free ones.
+    D, full_d = safetensors('order_d.safetensors', 4)
+    reads.clear()
+    sync = service()
+    sync.sync_model(D)
+    check('a file nothing finds is asked about by the free kinds first, then the rest',
+          [a[1] for a in sync.client.asked if a[0] == 'by_hash'],
+          [full_d.sha256, full_d.autov1, full_d.autov2, full_d.autov3, full_d.blake3, full_d.crc32])
+    check('read twice: the second time only once the first kinds found nothing', reads, ['order_d.safetensors'] * 2)
+    check('and every kind kept, marked',
+          ([read_hashes(row(D).get('file_hashes')).get(k) for k in ALL], row(D).get('hashes_checked')),
+          ([getattr(full_d, k).lower() for k in ALL], fingerprint(D)))
+finally:
+    ModelHasher._read = classmethod(real_read)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

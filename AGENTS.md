@@ -123,7 +123,15 @@ time, which a time zone moves). While the file is as it was, Civitai is asked
 with them; a force sync reads every file again, and any sync reads again a
 file changed since (`files_to_identify`). Hashes written without the mark - a
 sidecar's, or stored before v33 - are never trusted, and never make a file
-look changed: no library has to be synced again for them.
+look changed: no library has to be synced again for them. A read is for
+SHA-256 first (`ModelHasher.calculate_first`), with AutoV1 and AutoV2, which
+come free; AutoV3, BLAKE3 and CRC32 cost about as much again, and are read
+(`complete`) only when none of those is known to Civitai, or Civitai's list
+for the file does not say them. Found by its SHA-256, the file is Civitai's
+byte for byte, and the list's other kinds are its own
+(`_adopt_listed_hashes`); found by AutoV1 or AutoV2 it may not be. AutoV3 is
+needed whatever the lookup: images name LoRAs by it. Every kind up front ran
+at half the disk's speed (1.90 against 3.66 GB/s, four threads, NVMe).
 
 **Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
 what they hold when handed `NULL`, `'[]'`, `0` or Unknown. Scan Disk, reading

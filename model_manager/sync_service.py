@@ -116,17 +116,19 @@ class SyncService:
 
     def calculate_hashes(self, file_path: str) -> HashResult:
         """
-        Calculate all hash types for a model file.
+        A model file's SHA-256, with AutoV2 and AutoV1, which come free: what
+        it is asked about first. The other kinds are read only when needed
+        (ModelHasher.complete).
 
         Args:
             file_path: Path to the model file.
 
         Returns:
-            HashResult with all computed hashes.
+            HashResult with those hashes.
         """
         model_name = os.path.basename(file_path)
         print(f"[ModelManager] Calculating hashes for {model_name}...")
-        return ModelHasher.calculate_all(file_path)
+        return ModelHasher.calculate_first(file_path)
 
     def _lookup_by_hash_with_fallback(
         self,
@@ -136,7 +138,9 @@ class SyncService:
         """
         Try to find model on Civitai using multiple hash types with fallback.
 
-        Tries hashes in order: SHA256 -> AutoV3 (safetensors) -> CRC32 -> BLAKE3 -> AutoV1 -> AutoV2
+        Tries SHA256 -> AutoV1 -> AutoV2 first; only when none of them is
+        known reads the file again for the rest, and tries AutoV3
+        (safetensors) -> BLAKE3 -> CRC32.
 
         Args:
             file_path: Path to model file.
@@ -159,32 +163,50 @@ class SyncService:
         # Also check .cm-info.json for stored hashes
         cm_info_hashes = ModelHasher.load_cm_info_hashes(file_path)
 
-        for hash_type in fallback_order:
-            # Get hash value from our calculations
-            hash_value = getattr(hashes, hash_type, None)
+        def ask(kinds):
+            nonlocal unasked
+            for hash_type in kinds:
+                # Get hash value from our calculations
+                hash_value = getattr(hashes, hash_type, None)
 
-            # Skip if we don't have this hash
-            if not hash_value:
-                # Check if .cm-info.json has it
-                if cm_info_hashes and hash_type in cm_info_hashes:
-                    hash_value = cm_info_hashes[hash_type]
-                else:
+                # Skip if we don't have this hash
+                if not hash_value:
+                    # Check if .cm-info.json has it
+                    if cm_info_hashes and hash_type in cm_info_hashes:
+                        hash_value = cm_info_hashes[hash_type]
+                    else:
+                        continue
+
+                try:
+                    version_data = self.client.get_model_by_hash(hash_value)
+                    if version_data:
+                        print(f"[ModelManager] Found {model_name} via {hash_type.upper()}: {hash_value[:16]}...")
+                        return version_data, hash_type, hash_value
+                except CivitaiNotFoundError:
+                    # This hash didn't match, try next
                     continue
+                except CivitaiAPIError as e:
+                    # API error, log but continue trying other hashes
+                    print(f"[ModelManager] API error with {hash_type}: {e}")
+                    if hash_type == "sha256":
+                        unasked = e
+                    continue
+            return None
 
-            try:
-                version_data = self.client.get_model_by_hash(hash_value)
-                if version_data:
-                    print(f"[ModelManager] Found {model_name} via {hash_type.upper()}: {hash_value[:16]}...")
-                    return version_data, hash_type, hash_value
-            except CivitaiNotFoundError:
-                # This hash didn't match, try next
-                continue
-            except CivitaiAPIError as e:
-                # API error, log but continue trying other hashes
-                print(f"[ModelManager] API error with {hash_type}: {e}")
-                if hash_type == "sha256":
-                    unasked = e
-                continue
+        found = ask(ModelHasher.FIRST_LOOKUPS)
+        if found:
+            return found
+        if unasked is not None:
+            # No answer about the SHA-256: reading the file again for the
+            # rest would be asked of a Civitai that is not answering.
+            raise CivitaiAPIError(f"Civitai could not be asked about {model_name}: {unasked}")
+
+        # None of them is known to Civitai: the rest are read from the file -
+        # a second read, for the files Civitai does not know by SHA-256.
+        ModelHasher.complete(file_path, hashes)
+        found = ask(ModelHasher.later_lookups(file_path))
+        if found:
+            return found
 
         # If we have .cm-info.json hashes that we didn't calculate, try those too
         if cm_info_hashes:
@@ -201,8 +223,6 @@ class SyncService:
                 except (CivitaiNotFoundError, CivitaiAPIError):
                     continue
 
-        if unasked is not None:
-            raise CivitaiAPIError(f"Civitai could not be asked about {model_name}: {unasked}")
         return None, None, None
 
     def sync_model(self, model_path: str, force: bool = False,
@@ -291,18 +311,18 @@ class SyncService:
         print(f"[ModelManager] Processing {model_name}...")
 
         known = known if known and known.get("hashes") and known.get("version") else None
-        # What the file was when its hashes were read, if they are read now:
-        # stored with them, the mark that they are the file's own.
-        checked = None
+        # What the file was when its hashes were read: stored with them, the
+        # mark that they are the file's own - read now, read before and
+        # unchanged since (_trusted_hashes compared it), or a download's.
         if known:
             hashes = known["hashes"]
             # Its bytes matched Civitai's SHA-256 as they arrived.
             checked = fingerprint(model_path)
         else:
+            # Before reading: a file written meanwhile then reads as changed.
+            checked = fingerprint(model_path)
             hashes = None if rehash else self._trusted_hashes(model_path)
             if hashes is None:
-                # Before reading: a file written meanwhile then reads as changed.
-                checked = fingerprint(model_path)
                 hashes = self.calculate_hashes(model_path)
         if not hashes.sha256:
             result.error = "Failed to calculate hashes"
@@ -331,6 +351,15 @@ class SyncService:
                 db.set_lookup_failed(model_path)
                 result.not_found = True
                 return result
+
+            if not known:
+                # Found by its SHA-256, the file is Civitai's byte for byte:
+                # the other kinds Civitai lists for it are the file's own, and
+                # are not read. Found by part of it (AutoV1), a prefix (AutoV2)
+                # or a later kind, it may not be - what it lacks is read.
+                if matched_hash_type == "sha256":
+                    self._adopt_listed_hashes(hashes, version_data)
+                ModelHasher.complete(model_path, hashes)
 
             version_id = version_data.get("id")
             model_id = version_data.get("modelId")
@@ -378,8 +407,7 @@ class SyncService:
             # Update database with model and version data. A failure here
             # means the model will not show up in the UI, so it must not be
             # reported as a successful sync.
-            db_error = self._update_database(model_path, data_to_save, hashes,
-                                             hashes_checked=checked, write_hashes=checked is not None)
+            db_error = self._update_database(model_path, data_to_save, hashes, hashes_checked=checked)
             if db_error:
                 result.error = f"Database update failed: {db_error}"
                 return result
@@ -415,6 +443,26 @@ class SyncService:
         except Exception as e:
             result.error = f"Unexpected error: {e}"
             return result
+
+    def _adopt_listed_hashes(self, hashes: HashResult, version_data: Dict[str, Any]) -> None:
+        """
+        The kinds Civitai lists for the file whose SHA-256 is this one, where
+        `hashes` has none: the same bytes, so the same hashes, as a download
+        takes them (download_service). AutoV3 above all, which images name
+        LoRAs by.
+        """
+        mine = (hashes.sha256 or "").upper()
+        for listed_file in version_data.get("files") or []:
+            listed = HashResult.from_stored(
+                {str(k).lower(): v for k, v in ((listed_file or {}).get("hashes") or {}).items()})
+            if (listed.sha256 or "").upper() != mine:
+                continue
+            for name in HashResult.KNOWN:
+                if not getattr(hashes, name) and getattr(listed, name):
+                    setattr(hashes, name, getattr(listed, name))
+            for kind, value in listed.extra.items():
+                hashes.extra.setdefault(kind, value)
+            return
 
     def _trusted_hashes(self, model_path: str) -> Optional[HashResult]:
         """

@@ -89,14 +89,24 @@ class ModelHasher:
     - AutoV1: SHA256 of 64KB at 1MB offset, first 8 chars
     - CRC32: Full file CRC32
     - BLAKE3: Full file BLAKE3 hash
+
+    A sync reads a file for SHA-256 first (calculate_first), with AutoV2 and
+    AutoV1, which come free; the rest (complete) only when none of those is
+    known to Civitai, or Civitai's own list for the file does not say them.
+    AutoV3 costs as much as SHA-256 again, BLAKE3 and CRC32 about as much
+    between them, and Civitai answers most files by their SHA-256: hashing
+    every kind up front ran at half the speed the disk could read.
     """
 
     CHUNK_SIZE = 1024 * 1024  # 1MB chunks for reading
 
+    #: Asked first: SHA-256 and what comes free with it.
+    FIRST_LOOKUPS = ("sha256", "autov1", "autov2")
+
     @classmethod
     def calculate_all(cls, file_path: str) -> HashResult:
         """
-        Calculate all hash types for a file.
+        Calculate all hash types for a file, in one read.
 
         For safetensors files, also calculates tensor-only hashes.
 
@@ -106,19 +116,58 @@ class ModelHasher:
         Returns:
             HashResult with all computed hashes.
         """
-        result = HashResult()
+        return cls._read(file_path, HashResult(), full=True, tensor=True, blake=True, crc=True)
+
+    @classmethod
+    def calculate_first(cls, file_path: str) -> HashResult:
+        """
+        What a sync asks Civitai with first, in one read: SHA-256, AutoV2
+        (its first ten characters) and AutoV1 (64 KB of the file).
+        """
+        return cls._read(file_path, HashResult(), full=True, tensor=False, blake=False, crc=False)
+
+    @classmethod
+    def complete(cls, file_path: str, result: HashResult) -> HashResult:
+        """
+        Read from the file what `result` lacks of AutoV3, BLAKE3 and CRC32 -
+        a second read, made only when something is missing. What it has is
+        left as it is.
+        """
+        tensor = (file_path.lower().endswith('.safetensors')
+                  and not result.tensor_sha256 and not result.autov3)
+        blake = BLAKE3_AVAILABLE and not result.blake3
+        crc = not result.crc32
+        if not (tensor or blake or crc):
+            return result
+        return cls._read(file_path, result, full=False, tensor=tensor, blake=blake, crc=crc)
+
+    @classmethod
+    def _read(cls, file_path: str, result: HashResult, full: bool, tensor: bool,
+              blake: bool, crc: bool) -> HashResult:
+        """
+        One read of the file, into `result`: SHA-256, AutoV2 and AutoV1 with
+        `full`; the tensor-only SHA-256 and AutoV3 with `tensor` (safetensors
+        only); BLAKE3 with `blake`; CRC32 with `crc`.
+        """
         is_safetensors = file_path.lower().endswith('.safetensors')
 
         try:
-            # Calculate full file hashes in a single pass
-            sha256_hasher = hashlib.sha256()
-            blake3_hasher = blake3.blake3() if BLAKE3_AVAILABLE else None
-            crc = 0
+            sha256_hasher = hashlib.sha256() if full else None
+            blake3_hasher = blake3.blake3() if blake and BLAKE3_AVAILABLE else None
+            crc_value = 0
+
+            def feed(data: bytes) -> None:
+                nonlocal crc_value
+                if sha256_hasher is not None:
+                    sha256_hasher.update(data)
+                if blake3_hasher is not None:
+                    blake3_hasher.update(data)
+                if crc:
+                    crc_value = zlib.crc32(data, crc_value)
 
             # AutoV3 hashes a safetensors file's tensors, skipping the header.
             # Those bytes go past in this same read, so they are hashed here
-            # rather than in a second pass over the whole file - which is what
-            # this used to do, and it doubled the I/O of every sync.
+            # rather than in a pass of their own over the whole file.
             tensor_hasher = None
             tensor_offset = 0
 
@@ -130,45 +179,24 @@ class ModelHasher:
 
             with open(file_path, "rb") as f:
                 # For safetensors, read header size first
-                header_size = 0
                 if is_safetensors:
                     header_bytes = f.read(8)
-                    if len(header_bytes) < 8:
-                        # Too short to carry a header length, so it is not a
-                        # safetensors file whatever it is called. Those bytes
-                        # have been taken off the stream and the loop below
-                        # starts past them, so hash them here - otherwise a
-                        # truncated file hashes as though it were empty, and
-                        # every such file shares one hash.
-                        sha256_hasher.update(header_bytes)
-                        if blake3_hasher:
-                            blake3_hasher.update(header_bytes)
-                        crc = zlib.crc32(header_bytes, crc)
-                        bytes_read = len(header_bytes)
-                    else:
+                    # Hashed whatever they hold: a file too short to carry a
+                    # header length is not a safetensors file whatever it is
+                    # called, and hashing it as empty would give every such
+                    # file one hash.
+                    feed(header_bytes)
+                    bytes_read = len(header_bytes)
+                    if len(header_bytes) == 8:
                         header_size = int.from_bytes(header_bytes, "little")
-                        # Update hashes with header size bytes
-                        sha256_hasher.update(header_bytes)
-                        if blake3_hasher:
-                            blake3_hasher.update(header_bytes)
-                        crc = zlib.crc32(header_bytes, crc)
-                        bytes_read = 8
-
-                        if header_size > 0:
+                        if header_size > 0 and tensor:
                             # 8 bytes of length, then the header itself
                             tensor_offset = 8 + header_size
                             tensor_hasher = hashlib.sha256()
 
-                        # Check if 1MB offset falls within header
-                        if autov1_offset < bytes_read:
-                            autov1_data = header_bytes[autov1_offset:autov1_offset + autov1_size]
-
                 # Read rest of file
                 for chunk in iter(lambda: f.read(cls.CHUNK_SIZE), b""):
-                    sha256_hasher.update(chunk)
-                    if blake3_hasher:
-                        blake3_hasher.update(chunk)
-                    crc = zlib.crc32(chunk, crc)
+                    feed(chunk)
 
                     chunk_start = bytes_read
                     chunk_end = bytes_read + len(chunk)
@@ -180,28 +208,23 @@ class ModelHasher:
                         )
 
                     # Capture AutoV1 data if we're in the right range
-
-                    if chunk_start < autov1_offset + autov1_size and chunk_end > autov1_offset:
-                        # Calculate overlap with AutoV1 range
+                    if full and chunk_start < autov1_offset + autov1_size and chunk_end > autov1_offset:
                         start_in_chunk = max(0, autov1_offset - chunk_start)
                         end_in_chunk = min(len(chunk), autov1_offset + autov1_size - chunk_start)
                         autov1_data += chunk[start_in_chunk:end_in_chunk]
 
                     bytes_read += len(chunk)
 
-            # Store full file hashes
-            result.sha256 = sha256_hasher.hexdigest().upper()
-            result.autov2 = result.sha256[:10]
-            result.crc32 = format(crc & 0xFFFFFFFF, '08X')
-
-            if blake3_hasher:
+            if full:
+                result.sha256 = sha256_hasher.hexdigest().upper()
+                result.autov2 = result.sha256[:10]
+                # Calculate AutoV1 if we have enough data
+                if len(autov1_data) >= autov1_size:
+                    result.autov1 = hashlib.sha256(autov1_data[:autov1_size]).hexdigest().upper()[:8]
+            if crc:
+                result.crc32 = format(crc_value & 0xFFFFFFFF, '08X')
+            if blake3_hasher is not None:
                 result.blake3 = blake3_hasher.hexdigest().upper()
-
-            # Calculate AutoV1 if we have enough data
-            if len(autov1_data) >= autov1_size:
-                autov1_hash = hashlib.sha256(autov1_data[:autov1_size]).hexdigest().upper()
-                result.autov1 = autov1_hash[:8]
-
             # For safetensors, the tensor-only hash (AutoV3), gathered above
             if tensor_hasher is not None:
                 result.tensor_sha256 = tensor_hasher.hexdigest().upper()
@@ -211,6 +234,18 @@ class ModelHasher:
             print(f"[ModelManager] Error calculating hashes for {os.path.basename(file_path)}: {e}")
 
         return result
+
+    @classmethod
+    def later_lookups(cls, file_path: str) -> List[str]:
+        """
+        Asked only when none of FIRST_LOOKUPS is known to Civitai: kinds a
+        second read gives (complete). AutoV3 first, for a safetensors file -
+        the tensors alone, so it still finds a file whose header was edited.
+        """
+        order = ["blake3", "crc32"]
+        if file_path.lower().endswith('.safetensors'):
+            order.insert(0, "autov3")
+        return order
 
     @classmethod
     def get_fallback_order(cls, file_path: str) -> List[str]:
@@ -223,16 +258,7 @@ class ModelHasher:
         Returns:
             List of hash type names in fallback order.
         """
-        is_safetensors = file_path.lower().endswith('.safetensors')
-
-        # Base order: SHA256 -> CRC32 -> BLAKE3 -> AutoV1 -> AutoV2
-        order = ["sha256", "crc32", "blake3", "autov1", "autov2"]
-
-        # For safetensors, add AutoV3 after SHA256 (most likely to work for modified files)
-        if is_safetensors:
-            order.insert(1, "autov3")
-
-        return order
+        return list(cls.FIRST_LOOKUPS) + cls.later_lookups(file_path)
 
     @classmethod
     def load_cm_info_hashes(cls, file_path: str) -> Optional[Dict[str, str]]:

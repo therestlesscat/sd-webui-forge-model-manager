@@ -206,13 +206,11 @@ def on_ui_settings():
                 "step": 1,
             },
             section=section,
-        ).info("How many model files to hash at once when identifying them. "
-               "Identifying a file means reading all of it, so this is usually "
-               "limited by the drive rather than the CPU, and past the point "
-               "where the drive is saturated more threads buy nothing. Raise it "
-               "for a fast NVMe or an array, lower it for a spinning disk, where "
-               "parallel reads make the head seek, or if a sync makes the machine "
-               "unresponsive.")
+        ).info("How many model files to hash at once when a sync identifies them. "
+               "Each file is read in full, so the drive usually sets the pace. "
+               "Hard disk or network drive: 1-2 - more make it slower. "
+               "SATA SSD: 2-4. NVMe: 4-8, or more on a CPU with many cores. "
+               "Lower it if a sync makes the machine slow.")
     )
 
     shared.opts.add_option(
