@@ -1,14 +1,12 @@
 """
-Storage module for reading/writing model metadata files.
-Handles .civitai.info and .images.json files.
+Reading and writing the .civitai.info beside a model file.
+
+A sync and a download write one, for other tools; a sync reads one only for a
+model Civitai no longer has (SyncService._identify_by_sidecar).
 """
 import json
 import os
 from typing import Optional, Dict, Any, Tuple
-
-from .models import (
-    CivitaiModelInfo, ModelVersion, ModelImage
-)
 
 
 def get_metadata_paths(model_path: str) -> Tuple[str, str]:
@@ -71,7 +69,7 @@ def write_civitai_info(model_path: str, data: Dict[str, Any]) -> bool:
 
 def as_model_payload(data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
-    A sidecar in the model format the scan reads, whichever it was written in.
+    A sidecar in the model format a sync reads, whichever it was written in.
 
     This extension writes Civitai's model payload: the model at the root,
     its versions under modelVersions. Other tools write the version payload
@@ -131,131 +129,3 @@ def download_payload(model_data: Dict[str, Any], version_data: Dict[str, Any],
         "stats": model_data.get("stats"),
         "modelVersions": [version_data],
     }
-
-
-def read_images_json(model_path: str) -> Optional[Dict[str, Any]]:
-    """
-    Read .images.json file for a model.
-
-    Args:
-        model_path: Path to the model file
-
-    Returns:
-        Images data or None if not found
-    """
-    _, images_path = get_metadata_paths(model_path)
-
-    if not os.path.exists(images_path):
-        return None
-
-    try:
-        with open(images_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"[ModelManager] Error reading {images_path}: {e}")
-        return None
-
-
-def parse_civitai_info(data: Dict[str, Any], filename: Optional[str] = None) -> Tuple[Optional[CivitaiModelInfo], Optional[ModelVersion]]:
-    """
-    Parse .civitai.info data into model and version objects.
-
-    The .civitai.info format from existing extensions varies:
-    1. Full model response (has 'modelVersions' array)
-    2. Version-only response (from by-hash API)
-    3. Mixed format
-
-    Args:
-        data: Raw civitai.info JSON data
-        filename: Optional filename to match version by (e.g., "model_v1.safetensors")
-
-    Returns:
-        Tuple of (CivitaiModelInfo, ModelVersion) - either may be None
-    """
-    if not data:
-        return None, None
-
-    # Check if this is a version-only response (from by-hash API)
-    if "model" in data and "modelVersions" not in data:
-        # This is a version response with embedded model info
-        model_data = data.get("model", {})
-        model_data["modelVersions"] = []  # Empty, we'll use the version from outer data
-
-        model_info = CivitaiModelInfo.from_civitai(model_data)
-        version_info = ModelVersion.from_civitai(data)
-
-        return model_info, version_info
-
-    # Check if this is a full model response
-    if "modelVersions" in data:
-        model_info = CivitaiModelInfo.from_civitai(data)
-
-        # Find matching version by filename if provided
-        version_info = None
-        if filename and model_info.versions:
-            # Try to match by filename in files array
-            for version in model_info.versions:
-                # Check if this version has a matching file
-                version_data = None
-                for v in data.get("modelVersions", []):
-                    if v.get("id") == version.id:
-                        version_data = v
-                        break
-
-                if version_data:
-                    for f in version_data.get("files", []):
-                        if f.get("name") == filename:
-                            version_info = version
-                            break
-                if version_info:
-                    break
-
-        # Fallback to first version if no filename match
-        if not version_info and model_info.versions:
-            version_info = model_info.versions[0]
-
-        return model_info, version_info
-
-    # Fallback: treat as version-only without model wrapper
-    if "id" in data and "name" in data:
-        version_info = ModelVersion.from_civitai(data)
-
-        # Create minimal model info
-        model_info = CivitaiModelInfo(
-            id=data.get("modelId", 0),
-            name=data.get("model", {}).get("name", version_info.name),
-            type=data.get("model", {}).get("type", "Unknown"),
-        )
-
-        return model_info, version_info
-
-    return None, None
-
-
-def load_model_metadata(model_path: str) -> Tuple[Optional[CivitaiModelInfo], Optional[ModelVersion], list]:
-    """
-    Load all metadata for a model.
-
-    Args:
-        model_path: Path to the model file
-
-    Returns:
-        Tuple of (CivitaiModelInfo, ModelVersion, list of ModelImage)
-    """
-    # Read civitai info
-    civitai_data = read_civitai_info(model_path)
-
-    # Get filename for matching the correct version
-    filename = os.path.basename(model_path)
-    model_info, version_info = parse_civitai_info(civitai_data, filename)
-
-    # Read images (our custom format with full metadata)
-    images = []
-    images_data = read_images_json(model_path)
-    if images_data and "images" in images_data:
-        images = [ModelImage.from_dict(img) for img in images_data["images"]]
-    elif version_info and version_info.images:
-        # Fall back to images from civitai.info
-        images = version_info.images
-
-    return model_info, version_info, images

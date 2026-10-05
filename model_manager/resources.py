@@ -65,7 +65,7 @@ def files_by_name(db, named, by_hash, loadable=None) -> dict:
     where the resource's hash - if the image gives one - found nothing.
 
     A file with that name is taken only if it is a LoRA, an embedding, or not
-    yet read by a scan; and, where the image gives a hash, only if that hash
+    yet read by a sync; and, where the image gives a hash, only if that hash
     is the file's - so a file that merely shares a name is not taken for the
     one the image used. With no hash, the name alone decides, as it does for
     Forge's <lora:name>: the whole name, never a part of one, and of several
@@ -111,7 +111,7 @@ def files_by_name(db, named, by_hash, loadable=None) -> dict:
 
 def _as_file(row: Dict[str, Any]) -> Dict[str, Any]:
     """A local file as a chip knows it: its version, the name Forge knows it by
-    in a prompt, and what the file itself is (null before a scan has read it)."""
+    in a prompt, and what the file itself is (null before a sync has read it)."""
     name = os.path.basename(row.get("file_path") or "")
     return {"version_id": row.get("id"),
             "file_stem": os.path.splitext(name)[0],

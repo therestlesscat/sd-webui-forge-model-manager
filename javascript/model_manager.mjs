@@ -145,7 +145,7 @@ let previewLeastNsfwUserTouched = false;
 let filterDefaultsPromise = null;
 
 
-// Sync with Civitai and Scan Disk (shared/jobs.mjs), connected to this tab's
+// Sync with Civitai (shared/jobs.mjs), connected to this tab's
 // status line and grid.
 connectJobs({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal: () => totalModels });
 
@@ -3045,7 +3045,7 @@ function updateScrollRestoreButton() {
                 };
                 // Directly before Load Models, which stays the rightmost
                 // thing on the row. First child would put it left of the
-                // sync/scan group, at the other end of the row entirely.
+                // sync group, at the other end of the row entirely.
                 const loadBtn = document.getElementById('mm_load_btn');
                 buttonsRow.insertBefore(btn, loadBtn || null);
             }
@@ -3332,7 +3332,7 @@ function bindElements() {
     }
     syncCheckpointType('mm');
 
-    // Sync and Scan Disk: their buttons and dialogs (shared/jobs.mjs).
+    // Sync: its buttons and dialog (shared/jobs.mjs).
     bindJobControls();
 
     // Bind save search button

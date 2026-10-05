@@ -500,7 +500,7 @@ def register(app: FastAPI):
             # Find all related files (same base name, different extensions)
             base_path = os.path.splitext(path)[0]
             # The file and what lies beside it under its name - the same
-            # side files Scan Disk moves with it (model_dirs.COMPANIONS).
+            # side files a move takes with it (model_dirs.COMPANIONS).
             related_patterns = [path] + [base_path + suffix for suffix in COMPANIONS]
 
             # Delete all related files
@@ -729,7 +729,7 @@ def register(app: FastAPI):
             hashes: Comma-separated hashes (the infotext's resources).
             names: A JSON list of {name, hash}: the resources the infotext
                 names, for any that neither an id nor a hash finds - a file
-                Scan Disk added and no sync has identified. `hash`, if the
+                Civitai does not know. `hash`, if the
                 image gives one, has to be the file's.
 
         Returns:
@@ -737,7 +737,7 @@ def register(app: FastAPI):
             names: name (lower case) -> file, found by its file name.
             A file is {version_id, file_stem, file_type}: file_stem is the
             name Forge knows it by in a prompt, file_type what the file itself
-            is (file_identity.py), or null before a scan has read it.
+            is (file_identity.py), or null before a sync has read it.
         """
         def split(values):
             return [v.strip() for v in (values or "").split(",") if v.strip()]

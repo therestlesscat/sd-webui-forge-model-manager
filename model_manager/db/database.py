@@ -209,7 +209,7 @@ class ModelsDatabase:
         """
         Record what a model file's own contents say it is. See file_identity.py.
 
-        `checked` is the file's modified time when it was read, so a scan can
+        `checked` is the file's modified time when it was read, so a walk can
         skip files unchanged since - including ones whose model could not be
         told, which are recorded with preset None rather than read again.
         `alias` is a LoRA's ss_output_name, which Forge loads it by too.
@@ -326,7 +326,7 @@ class ModelsDatabase:
         return self._models.local_versions_by_key(version_ids, hashes, usable)
 
     def normalize_version_paths(self) -> int:
-        """Store each file's path as a scan finds it. See ModelsOps.normalize_version_paths()."""
+        """Store each file's path as a walk finds it. See ModelsOps.normalize_version_paths()."""
         return self._models.normalize_version_paths()
 
     def owned_by_library(self, model_ids, version_ids) -> Tuple[Set[int], Set[int]]:

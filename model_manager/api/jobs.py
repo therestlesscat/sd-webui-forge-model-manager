@@ -1,26 +1,25 @@
 """
 Work that takes long enough to need watching.
 
-Scanning the disk, syncing with Civitai, refreshing metadata - each starts on
-a background thread and reports progress until it finishes or is cancelled.
-Which job runs, and how far along it is, is model_manager.jobs': a full sync
-and a metadata sync are both the "sync", one at a time, beside one "scan".
+Syncing with Civitai - a force sync, which hashes, or one that refreshes by id,
+each after a walk of the library - starts on a background thread and reports
+progress until it finishes or is cancelled. Which job runs, and how far along
+it is, is model_manager.jobs': both are the "sync", one at a time.
 """
-from typing import Any, Optional
-from fastapi import Body, FastAPI, Form
+from typing import Any
+from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..jobs import jobs
 from ..model_dirs import misplaced_files
-from ..scan_service import ScanService
 from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_refresh_options,
                               sync_window_counts, window_cutoff)
 from ..sync_service import SyncService
 from .common import failed
 
 #: What progress and cancel answer before a job of the kind has run.
-NOT_STARTED = {"sync": "No sync in progress", "scan": "No scan in progress"}
+NOT_STARTED = {"sync": "No sync in progress"}
 
 
 def _start(kind: str, make, run, started: str) -> JSONResponse:
@@ -249,47 +248,3 @@ def register(app: FastAPI):
     async def cancel_sync():
         """Cancel active sync operation."""
         return _cancel("sync")
-
-    @app.post("/model-manager/scan")
-    async def start_scan(options: Optional[dict] = Body(default=None)):
-        """
-        Start scanning model directories to populate the database.
-
-        Scans all model directories, reads metadata files, and stores
-        computed metadata in SQLite for fast querying.
-
-        options.reread_headers: read what every file is from its header
-        again, not only new or changed files - after an update that
-        recognises more kinds of file.
-
-        options.move_misplaced: move each file sitting in another type's
-        folder into its own (see /model-manager/scan/misplaced). Only ever
-        asked for by its own box in the dialog, never by a note's button.
-
-        Returns immediately. Poll /model-manager/scan/progress for status.
-        """
-        reread_headers = bool((options or {}).get("reread_headers"))
-        move_misplaced = bool((options or {}).get("move_misplaced"))
-
-        return _start("scan", ScanService,
-                      lambda scan: scan.scan_models(reread_headers=reread_headers,
-                                                    move_misplaced=move_misplaced),
-                      "Scan started")
-
-    @app.get("/model-manager/scan/misplaced")
-    def get_misplaced():
-        """The files in another type's folder, for Scan Disk's dialog to show before it moves any."""
-        try:
-            return JSONResponse({"success": True, "files": misplaced_files(get_models_db())})
-        except Exception as e:
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-    @app.get("/model-manager/scan/progress")
-    async def get_scan_progress():
-        """Get current scan progress."""
-        return _progress("scan")
-
-    @app.post("/model-manager/scan/cancel")
-    async def cancel_scan():
-        """Cancel active scan operation."""
-        return _cancel("scan")

@@ -1,10 +1,10 @@
 """
-The long jobs - a sync, a scan, a restamp of stored image levels - that run
-on a thread and are watched.
+The long jobs - a sync, a restamp of stored image levels - that run on a
+thread and are watched.
 
 At most one job of each kind runs at a time. A kind is a name ("sync",
-"scan", "restamp"); a metadata sync is a "sync", as it shares the sync's
-endpoints. A new kind of job is a new name, not new state.
+"restamp"); a metadata sync is a "sync", as it shares the sync's endpoints.
+A new kind of job is a new name, not new state.
 
 What a job reports is its service's own progress, and only that. A job that
 raises marks that progress finished, with its error: it used to write the

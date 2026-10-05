@@ -39,8 +39,8 @@ class HashResult:
     blake3: Optional[str] = None          # Full file BLAKE3 (64 chars)
     tensor_sha256: Optional[str] = None   # Full tensor-only SHA256 (safetensors)
 
-    # Hash kinds this class does not model, carried through untouched. A scan
-    # stores every kind Civitai names, lowercased, and Civitai names more than
+    # Hash kinds this class does not model, carried through untouched. Scan
+    # Disk stored every kind Civitai names, lowercased, and Civitai names more than
     # the six above - sha256_12 on 412 of this library's versions, sshs_12 on
     # three. Without somewhere to put them, a metadata refresh read the seven
     # it knew and wrote back only those, so the rest were dropped on every

@@ -189,13 +189,8 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/sync/new-files')) {
         return { ok: true, json: async () => ({ ...NEW_FILES }) };
     }
-    if (href.includes('/sync/misplaced') || href.includes('/scan/misplaced')) {
+    if (href.includes('/sync/misplaced')) {
         return { ok: true, json: async () => ({ success: true, files: MISPLACED }) };
-    }
-    if (href.includes('/scan/progress')) {
-        // Completed too, so a second scan can be started from the dialog.
-        return { ok: true, json: async () => ({ success: true, progress: {
-            total: 1, processed: 1, current_file: '', error_count: 0, is_complete: true } }) };
     }
     if (href.includes('/sync/estimate')) {
         lastEstimateQuery = new URL(href).searchParams;
@@ -242,9 +237,9 @@ const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: tr
 
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
-window.mmTiming = { poll: 100, scanPoll: 50, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
+window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
 await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-const { showScanDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
+const { showSyncDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
 // linkedom has no readyState, so onReady() is waiting on the event rather
 // than its 100ms timer. Fire it, as a browser would.
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
@@ -536,14 +531,14 @@ await settle();
 await settle();
 check('both boxes start unticked, the move one usable once its list has come',
       [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled], [false, false, false]);
-check('the dialog says which files are in another type\'s folder, as Scan Disk\'s does',
-      [$('mm_sync_move_note').textContent.startsWith('2 files are in a folder for another type'),
-       $('mm_sync_misplaced_list').querySelectorAll('li').length], [true, 2]);
+check('the box counts the files it can move',
+      $('mm_sync_move_label').textContent, 'Move files into their type\'s folder (1)');
 check('the estimate says what every sync will read in full, whatever its scope',
       $('mm_sync_estimate').textContent.endsWith('Also 12 new files to read in full (3.00 GB) and look up on Civitai.'),
       true);
 $('mm_sync_reread').checked = true;
 $('mm_sync_move').checked = true;
+change($('mm_sync_move'));
 click('mm_sync_dialog_start');
 await settle();
 const walkBody = new URLSearchParams(posts[0]?.body || '');
@@ -576,86 +571,58 @@ await until('the force sync to finish', () => $('mm_sync_btn').disabled === fals
 NEW_FILES.files = 0;
 NEW_FILES.bytes = 0;
 
-// --- Scan Disk asks first ---------------------------------------------------
-// It adds and removes rows to match the disk, which is not something to find
-// out afterwards.
-// The metadata sync above is still running as far as the page is concerned,
-// and Scan Disk is disabled while one is. Let its progress poll finish.
-await until('the sync\'s last poll', () => $('mm_refresh_btn').disabled === false);
-check('the scan button is available again', $('mm_refresh_btn').disabled, false);
-
+// --- Moving files into their type's folder (#54) ------------------------------
+// Said before it is ticked, never ticked for anyone. Scan Disk's dialog did
+// this until every sync came to walk the library (0.48).
+check('there is no Scan Disk: no button, no dialog', [$('mm_refresh_btn'), $('mm_scan_dialog')], [null, null]);
 posts.length = 0;
-check('the scan dialog starts hidden', $('mm_scan_dialog').style.display, 'none');
-
-click('mm_refresh_btn');
+click('mm_sync_btn');
 await settle();
-check('the button opens it rather than scanning', $('mm_scan_dialog').style.display, 'flex');
-check('and nothing has been posted yet', posts.length, 0);
-
-const scanText = $('mm_scan_dialog').textContent;
-for (const said of ['Adds models you have added', 'Removes models you have deleted',
-                    'Does not contact Civitai']) {
-    check('it says: ' + said, scanText.includes(said), true);
-}
-
-click('mm_scan_dialog_cancel');
 await settle();
-check('Cancel closes it', $('mm_scan_dialog').style.display, 'none');
-check('and still nothing was posted', posts.length, 0);
-
-click('mm_refresh_btn');
+check('the box says how many files it can move - not the one whose name is taken in its folder',
+      $('mm_sync_move_label').textContent, 'Move files into their type\'s folder (1)');
+check('its box can be ticked, and is not', [$('mm_sync_move').disabled, $('mm_sync_move').checked], [false, false]);
+check('unticked, it says nothing more: no paragraph, no list',
+      [$('mm_sync_move_note').hidden, $('mm_sync_misplaced').hidden], [true, true]);
+$('mm_sync_move').checked = true;
+change($('mm_sync_move'));
+check('ticked, it says what moving does, and that one will stay',
+      [$('mm_sync_move_note').hidden, $('mm_sync_move_note').textContent.startsWith('2 files are in a folder for another type'),
+       $('mm_sync_move_note').textContent.includes('1 will stay where it is')], [false, true, true]);
+check('and lists them, each with where it goes and why',
+      [$('mm_sync_misplaced').hidden,
+       Array.from($('mm_sync_misplaced_list').querySelectorAll('li')).map((li) => li.textContent.replace(/\s+/g, ' ').trim())],
+      [false, ['C:/models/Stable-diffusion/ae.safetensors → C:/models/VAE/ae.safetensors (VAE: Flux VAE)',
+               'C:/models/Lora/neg.pt → C:/models/embeddings/neg.pt (TextualInversion) - stays: the same file is already there']]);
+$('mm_sync_move').checked = false;
+change($('mm_sync_move'));
+check('unticked again, both go', [$('mm_sync_move_note').hidden, $('mm_sync_misplaced').hidden], [true, true]);
+click('mm_sync_dialog_cancel');
 await settle();
-click('mm_scan_dialog_start');
+showSyncDialog({ rereadHeaders: true });
 await settle();
-check('Scan closes it', $('mm_scan_dialog').style.display, 'none');
-check('and starts the scan', posts.length, 1);
-check('against the scan endpoint', posts[0].url, '/model-manager/scan');
-check('reading headers only for new or changed files, moving nothing', JSON.parse(posts[0].body || '{}'),
-      { reread_headers: false, move_misplaced: false });
-check('unless asked to read them all again, which the dialog offers, unticked',
-      [$('mm_scan_dialog').textContent.includes('Re-evaluate file headers'), $('mm_scan_reread').checked],
-      [true, false]);
-for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
-click('mm_refresh_btn');
-await settle();
-$('mm_scan_reread').checked = true;
-click('mm_scan_dialog_start');
-await settle();
-check('ticked, the scan reads every file\'s header again', JSON.parse(posts[1]?.body || '{}'),
-      { reread_headers: true, move_misplaced: false });
-for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
-click('mm_refresh_btn');
-await settle();
-check('and the next time the dialog opens, it is unticked again', $('mm_scan_reread').checked, false);
-
-// Moving files into their type's folder (#54): said before it is ticked,
-// never ticked for anyone.
-check('the dialog says how many files are in another type\'s folder, and that one will stay',
-      [$('mm_scan_move_note').textContent.startsWith('2 files are in a folder for another type'),
-       $('mm_scan_move_note').textContent.includes('1 will stay where it is')], [true, true]);
-check('it lists them, each with where it goes and why',
-      Array.from($('mm_scan_misplaced_list').querySelectorAll('li')).map((li) => li.textContent.replace(/\s+/g, ' ').trim()),
-      ['C:/models/Stable-diffusion/ae.safetensors → C:/models/VAE/ae.safetensors (VAE: Flux VAE)',
-       'C:/models/Lora/neg.pt → C:/models/embeddings/neg.pt (TextualInversion) - stays: the same file is already there']);
-check('its box can be ticked, and is not', [$('mm_scan_move').disabled, $('mm_scan_move').checked], [false, false]);
-$('mm_scan_move').checked = true;
-click('mm_scan_dialog_start');
-await settle();
-check('ticked, the scan moves them', JSON.parse(posts[2]?.body || '{}'),
-      { reread_headers: false, move_misplaced: true });
-for (let i = 0; i < 100 && $('mm_refresh_btn').disabled; i++) await settle();
-showScanDialog({ rereadHeaders: true });
-await settle();
-check('a note\'s button ticks "Re-evaluate file headers", never the move',
-      [$('mm_scan_reread').checked, $('mm_scan_move').checked], [true, false]);
-click('mm_scan_dialog_cancel');
+check('a note\'s button ticks "Read every file\'s header again", never the move',
+      [$('mm_sync_dialog').style.display, $('mm_sync_reread').checked, $('mm_sync_move').checked], ['flex', true, false]);
+click('mm_sync_dialog_cancel');
 MISPLACED.length = 0;
-click('mm_refresh_btn');
+click('mm_sync_btn');
 await settle();
-check('with nothing to move, it says so, and the box cannot be ticked',
-      [$('mm_scan_move_note').textContent, $('mm_scan_move').disabled],
-      ['No file is in a folder for another type.', true]);
-click('mm_scan_dialog_cancel');
+await settle();
+check('with nothing to move, the box says none, cannot be ticked, and says nothing more',
+      [$('mm_sync_move_label').textContent, $('mm_sync_move').disabled, $('mm_sync_move_note').hidden,
+       $('mm_sync_misplaced').hidden],
+      ['Move files into their type\'s folder (0)', true, true, true]);
+click('mm_sync_dialog_cancel');
+MISPLACED.push({ path: 'C:/models/Lora/taken.pt', to: 'C:/models/embeddings/taken.pt',
+                 file_type: 'TextualInversion', identified_by: '', clash: 'different' });
+click('mm_sync_btn');
+await settle();
+await settle();
+check('nor when every file\'s name is taken in its folder',
+      [$('mm_sync_move_label').textContent, $('mm_sync_move').disabled], ['Move files into their type\'s folder (0)', true]);
+MISPLACED.length = 0;
+click('mm_sync_dialog_cancel');
+check('and nothing was posted', posts.length, 0);
 
 console.log(fails.length ? fails.map((f) => 'FAIL ' + f).join('\n') : 'All dialog checks passed.');
 process.exit(fails.length ? 1 : 0);

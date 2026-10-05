@@ -103,17 +103,17 @@ db.upsert_civitai_model(model(S, [version(22, index=0, published='2025-03-01'),
                                   version(20, index=1, published='2025-01-01')]))
 check('7. and one that lists more adds them, newest first', ids(S), [22, 21, 20])
 
-# ------------------------------------------------ the scan and the sync pass it
-from model_manager.scan_service import ScanService                     # noqa: E402
+# ---------------------------------------------- a sidecar and the sync pass it
+from model_manager.payload_rows import model_row                      # noqa: E402
 from model_manager.storage import as_model_payload                    # noqa: E402
 path = facts['linked_paths'][0]
 local = db.get_version(path)
 payload = {'id': local['model_id'], 'name': 'Linked', 'type': 'LORA',
            'modelVersions': [version(local['id'], index=1), version(990001, index=0, published='2026-01-01')]}
-extracted = ScanService()._extract_civitai_metadata(as_model_payload(payload),
-                                                    {'file_name': os.path.basename(path)}, path)
-check('8. a scan hands on the sidecar\'s versions', [v['id'] for v in extracted.get('versions') or []],
-      [local['id'], 990001])
+# What a sync writes for a model Civitai no longer has (_identify_by_sidecar).
+extracted = model_row(as_model_payload(payload))
+check('8. a sidecar read for a model Civitai lacks hands on its versions',
+      [v['id'] for v in extracted.get('versions') or []], [local['id'], 990001])
 
 from model_manager.sync_service import SyncService   # noqa: E402
 from model_manager.hashing import HashResult          # noqa: E402

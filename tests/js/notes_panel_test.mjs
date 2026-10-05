@@ -4,8 +4,8 @@
 // them, a click on the edges spreads them into rows. Each note is coloured
 // by its kind, with its button, if it has one, and Dismiss, which brings the
 // next one up and which the server keeps for every browser. The Model
-// Manager's "Run Scan Disk once" note opens Scan Disk with "Re-evaluate file
-// headers" ticked.
+// Manager's "Sync once" note opens the sync dialog with "Read every file's
+// header again" ticked.
 import { readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
@@ -19,8 +19,8 @@ const NOTES = [
     { id: 'pinned-tabs', version: '0.40.13', kind: 'feature', audience: 'everyone', tabs: ['model_manager'],
       title: 'Pin the models you come back to', text: 'Pinned ones get a tab.' },
     { id: 'reread-headers', version: '0.40.11', kind: 'action', audience: 'update', tabs: ['model_manager'],
-      title: 'Run Scan Disk once', text: 'Tick <b>Re-evaluate file headers</b>.',
-      action: { id: 'reread_headers', label: 'Open Scan Disk' } },
+      title: 'Sync once', text: 'Tick <b>Read every file\'s header again</b>.',
+      action: { id: 'reread_headers', label: 'Open Sync' } },
     { id: 'generations-tab', version: '0.40.0', kind: 'feature', audience: 'everyone', important: true,
       tabs: ['model_manager'], title: 'Every image you generate, in one place', text: 'Read this.' },
 ];
@@ -64,20 +64,21 @@ check('then what needs doing, then warnings, then features', count(), '2 of 4');
 check('coloured by its kind, with its mark, its title and version',
       [top().className, top().querySelector('.mm-banner-icon')?.textContent,
        top().querySelector('strong')?.textContent, top().querySelector('.mm-note-version')?.textContent],
-      ['mm-banner mm-note mm-note-action', '!', 'Run Scan Disk once', '0.40.11']);
+      ['mm-banner mm-note mm-note-action', '!', 'Sync once', '0.40.11']);
 check('its text as text, never markup', [top().querySelector('.mm-banner-note b'),
-      top().querySelector('.mm-banner-note')?.textContent], [null, 'Tick <b>Re-evaluate file headers</b>.']);
+      top().querySelector('.mm-banner-note')?.textContent], [null, 'Tick <b>Read every file\'s header again</b>.']);
 check('the arrows\' room as a pile of 4 needs: one digit a side',
       panel().querySelector('.mm-note-steps')?.getAttribute('style'), '--mm-note-digits: 1');
 check('its button, Dismiss, and the arrows',
       [Array.from(top().querySelectorAll('.mm-btn')).map((b) => b.textContent.trim()), steps()],
-      [['Open Scan Disk', 'Dismiss'], [false, false]]);
+      [['Open Sync', 'Dismiss'], [false, false]]);
 
 click(top().querySelector('[data-note-action]'));
-check('which opens Scan Disk with "Re-evaluate file headers" ticked',
-      [document.getElementById('mm_scan_dialog')?.style.display, document.getElementById('mm_scan_reread')?.checked],
-      ['flex', true]);
-click(document.getElementById('mm_scan_dialog_cancel'));
+check('which opens the sync dialog with "Read every file\'s header again" ticked, and the move not',
+      [document.getElementById('mm_sync_dialog')?.style.display, document.getElementById('mm_sync_reread')?.checked,
+       document.getElementById('mm_sync_move')?.checked],
+      ['flex', true, false]);
+click(document.getElementById('mm_sync_dialog_cancel'));
 
 click(panel().querySelector('[data-note-step="1"]'));
 check('› steps to the next note', [top().dataset.note, top().className, count()],

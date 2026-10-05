@@ -1,11 +1,11 @@
 """
-Files in another type's folder (#54): which they are, and Scan Disk moving
-them into their own when - and only when - its box is ticked.
+Files in another type's folder (#54): which they are, and a sync's walk
+moving them into their own when - and only when - its box is ticked.
 
 A VAE or a text encoder Civitai lists as a "Checkpoint" sat in
 Stable-diffusion, where Forge offers it as a checkpoint. What a file is comes
 from its header; here the headers are stood in for by storing the type a
-scan would have read. A download filed by what it is: download_test.py.
+walk would have read. A download filed by what it is: download_test.py.
 """
 import io
 import os
@@ -30,7 +30,7 @@ from model_manager.architecture import Architecture     # noqa: E402
 from model_manager.hashing import read_hashes           # noqa: E402
 from model_manager.identity_store import store_architecture  # noqa: E402
 from model_manager.model_dirs import file_modified, misplaced_files  # noqa: E402
-from model_manager.scan_service import ScanService       # noqa: E402
+from model_manager.sync_service import SyncService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'misplaced')
 
@@ -47,7 +47,7 @@ paths.models_path = models
 
 
 def place(folder, name, file_type, sha=None, sidecars=()):
-    """A file in a folder, read by a scan as `file_type`."""
+    """A file in a folder, read by a walk as `file_type`."""
     path = os.path.join(models, folder, name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     io.open(path, 'wb').write(b'\0' * 32)
@@ -80,17 +80,23 @@ raw.commit()
 raw.close()
 
 listed = misplaced_files(db)
-check('Scan Disk\'s dialog lists the VAE, where it goes, and what said so',
+check('the sync dialog lists the VAE, where it goes, and what said so',
       [(f['path'], f['to'], f['file_type'], f['identified_by'], f['clash']) for f in listed],
       [(vae, belongs, 'VAE', 'read for the test', None)])
 
 # ------------------------------------------------------------ not unasked
-scan = ScanService()
-progress = scan.scan_models()
-check('a scan without the box moves nothing', (os.path.exists(vae), progress.moved), (True, 0))
+def walk(move_misplaced=False):
+    """The walk every sync starts with; Civitai is never asked in it."""
+    sync = SyncService(client=object())
+    sync.walk_library(move_misplaced=move_misplaced)
+    return sync.progress
+
+
+progress = walk()
+check('a walk without the box moves nothing', (os.path.exists(vae), progress.moved), (True, 0))
 
 # ------------------------------------------------------------ asked
-progress = scan.scan_models(move_misplaced=True)
+progress = walk(move_misplaced=True)
 check('with the box, it moves the file into its type\'s folder', (os.path.exists(belongs), os.path.exists(vae)),
       (True, False))
 check('with its .civitai.info and preview',
@@ -119,15 +125,14 @@ io.open(os.path.join(models, 'VAE', 'loose.safetensors'), 'wb').write(b'not in t
 check('a name already taken is said before anything is moved: the same file, a different one, or a file it cannot compare',
       sorted((os.path.basename(f['path']), f['clash']) for f in misplaced_files(db)),
       [('loose.safetensors', 'exists'), ('namesake.safetensors', 'different'), ('twin.safetensors', 'same')])
-progress = scan.scan_models(move_misplaced=True)
+progress = walk(move_misplaced=True)
 check('none of them is moved, or written over', [os.path.exists(p) for p in (same, different, loose)],
       [True, True, True])
-check('and the scan says so', (progress.moved, sorted(os.path.basename(p) for p in progress.not_moved)),
-      (0, ['loose.safetensors', 'namesake.safetensors', 'twin.safetensors']))
+check('and the walk says so', (progress.moved, progress.not_moved), (0, 3))
 check('the count reaches the page', progress.to_dict()['not_moved'], 3)
 
 # ------------------------------------------------------------ a row left for a file gone since (#126)
-# A file deleted outside the app keeps its row until a scan's diff - which
+# A file deleted outside the app keeps its row until a walk's diff - which
 # runs after the move. Moving onto its path is no clash, as nothing is there;
 # its row once stopped the moved file's row following it, the file moved and
 # its row, pin and generations left under the old path.
@@ -159,9 +164,9 @@ db.set_pin(None, moving, True)
 link(moving, 3, 4)
 check('a row whose file is gone is no clash', [f['clash'] for f in misplaced_files(db) if f['path'] == moving],
       [None])
-progress = scan.scan_models(move_misplaced=True)
+progress = walk(move_misplaced=True)
 check('the file is moved onto it', (os.path.exists(gone), os.path.exists(moving)), (True, False))
-check('counted, and nothing failed', (progress.moved, [e for e in progress.errors if 'could not move' in e]),
+check('counted, and nothing failed', (progress.moved, [e for e in progress.error_messages if 'could not move' in e]),
       (1, []))
 check('one row, one pin, and the generations of both - the image both used, once',
       under(gone), [[gone], [gone], [2, 3, 4]])
@@ -175,7 +180,7 @@ if model_dirs.os.path.normcase('A') == model_dirs.os.path.normcase('a'):
     link(other_case, 5)
     moving = place('Stable-diffusion', 'spelt.safetensors', 'VAE', sha='H' * 64)
     to = os.path.join(models, 'VAE', 'spelt.safetensors')
-    progress = scan.scan_models(move_misplaced=True)
+    progress = walk(move_misplaced=True)
     check('where case is ignored, a row spelt another way is the same path: one row is left, the moved file\'s',
           [under(to)[0], under(to)[2], read_hashes((db.get_version(to) or {}).get('file_hashes')).get('sha256')],
           [[to], [5], 'h' * 64])
@@ -196,7 +201,7 @@ def refuse(old_path, new_path):
 
 db.move_version = refuse
 try:
-    progress = scan.scan_models(move_misplaced=True)
+    progress = walk(move_misplaced=True)
 finally:
     del db.move_version
 check('the file and its preview are back where they were',
@@ -204,8 +209,8 @@ check('the file and its preview are back where they were',
                                    os.path.splitext(locked_to)[0] + '.preview.png')],
       [True, True, False, False])
 check('its row never left', (bool(db.get_version(locked)), db.get_version(locked_to)), (True, None))
-check('and the scan says it could not move it',
-      [e for e in progress.errors if 'could not move' in e], ['locked.safetensors: could not move it: database is locked'])
+check('and the walk says it could not move it',
+      [e for e in progress.error_messages if 'could not move' in e], ['locked.safetensors: could not move it: database is locked'])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

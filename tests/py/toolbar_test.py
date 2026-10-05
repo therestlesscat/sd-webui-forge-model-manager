@@ -45,38 +45,32 @@ def block(html, start_marker, nth=0):
     raise AssertionError('unbalanced: ' + start_marker)
 
 
-# One row now: the two ways of updating the library, boxed together on the
-# left, and the search buttons where they were on the right.
+# One row: Sync and its Cancel on the left, loose - a group around one button
+# is a box for nothing (0.48.3) - and the search buttons where they were on
+# the right.
 check('there is exactly one button row', UI.count('<div class="filter-buttons-row">'), 1)
 row = block(UI, '<div class="filter-buttons-row">')
 
 check('it has Load Models', 'id="mm_load_btn"' in row)
 check('and Save Search', 'id="mm_save_search_btn"' in row)
-check('and exactly one boxed group', row.count('class="mm-button-group"'), 1)
-
-update_group = block(row, '<div class="mm-button-group"')
-for control in ('mm_sync_btn', 'mm_sync_cancel_btn', 'mm_refresh_btn', 'mm_scan_cancel_btn'):
-    check('the group holds %s' % control, 'id="%s"' % control in update_group)
-check('the group is two actions and their cancels', update_group.count('<button'), 4)
-check('the search buttons stay out of it',
-      'mm_load_btn' in update_group or 'mm_save_search_btn' in update_group, False)
-
-check('the group comes first, so it sits on the left',
-      row.index('mm-button-group') < row.index('mm_load_btn'))
-check('syncing is offered before scanning',
-      row.index('mm_sync_btn') < row.index('mm_refresh_btn'))
-
-# The button says what it does now, rather than naming the database.
-check('the scan button is called Scan Disk', '>Scan Disk<' in row)
-check('and no longer Refresh DB', 'Refresh DB' in UI, False)
+check('and no box around the sync', 'mm-button-group' in UI + CSS, False)
+check('Sync and its Cancel come first, so they sit on the left',
+      row.index('mm_sync_btn') < row.index('mm_sync_cancel_btn') < row.index('mm_save_search_btn'))
+check('the button says Sync, and only that', '>Sync</button>' in row)
+check('Sync keeps its strength while disabled - only while a sync runs - and no other button does',
+      ('class="mm-btn secondary mm-sync-btn"' in row, '.mm-btn.mm-sync-btn:disabled {\n    opacity: 1;\n}' in CSS,
+       CSS.count('mm-sync-btn')), (True, True, 1))
+check('Save Search starts the row\'s end', 'id="mm_save_search_btn" class="mm-btn secondary mm-row-end"' in row)
+# Every sync walks the library (0.48): Scan Disk, once Refresh DB, is gone.
+check('there is no Scan Disk button, nor its dialog',
+      ('mm_refresh_btn' in UI, 'mm_scan_' in UI, 'Scan Disk' in UI, 'Refresh DB' in UI), (False, False, False, False))
 
 for gone in ('mm_sync_meta_btn', 'mm_sync_meta_images_btn'):
     check('%s is gone from the toolbar' % gone, gone in UI, False)
 check('Force is no longer in the toolbar row', 'mm_sync_force' in row, False)
 
 # --- every control survived the move, exactly once --------------------------
-CONTROLS = ['mm_load_btn', 'mm_save_search_btn', 'mm_refresh_btn', 'mm_scan_cancel_btn',
-            'mm_sync_btn', 'mm_sync_cancel_btn']
+CONTROLS = ['mm_load_btn', 'mm_save_search_btn', 'mm_sync_btn', 'mm_sync_cancel_btn']
 for control in CONTROLS:
     check('%s appears exactly once in the markup' % control, UI.count('id="%s"' % control), 1)
 
@@ -85,17 +79,13 @@ row_css = CSS[CSS.index('.filter-buttons-row {'):]
 row_css = row_css[:row_css.index('}')]
 check('the row is right-aligned', 'justify-content: flex-end' in row_css, True)
 check('and still wraps', 'flex-wrap: wrap' in row_css, True)
-check('the group claims the slack, putting it on the left',
-      'margin-right: auto' in CSS[CSS.index('.filter-buttons-row .mm-button-group {'):
-                                  CSS.index('}', CSS.index('.filter-buttons-row .mm-button-group {'))])
-
-# Anchored at a line start: '.filter-buttons-row .mm-button-group {' ends
-# with the same text and would otherwise be found first.
-check('the boxed group has a border', '\n.mm-button-group {' in CSS)
-group_css = CSS[CSS.index('\n.mm-button-group {'):]
-group_css = group_css[:group_css.index('}')]
-for prop in ('border:', 'border-radius:', 'background:', 'display: flex'):
-    check('boxed group sets %s' % prop.rstrip(':'), prop in group_css)
+end_at = CSS.find('.filter-buttons-row .mm-row-end {')
+end_css = CSS[end_at:CSS.index('}', end_at)] if end_at >= 0 else ''
+check('the row\'s end claims the slack, leaving the sync on the left - past the shared rule\'s margin: 0 !important',
+      'margin-left: auto !important' in end_css)
+# Shown while a sync runs: its display left to .mm-btn, as Sync's is.
+# 'inline-block' was a box of its own beside it.
+check('Cancel is shown with the buttons\' own display', "cancelBtn.style.display = syncing ? '' : 'none'" in JS)
 
 # The height used to come from a descendant selector on this row, which meant
 # nesting a button one level deeper silently changed its size. It now comes
@@ -199,13 +189,13 @@ check('the script decides when to show it',
       "showApiKeyBanner('mm_api_key_warning')" in JS)
 check('CSS styles it', '.mm-banner {' in CSS)
 
-# The row reads left to right up to the action it exists for: the library
-# group on the left, then Save Search, then Load Models last. The scroll
+# The row reads left to right up to the action it exists for: Sync on the
+# left, then Save Search, then Load Models last. The scroll
 # restore button is built by script and lands immediately before Load Models,
 # so that one stays rightmost whether or not the button is there.
 ROW = UI[UI.index('<div class="filter-buttons-row">'):]
 ROW = ROW[:ROW.index('</div>' + chr(10) + ' ' * 16 + '</div>')]
-check('the library group comes first', ROW.index('mm-button-group') < ROW.index('mm_save_search_btn'))
+check('the sync comes first', ROW.index('mm_sync_btn') < ROW.index('mm_save_search_btn'))
 check('and Load Models is the last thing on the row',
       ROW.index('mm_save_search_btn') < ROW.index('mm_load_btn'))
 check('the restore button is placed against Load Models, not at the start',
@@ -391,24 +381,6 @@ PAGE = {name: io.open(path, encoding='utf-8').read()
                            for n in os.listdir(d) if n.endswith('.mjs'))}
 check('the page asks for ui-options in one place', sorted(n for n, s in PAGE.items() if '/model-manager/ui-options' in s),
       ['ui_options.mjs'])
-
-# --- Scan Disk asks before it changes anything ------------------------------
-scan_dialog = block(UI, '<div id="mm_scan_dialog"')
-check('the scan dialog starts hidden', 'style="display: none;"' in scan_dialog)
-check('it is a modal to assistive tech',
-      'role="dialog"' in scan_dialog and 'aria-modal="true"' in scan_dialog)
-check('and is labelled by its heading',
-      'aria-labelledby="mm_scan_dialog_title"' in scan_dialog)
-check('it has a Cancel and a Scan',
-      'id="mm_scan_dialog_cancel"' in scan_dialog and 'id="mm_scan_dialog_start"' in scan_dialog)
-check('it says what it adds and removes',
-      scan_dialog.count('<li>'), 4)
-check('and that Civitai is not involved', 'Does not contact Civitai' in scan_dialog)
-# Two options now - reading every header again, and moving files into their
-# type's folder, whose note the script writes - and still a confirmation.
-check('it stays short', len(re.sub(r'<[^>]+>', ' ', scan_dialog).split()) < 70)
-for control in ('mm_scan_dialog', 'mm_scan_dialog_cancel', 'mm_scan_dialog_start'):
-    check('JS drives %s' % control, control in JS)
 
 # --- the dialog's own styling exists ----------------------------------------
 for rule in ('.mm-dialog-backdrop', '.mm-dialog ', '.mm-dialog-option',

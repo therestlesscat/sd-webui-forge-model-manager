@@ -12,7 +12,7 @@ has one. What is written goes to the one table it belongs to.
 """
 
 # A file with no version reads as PG, to be visible when new, with no words
-# and no stats: what the walk and the scan wrote into its row. A version reads
+# and no stats: what the walk wrote into its row. A version reads
 # as stored, NULL and all.
 LIBRARY = """(
     SELECT f.*, f.version_id AS id, f.rowid AS file_order,

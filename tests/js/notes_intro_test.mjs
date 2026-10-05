@@ -1,7 +1,7 @@
 // A tab's introduction, for a first install (release_notes.py: kind "intro",
 // audience "new"): on top of the tab's pile, with a button for each step. The
-// Model Manager's opens Scan Disk, and the Sync dialog set to Force sync on
-// the files Civitai has not identified - opened, never started.
+// Model Manager's opens the Sync dialog as it is, or set to Force sync on the
+// files Civitai has not identified - opened, never started.
 import { ROOT, checker, mountTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
@@ -13,8 +13,8 @@ const NOTES = [
     { id: 'generations', version: '0.40.0', kind: 'feature', important: true, audience: 'everyone',
       tabs: ['model_manager'], title: 'Every image you generate', text: 'Read this.' },
     { id: 'intro-model-manager', version: '0.41.4', kind: 'intro', audience: 'new', tabs: ['model_manager'],
-      title: 'Getting your models in', text: 'Scan Disk, then Sync.',
-      actions: [{ id: 'scan_disk', label: 'Open Scan Disk' }, { id: 'sync_unidentified', label: 'Open Sync' }] },
+      title: 'Getting your models in', text: 'Sync.',
+      actions: [{ id: 'sync', label: 'Open Sync' }, { id: 'sync_unidentified', label: 'Open Force sync' }] },
 ];
 const posted = [];
 globalThis.fetch = async (url, init = {}) => {
@@ -42,22 +42,24 @@ check('the introduction is on top, ahead of even an important note, marked as in
       ['intro-model-manager', 'mm-banner mm-note mm-note-intro', 'i', '1 of 3']);
 check('with a button for each step, and Dismiss',
       Array.from(top().querySelectorAll('.mm-btn')).map((b) => b.textContent.trim()),
-      ['Open Scan Disk', 'Open Sync', 'Dismiss']);
+      ['Open Sync', 'Open Force sync', 'Dismiss']);
 
-click(top().querySelector('[data-note-action="scan_disk"]'));
-check('Open Scan Disk opens it as it is - not re-reading every header',
-      [document.getElementById('mm_scan_dialog')?.style.display, document.getElementById('mm_scan_reread')?.checked],
-      ['flex', false]);
-click(document.getElementById('mm_scan_dialog_cancel'));
+click(top().querySelector('[data-note-action="sync"]'));
+check('Open Sync opens it as it is - all models, not re-reading every header',
+      [document.getElementById('mm_sync_dialog')?.style.display,
+       document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
+       document.getElementById('mm_sync_reread')?.checked],
+      ['flex', 'all', false]);
+click(document.getElementById('mm_sync_dialog_cancel'));
 
 click(top().querySelector('[data-note-action="sync_unidentified"]'));
-check('Open Sync opens the sync dialog set to Force sync, on the files Civitai has not identified',
+check('Open Force sync opens the sync dialog set to Force sync, on the files Civitai has not identified',
       [document.getElementById('mm_sync_dialog')?.style.display,
        document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
        document.getElementById('mm_sync_force_mode')?.value],
       ['flex', 'force', 'unidentified']);
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('and starts nothing: that is still the reader\'s click',
-      posted.filter((u) => u.includes('/sync') || u.includes('/scan')), []);
+      posted.filter((u) => u.includes('/sync')), []);
 
 done();

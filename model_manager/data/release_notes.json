@@ -1,5 +1,20 @@
 [
   {
+    "id": "scan-disk-in-sync",
+    "version": "0.48.3",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "Scan Disk is now part of Sync with Civitai",
+    "text": "Every sync reads your model folders first, whichever models it refreshes: files you have added join the library, files you have deleted leave it, and each new file is read and looked up on Civitai. Scan Disk's two boxes, “Read every file's header again” and “Move files into their type's folder”, are in the sync dialog. A model's details always come from Civitai; a .civitai.info beside a file is read only for a model Civitai no longer has.",
+    "action": {
+      "id": "sync",
+      "label": "Open Sync"
+    }
+  },
+  {
     "id": "shared-database-0-48",
     "version": "0.48.1",
     "kind": "warning",
@@ -72,11 +87,11 @@
     "tabs": [
       "model_manager"
     ],
-    "title": "Run Scan Disk once after this update",
-    "text": "The chips under the prompt now find a LoRA by the other name Forge knows it by - its alias, such as the training_… names Civitai's trainer gives - and Scan Disk reads each LoRA's alias. It also now sees through a .civitai.info that names no version, which another tool may have left beside a file: such a file was shown as identified and skipped by every sync. Run Scan Disk once, with “Re-evaluate file headers” ticked; it reads only each file's header, so it is quick.",
+    "title": "Sync once after this update, reading every file's header again",
+    "text": "The chips under the prompt now find a LoRA by the other name Forge knows it by - its alias, such as the training_… names Civitai's trainer gives - read from each LoRA's header. A .civitai.info that names no version, which another tool may have left beside a file, is no longer taken for one: such a file was shown as identified and skipped by every sync. Sync once, with “Read every file's header again” ticked in the dialog's Files section; it reads only each file's header, so it adds little time.",
     "action": {
       "id": "reread_headers",
-      "label": "Open Scan Disk"
+      "label": "Open Sync"
     },
     "replaces": [
       "rescan-0-44"
@@ -124,11 +139,11 @@
     "tabs": [
       "model_manager"
     ],
-    "title": "Run Scan Disk once after this update",
-    "text": "Scan Disk now looks in every folder a download can go to - upscalers, ControlNets, hypernetworks, motion modules, poses, wildcards - so the models already there join your library, and it tells a ControlNet from a checkpoint by reading the file. Run it once with “Re-evaluate file headers” ticked, so the files already in your library are read again by the new rules; it reads only each file's header, so it is quick. Its dialog also lists files sitting in another type's folder - a VAE in Stable-diffusion, where Forge offers it as a checkpoint - and moves them, with their pins and generations, only if you tick “Move files into their type's folder”.",
+    "title": "Sync once after this update, reading every file's header again",
+    "text": "Every folder a download can go to - upscalers, ControlNets, hypernetworks, motion modules, poses, wildcards - is now part of your library, and a ControlNet is told from a checkpoint by reading the file. Sync once with “Read every file's header again” ticked, so the files already in your library are read again by the new rules; it reads only each file's header, so it adds little time. The dialog also lists files sitting in another type's folder - a VAE in Stable-diffusion, where Forge offers it as a checkpoint - and moves them, with their pins and generations, only if you tick “Move files into their type's folder”.",
     "action": {
       "id": "reread_headers",
-      "label": "Open Scan Disk"
+      "label": "Open Sync"
     },
     "replaces": [
       "reread-headers"
@@ -187,14 +202,10 @@
       "model_manager"
     ],
     "title": "Getting your models in",
-    "text": "Two steps put the models on your disk here. Scan Disk finds your model files and reads any .civitai.info beside them - quick, and without the internet. Then Sync with Civitai, choosing Force sync → All unidentified: it reads each file Civitai has not identified yet and asks what it is, bringing names, images, trigger words and licences. That takes a while for a big library, and a Civitai API key makes it about ten times faster. After that, a plain sync keeps them up to date.",
+    "text": "Sync with Civitai puts the models on your disk here. Every sync reads your model folders first, and reads each file it has not seen in full to ask Civitai what it is, bringing names, images, trigger words and licences. The first one takes a while for a big library, and a Civitai API key makes it about ten times faster. After that, a sync reads only what is new.",
     "actions": [
       {
-        "id": "scan_disk",
-        "label": "Open Scan Disk"
-      },
-      {
-        "id": "sync_unidentified",
+        "id": "sync",
         "label": "Open Sync"
       }
     ]
@@ -254,11 +265,11 @@
     "tabs": [
       "model_manager"
     ],
-    "title": "Some LoRA files were given the wrong type: run Scan Disk once to fix them",
-    "text": "Before 0.40.11, a LoRA saved in diffusers' naming style was recorded as a Checkpoint. It showed under Checkpoint in the Type filter, and its chip under the prompt disappeared as soon as it finished downloading. New files are read correctly now, but files already in your library keep the type they were given. To fix them, run Scan Disk once with “Re-evaluate file headers” ticked - it reads only each file's header, so it is quick.",
+    "title": "Some LoRA files were given the wrong type: sync once to fix them",
+    "text": "Before 0.40.11, a LoRA saved in diffusers' naming style was recorded as a Checkpoint. It showed under Checkpoint in the Type filter, and its chip under the prompt disappeared as soon as it finished downloading. New files are read correctly now, but files already in your library keep the type they were given. To fix them, sync once with “Read every file's header again” ticked - it reads only each file's header, so it adds little time.",
     "action": {
       "id": "reread_headers",
-      "label": "Open Scan Disk"
+      "label": "Open Sync"
     }
   },
   {

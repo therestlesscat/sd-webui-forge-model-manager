@@ -80,7 +80,7 @@ class ImagesOps:
         verdict. The payload is stored beside it, so nothing is refetched.
         A version's safe cover that is now an unsafe image is cleared, and
         the grid falls back to the version's first image that is still safe
-        until a scan or sync picks the cover again.
+        until a sync picks the cover again.
 
         Args:
             progress: called as progress(judged, total) once the images are

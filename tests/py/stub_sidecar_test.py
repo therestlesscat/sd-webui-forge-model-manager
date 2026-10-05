@@ -9,8 +9,9 @@ that model's, and tied the file to it - which a metadata sync then filed as
 the model's newest version.
 
 What a row is identified by is its Civitai version id: a sidecar without one
-is read as no sidecar, a row without one is never flagged, and a scan puts
-right what an earlier one wrote.
+is read as no sidecar, and a row without one is never flagged. Since 0.48 a
+sidecar is read only by a sync, for a model Civitai no longer has
+(hash_trust_test.py) - and a stub is no more an identification there.
 """
 import io
 import json
@@ -34,7 +35,6 @@ from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager.civitai import (                      # noqa: E402
     CivitaiNotFoundError, TokenBucketRateLimiter,
 )
-from model_manager.scan_service import ScanService       # noqa: E402
 from model_manager.sync_service import SyncService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'stub_sidecar')
@@ -48,7 +48,6 @@ def check(label, got, want=True):
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
 models_dir = facts['models_dir']
-scan = ScanService()
 
 
 def model_file(name, sidecar):
@@ -74,32 +73,49 @@ REAL = model_file('real.safetensors', {
     'modelVersions': [{'id': 55, 'name': 'v1',
                        'files': [{'name': 'real.safetensors'}]}]})
 
-# ----------------------------------------------------------- what a scan reads
+# ------------------------------------------------- what a sync reads of them
+class Client:
+    """Civitai, knowing no file and no model, and saying what it was asked."""
+
+    def __init__(self):
+        self.asked = []
+        self.rate_limiter = TokenBucketRateLimiter(1000.0, 100)
+
+    def get_model_by_hash(self, value):
+        self.asked.append(('by_hash', value))
+        raise CivitaiNotFoundError('no such hash')
+
+    def get_model(self, model_id):
+        self.asked.append(('model', model_id))
+        return None
+
+    def close(self):
+        pass
+
+
+for path in (ERROR, STUB, NO_IDS, REAL):
+    db.insert_missing_versions([{'file_path': path, 'file_name': os.path.basename(path)}])
+
+# The real one first: its model is then the one a stub could write over.
+client = Client()
+SyncService(client=client).sync_model(REAL)
+check('a sidecar naming a version, for a model Civitai does not have, files the file',
+      (row(REAL)['has_civitai_data'], row(REAL)['id'], row(REAL)['model_id']), (1, 55, 5))
 for label, path in (('an error left by another tool', ERROR),
                     ('a stub with a model id', STUB),
                     ('versions without an id', NO_IDS)):
-    civitai_model, version = scan.extract_metadata(path)
-    check('%s is no Civitai data' % label, version['has_civitai_data'], False)
-    check('%s gives no model to store' % label, civitai_model, None)
-    check('%s ties the file to no model' % label, version.get('model_id'), None)
-
-civitai_model, version = scan.extract_metadata(REAL)
-check('a sidecar naming a version is still Civitai data',
-      (version['has_civitai_data'], version['id'], civitai_model['id']), (True, 55, 5))
-
-# ------------------------------------------------------------- the whole scan
-progress = scan.scan_models(directories=[models_dir])
-check('the scan completes', progress.is_complete, True)
-for label, path in (('the error', ERROR), ('the stub', STUB), ('versions without an id', NO_IDS)):
+    client = Client()
+    result = SyncService(client=client).sync_model(path)
     stored = row(path)
-    check('%s is stored as not identified' % label,
-          (stored['has_civitai_data'], stored['model_id']), (0, None))
-check('the real sidecar is stored as identified',
-      (row(REAL)['has_civitai_data'], row(REAL)['id']), (1, 55))
+    check('%s is no Civitai data' % label, (stored['has_civitai_data'], stored['model_id']), (0, None))
+    check('%s is not asked about: Civitai is asked about no model' % label,
+          [a for a in client.asked if a[0] == 'model'], [])
+    check('%s leaves the file looked up, and not on Civitai' % label,
+          (result.not_found, bool(stored['civitai_lookup_failed_at'])), (True, True))
 check("the stub does not write its name over the model's",
       db.get_civitai_model(5)['name'], 'The Real Name')
 
-# What an earlier scan wrote - a stub's row flagged and tied to its model -
+# What Scan Disk once wrote - a stub's row flagged and tied to its model -
 # a file without a version cannot hold since v32: the migration leaves it
 # with none (version_files_test.py).
 
@@ -112,29 +128,19 @@ db.upsert_version({'file_path': os.path.join(models_dir, 'Lora', 'new_row.safete
 check('nor insert one flagged',
       row(os.path.join(models_dir, 'Lora', 'new_row.safetensors'))['has_civitai_data'], 0)
 
-# Identified stays identified: a scan that finds no sidecar beside a file a
-# sync identified has not learned it is unknown.
+# Identified stays identified: a walk past a file whose sidecar has gone has
+# not learned it is unknown.
 os.remove(os.path.splitext(REAL)[0] + '.civitai.info')
-scan.scan_models(directories=[models_dir])
+from modules import paths                                # noqa: E402  (webui_stub's)
+paths.models_path = models_dir
+SyncService(client=Client()).walk_library()
+paths.models_path = ''
 check('an identified row keeps its flag and its model when its sidecar goes',
       (row(REAL)['has_civitai_data'], row(REAL)['id'], row(REAL)['model_id']), (1, 55, 5))
 
 # -------------------------------------------------- what a sync then does
-class Client:
-    """Civitai, knowing no file, and saying what it was asked."""
-
-    def __init__(self):
-        self.asked = []
-        self.rate_limiter = TokenBucketRateLimiter(1000.0, 100)
-
-    def get_model_by_hash(self, value):
-        self.asked.append(('by_hash', value))
-        raise CivitaiNotFoundError('no such hash')
-
-    def close(self):
-        pass
-
-
+# Asked about above; as if never asked, so only its sidecar could make a sync skip it.
+db.set_lookup_failed(STUB, failed=False)
 client = Client()
 result = SyncService(client=client).sync_model(STUB)
 check('a sync does not skip a file whose sidecar named no version', result.skipped, False)

@@ -210,13 +210,9 @@ def create_ui():
                         </div>
                     </details>
                     <div class="filter-buttons-row">
-                        <div class="mm-button-group" title="Bring the library up to date">
-                            <button id="mm_sync_btn" class="mm-btn secondary" title="Choose which models to refresh, and how much of each">Sync with Civitai...</button>
-                            <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
-                            <button id="mm_refresh_btn" class="mm-btn secondary" title="Read the model folders and the data files beside them. No Civitai calls.">Scan Disk</button>
-                            <button id="mm_scan_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
-                        </div>
-                        <button id="mm_save_search_btn" class="mm-btn secondary" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
+                        <button id="mm_sync_btn" class="mm-btn secondary mm-sync-btn" title="Read your model folders, then choose which models to refresh with Civitai, and how much of each">Sync</button>
+                        <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
+                        <button id="mm_save_search_btn" class="mm-btn secondary mm-row-end" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
                         <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
                     </div>
                 </div>
@@ -298,10 +294,10 @@ def create_ui():
                             </label>
                             <label class="mm-dialog-option">
                                 <input type="checkbox" id="mm_sync_move" disabled>
-                                <span>Move files into their type's folder</span>
+                                <span id="mm_sync_move_label">Move files into their type's folder</span>
                             </label>
-                            <div class="mm-dialog-note" id="mm_sync_move_note"></div>
-                            <details class="mm-scan-misplaced" id="mm_sync_misplaced" hidden>
+                            <div class="mm-dialog-note" id="mm_sync_move_note" hidden></div>
+                            <details class="mm-misplaced" id="mm_sync_misplaced" hidden>
                                 <summary>Show which</summary>
                                 <ul id="mm_sync_misplaced_list"></ul>
                             </details>
@@ -315,50 +311,6 @@ def create_ui():
                             <button id="mm_sync_dialog_start" class="mm-btn primary">Start</button>
                         </div>
                     </div>
-                </div>
-
-                <!-- Scan Disk: what it will do, before it does it -->
-                <div id="mm_scan_dialog" class="mm-dialog-backdrop" style="display: none;">
-                    <div class="mm-dialog mm-dialog-narrow" role="dialog" aria-modal="true" aria-labelledby="mm_scan_dialog_title">
-                        <h3 id="mm_scan_dialog_title">Scan Disk</h3>
-                        <p class="mm-dialog-lead">Reads your model folders and the data files beside them.</p>
-                        <ul class="mm-dialog-points">
-                            <li>Adds models you have added</li>
-                            <li>Removes models you have deleted</li>
-                            <li>Updates names and sizes from disk</li>
-                            <li>Does not contact Civitai, and does not hash anything</li>
-                        </ul>
-                        <div class="mm-dialog-section">
-                            <label class="mm-dialog-option" title="A scan reads what each file is - Checkpoint, LoRA, VAE, text encoder... - from the file's header, but only for files new or changed since the last scan. This reads every file's header again: after an update that recognises more kinds of file, or if a file shows as the wrong type. Headers only, so it adds little time.">
-                                <input type="checkbox" id="mm_scan_reread">
-                                <span>Re-evaluate file headers</span>
-                            </label>
-                            <div class="mm-dialog-note">Reads again what every file is (Checkpoint, LoRA, VAE...), not only new or changed ones.</div>
-                        </div>
-                        <div class="mm-dialog-section">
-                            <label class="mm-dialog-option">
-                                <input type="checkbox" id="mm_scan_move" disabled>
-                                <span>Move files into their type's folder</span>
-                            </label>
-                            <div class="mm-dialog-note" id="mm_scan_move_note"></div>
-                            <details class="mm-scan-misplaced" id="mm_scan_misplaced" hidden>
-                                <summary>Show which</summary>
-                                <ul id="mm_scan_misplaced_list"></ul>
-                            </details>
-                        </div>
-                        <div class="mm-dialog-actions">
-                            <button id="mm_scan_dialog_cancel" class="mm-btn secondary">Cancel</button>
-                            <button id="mm_scan_dialog_start" class="mm-btn primary">Scan</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Scan Progress -->
-                <div id="mm_scan_progress" class="model-manager-sync-progress" style="display: none;">
-                    <div class="sync-progress-bar">
-                        <div class="sync-progress-fill" id="mm_scan_fill"></div>
-                    </div>
-                    <div class="sync-progress-text" id="mm_scan_text">Preparing...</div>
                 </div>
 
                 <!-- Sync Progress -->

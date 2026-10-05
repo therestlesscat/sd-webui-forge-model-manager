@@ -31,9 +31,8 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
 | `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
-| `scan_service.py` | reading the disk and the sidecars beside it |
-| `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
-| `jobs.py` | the long jobs - a sync, a scan, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
+| `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
+| `jobs.py` | the long jobs - a sync, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
@@ -46,11 +45,10 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for, and the image's checkpoint a send from any other gallery cannot go without (#134) |
 | `resources.py` | which local file, or which version on Civitai, an image's resources are: for the chips under a prompt (the library alone, and Forge's rule for which file `<lora:name>` loads), the Resources dialog, and what a missing one will be called once downloaded |
-| `payload_rows.py` | what a Civitai payload says about a model and a version, as database rows - for the scan and both kinds of sync alike |
+| `payload_rows.py` | what a Civitai payload says about a model and a version, as database rows - for both kinds of sync, and a sidecar read for a model Civitai no longer has |
 | `storage.py` | reading and writing `.civitai.info` |
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
-| `models.py` | the data classes `storage.py` reads `.civitai.info` into |
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
@@ -68,7 +66,7 @@ version (see "The WebUI's rules"):
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
 | `notes` | notes to the user, at the top of each tab |
-| `jobs` | the long jobs, Sync with Civitai and Scan Disk: their dialogs, starting, following and cancelling one, and finding one still running; the Model Manager connects them to its status line and grid (`connectJobs`), a note's button opens them (`showSyncDialog`, `showScanDialog`) |
+| `jobs` | the long job, Sync with Civitai: its dialog, starting, following and cancelling one, and finding one still running; the Model Manager connects it to its status line and grid (`connectJobs`), a note's button opens its dialog (`showSyncDialog`) |
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
@@ -115,8 +113,9 @@ answers 404 for every hash of the file and for the model the sidecar names -
 deleted, most likely (`SyncService._identify_by_sidecar`). And "Civitai does
 not know" means a 404, never an error: an outage used to mark every file
 looked up during it "not on Civitai", and every sync after skipped them.
-Scan Disk, which still reads sidecars, is being folded into sync, whose walk
-(`walk_library`) already does the rest of what it did.
+Scan Disk read every sidecar as a source, and wrote its hashes as the file's;
+it is gone (0.48.3), and every sync's walk (`walk_library`) does the rest of
+what it did.
 
 **A file's hashes are read once.** Stored with them is what the file was then
 (`hashes_checked`: size and modified time to the nanosecond, never local
@@ -127,9 +126,9 @@ sidecar's, or stored before v33 - are never trusted, and never make a file
 look changed: no library has to be synced again for them.
 
 **Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
-what they hold when handed `NULL`, `'[]'`, `0` or Unknown. A scan reading a
-thin `.civitai.info` cannot tell "this model has no trigger words" from "this
-file does not mention any", and it used to write the second over the first —
+what they hold when handed `NULL`, `'[]'`, `0` or Unknown. Scan Disk, reading
+a thin `.civitai.info`, could not tell "this model has no trigger words" from
+"this file does not mention any", and it used to write the second over the first —
 blanking trigger words, dates, licences, vote counts and stored hashes. Both
 are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS`,
 `FILE_COLUMNS` in `db/models_ops.py`), each column with how an update treats it - overwritten,
@@ -157,11 +156,11 @@ not to pick from. Which of a version's files Send uses is decided by what each
 is and where it is (`send_plan.send_files`), and the list says which.
 
 **A file is known by its path; Civitai's id for it is a fact about it.**
-`files` is keyed by `file_path`: what Forge loads, what a scan walks, and what
+`files` is keyed by `file_path`: what Forge loads, what a sync walks, and what
 `pins` and `generation_files` name - on purpose, so a pin or a generation's
 link outlives the file going and coming back. `civitai_file_id` (with
 Civitai's type for the file, fp, size, format, primary) is matched by hash,
-else by name (`payload_rows.file_row`), by every sync, a download and a scan.
+else by name (`payload_rows.file_row`), by every sync and a download.
 It is no key: a file Civitai does not know has none, one Civitai file can be
 on disk twice (in both WebUIs' folders), and it is learned late and can be
 corrected - a key that changes is rewritten wherever it is named.
@@ -274,14 +273,14 @@ files into is one the library walks; both come from one table in
 VAE as one of its versions, and that file inherits "Checkpoint"; text encoders
 arrive as "LORA", and a file Civitai does not know has no type at all. So the
 file is asked: `file_identity.py` reads its tensor names and shapes, and the
-Type filter uses that, falling back to Civitai's type only for a file no scan
+Type filter uses that, falling back to Civitai's type only for a file no sync
 has read yet. The folder was once used as a guess; removing it exposed two
 bugs it had been hiding. A download's folder is chosen before the file exists,
 so from Civitai's type; once it has arrived its header is read, and a file of
 another type is moved to that type's folder (`_file_by_what_it_is`) - never
-over a file. Files already in another type's folder are listed in Scan Disk's
+over a file. Files already in another type's folder are listed in the sync
 dialog and moved only when its own box is ticked - never by a note's button,
-which ticks "Re-evaluate file headers" - with their row, pin and generations
+which ticks "Read every file's header again" - with their row, pin and generations
 (`move_version`), or put back when the row cannot follow (#126). A Checkpoint
 is moved only when Forge's detector took it (`model_dirs.filed_as`): one known
 by its layer names alone is something UNet-shaped Forge did not take, which it
@@ -305,15 +304,15 @@ pages kept beside a fresh first one would duplicate and leave gaps. Pages past
 what was fetched come again when someone pages there. A download's sync takes
 the first page: nothing is stored to keep.
 
-**A version's stored NSFW level means two things.** After a sync it is
-Civitai's rating; after Scan Disk, which stores no images, the higher of that
-and the worst showcase image (`ScanService._calculate_nsfw_level`). The grid
+**A version's stored NSFW level is Civitai's rating** - or, for a model
+Civitai no longer has, its sidecar's rating for the version. Scan Disk stored
+the higher of that and the worst showcase image, so the level meant two
+things (#104); rows it wrote keep that until a sync refreshes them. The grid
 judges live from the model, the version and the worst stored image
-(`nsfw.model_level_sql`), so it is right either way; the details panel's
-"Version:" row is not consistent. #104.
+(`nsfw.model_level_sql`), so it is right either way.
 
-**A long job is one of its kind, in `jobs.py`.** A sync (full or metadata), a
-scan and a restamp of stored image levels each run one at a time; what the
+**A long job is one of its kind, in `jobs.py`.** A sync (full or metadata)
+and a restamp of stored image levels each run one at a time; what the
 page polls is the service's own progress, and a job that raises calls
 `fail()` on it. It used to write the error where the poll never read, and the
 job showed as running for ever. A restamp asked for while one runs is not
@@ -447,7 +446,7 @@ v32 a copy refuses a database newer than it knows (`_init_db`), and v32
 dropped `model_versions` and renamed `civitai_models` to `models`, so a copy
 from before it fails rather than writes the old shape. Update both before starting either.
 
-**A shared library holds the other WebUI's files.** Its scan files them in
+**A shared library holds the other WebUI's files.** Its sync files them in
 the same `files`; this WebUI may not have been given their folders and
 cannot load them. Anything that acts on a file - Send's choice of a version's
 file, the chips' "in library" - takes one in this WebUI's folders
@@ -595,13 +594,13 @@ Then, in the same commit:
 4. `model_manager/data/release_notes.json`, when a user needs to know or do
    something: a note, shown at the top of the tab it concerns (see
    `model_manager/release_notes.py`). A feature worth finding is
-   `"audience": "everyone"`; something to do after updating - Scan Disk once,
+   `"audience": "everyone"`; something to do after updating - a sync with every header read again,
    update the other copy before a migration - is `"update"`, which a fresh
    install skips. A note that concerns some installs only names a condition
    (`"when"`, one of `CONDITIONS` - `custom_database` for two WebUIs sharing
    one database), so everyone else is not told it. What everyone should read
    is `"important": true` - first in the pile, headed [Important]. A note
-   asking again for what an earlier one asked - Scan Disk once more - names
+   asking again for what an earlier one asked - another sync like it - names
    it in `"replaces"`, so it is asked once. A button, if one helps,
    names an action the page knows (`NOTE_ACTIONS` in
    `javascript/shared/notes.mjs`). Most releases need none.
@@ -874,8 +873,8 @@ real time once.
   `bool`, so a model's `nsfw: true` read as bitmask 1 - PG - and its own
   branch for booleans never ran. Test for `bool` first.
 - **Whatever a ticked box does, a note's button must not do by accident.** A
-  release note's button ticks "Re-evaluate file headers"; moving files into
-  their type's folder got a box of its own, never ticked for anyone.
+  release note's button ticks "Read every file's header again"; moving files
+  into their type's folder got a box of its own, never ticked for anyone.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
 - **Search the page too before saying the extension does not do something.**

@@ -2,7 +2,7 @@
 Notes to the user, per release: what is new, and what to do after updating.
 
 A changelog reaches the people who read it. Some changes need everyone who
-updates to do something - run Scan Disk once to read files again, update the
+updates to do something - sync once to read every file's header again, update the
 copy of the extension in the other WebUI before a database migration - or
 are features nobody would find alone. Each release that has one adds a note
 to data/release_notes.json; the tabs show the notes that apply and have not
@@ -31,7 +31,7 @@ A note is:
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
     replaces  optional: ids of earlier notes this one makes needless - a
-              second "run Scan Disk once" retires the first - which then
+              second "read every header again" retires the first - which then
               leave the tabs; "What's new" still lists them
 
 Dismissed notes are kept in the database, so a note is dismissed once for
@@ -50,7 +50,7 @@ NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "r
 KINDS = ("feature", "action", "warning", "intro")
 AUDIENCES = ("everyone", "update", "new")
 TABS = ("model_manager", "civitai_browser", "generations")
-ACTIONS = ("reread_headers", "settings", "scan_disk", "sync_unidentified")
+ACTIONS = ("reread_headers", "settings", "sync", "sync_unidentified")
 
 
 def _custom_database() -> bool:

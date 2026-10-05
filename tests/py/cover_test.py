@@ -42,7 +42,6 @@ from model_manager.api import setup_api                  # noqa: E402
 from model_manager.civitai import CivitaiClient          # noqa: E402
 from model_manager.hashing import HashResult             # noqa: E402
 from model_manager.nsfw import showcase_is_complete, version_covers   # noqa: E402
-from model_manager.scan_service import ScanService       # noqa: E402
 from model_manager.sync_service import SyncService       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'cover')
@@ -167,16 +166,20 @@ sync._update_database(path, by_hash, HashResult.from_stored({}))
 check('a by-hash answer updates the safe cover but leaves the real one alone',
       covers_of(path), (U % 'r-cover', U % 'pg-new'))
 
-# -------------------------------------------------------------------- the scan
-scan = ScanService()
-for showcase, want, label in (
-        (FULL, (U % 'r-cover', U % 'pg13'), 'a sidecar with non-PG images gives both covers'),
-        (STRIPPED, (None, U % 'pg-first'), 'an all-PG sidecar may be stripped: the safe cover only')):
-    version_data = {'file_path': path, 'file_name': os.path.basename(path),
-                    'file_extension': '.safetensors'}
-    scan._extract_civitai_metadata(
-        {'id': 1, 'modelVersions': [{'id': 9, 'images': showcase}]}, version_data, path)
-    check(label, (version_data.get('cover_url'), version_data.get('safe_cover_url')), want)
+# ------------------------------------------- a sidecar, for a model Civitai lacks
+class NoModel:
+    """Civitai, with no model by the sidecar's id."""
+    def get_model(self, model_id):
+        return None
+
+
+for model_id, showcase, want, label in (
+        (61, FULL, (U % 'r-cover', U % 'pg13'), 'a sidecar with non-PG images gives both covers'),
+        (62, STRIPPED, (None, U % 'pg-first'), 'an all-PG sidecar may be stripped: the safe cover only')):
+    fixtures.sidecar(path, {'id': model_id, 'modelVersions': [
+        {'id': model_id * 10, 'images': showcase, 'files': [{'name': os.path.basename(path)}]}]})
+    SyncService(client=NoModel())._identify_by_sidecar(path, HashResult.from_stored({}), None)
+    check(label, covers_of(path), want)
 
 # ------------------------------------------------------------- migration v21
 import sqlite3                                            # noqa: E402

@@ -12,14 +12,14 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml } = await shared('core.mjs');
 const { call } = await shared('calls.mjs');
-const { showSyncDialog, showScanDialog } = await shared('jobs.mjs');
+const { showSyncDialog } = await shared('jobs.mjs');
 
 // What a note's button does, by the id its note names - with the action, for
 // the settings section it is about.
 const NOTE_ACTIONS = {
-    reread_headers: () => showScanDialog({ rereadHeaders: true }),
+    reread_headers: () => showSyncDialog({ rereadHeaders: true }),
     settings: (action) => call('settings.open', { section: action.section || null }),
-    scan_disk: () => showScanDialog(),
+    sync: () => showSyncDialog(),
     sync_unidentified: () => showSyncDialog({ force: 'unidentified' }),
 };
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };

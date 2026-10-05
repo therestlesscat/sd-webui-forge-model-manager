@@ -281,25 +281,13 @@ body.mm-modal-open {
     justify-content: flex-end;
 }
 
-/* The library-updating group sits at the far left of the row, leaving Load
-   Models and Save Search where they were on the right. `auto` rather than a
-   second justify-content, so the row keeps one alignment rule and the group
-   simply claims the slack between itself and the rest. */
-.filter-buttons-row .mm-button-group {
-    margin-right: auto;
-}
-
-/* A boxed set of related actions, for the buttons that belong together.
-   The rest of the row's buttons sit loose beside it. */
-.mm-button-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    padding: 6px 10px;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: var(--input-background-fill, #111827);
+/* The Model Manager's Sync, and its Cancel, sit at the far left of the row,
+   leaving Save Search and Load Models where they were on the right: the first
+   of those claims the slack. `auto` rather than a second justify-content, so
+   the row keeps one alignment rule. !important, and the row's class, to beat
+   the shared button rule's `margin: 0 !important`. */
+.filter-buttons-row .mm-row-end {
+    margin-left: auto !important;
 }
 
 /* The checkbox sitting among the buttons has to match their box by hand. */
@@ -493,6 +481,13 @@ body.mm-modal-open {
 .action-btn.disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* Sync is disabled only while a sync runs, beside its red Cancel: dimmed, it
+   read as the smaller of the two, though both are one height. The cursor
+   still says it cannot be pressed. */
+.mm-btn.mm-sync-btn:disabled {
+    opacity: 1;
 }
 
 /* The buttons with a shape of their own - pills, icons, a close cross - do
@@ -2988,25 +2983,6 @@ body.mm-modal-open {
     display: none;
 }
 
-/* The Scan Disk confirmation: a lead line and a few points, nothing more. */
-.mm-dialog-narrow {
-    max-width: min(50%, 800px);
-}
-
-.mm-dialog-lead {
-    margin: 0 0 10px;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.mm-dialog-points {
-    margin: 0 0 16px;
-    padding-left: 18px;
-    font-size: 12px;
-    line-height: 1.7;
-    opacity: 0.85;
-}
-
 /* A standing warning: something is configured such that the extension cannot
    do its job properly. Not dismissible, because it goes away by being fixed. */
 .mm-banner {
@@ -4440,13 +4416,13 @@ textarea.mm-settings-input {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-/* Scan Disk: the files its "Move files into their type's folder" would move. */
-.mm-scan-misplaced {
+/* The sync dialog: the files its "Move files into their type's folder" would move. */
+.mm-misplaced {
     margin: 6px 0 0;
     font-size: 0.85em;
 }
 
-.mm-scan-misplaced ul {
+.mm-misplaced ul {
     max-height: 12em;
     overflow: auto;
     margin: 6px 0 0;
@@ -4454,6 +4430,6 @@ textarea.mm-settings-input {
     word-break: break-all;
 }
 
-.mm-scan-misplaced-why {
+.mm-misplaced-why {
     color: var(--body-text-color-subdued, #9ca3af);
 }

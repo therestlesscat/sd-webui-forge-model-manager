@@ -16,9 +16,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 **0.48 - Sync reads your model folders.** Every sync starts by reading your model folders,
 whichever models it refreshes: files you have added join the library and are looked up on
-Civitai, files you have deleted leave it. The sync dialog says how many new files it will
-read before you start, and can read every file's header again or move files sitting in
-another type's folder into their own.
+Civitai, files you have deleted leave it - so Scan Disk is gone. The sync dialog says how
+many new files it will read before you start, and can read every file's header again or
+move files sitting in another type's folder into their own. A model's details always come
+from Civitai; a `.civitai.info` beside a file is read only for a model Civitai no longer has.
 
 **0.47 - Send sets up the gallery's model.** Send to txt2img from a LoRA's, a VAE's or an
 embedding's gallery loads the checkpoint the image was made with, where Forge used to keep
@@ -57,7 +58,7 @@ straight onto its batches.
 
 **0.41 - Notes to you, per release.** The tabs say what is new, and what to do after an
 update, in a note at the top of the tab it concerns: a feature worth knowing, something to
-do once - with a button that does it, such as opening Scan Disk with the right box ticked -
+do once - with a button that does it, such as opening the sync dialog with the right box ticked -
 or a warning. One click dismisses a note for every browser using the database; the
 settings window's "What's new" keeps them all. A fresh install sees only what is for
 everyone.
@@ -139,8 +140,9 @@ starts once the extension is installed, and can be turned off in its settings.
 
 ### Keeping it in sync
 
-**Scan** finds new files on disk. **Sync** identifies them by hash and fetches their
-Civitai metadata, and says what it is about to do before it does it.
+**Sync with Civitai** reads your model folders - adding new files, forgetting deleted ones -
+identifies new files by hash and fetches their Civitai metadata, and says what it is about to
+do before it does it.
 
 ![Sync dialog](docs/images/mm-sync.png)
 
@@ -169,7 +171,7 @@ order whatever each download is doing.
 ### Notes, and what is new
 
 Each tab says, at its top, what is new since your last update and what to do about it -
-a button does it where one helps, such as opening Scan Disk with the right box ticked.
+a button does it where one helps, such as opening the sync dialog with the right box ticked.
 Each tab also has an introduction, with buttons for its first steps. One click dismisses a note;
 the settings window's **What's new** keeps them all. When a newer version is out, each
 tab's header says so beside the version.
@@ -187,11 +189,11 @@ Browse and organize the models already on disk.
   the tab opens with them; a right-click on it forgets them
 - **Pins**: pinned models get a **Pinned** tab above the grid, the rest an **Unpinned**
   one; a pin is kept by the model, or by the file for one Civitai does not know
-- **Type from the file itself**: Scan Disk reads each file's tensor names and shapes, so a
+- **Type from the file itself**: a sync reads each file's tensor names and shapes, so a
   VAE shared on Civitai as a "Checkpoint" is filed as a VAE, LoRA formats are told apart
   (LORA, LoCon, LoHa, LoKr, DoRA, LyCORIS Full), and files Civitai does not know get a
   type too. `.ckpt` and `.pt` files are read without running anything in them. Until a
-  file has been scanned, its Civitai type is used
+  file has been read, its Civitai type is used
 - **Sort** by name, file size, file modified, published, scanned, downloaded, updated,
   rating, or download count
 - **Version grouping**: versions of the same model are grouped, with a version selector
@@ -221,7 +223,7 @@ Browse and organize the models already on disk.
   longer has it. Resources Civitai does not know are shown as such, with nothing to click
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
-- **Scan** finds new model files on disk; **Sync** fetches Civitai metadata by file hash
+- **Sync** finds new model files on disk, and fetches their Civitai metadata by file hash
 
 ## Generations
 
@@ -274,7 +276,7 @@ fallback.
 
 **Updating**: each tab's header says when a newer version is out, beside the version.
 Update from **Extensions -> Check for updates**, then **Apply and restart UI**. A note at
-the top of a tab says if an update asks for anything - running Scan Disk once, say. If
+the top of a tab says if an update asks for anything - a sync with every header read again, say. If
 Forge Neo and the original Forge share one database, update the extension in both before
 starting either.
 
@@ -282,7 +284,7 @@ starting either.
 
 1. Open the **Model Manager** tab. Its introduction, at the top, walks you through the
    first steps, with buttons for them
-2. Click **Scan** to index the models on disk, then **Sync** to fetch Civitai metadata
+2. Click **Sync** to read the models on disk and fetch their Civitai metadata
 3. Set your filters and click **Load Models**
 4. Click any model card to open its details
 5. Generate as usual: the images appear in the **Generations** tab, and under each model

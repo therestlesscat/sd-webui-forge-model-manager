@@ -157,8 +157,8 @@ VERSION_COLUMNS_ELSEWHERE = {
 
 FILE_COLUMNS = (
     Column("file_path", KEY),
-    # Identified stays identified: a scan that finds no sidecar has not
-    # learned the file is unknown to Civitai.
+    # Identified stays identified: a writer with no version id for the file
+    # has not learned it is unknown to Civitai.
     Column("version_id", keep),
     Column("file_name", overwrite),
     Column("file_size", overwrite),
@@ -282,10 +282,10 @@ class ModelsOps:
         Args:
             model_data: The model as Civitai describes it.
             from_civitai: True when this data just came back from the API.
-                A scan writes these rows too, from the sidecar on disk, having
-                asked Civitai nothing - so only a real fetch may claim the
-                model was synced. Otherwise a Scan Disk makes every model
-                look freshly synced and the staleness windows all read zero.
+                A sidecar's rows are written too, for a model Civitai no longer
+                has - so only a real fetch may claim the model was synced. Scan
+                Disk, which wrote every sidecar's, once made every model look
+                freshly synced, and the staleness windows all read zero.
         """
         now = datetime.now().isoformat()
         with self._cursor() as cursor:
@@ -443,9 +443,9 @@ class ModelsOps:
         The metadata columns keep what they hold when the incoming value says
         nothing - NULL, '[]', 0, or Unknown. A caller that knows a value has
         genuinely become empty cannot express that here, which is the right
-        trade: the callers are a scan reading whatever sidecar is on disk and a
-        sync reading whatever Civitai returned, and neither can tell an absent
-        field from a cleared one.
+        trade: the callers are a sync reading whatever Civitai returned, and,
+        for a model Civitai no longer has, whatever sidecar is on disk, and
+        neither can tell an absent field from a cleared one.
         """
         version_id = version_data.get("id")
         with self._cursor() as cursor:
@@ -522,11 +522,11 @@ class ModelsOps:
 
     def normalize_version_paths(self) -> int:
         """
-        Store each file's path as a scan finds it: absolute, with no "..".
+        Store each file's path as a walk finds it: absolute, with no "..".
         A download filed under a folder given as "models\\..\\embeddings" was
-        stored so, and a scan - which finds it as "embeddings" - took the row
+        stored so, and a walk - which finds it as "embeddings" - took the row
         for a file gone from disk. A path another row already holds is left
-        as it is, for the scan to settle.
+        as it is, for the walk to settle.
 
         Returns:
             How many rows were changed.
@@ -1068,8 +1068,8 @@ class ModelsOps:
         """
         The local files named each of these, by file name without its
         extension, ignoring case: {name (lower case): [row, ...]}. For a
-        resource no id or hash finds - a file Scan Disk added and no sync has
-        identified yet. Several files can share a name, in different folders.
+        resource no id or hash finds - a file Civitai does not know, or no
+        sync has identified yet. Several files can share a name, in different folders.
         """
         wanted = {str(n).lower() for n in names if n}
         if not wanted:

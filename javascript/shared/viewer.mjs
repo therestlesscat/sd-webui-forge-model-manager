@@ -58,8 +58,8 @@ function writePanelClosed(closed) {
 
 /**
  * Whether a question or a dialog is showing over the page - one that is
- * shown, not one waiting in the markup: the Model Manager keeps its sync and
- * scan dialogs there, hidden, and all three tabs are one page, so asking only
+ * shown, not one waiting in the markup: the Model Manager keeps its sync
+ * dialog there, hidden, and all three tabs are one page, so asking only
  * whether one exists found them always, and the viewer's keys never worked.
  */
 export function dialogShowing() {

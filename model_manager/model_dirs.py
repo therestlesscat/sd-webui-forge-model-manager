@@ -1,7 +1,7 @@
 """
-Where models live: the folders a scan walks and a download files into.
+Where models live: the folders a sync walks and a download files into.
 
-One table, because it used to be two. The scan knew the command-line options
+One table, because it used to be two. Scan Disk knew the command-line options
 and walked Stable-diffusion, Lora and VAE; the downloader filed upscalers,
 ControlNets, poses and the rest into folders the scan never walked, so a full
 scan forgot each one as a file gone from disk.

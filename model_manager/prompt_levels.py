@@ -13,7 +13,7 @@ A pass that is cut short is run again at the next start.
 
 How far a pass has got is kept for the page, which shows it after a save
 that changed how images are judged: progress(). A pass is one of the long
-jobs (model_manager.jobs), as a sync and a scan are.
+jobs (model_manager.jobs), as a sync is.
 """
 import threading
 import time

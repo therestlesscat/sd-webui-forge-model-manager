@@ -71,7 +71,7 @@ BLOCKING = (
     'get_model', 'get_models_by_ids', 'get_model_by_hash', 'get_model_images',
     'get_generation_data', 'get_checkpoint_types', 'get_enums',
     'search_models', 'search_tags',
-    'sync_model', 'sync_all', 'sync_metadata', 'scan_models',
+    'sync_model', 'sync_all', 'sync_metadata', 'walk_library',
 )
 
 
@@ -137,9 +137,6 @@ SAMPLES = {
     ('GET', '/model-manager/sync/estimate'): {},
     ('GET', '/model-manager/sync/progress'): {},
     ('POST', '/model-manager/sync/cancel'): {},
-    ('POST', '/model-manager/scan'): {'data': {'options': '{}'}},
-    ('GET', '/model-manager/scan/progress'): {},
-    ('POST', '/model-manager/scan/cancel'): {},
     ('GET', '/model-manager/civitai/models/stream'): {'params': {'query': 'x'}},
     ('GET', '/model-manager/civitai/models/random'): {'params': {'types': 'LORA'}},
     ('GET', '/model-manager/civitai/download/progress'): {},

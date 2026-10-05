@@ -34,7 +34,6 @@ import fixtures                                          # noqa: E402
 import model_manager.architecture as arch                # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.identity_store as store             # noqa: E402
-import model_manager.scan_service as scan_module         # noqa: E402
 from model_manager.model_dirs import file_modified, find_model_files  # noqa: E402
 import model_manager.sync_service as sync_module         # noqa: E402
 
@@ -177,7 +176,7 @@ try:
 finally:
     store.identify = real_detect
 
-# ---------------------------------------------------------------- Scan Disk
+# ---------------------------------------------------------------- the walk
 # GGUF checkpoints (quantized Flux, Wan, Z-Image) were never indexed at all.
 for name in ('quantized_flux.gguf', 'ae_short_name.sft'):
     open(os.path.join(facts['models_dir'], 'Stable-diffusion', name), 'wb').write(b'\0' * 64)
@@ -185,19 +184,22 @@ indexed = {os.path.basename(p) for p in find_model_files([facts['models_dir']])}
 check('the walk finds .gguf and .sft files', {'quantized_flux.gguf', 'ae_short_name.sft'} <= indexed)
 
 scanned = []
-real_scan_detect = scan_module.identify
-scan_module.identify = lambda p: scanned.append(p) or arch.Architecture('sd', 'SD15', True, True)
+real_walk_detect = sync_module.identify
+sync_module.identify = lambda p: scanned.append(p) or arch.Architecture('sd', 'SD15', True, True)
+from modules import paths as _paths                      # noqa: E402  (webui_stub's)
+_paths.models_path = facts['models_dir']
 try:
-    scan = scan_module.ScanService()
-    scan.scan_models(directories=[facts['models_dir']])
+    walker = sync_module.SyncService(client=object())
+    walker.walk_library()
     first = len(scanned)
-    check('Scan Disk reads the architecture of files never read', first > 0)
+    check('a sync\'s walk reads the architecture of files never read', first > 0)
     check('and stores it', db.get_version(facts['linked_paths'][3])['architecture'], 'sd')
     scanned.clear()
-    scan.scan_models(directories=[facts['models_dir']])
-    check('a second scan reads none of the files unchanged since', scanned, [])
+    walker.walk_library()
+    check('a second walk reads none of the files unchanged since', scanned, [])
 finally:
-    scan_module.identify = real_scan_detect
+    sync_module.identify = real_walk_detect
+    _paths.models_path = ''
 
 # ------------------------------------------------ forced sync, and downloads
 recorded = []

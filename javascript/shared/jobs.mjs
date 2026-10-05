@@ -1,10 +1,11 @@
 /**
- * The long jobs: Sync with Civitai and Scan Disk (#92) - the Model Manager's
+ * The long job: Sync with Civitai (#92) - the Model Manager's
  * buttons and the dialogs behind them, starting a job, following it, cancelling
  * it, and finding one still running when the page loads, or is looked at again.
  * One of each kind at a time, as the server runs them (model_manager/jobs.py).
  * They lived in the Model Manager's script; a note's button opens their
- * dialogs (showSyncDialog, showScanDialog).
+ * dialog (showSyncDialog). Scan Disk was the other, until every sync came to
+ * walk the library itself (0.48).
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -31,10 +32,6 @@ export function connectJobs(tab) {
 // Sync state
 let isSyncing = false;
 let syncPollInterval = null;
-
-// Scan state
-let isScanning = false;
-let scanPollInterval = null;
 
 // ==================== SYNC FUNCTIONS ====================
 
@@ -192,7 +189,7 @@ async function askNewFiles() {
  * The hashing option's own cost, in files rather than requests.
  *
  * The asterisk is the point: this comes from the database, which holds what
- * the last scan found. A file added since is not counted, and the sync walks
+ * the last sync found. A file added since is not counted, and the sync walks
  * the model folders itself - so the number is a floor.
  */
 function describeForceSync(counts, mode) {
@@ -434,7 +431,7 @@ export function askImageCount(options) {
         const backdrop = document.createElement('div');
         backdrop.className = 'mm-dialog-backdrop';
         backdrop.innerHTML = `
-            <div class="mm-dialog mm-dialog-narrow mm-image-count-dialog" role="dialog" aria-modal="true">
+            <div class="mm-dialog mm-image-count-dialog" role="dialog" aria-modal="true">
                 <h3>Sync this model</h3>
                 <div class="mm-dialog-section">
                     <label class="mm-dialog-option">
@@ -590,7 +587,7 @@ function openSyncDialog() {
     syncDialogDependencies();
     syncDialogResultsScope();
     refreshSyncEstimate();
-    showMisplaced('sync');
+    showMisplaced();
     askNewFiles();
 }
 
@@ -599,8 +596,10 @@ function openSyncDialog() {
  * chosen if asked ("unidentified": the files Civitai has not identified
  * yet). Opened, never started.
  */
-export function showSyncDialog({ force = null } = {}) {
+export function showSyncDialog({ force = null, rereadHeaders = false } = {}) {
     openSyncDialog();
+    const reread = document.getElementById('mm_sync_reread');
+    if (reread) reread.checked = rereadHeaders;
     if (!force) return;
     const scope = document.querySelector('input[name="mm_sync_scope"][value="force"]');
     const mode = document.getElementById('mm_sync_force_mode');
@@ -693,12 +692,12 @@ function updateSyncUI(syncing) {
     const cancelBtn = document.getElementById('mm_sync_cancel_btn');
     const progressDiv = document.getElementById('mm_sync_progress');
     const loadBtn = document.getElementById('mm_load_btn');
-    const refreshBtn = document.getElementById('mm_refresh_btn');
 
-    if (syncBtn) syncBtn.disabled = syncing || isScanning;
-    if (loadBtn) loadBtn.disabled = syncing || isScanning;
-    if (refreshBtn) refreshBtn.disabled = syncing || isScanning;
-    if (cancelBtn) cancelBtn.style.display = syncing ? 'inline-block' : 'none';
+    if (syncBtn) syncBtn.disabled = syncing;
+    if (loadBtn) loadBtn.disabled = syncing;
+    // '' leaves it to .mm-btn, as for Sync beside it; 'inline-block' was a
+    // box of its own.
+    if (cancelBtn) cancelBtn.style.display = syncing ? '' : 'none';
     if (progressDiv) progressDiv.style.display = syncing ? 'block' : 'none';
 
     // Reset progress bar when starting
@@ -710,73 +709,57 @@ function updateSyncUI(syncing) {
     }
 }
 
-// ==================== SCAN/REFRESH FUNCTIONS ====================
+const MOVE_LABEL = 'Move files into their type\'s folder';
+// What the box has to say beyond its count: the files listed, or an error.
+const misplaced = { listed: false, failed: false };
 
-// Start database refresh scan
 /**
- * Say what Scan Disk will do before it does it.
- *
- * It adds and removes rows to match what is on disk, which is not something to
- * discover after the fact - and unlike the sync dialog there is nothing to
- * choose here, so it is a confirmation rather than a form.
+ * What moving files does, and which files, said only while the box is ticked
+ * - the box itself says how many it can move. An error is said either way:
+ * the box cannot be ticked to read it.
  */
-function openScanDialog() {
-    if (isScanning || isSyncing) return;
-    const dialog = document.getElementById('mm_scan_dialog');
-    if (!dialog) {
-        startScan();     // no dialog in the page: do the thing rather than nothing
-        return;
-    }
-    // Every scan starts as the usual one: reading every header, or moving
-    // files, is asked for each time.
-    const reread = document.getElementById('mm_scan_reread');
-    if (reread) reread.checked = false;
-    const move = document.getElementById('mm_scan_move');
-    if (move) move.checked = false;
-    dialog.style.display = 'flex';
-    showMisplaced('scan');
+function showMoveDetails() {
+    const ticked = !!document.getElementById('mm_sync_move')?.checked;
+    const note = document.getElementById('mm_sync_move_note');
+    const details = document.getElementById('mm_sync_misplaced');
+    if (note) note.hidden = !(misplaced.failed || (ticked && misplaced.listed));
+    if (details) details.hidden = !(ticked && misplaced.listed);
 }
 
-// Each dialog's box, its note, the list and where the list comes from.
-const MISPLACED = {
-    sync: { endpoint: '/model-manager/sync/misplaced', move: 'mm_sync_move', note: 'mm_sync_move_note',
-            details: 'mm_sync_misplaced', list: 'mm_sync_misplaced_list' },
-    scan: { endpoint: '/model-manager/scan/misplaced', move: 'mm_scan_move', note: 'mm_scan_move_note',
-            details: 'mm_scan_misplaced', list: 'mm_scan_misplaced_list' },
-};
-
 /**
- * Which files a sync or Scan Disk (`dialog`) would move into their type's
- * folder, before anyone ticks the box: the count, why each would move, and
- * the ones that will stay because their name is taken there. Its box is never
- * ticked for anyone - a note's button ticks "Re-evaluate file headers", and
- * must not move files.
+ * Which files a sync would move into their type's folder, before anyone ticks
+ * the box: how many it can move, on the box - the ones whose name is taken
+ * there stay, and are not counted - and, once it is ticked, why each would
+ * move and which will stay. Its box is never ticked for anyone - a note's
+ * button ticks "Read every file's header again", and must not move files.
  */
-async function showMisplaced(dialog) {
-    const ids = MISPLACED[dialog];
-    const move = document.getElementById(ids.move);
-    const note = document.getElementById(ids.note);
-    const details = document.getElementById(ids.details);
-    const list = document.getElementById(ids.list);
+async function showMisplaced() {
+    const move = document.getElementById('mm_sync_move');
+    const note = document.getElementById('mm_sync_move_note');
+    const list = document.getElementById('mm_sync_misplaced_list');
+    const label = document.getElementById('mm_sync_move_label');
     if (!move || !note) return;
     move.disabled = true;
-    if (details) details.hidden = true;
+    misplaced.listed = misplaced.failed = false;
+    setText(label, MOVE_LABEL);
+    showMoveDetails();
     let files = [];
     try {
-        const data = await apiCall({ endpoint: ids.endpoint });
+        const data = await apiCall({ endpoint: '/model-manager/sync/misplaced' });
         files = data.success ? data.files || [] : null;
     } catch (e) {
         files = null;
     }
     if (files === null) {
         setText(note, 'Could not tell which files are in another type\'s folder.');
-        return;
-    }
-    if (!files.length) {
-        setText(note, 'No file is in a folder for another type.');
+        misplaced.failed = true;
+        showMoveDetails();
         return;
     }
     const staying = files.filter((f) => f.clash).length;
+    const movable = files.length - staying;
+    setText(label, `${MOVE_LABEL} (${movable.toLocaleString()})`);
+    if (!movable) return;
     setText(note, `${files.length} file${files.length === 1 ? ' is' : 's are'} in a folder for another type - `
         + 'a VAE in Stable-diffusion, say, where Forge offers it as a checkpoint. Ticked, each is moved '
         + 'with its .civitai.info and preview into its type\'s folder; its place in the library, its pin '
@@ -787,161 +770,17 @@ async function showMisplaced(dialog) {
                         exists: 'a file of that name is already there' };
     if (list) {
         list.innerHTML = files.map((f) => `<li>${escapeHtml(f.path)} → ${escapeHtml(f.to)}
-            <span class="mm-scan-misplaced-why">(${escapeHtml(f.file_type)}${f.identified_by ? ': ' + escapeHtml(f.identified_by) : ''})${
+            <span class="mm-misplaced-why">(${escapeHtml(f.file_type)}${f.identified_by ? ': ' + escapeHtml(f.identified_by) : ''})${
             f.clash ? ' - stays: ' + clashText[f.clash] : ''}</span></li>`).join('');
     }
-    if (details) details.hidden = false;
+    misplaced.listed = true;
     move.disabled = false;
+    showMoveDetails();
 }
 
-/** Scan Disk's dialog, from elsewhere - a note: "Re-evaluate file headers" ticked if asked. */
-export function showScanDialog({ rereadHeaders = false } = {}) {
-    openScanDialog();
-    const reread = document.getElementById('mm_scan_reread');
-    if (reread) reread.checked = rereadHeaders;
-}
-
-function closeScanDialog() {
-    const dialog = document.getElementById('mm_scan_dialog');
-    if (dialog) dialog.style.display = 'none';
-}
-
-/**
- * @param {{rereadHeaders?: boolean, moveMisplaced?: boolean}} options -
- *     rereadHeaders: read what every file is from its header again, not only
- *     new or changed files. moveMisplaced: move files in another type's
- *     folder into their own.
- */
-async function startScan({ rereadHeaders = false, moveMisplaced = false } = {}) {
-    if (isScanning || isSyncing) return;
-
-    isScanning = true;
-    updateScanUI(true);
-    setStatus('Starting database refresh...');
-
-    try {
-        const response = await fetch('/model-manager/scan', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reread_headers: rereadHeaders, move_misplaced: moveMisplaced }),
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            // Start polling for progress
-            scanPollInterval = setInterval(pollScanProgress, TIMING.scanPoll);
-        } else {
-            setStatus('Scan failed: ' + (data.error || 'Unknown error'), true);
-            isScanning = false;
-            updateScanUI(false);
-        }
-    } catch (error) {
-        console.error('[ModelManager] Scan error:', error);
-        setStatus('Scan error: ' + error.message, true);
-        isScanning = false;
-        updateScanUI(false);
-    }
-}
-
-// Poll scan progress
-async function pollScanProgress() {
-    try {
-        const data = await apiCall({ endpoint: '/model-manager/scan/progress' });
-
-        if (data.success && data.progress) {
-            const p = data.progress;
-
-            // Update progress bar
-            const percent = p.total > 0 ? (p.processed / p.total * 100) : 0;
-            const fillEl = document.getElementById('mm_scan_fill');
-            const textEl = document.getElementById('mm_scan_text');
-
-            if (fillEl) fillEl.style.width = percent + '%';
-            if (textEl) {
-                textEl.textContent = `Scanning: ${p.processed}/${p.total} - ${p.current_file || 'Preparing...'}`;
-            }
-
-            // Update status
-            setStatus(`Scan: ${p.processed}/${p.total} models processed`);
-
-            // Check if complete
-            if (p.is_complete) {
-                clearInterval(scanPollInterval);
-                scanPollInterval = null;
-                isScanning = false;
-                updateScanUI(false);
-
-                // Show final status
-                const errorInfo = p.error_count > 0 ? ` (${p.error_count} errors)` : '';
-                const moveInfo = (p.moved ? `, ${p.moved} moved into their type's folder` : '')
-                    + (p.not_moved ? `, ${p.not_moved} left where ${p.not_moved === 1 ? 'it was' : 'they were'} (a file of that name is already there)` : '');
-                setStatus(`Scan complete: ${p.processed} models indexed${moveInfo}${errorInfo}`);
-                loadBaseModelOptions();
-
-                // Reload models to show updated data
-                setTimeout(loadModels, 500);
-            }
-        }
-    } catch (error) {
-        console.error('[ModelManager] Scan progress poll error:', error);
-    }
-}
-
-// Cancel scan
-async function cancelScan() {
-    try {
-        await fetch('/model-manager/scan/cancel', { method: 'POST' });
-        setStatus('Canceling scan...');
-    } catch (error) {
-        console.error('[ModelManager] Scan cancel error:', error);
-    }
-}
-
-// Update UI based on scan state
-function updateScanUI(scanning) {
-    const refreshBtn = document.getElementById('mm_refresh_btn');
-    const scanCancelBtn = document.getElementById('mm_scan_cancel_btn');
-    const scanProgressDiv = document.getElementById('mm_scan_progress');
-    const loadBtn = document.getElementById('mm_load_btn');
-    const syncBtn = document.getElementById('mm_sync_btn');
-
-    if (refreshBtn) refreshBtn.disabled = scanning || isSyncing;
-    if (loadBtn) loadBtn.disabled = scanning || isSyncing;
-    if (syncBtn) syncBtn.disabled = scanning || isSyncing;
-    if (scanCancelBtn) scanCancelBtn.style.display = scanning ? 'inline-block' : 'none';
-    if (scanProgressDiv) scanProgressDiv.style.display = scanning ? 'block' : 'none';
-
-    // Reset progress bar when starting
-    if (scanning) {
-        const fillEl = document.getElementById('mm_scan_fill');
-        const textEl = document.getElementById('mm_scan_text');
-        if (fillEl) fillEl.style.width = '0%';
-        if (textEl) textEl.textContent = 'Preparing...';
-    }
-}
-
-// Check for ongoing scan/sync processes and resume polling
+// Check for an ongoing sync and resume polling
 export async function checkOngoingProcesses() {
     console.log('[ModelManager] Checking for ongoing processes...');
-
-    // Check for ongoing scan
-    try {
-        const scanData = await apiCall({ endpoint: '/model-manager/scan/progress' });
-        if (scanData.success && scanData.progress && !scanData.progress.is_complete) {
-            console.log('[ModelManager] Found ongoing scan, resuming...');
-            isScanning = true;
-            updateScanUI(true);
-            setStatus(`Scan in progress: ${scanData.progress.processed}/${scanData.progress.total}`);
-
-            // Resume polling
-            if (!scanPollInterval) {
-                scanPollInterval = setInterval(pollScanProgress, TIMING.scanPoll);
-            }
-        }
-    } catch (error) {
-        console.log('[ModelManager] No ongoing scan');
-    }
 
     // Check for ongoing sync
     try {
@@ -967,7 +806,7 @@ if (typeof document !== 'undefined') {
     document.addEventListener?.('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             // Only check if we're not already tracking a process
-            if (!isScanning && !isSyncing) {
+            if (!isSyncing) {
                 checkOngoingProcesses();
             }
         }
@@ -975,15 +814,12 @@ if (typeof document !== 'undefined') {
 }
 
 /**
- * Wire the jobs' buttons and dialogs: Sync and its Cancel, Scan Disk and its
- * Cancel, and both dialogs - the Model Manager's markup, which its
- * bindElements() calls this for once it is there.
+ * Wire the sync's button, its Cancel and its dialog - the Model Manager's
+ * markup, which its bindElements() calls this for once it is there.
  */
 export function bindJobControls() {
     const syncBtn = document.getElementById('mm_sync_btn');
     const cancelBtn = document.getElementById('mm_sync_cancel_btn');
-    const refreshBtn = document.getElementById('mm_refresh_btn');
-    const scanCancelBtn = document.getElementById('mm_scan_cancel_btn');
 
     // Bind sync button
     if (syncBtn) {
@@ -1006,6 +842,7 @@ export function bindJobControls() {
                     || e.target.id === 'mm_sync_force_mode') {
                 syncDialogDependencies();
             }
+            if (e.target.id === 'mm_sync_move') showMoveDetails();
             // Touching a window picks the scope it belongs to, so the two
             // do not have to be set in the right order.
             const SCOPE_OF = {
@@ -1042,52 +879,6 @@ export function bindJobControls() {
             e.preventDefault();
             e.stopPropagation();
             cancelSync();
-        });
-    }
-
-    // Bind refresh/scan button
-    if (refreshBtn) {
-        const newRefreshBtn = refreshBtn.cloneNode(true);
-        refreshBtn.parentNode.replaceChild(newRefreshBtn, refreshBtn);
-
-        newRefreshBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openScanDialog();
-        });
-    }
-
-    // The confirmation behind it: same dismissal rules as the sync dialog.
-    const scanDialog = document.getElementById('mm_scan_dialog');
-    if (scanDialog) {
-        scanDialog.addEventListener('click', (e) => {
-            if (e.target === scanDialog) closeScanDialog();
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && scanDialog.style.display !== 'none') closeScanDialog();
-        });
-        const scanCancel = document.getElementById('mm_scan_dialog_cancel');
-        if (scanCancel) scanCancel.addEventListener('click', closeScanDialog);
-        const scanStart = document.getElementById('mm_scan_dialog_start');
-        if (scanStart) {
-            scanStart.addEventListener('click', () => {
-                const rereadHeaders = !!document.getElementById('mm_scan_reread')?.checked;
-                const moveMisplaced = !!document.getElementById('mm_scan_move')?.checked;
-                closeScanDialog();
-                startScan({ rereadHeaders, moveMisplaced });
-            });
-        }
-    }
-
-    // Bind scan cancel button
-    if (scanCancelBtn) {
-        const newScanCancelBtn = scanCancelBtn.cloneNode(true);
-        scanCancelBtn.parentNode.replaceChild(newScanCancelBtn, scanCancelBtn);
-
-        newScanCancelBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelScan();
         });
     }
 }

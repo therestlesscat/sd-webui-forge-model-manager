@@ -3,7 +3,7 @@ What a model file is, read once and kept with its row.
 
 file_identity.py says what a file is; this stores that on the file's version
 row, and says when it has to be asked again - when the file has changed since
-it was last read. Scan Disk, a sync, a download and Send to txt2img all read
+it was last read. A sync's walk, a download and Send to txt2img all read
 a file through here, so a file is read once per change, whoever comes first.
 """
 from typing import Optional
@@ -20,7 +20,7 @@ def needs_check(db, path: str, force: bool = False) -> Optional[str]:
     A file already read at this modified time is skipped - including one
     Forge did not recognise, which is stored as None so it is not read again
     until it changes. A file with no row yet is read: its row is about to be
-    written. `force` reads it anyway: Scan Disk's "Re-evaluate file headers",
+    written. `force` reads it anyway: the sync's "Read every file's header again",
     after an update that tells more kinds of file apart - a LoRA stored in
     diffusers' style was read as a Checkpoint, and would have stayed one.
     """

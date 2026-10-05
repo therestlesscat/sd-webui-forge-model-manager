@@ -2,7 +2,7 @@
 How explicit is this? - asked and answered in one place.
 
 Civitai reports maturity three different ways, and they do not always agree.
-This module decides which to believe, so the scan, the sync, the image store
+This module decides which to believe, so the sync, the image store
 and the browser all reach the same verdict about the same picture.
 
 THE LEVELS are bit flags, from Civitai's own scale:

@@ -20,7 +20,6 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 from model_manager.jobs import Jobs                      # noqa: E402
-from model_manager.scan_service import ScanProgress      # noqa: E402
 from model_manager.sync_service import SyncProgress      # noqa: E402
 
 fails = []
@@ -72,12 +71,6 @@ p = jobs.progress('sync')
 check('a sync that raises is finished', p.is_complete, True)
 check('with its error counted and said', (p.errors, p.error_messages), (1, ['exploded']))
 check('and what it had done', p.processed, 3)
-
-jobs.start('scan', lambda: Service(ScanProgress()), explode_after(2))
-jobs.join(5)
-p = jobs.progress('scan')
-check('a scan that raises is finished, with its error', (p.is_complete, p.errors, p.processed),
-      (True, ['exploded'], 2))
 
 # ------------------------------------------------ asked again while it runs
 # A restamp asked for while one runs must not be lost (#98): with `again`, the

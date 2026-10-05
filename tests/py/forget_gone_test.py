@@ -51,8 +51,8 @@ forgotten = forget_gone(db, [p for p in stored if p not in (here, gone)])
 check('a file not found and not on disk is forgotten', gone in forgotten and gone not in db.get_all_version_paths(), True)
 check('one not found but still on disk is kept', (here in forgotten, here in db.get_all_version_paths()), (False, True))
 
-# Both walks forget through it.
-for name in ('scan_service.py', 'sync_service.py'):
+# The walk forgets through it.
+for name in ('sync_service.py',):
     tree = ast.parse(open(os.path.join(ROOT, 'model_manager', name), encoding='utf-8').read())
     called = {node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, 'attr', '')
               for node in ast.walk(tree) if isinstance(node, ast.Call)}

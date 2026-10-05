@@ -75,7 +75,7 @@ class SyncService:
     Service for syncing local models with Civitai.
 
     Fetches model metadata, descriptions, and images from Civitai API
-    and saves them to .civitai.info and .images.json files.
+    and keeps them in the database, writing each file's .civitai.info beside it.
     """
 
     def __init__(self, client: Optional[CivitaiClient] = None):

@@ -177,9 +177,9 @@ const sentinel = document.getElementById('gen_sentinel');
 sentinel.getBoundingClientRect = () => ({ top: endTop });
 window.innerHeight = 900;
 
-// All three tabs are one page, and the Model Manager keeps its sync and scan
-// dialogs in its markup, hidden: the keys took them for open questions, and
-// did nothing. One is here too.
+// All three tabs are one page, and the Model Manager keeps its sync dialog
+// in its markup, hidden: the keys took it for an open question, and did
+// nothing. One is here too.
 document.body.insertAdjacentHTML('beforeend', '<div class="mm-dialog-backdrop" style="display: none;"></div>');
 
 // Gradio draws the tab's markup after the page is ready, and the script runs

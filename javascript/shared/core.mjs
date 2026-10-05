@@ -12,7 +12,6 @@
  */
 export const TIMING = Object.freeze({
     poll: 1000,           // downloads and sync progress
-    scanPoll: 500,        // Scan Disk progress
     presetSettle: 600,    // no server call after a preset switch this long: done in the page alone
     presetQuiet: 400,     // quiet this long after the last call: Forge has nothing more to send
     presetMax: 15000,     // a server this slow is not waited on further
@@ -211,8 +210,8 @@ export function safeUrl(value, protocols = ['http:', 'https:']) {
  * A model description, reduced to formatting.
  *
  * Descriptions are HTML by design, so they cannot be escaped - but they were
- * inserted raw, and the scan also reads them from .civitai.info files other
- * tools write. Anything not on the list goes: tags are unwrapped to their text,
+ * inserted raw, and a sync takes them from a .civitai.info another tool wrote
+ * when Civitai no longer has the model. Anything not on the list goes: tags are unwrapped to their text,
  * and script-bearing ones are dropped with their contents. Only a link's href,
  * an image's src and a title survive as attributes, and only as http(s).
  *

@@ -1,7 +1,7 @@
 """
 Starting, watching and cancelling the long jobs.
 
-A scan or a sync runs on a background thread, and there is at most one of each
+A sync runs on a background thread, and there is at most one
 (model_manager.jobs) - so the interesting behaviour is what a second request
 gets while the first is still running, what progress says before anything has
 been started, and what a job that raises leaves behind.
@@ -39,7 +39,6 @@ import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.api.jobs as jobs                    # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 from model_manager.jobs import jobs as registry          # noqa: E402
-from model_manager.scan_service import ScanProgress      # noqa: E402
 from model_manager.sync_service import SyncProgress      # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'jobs_api')
@@ -70,7 +69,7 @@ def get(url, **params):
 
 # ---------------------------------------------------------------- stub services
 class Job:
-    """A sync or a scan that does whatever the test told it to."""
+    """A sync that does whatever the test told it to."""
 
     hold = None          # an Event to wait on, so the job stays "running"
     raises = None
@@ -101,17 +100,7 @@ class Job:
         self.cancelled = True
 
 
-class Scan(Job):
-    def __init__(self):
-        Job.__init__(self)
-        self.progress = ScanProgress()
-
-    def scan_models(self, **kwargs):
-        return self._run('scan_models', kwargs)
-
-
 jobs.SyncService = Job
-jobs.ScanService = Scan
 
 
 def reset(hold=False, raises=None, processed=0):
@@ -135,16 +124,10 @@ status, body = get('/model-manager/sync/progress')
 check('progress before any sync is None', (status, body['progress']), (200, None))
 check('and says so', body['message'], 'No sync in progress')
 
-status, body = get('/model-manager/scan/progress')
-check('the same for a scan', body['progress'], None)
-check('with its own message', body['message'], 'No scan in progress')
-
 status, body = post('/model-manager/sync/cancel')
 check('cancelling nothing is refused', (status, body['success']), (200, False))
 check('saying why', body['error'], 'No sync in progress')
 
-status, body = post('/model-manager/scan/cancel')
-check('and cancelling no scan too', body['error'], 'No scan in progress')
 
 # --------------------------------------------------------------- a full sync
 reset()
@@ -358,56 +341,19 @@ status, body = get('/model-manager/sync/misplaced')
 check('the sync dialog can list the files in another type\'s folder: none here',
       (status, body['success'], body['files']), (200, True, []))
 
-# ---------------------------------------------------------------------- a scan
-reset()
-status, body = post('/model-manager/scan')
-finished()
-check('a scan starts', (status, body['success']), (200, True))
-check('and says so', body['message'], 'Scan started')
-check('it is the scan that runs', Job.asked[0][0], 'scan_models')
-check('reading headers only for new or changed files, and moving nothing', Job.asked[0][1],
-      {'reread_headers': False, 'move_misplaced': False})
-
-reset()
-r = client.post('/model-manager/scan', json={'reread_headers': True})
-finished()
-check('"Re-evaluate file headers" is passed to the scan', (r.status_code, Job.asked[0][1]),
-      (200, {'reread_headers': True, 'move_misplaced': False}))
-r = client.post('/model-manager/scan', json={'move_misplaced': True})
-finished()
-check('"Move files into their type\'s folder" is passed to the scan', Job.asked[-1][1],
-      {'reread_headers': False, 'move_misplaced': True})
-
-status, body = get('/model-manager/scan/progress')
-check('its progress is readable', body['progress'] is not None, True)
-
-hold = reset(hold=True)
-post('/model-manager/scan')
-status, body = post('/model-manager/scan')
-check('a second scan is refused while one runs', status, 409)
-check('saying which', body['error'], 'Scan already in progress')
-status, body = post('/model-manager/scan/cancel')
-check('cancelling reaches it', body['success'], True)
-check('and it was asked to stop', registry.service('scan').cancelled, True)
-hold.set()
-finished()
-
-reset(raises=RuntimeError('scan exploded'))
-post('/model-manager/scan')
-finished()
-p = get('/model-manager/scan/progress')[1]['progress']
-# Only the count reaches the page - the message goes to the log. A sync sends
-# the messages themselves.
-check('a scan that raises is reported finished, with one error',
-      (p['is_complete'], p['error_count']), (True, 1))
-
 # A finished job stays reportable: the page's last poll reads it.
 reset()
-post('/model-manager/scan')
+post('/model-manager/sync')
 finished()
-status, body = get('/model-manager/scan/progress')
-check('the last scan is still reportable once it has finished',
+status, body = get('/model-manager/sync/progress')
+check('the last sync is still reportable once it has finished',
       body['progress']['is_complete'] if body['progress'] else None, True)
+
+# ------------------------------------------------------------- no Scan Disk
+# Every sync walks the library (0.48); Scan Disk and its endpoints are gone.
+for method, url in ((post, '/model-manager/scan'), (get, '/model-manager/scan/progress'),
+                    (get, '/model-manager/scan/misplaced'), (post, '/model-manager/scan/cancel')):
+    check('%s is gone' % url, method(url)[0], 404)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

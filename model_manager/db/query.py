@@ -539,7 +539,7 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
         # and the honest "when did I get this" for a grouped model
         "group_acquired_at": row["group_acquired_at"] if "group_acquired_at" in row.keys() else None,
         "max_image_nsfw": row["max_image_nsfw"],
-        # What the file is, from the file; None until a scan has read it.
+        # What the file is, from the file; None until a sync has read it.
         "file_type": row["file_type"] if "file_type" in row.keys() else None,
         "identified_by": row["identified_by"] if "identified_by" in row.keys() else None,
         "architecture": row["architecture"] if "architecture" in row.keys() else None,

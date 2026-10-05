@@ -82,8 +82,8 @@ check('the rich row went in', before['version_name'], 'v3')
 check('with its trigger words', as_json(before['trained_words'], []), ['trigger one', 'trigger two'])
 check('and its hashes', as_json(before['file_hashes'], {}).get('sha256'), 'A' * 64)
 
-# What scan_service builds from a stub sidecar: a name and a base model, and
-# silence about everything else.
+# What a thin source gives - Scan Disk built this from a stub sidecar: a name
+# and a base model, and silence about everything else.
 STUB = {
     "id": 4242, "model_id": 99, "file_path": PATH,
     "file_name": "subject.safetensors", "file_extension": ".safetensors",

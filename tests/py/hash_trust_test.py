@@ -274,5 +274,34 @@ sync.sync_model(STUB)
 check('a sidecar naming no version is no identification (#131), and Civitai is not asked about it',
       (row(STUB).get('id'), ('model', 6400) in sync.client.asked), (None, False))
 
+# Other tools write the by-hash payload: the version at the root, the model
+# under "model". Read as the model format it gave the model the version's id
+# and name and no type.
+FORMAT = write('Stable-diffusion', 'from_another_tool.gguf', fill=b'f')
+db.insert_missing_versions([{'file_path': FORMAT, 'file_name': 'from_another_tool.gguf'}])
+io.open(os.path.splitext(FORMAT)[0] + '.civitai.info', 'w', encoding='utf-8').write(json.dumps({
+    "id": 2434385, "modelId": 2053259, "name": "Lightning Q6", "baseModel": "Wan Video 2.2 I2V-A14B",
+    "trainedWords": [], "files": [{"name": "from_another_tool.gguf", "primary": True}],
+    "creator": {"username": "maker"},
+    "model": {"name": "WAN 2.2 Enhanced", "type": "Checkpoint", "nsfw": False}}))
+service().sync_model(FORMAT)
+stored = db.get_civitai_model(2053259) or {}
+check('a sidecar in Civitai\'s version format is read as the model it belongs to',
+      (stored.get('name'), stored.get('type'), stored.get('creator_username')),
+      ('WAN 2.2 Enhanced', 'Checkpoint', 'maker'))
+check('and the version as the version', (row(FORMAT).get('id'), row(FORMAT).get('model_id'), row(FORMAT).get('base_model')),
+      (2434385, 2053259, 'Wan Video 2.2 I2V-A14B'))
+
+TYPELESS = write('Lora', 'no_type_anywhere.safetensors', fill=b'n')
+db.insert_missing_versions([{'file_path': TYPELESS, 'file_name': 'no_type_anywhere.safetensors'}])
+fixtures.sidecar(TYPELESS, {"id": 31337, "name": "Typeless", "modelVersions": [
+    {"id": 31338, "name": "v1", "files": [{"name": "no_type_anywhere.safetensors"}]}]})
+result = service().sync_model(TYPELESS)
+check('a sidecar with no type anywhere is stored, its Civitai type Unknown',
+      (bool(result.error), (db.get_civitai_model(31337) or {}).get('type')), (False, 'Unknown'))
+db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': 'LORA'})
+db.upsert_civitai_model({'id': 31337, 'name': 'Typeless', 'type': None})
+check('and a typeless one never overwrites a type already known', db.get_civitai_model(31337)['type'], 'LORA')
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
