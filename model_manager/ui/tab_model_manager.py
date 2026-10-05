@@ -290,6 +290,23 @@ def create_ui():
                             </label>
                         </div>
 
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Files</div>
+                            <label class="mm-dialog-option" title="Every sync first reads your model folders: it adds new files, forgets deleted ones, and reads what each new or changed file is - Checkpoint, LoRA, VAE, text encoder... - from its header. This reads every file's header again: after an update that recognises more kinds of file, or if a file shows as the wrong type. Headers only, so it adds little time.">
+                                <input type="checkbox" id="mm_sync_reread">
+                                <span>Read every file's header again</span>
+                            </label>
+                            <label class="mm-dialog-option">
+                                <input type="checkbox" id="mm_sync_move" disabled>
+                                <span>Move files into their type's folder</span>
+                            </label>
+                            <div class="mm-dialog-note" id="mm_sync_move_note"></div>
+                            <details class="mm-scan-misplaced" id="mm_sync_misplaced" hidden>
+                                <summary>Show which</summary>
+                                <ul id="mm_sync_misplaced_list"></ul>
+                            </details>
+                        </div>
+
                         <div class="mm-dialog-estimate" id="mm_sync_estimate">Estimating...</div>
                         <div class="mm-dialog-notice" id="mm_sync_images_notice" hidden></div>
 

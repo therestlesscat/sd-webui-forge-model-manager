@@ -280,6 +280,14 @@ class ModelsDatabase:
         """Record files not already in the database. See db/models_ops.py."""
         return self._models.insert_missing_versions(rows)
 
+    def refresh_file_stats(self, rows: List[Dict[str, Any]]) -> int:
+        """A walk's size and modified time for files already held. See db/models_ops.py."""
+        return self._models.refresh_file_stats(rows)
+
+    def never_asked_paths(self) -> List[str]:
+        """Files neither identified nor asked about. See db/models_ops.py."""
+        return self._models.never_asked_paths()
+
     def set_checkpoint_types(self, types: Dict[int, str]) -> int:
         """Record Trained/Merge for these models. See db/models_ops.py."""
         return self._models.set_checkpoint_types(types)

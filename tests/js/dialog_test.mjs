@@ -162,6 +162,12 @@ const MISPLACED = [
       file_type: 'TextualInversion', identified_by: '', clash: 'same' },
 ];
 
+// What every sync will read in full, as /sync/new-files counts it: none, until
+// the Files section is looked at.
+const NEW_FILES = { success: true, files: 0, bytes: 0 };
+// What the walk every sync starts with did, added to the progress at its end.
+const WALKED = {};
+
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     if (href.includes('/model-manager/ui-options')) {
@@ -177,10 +183,13 @@ globalThis.fetch = async (url, init = {}) => {
         // Completed, so isSyncing clears and the dialog can be driven again.
         return { ok: true, json: async () => ({ success: true, progress: {
             total: 1, processed: 1, synced: 1, skipped: 0, errors: 0,
-            not_found: 0, current_model: '', error_messages: [], is_complete: true,
+            not_found: 0, current_model: '', error_messages: [], is_complete: true, ...WALKED,
         } }) };
     }
-    if (href.includes('/scan/misplaced')) {
+    if (href.includes('/sync/new-files')) {
+        return { ok: true, json: async () => ({ ...NEW_FILES }) };
+    }
+    if (href.includes('/sync/misplaced') || href.includes('/scan/misplaced')) {
         return { ok: true, json: async () => ({ success: true, files: MISPLACED }) };
     }
     if (href.includes('/scan/progress')) {
@@ -514,6 +523,58 @@ check('as many images as each has', body.get('keep_image_count'), 'true');
 check('with the 47 paths', body.get('paths').split(',').length, 47);
 check('and no window, since the scope is results', body.get('stale_days'), '0');
 check('nor a download window', body.get('downloaded_days'), '0');
+check('nor anything the walk does besides', [body.get('reread_headers'), body.get('move_misplaced')],
+      ['false', 'false']);
+
+// --- the Files section: what the walk every sync starts with does besides -----
+await until('the metadata sync to finish', () => $('mm_sync_btn').disabled === false);
+posts.length = 0;
+NEW_FILES.files = 12;
+NEW_FILES.bytes = 3 * 1073741824;
+click('mm_sync_btn');
+await settle();
+await settle();
+check('both boxes start unticked, the move one usable once its list has come',
+      [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled], [false, false, false]);
+check('the dialog says which files are in another type\'s folder, as Scan Disk\'s does',
+      [$('mm_sync_move_note').textContent.startsWith('2 files are in a folder for another type'),
+       $('mm_sync_misplaced_list').querySelectorAll('li').length], [true, 2]);
+check('the estimate says what every sync will read in full, whatever its scope',
+      $('mm_sync_estimate').textContent.endsWith('Also 12 new files to read in full (3.00 GB) and look up on Civitai.'),
+      true);
+$('mm_sync_reread').checked = true;
+$('mm_sync_move').checked = true;
+click('mm_sync_dialog_start');
+await settle();
+const walkBody = new URLSearchParams(posts[0]?.body || '');
+check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
+WALKED.added = 2;
+WALKED.removed = 1;
+WALKED.moved = 1;
+await until('that sync to finish', () => $('mm_sync_btn').disabled === false);
+check('the status says what the walk did to the library',
+      $('mm_status').textContent.includes(", 2 new on disk, 1 gone from disk, 1 moved into their type's folder, 0 errors"),
+      true);
+for (const key of Object.keys(WALKED)) delete WALKED[key];
+
+posts.length = 0;
+click('mm_sync_btn');
+await settle();
+check('the next time the dialog opens, both are unticked again',
+      [$('mm_sync_reread').checked, $('mm_sync_move').checked], [false, false]);
+forceRadio.checked = true;
+change(forceRadio);
+await settle();
+$('mm_sync_reread').checked = true;
+click('mm_sync_dialog_start');
+await settle();
+const forceWalk = new URLSearchParams(posts[0]?.body || '');
+check('a force sync sends them too',
+      [posts[0]?.url, forceWalk.get('reread_headers'), forceWalk.get('move_misplaced')],
+      ['/model-manager/sync', 'true', 'false']);
+await until('the force sync to finish', () => $('mm_sync_btn').disabled === false);
+NEW_FILES.files = 0;
+NEW_FILES.bytes = 0;
 
 // --- Scan Disk asks first ---------------------------------------------------
 // It adds and removes rows to match the disk, which is not something to find

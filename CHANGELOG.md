@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.48 - Sync reads your model folders
+
+*4 October 2026*
+
+Every sync now starts by reading your model folders, whichever models it refreshes: files you have added join the library and are read for what they are, files you have deleted leave it, and every new file is looked up on Civitai - not only in a force sync. The sync dialog says how many files that is, and how big, before you start.
+
+- **0.48.0** (build 366) - Every sync starts by reading your model folders, as Scan Disk does: a new file gets its place in the library and its header read, a changed one its new size, and a file gone from disk is forgotten, with the models and images only it kept. Every sync then reads each new file in full and asks Civitai what it is, where only a force sync did; the dialog's estimate says how many files and how many GB. The dialog has a Files section, above the estimate: "Read every file's header again", and "Move files into their type's folder", which lists the files first, as Scan Disk's does. Both start unticked every time.
+
 ## 0.47 - Send sets up the gallery's model
 
 *4 October 2026*

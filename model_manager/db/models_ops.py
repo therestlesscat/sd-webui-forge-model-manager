@@ -721,6 +721,41 @@ class ModelsOps:
             after = cursor.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             return after - before
 
+    def refresh_file_stats(self, rows: List[Dict[str, Any]]) -> int:
+        """
+        A walk's own facts about files already in the library - size and
+        modified time, as the disk has them now - and nothing else: what the
+        rest of a row says came from more than a walk. A path the library
+        does not hold is skipped.
+
+        Args:
+            rows: file_path, file_size, file_modified.
+
+        Returns:
+            How many rows changed.
+        """
+        changed = 0
+        with self._cursor() as cursor:
+            for r in rows:
+                if not r.get("file_path"):
+                    continue
+                cursor.execute("""
+                    UPDATE files SET file_size = ?, file_modified = ?
+                    WHERE file_path = ?
+                      AND (file_size IS NOT ? OR file_modified IS NOT ?)
+                """, (r.get("file_size"), r.get("file_modified"),
+                      _stored_spelling(cursor, r["file_path"]),
+                      r.get("file_size"), r.get("file_modified")))
+                changed += max(cursor.rowcount, 0)
+        return changed
+
+    def never_asked_paths(self) -> List[str]:
+        """Files no sync has identified, nor asked Civitai about: what a sync hashes."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path FROM files WHERE version_id IS NULL "
+                           "AND civitai_lookup_failed_at IS NULL AND file_path IS NOT NULL")
+            return [row[0] for row in cursor.fetchall()]
+
     def set_checkpoint_types(self, types: Dict[int, str]) -> int:
         """
         Record which checkpoints are trained and which are merged.

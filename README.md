@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.48 - Sync reads your model folders.** Every sync starts by reading your model folders,
+whichever models it refreshes: files you have added join the library and are looked up on
+Civitai, files you have deleted leave it. The sync dialog says how many new files it will
+read before you start, and can read every file's header again or move files sitting in
+another type's folder into their own.
+
 **0.47 - Send sets up the gallery's model.** Send to txt2img from a LoRA's, a VAE's or an
 embedding's gallery loads the checkpoint the image was made with, where Forge used to keep
 whatever it had; one your library lacks opens the image's Resources instead, to download it

@@ -29,8 +29,8 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
-| `sync_service.py` | identifying files and refreshing their metadata |
-| `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate and its staleness-window counts |
+| `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
+| `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
 | `scan_service.py` | reading the disk and the sidecars beside it |
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
 | `jobs.py` | the long jobs - a sync, a scan, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
@@ -927,7 +927,7 @@ real time once.
 python tests/run.py --all
 ```
 
-A hundred and fifty-nine, as the runner counts them - 78 Python, 75 browser and
+A hundred and sixty-one, as the runner counts them - 79 Python, 76 browser and
 6 static checks, seven of them skipped unless asked (the NSFW trainer's with
 `--tools`, as it is run by hand) - four at a time: under 35 s. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,

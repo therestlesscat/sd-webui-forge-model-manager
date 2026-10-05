@@ -167,8 +167,15 @@ check('prompts start disabled, waiting on images',
       'id="mm_sync_prompts" disabled' in dialog)
 check('and unticked, since a locked tick would promise what cannot happen',
       'id="mm_sync_prompts" checked' in dialog, False)
+include = block(dialog, '<div class="mm-dialog-section">', 1)
 check('the Include section is three lines',
-      dialog.count('type="checkbox"'), 3)
+      include.count('type="checkbox"'), 3)
+# What the walk every sync starts with does besides, above what it costs.
+files = block(dialog, '<div class="mm-dialog-section">', 2)
+check('the Files section has its two boxes',
+      ('id="mm_sync_reread"' in files, 'id="mm_sync_move"' in files), (True, True))
+check('above the estimate', dialog.index('id="mm_sync_move"') < dialog.index('id="mm_sync_estimate"'))
+check('and the move box starts disabled, until the list has come', 'id="mm_sync_move" disabled' in files)
 
 check('there is somewhere to put the estimate', 'id="mm_sync_estimate"' in dialog)
 check('and a Start and a Cancel',

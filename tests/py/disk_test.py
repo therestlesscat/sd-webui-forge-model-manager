@@ -125,11 +125,13 @@ check('and the library is untouched', len(rows()), fixtures.VERSIONS)
 # This is the one that matters: the diff must never run on a partial view.
 import inspect
 src = inspect.getsource(ss.SyncService.sync_all)
-check('the diff is gated on having walked', 'if walked:' in src)
+walk = inspect.getsource(ss.SyncService.walk_library)
+check('the walk, and its diff, only when no path list was given', 'if model_paths is None:' in src)
 check('and runs before the targets narrow anything',
-      src.index('_forget_missing_files') < src.index('_filter_by_identification'))
+      src.index('walk_library') < src.index('_filter_by_identification'))
+check('the diff is the walk\'s, run on what it found', 'self._forget_missing_files(found)' in walk)
 
-calls = [line.strip() for line in src.splitlines() if '_forget_missing_files' in line]
+calls = [line.strip() for line in (src + walk).splitlines() if '_forget_missing_files' in line]
 check('there is exactly one call to it', len(calls), 1)
 
 
@@ -151,8 +153,9 @@ survivors = len(rows())
 ss.SyncService(client=Stub()).sync_all(model_paths=[tiny], targets='all')
 check('an explicit path list deletes nothing', len(rows()), survivors)
 
-# A metadata sync is not a walk either - but it does delete what it can prove
-# is gone, which is the row it was about to refresh and could not find.
+# A metadata sync walks too, but here there are no folders to walk - and it
+# deletes what it can prove is gone anyway: the row it was about to refresh
+# and could not find.
 raw = sqlite3.connect(DB)
 raw.row_factory = sqlite3.Row
 linked = raw.execute(

@@ -18,10 +18,12 @@ from .civitai import (
     keep_generation_data,
 )
 from .hashing import HashResult, ModelHasher
-from .model_dirs import file_modified, find_model_files, forget_gone, library_dirs
+from .model_dirs import (file_modified, find_model_files, forget_gone, library_dirs,
+                         move_misplaced_files)
 from .payload_rows import file_row, model_row, version_row
 from .storage import get_metadata_paths, write_civitai_info
-from .identity_store import record_architecture
+from .file_identity import identify
+from .identity_store import needs_check, record_architecture, store_architecture
 from .nsfw import version_covers
 from .db import get_models_db
 from .forge_host import DEFAULTS, setting
@@ -52,6 +54,8 @@ class SyncProgress:
     not_found: int = 0
     added: int = 0          # files the database had never seen
     removed: int = 0        # rows whose file is no longer on disk
+    moved: int = 0          # files moved into their type's folder
+    not_moved: int = 0      # left in another type's: their name is taken there
     current_model: str = ""
     error_messages: List[str] = field(default_factory=list)
     is_complete: bool = False
@@ -378,9 +382,9 @@ class SyncService:
 
         Civitai does not know most LoRAs, VAEs and text encoders, and a sync
         that recorded only what Civitai recognised left them out of the library
-        entirely: the file is on disk and the grid has never heard of it. Rows
-        already present are left untouched - see insert_missing_versions() for
-        why that matters.
+        entirely: the file is on disk and the grid has never heard of it. Of a
+        row already present only the size and modified time are brought up to
+        date - see insert_missing_versions() for why the rest is left alone.
         """
         rows = []
         for path in model_paths:
@@ -399,10 +403,106 @@ class SyncService:
                 pass
             rows.append(row)
 
-        added = get_models_db().insert_missing_versions(rows)
+        db = get_models_db()
+        added = db.insert_missing_versions(rows)
         if added:
             print(f"[ModelManager] Recorded {added} file(s) the database had not seen")
+        # A file that could not be read says nothing of its size.
+        db.refresh_file_stats([r for r in rows if r["file_modified"] is not None])
         return added
+
+    def walk_library(self, reread_headers: bool = False,
+                     move_misplaced: bool = False) -> List[str]:
+        """
+        Bring the library's rows in line with the disk, before any request:
+        every file found has a row, with its size and date as they are now,
+        and its header read if it is new or changed since (every header, with
+        `reread_headers`); a file in another type's folder is moved into its
+        own when asked; and the rows of files gone from disk are forgotten,
+        with what only they kept. What Scan Disk did, but for reading the
+        sidecars.
+
+        The walk covers every folder of the library, whatever the sync goes on
+        to work on: what a walk did not find is evidence only against the
+        whole disk. One that finds nothing forgets nothing.
+
+        Returns the files found.
+        """
+        db = get_models_db()
+        fixed = db.normalize_version_paths()
+        if fixed:
+            print(f"[ModelManager] Stored {fixed} file paths as a walk finds them")
+        with self._progress_lock:
+            self._progress.current_model = "Reading your model folders..."
+        found = find_model_files(library_dirs())
+        self._progress.added = self._record_found_files(found)
+        self._read_headers(found, force=reread_headers)
+
+        # Never unasked, never over a file, and with their row, pin and
+        # generations. Before the diff, which then finds them where they are.
+        if move_misplaced and found and not self._cancel_requested:
+            moves = move_misplaced_files(db)
+            with self._progress_lock:
+                self._progress.moved = moves.moved
+                self._progress.not_moved = len(moves.not_moved)
+                self._progress.errors += len(moves.errors)
+                self._progress.error_messages.extend(moves.errors)
+            if moves.moved:
+                found = find_model_files(library_dirs())
+
+        # A cancelled walk forgets nothing: it has not looked everywhere.
+        if found and not self._cancel_requested:
+            self._progress.removed = self._forget_missing_files(found)
+            models_gone, images_gone = db.prune_orphans()
+            if models_gone or images_gone:
+                print(f"[ModelManager] Forgot {models_gone} models with no files left "
+                      f"and {images_gone} of their images")
+        return found
+
+    #: Files whose header is read at once: a header is small, and the walk
+    #: waits on the disk rather than on the reading.
+    HEADER_THREADS = 4
+
+    def _read_headers(self, paths: List[str], force: bool = False) -> int:
+        """
+        What each file is, from its own header (identity_store): only for a
+        file new or changed since it was last read, or every one with `force`
+        - after an update that tells more kinds of file apart. Read on the
+        workers, stored here; a header that cannot be read is that file's
+        failure, never the sync's.
+
+        Returns how many were read.
+        """
+        db = get_models_db()
+
+        def read(path: str):
+            if self._cancel_requested:
+                return None
+            try:
+                modified = needs_check(db, path, force=force)
+                if modified is not None:
+                    return path, identify(path), modified
+            except Exception as e:
+                print(f"[ModelManager] Architecture check failed for {os.path.basename(path)}: {e}")
+            return None
+
+        read_count = 0
+        with ThreadPoolExecutor(max_workers=self.HEADER_THREADS) as executor:
+            for future in as_completed([executor.submit(read, p) for p in paths]):
+                result = future.result()
+                if result is None:
+                    continue
+                path, found, modified = result
+                with self._progress_lock:
+                    self._progress.current_model = f"Reading {os.path.basename(path)}"
+                try:
+                    store_architecture(db, path, found, modified)
+                    read_count += 1
+                except Exception as e:
+                    print(f"[ModelManager] Could not store what {os.path.basename(path)} is: {e}")
+        if read_count:
+            print(f"[ModelManager] Read the headers of {read_count} file(s)")
+        return read_count
 
     def _forget_missing_files(self, found_paths: List[str]) -> int:
         """
@@ -541,13 +641,16 @@ class SyncService:
         targets: str = "all",
         callback: Optional[Callable[[SyncProgress], None]] = None,
         max_workers: Optional[int] = None,
-        keep_image_count: bool = False
+        keep_image_count: bool = False,
+        reread_headers: bool = False,
+        move_misplaced: bool = False,
     ) -> SyncProgress:
         """
         Sync multiple models with Civitai using multiple threads.
 
         Args:
-            model_paths: Specific paths to sync, or None for all models.
+            model_paths: Specific paths to sync, or None for every file a walk
+                of the library finds (walk_library) - the walk comes first.
             targets: Which of the files found to work on - "all", "identified"
                 for the ones that already resolve to a Civitai model, or
                 "unidentified" for the ones that do not. A file on disk that
@@ -561,39 +664,55 @@ class SyncService:
                 a full sync.
             keep_image_count: Refetch as many images as each gallery has
                 stored, rather than its first page (refresh_size).
+            reread_headers, move_misplaced: the walk's (walk_library).
 
         Returns:
             Final SyncProgress with summary.
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
+        self._progress = SyncProgress()
         self.keep_image_count = keep_image_count
 
         if max_workers is None:
             max_workers = configured_hash_threads()
 
-        # Get all models if not specified
-        walked = model_paths is None
-        if walked:
-            model_paths = find_model_files(library_dirs())
-
-        # Both of these rest on having seen the whole disk, so they run before
+        # The walk rests on having seen the whole disk, so it runs before
         # `targets` narrows the list: the complete set is the evidence, not
         # whichever subset is about to be worked on.
-        added = removed = 0
-        if walked:
-            added = self._record_found_files(model_paths)
-            removed = self._forget_missing_files(model_paths)
+        found = None
+        if model_paths is None:
+            found = model_paths = self.walk_library(reread_headers=reread_headers,
+                                                    move_misplaced=move_misplaced)
 
         if targets in ("identified", "unidentified"):
             model_paths = self._filter_by_identification(model_paths, targets)
+        # Every sync identifies the files Civitai has never been asked about,
+        # this one too.
+        if targets == "identified" and found:
+            unasked = {os.path.normcase(p) for p in get_models_db().never_asked_paths()}
+            model_paths += [p for p in found if os.path.normcase(p) in unasked]
 
-        self._progress = SyncProgress(total=len(model_paths))
-        self._progress.added = added
-        self._progress.removed = removed
-
+        self._progress.total = len(model_paths)
         print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
 
+        self._sync_files(model_paths, force, max_workers)
+
+        self._progress.current_model = ""
+        self._progress.is_complete = True
+
+        print(f"[ModelManager] Sync complete: {self._progress.synced} synced, "
+              f"{self._progress.not_found} not found, {self._progress.skipped} skipped, "
+              f"{self._progress.errors} errors")
+
+        return self._progress
+
+    def _sync_files(self, model_paths: List[str], force: bool, max_workers: int) -> None:
+        """
+        sync_model() for each of these files, a few at a time, counted on the
+        progress as each ends; then one question about trained or merged for
+        the checkpoints among them that were found.
+        """
         synced_model_ids = set()
         self.galleries_fetched = set()
 
@@ -654,15 +773,6 @@ class SyncService:
             if checkpoints:
                 self._classify_checkpoints({i: {"type": "Checkpoint"} for i in checkpoints})
 
-        self._progress.current_model = ""
-        self._progress.is_complete = True
-
-        print(f"[ModelManager] Sync complete: {self._progress.synced} synced, "
-              f"{self._progress.not_found} not found, {self._progress.skipped} skipped, "
-              f"{self._progress.errors} errors")
-
-        return self._progress
-
     @staticmethod
     def _payload_with_version_first(model_data: Dict, version_id: Optional[int]) -> Dict:
         """
@@ -692,10 +802,14 @@ class SyncService:
         downloaded_after: Optional[str] = None,
         callback: Optional[Callable[[SyncProgress], None]] = None,
         max_workers: Optional[int] = None,
-        keep_image_count: bool = False
+        keep_image_count: bool = False,
+        reread_headers: bool = False,
+        move_misplaced: bool = False,
     ) -> SyncProgress:
         """
-        Refresh Civitai data for models that already resolve, without hashing.
+        Refresh Civitai data for models that already resolve, without hashing
+        them - after a walk of the library (walk_library), and then
+        identifying the files it holds that no sync has asked about.
 
         sync_all() exists to *identify* a file: it reads every byte to compute
         hashes and asks Civitai which version they belong to. Once that has
@@ -704,8 +818,10 @@ class SyncService:
         an hours-long pass over a large library into a handful of requests,
         since ids are fetched a hundred at a time.
 
-        Versions that have never resolved are counted as skipped - identifying
-        them requires the hashing that sync_all() does.
+        Of the files that have never resolved, the ones Civitai has never been
+        asked about - new on disk, mostly - are hashed and looked up, as
+        sync_all() does; the ones it was asked about and did not know are left
+        to a force sync.
 
         Args:
             model_paths: Restrict to these files, or None for everything.
@@ -726,18 +842,26 @@ class SyncService:
                 bounds the sync - a thread beyond that only waits for a token.
             keep_image_count: With images, refetch as many as each gallery
                 has stored, rather than its first page (refresh_size).
+            reread_headers, move_misplaced: the walk's (walk_library).
 
         Returns:
             Final SyncProgress with summary.
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
+        self._progress = SyncProgress()
 
         self.keep_image_count = keep_image_count
         if max_workers is None:
             max_workers = self._workers_for_rate()
 
+        # The whole disk, whatever this sync refreshes: see walk_library().
+        found = self.walk_library(reread_headers=reread_headers,
+                                  move_misplaced=move_misplaced)
         db = get_models_db()
+        unasked = {os.path.normcase(p) for p in db.never_asked_paths()}
+        new_files = [p for p in found if os.path.normcase(p) in unasked]
+
         versions = db.get_linked_versions(synced_before=synced_before,
                                           downloaded_after=downloaded_after)
 
@@ -760,17 +884,40 @@ class SyncService:
         # over their versions for the galleries, which a version's files share
         # - so the bar counts both passes rather than filling up halfway.
         galleries = len({v["id"] for v in versions}) if include_images else 0
-        self._progress = SyncProgress(total=len(versions) + galleries)
-        self._progress.removed = len(missing)
+        self._progress.total = len(versions) + galleries + len(new_files)
+        self._progress.removed += len(missing)
         for version in missing:
             self._progress.error_messages.append(
                 f"Removed, file no longer on disk: {os.path.basename(version['file_path'])}"
             )
 
-        if not versions:
+        if versions and not self._refresh_metadata(versions, include_images, include_prompts,
+                                                   callback, max_workers):
+            # Civitai did not answer: a file looked up now would be taken for
+            # one it does not know.
             self._progress.is_complete = True
             return self._progress
 
+        if new_files and not self._cancel_requested:
+            print(f"[ModelManager] Identifying {len(new_files)} file(s) Civitai has not been asked about")
+            self._sync_files(new_files, force=False, max_workers=configured_hash_threads())
+
+        self._progress.is_complete = True
+        self._progress.current_model = ""
+        print(f"[ModelManager] Metadata sync complete: {self._progress.synced} updated, "
+              f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
+        return self._progress
+
+    def _refresh_metadata(self, versions: List[Dict[str, Any]], include_images: bool,
+                          include_prompts: bool,
+                          callback: Optional[Callable[[SyncProgress], None]],
+                          max_workers: int) -> bool:
+        """
+        sync_metadata()'s refresh of the versions already identified: their
+        models fetched a hundred at a time, each file's sidecar and rows
+        written from them, the checkpoints classified, then the galleries if
+        asked. False when Civitai could not be asked at all.
+        """
         model_ids = list(dict.fromkeys(v["model_id"] for v in versions))
         print(f"[ModelManager] Metadata sync: {len(versions)} versions across "
               f"{len(model_ids)} models (images={include_images})")
@@ -782,9 +929,8 @@ class SyncService:
         try:
             fetched = self.client.get_models_by_ids(model_ids)
         except Exception as e:
-            self._progress.is_complete = True
             self._progress.error_messages.append(f"Could not fetch models: {e}")
-            return self._progress
+            return False
 
         print(f"[ModelManager] Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")
 
@@ -845,12 +991,7 @@ class SyncService:
 
         if include_images and not self._cancel_requested:
             self._refresh_galleries(versions, callback, max_workers, include_prompts)
-
-        self._progress.is_complete = True
-        self._progress.current_model = ""
-        print(f"[ModelManager] Metadata sync complete: {self._progress.synced} updated, "
-              f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
-        return self._progress
+        return True
 
     # Galleries are refreshed a chunk of versions at a time, not one by one.
     # The generation data behind them is fetched by id, 30 ids per request,

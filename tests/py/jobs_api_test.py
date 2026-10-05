@@ -157,6 +157,14 @@ check('it is the hashing sync that runs', name, 'sync_all')
 check('over everything by default', asked['model_paths'], None)
 check('without forcing', asked['force'], False)
 check('and targeting all of them', asked['targets'], 'all')
+check('its walk reading headers only for new or changed files, and moving nothing',
+      (asked['reread_headers'], asked['move_misplaced']), (False, False))
+
+reset()
+post('/model-manager/sync', reread_headers='true', move_misplaced='true')
+finished()
+check('the Files section\'s boxes reach the sync',
+      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced']), (True, True))
 
 for spelling in ('true', 'True', '1', 'yes'):
     reset()
@@ -234,6 +242,14 @@ check('images are left out by default', asked['include_images'], False)
 check('but prompts are looked up', asked['include_prompts'], True)
 check('with no staleness window', asked['synced_before'], None)
 check('and no download window', asked['downloaded_after'], None)
+check('its walk reading headers only for new or changed files, and moving nothing',
+      (asked['reread_headers'], asked['move_misplaced']), (False, False))
+
+reset()
+post('/model-manager/sync/metadata', reread_headers='true', move_misplaced='true')
+finished()
+check('the Files section\'s boxes reach the metadata sync too',
+      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced']), (True, True))
 
 reset()
 status, body = post('/model-manager/sync/metadata', include_images='true',
@@ -328,6 +344,19 @@ status, body = get('/model-manager/sync/estimate')
 check('an estimate that fails is a 500', status, 500)
 check('with the reason', 'division by zero' in body['error'], True)
 jobs.estimate_metadata_sync = real_estimate
+
+# ------------------------------------------------- what the Files section reads
+from modules import paths                                # noqa: E402  (webui_stub's)
+paths.models_path = facts['models_dir']
+status, body = get('/model-manager/sync/new-files')
+check('the files every sync will hash are counted: here, the ones never asked about',
+      (status, body['success'], body['files']), (200, True, fixtures.LOCAL_ONLY))
+check('with their size', body['bytes'],
+      sum(os.path.getsize(path) for path in facts['local_only_paths']))
+paths.models_path = ''
+status, body = get('/model-manager/sync/misplaced')
+check('the sync dialog can list the files in another type\'s folder: none here',
+      (status, body['success'], body['files']), (200, True, []))
 
 # ---------------------------------------------------------------------- a scan
 reset()

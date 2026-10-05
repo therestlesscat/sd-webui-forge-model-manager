@@ -11,7 +11,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -44,8 +44,10 @@ let scanPollInterval = null;
  *
  * `targets` picks which of the files on disk to read: all of them, only the
  * ones that already resolve to a Civitai model, or only the ones that do not.
+ * `walk` is what the walk every sync starts with does besides: rereadHeaders,
+ * moveMisplaced.
  */
-async function startSync(targets = 'all', keepImageCount = false) {
+async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -53,7 +55,8 @@ async function startSync(targets = 'all', keepImageCount = false) {
     setStatus(`Starting force sync (${targets})...`);
 
     try {
-        const bodyData = `force=true&targets=${encodeURIComponent(targets)}&keep_image_count=${keepImageCount}`;
+        const bodyData = `force=true&targets=${encodeURIComponent(targets)}&keep_image_count=${keepImageCount}`
+            + `&reread_headers=${!!walk.rereadHeaders}&move_misplaced=${!!walk.moveMisplaced}`;
         console.log('[ModelManager] Sending sync request with body:', bodyData);
 
         const response = await fetch('/model-manager/sync', {
@@ -110,11 +113,16 @@ async function pollSyncProgress() {
 
                 // Show final status
                 const errorInfo = p.errors > 0 ? ` (${p.error_messages.slice(-3).join('; ')})` : '';
-                setStatus(`Sync complete: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped, ${p.errors} errors${errorInfo}`);
+                // What the walk every sync starts with did to the library.
+                const fileInfo = (p.added ? `, ${p.added} new on disk` : '')
+                    + (p.removed ? `, ${p.removed} gone from disk` : '')
+                    + (p.moved ? `, ${p.moved} moved into their type's folder` : '')
+                    + (p.not_moved ? `, ${p.not_moved} left where ${p.not_moved === 1 ? 'it was' : 'they were'} (a file of that name is already there)` : '');
+                setStatus(`Sync complete: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped${fileInfo}, ${p.errors} errors${errorInfo}`);
                 loadBaseModelOptions();
 
                 // Reload models to show updated data
-                if (p.synced > 0) {
+                if (p.synced > 0 || p.added > 0 || p.removed > 0 || p.moved > 0) {
                     setTimeout(loadModels, 500);
                 }
             }
@@ -152,6 +160,33 @@ let syncResultPaths = null;     // resolved lazily, for the "these results" scop
 let syncDepthBeforeRehash = null;   // restored when the scope leaves "force"
 let syncImagesWereOn = false;       // to tell "just switched on" from "still on"
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
+let syncNewFiles = null;            // {files, bytes}: what every sync hashes, asked once per opening
+
+/**
+ * What every sync reads in full, whatever its scope: the files new on disk,
+ * and the ones Civitai has never been asked about. Empty when there are none,
+ * or the count has not come.
+ */
+function describeNewFiles() {
+    if (!syncNewFiles || !syncNewFiles.files) return '';
+    const n = syncNewFiles.files;
+    return `Also ${n.toLocaleString()} new file${n === 1 ? '' : 's'} to read in full`
+        + ` (${formatBytes(syncNewFiles.bytes)}) and look up on Civitai.`;
+}
+
+/** The files every sync will hash: a walk of the folders, so asked once per opening. */
+async function askNewFiles() {
+    syncNewFiles = null;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/sync/new-files' });
+        if (data && data.success && typeof data.files === 'number') {
+            syncNewFiles = { files: data.files, bytes: data.bytes || 0 };
+        }
+    } catch (error) {
+        console.error('[ModelManager] Counting new files failed:', error);
+    }
+    refreshSyncEstimate();
+}
 
 /**
  * The hashing option's own cost, in files rather than requests.
@@ -216,6 +251,9 @@ function syncDialogChoice() {
         prompts: document.getElementById('mm_sync_prompts')?.checked || false,
         // As many images as each model has, unless the first page is chosen (#103).
         keepImageCount: document.querySelector('input[name="mm_sync_images_count"]:checked')?.value !== 'first',
+        // What the walk every sync starts with does besides (walk_library).
+        rereadHeaders: document.getElementById('mm_sync_reread')?.checked || false,
+        moveMisplaced: document.getElementById('mm_sync_move')?.checked || false,
         // A force sync reads files rather than asking about ids, so it is a
         // scope of its own rather than a depth.
         forceMode: scope === 'force'
@@ -325,14 +363,19 @@ function refreshSyncEstimate() {
                 resultsEl.textContent = `(${syncResultPaths.length})`;
             }
 
+            // A sync with no model to refresh still reads the folders: it
+            // adds what is new, forgets what is gone, and identifies the new.
             if (estimateEl) {
-                estimateEl.textContent = estimate.versions
+                const refresh = estimate.versions
                     ? `${estimate.versions.toLocaleString()} models`
                       + ` - ${totalApproximate ? '~' : ''}${requests.total.toLocaleString()}`
                       + ' requests to Civitai'
-                    : 'Nothing selected - this would do nothing.';
+                    : 'No models to refresh.';
+                const hashing = describeNewFiles();
+                estimateEl.textContent = hashing ? `${refresh} ${hashing}`
+                    : estimate.versions ? refresh : `${refresh} The sync reads your model folders only.`;
             }
-            if (startBtn) startBtn.disabled = !estimate.versions;
+            if (startBtn) startBtn.disabled = false;
         } catch (error) {
             console.error('[ModelManager] Sync estimate failed:', error);
         }
@@ -537,10 +580,18 @@ function openSyncDialog() {
     syncResultPaths = null;
     const dialog = document.getElementById('mm_sync_dialog');
     if (!dialog) return;
+    // Every sync starts as the usual one: reading every header, or moving
+    // files, is asked for each time.
+    const reread = document.getElementById('mm_sync_reread');
+    if (reread) reread.checked = false;
+    const move = document.getElementById('mm_sync_move');
+    if (move) move.checked = false;
     dialog.style.display = 'flex';
     syncDialogDependencies();
     syncDialogResultsScope();
     refreshSyncEstimate();
+    showMisplaced('sync');
+    askNewFiles();
 }
 
 /**
@@ -570,8 +621,9 @@ async function startSyncFromDialog() {
     const choice = syncDialogChoice();
     closeSyncDialog();
 
+    const walk = { rereadHeaders: choice.rereadHeaders, moveMisplaced: choice.moveMisplaced };
     if (choice.scope === 'force') {
-        startSync(choice.forceMode || 'all', choice.keepImageCount);
+        startSync(choice.forceMode || 'all', choice.keepImageCount, walk);
         return;
     }
 
@@ -583,12 +635,13 @@ async function startSyncFromDialog() {
         staleDays: choice.staleDays,
         downloadedDays: choice.downloadedDays,
         paths,
+        ...walk,
     });
 }
 
 async function startMetadataSync({ includeImages = false, includePrompts = true, keepImageCount = false,
                                    staleDays = 0, downloadedDays = 0,
-                                   paths = null } = {}) {
+                                   paths = null, rereadHeaders = false, moveMisplaced = false } = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -604,6 +657,8 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             keep_image_count: String(keepImageCount),
             stale_days: String(staleDays),
             downloaded_days: String(downloadedDays),
+            reread_headers: String(rereadHeaders),
+            move_misplaced: String(moveMisplaced),
         });
         if (paths && paths.length) body.set('paths', paths.join(','));
 
@@ -679,26 +734,36 @@ function openScanDialog() {
     const move = document.getElementById('mm_scan_move');
     if (move) move.checked = false;
     dialog.style.display = 'flex';
-    showMisplaced();
+    showMisplaced('scan');
 }
 
+// Each dialog's box, its note, the list and where the list comes from.
+const MISPLACED = {
+    sync: { endpoint: '/model-manager/sync/misplaced', move: 'mm_sync_move', note: 'mm_sync_move_note',
+            details: 'mm_sync_misplaced', list: 'mm_sync_misplaced_list' },
+    scan: { endpoint: '/model-manager/scan/misplaced', move: 'mm_scan_move', note: 'mm_scan_move_note',
+            details: 'mm_scan_misplaced', list: 'mm_scan_misplaced_list' },
+};
+
 /**
- * Which files Scan Disk would move into their type's folder, before anyone
- * ticks the box: the count, why each would move, and the ones that will stay
- * because their name is taken there. Its box is never ticked for anyone - a
- * note's button ticks "Re-evaluate file headers", and must not move files.
+ * Which files a sync or Scan Disk (`dialog`) would move into their type's
+ * folder, before anyone ticks the box: the count, why each would move, and
+ * the ones that will stay because their name is taken there. Its box is never
+ * ticked for anyone - a note's button ticks "Re-evaluate file headers", and
+ * must not move files.
  */
-async function showMisplaced() {
-    const move = document.getElementById('mm_scan_move');
-    const note = document.getElementById('mm_scan_move_note');
-    const details = document.getElementById('mm_scan_misplaced');
-    const list = document.getElementById('mm_scan_misplaced_list');
+async function showMisplaced(dialog) {
+    const ids = MISPLACED[dialog];
+    const move = document.getElementById(ids.move);
+    const note = document.getElementById(ids.note);
+    const details = document.getElementById(ids.details);
+    const list = document.getElementById(ids.list);
     if (!move || !note) return;
     move.disabled = true;
     if (details) details.hidden = true;
     let files = [];
     try {
-        const data = await apiCall({ endpoint: '/model-manager/scan/misplaced' });
+        const data = await apiCall({ endpoint: ids.endpoint });
         files = data.success ? data.files || [] : null;
     } catch (e) {
         files = null;

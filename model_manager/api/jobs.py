@@ -14,8 +14,8 @@ from ..db import get_models_db
 from ..jobs import jobs
 from ..model_dirs import misplaced_files
 from ..scan_service import ScanService
-from ..sync_estimates import (estimate_metadata_sync, gallery_refresh_options, sync_window_counts,
-                              window_cutoff)
+from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_refresh_options,
+                              sync_window_counts, window_cutoff)
 from ..sync_service import SyncService
 from .common import failed
 
@@ -56,6 +56,8 @@ def register(app: FastAPI):
         targets: str = Form(default="all"),
         paths: str = Form(default=""),  # Comma-separated paths, empty = all models
         keep_image_count: str = Form(default="false"),
+        reread_headers: str = Form(default="false"),
+        move_misplaced: str = Form(default="false"),
     ):
         """
         Start syncing models with Civitai, identifying each file by its hash.
@@ -68,6 +70,11 @@ def register(app: FastAPI):
             paths: Comma-separated model paths, or empty for all.
             keep_image_count: "true" to refetch as many images as each
                 gallery has stored, rather than its first page (#103).
+            reread_headers: "true" to read every file's header again in the
+                walk the sync starts with, not only new or changed files.
+            move_misplaced: "true" to move each file in another type's
+                folder into its own (see /model-manager/sync/misplaced). Only
+                ever asked for by its own box in the dialog.
 
         Returns immediately. Poll /model-manager/sync/progress for status.
         """
@@ -85,7 +92,9 @@ def register(app: FastAPI):
         return _start("sync", SyncService,
                       lambda sync: sync.sync_all(model_paths=model_paths, force=force_bool,
                                                  targets=target_set,
-                                                 keep_image_count=_yes(keep_image_count)),
+                                                 keep_image_count=_yes(keep_image_count),
+                                                 reread_headers=_yes(reread_headers),
+                                                 move_misplaced=_yes(move_misplaced)),
                       "Sync started")
 
     @app.post("/model-manager/sync/metadata")
@@ -96,6 +105,8 @@ def register(app: FastAPI):
         downloaded_days: int = Form(default=0),
         paths: str = Form(default=""),  # Comma-separated paths, empty = all models
         keep_image_count: str = Form(default="false"),
+        reread_headers: str = Form(default="false"),
+        move_misplaced: str = Form(default="false"),
     ):
         """
         Refresh Civitai data for models that already resolve, without hashing.
@@ -117,7 +128,10 @@ def register(app: FastAPI):
             paths: Comma-separated model paths, or empty for all.
             keep_image_count: With images, "true" to refetch as many as each
                 gallery has stored, rather than its first page (#103).
+            reread_headers, move_misplaced: the walk's, as /model-manager/sync.
 
+        It starts with a walk of the library, and ends identifying the files
+        Civitai has never been asked about (SyncService.sync_metadata).
         Shares the progress and cancel endpoints with the full sync. Returns
         immediately; poll /model-manager/sync/progress.
         """
@@ -136,7 +150,9 @@ def register(app: FastAPI):
                                                       include_prompts=with_prompts,
                                                       synced_before=synced_before,
                                                       downloaded_after=downloaded_after,
-                                                      keep_image_count=_yes(keep_image_count)),
+                                                      keep_image_count=_yes(keep_image_count),
+                                                      reread_headers=_yes(reread_headers),
+                                                      move_misplaced=_yes(move_misplaced)),
                       "Metadata sync started" + (" (with images)" if with_images else ""))
 
     @app.get("/model-manager/sync/estimate")
@@ -194,11 +210,33 @@ def register(app: FastAPI):
                 "windows": sync_window_counts(model_paths),
                 "download_windows": sync_window_counts(model_paths, basis="downloaded"),
                 # For the hashing option, which is costed in files rather than
-                # in requests. From the database, so opening the dialog does
-                # not walk the disk; the sync itself will, and may find more.
+                # in requests. From the database, so the estimate, asked at
+                # every change, does not walk the disk: /sync/new-files does,
+                # once per opening.
                 "unidentified": unidentified,
                 "force_images": force_images,
             })
+        except Exception as e:
+            return failed(e)
+
+    @app.get("/model-manager/sync/new-files")
+    def get_files_to_hash():
+        """
+        The files every sync will read in full, and their total size: new on
+        disk, or never asked about. Asked once each time the dialog opens -
+        a walk of the folders, which the estimate, asked at every change,
+        does not make.
+        """
+        try:
+            return JSONResponse({"success": True, **files_to_hash()})
+        except Exception as e:
+            return failed(e)
+
+    @app.get("/model-manager/sync/misplaced")
+    def get_sync_misplaced():
+        """The files in another type's folder, for the sync dialog to show before it moves any."""
+        try:
+            return JSONResponse({"success": True, "files": misplaced_files(get_models_db())})
         except Exception as e:
             return failed(e)
 
