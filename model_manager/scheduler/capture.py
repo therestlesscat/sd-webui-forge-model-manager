@@ -37,6 +37,7 @@ from ..db import get_models_db
 from ..forge_host import (forge_name, generate_names, script_runner, selected_models,
                           setting, webui_root)
 from ..install import INSTALL_KEY
+from . import queue_enabled
 from .values import Keeper
 
 TABS = ("txt2img", "img2img")
@@ -50,8 +51,11 @@ _found: Dict[str, Dict[str, Any]] = {}
 # ------------------------------------------------------------- the buttons
 
 def on_component(component, **kwargs) -> None:
-    """Forge's after-component callback: a Queue button beside each Generate."""
+    """Forge's after-component callback: a Queue button beside each Generate,
+    while the queue is on."""
     elem_id = kwargs.get("elem_id") or getattr(component, "elem_id", None)
+    if elem_id not in (f"{tab}_generate" for tab in TABS) or not queue_enabled():
+        return
     for tab in TABS:
         if elem_id == f"{tab}_generate":
             import gradio as gr

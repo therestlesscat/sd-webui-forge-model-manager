@@ -17,7 +17,7 @@ from modules import script_callbacks
 
 from model_manager import api
 from model_manager.generations import generations_enabled
-from model_manager.scheduler import capture
+from model_manager.scheduler import capture, queue_enabled
 from model_manager.ui import (
     create_civitai_browser_ui,
     create_generations_ui,
@@ -32,10 +32,10 @@ from model_manager.console import say
 def create_all_tabs():
     """
     Create all Model Manager tabs: the Queue first, then Generations, before
-    the Model Manager - unless "Your generations" is off, when it is not
-    created at all.
+    the Model Manager - each unless its switch is off, when it is not created
+    at all.
     """
-    tabs = [(create_queue_ui(), "Queue", "queue_tab")]
+    tabs = [(create_queue_ui(), "Queue", "queue_tab")] if queue_enabled() else []
     tabs += [(create_generations_ui(), "Generations", "generations_tab")] if generations_enabled() else []
     tabs += create_ui()
     civitai_tab = create_civitai_browser_ui()

@@ -43,7 +43,7 @@ from ..console import say
 from ..db import get_models_db
 from ..install import INSTALL_KEY
 from ..jobs import jobs
-from . import capture, replay
+from . import capture, queue_enabled, replay
 
 KIND = "queue"
 _JOB = re.compile(r"^task\(mmq-(\d+)-\d+\)$")
@@ -278,6 +278,8 @@ def start(force: bool = False) -> Dict[str, Any]:
     without it. Extensions change only with a restart, so one check covers
     the whole run.
     """
+    if not queue_enabled():
+        return {"started": False, "missing": [], "off": True}
     if not force:
         missing = missing_extensions()
         if missing:

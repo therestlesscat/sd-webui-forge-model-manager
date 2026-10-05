@@ -205,6 +205,7 @@ def register(app: FastAPI):
         from ..forge_host import samplers, schedulers, setting
         from ..model_dirs import shown_roots
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
+        from ..scheduler import queue_enabled
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
         # the Model Manager's asks the details endpoint, which reads the same
@@ -215,6 +216,8 @@ def register(app: FastAPI):
         # "Your generations": off, nothing is recorded and every tab of them is
         # hidden (generations_enabled in generations.py).
         generations_on = generations_enabled()
+        # The queue: off, its tab and the Queue buttons are hidden (scheduler/__init__.py).
+        queue_on = queue_enabled()
         # Which judges prompts, as in force: "model" only when the trained
         # model is chosen and on. The pages say so when it is.
         try:
@@ -234,6 +237,7 @@ def register(app: FastAPI):
                 "hide_promptless_images": hide_promptless_images,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_enabled": generations_on,
+                "queue_enabled": queue_on,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
                 "path_roots": shown_roots(),
             })
@@ -250,6 +254,7 @@ def register(app: FastAPI):
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images,
                  "generations_hide_nsfw": generations_hide_nsfw,
-                 "generations_enabled": generations_on},
+                 "generations_enabled": generations_on,
+                 "queue_enabled": queue_on},
                 status_code=500
             )

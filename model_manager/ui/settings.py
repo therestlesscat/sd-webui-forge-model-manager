@@ -14,6 +14,7 @@ from ..forge_host import DEFAULTS
 from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from .. import prompt_levels
+from ..scheduler import QUEUE_ENABLED
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
                              SETTING_PREFIX, preset_classes, preset_files)
@@ -336,6 +337,21 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        QUEUE_ENABLED,
+        shared.OptionInfo(
+            default=DEFAULTS[QUEUE_ENABLED],
+            label="Queue",
+            component=gr.Checkbox,
+            onchange=_queue_enabled_changed,
+            section=section,
+        ).info("On: a Queue button beside Generate, in txt2img and img2img, keeps the "
+               "generation as a task, and the Queue tab runs the tasks. Off: the tab and the "
+               "buttons are hidden at once, and a running queue stops; from the next start "
+               "neither is created at all. The tasks are kept, and come back when this is on "
+               "again.")
+    )
+
+    shared.opts.add_option(
         "model_manager_queue_inputs_dir",
         shared.OptionInfo(
             default=DEFAULTS["model_manager_queue_inputs_dir"],
@@ -408,6 +424,13 @@ def carry_over_generations_nsfw(data):
         return None
     gallery = carry_over_gallery_nsfw(data)
     return bool(data.get(GALLERY_HIDE_NSFW, True)) if gallery is None else gallery
+
+
+def _queue_enabled_changed():
+    # Off, a running queue stops: its tab and its buttons are gone.
+    from ..scheduler import queue_enabled, runner
+    if not queue_enabled():
+        runner.stop()
 
 
 def _check_updates_changed():

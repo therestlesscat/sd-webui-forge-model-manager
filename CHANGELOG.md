@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
 
+- **0.50.8** (build 384) - The queue can be turned off, as Your generations can: in the settings window's new Queue section, or Settings -> Model Manager. Off, the Queue tab and the Queue buttons are hidden at once, and a running queue stops. The tasks are kept.
 - **0.50.7** (build 383) - Queued tasks can be retried, with the first run's seed or a random one, and deleted, with the images they made or without. Select ticks several at once. Clear history hides the ended tasks.
 - **0.50.6** (build 382) - A click on a queued task shows everything it holds. Load to UI sets txt2img or img2img up with it, checkpoint and VAE included, to change it or run it by hand. The Queue tab shows no images: Show images opens the Generations tab on the ones a task made.
 - **0.50.5** (build 381) - The Generations tab has a search. Every word must be in an image's prompt or negative prompt; a quoted phrase counts as one word. task:17 shows the images task 17 of the queue made.

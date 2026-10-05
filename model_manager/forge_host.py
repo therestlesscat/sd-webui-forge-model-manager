@@ -52,8 +52,9 @@ DEFAULTS = {
     "model_manager_nsfw_detection": "model",
     "model_manager_nsfw_prompt_model_percent": 2.0,
     "model_manager_check_updates": True,
-    # Where the queue keeps the images a task needs to run; empty for the
-    # WebUI's own queue-inputs folder (#149).
+    # The generation queue, all of it (#156); and where it keeps the images a
+    # task needs to run, empty for the WebUI's own queue-inputs folder (#149).
+    "model_manager_queue_enabled": True,
     "model_manager_queue_inputs_dir": "",
     # The text encoders and VAE named for each preset (forge_modules.MODULE_PRESETS).
     "model_manager_modules_flux": "",
