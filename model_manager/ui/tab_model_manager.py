@@ -212,6 +212,7 @@ def create_ui():
                     <div class="filter-buttons-row">
                         <button id="mm_sync_btn" class="mm-btn secondary mm-sync-btn" title="Read your model folders, then choose which models to refresh with Civitai, and how much of each">Sync</button>
                         <button id="mm_sync_cancel_btn" class="mm-btn danger" style="display:none;">Cancel</button>
+                        <button id="mm_sync_log_btn" class="mm-btn secondary" style="display:none;" title="Show what the sync is doing, line by line">Log</button>
                         <button id="mm_save_search_btn" class="mm-btn secondary mm-row-end" title="Save current filters. Right-click to clear saved filters.">Save Search</button>
                         <button id="mm_load_btn" class="mm-btn primary">Load Models</button>
                     </div>
@@ -319,6 +320,16 @@ def create_ui():
                         <div class="sync-progress-fill" id="mm_sync_fill"></div>
                     </div>
                     <div class="sync-progress-text" id="mm_sync_text">Preparing...</div>
+                </div>
+
+                <!-- The sync's log: every line the extension writes to the console
+                     while it runs, in place of the grid until hidden. -->
+                <div id="mm_sync_log" class="mm-sync-log" hidden>
+                    <div class="mm-sync-log-head">
+                        <span>Sync log</span>
+                        <button type="button" id="mm_sync_log_hide" class="mm-btn mm-btn-small secondary">Hide</button>
+                    </div>
+                    <div id="mm_sync_log_lines" class="mm-sync-log-lines" role="log" aria-live="polite"></div>
                 </div>
 
                 <!-- While the SFW filter is on and a trained model decides what is

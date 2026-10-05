@@ -19,6 +19,7 @@ import time
 from typing import Callable, Dict, Iterable, Optional
 
 from ..remembered import Remembered
+from ..console import say
 
 OWNED_TTL = 300.0
 # The versions asked about for a key: the 2,000 most recent.
@@ -69,7 +70,7 @@ def owned_versions(version_ids: Iterable[int], client_factory: Callable = _clien
                 known[i] = owned[i] = (bool(answered.get(i)), now())
         return {i: known[i][0] for i in ids}
     except Exception as e:
-        print(f"[ModelManager] Could not ask Civitai which paid versions are yours: {e}")
+        say(f"Could not ask Civitai which paid versions are yours: {e}")
         return None
     finally:
         if hasattr(client, "close"):

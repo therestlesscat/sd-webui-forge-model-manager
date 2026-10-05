@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 
 from .jobs import jobs
 from .nsfw import generated_level, prompt_words_fingerprint
+from .console import say
 
 FINGERPRINT_KEY = "nsfw_prompt_words"
 KIND = "restamp"
@@ -103,7 +104,7 @@ class Restamp(object):
                 bring_up_to_date(get_models_db(), self.progress)
             except Exception as e:
                 error = str(e)
-                print(f"[ModelManager] Could not apply the NSFW prompt words: {e}")
+                say(f"Could not apply the NSFW prompt words: {e}")
             with self._lock:
                 if not self._again:
                     self._ended = True
@@ -137,12 +138,12 @@ def bring_up_to_date(db, progress: Optional[RestampProgress] = None) -> Optional
     # the words moves them too.
     generated, generated_total = db.restamp_generation_levels(generated_level)
     if generated:
-        print(f"[ModelManager] NSFW prompt words: {generated} of {generated_total} "
+        say(f"NSFW prompt words: {generated} of {generated_total} "
               f"generated images judged again")
     if progress:
         progress.changed, progress.total = changed, total
     db.set_info(FINGERPRINT_KEY, fingerprint)
-    print(f"[ModelManager] NSFW prompt words: {changed} of {total} images judged again"
+    say(f"NSFW prompt words: {changed} of {total} images judged again"
           + (f", {covers} safe covers cleared" if covers else ""))
     return changed
 

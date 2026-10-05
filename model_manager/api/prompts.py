@@ -24,6 +24,7 @@ from ..civitai.prompt_filter import RATE_LIMITED
 from ..prompt_rules import usable
 from ..nsfw import SFW_MAX, image_level
 from ..remembered import Remembered
+from ..console import say
 
 
 # Images looked at per model: one /images request.
@@ -120,7 +121,7 @@ def inspect_models(client, models: List[Dict[str, Any]], *, want_prompts: bool,
         except CivitaiRateLimitError:
             return RATE_LIMITED
         except Exception as e:
-            print(f"[ModelManager] Images for version {version_id} failed: {e}")
+            say(f"Images for version {version_id} failed: {e}")
             return "failed"
 
     if len(to_fetch) > 1:
@@ -154,7 +155,7 @@ def inspect_models(client, models: List[Dict[str, Any]], *, want_prompts: bool,
         try:
             generation_data = client.get_generation_data(pooled, workers=workers, errors=errors)
         except Exception as e:
-            print(f"[ModelManager] Generation data lookup failed: {e}")
+            say(f"Generation data lookup failed: {e}")
             errors = {image_id: e for image_id in pooled}
 
     for position, images in samples.items():

@@ -349,6 +349,22 @@ status, body = get('/model-manager/sync/progress')
 check('the last sync is still reportable once it has finished',
       body['progress']['is_complete'] if body['progress'] else None, True)
 
+# ------------------------------------------------------------- the sync's log
+# The console's lines, for the panel: since the one asked from, and -1 from
+# where the sync began (its progress's log_from).
+from model_manager import console                        # noqa: E402
+check('without `since`, no log', 'log' in body, False)
+registry.service('sync').progress.log_from = console.said()
+console.say('Reading your model folders: 3 files')
+console.say('Error calculating hashes for broken.safetensors')
+status, body = get('/model-manager/sync/progress', since=-1)
+check('-1 asks for the lines from where the sync began',
+      [line['text'] for line in body['log']],
+      ['Reading your model folders: 3 files', 'Error calculating hashes for broken.safetensors'])
+check('with the number to ask from next', body['log_next'], console.said())
+status, body = get('/model-manager/sync/progress', since=body['log_next'])
+check('asked from there, nothing new', body['log'], [])
+
 # ------------------------------------------------------------- no Scan Disk
 # Every sync walks the library (0.48); Scan Disk and its endpoints are gone.
 for method, url in ((post, '/model-manager/scan'), (get, '/model-manager/scan/progress'),

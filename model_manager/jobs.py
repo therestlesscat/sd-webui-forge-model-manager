@@ -14,6 +14,7 @@ showed the job running for ever.
 import threading
 import traceback
 from typing import Any, Callable, Dict, Optional
+from .console import say
 
 
 class _Job(object):
@@ -60,7 +61,7 @@ class Jobs(object):
         try:
             run(service)
         except Exception as e:
-            print(f"[ModelManager] {kind} failed: {e}")
+            say(f"{kind} failed: {e}")
             traceback.print_exc()
             service.progress.fail(str(e))
 

@@ -20,6 +20,7 @@ from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..gallery import filter_images, gallery_page_size
 from .common import failed, streams_status
+from ..console import say
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
 # while every one holds only images already stored.
@@ -87,7 +88,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
             brought = download_more(db, version)
         except Exception as e:
             error = str(e)
-            print(f"[ModelManager] Fetching images for page {page} of version {version_id} failed: {e}")
+            say(f"Fetching images for page {page} of version {version_id} failed: {e}")
             break
         version = db.get_version_by_id(version_id)
         stored = db.count_images_by_version([version_id]).get(version_id, 0)
@@ -135,7 +136,7 @@ def still_answer(url: str, head=requests.head):
         reply = head(url, allow_redirects=True, timeout=15)
         kind = (reply.headers.get("Content-Type") or "").split(";")[0].strip().lower()
     except Exception as e:
-        print(f"[ModelManager] Could not check a video's still: {e}")
+        say(f"Could not check a video's still: {e}")
         return RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store"})
     if reply.status_code < 400 and kind.startswith("image/"):
         return RedirectResponse(url, status_code=302,
@@ -234,7 +235,7 @@ def download_more(db, version: Dict[str, Any]) -> Dict[str, Any]:
     # Update cursor and sync date
     db.update_version_images_state(version_id, next_cursor)
 
-    print(f"[ModelManager] Downloaded {len(new_images)} more images for version {version_id} "
+    say(f"Downloaded {len(new_images)} more images for version {version_id} "
           f"(page {page_number}, has_more: {next_cursor is not None})")
 
     return {

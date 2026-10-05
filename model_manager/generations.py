@@ -48,6 +48,7 @@ from .forge_host import (available, closest_checkpoint, forge_name, infotext_set
                          installed_modules, loaded_model, loaded_modules, main_infotext,
                          parse_generation_parameters, setting)
 from .nsfw import generated_level
+from .console import say
 
 # Whether generations are recorded at all; registered in ui/settings.py.
 RECORD_GENERATIONS = "model_manager_record_generations"
@@ -171,10 +172,10 @@ def postprocess(p, processed) -> Optional[int]:
         pass
     try:
         if getattr(processed, "video_path", None):
-            print("[ModelManager] Generation not recorded: videos are not, yet")
+            say("Generation not recorded: videos are not, yet")
             return None
         if not generation.saved:
-            print(f"[ModelManager] Generation not recorded: none of its "
+            say(f"Generation not recorded: none of its "
                   f"{len(generation.results)} results was saved to disk")
             return None
         return _write(p, processed, generation)
@@ -471,7 +472,7 @@ def _write(p, processed, generation: _Generation) -> int:
     with _lock:
         generation_id = db.record_generation(row, images, used)
     files = {f for files in used for f in files}
-    print(f"[ModelManager] Recorded generation {generation_id} ({row['mode']}): "
+    say(f"Recorded generation {generation_id} ({row['mode']}): "
           f"{len(images)} of {len(generation.results)} results saved, "
           f"{generation.other_saves} other images saved and not recorded, "
           f"{len(files)} model files, {len(spelled)} of them in the library")
@@ -479,4 +480,4 @@ def _write(p, processed, generation: _Generation) -> int:
 
 
 def _report(what: str, error: Exception) -> None:
-    print(f"[ModelManager] Error {what}: {error}")
+    say(f"Error {what}: {error}")

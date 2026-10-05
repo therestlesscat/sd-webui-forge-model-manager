@@ -28,6 +28,7 @@ from .library import LIBRARY
 # sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
 SFW_SAMPLE_SIZE = 20
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from ..console import say
 
 
 def _targeted_search_condition(search: str) -> Optional[Tuple[str, Any]]:
@@ -497,8 +498,8 @@ def query_models_grouped(
     if counts is not None:
         counts.update(pinned=pinned_count, others=matching - pinned_count)
 
-    print(
-        f"[ModelManager] query_models_grouped count_ms={count_ms:.1f} data_ms={data_ms:.1f} "
+    say(
+        f"query_models_grouped count_ms={count_ms:.1f} data_ms={data_ms:.1f} "
         f"rows={len(rows)} total={total_count}"
     )
 

@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any, Callable, Iterator, Tuple
 from urllib.parse import quote, urlencode
 
 from ..forge_host import setting
+from ..console import say
 
 
 class CivitaiAPIError(Exception):
@@ -45,7 +46,7 @@ def tell(text: str, wait: Optional[float] = None) -> None:
     try:
         listener({"text": text, "wait": wait})
     except Exception as e:                  # the page's, never the request's
-        print(f"[ModelManager] Could not say what Civitai is waited on: {e}")
+        say(f"Could not say what Civitai is waited on: {e}")
 
 
 def _civitai_says(response) -> str:
@@ -153,7 +154,7 @@ def shared_limiter(rate: float, burst: int, label: str) -> TokenBucketRateLimite
         limiter = _limiters.get((rate, burst))
         if limiter is None:
             limiter = _limiters[(rate, burst)] = TokenBucketRateLimiter(rate, burst)
-            print(f"[ModelManager] Civitai requests {label}: {rate:g} req/s")
+            say(f"Civitai requests {label}: {rate:g} req/s")
         return limiter
 
 
@@ -293,7 +294,7 @@ class CivitaiClient:
             label = f"trpc/{procedures[0]} x{len(procedures)}"
         else:
             label = endpoint or url.split("?")[0]
-        print(f"[ModelManager] Request: {method} {label} (auth={'yes' if has_auth else 'no'})")
+        say(f"Request: {method} {label} (auth={'yes' if has_auth else 'no'})")
 
         def again(why: str, wait: float, attempt: int) -> None:
             # A sentence, whoever wrote it: Civitai's words may end without a stop.
@@ -328,7 +329,7 @@ class CivitaiClient:
                     # Rate limited - get retry-after if available
                     retry_after = int(response.headers.get("Retry-After", 60))
                     if self.wait_on_rate_limit and attempt < self.MAX_RETRIES:
-                        print(f"[ModelManager] Rate limited, waiting {retry_after}s...")
+                        say(f"Rate limited, waiting {retry_after}s...")
                         said = _civitai_says(response)
                         again(f"Civitai is limiting requests{': ' + said if said else '.'}",
                               retry_after, attempt)
@@ -344,7 +345,7 @@ class CivitaiClient:
                     said = _civitai_says(response)
                     if attempt < self.MAX_RETRIES:
                         wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
-                        print(f"[ModelManager] Server error {response.status_code}"
+                        say(f"Server error {response.status_code}"
                               f"{': ' + said if said else ''}, retrying in {wait_time}s...")
                         again(f"Civitai: {said}" if said else f"Civitai answered {response.status_code}.",
                               wait_time, attempt)
@@ -362,7 +363,7 @@ class CivitaiClient:
                 last_error = CivitaiAPIError("Request timed out")
                 if attempt < self.MAX_RETRIES:
                     wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
-                    print(f"[ModelManager] Timeout, retrying in {wait_time}s...")
+                    say(f"Timeout, retrying in {wait_time}s...")
                     again(f"Civitai did not answer within {self.REQUEST_TIMEOUT} s.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue
@@ -371,7 +372,7 @@ class CivitaiClient:
                 last_error = CivitaiAPIError(f"Connection error: {e}")
                 if attempt < self.MAX_RETRIES:
                     wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
-                    print(f"[ModelManager] Connection error, retrying in {wait_time}s...")
+                    say(f"Connection error, retrying in {wait_time}s...")
                     again("Could not reach Civitai.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue
@@ -578,7 +579,7 @@ class CivitaiClient:
                         "limit": self.MODELS_BY_ID_BATCH,
                     })
                 except CivitaiAPIError as e:
-                    print(f"[ModelManager] checkpointType {kind} batch failed: {e}")
+                    say(f"checkpointType {kind} batch failed: {e}")
                     answers = {}
                     break
 
@@ -587,7 +588,7 @@ class CivitaiClient:
                 returned = {m.get("id") for m in (data.get("items") or []) if m.get("id")}
                 answers[kind] = returned & wanted
                 if returned - wanted:
-                    print("[ModelManager] checkpointType answer included ids that were "
+                    say("checkpointType answer included ids that were "
                           "not asked for; ignoring this batch")
                     answers = {}
                     break
@@ -597,7 +598,7 @@ class CivitaiClient:
 
             trained, merged = answers["Trained"], answers["Merge"]
             if trained & merged:
-                print("[ModelManager] a model came back as both Trained and Merge; "
+                say("a model came back as both Trained and Merge; "
                       "ignoring this batch")
                 continue
 
@@ -780,7 +781,7 @@ class CivitaiClient:
             try:
                 return chunk, self._request("GET", "", absolute_url=url), None
             except CivitaiAPIError as e:
-                print(f"[ModelManager] Generation data batch failed: {e}")
+                say(f"Generation data batch failed: {e}")
                 return chunk, None, e
 
         if workers > 1 and len(chunks) > 1:
@@ -801,7 +802,7 @@ class CivitaiClient:
 
             # tRPC batch responses are a list positionally matching the input
             if not isinstance(data, list):
-                print("[ModelManager] Unexpected generation data response shape")
+                say("Unexpected generation data response shape")
                 continue
 
             for index, entry in enumerate(data):

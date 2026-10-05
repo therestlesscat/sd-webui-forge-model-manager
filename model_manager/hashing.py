@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .remembered import Remembered
+from .console import say
 
 # Try to import blake3, fall back gracefully if not available
 try:
@@ -25,7 +26,7 @@ try:
     BLAKE3_AVAILABLE = True
 except ImportError:
     BLAKE3_AVAILABLE = False
-    print("[ModelManager] Warning: blake3 not installed, BLAKE3 hash fallback disabled")
+    say("Warning: blake3 not installed, BLAKE3 hash fallback disabled")
 
 
 @dataclass
@@ -231,7 +232,7 @@ class ModelHasher:
                 result.autov3 = result.tensor_sha256[:12]
 
         except Exception as e:
-            print(f"[ModelManager] Error calculating hashes for {os.path.basename(file_path)}: {e}")
+            say(f"Error calculating hashes for {os.path.basename(file_path)}: {e}")
 
         return result
 
@@ -286,7 +287,7 @@ class ModelHasher:
                 # Normalize to our format (uppercase)
                 return {k.lower(): v.upper() for k, v in hashes.items()}
         except Exception as e:
-            print(f"[ModelManager] Error reading .cm-info.json: {e}")
+            say(f"Error reading .cm-info.json: {e}")
 
         return None
 

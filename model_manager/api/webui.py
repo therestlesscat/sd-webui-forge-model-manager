@@ -14,6 +14,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from ..console import say
 
 SHARED_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                               "javascript", "shared")
@@ -50,7 +51,7 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
     try:
         found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name)
     except Exception as e:
-        print(f"[ModelManager] Could not work out the image's checkpoint: {e}")
+        say(f"Could not work out the image's checkpoint: {e}")
         return {}
     path = found.get("path")
     if path:
@@ -139,7 +140,7 @@ def register(app: FastAPI):
             found = plan_model(db, file_path, base_model,
                                version_ids.split(","), hashes.split(","), model_name)
         except Exception as e:
-            print(f"[ModelManager] Could not work out the architecture: {e}")
+            say(f"Could not work out the architecture: {e}")
             found = SendModel()
         preset, model_class, source = found.preset, found.model_class, found.source
         bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
@@ -239,7 +240,7 @@ def register(app: FastAPI):
 
         except Exception as e:
             import traceback
-            print(f"[ModelManager] UI options error: {e}")
+            say(f"UI options error: {e}")
             traceback.print_exc()
             # The key question is answerable even when the rest is not, and
             # the banner should not depend on samplers being readable.

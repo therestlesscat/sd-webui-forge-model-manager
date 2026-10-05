@@ -40,6 +40,7 @@ from .hashing import hash_key
 from .identity_store import record_architecture
 from .model_dirs import folder_of
 from .remembered import Remembered
+from .console import say
 
 # At most this many Civitai lookups for one send: an image can name a dozen
 # "checkpoints", most of them VAEs and encoders filed as one.
@@ -190,7 +191,7 @@ def _read(db, path: str) -> dict:
     try:
         record_architecture(db, path)
     except Exception as e:
-        print(f"[ModelManager] Could not read {os.path.basename(path)}: {e}")
+        say(f"Could not read {os.path.basename(path)}: {e}")
     return db.get_version(path) or {}
 
 
@@ -262,7 +263,7 @@ def _remember(key, lookup) -> Optional[Tuple[str, List[str]]]:
     try:
         version = lookup(*key)
     except Exception as e:
-        print(f"[ModelManager] Could not ask Civitai about {key[1]}: {e}")
+        say(f"Could not ask Civitai about {key[1]}: {e}")
         return None
     answer = None
     if version:

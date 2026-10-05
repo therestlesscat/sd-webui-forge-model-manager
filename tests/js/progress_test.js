@@ -65,6 +65,9 @@ const sandbox = {
     loadModels: () => { sandbox._reloaded = true; },
     loadBaseModelOptions: () => { sandbox._baseModelsReloaded = true; },
     setTimeout: (fn) => { fn(); return 0; },
+    // The log panel's: the poll hands it the console's lines (dialog_test.mjs).
+    logNext: null,
+    appendSyncLog: () => {},
     syncPollInterval: null,
     isSyncing: true,
 };

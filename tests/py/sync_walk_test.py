@@ -160,6 +160,17 @@ progress = sync.sync_metadata()
 check('a second sync reads no header: nothing changed', read, [])
 check('and hashes nothing: every file has been asked about', hashed, [])
 check('and adds and removes nothing', (progress.added, progress.removed), (0, 0))
+# The panel's last line: the summary is said before the sync is complete, so
+# the page's last poll, which sees it complete, reads it too.
+from model_manager import console                        # noqa: E402
+lines, _ = console.since(progress.log_from)
+check('a sync\'s log, from where it began, ends with its summary',
+      bool(lines) and lines[-1]['text'].startswith('Metadata sync complete'), True)
+sync = service()
+walked = sync.walk_library()
+# Said before the sync has a total of its own: the page shows it alone.
+check('the walk says how far it has looked, of every file it found',
+      sync.progress.current_model, 'Reading your model folders: %d/%d' % (len(walked), len(walked)))
 
 # ------------------------------------------------------- every header, if asked
 sync = service()

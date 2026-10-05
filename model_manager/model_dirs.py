@@ -15,6 +15,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from .forge_host import model_folders, webui_root
 from .hashing import read_hashes
+from .console import say
 
 
 class Folder:
@@ -324,12 +325,12 @@ def move_misplaced_files(db) -> Moves:
         try:
             if item["clash"] or not relocate(path, to):
                 not_moved.append(path)
-                print(f"[ModelManager] Not moved: {path} - {to} is already there")
+                say(f"Not moved: {path} - {to} is already there")
                 continue
             relocated = True
             db.move_version(path, to)
             moved += 1
-            print(f"[ModelManager] Moved, as a {item['file_type']}: {path} -> {to}")
+            say(f"Moved, as a {item['file_type']}: {path} -> {to}")
         except Exception as e:
             problem = str(e)
             # The file moved first, and its row could not follow - the
@@ -343,7 +344,7 @@ def move_misplaced_files(db) -> Moves:
                 except OSError as back:
                     problem += f"; left at {to}: {back}"
             errors.append(f"{os.path.basename(path)}: could not move it: {problem}")
-            print(f"[ModelManager] Could not move {path}: {problem}")
+            say(f"Could not move {path}: {problem}")
     return Moves(moved, not_moved, errors)
 
 
@@ -383,7 +384,7 @@ def forget_gone(db, found_paths) -> List[str]:
     Returns the paths forgotten.
     """
     if not found_paths:
-        print("[ModelManager] Walk found no model files; leaving the database alone")
+        say("Walk found no model files; leaving the database alone")
         return []
     gone = gone_from_disk(db.get_all_version_paths(), found_paths)
     for path in gone:

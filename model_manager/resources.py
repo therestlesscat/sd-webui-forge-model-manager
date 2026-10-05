@@ -24,6 +24,7 @@ from .file_identity import LORA_FAMILY, NAMED_IN_PROMPTS
 from .hashing import names_this_file
 from .model_dirs import folder_of, lora_folders
 from .remembered import Remembered
+from .console import say
 
 # What a missing resource's file will be called once downloaded, by version
 # id, as Civitai answered: the 2,000 most recent, so sending the same image
@@ -211,7 +212,7 @@ def resolve_hashes(db, hashes: List[str], civitai: Callable[[], Any],
         except Exception as e:
             # One hash failing must not lose the rest; leave it
             # unresolved rather than recording a wrong answer.
-            print(f"[ModelManager] Resolve {value} failed: {e}")
+            say(f"Resolve {value} failed: {e}")
             continue
         db.remember_hash(value, version)
         model = (version or {}).get("model") or {}
@@ -285,7 +286,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             try:
                 version = civitai().get_model_version(version_id)
             except Exception as e:
-                print(f"[ModelManager] Version {version_id} could not be asked: {e}")
+                say(f"Version {version_id} could not be asked: {e}")
                 continue
             if version is None:
                 _MISSING_FILES[version_id] = {"gone": True}

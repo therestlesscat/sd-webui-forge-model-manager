@@ -29,6 +29,7 @@ from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
 from ..forge_host import setting
 from ..model_dirs import file_modified
+from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
@@ -564,7 +565,7 @@ def get_models_db() -> ModelsDatabase:
                 # Check for custom database path in settings
                 custom_db_path = str(setting('model_manager_database_path') or '').strip() or None
                 if custom_db_path:
-                    print(f"[ModelManager] Using custom database path: {custom_db_path}")
+                    say(f"Using custom database path: {custom_db_path}")
 
                 _db_instance = ModelsDatabase(ext_dir, custom_db_path)
 

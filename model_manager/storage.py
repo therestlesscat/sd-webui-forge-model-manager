@@ -7,6 +7,7 @@ model Civitai no longer has (SyncService._identify_by_sidecar).
 import json
 import os
 from typing import Optional, Dict, Any, Tuple
+from .console import say
 
 
 def get_metadata_paths(model_path: str) -> Tuple[str, str]:
@@ -41,7 +42,7 @@ def read_civitai_info(model_path: str) -> Optional[Dict[str, Any]]:
         with open(civitai_path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError) as e:
-        print(f"[ModelManager] Error reading {civitai_path}: {e}")
+        say(f"Error reading {civitai_path}: {e}")
         return None
 
 
@@ -63,7 +64,7 @@ def write_civitai_info(model_path: str, data: Dict[str, Any]) -> bool:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return True
     except IOError as e:
-        print(f"[ModelManager] Error writing {civitai_path}: {e}")
+        say(f"Error writing {civitai_path}: {e}")
         return False
 
 

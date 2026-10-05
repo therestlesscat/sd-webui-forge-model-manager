@@ -36,6 +36,7 @@ from .images import PAGE_FETCHES
 CIVITAI_IMAGES_PER_REQUEST = 100
 from .prompts import PROMPT_CHECK_WORKERS, inspect_models
 from .common import card_size, failed, streams_status
+from ..console import say
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -317,7 +318,7 @@ def register(app: FastAPI):
 
             except Exception as e:
                 import traceback
-                print(f"[ModelManager] Civitai stream error: {e}")
+                say(f"Civitai stream error: {e}")
                 traceback.print_exc()
                 yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             finally:
@@ -381,7 +382,7 @@ def register(app: FastAPI):
                         yield json.dumps({"type": "done", "models": models, "draw": payload}) + "\n"
             except Exception as e:
                 import traceback
-                print(f"[ModelManager] Civitai random draw error: {e}")
+                say(f"Civitai random draw error: {e}")
                 traceback.print_exc()
                 yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             finally:
@@ -464,7 +465,7 @@ def register(app: FastAPI):
                         if not images:
                             raise
                         error = str(e)
-                        print(f"[ModelManager] Filling page {page} of version "
+                        say(f"Filling page {page} of version "
                               f"{version_id} failed: {e}")
                         break
                     batch = result.get("images") or []
@@ -542,7 +543,7 @@ def register(app: FastAPI):
                     version = client.get_model_version(version_id)
                     model_id = (version or {}).get("modelId")
                     if not model_id:
-                        print(f"[ModelManager] Download of version {version_id} refused: not on Civitai")
+                        say(f"Download of version {version_id} refused: not on Civitai")
                         return JSONResponse(
                             {"success": False, "error": "Version not found on Civitai"},
                             status_code=404
@@ -552,7 +553,7 @@ def register(app: FastAPI):
                 client.close()
 
             if not model_data:
-                print(f"[ModelManager] Download of version {version_id} refused: model {model_id} not on Civitai")
+                say(f"Download of version {version_id} refused: model {model_id} not on Civitai")
                 return JSONResponse(
                     {"success": False, "error": "Model not found on Civitai"},
                     status_code=404
@@ -572,7 +573,7 @@ def register(app: FastAPI):
                 substituted = True
 
             if not version_data:
-                print(f"[ModelManager] Download of version {version_id} refused: not among model {model_id}'s versions")
+                say(f"Download of version {version_id} refused: not among model {model_id}'s versions")
                 return JSONResponse(
                     {"success": False, "error": "Version not found"},
                     status_code=404
@@ -691,7 +692,7 @@ def register(app: FastAPI):
                 return JSONResponse({"success": False, "error": f"Unknown action: {action}"}, status_code=400)
             return JSONResponse({"success": True, "done": done, "downloads": service.get_all_progress()})
         except Exception as e:
-            print(f"[ModelManager] Download control error: {e}")
+            say(f"Download control error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/civitai/download/dismiss")
@@ -708,7 +709,7 @@ def register(app: FastAPI):
             gone = get_download_service().dismiss(version_id or None)
             return JSONResponse({"success": True, "dismissed": gone})
         except Exception as e:
-            print(f"[ModelManager] Dismiss download error: {e}")
+            say(f"Dismiss download error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/civitai/tags")
@@ -750,7 +751,7 @@ def register(app: FastAPI):
 
         except Exception as e:
             import traceback
-            print(f"[ModelManager] Tags search error: {e}")
+            say(f"Tags search error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e), "tags": []},
@@ -797,7 +798,7 @@ def register(app: FastAPI):
 
         except Exception as e:
             import traceback
-            print(f"[ModelManager] Enums error: {e}")
+            say(f"Enums error: {e}")
             traceback.print_exc()
             return JSONResponse(
                 {"success": False, "error": str(e), "model_types": [], "base_models": []},

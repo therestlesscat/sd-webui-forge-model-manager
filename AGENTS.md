@@ -49,6 +49,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `storage.py` | reading and writing `.civitai.info` |
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
+| `console.py` | what the extension writes to the console: every "[ModelManager]" line goes through `say()`, which prints it and keeps the last 2,000 for the sync's log panel (`/model-manager/sync/progress?since=`); `console_test.py` fails on a print of its own |
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
@@ -188,6 +189,12 @@ sync replaces it; a sidecar only adds to it, and not at all once a sync has
 written it - a sidecar is as old as its file, and would bring back a version
 Civitai deleted. A library synced before the column existed is filled from a
 sidecar the first time the panel asks.
+
+**Everything the extension says, it says through `console.say`.** The sync's
+log panel shows the console's lines from where the sync began - every one, a
+gallery opened meanwhile included - so a `print` of its own would reach the
+console and never the panel. The migrations keep theirs: they shipped so, and
+run at startup.
 
 **Calls between files go through `shared/calls.mjs`.** A tab that offers
 something to the others - the Model Manager's `modelManager.showModel`, the
@@ -952,7 +959,7 @@ real time once.
 python tests/run.py --all
 ```
 
-A hundred and sixty-two, as the runner counts them - 80 Python, 76 browser and
+A hundred and sixty-three, as the runner counts them - 81 Python, 76 browser and
 6 static checks, seven of them skipped unless asked (the NSFW trainer's with
 `--tools`, as it is run by hand) - four at a time: under 35 s. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,

@@ -30,6 +30,7 @@ from .forge_host import setting
 from .hashing import HashResult
 from .model_dirs import download_dir, filed_as, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
+from .console import say
 
 
 # What a download is written as until it is whole and verified: never a
@@ -366,7 +367,7 @@ class DownloadService:
             if progress:
                 progress.status = "error"
                 progress.error = f"Download error: {e}"
-            print(f"[ModelManager] Download of version {version_id} failed: {e}")
+            say(f"Download of version {version_id} failed: {e}")
         finally:
             with self._lock:
                 self._running.discard(version_id)
@@ -515,7 +516,7 @@ class DownloadService:
             self._stored()[1](json.dumps(entries) if entries else None)
             self._stored_any = bool(entries)
         except Exception as e:
-            print(f"[ModelManager] Could not keep the downloads to resume: {e}")
+            say(f"Could not keep the downloads to resume: {e}")
 
     def restore(self) -> None:
         """
@@ -526,7 +527,7 @@ class DownloadService:
         try:
             entries = json.loads(self._stored()[0]() or "[]")
         except Exception as e:
-            print(f"[ModelManager] Could not read the downloads to resume: {e}")
+            say(f"Could not read the downloads to resume: {e}")
             return
         self._stored_any = bool(entries)
         with self._lock:
@@ -601,7 +602,7 @@ class DownloadService:
             found = identify(path)
             file_type = found.file_type
         except Exception as e:
-            print(f"[ModelManager] Could not read what {os.path.basename(path)} is: {e}")
+            say(f"Could not read what {os.path.basename(path)} is: {e}")
             return path
         to = proper_place(path, filed_as(file_type, found.model_class))
         if not to:
@@ -619,7 +620,7 @@ class DownloadService:
         os.makedirs(os.path.dirname(to), exist_ok=True)
         shutil.move(path, to)
         progress.filed = f"Filed in {os.path.dirname(to)}: the file is a {file_type}"
-        print(f"[ModelManager] {progress.filed}")
+        say(f"{progress.filed}")
         return to
 
     def get_base_path(self, model_type: str) -> str:
@@ -673,11 +674,11 @@ class DownloadService:
                         response.raise_for_status()
                         if not offset or getattr(response, "status_code", 200) == 206 or tried == tries:
                             break
-                        print(f"[ModelManager] The server sent the whole of {file_name}, not the rest: asking again")
+                        say(f"The server sent the whole of {file_name}, not the rest: asking again")
                         if hasattr(response, "close"):
                             response.close()
                     if offset and getattr(response, "status_code", 200) != 206:
-                        print(f"[ModelManager] The server sent the whole file, not the rest: starting {file_name} over")
+                        say(f"The server sent the whole file, not the rest: starting {file_name} over")
                         offset = 0
                         progress.started_over = True
 
@@ -772,9 +773,9 @@ class DownloadService:
                     except Exception:
                         pass
 
-                    print(f"[ModelManager] HTTP error {status_code}: {e}")
+                    say(f"HTTP error {status_code}: {e}")
                     if response_body:
-                        print(f"[ModelManager] Response body: {response_body}")
+                        say(f"Response body: {response_body}")
 
                     if os.path.exists(target_path):
                         os.remove(target_path)
@@ -798,7 +799,7 @@ class DownloadService:
                         return False
                     else:
                         if attempt < max_retries - 1:
-                            print(f"[ModelManager] Retrying in {retry_delay}s...")
+                            say(f"Retrying in {retry_delay}s...")
                             time.sleep(retry_delay)
                         else:
                             progress.status = "error"
@@ -806,11 +807,11 @@ class DownloadService:
                             return False
 
                 except requests.exceptions.RequestException as e:
-                    print(f"[ModelManager] Download attempt {attempt + 1} failed: {e}")
+                    say(f"Download attempt {attempt + 1} failed: {e}")
                     if os.path.exists(target_path):
                         os.remove(target_path)
                     if attempt < max_retries - 1:
-                        print(f"[ModelManager] Retrying in {retry_delay}s...")
+                        say(f"Retrying in {retry_delay}s...")
                         time.sleep(retry_delay)
                     else:
                         progress.status = "error"
@@ -931,7 +932,7 @@ class DownloadService:
                 from .hashing import file_sha256
                 progress.file_path = target_path
                 if expected and (file_sha256(target_path) or "").upper() == expected:
-                    print(f"[ModelManager] Already on disk, adding to the library: {target_path}")
+                    say(f"Already on disk, adding to the library: {target_path}")
                     if not os.path.exists(get_metadata_paths(target_path)[0]):
                         write_civitai_info(target_path, download_payload(model_data, version_data, model_type))
                     progress.total_bytes = progress.downloaded_bytes = os.path.getsize(target_path)
@@ -952,8 +953,8 @@ class DownloadService:
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
-            print(f"[ModelManager] Downloading: {file_name}")
-            print(f"[ModelManager] Target: {target_dir}")
+            say(f"Downloading: {file_name}")
+            say(f"Target: {target_dir}")
 
             # Written under another name until it is whole and verified, so a
             # download that fails never leaves a file under the model's own
@@ -995,20 +996,20 @@ class DownloadService:
 
             write_civitai_info(target_path, download_payload(model_data, version_data, model_type))
 
-            print(f"[ModelManager] Downloaded: {target_path}")
+            say(f"Downloaded: {target_path}")
 
             progress.file_path = target_path
             progress.status = "finishing"
             self._sync_downloaded_file(target_path, progress, known)
             progress.synced = True
             progress.status = "complete"
-            print(f"[ModelManager] Download complete: {target_path}")
+            say(f"Download complete: {target_path}")
 
             return progress
 
         except Exception as e:
             import traceback
-            print(f"[ModelManager] Download error: {e}")
+            say(f"Download error: {e}")
             traceback.print_exc()
             progress.status = "error"
             progress.error = str(e)
@@ -1028,7 +1029,7 @@ class DownloadService:
             # Every way a download fails sets the reason on its progress, for
             # the page; most never said it here too.
             if progress.status == "error":
-                print(f"[ModelManager] Download of {progress.file_name or 'version %s' % version_id} "
+                say(f"Download of {progress.file_name or 'version %s' % version_id} "
                       f"failed: {progress.error}")
 
     def queue_download(
@@ -1084,19 +1085,19 @@ class DownloadService:
             from .db import get_models_db
             result = SyncService().sync_model(file_path, force=True, known=known)
             if result.success:
-                print(f"[ModelManager] Synced to database: {file_path}")
+                say(f"Synced to database: {file_path}")
                 try:
                     get_models_db().set_downloaded_at(file_path)
                 except Exception as e:
-                    print(f"[ModelManager] Failed to set downloaded_at: {e}")
+                    say(f"Failed to set downloaded_at: {e}")
             else:
                 if progress is not None:
                     progress.sync_error = result.error
-                print(f"[ModelManager] Sync warning: {result.error}")
+                say(f"Sync warning: {result.error}")
         except Exception as e:
             if progress is not None:
                 progress.sync_error = str(e)
-            print(f"[ModelManager] Failed to sync downloaded file: {e}")
+            say(f"Failed to sync downloaded file: {e}")
 
 
 # Global download service instance

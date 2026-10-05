@@ -290,6 +290,75 @@ body.mm-modal-open {
     margin-left: auto !important;
 }
 
+/* The sync's log: every line the extension writes to the console while a
+   sync runs (console.py), in place of the grid and its tabs until hidden.
+   Gradio colours everything in the block at a weight one class cannot beat:
+   the colours of our own are !important. */
+.mm-sync-log {
+    margin: 10px 0 0;
+    border: 1px solid var(--border-color-primary, #d1d5db);
+    border-radius: 8px;
+    background: var(--background-fill-secondary, #f9fafb);
+}
+
+.mm-sync-log-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color-primary, #d1d5db);
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.mm-sync-log-lines {
+    height: 60vh;
+    overflow-y: auto;
+    padding: 6px 10px;
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.mm-sync-log-line {
+    display: flex;
+    gap: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.mm-sync-log-time {
+    flex: none;
+    color: var(--body-text-color-subdued, #6b7280) !important;
+}
+
+.mm-sync-log-error .mm-sync-log-text {
+    color: #dc2626 !important;
+}
+
+.mm-sync-log-warn .mm-sync-log-text {
+    color: #b45309 !important;
+}
+
+/* Red and amber that read on a dark page. */
+.dark .mm-sync-log-error .mm-sync-log-text {
+    color: #f87171 !important;
+}
+
+.dark .mm-sync-log-warn .mm-sync-log-text {
+    color: #fbbf24 !important;
+}
+
+/* While the log shows, what it stands in for does not: !important past the
+   display the script sets on the details. */
+#model_manager_app.mm-log-open #mm_grid_tabs,
+#model_manager_app.mm-log-open #mm_grid,
+#model_manager_app.mm-log-open #mm_details,
+#model_manager_app.mm-log-open #mm_images {
+    display: none !important;
+}
+
 /* The checkbox sitting among the buttons has to match their box by hand. */
 .filter-buttons-row .mm-checkbox-label {
     height: 36px;

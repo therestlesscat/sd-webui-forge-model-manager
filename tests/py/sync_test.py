@@ -502,10 +502,22 @@ def cancel_after_one(path, force=False, classify_checkpoint=True, rehash=False):
 
 
 sync.sync_model = cancel_after_one
+from model_manager import console                        # noqa: E402
 progress = sync.sync_all(model_paths=facts['linked_paths'], max_workers=1)
 check('cancelling partway stops it short',
       progress.processed < len(facts['linked_paths']), True)
 check('and it still finishes', progress.is_complete, True)
+# Said, for the log and the page: what it waits for, each as it is done, and
+# how the sync ended.
+said = [line['text'] for line in console.since(progress.log_from)[0]]
+first = os.path.basename(facts['linked_paths'][0])
+check('the progress says it is cancelling, then that it was cancelled',
+      (progress.cancelling, progress.cancelled), (True, True))
+check('a cancel says what is still in progress, by name',
+      'Cancelling: no new file starts; finishing the 1 in progress (%s), then stopping' % first in said, True)
+check('and when the last of it is done',
+      '%s: finished after the cancel - the last one' % first in said, True)
+check('and ends as cancelled, not complete', said[-1].startswith('Sync cancelled: '), True)
 
 # ------------------------------------------------------------ metadata refresh
 ONE_PATH = facts['linked_paths'][0]
@@ -765,8 +777,8 @@ check('narrowing to one path narrows every window',
 progress = SyncProgress(total=10, processed=4, synced=3, not_found=1)
 check('progress reports what the bar needs',
       sorted(progress.to_dict()),
-      ['added', 'current_model', 'error_messages', 'errors', 'is_complete', 'moved',
-       'not_found', 'not_moved', 'processed', 'removed', 'skipped', 'synced', 'total'])
+      ['added', 'cancelled', 'cancelling', 'current_model', 'error_messages', 'errors', 'is_complete',
+       'log_from', 'moved', 'not_found', 'not_moved', 'processed', 'removed', 'skipped', 'synced', 'total'])
 
 # ------------------------------------------------------- a payload with no type
 # A sync stored a model whose payload had no type as a Checkpoint: a type it

@@ -33,6 +33,59 @@ export function connectJobs(tab) {
 let isSyncing = false;
 let syncPollInterval = null;
 
+// ==================== THE SYNC'S LOG ====================
+// Every line the extension writes to the console while a sync runs
+// (model_manager/console.py), in a panel that stands in for the grid until
+// hidden - the walk, each file looked up, each gallery, every error.
+
+const LOG_KEPT = 2000;              // lines the panel keeps, as the server does
+let logNext = null;                 // the console line to ask from next; null: from the sync's start
+// What reads as an error, or a warning, in a line said for the console.
+const LOG_ERROR = new RegExp('\\b(error|failed|could not|cannot|exception|traceback)\\b', 'i');
+const LOG_WARN = new RegExp('\\bwarning\\b', 'i');
+
+/** Show the log in place of the grid, or the grid again; Log brings a hidden log back. */
+function showSyncLog(show) {
+    const panel = document.getElementById('mm_sync_log');
+    const button = document.getElementById('mm_sync_log_btn');
+    const lines = document.getElementById('mm_sync_log_lines');
+    if (panel) panel.hidden = !show;
+    document.getElementById('model_manager_app')?.classList.toggle('mm-log-open', show);
+    if (button) button.style.display = !show && lines?.childElementCount ? '' : 'none';
+}
+
+/** A sync begins, or is found running: its log from its first line, shown. */
+function startSyncLog() {
+    logNext = null;
+    const lines = document.getElementById('mm_sync_log_lines');
+    if (lines) lines.textContent = '';
+    showSyncLog(true);
+}
+
+/** Add lines to the log, following them down unless the reader has scrolled up. */
+function appendSyncLog(lines) {
+    const box = document.getElementById('mm_sync_log_lines');
+    if (!box || !lines || !lines.length) return;
+    const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    const rows = document.createDocumentFragment();
+    for (const line of lines) {
+        const row = document.createElement('div');
+        row.className = 'mm-sync-log-line'
+            + (LOG_ERROR.test(line.text) ? ' mm-sync-log-error' : LOG_WARN.test(line.text) ? ' mm-sync-log-warn' : '');
+        const time = document.createElement('span');
+        time.className = 'mm-sync-log-time';
+        time.textContent = line.time;
+        const text = document.createElement('span');
+        text.className = 'mm-sync-log-text';
+        text.textContent = line.text;
+        row.append(time, text);
+        rows.appendChild(row);
+    }
+    box.appendChild(rows);
+    while (box.childElementCount > LOG_KEPT) box.firstElementChild.remove();
+    if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
 // ==================== SYNC FUNCTIONS ====================
 
 // Start sync with Civitai
@@ -65,6 +118,7 @@ async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
         const data = await response.json();
 
         if (data.success) {
+            startSyncLog();
             // Start polling for progress
             syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
         } else {
@@ -83,7 +137,12 @@ async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
 // Poll sync progress
 async function pollSyncProgress() {
     try {
-        const data = await apiCall({ endpoint: '/model-manager/sync/progress' });
+        // With the console's lines since the last poll: -1, from the sync's start.
+        const data = await apiCall({ endpoint: '/model-manager/sync/progress', params: { since: logNext ?? -1 } });
+        if (data.success && Array.isArray(data.log)) {
+            appendSyncLog(data.log);
+            logNext = data.log_next;
+        }
 
         if (data.success && data.progress) {
             const p = data.progress;
@@ -95,11 +154,19 @@ async function pollSyncProgress() {
 
             if (fillEl) fillEl.style.width = percent + '%';
             if (textEl) {
-                textEl.textContent = `Syncing: ${p.processed}/${p.total} - ${p.current_model || 'Preparing...'}`;
+                // No total yet while the walk every sync starts with runs:
+                // it says its own progress, and a "0/0" before it said nothing.
+                textEl.textContent = p.cancelling && !p.is_complete
+                    ? `Cancelling: ${p.processed}/${p.total} done - finishing what is in progress`
+                    : p.total > 0
+                        ? `Syncing: ${p.processed}/${p.total} - ${p.current_model || 'Preparing...'}`
+                        : (p.current_model || 'Preparing...');
             }
 
             // Update status
-            setStatus(`Sync: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped, ${p.errors} errors`);
+            setStatus(p.cancelling
+                ? `Cancelling the sync: no new file starts, the ones in progress finish first - ${p.synced} synced so far`
+                : `Sync: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped, ${p.errors} errors`);
 
             // Check if complete
             if (p.is_complete) {
@@ -115,7 +182,7 @@ async function pollSyncProgress() {
                     + (p.removed ? `, ${p.removed} gone from disk` : '')
                     + (p.moved ? `, ${p.moved} moved into their type's folder` : '')
                     + (p.not_moved ? `, ${p.not_moved} left where ${p.not_moved === 1 ? 'it was' : 'they were'} (a file of that name is already there)` : '');
-                setStatus(`Sync complete: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped${fileInfo}, ${p.errors} errors${errorInfo}`);
+                setStatus(`Sync ${p.cancelled ? 'cancelled' : 'complete'}: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped${fileInfo}, ${p.errors} errors${errorInfo}`);
                 loadBaseModelOptions();
 
                 // Reload models to show updated data
@@ -131,9 +198,15 @@ async function pollSyncProgress() {
 
 // Cancel sync
 async function cancelSync() {
+    // Pressed once: what is in progress finishes, and the poll says so.
+    const button = document.getElementById('mm_sync_cancel_btn');
+    if (button) {
+        button.disabled = true;
+        setText(button, 'Cancelling...');
+    }
     try {
         await fetch('/model-manager/sync/cancel', { method: 'POST' });
-        setStatus('Canceling sync...');
+        setStatus('Cancelling the sync: no new file starts, the ones in progress finish first...');
     } catch (error) {
         console.error('[ModelManager] Cancel error:', error);
     }
@@ -669,6 +742,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
         const data = await response.json();
 
         if (data.success) {
+            startSyncLog();
             // pollSyncProgress() is a single sample that clears this
             // interval once the run reports complete - without the
             // interval the bar freezes and isSyncing is never released.
@@ -698,6 +772,11 @@ function updateSyncUI(syncing) {
     // '' leaves it to .mm-btn, as for Sync beside it; 'inline-block' was a
     // box of its own.
     if (cancelBtn) cancelBtn.style.display = syncing ? '' : 'none';
+    // A new sync's Cancel, as it was before the last one was cancelled.
+    if (cancelBtn && syncing) {
+        cancelBtn.disabled = false;
+        setText(cancelBtn, 'Cancel');
+    }
     if (progressDiv) progressDiv.style.display = syncing ? 'block' : 'none';
 
     // Reset progress bar when starting
@@ -789,6 +868,7 @@ export async function checkOngoingProcesses() {
             console.log('[ModelManager] Found ongoing sync, resuming...');
             isSyncing = true;
             updateSyncUI(true);
+            startSyncLog();
             setStatus(`Sync in progress: ${syncData.progress.processed}/${syncData.progress.total}`);
 
             // Resume polling
@@ -869,6 +949,10 @@ export function bindJobControls() {
         const dialogStart = document.getElementById('mm_sync_dialog_start');
         if (dialogStart) dialogStart.addEventListener('click', startSyncFromDialog);
     }
+
+    // The log's Hide, and the Log that brings it back.
+    document.getElementById('mm_sync_log_hide')?.addEventListener('click', () => showSyncLog(false));
+    document.getElementById('mm_sync_log_btn')?.addEventListener('click', () => showSyncLog(true));
 
     // Bind sync cancel button
     if (cancelBtn) {

@@ -25,6 +25,7 @@ from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
 from .common import failed
+from ..console import say
 
 # The images a card shows before "Show images".
 PREVIEW_IMAGES = 4
@@ -275,7 +276,7 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
         try:
             record_architecture(db, spelled)
         except Exception as e:
-            print(f"[ModelManager] Could not read {os.path.basename(path)}: {e}")
+            say(f"Could not read {os.path.basename(path)}: {e}")
         preset = (db.get_version(spelled) or {}).get("architecture")
         if not preset and os.path.isfile(path):
             preset = identify(path).preset
@@ -566,7 +567,7 @@ def register(app: FastAPI):
                                  "images": [_image(images[r["id"]]) for r in shown
                                             if r["id"] in images]})
         except Exception as e:
-            print(f"[ModelManager] Generation images error: {e}")
+            say(f"Generation images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/{generation_id}/send-plan")
@@ -581,7 +582,7 @@ def register(app: FastAPI):
                 return JSONResponse({"success": False, "error": "No such generation"}, status_code=404)
             return JSONResponse({"success": True, **plan})
         except Exception as e:
-            print(f"[ModelManager] Send plan error: {e}")
+            say(f"Send plan error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/images/{image_id}/file")
@@ -606,12 +607,12 @@ def register(app: FastAPI):
         try:
             paths, gone = get_models_db().delete_generation_image(image_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
-            print(f"[ModelManager] Deleted generated image {image_id}"
+            say(f"Deleted generated image {image_id}"
                   + (" and its file" if deleted else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted), "failed": failed,
                                  "generation_deleted": gone})
         except Exception as e:
-            print(f"[ModelManager] Delete generated image error: {e}")
+            say(f"Delete generated image error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/rate")
@@ -667,7 +668,7 @@ def register(app: FastAPI):
                     answer["visible"] = not hide_nsfw_images or (level_now is not None and level_now <= SFW_MAX)
             return JSONResponse(answer)
         except Exception as e:
-            print(f"[ModelManager] Rate images error: {e}")
+            say(f"Rate images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/delete-many")
@@ -704,12 +705,12 @@ def register(app: FastAPI):
                 except Exception as e:
                     missing.append({"generation": generation_id, "error": str(e)})
             deleted, failed = _delete_files(list(dict.fromkeys(paths))) if delete_files else ([], [])
-            print(f"[ModelManager] Deleted {images} generated image record(s)"
+            say(f"Deleted {images} generated image record(s)"
                   + (f" and {len(deleted)} file(s)" if delete_files else ""))
             return JSONResponse({"success": True, "images": images, "deleted_files": len(deleted),
                                  "failed": failed, "missing": missing})
         except Exception as e:
-            print(f"[ModelManager] Delete generations error: {e}")
+            say(f"Delete generations error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/{generation_id}/delete")
@@ -727,10 +728,10 @@ def register(app: FastAPI):
         try:
             paths = get_models_db().delete_generation(generation_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
-            print(f"[ModelManager] Deleted generation {generation_id}"
+            say(f"Deleted generation {generation_id}"
                   + (f" and {len(deleted)} of its image files" if delete_files else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted),
                                  "failed": failed})
         except Exception as e:
-            print(f"[ModelManager] Delete generation error: {e}")
+            say(f"Delete generation error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)

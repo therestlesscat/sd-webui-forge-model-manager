@@ -24,6 +24,7 @@ from fastapi import FastAPI
 
 from . import civitai, generations, images, jobs, models, notes, settings, webui
 from .. import prompt_levels, update_check
+from ..console import say
 
 
 def setup_api(app: FastAPI):
@@ -36,7 +37,7 @@ def setup_api(app: FastAPI):
     webui.register(app)
     settings.register(app)
     notes.register(app)
-    print("[ModelManager] API endpoints registered")
+    say("API endpoints registered")
 
 
 def on_app_started(demo, app):

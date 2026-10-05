@@ -45,6 +45,7 @@ import zlib
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from .forge_host import DEFAULTS, setting
+from .console import say
 
 # ---------------------------------------------------------------- vocabulary
 
@@ -300,7 +301,7 @@ def prompt_model() -> Optional[Dict[str, Any]]:
                     raw["digest"] = hashlib.sha1(f.read()).hexdigest()
                 _model = raw
             except (OSError, ValueError, KeyError, TypeError) as e:
-                print(f"[ModelManager] NSFW prompt model not loaded: {e}")
+                say(f"NSFW prompt model not loaded: {e}")
                 _model = None
         return _model
 

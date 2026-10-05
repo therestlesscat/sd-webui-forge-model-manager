@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..civitai.client import telling
 from ..forge_host import DEFAULTS, setting
+from ..console import say
 
 
 def card_size(key: str) -> Tuple[int, int]:
@@ -45,7 +46,7 @@ def failed(e: Exception, doing: Optional[str] = None) -> JSONResponse:
     it as every endpoint does: success false, the error, 500.
     """
     if doing:
-        print(f"[ModelManager] {doing}: {e}")
+        say(f"{doing}: {e}")
     traceback.print_exc()
     return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 

@@ -21,6 +21,7 @@ from .images import gallery_state, gallery_switches
 from .common import card_size, failed
 from ..model_dirs import COMPANIONS, file_modified
 from .. import resources
+from ..console import say
 
 
 def register(app: FastAPI):
@@ -206,8 +207,8 @@ def register(app: FastAPI):
                 "preview_least_nsfw_setting": preview_least_nsfw_setting,
             })
             total_ms = (time.perf_counter() - request_start) * 1000
-            print(
-                f"[ModelManager] /models page={page} size={page_size} returned={len(models)} total={total_count} "
+            say(
+                f"/models page={page} size={page_size} returned={len(models)} total={total_count} "
                 f"query_ms={query_ms:.1f} total_ms={total_ms:.1f}"
             )
             return response
@@ -345,7 +346,7 @@ def register(app: FastAPI):
                                                   from_civitai=True)
                 except Exception as e:
                     # The local versions alone, until it answers.
-                    print(f"[ModelManager] Could not ask Civitai for model {model_id}'s versions: {e}")
+                    say(f"Could not ask Civitai for model {model_id}'s versions: {e}")
                 listed, synced_at = db.get_civitai_versions(model_id)
 
             # Which of a version's files Send uses, shown in its Files list.
@@ -509,9 +510,9 @@ def register(app: FastAPI):
                     try:
                         os.remove(file_path)
                         deleted_files.append(os.path.basename(file_path))
-                        print(f"[ModelManager] Deleted: {file_path}")
+                        say(f"Deleted: {file_path}")
                     except Exception as e:
-                        print(f"[ModelManager] Failed to delete {file_path}: {e}")
+                        say(f"Failed to delete {file_path}: {e}")
 
             # Check if folder should be deleted
             # Only delete if folder name matches model name and is now empty
@@ -523,11 +524,11 @@ def register(app: FastAPI):
                     try:
                         os.rmdir(model_dir)
                         deleted_files.append(f"[folder] {folder_name}/")
-                        print(f"[ModelManager] Deleted empty folder: {model_dir}")
+                        say(f"Deleted empty folder: {model_dir}")
                     except Exception as e:
-                        print(f"[ModelManager] Failed to delete folder {model_dir}: {e}")
+                        say(f"Failed to delete folder {model_dir}: {e}")
                 else:
-                    print(f"[ModelManager] Folder not empty, keeping: {model_dir} ({len(remaining_files)} files remaining)")
+                    say(f"Folder not empty, keeping: {model_dir} ({len(remaining_files)} files remaining)")
 
             # Remove from database
             db = get_models_db()
@@ -559,7 +560,7 @@ def register(app: FastAPI):
                                     status_code=400)
             return JSONResponse({"success": True, "is_pinned": pinned})
         except Exception as e:
-            print(f"[ModelManager] Pin error: {e}")
+            say(f"Pin error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/bookmark")
@@ -711,7 +712,7 @@ def register(app: FastAPI):
                 answer = resources.missing_files(get_models_db(), wanted, hash_list, civitai)
             return JSONResponse({"success": True, **answer})
         except Exception as e:
-            print(f"[ModelManager] Missing resources error: {e}")
+            say(f"Missing resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/image-resources")
@@ -747,5 +748,5 @@ def register(app: FastAPI):
                                            split(hashes), json.loads(names) if names else [])
             return JSONResponse({"success": True, **answer})
         except Exception as e:
-            print(f"[ModelManager] Image resources error: {e}")
+            say(f"Image resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)

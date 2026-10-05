@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from ..db import get_models_db
 from ..release_notes import dismiss, notes_for
 from ..update_check import status as update_status
+from ..console import say
 
 
 def register(app: FastAPI):
@@ -25,7 +26,7 @@ def register(app: FastAPI):
         try:
             return JSONResponse({"success": True, "notes": notes_for(get_models_db(), tab)})
         except Exception as e:
-            print(f"[ModelManager] Notes error: {e}")
+            say(f"Notes error: {e}")
             return JSONResponse({"success": False, "error": str(e), "notes": []}, status_code=500)
 
     @app.post("/model-manager/notes/dismiss")
@@ -35,7 +36,7 @@ def register(app: FastAPI):
             dismiss(get_models_db(), id)
             return JSONResponse({"success": True})
         except Exception as e:
-            print(f"[ModelManager] Could not dismiss note {id}: {e}")
+            say(f"Could not dismiss note {id}: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/update")

@@ -167,6 +167,11 @@ const MISPLACED = [
 const NEW_FILES = { success: true, files: 0, bytes: 0 };
 // What the walk every sync starts with did, added to the progress at its end.
 const WALKED = {};
+// Polls answered before the finished one: a sync still walking, with no total.
+const POLLS = [];
+// The console's lines the next poll hands the log panel, and how it was asked.
+const LOG = [];
+const logAsked = [];
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -180,11 +185,17 @@ globalThis.fetch = async (url, init = {}) => {
         return { ok: true, json: async () => ({ success: true }) };
     }
     if (href.includes('/sync/progress')) {
+        const since = new URL(href, 'http://x').searchParams.get('since');
+        if (since !== null) logAsked.push(since);
+        const log = since !== null ? { log: LOG.splice(0), log_next: 99 } : {};
+        if (POLLS.length) {
+            return { ok: true, json: async () => ({ success: true, progress: POLLS.shift(), ...log }) };
+        }
         // Completed, so isSyncing clears and the dialog can be driven again.
         return { ok: true, json: async () => ({ success: true, progress: {
             total: 1, processed: 1, synced: 1, skipped: 0, errors: 0,
             not_found: 0, current_model: '', error_messages: [], is_complete: true, ...WALKED,
-        } }) };
+        }, ...log }) };
     }
     if (href.includes('/sync/new-files')) {
         return { ok: true, json: async () => ({ ...NEW_FILES }) };
@@ -234,6 +245,24 @@ const closeSyncDialogFromTest = () => { $('mm_sync_dialog').style.display = 'non
 const $ = (id) => window.document.getElementById(id);
 const click = (id) => $(id).dispatchEvent(new window.Event('click', { bubbles: true }));
 const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+// Every status the page shows, in order. The grid reloads half a second after
+// a sync ends and says so in the same line, and a check that read the line
+// after a busy moment read that instead.
+const statusSeen = [];
+{
+    const status = $('mm_status');
+    let proto = Object.getPrototypeOf(status);
+    while (proto && !Object.prototype.hasOwnProperty.call(proto, 'textContent')) proto = Object.getPrototypeOf(proto);
+    const own = Object.getOwnPropertyDescriptor(proto, 'textContent');
+    Object.defineProperty(status, 'textContent', {
+        configurable: true,
+        get() { return own.get.call(this); },
+        set(value) { statusSeen.push(String(value)); own.set.call(this, value); },
+    });
+}
+/** The last status a sync's end set: "Sync complete: ..." or "Sync cancelled: ...". */
+const syncEnd = () => [...statusSeen].reverse().find((text) => /^Sync (complete|cancelled): /.test(text)) || '';
 
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
@@ -311,7 +340,9 @@ check('force sync is a scope, not a depth option',
     [$('mm_sync_rehash'), $('mm_sync_force_row')], [null, null]);
 
 // Requests, not minutes - the count is the same on every machine, the
-// duration is not.
+// duration is not. Waited for, not settled: the estimate is asked again once
+// the count of new files has come, and a fixed wait read "Estimating..." once.
+await until('the estimate', () => $('mm_sync_estimate').textContent.includes(' - '));
 check('the estimate counts requests, approximately while it includes prompts',
     $('mm_sync_estimate').textContent, '747 models - ~3,007 requests to Civitai');
 check('and says nothing about time',
@@ -548,7 +579,7 @@ WALKED.removed = 1;
 WALKED.moved = 1;
 await until('that sync to finish', () => $('mm_sync_btn').disabled === false);
 check('the status says what the walk did to the library',
-      $('mm_status').textContent.includes(", 2 new on disk, 1 gone from disk, 1 moved into their type's folder, 0 errors"),
+      syncEnd().includes(", 2 new on disk, 1 gone from disk, 1 moved into their type's folder, 0 errors"),
       true);
 for (const key of Object.keys(WALKED)) delete WALKED[key];
 
@@ -570,6 +601,87 @@ check('a force sync sends them too',
 await until('the force sync to finish', () => $('mm_sync_btn').disabled === false);
 NEW_FILES.files = 0;
 NEW_FILES.bytes = 0;
+
+// --- while the walk runs ----------------------------------------------------
+// Every sync walks the library before it has a total: the bar said "0/0".
+POLLS.push({ total: 0, processed: 0, synced: 0, skipped: 0, errors: 0, not_found: 0,
+             current_model: 'Reading your model folders: 120/1576', error_messages: [], is_complete: false });
+click('mm_sync_btn');
+await settle();
+click('mm_sync_dialog_start');
+await until('the walk to be shown', () => $('mm_sync_text').textContent.startsWith('Reading'));
+check('while the sync has no total, the bar says what the walk is doing, and no "0/0"',
+      $('mm_sync_text').textContent, 'Reading your model folders: 120/1576');
+await until('that sync to finish too', () => $('mm_sync_btn').disabled === false);
+posts.length = 0;
+
+// --- the log, in place of the grid -----------------------------------------
+// Every line the extension writes to the console while the sync runs.
+LOG.push({ n: 1, time: '20:01:02', text: 'Reading your model folders: 1576/1576' },
+         { n: 2, time: '20:01:09', text: 'Found Crystal ball via SHA256: 05194B21F56532AC...' },
+         { n: 3, time: '20:01:12', text: 'Error calculating hashes for broken.safetensors: no such file' },
+         { n: 4, time: '20:01:13', text: 'Warning: the full model was not fetched' });
+const RUNNING = { total: 10, processed: 3, synced: 2, skipped: 0, errors: 0, not_found: 1,
+                  current_model: 'next.safetensors', error_messages: [], is_complete: false };
+POLLS.push({ ...RUNNING }, { ...RUNNING, cancelling: true, processed: 4 },
+           { ...RUNNING, cancelling: true, processed: 4 });
+// How the sync will end, set before it starts: the closing poll can come as
+// soon as the queue above runs out.
+WALKED.cancelled = true;
+logAsked.length = 0;
+click('mm_sync_btn');
+await settle();
+click('mm_sync_dialog_start');
+await until('the log\'s lines', () => $('mm_sync_log_lines').childElementCount === 4);
+check('a sync opens its log in place of the grid and its tabs',
+      [$('mm_sync_log').hidden, $('model_manager_app').classList.contains('mm-log-open')], [false, true]);
+const logRows = () => Array.from($('mm_sync_log_lines').children);
+check('each line with its time, the prefix gone',
+      logRows().map((row) => [row.querySelector('.mm-sync-log-time').textContent, row.querySelector('.mm-sync-log-text').textContent]),
+      [['20:01:02', 'Reading your model folders: 1576/1576'],
+       ['20:01:09', 'Found Crystal ball via SHA256: 05194B21F56532AC...'],
+       ['20:01:12', 'Error calculating hashes for broken.safetensors: no such file'],
+       ['20:01:13', 'Warning: the full model was not fetched']]);
+check('an error in red, a warning in amber, the rest as they are',
+      logRows().map((row) => row.className),
+      ['mm-sync-log-line', 'mm-sync-log-line', 'mm-sync-log-line mm-sync-log-error', 'mm-sync-log-line mm-sync-log-warn']);
+
+// Cancel: said on the button, the status line and the bar, until it is done.
+click('mm_sync_cancel_btn');
+await settle();
+check('Cancel, once pressed, says it is cancelling and cannot be pressed again',
+      [$('mm_sync_cancel_btn').textContent, $('mm_sync_cancel_btn').disabled], ['Cancelling...', true]);
+check('and asks the server', posts.some((post) => post.url === '/model-manager/sync/cancel'), true);
+await until('the poll to say it is cancelling', () => $('mm_sync_text').textContent.startsWith('Cancelling'));
+check('the log was asked from where the sync began, then from where each poll ended',
+      logAsked.slice(0, 2), ['-1', '99']);
+check('the bar says what it is waiting for', $('mm_sync_text').textContent,
+      'Cancelling: 4/10 done - finishing what is in progress');
+check('and so does the status line', $('mm_status').textContent,
+      'Cancelling the sync: no new file starts, the ones in progress finish first - 2 synced so far');
+await until('that sync to stop', () => $('mm_sync_btn').disabled === false);
+check('it ends as cancelled, not complete', syncEnd().slice(0, 16), 'Sync cancelled: ');
+delete WALKED.cancelled;
+check('the log stays once the sync has ended', $('mm_sync_log').hidden, false);
+
+click('mm_sync_log_hide');
+check('Hide brings the grid back, and a Log button to return to it',
+      [$('mm_sync_log').hidden, $('model_manager_app').classList.contains('mm-log-open'), $('mm_sync_log_btn').style.display],
+      [true, false, '']);
+click('mm_sync_log_btn');
+check('Log shows it again', [$('mm_sync_log').hidden, $('mm_sync_log_btn').style.display], [false, 'none']);
+
+posts.length = 0;
+click('mm_sync_btn');
+await settle();
+click('mm_sync_dialog_start');
+await settle();
+check('a new sync starts a log of its own', $('mm_sync_log_lines').childElementCount, 0);
+check('and a Cancel that can be pressed', [$('mm_sync_cancel_btn').textContent, $('mm_sync_cancel_btn').disabled],
+      ['Cancel', false]);
+await until('the new sync to finish', () => $('mm_sync_btn').disabled === false);
+click('mm_sync_log_hide');
+posts.length = 0;
 
 // --- Moving files into their type's folder (#54) ------------------------------
 // Said before it is ticked, never ticked for anyone. Scan Disk's dialog did

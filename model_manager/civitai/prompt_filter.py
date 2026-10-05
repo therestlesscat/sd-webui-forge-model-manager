@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from .client import CivitaiClient, CivitaiRateLimitError
+from ..console import say
 
 FILTER_TOKEN_PREFIX = "mmfilter:"
 
@@ -63,7 +64,7 @@ def decode_filter_token(token: Optional[str]) -> Tuple[Optional[str], int]:
         return (data.get("c") or None), int(data.get("i", 0))
     except Exception:
         # A malformed token should restart the listing, not break it
-        print("[ModelManager] Ignoring malformed browse token")
+        say("Ignoring malformed browse token")
         return None, 0
 
 
@@ -282,7 +283,7 @@ def iter_models_with_usable_prompts(
                 return RATE_LIMITED
             except Exception as e:
                 # Never let one bad model abort the whole page
-                print(f"[ModelManager] Check failed for model {model.get('id')}: {e}")
+                say(f"Check failed for model {model.get('id')}: {e}")
                 return "prompt" if count_usable_images is not None else "failed"
 
         if inspect_many is not None:
@@ -293,7 +294,7 @@ def iter_models_with_usable_prompts(
             except CivitaiRateLimitError:
                 verdicts = [RATE_LIMITED if ok else SKIPPED for ok in eligible]
             except Exception as e:
-                print(f"[ModelManager] Checks failed for {len(chunk)} models: {e}")
+                say(f"Checks failed for {len(chunk)} models: {e}")
                 verdicts = ["failed" if ok else SKIPPED for ok in eligible]
         elif len(chunk) == 1:
             verdicts = [check(chunk[0])]
@@ -407,7 +408,7 @@ def enrich_images_with_generation_data(
     try:
         generation_data = client.get_generation_data(needs_lookup, workers=workers)
     except Exception as e:
-        print(f"[ModelManager] Generation data lookup failed: {e}")
+        say(f"Generation data lookup failed: {e}")
         return 0
 
     return apply_generation_data(images, generation_data)

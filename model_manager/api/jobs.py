@@ -6,7 +6,7 @@ each after a walk of the library - starts on a background thread and reports
 progress until it finishes or is cancelled. Which job runs, and how far along
 it is, is model_manager.jobs': both are the "sync", one at a time.
 """
-from typing import Any
+from typing import Any, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
@@ -17,6 +17,8 @@ from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_ref
                               sync_window_counts, window_cutoff)
 from ..sync_service import SyncService
 from .common import failed
+from .. import console
+from ..console import say
 
 #: What progress and cancel answer before a job of the kind has run.
 NOT_STARTED = {"sync": "No sync in progress"}
@@ -29,11 +31,15 @@ def _start(kind: str, make, run, started: str) -> JSONResponse:
     return JSONResponse({"success": True, "message": started})
 
 
-def _progress(kind: str) -> JSONResponse:
+def _progress_body(kind: str) -> dict:
     progress = jobs.progress(kind)
     if progress is None:
-        return JSONResponse({"success": True, "progress": None, "message": NOT_STARTED[kind]})
-    return JSONResponse({"success": True, "progress": progress.to_dict()})
+        return {"success": True, "progress": None, "message": NOT_STARTED[kind]}
+    return {"success": True, "progress": progress.to_dict()}
+
+
+def _progress(kind: str) -> JSONResponse:
+    return JSONResponse(_progress_body(kind))
 
 
 def _cancel(kind: str) -> JSONResponse:
@@ -82,7 +88,7 @@ def register(app: FastAPI):
         # Choosing a set is itself a request to re-read them, so it forces.
         force_bool = (str(force).lower() in ('true', '1', 'yes')
                       or target_set != "all")
-        print(f"[ModelManager] Sync requested: targets={target_set} force={force_bool}")
+        say(f"Sync requested: targets={target_set} force={force_bool}")
 
         model_paths = None
         if paths:
@@ -240,9 +246,20 @@ def register(app: FastAPI):
             return failed(e)
 
     @app.get("/model-manager/sync/progress")
-    async def get_sync_progress():
-        """Get current sync progress."""
-        return _progress("sync")
+    async def get_sync_progress(since: Optional[int] = None):
+        """
+        Get current sync progress - and, with `since`, the console's lines
+        said after that one (`log`), and the number to ask from next
+        (`log_next`): what the sync's log panel shows. -1 asks from where the
+        sync began (the progress's `log_from`).
+        """
+        body = _progress_body("sync")
+        if since is not None:
+            # -1: from where this sync began - a page that has read none yet.
+            if since < 0:
+                since = (body["progress"] or {}).get("log_from", console.said())
+            body["log"], body["log_next"] = console.since(since)
+        return JSONResponse(body)
 
     @app.post("/model-manager/sync/cancel")
     async def cancel_sync():

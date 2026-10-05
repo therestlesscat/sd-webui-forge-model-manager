@@ -28,6 +28,7 @@ from .nsfw import showcase_is_complete, version_covers
 from .db import get_models_db
 from .forge_host import DEFAULTS, setting
 from .gallery import fetch_gallery, refresh_size
+from .console import said, say
 
 
 
@@ -56,6 +57,11 @@ class SyncProgress:
     removed: int = 0        # rows whose file is no longer on disk
     moved: int = 0          # files moved into their type's folder
     not_moved: int = 0      # left in another type's: their name is taken there
+    # The console's line count when it started (console.said): the page's
+    # log panel shows what was said from there.
+    log_from: int = 0
+    cancelling: bool = False    # asked to stop: what is in progress finishes first
+    cancelled: bool = False     # stopped short by it
     current_model: str = ""
     error_messages: List[str] = field(default_factory=list)
     is_complete: bool = False
@@ -91,7 +97,10 @@ class SyncService:
         # and one model's take the first page, as before.
         self.keep_image_count = False
         self._cancel_requested = False
-        self._progress = SyncProgress()
+        # Polled before the run replaces it: from now, not from the console's first line.
+        self._progress = SyncProgress(log_from=said())
+        # The files being synced right now, by name: what a cancel waits for.
+        self._in_flight: List[str] = []
         # sync_all() and sync_metadata() each replace this with a fresh lock,
         # but sync_model() can be called on its own - after a download, say -
         # and _classify_checkpoints() takes it either way.
@@ -127,7 +136,7 @@ class SyncService:
             HashResult with those hashes.
         """
         model_name = os.path.basename(file_path)
-        print(f"[ModelManager] Calculating hashes for {model_name}...")
+        say(f"Calculating hashes for {model_name}...")
         return ModelHasher.calculate_first(file_path)
 
     def _lookup_by_hash_with_fallback(
@@ -180,14 +189,14 @@ class SyncService:
                 try:
                     version_data = self.client.get_model_by_hash(hash_value)
                     if version_data:
-                        print(f"[ModelManager] Found {model_name} via {hash_type.upper()}: {hash_value[:16]}...")
+                        say(f"Found {model_name} via {hash_type.upper()}: {hash_value[:16]}...")
                         return version_data, hash_type, hash_value
                 except CivitaiNotFoundError:
                     # This hash didn't match, try next
                     continue
                 except CivitaiAPIError as e:
                     # API error, log but continue trying other hashes
-                    print(f"[ModelManager] API error with {hash_type}: {e}")
+                    say(f"API error with {hash_type}: {e}")
                     if hash_type == "sha256":
                         unasked = e
                     continue
@@ -218,7 +227,7 @@ class SyncService:
                 try:
                     version_data = self.client.get_model_by_hash(hash_value)
                     if version_data:
-                        print(f"[ModelManager] Found {model_name} via .cm-info.json {hash_type.upper()}: {hash_value[:16]}...")
+                        say(f"Found {model_name} via .cm-info.json {hash_type.upper()}: {hash_value[:16]}...")
                         return version_data, hash_type, hash_value
                 except (CivitaiNotFoundError, CivitaiAPIError):
                     continue
@@ -244,7 +253,7 @@ class SyncService:
             try:
                 record_architecture(get_models_db(), model_path, force=True)
             except Exception as e:
-                print(f"[ModelManager] Architecture check failed for "
+                say(f"Architecture check failed for "
                       f"{os.path.basename(model_path)}: {e}")
         return result
 
@@ -294,7 +303,7 @@ class SyncService:
             # gone is written back by syncing the file again.
             if existing and existing.get("has_civitai_data") and os.path.exists(
                     get_metadata_paths(model_path)[0]):
-                print(f"[ModelManager] Skipping {model_name} (already synced)")
+                say(f"Skipping {model_name} (already synced)")
                 result.skipped = True
                 return result
             # Civitai has already been asked about this file and did not know
@@ -303,12 +312,12 @@ class SyncService:
             # recompute its hashes and ask again, for nothing. Force ignores
             # this, because a model can appear on Civitai later.
             if existing and existing.get("civitai_lookup_failed_at"):
-                print(f"[ModelManager] Skipping {model_name} "
+                say(f"Skipping {model_name} "
                       f"(not on Civitai as of {existing['civitai_lookup_failed_at'][:10]})")
                 result.skipped = True
                 return result
 
-        print(f"[ModelManager] Processing {model_name}...")
+        say(f"Processing {model_name}...")
 
         known = known if known and known.get("hashes") and known.get("version") else None
         # What the file was when its hashes were read: stored with them, the
@@ -339,7 +348,7 @@ class SyncService:
                 )
 
             if not version_data:
-                print(f"[ModelManager] {model_name} not found on Civitai (tried all hash types)")
+                say(f"{model_name} not found on Civitai (tried all hash types)")
                 db = get_models_db()
                 # Kept, as for a file Civitai knows: asking again later, or
                 # an image's resource naming it, needs no reading.
@@ -370,7 +379,7 @@ class SyncService:
             # Fetch full model data (includes description, tags, stats)
             full_model_data = (known or {}).get("model")
             if model_id and not full_model_data:
-                print(f"[ModelManager] Fetching full model data for {model_name}...")
+                say(f"Fetching full model data for {model_name}...")
                 full_model_data = self.client.get_model(model_id)
 
             # Prepare data to save
@@ -378,7 +387,7 @@ class SyncService:
                 data_to_save = full_model_data
             else:
                 # Fallback to version-only data if full model fetch failed
-                print(f"[ModelManager] Warning: Could not fetch full model data for {model_name}")
+                say(f"Warning: Could not fetch full model data for {model_name}")
                 data_to_save = version_data
 
             data_to_save = self._payload_with_version_first(data_to_save, version_id)
@@ -390,7 +399,7 @@ class SyncService:
             # The first page of the gallery, at the size it is paged in, so
             # opening the model needs no request of its own
             if version_id and self._first_for_gallery(version_id):
-                print(f"[ModelManager] Fetching images for {model_name}...")
+                say(f"Fetching images for {model_name}...")
                 db = get_models_db()
                 stored = db.count_images_by_version([version_id]).get(version_id, 0)
                 images, next_cursor = fetch_gallery(self.client, version_id,
@@ -423,7 +432,7 @@ class SyncService:
 
             result.success = True
             has_more = next_cursor is not None if version_id else False
-            print(f"[ModelManager] Synced {model_name}: {result.image_count} images (has_more: {has_more})")
+            say(f"Synced {model_name}: {result.image_count} images (has_more: {has_more})")
 
             return result
 
@@ -478,7 +487,7 @@ class SyncService:
         hashes = HashResult.from_stored(row.get("file_hashes"))
         if not hashes.sha256:
             return None
-        print(f"[ModelManager] {os.path.basename(model_path)}: asking with the hashes read from it before")
+        say(f"{os.path.basename(model_path)}: asking with the hashes read from it before")
         return hashes
 
     def _identify_by_sidecar(self, model_path: str, hashes: HashResult,
@@ -528,7 +537,7 @@ class SyncService:
             "cover_url": cover_url,
             "safe_cover_url": safe_cover_url,
         })
-        print(f"[ModelManager] {name}: model {model_id} is not on Civitai either - "
+        say(f"{name}: model {model_id} is not on Civitai either - "
               f"filed as its .civitai.info says")
         return True
 
@@ -562,7 +571,7 @@ class SyncService:
         db = get_models_db()
         added = db.insert_missing_versions(rows)
         if added:
-            print(f"[ModelManager] Recorded {added} file(s) the database had not seen")
+            say(f"Recorded {added} file(s) the database had not seen")
         # A file that could not be read says nothing of its size.
         db.refresh_file_stats([r for r in rows if r["file_modified"] is not None])
         return added
@@ -587,7 +596,7 @@ class SyncService:
         db = get_models_db()
         fixed = db.normalize_version_paths()
         if fixed:
-            print(f"[ModelManager] Stored {fixed} file paths as a walk finds them")
+            say(f"Stored {fixed} file paths as a walk finds them")
         with self._progress_lock:
             self._progress.current_model = "Reading your model folders..."
         found = find_model_files(library_dirs())
@@ -607,11 +616,13 @@ class SyncService:
                 found = find_model_files(library_dirs())
 
         # A cancelled walk forgets nothing: it has not looked everywhere.
+        if self._cancel_requested:
+            say("Cancelled while reading your model folders: nothing is forgotten")
         if found and not self._cancel_requested:
             self._progress.removed = self._forget_missing_files(found)
             models_gone, images_gone = db.prune_orphans()
             if models_gone or images_gone:
-                print(f"[ModelManager] Forgot {models_gone} models with no files left "
+                say(f"Forgot {models_gone} models with no files left "
                       f"and {images_gone} of their images")
         return found
 
@@ -639,25 +650,30 @@ class SyncService:
                 if modified is not None:
                     return path, identify(path), modified
             except Exception as e:
-                print(f"[ModelManager] Architecture check failed for {os.path.basename(path)}: {e}")
+                say(f"Architecture check failed for {os.path.basename(path)}: {e}")
             return None
 
         read_count = 0
+        looked = 0
         with ThreadPoolExecutor(max_workers=self.HEADER_THREADS) as executor:
             for future in as_completed([executor.submit(read, p) for p in paths]):
                 result = future.result()
+                looked += 1
+                # Before the sync has a total of its own: the page shows this alone.
+                with self._progress_lock:
+                    self._progress.current_model = f"Reading your model folders: {looked}/{len(paths)}"
                 if result is None:
                     continue
                 path, found, modified = result
                 with self._progress_lock:
-                    self._progress.current_model = f"Reading {os.path.basename(path)}"
+                    self._progress.current_model += f" - {os.path.basename(path)}"
                 try:
                     store_architecture(db, path, found, modified)
                     read_count += 1
                 except Exception as e:
-                    print(f"[ModelManager] Could not store what {os.path.basename(path)} is: {e}")
+                    say(f"Could not store what {os.path.basename(path)} is: {e}")
         if read_count:
-            print(f"[ModelManager] Read the headers of {read_count} file(s)")
+            say(f"Read the headers of {read_count} file(s)")
         return read_count
 
     def _forget_missing_files(self, found_paths: List[str]) -> int:
@@ -670,7 +686,7 @@ class SyncService:
         """
         gone = forget_gone(get_models_db(), found_paths)
         if gone:
-            print(f"[ModelManager] Removed {len(gone)} model(s) no longer on disk")
+            say(f"Removed {len(gone)} model(s) no longer on disk")
         return len(gone)
 
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
@@ -780,7 +796,7 @@ class SyncService:
 
         except Exception as e:
             import traceback
-            print(f"[ModelManager] Error updating database for {os.path.basename(model_path)}: {e}")
+            say(f"Error updating database for {os.path.basename(model_path)}: {e}")
             traceback.print_exc()
             return str(e)
 
@@ -835,7 +851,7 @@ class SyncService:
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
-        self._progress = SyncProgress()
+        self._progress = SyncProgress(log_from=said())
         self.keep_image_count = keep_image_count
 
         if max_workers is None:
@@ -859,17 +875,18 @@ class SyncService:
             model_paths += [p for p in new + changed if os.path.normcase(p) not in listed]
 
         self._progress.total = len(model_paths)
-        print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
+        say(f"Starting sync with {max_workers} threads for {len(model_paths)} models")
 
         # A force sync reads every file again, whatever is stored.
         self._sync_files(model_paths, force, max_workers, rehash=force)
 
+        # Said before it is complete: the page's last poll reads the log with it.
+        self._progress.cancelled = self._cancel_requested
+        say(f"Sync {'cancelled' if self._cancel_requested else 'complete'}: {self._progress.synced} synced, "
+            f"{self._progress.not_found} not found, {self._progress.skipped} skipped, "
+            f"{self._progress.errors} errors")
         self._progress.current_model = ""
         self._progress.is_complete = True
-
-        print(f"[ModelManager] Sync complete: {self._progress.synced} synced, "
-              f"{self._progress.not_found} not found, {self._progress.skipped} skipped, "
-              f"{self._progress.errors} errors")
 
         return self._progress
 
@@ -887,9 +904,20 @@ class SyncService:
             """Process a single model and return (path, result)."""
             if self._cancel_requested:
                 return path, None
-            # Not per file: the classifier answers about a hundred ids at a
-            # time, so they are collected and asked about together below.
-            return path, self.sync_model(path, force=force, classify_checkpoint=False, rehash=rehash)
+            name = os.path.basename(path)
+            with self._progress_lock:
+                self._in_flight.append(name)
+            try:
+                # Not per file: the classifier answers about a hundred ids at a
+                # time, so they are collected and asked about together below.
+                return path, self.sync_model(path, force=force, classify_checkpoint=False, rehash=rehash)
+            finally:
+                with self._progress_lock:
+                    self._in_flight.remove(name)
+                    left = len(self._in_flight)
+                if self._cancel_requested:
+                    say(f"{name}: finished after the cancel"
+                        + (f" - {left} still finishing" if left else " - the last one"))
 
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -899,7 +927,6 @@ class SyncService:
             # Process results as they complete
             for future in as_completed(futures):
                 if self._cancel_requested:
-                    print("[ModelManager] Sync cancelled by user")
                     break
 
                 path, result = future.result()
@@ -1016,7 +1043,7 @@ class SyncService:
         """
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
-        self._progress = SyncProgress()
+        self._progress = SyncProgress(log_from=said())
 
         self.keep_image_count = keep_image_count
         if max_workers is None:
@@ -1044,7 +1071,7 @@ class SyncService:
         for version in missing:
             db.delete_version(version["file_path"])
         if missing:
-            print(f"[ModelManager] Removed {len(missing)} model(s) no longer on disk")
+            say(f"Removed {len(missing)} model(s) no longer on disk")
 
         # With images this runs twice - over the files for their metadata, then
         # over their versions for the galleries, which a version's files share
@@ -1065,18 +1092,20 @@ class SyncService:
             return self._progress
 
         if new_files and not self._cancel_requested:
-            print(f"[ModelManager] Identifying {len(new_files)} file(s) Civitai has not been asked about")
+            say(f"Identifying {len(new_files)} file(s) Civitai has not been asked about")
             self._sync_files(new_files, force=False, max_workers=configured_hash_threads())
         # Asked about again whatever was said of them before: they are not
         # the files that was said of.
         if changed and not self._cancel_requested:
-            print(f"[ModelManager] Identifying {len(changed)} file(s) changed since they were read")
+            say(f"Identifying {len(changed)} file(s) changed since they were read")
             self._sync_files(changed, force=True, max_workers=configured_hash_threads())
 
+        self._progress.cancelled = self._cancel_requested
+        say(f"Metadata sync {'cancelled' if self._cancel_requested else 'complete'}: "
+            f"{self._progress.synced} updated, "
+            f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
         self._progress.is_complete = True
         self._progress.current_model = ""
-        print(f"[ModelManager] Metadata sync complete: {self._progress.synced} updated, "
-              f"{self._progress.not_found} not on Civitai, {self._progress.errors} errors")
         return self._progress
 
     def _refresh_metadata(self, versions: List[Dict[str, Any]], include_images: bool,
@@ -1090,7 +1119,7 @@ class SyncService:
         asked. False when Civitai could not be asked at all.
         """
         model_ids = list(dict.fromkeys(v["model_id"] for v in versions))
-        print(f"[ModelManager] Metadata sync: {len(versions)} versions across "
+        say(f"Metadata sync: {len(versions)} versions across "
               f"{len(model_ids)} models (images={include_images})")
 
         self._progress.current_model = f"Fetching {len(model_ids)} models from Civitai..."
@@ -1103,7 +1132,7 @@ class SyncService:
             self._progress.error_messages.append(f"Could not fetch models: {e}")
             return False
 
-        print(f"[ModelManager] Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")
+        say(f"Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")
 
         def process(version: Dict[str, Any]) -> None:
             if self._cancel_requested:
@@ -1213,12 +1242,12 @@ class SyncService:
         try:
             types = self.client.get_checkpoint_types(checkpoints)
         except Exception as e:
-            print(f"[ModelManager] Could not classify checkpoints: {e}")
+            say(f"Could not classify checkpoints: {e}")
             return 0
 
         if types:
             get_models_db().set_checkpoint_types(types)
-            print(f"[ModelManager] Classified {len(types)} of {len(checkpoints)} checkpoints")
+            say(f"Classified {len(types)} of {len(checkpoints)} checkpoints")
         return len(types)
 
     def _refresh_galleries(self,
@@ -1290,7 +1319,7 @@ class SyncService:
                 try:
                     generation_data = self.client.get_generation_data(pooled)
                 except Exception as e:
-                    print(f"[ModelManager] Generation data lookup failed: {e}")
+                    say(f"Generation data lookup failed: {e}")
 
             with self._progress_lock:
                 self._progress.processed += len(chunk) - len(galleries)
@@ -1323,9 +1352,20 @@ class SyncService:
                 callback(self._progress)
 
     def cancel(self):
-        """Request cancellation of the sync operation."""
+        """
+        Request cancellation of the sync operation: no new file starts, and
+        the ones in progress finish - a file is never left half-synced. Said,
+        with which they are, for the log and the page.
+        """
         self._cancel_requested = True
-        print("[ModelManager] Sync cancellation requested")
+        with self._progress_lock:
+            self._progress.cancelling = True
+            running = list(self._in_flight)
+        if running:
+            say(f"Cancelling: no new file starts; finishing the {len(running)} in progress "
+                f"({', '.join(running)}), then stopping")
+        else:
+            say("Cancelling: stopping after what is in progress")
 
     @property
     def progress(self) -> SyncProgress:

@@ -25,6 +25,7 @@ import importlib.util
 import os
 import sys
 from typing import Any, Callable, Dict, List, Optional
+from .console import say
 
 # Every setting the extension registers, and its default: what it reads as
 # until a person saves it, and wherever Forge cannot be asked. In the order
@@ -159,7 +160,7 @@ def checkpoint_name(path: str) -> Optional[str]:
             if os.path.normcase(os.path.abspath(info.filename)) == wanted:
                 return info.title
     except Exception as e:
-        print(f"[ModelManager] Could not ask Forge for its checkpoints: {e}")
+        say(f"Could not ask Forge for its checkpoints: {e}")
     return None
 
 
@@ -182,7 +183,7 @@ def upscaler_name(path: str) -> Optional[str]:
                     and os.path.normcase(os.path.abspath(listed)) == wanted:
                 return scaler.name
     except Exception as e:
-        print(f"[ModelManager] Could not ask Forge for its upscalers: {e}")
+        say(f"Could not ask Forge for its upscalers: {e}")
     return None
 
 

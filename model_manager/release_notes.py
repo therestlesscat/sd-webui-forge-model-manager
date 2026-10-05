@@ -44,6 +44,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from .forge_host import setting
 from .version import VERSION
+from .console import say
 
 NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "release_notes.json")
 
@@ -78,7 +79,7 @@ def load_notes(path: Optional[str] = None) -> List[Dict[str, Any]]:
         with open(path or NOTES_FILE, encoding="utf-8") as f:
             notes = json.load(f)
     except (OSError, ValueError) as e:
-        print(f"[ModelManager] Could not read the release notes: {e}")
+        say(f"Could not read the release notes: {e}")
         return []
     notes = [n for n in notes if isinstance(n, dict) and n.get("id") and n.get("version")]
     return sorted(notes, key=lambda n: version_key(n["version"]), reverse=True)

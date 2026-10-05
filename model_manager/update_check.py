@@ -24,6 +24,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from .forge_host import setting
 from .version import REPOSITORY, VERSION, _git
+from .console import say
 
 SETTING = "model_manager_check_updates"
 INTERVAL = 12 * 60 * 60
@@ -92,15 +93,15 @@ def check_once(opener: Callable = urllib.request.urlopen) -> Optional[Dict[str, 
         except urllib.error.HTTPError as e:
             if e.code == 404:          # a branch GitHub does not have: the default one
                 continue
-            print(f"[ModelManager] Could not check for a new version: {e}")
+            say(f"Could not check for a new version: {e}")
             return None
         except Exception as e:
-            print(f"[ModelManager] Could not check for a new version: {e}")
+            say(f"Could not check for a new version: {e}")
             return None
         with _lock:
             _latest.update(found, ref=ref)
         if is_newer(found["version"]):
-            print(f"[ModelManager] Version {found['version']} is available (this is {VERSION})")
+            say(f"Version {found['version']} is available (this is {VERSION})")
         return found
     return None
 

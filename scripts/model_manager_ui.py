@@ -23,6 +23,7 @@ from model_manager.ui import (
     on_ui_settings,
 )
 from model_manager.version import describe
+from model_manager.console import say
 
 
 def create_all_tabs():
@@ -41,4 +42,4 @@ script_callbacks.on_ui_settings(on_ui_settings)
 script_callbacks.on_ui_tabs(create_all_tabs)
 script_callbacks.on_app_started(api.on_app_started)
 
-print(f"[ModelManager] Version {describe()['version']} loaded")
+say(f"Version {describe()['version']} loaded")
