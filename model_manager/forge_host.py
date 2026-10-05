@@ -316,6 +316,61 @@ def selected_models() -> Dict[str, Any]:
             "modules": list(getattr(shared.opts, "forge_additional_modules", None) or [])}
 
 
+def checkpoint_listed(name: str) -> bool:
+    """
+    Whether Forge lists a checkpoint by exactly this name. Never by part of
+    it, as get_closet_checkpoint_match would: `flux1-dev` is not
+    `flux1-dev-fp8` (#154). Forge's own override takes only these names.
+    """
+    from modules import sd_models
+    return sd_models.checkpoint_aliases.get(name) is not None
+
+
+def current_job() -> Optional[str]:
+    """
+    The id of the generation Forge is running - Generate's `task(...)`, or
+    the queue's - from when it takes its lock until it ends. None between.
+    """
+    try:
+        from modules import progress
+    except ImportError:
+        return None
+    return getattr(progress, "current_task", None)
+
+
+def interrupt() -> None:
+    """Forge's Interrupt, for the generation running now."""
+    from modules import shared
+    shared.state.interrupt()
+
+
+def stop_this_run() -> None:
+    """From inside a generation's hook: end it, as Interrupt would."""
+    from modules import shared
+    shared.state.interrupted = True
+
+
+def was_interrupted() -> bool:
+    """
+    Whether the generation running now was interrupted. Read it from inside
+    a hook: Generate's wrapper clears it when the generation ends.
+    """
+    from modules import shared
+    return bool(getattr(shared.state, "interrupted", False))
+
+
+def last_error() -> Optional[str]:
+    """
+    The error the last generation ended with, as Generate reports it: Neo
+    keeps its text, the original Forge the exception.
+    """
+    from modules_forge import main_thread
+    error = getattr(main_thread, "last_exception", None)
+    if error is None or isinstance(error, str):
+        return error
+    return f"{type(error).__name__}: {error}"
+
+
 # ------------------------------------- which Forge, and where the two differ
 
 def forge_name() -> str:

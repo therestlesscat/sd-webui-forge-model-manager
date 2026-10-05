@@ -24,6 +24,7 @@ from fastapi import FastAPI
 
 from . import civitai, generations, images, jobs, models, notes, settings, webui
 from .. import prompt_levels, update_check
+from ..scheduler import runner
 from ..console import say
 
 
@@ -46,3 +47,5 @@ def on_app_started(demo, app):
     prompt_levels.start_in_background()
     # Whether a newer version is out: now, then every 12 hours.
     update_check.start_in_background()
+    # Queued tasks a restart or a crash left running are stopped (#155).
+    runner.recover()

@@ -1,5 +1,5 @@
 """
-The two scripts Forge loads, loaded as Forge loads them: one copy of the
+The scripts Forge loads, loaded as Forge loads them: one copy of the
 extension, and its endpoints back after Settings -> Reload UI.
 
 model_manager_ui.py used to delete every model_manager module after the
@@ -64,18 +64,21 @@ def load(name):
 
 def load_all():
     # Forge loads scripts/ in filename order: the recording script first.
-    return load('model_manager_generations.py'), load('model_manager_ui.py')
+    return (load('model_manager_generations.py'), load('model_manager_queue.py'),
+            load('model_manager_ui.py'))
 
 
 def current(name):
     return sys.modules.get(name)
 
 
-recorder, ui_script = load_all()
+recorder, queue_script, ui_script = load_all()
 
 # --------------------------------------------------------------- one copy
 check('the recording script records with the extension the API uses',
       recorder.generations is current('model_manager.generations'), True)
+check('the queue\'s hooks act on the queue the API runs',
+      queue_script.runner is current('model_manager.scheduler.runner'), True)
 check('its image_saved hook is that copy\'s',
       registered['on_image_saved'][0] is getattr(current('model_manager.generations'), 'image_saved', None), True)
 settings = current('model_manager.ui.settings')

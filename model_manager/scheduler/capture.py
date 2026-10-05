@@ -71,6 +71,14 @@ def generate_listeners(root, generate) -> Tuple[Optional[Any], List[Any]]:
     return own, [dep for dep in listeners if dep is not own]
 
 
+def generate_click(tab: str):
+    """Generate's own click on this tab, as the UI was last built; None if not found."""
+    found = _found.get(tab)
+    if not found or found.get("root") is None:
+        return None
+    return generate_listeners(found["root"], found["generate"])[0]
+
+
 def queue_inputs(own, others) -> List[Any]:
     """Generate's inputs, then whatever else its other listeners read."""
     inputs = list(own.inputs)
@@ -196,7 +204,7 @@ def name_inputs(tab: str, components: List[Any], values: List[Any], keeper: Keep
         start, end = getattr(script, "args_from", None), getattr(script, "args_to", None)
         if start is None or end is None or start >= end:
             continue
-        key = _unique(script_title(script), scripts)
+        key = unique_key(script_title(script), scripts)
         controls = []
         for at in range(start, end):
             component = runner.inputs[at]
@@ -221,7 +229,7 @@ def script_title(script) -> str:
         return type(script).__name__
 
 
-def _unique(title: str, taken: Dict[str, Any]) -> str:
+def unique_key(title: str, taken: Dict[str, Any]) -> str:
     key, n = title, 2
     while key in taken:
         key, n = f"{title} ({n})", n + 1

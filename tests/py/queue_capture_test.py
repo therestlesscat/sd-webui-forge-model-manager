@@ -266,7 +266,7 @@ check("script inputs out of the runner's order are refused", raised, True)
 check('an index out of range keeps the index', capture._label([('a', 'a')], 7), {'__label__': None, 'index': 7})
 check('a list of indexes keeps a list of labels', capture._label(['x', 'y'], [1, 0]),
       [{'__label__': 'y'}, {'__label__': 'x'}])
-check('two scripts of one title are told apart', capture._unique('Seed', {'Seed': []}), 'Seed (2)')
+check('two scripts of one title are told apart', capture.unique_key('Seed', {'Seed': []}), 'Seed (2)')
 
 # ------------------------------------------------------------ wiring
 queue_button = Button('Queue', 'txt2img_queue')

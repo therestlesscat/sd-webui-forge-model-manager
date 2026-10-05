@@ -49,6 +49,7 @@ from .forge_host import (available, closest_checkpoint, forge_name, infotext_set
                          parse_generation_parameters, setting)
 from .nsfw import generated_level
 from .console import say
+from .scheduler.runner import queued_task
 
 # Whether generations are recorded at all; registered in ui/settings.py.
 RECORD_GENERATIONS = "model_manager_record_generations"
@@ -471,12 +472,21 @@ def _write(p, processed, generation: _Generation) -> int:
 
     with _lock:
         generation_id = db.record_generation(row, images, used)
+        _link_to_task(db, generation_id)
     files = {f for files in used for f in files}
     say(f"Recorded generation {generation_id} ({row['mode']}): "
           f"{len(images)} of {len(generation.results)} results saved, "
           f"{generation.other_saves} other images saved and not recorded, "
           f"{len(files)} model files, {len(spelled)} of them in the library")
     return generation_id
+
+
+def _link_to_task(db, generation_id: int) -> None:
+    """A generation a queued task's run made is linked to the task (#150):
+    known by Forge's id for the run, which is the queue's own."""
+    task_id = queued_task()
+    if task_id is not None:
+        db.link_task_generation(task_id, generation_id)
 
 
 def _report(what: str, error: Exception) -> None:
