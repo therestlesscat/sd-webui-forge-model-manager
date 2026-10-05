@@ -3,9 +3,101 @@
 A model manager for SD WebUI Forge: it lists what is on disk, enriches it with
 Civitai metadata, and lets you browse and download more.
 
-This file is about the shape of the codebase — what each part is *for*, and
-which of its rules were learned the hard way. It is not a file listing; `ls`
-does that better.
+This file is everything an agent needs here, in one place: how to work with
+the owner, the shape of the codebase - what each part is *for*, and which of
+its rules were learned the hard way. It is not a file listing; `ls` does that
+better. `CLAUDE.md` only imports it and holds nothing of its own: it once
+described the architecture as well, drifted, and named three modules that no
+longer existed.
+
+## How to work here
+
+### Asking, and changing
+
+- Understand the question before answering it. If the ask is ambiguous, say
+  which reading you took.
+- **Do not make code changes unless asked.** Suggest improvements only when
+  invited to. Ask before changing anything, and say what you are about to
+  change.
+- **A proposal needs an explicit yes.** "Go ahead?" answered by moving on to
+  something else is not one; an implementation started on that was undone.
+- **Scope is the owner's.** Asked "what would the shared part be, and how
+  would it be called?", show the code shape before changing anything; R29 was
+  narrowed twice that way, to what is actually shared. A behaviour change
+  found inside a refactor becomes its own issue unless the owner folds it in.
+- Honour the existing structure rather than reorganising in passing.
+- Keep everything generic. No module exists to serve one workflow.
+- **Stop guessing after the second try.** Ask for a screenshot, a console
+  line, a number. Every long detour in this repository ended with one
+  observation that reasoning had not produced.
+- When showing an edit, name the enclosing method or class so it can be found.
+- **"mm" means the Model Manager tab**, not the `model_manager/` package.
+- **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
+  made from the local `dev`, which held commits not yet pushed, and had to be
+  put back.
+
+### Commits, pushes and issues
+
+- **A commit is prepared at each logical checkpoint, and made only on the
+  owner's yes.** Prepared means `--all` passed, in its own call ("Testing");
+  the version bumped if a user can see the change ("Versions"); and a message
+  that says what was wrong, its numbers read from the staged diff
+  ("Conventions"). Then ask. Never commit without asking.
+- **Push only when asked.** The repository is public, so a push publishes.
+  "Push to dev/main" means both branches and every tag ("Branches").
+- **Commit only as the project's own identity**, set repo-locally. A global git
+  identity on the same machine belongs to someone else; local `pre-commit` and
+  `pre-push` hooks refuse any other author or committer. Never bypass them.
+- **A change asked for "only for me" is never committed.** It lives in the
+  working tree, and a commit is made around it: copy the files aside, strip
+  the hunks, run `--all`, commit, copy them back.
+- **The backlog is GitHub's issues**, labelled `backlog` and an area. An issue
+  that does not reproduce, or works again with no commit shown to fix it, is
+  not closed: it gets a comment - what was tested, on which version, what
+  would settle it - and the labels `investigate` and `low-priority`.
+
+### Getting it right
+
+- **Never guess at an import or a function name.** Read the module. A name
+  that looks obvious is how `get_max_nsfw_level` returned `UNKNOWN` without
+  importing it.
+- **Verify before asserting, especially about your own effects.** "I only work
+  on copies" was said in this repository while a test was overwriting 747 real
+  sidecars and applying migrations to the live database. If you have not
+  checked, say you have not checked. Proving a change has lessons of its own
+  ("Proving a change").
+
+### The live data, and the WebUI running
+
+- **The live database is read in place, read-only** (`sqlite3` with
+  `mode=ro`), never opened through `ModelsDatabase` - its migrations and
+  writes would run - and never copied to a file. An in-memory copy of the
+  columns a measurement needs is fine when agreed.
+- **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
+  this folder, and the database is the live one, shared: a migration not yet
+  committed runs on it at the next restart (v32 did, three times, in #133).
+  Say so before a schema change; once it has run, a further change to that
+  migration reaches the live database only from its backup - delete the
+  `-wal` and `-shm` beside it first, or the old log is replayed into the
+  restored file. Before saying a restore is needed, read the live schema
+  (`mode=ro`): one was asked for after the owner had already done it.
+- **Explicit words are masked** in anything shown in the conversation - word
+  lists, prompts, sample data. Put the raw data in a git-ignored file under
+  `tests/work/` for the person to open.
+- **This library is one of many.** The repository is public and has users.
+  A count from the live database says how this library is, not how much a
+  bug matters: #131 was ranked down for touching 0 of 1,196 sidecars here,
+  and is a bug in every library where another tool wrote stubs. Weigh a bug
+  by what it does where the case exists, and fix what it has already written
+  into those databases, not only what it would write next - a user does not
+  read the issue, or know to Force sync. So is this machine one of many: on
+  its NVMe and 32 cores 8 hash threads ran 3.58 GB/s against 2.02 at 4, but a
+  hard disk or a network drive gets slower with more, and the default stayed
+  4. A fallback this library never needs is reordered, not removed: BLAKE3
+  and CRC32 lookups stayed, last.
+- **Leave nothing running.** Kill any server, watcher or background job you
+  start, in the turn you use it. Two test servers were once left running for
+  twenty-three hours.
 
 ## Layout
 
@@ -27,14 +119,15 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | | |
 |---|---|
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
-| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
+| `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `ownership` (which paid versions the key's account bought), `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
-| `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
+| `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync from the dialog starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
 | `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
 | `jobs.py` | the long jobs - a sync, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
+| `gallery.py` | a gallery's pages, for every gallery: their size, a refresh's size and fetch (`refresh_size`, `fetch_gallery`), and what its two switches hide (`switch_counts`, `filter_images`) |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
@@ -49,10 +142,11 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `storage.py` | reading and writing `.civitai.info` |
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
+| `version.py` | the version this copy is (`VERSION`), and its build, counted from the history; see "Versions" |
 | `console.py` | what the extension writes to the console: every "[ModelManager]" line goes through `say()`, which prints it and keeps the last 2,000 for the sync's log panel (`/model-manager/sync/progress?since=`); `console_test.py` fails on a print of its own |
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, two helpers the Civitai endpoints use: `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, three helpers: `common` (what every endpoint module shares - the card-size parser, the answer to a failure), and for the Civitai endpoints `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order; `header.py` what they draw alike - the version and the settings gear, the downloads panel |
 
 ### `javascript/shared/`
@@ -86,66 +180,50 @@ version (see "The WebUI's rules"):
 
 ## What the pieces assume about each other
 
-**A generation's result is known by the object Forge hands every script.**
-`postprocess_image_after_composite` gives each script the same
-`PostprocessImageArgs`, and Forge saves the image it holds once they are all
-done - not necessarily the image our hook saw: forge-helpers' hires cap
-replaces it. So the object is kept, and a save matched to it in
-`on_image_saved`. Masks, grids, ControlNet's maps and the "before" copies
-never match. The prompts are read in `before_process`, before styles are
-merged and Dynamic Prompts overwrites `p.prompt`; the LoRAs per iteration,
-since Forge loads only the first prompt's for a whole batch. See
-`model_manager/generations.py`.
+### Where each rule lives
 
 **`nsfw.py` is the single source of truth.** There were once three
 implementations giving two different answers. If you need a level, ask it; if
 the rule is wrong, it is wrong in one place. The browser does not judge: every
 image it is sent passes through the server, which stamps `mm_level` (and
-`mm_level_from_prompt`, for the "X · prompt" badge) on it with
-`nsfw.stamp_levels()`, and the page reads that. It used to keep a copy of the
-rule in `common.mjs`, fed by the words fetched from the server - two
-implementations to keep in step. A new endpoint that hands images to the page
-stamps them too; an image without a stamp reads as Unknown, and is hidden.
+`mm_level_from_prompt`, for the "X · prompt" badge) on it - with
+`nsfw.stamp_levels()` for Civitai's images, from the stored level for your
+generations (`api/generations.py`) - and the page reads that. It used to keep
+a copy of the rule in `common.mjs`, fed by the words fetched from the server -
+two implementations to keep in step. A new endpoint that hands images to the
+page stamps them too; an image without a stamp reads as Unknown, and is hidden
+wherever NSFW is.
 
-**Civitai is the source; a sidecar is written, not read.** A sync and a
-download write `.civitai.info` beside a file, for other tools; nothing takes
-from one what Civitai can say. A sidecar is read in one case only: Civitai
-answers 404 for every hash of the file and for the model the sidecar names -
-deleted, most likely (`SyncService._identify_by_sidecar`). And "Civitai does
-not know" means a 404, never an error: an outage used to mark every file
-looked up during it "not on Civitai", and every sync after skipped them.
-Scan Disk read every sidecar as a source, and wrote its hashes as the file's;
-it is gone (0.48.3), and every sync's walk (`walk_library`) does the rest of
-what it did.
+**Two rules for one thing drift, so each lives once, its SQL beside it.**
+`nsfw.py` (a level, with `model_level_sql`), `prompt_rules.py` (a prompt
+worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
+switches hide), `payload_rows.py` (a Civitai payload as rows),
+`hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
+setting's default). Each found a second copy that had already begun to
+disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
+to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
+table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
+facade. No test yet holds `model_level_sql` to `model_level()` (#146). What
+the page must have before any answer could come, it keeps a copy of: the NSFW
+levels, once (`nsfw.mjs`); the setting keys, where each is read.
+`page_constants_test.py` holds both to the server's (#86).
 
-**A file's hashes are read once.** Stored with them is what the file was then
-(`hashes_checked`: size and modified time to the nanosecond, never local
-time, which a time zone moves). While the file is as it was, Civitai is asked
-with them; a force sync reads every file again, and any sync reads again a
-file changed since (`files_to_identify`). Hashes written without the mark - a
-sidecar's, or stored before v33 - are never trusted, and never make a file
-look changed: no library has to be synced again for them. A read is for
-SHA-256 first (`ModelHasher.calculate_first`), with AutoV1 and AutoV2, which
-come free; AutoV3, BLAKE3 and CRC32 cost about as much again, and are read
-(`complete`) only when none of those is known to Civitai, or Civitai's list
-for the file does not say them. Found by its SHA-256, the file is Civitai's
-byte for byte, and the list's other kinds are its own
-(`_adopt_listed_hashes`); found by AutoV1 or AutoV2 it may not be. AutoV3 is
-needed whatever the lookup: images name LoRAs by it. Every kind up front ran
-at half the disk's speed (1.90 against 3.66 GB/s, four threads, NVMe).
+**A migration does not import today's rules.** v14 once imported the live
+`nsfw.image_level`, which later learnt to read the person's settings: it
+applied a rule it was not written with, during startup, and renaming the
+function would have broken every older database. It carries a frozen copy.
+An index is a migration too (v30), versioned like any other. Since v32 an
+older copy refuses a newer database ("Two WebUIs"), so any migration means
+updating both copies.
 
-**Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
-what they hold when handed `NULL`, `'[]'`, `0` or Unknown. Scan Disk, reading
-a thin `.civitai.info`, could not tell "this model has no trigger words" from
-"this file does not mention any", and it used to write the second over the first —
-blanking trigger words, dates, licences, vote counts and stored hashes. Both
-are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS`,
-`FILE_COLUMNS` in `db/models_ops.py`), each column with how an update treats it - overwritten,
-kept when the new value says nothing, or a rule of its own - and given its
-value by name. Adding a column means an entry there, or in the list of
-columns written elsewhere; `upsert_columns_test.py` fails on one in neither.
-It used to be four places by hand, and a column missed from the `SET` list
-was written once and never updated.
+**Everything the extension says, it says through `console.say`.** The sync's
+log panel shows the console's lines from where the sync began - every one, a
+gallery opened meanwhile included - so a `print` of its own would reach the
+console and never the panel. The migrations keep theirs: they shipped so, and
+run at startup. A traceback (`traceback.print_exc`) still reaches stderr
+alone, not the panel (#143).
+
+### The library: files, versions and rows
 
 **A version is one row; its files are rows of their own** (#133).
 `versions` holds a Civitai version once - its details, its gallery's cursor
@@ -182,94 +260,19 @@ other WebUI's file, in a folder this one was not given, which it cannot load
 `\models\` alone, an embedding - not under it - showed its whole path, and
 the other WebUI's file read as this one's.
 
-**A model's version list is Civitai's, as of the last sync.**
-`models.versions` holds every version Civitai lists, local or not, so
-the details panel can offer the rest for download without asking Civitai. A
-sync replaces it; a sidecar only adds to it, and not at all once a sync has
-written it - a sidecar is as old as its file, and would bring back a version
-Civitai deleted. A library synced before the column existed is filled from a
-sidecar the first time the panel asks.
-
-**Everything the extension says, it says through `console.say`.** The sync's
-log panel shows the console's lines from where the sync began - every one, a
-gallery opened meanwhile included - so a `print` of its own would reach the
-console and never the panel. The migrations keep theirs: they shipped so, and
-run at startup.
-
-**Calls between files go through `shared/calls.mjs`.** A tab that offers
-something to the others - the Model Manager's `modelManager.showModel`, the
-settings window's `settings.open`, a tab's `cardPreview.<setting key>` -
-provides it by name; the others `call` it, and ask `ready` first where they
-tell the user that tab has not loaded. They reached each other through window
-globals (`window.mmShowModel`), and a caller found out what was missing its
-own way, or not at all. `check_js_references.mjs` fails on a file that reads
-another's window global, and on a call to a name nothing provides. Events
-stay window events (`mm-settings-saved` and three more).
-
-**Markup names what it does, the same way** (#95):
-`data-action="modelManager.selectModel"`, with what it needs in `data-*`,
-which one listener for the page calls - a field on its change, anything else
-on a click, the innermost action alone, with the element's data, the element
-and the event. Inline handlers reached window globals by names in strings, in
-the modules' templates and the tabs' Python, and no check followed them
-across: `check_js_references.mjs` fails on markup with an inline handler and
-on an action name nothing provides, in the JavaScript and the Python alike -
-and on any window global but `mmSharedVersion`, which every tab needs before
-the registry has loaded. A suite presses what the page draws (`act`, `tick`,
-`press` in `tests/js/harness.mjs`), through the real listener.
-Nothing is stopped: a stop in the metadata window once kept Copy JSON's click
-from the listener that copies. An action runs as the click reaches the
-document, after anything around its element has heard it - an inline handler
-ran first: the viewer, which closes on Send, closes once the click is done.
-
-**One downloads list for both tabs.** `downloads()` in
-`javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
-is module state: the tabs share one copy of the module (see "The WebUI's
-rules"), and so do the notes, the update notice, the Your generations switch
-and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓
-change - and a state never moves a row; the page keeps that order apart
-(`sequence`), as an object's number keys come out sorted. It asks for the list
-when the page loads, and draws it again once Gradio has drawn the panel: a
-paused download polls nothing, and the panel used to stay hidden after a
-restart.
-
-**The download queue is the service's own.** `DownloadService` runs up to two,
-and when a place frees up starts the first waiting one from the top; Start now
-runs one over the limit. A version asked for again while on its way - queued,
-coming, being added, paused - is answered with the download it has, never
-started over (`ON_ITS_WAY`); a finished one is queued afresh. The page keeps
-the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
-a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
-Resume asks Civitai's download address again (its storage link is signed and
-expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
-there, and checks the finished file as ever. What is running or paused is kept
-in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
-or a crash leaves it paused, and a WebUI sharing the database never takes it
-up.
-
-**A gallery's Send sets up its own model first** (#134). The gallery's file
-is the primary: a checkpoint is loaded, a VAE or text encoder takes its kind's
-place (`pick(own=)`), an upscaler becomes Hires fix's, a LoRA or embedding a
-chip. The rest is picked as before, never over it. The image's checkpoint is
-the one thing Send cannot go without: one the library lacks, or this WebUI
-cannot load, stops the send and opens the image's Resources, whose own Send
-works once the server says it can (`checkpoint_problem`). An image that names
-no checkpoint has Send disabled outside a checkpoint's gallery (`cannotSend`).
-Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
-
-**A gallery switch's number holds when it is flipped.** An image both the NSFW
-and the prompt filter hide is counted apart (`hidden_both`), not credited to
-either: credited to NSFW, "Show NSFW" said 51 while hiding and 49 once ticked.
-The NSFW switch says what it alone hides; the prompt switch every image with an
-unusable prompt (`promptless_total`). The database's counts, a page's, the
-Civitai Browser's and your generations' are kept to the same meanings.
-
-**A card shows one version, chosen in one fixed order:** newest published, then
-Civitai's own order (`index` in `models.versions`, whose first its page
-shows), then version id and file (`SHOWN_ORDER` in `db/query.py`). Versions
-share a date to the millisecond, or have none; without the tie-break SQLite
-returned either, and a cover changed between loads. Anything that picks one of
-several needs an order that cannot tie.
+**Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
+what they hold when handed `NULL`, `'[]'`, `0` or Unknown. Scan Disk, reading
+a thin `.civitai.info`, could not tell "this model has no trigger words" from
+"this file does not mention any", and it used to write the second over the first —
+blanking trigger words, dates, licences, vote counts and stored hashes. Both
+are generated from one list per table (`MODEL_COLUMNS`, `VERSION_COLUMNS`,
+`FILE_COLUMNS` in `db/models_ops.py`), each column with how an update treats it - overwritten,
+kept when the new value says nothing, or a rule of its own - and given its
+value by name. Adding a column means an entry there, or in the list of
+columns written elsewhere; `upsert_columns_test.py` fails on one in neither.
+It used to be four places by hand, and a column missed from the `SET` list
+was written once and never updated. A payload without `nsfw` still writes 0
+over a stored 1 (#141).
 
 **Deleting rows needs evidence.** Two kinds, and they are not equally safe.
 *Direct*: this file was about to be refreshed and is not there, or another has
@@ -282,7 +285,57 @@ file that is not on disk (`model_dirs.gone_from_disk`): a walk looks for model
 files in the library's folders, and a download can land elsewhere - a
 wildcard's `.zip`, a folder template pointing outside. Every folder a download
 files into is one the library walks; both come from one table in
-`model_dirs.py`.
+`model_dirs.py`. A cancelled walk forgets nothing: Scan Disk once forgot every
+file it had not reached, so a cancelled scan dropped the rest of the library.
+What only the forgotten files named - models, images - goes with them
+(`prune_orphans`), where Scan Disk left it orphaned.
+
+**A card shows one version, chosen in one fixed order:** newest published, then
+Civitai's own order (`index` in `models.versions`, whose first its page
+shows), then version id and file (`SHOWN_ORDER` in `db/query.py`). Versions
+share a date to the millisecond, or have none; without the tie-break SQLite
+returned either, and a cover changed between loads. Anything that picks one of
+several needs an order that cannot tie.
+
+### Civitai: sync and downloads
+
+**Civitai is the source; a sidecar is written, not read.** A sync and a
+download write `.civitai.info` beside a file, for other tools; nothing takes
+from one what Civitai can say. A sidecar is read in one case: Civitai answers
+404 for the file's SHA-256, no other hash finds it, and the model the sidecar
+names is a 404 too - deleted, most likely (`SyncService._identify_by_sidecar`).
+And "Civitai does not know" means a 404, never an error: an outage used to
+mark every file looked up during it "not on Civitai", and every sync after
+skipped them. An error on the SHA-256 is asked again at the sync's end; on a
+later kind it counts as a miss. Another tool's `.cm-info.json` is still asked
+with once every hash read from the file has missed - against this rule
+(#140). Scan Disk read every sidecar as a source, and wrote its hashes as the
+file's; it is gone (0.48.3), and the walk every sync from the dialog starts
+with (`walk_library`) does the rest of what it did. A model's Sync and a
+download's sync do not walk.
+
+**A file's hashes are read once.** Stored with them is what the file was then
+(`hashes_checked`: size and modified time to the nanosecond, never local
+time, which a time zone moves). While the file is as it was, Civitai is asked
+with them; a force sync reads every file again, and any sync reads again a
+file changed since (`files_to_identify`). `force` and `rehash` are two
+things: `force` skips the already-synced check, `rehash` reads the file again.
+The dialog's Force sync passes both; a model's Sync, `force` alone. The mark
+is written only with the hashes (`with_hashes`): a writer passing it alone is
+ignored. A download's hashes carry it - Civitai's list, the bytes having
+matched its SHA-256. Hashes written without the mark - a sidecar's, or stored
+before v33 - are never trusted, and never make a file look changed: no
+library has to be synced again for them. A read is for SHA-256 first
+(`ModelHasher.calculate_first`), with AutoV1 and AutoV2, which come free;
+AutoV3, BLAKE3 and CRC32 cost about as much again, and are read (`complete`)
+only when none of those is known to Civitai, or Civitai's list for the file
+does not say them. Found by its SHA-256, the file is Civitai's byte for byte,
+and the list's other kinds are its own (`_adopt_listed_hashes`); found by
+AutoV1 or AutoV2 it may not be. AutoV3 is needed whatever the lookup: images
+name LoRAs by it - of 80 image hashes that matched a local file, 59 were
+AutoV3, 9 AutoV2 and 12 Civitai's 12-character `sha256_12` / `sshs_12`, none
+BLAKE3 or CRC32. Every kind up front ran at half the disk's speed (1.90
+against 3.66 GB/s, four threads, NVMe).
 
 **Civitai's model type is not the file's role.** A checkpoint model can ship a
 VAE as one of its versions, and that file inherits "Checkpoint"; text encoders
@@ -290,23 +343,32 @@ arrive as "LORA", and a file Civitai does not know has no type at all. So the
 file is asked: `file_identity.py` reads its tensor names and shapes, and the
 Type filter uses that, falling back to Civitai's type only for a file no sync
 has read yet. The folder was once used as a guess; removing it exposed two
-bugs it had been hiding. A download's folder is chosen before the file exists,
-so from Civitai's type; once it has arrived its header is read, and a file of
-another type is moved to that type's folder (`_file_by_what_it_is`) - never
-over a file. Files already in another type's folder are listed in the sync
-dialog and moved only when its own box is ticked - never by a note's button,
-which ticks "Read every file's header again" - with their row, pin and generations
-(`move_version`), or put back when the row cannot follow (#126). A Checkpoint
-is moved only when Forge's detector took it (`model_dirs.filed_as`): one known
-by its layer names alone is something UNet-shaped Forge did not take, which it
-could not load from Stable-diffusion either - a ControlNet was, and is now
-told first (#118).
+bugs it had been hiding - a sidecar format read wrongly, and a scan that died
+on one bad file. A fallback can hide a bug. A download's folder is chosen
+before the file exists, so from Civitai's type; once it has arrived its header
+is read, and a file of another type is moved to that type's folder
+(`_file_by_what_it_is`) - never over a file. Files already in another type's
+folder are listed in the sync dialog and moved only when its own box is
+ticked - never by a note's button, which ticks "Read every file's header
+again" - with their row, pin and generations (`move_version`), or put back
+when the row cannot follow (#126). A Checkpoint is moved only when Forge's
+detector took it (`model_dirs.filed_as`): one known by its layer names alone
+is something UNet-shaped Forge did not take, which it could not load from
+Stable-diffusion either - a ControlNet was, and is now told first (#118).
 
 **`checkpointType` is inferred, not read.** Civitai accepts it as a filter and
 returns it on neither the model nor the version. `get_checkpoint_types()` asks
 which ids are Trained, then which are Merge, and takes the answer from set
 membership — discarding any batch whose answer does not partition the request,
 because that would mean the assumption no longer holds.
+
+**A model's version list is Civitai's, as of the last sync.**
+`models.versions` holds every version Civitai lists, local or not, so
+the details panel can offer the rest for download without asking Civitai. A
+sync replaces it; a sidecar only adds to it, and not at all once a sync has
+written it - a sidecar is as old as its file, and would bring back a version
+Civitai deleted. A library synced before the column existed has it asked of
+Civitai the first time the panel asks.
 
 **A refresh replaces a gallery whole, as many images as it is asked for.**
 A model's Sync button, the metadata sync "with images" and a force sync
@@ -328,7 +390,8 @@ retries, waiting 2, 4, 8, 8, 8 and 8 seconds, on that thread alone: the whole
 model where Civitai could not say what the file is, its images alone where
 only they failed (`SyncResult.civitai_failed`, `.images_error`). What fails
 the second time is an error, and a gallery that failed keeps the stored one.
-A refused key is never asked again: it would refuse again.
+A refused key is never asked again: it would refuse again. A metadata sync
+tries again only its galleries; a models fetch that fails is not tried again.
 
 **A version's stored NSFW level is Civitai's rating** - or, for a model
 Civitai no longer has, its sidecar's rating for the version. Scan Disk stored
@@ -343,36 +406,109 @@ page polls is the service's own progress, and a job that raises calls
 `fail()` on it. It used to write the error where the poll never read, and the
 job showed as running for ever. A restamp asked for while one runs is not
 refused but run once more after (`again`): a settings save made meanwhile has
-words the running pass did not see.
+words the running pass did not see. And a long job says on the page what it
+is doing as it does it - the console's lines in a log, a count while it has
+no total, what a cancel still waits for, errors, and how it ended - never a
+"0/0" or a silent wait (0.48.5).
 
-**A migration does not import today's rules.** v14 once imported the live
-`nsfw.image_level`, which later learnt to read the person's settings: it
-applied a rule it was not written with, during startup, and renaming the
-function would have broken every older database. It carries a frozen copy.
-An index is a migration too (v30), versioned like any other - and harmless to
-an older copy sharing the database, which never touches it.
+**The download queue is the service's own.** `DownloadService` runs up to two,
+and when a place frees up starts the first waiting one from the top; Start now
+runs one over the limit. A version asked for again while on its way - queued,
+coming, being added, paused - is answered with the download it has, never
+started over (`ON_ITS_WAY`); a finished one is queued afresh. The page keeps
+the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
+a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
+Resume asks Civitai's download address again (its storage link is signed and
+expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
+there, and checks the finished file as ever. What is running or paused is kept
+in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
+or a crash leaves it paused, and a WebUI sharing the database never takes it
+up.
 
-**Two rules for one thing drift, so each lives once, its SQL beside it.**
-`nsfw.py` (a level, with `model_level_sql`), `prompt_rules.py` (a prompt
-worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
-switches hide), `payload_rows.py` (a Civitai payload as rows),
-`hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
-setting's default). Each found a second copy that had already begun to
-disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
-to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
-table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
-facade. What the page must have before any answer could come - the NSFW
-levels, the setting keys it reads - it keeps a copy of, once (`nsfw.mjs`), and
-`page_constants_test.py` holds it to the server's (#86).
+### The page
+
+**Calls between files go through `shared/calls.mjs`.** A tab that offers
+something to the others - the Model Manager's `modelManager.showModel`, the
+settings window's `settings.open`, a tab's `cardPreview.<setting key>` -
+provides it by name; the others `call` it, and ask `ready` first where they
+tell the user that tab has not loaded. They reached each other through window
+globals (`window.mmShowModel`), and a caller found out what was missing its
+own way, or not at all. `check_js_references.mjs` fails on a file that reads
+another's window global, and on a call to a name nothing provides. Events
+stay window events (`mm-settings-saved` and the others named `mm-`).
+
+**Markup names what it does, the same way** (#95):
+`data-action="modelManager.selectModel"`, with what it needs in `data-*`,
+which one listener for the page calls - a field on its change, anything else
+on a click, the innermost action alone, with the element's data, the element
+and the event. Inline handlers reached window globals by names in strings, in
+the modules' templates and the tabs' Python, and no check followed them
+across: `check_js_references.mjs` fails on markup with an inline handler and
+on an action name nothing provides, in the JavaScript and the Python alike -
+within an area some file provides: a misspelt area passes (#147) - and on any
+window global but `mmSharedVersion`, which every tab needs before
+the registry has loaded. A suite presses what the page draws (`act`, `tick`,
+`press` in `tests/js/harness.mjs`), through the real listener.
+The listener stops nothing, and no action does: a stop in the metadata window
+once kept Copy JSON's click from the listener that copies. Listeners outside
+the actions stop their own events - a gallery's selection mode takes a tile's
+click in the capture phase. An action runs as the click reaches the
+document, after anything around its element has heard it - an inline handler
+ran first: the viewer, which closes on Send, closes once the click is done.
+
+**One downloads list for both tabs.** `downloads()` in
+`javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
+is module state: the tabs share one copy of the module (see "The WebUI's
+rules"), and so do the notes, the update notice, the Your generations switch
+and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓
+change - and a state never moves a row; the page keeps that order apart
+(`sequence`), as an object's number keys come out sorted. It asks for the list
+when the page loads, and draws it again once Gradio has drawn the panel: a
+paused download polls nothing, and the panel used to stay hidden after a
+restart.
+
+**A gallery's Send sets up its own model first** (#134). The gallery's file
+is the primary: a checkpoint is loaded, a VAE or text encoder takes its kind's
+place (`pick(own=)`), an upscaler becomes Hires fix's, a LoRA or embedding a
+chip. The rest is picked as before, never over it. The image's checkpoint is
+the one thing Send cannot go without: one the library lacks, or this WebUI
+cannot load, stops the send and opens the image's Resources, whose own Send
+works once the server says it can (`checkpoint_problem`). An image that names
+no checkpoint has Send disabled outside a checkpoint's gallery (`cannotSend`).
+Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
+
+**A gallery switch's number holds when it is flipped.** An image both the NSFW
+and the prompt filter hide is counted apart (`hidden_both`), not credited to
+either: credited to NSFW, "Show NSFW" said 51 while hiding and 49 once ticked.
+The NSFW switch says what it alone hides; the prompt switch every image with an
+unusable prompt (`promptless_total`). The database's counts, a page's, the
+Civitai Browser's and your generations' are kept to the same meanings.
+
+### Your generations
+
+**A generation's result is known by the object Forge hands every script.**
+`postprocess_image_after_composite` gives each script the same
+`PostprocessImageArgs`, and Forge saves the image it holds once they are all
+done - not necessarily the image our hook saw: forge-helpers' hires cap
+replaces it. So the object is kept, and a save matched to it in
+`on_image_saved`. Masks, grids, ControlNet's maps and the "before" copies
+never match. The prompts are read in `before_process`, before styles are
+merged and Dynamic Prompts overwrites `p.prompt`; the LoRAs per iteration,
+since Forge loads only the first prompt's for a whole batch. Nothing is
+recorded when Forge saved nothing ("Always save all generated images" off),
+or for a video (#8). See `model_manager/generations.py`.
 
 ## The WebUI's rules, which are not obvious
 
 - `javascript/*.js` become classic scripts, `*.mjs` become
   `<script type="module">`, **in filename order**. Subdirectories are not
   scanned: `list_scripts` uses `os.listdir`.
-- `style.css` is found by name and concatenated with every other extension's.
-- Both are stamped with the file's mtime **once, at startup**, so a change
-  needs a WebUI restart to reach the browser — not just a page reload.
+- `style.css` is found by name, and linked after the WebUI's own, one
+  `<link>` per extension.
+- Both are stamped with the file's mtime **each time the UI is built** - at
+  startup, and at Settings -> Reload UI - so a change needs a Reload UI to
+  reach the browser, not just a page reload. `javascript/shared/` needs only
+  a page reload (next).
 - Nothing in the WebUI versions `javascript/shared/`, and Gradio's file route
   sends no `Cache-Control`, so a browser may keep a copy without asking. A
   plain import resolves to a URL that never changes, and a newly exported name
@@ -388,7 +524,9 @@ levels, the setting keys it reads - it keeps a copy of, once (`nsfw.mjs`), and
   restart UI" asked too early, fell back to each tab's own version, and ran a
   copy of every shared module per tab, page state and all, for the session
   (#121). A 404 or no connection is waited out; any other answer is taken, one
-  without a version as the first tab's own, for every tab.
+  without a version as the first tab's own, for every tab. A wait that ended
+  on any answer without a version once hung four suites, whose fetch
+  stand-ins answer `{success: true}`, until their processes were killed.
   A shared module that needs another imports it the same way, under its own
   `import.meta.url`'s version. Both go through one line, `const shared =
   (name) => import(...)`, and `await shared('core.mjs')`: a plain `import` is
@@ -422,7 +560,7 @@ levels, the setting keys it reads - it keeps a copy of, once (`nsfw.mjs`), and
   `app_started` itself), never at import - and nothing deletes the extension's
   modules to "reload" them: that once left two copies running, the recording
   script and the settings on one, the API on the other. Edited Python needs a
-  real restart, as the scripts and the stylesheet do.
+  real restart; the scripts and the stylesheet, a Reload UI.
 - **`onAfterUiUpdate` runs 250 ms after any change to the page**
   (`scheduleAfterUiUpdateCallbacks` in the WebUI's `script.js`). A callback
   that writes even the same text again changes the page and schedules itself:
@@ -438,8 +576,9 @@ Gradio 4.40.0, torch 2.3.1). Everything should work in both. A feature one of
 them lacks - Neo's newer presets, Wan video - is skipped there, never an
 error, and never a wrong answer written to the database.
 
-Where they differ, and what the extension does about it - on the server, in
-`forge_host.py`, the one module that asks Forge anything:
+Where they differ, and what the extension does about it - on the server in
+`forge_host.py`, the one module that asks Forge anything; in the page in
+`send.mjs`:
 
 - **Python 3.10 in the original Forge.** Nothing newer than 3.10 syntax or
   library. Check with that install's `system\python\python.exe`, compiling
@@ -470,24 +609,28 @@ same version. An older copy does not migrate a newer database - it ran its
 old queries and writes against the newer schema, without the fixes since. From
 v32 a copy refuses a database newer than it knows (`_init_db`), and v32
 dropped `model_versions` and renamed `civitai_models` to `models`, so a copy
-from before it fails rather than writes the old shape. Update both before starting either.
+from before it fails rather than writes the old shape. v33 is a fence too: a
+copy that still has Scan Disk refuses the database. Update both before
+starting either.
 
 **A shared library holds the other WebUI's files.** Its sync files them in
 the same `files`; this WebUI may not have been given their folders and
 cannot load them. Anything that acts on a file - Send's choice of a version's
 file, the chips' "in library" - takes one in this WebUI's folders
-(`model_dirs.folder_of`); anything that shows one says whose it is (a whole
-path).
+(`model_dirs.folder_of`; the chips by `lora_folders`, the folders Forge loads
+LoRAs from); anything that shows one says whose it is (a whole path).
 
 To see the original Forge's behaviour without starting it, run the code under
 its Python with its packages on `sys.path` (`webui`,
 `webui\repositories\huggingface_guess`, `webui\packages_3rdparty`): that is
 how the detector break was reproduced, and the fix shown to work on real SDXL,
-Flux and SD 1.5 files.
+Flux and SD 1.5 files. Import nothing that reaches its `modules`:
+`forge_host.available()`, with its `webui` on `sys.path`, imports its
+`modules.shared`, CUDA and all. Check which files exist instead.
 
 ## One stylesheet, one definition
 
-Both tabs share `style.css`, and both draw the same things: a filter bar, a
+All three tabs share `style.css`, and draw the same things: a filter bar, a
 grid of cards, a details panel, a pagination strip, buttons. They were built
 separately, each with its own class prefix, so for a long time each of those
 had two definitions.
@@ -503,8 +646,8 @@ So:
 
 - **A component is defined once.** If both tabs draw it, one rule names both
   classes: `.mm-btn, .cb-btn { ... }`. Do not scope a copy to a tab.
-- **A `cb-` or `mm-` class is for something only that tab has** — the
-  browser's downloads panel, the manager's sync dialog. Not for a variation on
+- **A `cb-`, `mm-` or `gen-` class is for something only that tab has** — the
+  manager's sync dialog and its log. Not for a variation on
   something shared, nor for a state both have: a disabled filter is
   `.filter-disabled` in either (#84).
 - **A tab that needs a variation extends the shared rule**, with a modifier
@@ -516,7 +659,8 @@ So:
   button inside a `gr.HTML` block at a specificity one class cannot beat.
 
 `tests/py/css_test.py` fails when a `cb-` rule and an `mm-` rule say the same
-thing, so the next component that would have been copied has to be shared.
+thing, so the next component that would have been copied has to be shared. It
+does not yet look at `gen-` rules.
 
 ### Light and dark, every style
 
@@ -559,11 +703,11 @@ ticked checkboxes that looked empty.
 - **It resets a `<button>`'s font, and not a link's.** A link dressed as a
   button did not look like the buttons beside it, and two CSS fixes did not
   make it: a button that opens a page is a `<button data-open-url>`
-  (`core.mjs`), not an `<a>`.
+  (`core.mjs`), not an `<a>`. Five links still break it (#144).
 
 **Seen in both modes, in a real browser, before it is done.** linkedom has
 no layout and no cascade worth the name: headless Edge (`tests/README.md`,
-and the probes under `tests/work/`) on a page that loads what the WebUI
+"Probes") on a page that loads what the WebUI
 loads - Gradio's `assets/index-*.css`, **the running theme** (Windows'
 `curl.exe http://127.0.0.1:<port>/theme.css`), the WebUI's `style.css` and
 **every extension's**, in the page's order (the page's own `<link>`s list
@@ -586,6 +730,9 @@ extensions' styles measured buttons the same that were not.
   seen: "wrapped line after line" was never looked at, and was taken out.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
+- **A stop needs a way back.** A dialog that blocks an action offers that
+  action again once its cause is fixed: the Resources dialog's Send works once
+  the server says the checkpoint is there (0.47.3).
 
 ## Versions
 
@@ -596,7 +743,9 @@ is the commit's place in the history and is never written down; the rest is.
 
 - **A minor version**: a feature that means something on its own, even inside
   an existing tab - the settings window, the trained NSFW model. Bump MINOR,
-  PATCH to 0.
+  PATCH to 0. A change to what a core action does - Send, Sync, a download -
+  is one too: #134's Send change was retagged from 0.46.1 to 0.47.0. Unsure,
+  propose a minor and say why.
 - **A patch**: any other change a user can see - a fix, an improvement, an
   addition to the latest feature or to any other. Bump PATCH. A patch belongs
   to no feature; it only comes after the latest minor version.
@@ -625,7 +774,8 @@ Then, in the same commit:
    `model_manager/release_notes.py`). A feature worth finding is
    `"audience": "everyone"`; something to do after updating - a sync with every header read again,
    update the other copy before a migration - is `"update"`, which a fresh
-   install skips. A note that concerns some installs only names a condition
+   install skips; a tab's introduction is `"new"`, for a first install
+   alone. A note that concerns some installs only names a condition
    (`"when"`, one of `CONDITIONS` - `custom_database` for two WebUIs sharing
    one database), so everyone else is not told it. What everyone should read
    is `"important": true` - first in the pile, headed [Important]. A note
@@ -641,7 +791,8 @@ only when the owner asks - and every push to `dev` and `main` takes them all
 ## Known gaps
 
 - **Local-only models cannot be bookmarked.** They have a row now, but
-  bookmarking is keyed on a `models` id and they have none.
+  bookmarking is keyed on a `models` id and they have none. They can be
+  pinned: a pin names the file's path.
 - **They also show as blank cards** — the grid takes previews only from the
   cached Civitai images, and never looks at the `.preview.png` beside the file,
   though the delete path knows about it.
@@ -654,59 +805,15 @@ only when the owner asks - and every push to `dev` and `main` takes them all
 ## Learned the hard way
 
 What earlier sessions got wrong, or took too long to find. Each of these cost
-real time once.
-
-### Working with the person who owns this
-
-- **Commit only when asked; push only when asked.** The repository is public,
-  so a push publishes.
-- **Commit only as the project's own identity**, set repo-locally. A global git
-  identity on the same machine belongs to someone else; local `pre-commit` and
-  `pre-push` hooks refuse any other author or committer. Never bypass them.
-- **The live database is read in place, read-only** (`sqlite3` with
-  `mode=ro`), never opened through `ModelsDatabase` - its migrations and
-  writes would run - and never copied to a file. An in-memory copy of the
-  columns a measurement needs is fine when agreed.
-- **Explicit words are masked** in anything shown in the conversation - word
-  lists, prompts, sample data. Put the raw data in a git-ignored file under
-  `tests/work/` for the person to open.
-- **After two wrong guesses, ask** for a console line, a screenshot, a number.
-- **A proposal needs an explicit yes.** "Go ahead?" answered by moving on to
-  something else is not one; an implementation started on that was undone.
-- **Scope is the owner's.** Asked "what would the shared part be, and how
-  would it be called?", show the code shape before changing anything; R29 was
-  narrowed twice that way, to what is actually shared. A behaviour change
-  found inside a refactor becomes its own issue unless the owner folds it in.
-- **This library is one of many.** The repository is public and has users.
-  A count from the live database says how this library is, not how much a
-  bug matters: #131 was ranked down for touching 0 of 1,196 sidecars here,
-  and is a bug in every library where another tool wrote stubs. Weigh a bug
-  by what it does where the case exists, and fix what it has already written
-  into those databases, not only what it would write next - a user does not
-  read the issue, or know to Force sync. So is this machine one of many: on
-  its NVMe and 32 cores 8 hash threads ran 3.58 GB/s against 2.02 at 4, but a
-  hard disk or a network drive gets slower with more, and the default stayed
-  4. A fallback this library never needs is reordered, not removed: BLAKE3
-  and CRC32 lookups stayed, last.
-- **A change asked for "only for me" is never committed.** It lives in the
-  working tree, and a commit is made around it: copy the files aside, strip
-  the hunks, run `--all`, commit, copy them back.
-- **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
-  this folder, and the database is the live one, shared: a migration not yet
-  committed runs on it at the next restart (v32 did, three times, in #133).
-  Say so before a schema change; once it has run, a further change to that
-  migration reaches the live database only from its backup - delete the
-  `-wal` and `-shm` beside it first, or the old log is replayed into the
-  restored file. Before saying a restore is needed, read the live schema
-  (`mode=ro`): one was asked for after the owner had already done it.
-- **"mm" means the Model Manager tab**, not the `model_manager/` package.
-- **"dev" on its own is GitHub's `dev`.** Asked for a copy of it, `main` was
-  made from the local `dev`, which held commits not yet pushed, and had to be
-  put back.
+real time once. The working agreement's own lessons are under "How to work
+here"; a suite's traps - what linkedom lacks, a test something else rescues,
+waits - are in `tests/README.md`.
 
 ### Proving a change
 
-- **A new check has to fail on the old code.** Swap the file for
+- **A new check has to fail on the old code.** A check that has never failed
+  has not been shown to check anything: three separate attempts at one fix
+  passed a suite that could not have caught the bug. Swap the file for
   `git show HEAD:<file>`, run the check, restore it. One check - "the page
   query never scans the images table" - passed on the old code too: the old
   query read every image through an index, so the plan looked innocent. What
@@ -725,52 +832,14 @@ real time once.
   compile before suspecting anything else.
 - **Measure; do not estimate.** A restamp guessed at 10-20 s took 3-6. The grid
   was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
-  by timing each part of the query, not by reading it.
+  by timing each part of the query, not by reading it. And check what a timed
+  call returned, not only how long it took.
 - **A trace settles a delay.** #112's viewer "closed late": the owner's
   DevTools trace (Performance, Save profile: a `.json.gz`) showed our click
   handler at 3.0 ms and the frame on screen 8.2 ms after the release - the
   65 ms was the button held. Event Timing's `duration` runs from the input to
   the frame on screen. A trace may open with a focusing click: anchor on the
   input being measured. Esc, read the same way, was 19.6 ms.
-- **Check what a timed call returned**, not only how long it took.
-- **Wait for what is shown, not what is drawn.** A closed list keeps its
-  items: `tag_chip_test` waited for three suggestions in the markup, found the
-  last round's, and pressed Esc before the answer came - the fix looked
-  broken. Wait on what says shown (`.show`). And a synthetic event bubbles
-  only if told to: the suite's `key()` sends a keydown no page listener hears.
-- **The test DOM is not the WebUI.** linkedom runs no inline handlers: a tick's
-  `onclick="event.stopPropagation()"` kept every click from the page's
-  listener, and the suite never saw it - markup holds none now (#95). It
-  has no layout. The harness reads a tab's markup straight from its `.py`
-  (`tabMarkup`), filling in only the header and the downloads panel from
-  `ui/header.py`; any other markup a `.replace()` adds is not there (build it
-  in the page). A check that reads a template rather than the tab as drawn
-  passes on what the drawing gets wrong: the Generations gear said "TAB" in
-  0.44.21 under one (`tab_markup_test.py` draws the tabs). And the
-  markup is there before the script, where in the WebUI it comes after: a
-  test passed while the real panel never showed. Its MutationObserver misses
-  a change made through `element.style`, which a browser reports - so
-  `showTab` looks at the panel each frame rather than observing it. It has no
-  capture phase. When a suite passes and the page does not, look for what the
-  suite set up that the WebUI does not - and ask a real browser: headless
-  Edge (see `tests/README.md`) showed that Copy JSON had done nothing for
-  three releases, which no suite could.
-- **A test passes for the wrong reason when something else rescues it.** The
-  downloads test had a running download, whose poll redrew the panel; the
-  bug was a panel of paused downloads only, which nothing polls. And a sync
-  test listed one of a model's two versions, so the first file was refiled as
-  the second: it counted two galleries only because galleries were fetched
-  per file - the bug #133 fixed - and failed once they were not.
-- **A stand-in server answers with copies.** One that hands the page the
-  test's own objects lets the page's changes - renaming a card's file after a
-  delete - rewrite the test's fixtures; a fetch never shares objects. Answer
-  with `structuredClone`.
-- **An action a suite presses returns its promise.** `deleteFile` did not, so
-  `press` went on at once and the checks read the panel before the delete was
-  done; one passed by the request alone.
-- **No test reaches a database.** A service that saves through
-  `get_models_db()` takes a store the test can set
-  (`DownloadService.store`), and saves nothing when there is nothing to keep.
 - **A refactor is checked on real data, before and after.** Run every real
   sidecar (about 1,160 here) through the old code and the new, read-only, and
   compare every field: R13 found the enum it removed had been wrong for 25 of
@@ -778,24 +847,12 @@ real time once.
   see the comparison catch it (a rating rounded differently: 395 differ) - a
   comparison that cannot fail proves nothing. A schema change the same way:
   HEAD's package beside the tree's, on an in-memory copy of the live tables,
-  the migration's backup pointed at memory (`tests/work/r133/compare.py`).
-  It found what every suite passed: v32 turned a version's Unknown level into
-  PG and its unsaid stats into 0, for versions of one file.
-- **A test that pins an incidental fact breaks on every change.** "The schema
-  is at 29" failed the moment v30 came; assert what the test is about.
+  the migration's backup pointed at memory (a script kept locally, under the
+  git-ignored `tests/work/r133/`). It found what every suite passed (see
+  "Saying nothing is not a value").
 - **A visual claim is measured, not eyeballed** - the owner's screenshot, pixel
   by pixel. "Cancel looks taller" measured 36 px against 36 px: the disabled
-  Sync beside it, at opacity 0.6, read as the smaller. A headless Edge probe
-  lacks the CSS Gradio loads at run time; it can agree with itself and still
-  miss the page.
-- **A line the page rewrites later is recorded, not read.** The grid reloads
-  500 ms after a sync and replaces the status line; a check that read it
-  after a busy moment failed 3 runs in 10. `dialog_test` records every status
-  shown (`statusSeen`). The estimate, asked again once the new-file count has
-  come, is waited for, not settled.
-- **`progress_test.js` runs `pollSyncProgress`'s body in a vm sandbox.** A name
-  the poll starts using is given there too, or the poll throws inside its own
-  `try` and does nothing.
+  Sync beside it, at opacity 0.6, read as the smaller.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.
@@ -813,12 +870,6 @@ real time once.
 - **A swallowed error looks like an unrelated failure.** A test's own helper
   named `usable` shadowed the imported `usable`; the paging code caught the
   recursion and reported "no models kept".
-- **A crash hides a suite's earlier failures.** `checker()` prints them at
-  `done()`: a TypeError at line 588 of a browser suite hid the failures of the
-  section above it. Read the crash, then run again.
-- **A shortened poll stays slower than `waitFor`'s look (50 ms).** With the
-  restamp poll at 25 ms, a state went by between two looks, and a check that
-  reads each state missed it.
 - **Look at what a run leaves behind.** Node's coverage reports were never
   removed: 9,429 of them, 4.6 GB. Every `--all` parsed them all, and two
   modules deleted long ago stayed "used" in `test_map.json` (92 entries). With
@@ -845,8 +896,9 @@ real time once.
   sidecars and was not hidden by the default filter (#125). Survey each - the
   code, a count from the real data - and put it to the owner with a
   recommendation. #128's cause, read from Gradio's Tabs bundle (the clicked
-  button replaced before the click reaches the document), did not happen: a
-  click on the tab ran the saved search (2026-10-04).
+  button replaced before the click reaches the document), was wrong: a click
+  on the tab did run the saved search (2026-10-04). The issue stays open, to
+  investigate.
 
 ### The data
 
@@ -895,10 +947,6 @@ real time once.
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.
-- **Images name a LoRA by AutoV3.** Of 80 image hashes that matched a local
-  file: 59 AutoV3, 9 AutoV2, 12 Civitai's 12-character `sha256_12` /
-  `sshs_12`; none BLAKE3 or CRC32. So AutoV3 is kept for every file, whatever
-  found it.
 - **Civitai's CRC32 is not always in zlib's byte order.** For `supe10` its list
   gives `8EAD4C97` where zlib gives `974CAD8E` (2 of 1,190 files compared; the
   other one's sidecar was another tool's). A CRC32 lookup misses such a file;
@@ -911,11 +959,6 @@ real time once.
   imported it at the top: one moved line from failing at startup. The cut was
   in the wrong place - the database part sat in the header reader - and
   `tests/tools/check_import_cycles.py` now counts every import, wherever it is.
-- **A fallback can hide a bug.** The folder-path type guess masked a sidecar
-  format read wrongly and a scan that died on one bad file.
-- **Delete what is gone, not what was not seen.** Scan Disk once forgot every
-  file it had not reached - a cancelled scan dropped the rest of the library -
-  and left orphaned models and images behind.
 - **Stamp what SQL filters on.** A per-image check is cheap in the browser, on
   a page of images; across the grid's queries it was 2.7 s against 4 ms.
 - **Choose the page, then look up its details.** Filter, group, sort and limit
@@ -932,9 +975,6 @@ real time once.
 - **A bool is an int.** An enum checked `isinstance(value, int)` before
   `bool`, so a model's `nsfw: true` read as bitmask 1 - PG - and its own
   branch for booleans never ran. Test for `bool` first.
-- **Whatever a ticked box does, a note's button must not do by accident.** A
-  release note's button ticks "Read every file's header again"; moving files
-  into their type's folder got a box of its own, never ticked for anyone.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
 - **`check_js_references.mjs` reads a regex literal as code**: in
@@ -944,25 +984,25 @@ real time once.
   "Nothing refreshes Forge's checkpoint list after a download" was said from
   a search of the Python alone; `downloads.mjs` presses Forge's own refresh
   (`refreshWebUiModelList`) once a batch of downloads lands.
-- **A wait for the server ends on every answer but the one it waits out.**
-  #121's first loop waited on any answer without a version; four suites, whose
-  fetch stand-ins answer `{success: true}`, hung until their processes were
-  killed. It waits out a 404 or no connection now, and takes anything else.
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show.
 
 ### The environment
 
+- **This is Windows: paths are case-insensitive.** `claude.md` and
+  `CLAUDE.md` are one file, and deleting the "duplicate" deletes the
+  original - which is how `CLAUDE.md` once had to be written twice.
 - The WebUI may not be on the default port. From WSL it cannot be reached
   directly; Windows' own `curl.exe` can.
 - Run the tests with the WebUI's own Python - it has FastAPI and torch - and
   Windows `node.exe` for the browser suites. Neo's venv is Python 3.13
   (`sys.monitoring`; comprehensions inlined, no frame of their own); the
   original Forge's is 3.10, so the tracer keeps a profile-hook fallback.
-- This project's hook refuses any Bash command whose text names the test
-  runner's file - a commit message and an edit script included. Put the path
-  in a variable (`F=tests/ru; F=${F}n.py`), or run a script file.
+- The project's hook ("Testing") reads the text of every Bash command, so it
+  also refuses one that ends in the runner's path - a `cat`, a `grep`, a line
+  of a commit message. Put the path in a variable (`F=tests/ru; F=${F}n.py`),
+  or run a script file.
 - WSL's shell here is zsh: `noclobber` is on and `cp` asks before overwriting
   (see "Make sure the old code is what ran"), and `echo` turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
@@ -1004,24 +1044,27 @@ real time once.
   tags are lightweight, so `--follow-tags` leaves them behind. Pushes of the
   branches alone left 52 tags local (v0.44.0-v0.48.6), pushed apart later.
 
-## Before you push
+## Testing
 
-```
-python tests/run.py --all
-```
+Test what a change needs, not everything.
 
-A hundred and sixty-four, as the runner counts them - 82 Python, 76 browser and
-6 static checks, seven of them skipped unless asked (the NSFW trainer's with
-`--tools`, as it is run by hand) - four at a time: under 35 s. Not wider - each is a process of its own, and
-32 at once beside two running WebUIs left Windows out of memory. While working,
-`--changed` runs only the suites the uncommitted changes need. See
-`tests/README.md` for what they cover, how the choice is made, and how to add
-one.
+- **While working:** `python tests/run.py --changed` runs only the suites the
+  uncommitted changes need, chosen from a record of which files each suite
+  uses, and says why it chose each. Add words to narrow it further
+  (`python tests/run.py --changed chips`), or name suites alone.
+- **Before a commit:** `python tests/run.py --all` - everything, which also
+  records afresh which files each suite uses. Run it in its own call, and
+  read its last line before committing.
+- A hook in this project's Claude Code settings (`.claude/`, local and
+  git-ignored) refuses the runner with no `--changed`, `--all` or suite name
+  after it - `--online` or `--tools` alone included - so a full run is always
+  one asked for with `--all`.
+
+`--all` runs every suite, four at a time, in about 35 s; `tests/README.md`
+says why no wider, what each suite covers, how the choice is made, and how to
+write one.
 
 **A test run takes a minute at most; one that needs longer is asked for
 first.** That is the owner's rule. Start every run under a time limit
-(`timeout 60`), and if it would need more, ask before running it. A suite
-waits in seconds, never in thousands of tries: a `waitFor` of 4,000 tries is
-200 s, and two of them in one suite ran a whole run past ten minutes, leaving
-the suite's process behind. After a run that was stopped, look for what it
-left running and stop only that.
+(`timeout 60`), and if it would need more, ask before running it. After a run
+that was stopped, look for what it left running and stop only that.

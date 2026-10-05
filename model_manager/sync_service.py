@@ -277,12 +277,13 @@ class SyncService:
         Sync a single model with Civitai.
 
         Steps:
-        1. Check if .civitai.info exists and has full data (skip if complete, unless force)
-        2. Calculate multiple hash types (SHA256, AutoV3, CRC32, BLAKE3, AutoV1, AutoV2)
-        3. Try by-hash endpoint with fallback through hash types
-        4. Call model endpoint to get full model data (description, tags, stats)
-        5. Fetch images for the version
-        6. Save full model data to .civitai.info
+        1. Skip a file already identified whose sidecar is there, unless force
+        2. Its hashes: the stored ones while the file is unchanged, else read
+           from it - SHA-256 with AutoV1 and AutoV2, the rest only if needed
+        3. Ask Civitai by hash, through the fallback order
+        4. Ask for the model's full data (description, tags, stats)
+        5. Store the details, then fetch the version's images
+        6. Write .civitai.info
 
         Args:
             model_path: Path to the model file.

@@ -592,9 +592,8 @@ async function switchForgePreset(preset) {
 
 /**
  * The calls Gradio makes to the server for a control's events. They go to
- * <root>/run/<event> through the page's fetch - in Forge Neo's Gradio 4.39
- * and the original Forge's 4.40 alike - so wrapping fetch sees each one start
- * and finish.
+ * <root>/run/<event> through the page's fetch - in both WebUIs' Gradio 4.40 -
+ * so wrapping fetch sees each one start and finish.
  */
 const forgeCalls = { started: 0, inFlight: 0, last: 0 };
 

@@ -10,7 +10,8 @@ Reload UI clears them all and runs the scripts again, in the same process,
 with the extension already imported. It used to delete the extension's modules
 and import the API afresh, to pick up edited code - after the recording script
 and the settings had imported theirs, so two copies ran side by side. A
-change to the code needs a restart, as the scripts and the stylesheet do.
+change to the code needs a restart; the scripts and the stylesheet need only
+Reload UI, which stamps them again.
 """
 from modules import script_callbacks
 
