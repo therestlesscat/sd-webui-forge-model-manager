@@ -17,9 +17,11 @@ from modules import script_callbacks
 
 from model_manager import api
 from model_manager.generations import generations_enabled
+from model_manager.scheduler import capture
 from model_manager.ui import (
     create_civitai_browser_ui,
     create_generations_ui,
+    create_queue_ui,
     create_ui,
     on_ui_settings,
 )
@@ -29,10 +31,12 @@ from model_manager.console import say
 
 def create_all_tabs():
     """
-    Create all Model Manager tabs: Generations first, before the Model
-    Manager - unless "Your generations" is off, when it is not created at all.
+    Create all Model Manager tabs: the Queue first, then Generations, before
+    the Model Manager - unless "Your generations" is off, when it is not
+    created at all.
     """
-    tabs = [(create_generations_ui(), "Generations", "generations_tab")] if generations_enabled() else []
+    tabs = [(create_queue_ui(), "Queue", "queue_tab")]
+    tabs += [(create_generations_ui(), "Generations", "generations_tab")] if generations_enabled() else []
     tabs += create_ui()
     civitai_tab = create_civitai_browser_ui()
     tabs.append((civitai_tab, "Civitai Browser", "civitai_browser_tab"))
@@ -40,6 +44,7 @@ def create_all_tabs():
 
 
 script_callbacks.on_ui_settings(on_ui_settings)
+script_callbacks.on_after_component(capture.on_component)
 script_callbacks.on_ui_tabs(create_all_tabs)
 script_callbacks.on_app_started(api.on_app_started)
 

@@ -63,7 +63,8 @@ def install(**overrides):
     shared.cmd_opts = Options({"ckpt_dir": None, "lora_dir": None, "vae_dir": None})
 
     # Registered at import; nothing here needs to fire them.
-    for name in ("on_app_started", "on_ui_settings", "on_ui_tabs", "on_ui_train_tabs"):
+    for name in ("on_app_started", "on_ui_settings", "on_ui_tabs", "on_ui_train_tabs",
+                 "on_after_component"):
         setattr(callbacks, name, lambda *a, **k: None)
 
     # /model-manager/ui-options reads these straight off the WebUI.

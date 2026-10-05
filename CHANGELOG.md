@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
 
+- **0.50.1** (build 377) - A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, with its images, and generates nothing. A Queue tab appears before Generations; it will list and run the tasks.
 - **0.50.0** (build 376) - The database moves to v34, to keep queued generations. Two WebUIs sharing it must both be updated.
 
 ## 0.48 - Sync reads your model folders

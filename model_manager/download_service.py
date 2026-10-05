@@ -28,6 +28,7 @@ from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
 from .forge_host import setting
 from .hashing import HashResult
+from .install import INSTALL_KEY
 from .model_dirs import download_dir, filed_as, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
 from .console import say
@@ -49,11 +50,9 @@ RANGE_TRIES = 3
 # Bound once: what the speed is measured by, whatever later replaces `time`.
 _clock = time.monotonic
 
-# Where this install keeps its downloads that can be resumed: one key per
-# copy of the extension, so a WebUI sharing the database never takes up
-# another's (their models folders differ).
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RESUMABLE_KEY = "downloads:" + hashlib.sha1(os.path.normcase(_ROOT).encode("utf-8")).hexdigest()[:12]
+# Where this install keeps its downloads that can be resumed: under its own
+# key (install.py), so a WebUI sharing the database never takes up another's.
+RESUMABLE_KEY = "downloads:" + INSTALL_KEY
 
 
 #: A download asked for and not yet over: asked for again, it is not started again.

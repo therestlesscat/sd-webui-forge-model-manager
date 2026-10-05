@@ -24,6 +24,7 @@ const PANELS = {
     txt2img: 'tab_txt2img',
     img2img: 'tab_img2img',
     img2imgMode: 'img2img_img2img_tab',
+    queue: 'tab_queue_tab',
     generations: 'tab_generations_tab',
     modelManager: 'tab_model_manager_tab',
     civitaiBrowser: 'tab_civitai_browser_tab',

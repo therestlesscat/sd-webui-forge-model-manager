@@ -335,6 +335,20 @@ def on_ui_settings():
                "never asked.")
     )
 
+    shared.opts.add_option(
+        "model_manager_queue_inputs_dir",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_queue_inputs_dir"],
+            label="Queue: folder for the images a task needs",
+            component=gr.Textbox,
+            component_args={"placeholder": "e.g., D:\\queue-inputs"},
+            section=section,
+        ).info("A queued img2img task keeps its source image and mask here until it is "
+               "deleted, one folder per task. Empty: queue-inputs in the WebUI's folder, "
+               "beside outputs. Tasks keep their files' full paths, so a change applies to "
+               "tasks queued after it.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "

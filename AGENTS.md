@@ -126,6 +126,8 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
 | `jobs.py` | the long jobs - a sync, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
+| `scheduler/` | the generation queue (#17): `capture` (the Queue button beside Generate: what Generate would be sent, named and kept as a task), `values` (a value as a task keeps it - images, arrays, objects - and back) |
+| `install.py` | which install of the extension this is, one per WebUI (`INSTALL_KEY`): what only one of two WebUIs sharing a database can act on - a download it was making, a task it queued - is kept under its key |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
 | `gallery.py` | a gallery's pages, for every gallery: their size, a refresh's size and fetch (`refresh_size`, `fetch_gallery`), and what its two switches hide (`switch_counts`, `filter_images`) |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
@@ -147,7 +149,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, three helpers: `common` (what every endpoint module shares - the card-size parser, the answer to a failure), and for the Civitai endpoints `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
-| `ui/` | settings, and the markup for each tab: Generations, Model Manager, Civitai Browser, in that order; `header.py` what they draw alike - the version and the settings gear, the downloads panel |
+| `ui/` | settings, and the markup for each tab: Queue, Generations, Model Manager, Civitai Browser, in that order - building the Queue tab also wires the Queue buttons; `header.py` what they draw alike - the version and the settings gear, the downloads panel |
 
 ### `javascript/shared/`
 

@@ -52,6 +52,9 @@ DEFAULTS = {
     "model_manager_nsfw_detection": "model",
     "model_manager_nsfw_prompt_model_percent": 2.0,
     "model_manager_check_updates": True,
+    # Where the queue keeps the images a task needs to run; empty for the
+    # WebUI's own queue-inputs folder (#149).
+    "model_manager_queue_inputs_dir": "",
     # The text encoders and VAE named for each preset (forge_modules.MODULE_PRESETS).
     "model_manager_modules_flux": "",
     "model_manager_modules_klein": "",
@@ -281,6 +284,36 @@ def schedulers() -> List[str]:
     """The schedulers Forge offers, by label."""
     from modules import sd_schedulers
     return [s.label for s in sd_schedulers.schedulers]
+
+
+# ------------------------------------------------------- the generation queue
+
+def generate_names(tab: str) -> List[str]:
+    """
+    The names of the inputs Generate sends before the scripts', in order:
+    the parameters of Forge's own function for the tab, but the request,
+    which Gradio adds and is not an input. The same in both WebUIs (#148).
+    """
+    import inspect
+    if tab == "txt2img":
+        from modules.txt2img import txt2img_create_processing as function
+    else:
+        from modules.img2img import img2img_function as function
+    return [p.name for p in inspect.signature(function).parameters.values()
+            if p.kind == p.POSITIONAL_OR_KEYWORD and p.name != "request"]
+
+
+def script_runner(tab: str):
+    """The tab's scripts: their inputs, and each script's place among them."""
+    from modules import scripts
+    return scripts.scripts_txt2img if tab == "txt2img" else scripts.scripts_img2img
+
+
+def selected_models() -> Dict[str, Any]:
+    """The checkpoint and modules Forge has selected: what Generate would load."""
+    from modules import shared
+    return {"checkpoint": getattr(shared.opts, "sd_model_checkpoint", None) or None,
+            "modules": list(getattr(shared.opts, "forge_additional_modules", None) or [])}
 
 
 # ------------------------------------- which Forge, and where the two differ

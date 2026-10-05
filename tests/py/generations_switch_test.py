@@ -58,6 +58,7 @@ check('never set: on, as by default', gen.generations_enabled(), True)
 tabs_callbacks = []
 script_callbacks.on_ui_tabs = lambda fn: tabs_callbacks.append(fn)
 fake_ui = types.ModuleType('model_manager.ui')
+fake_ui.create_queue_ui = lambda: 'queue markup'
 fake_ui.create_generations_ui = lambda: 'generations markup'
 fake_ui.create_ui = lambda: [('model manager markup', 'Model Manager', 'model_manager_tab')]
 fake_ui.create_civitai_browser_ui = lambda: 'browser markup'
@@ -68,10 +69,10 @@ script = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(script)
 names = lambda: [name for _, name, _ in tabs_callbacks[0]()]
 switch(True)
-check('on: the Generations tab first, before the Model Manager',
-      names(), ['Generations', 'Model Manager', 'Civitai Browser'])
+check('on: the Queue, then the Generations tab, before the Model Manager',
+      names(), ['Queue', 'Generations', 'Model Manager', 'Civitai Browser'])
 switch(False)
-check('off: not created at all', names(), ['Model Manager', 'Civitai Browser'])
+check('off: not created at all', names(), ['Queue', 'Model Manager', 'Civitai Browser'])
 
 # ------------------------------------------------------------ the page told
 from model_manager.api import setup_api                  # noqa: E402
