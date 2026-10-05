@@ -17,7 +17,6 @@ from ..forge_host import setting
 from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
-from ..storage import read_model_payload
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed
 from ..model_dirs import COMPANIONS, file_modified
@@ -241,7 +240,6 @@ def register(app: FastAPI):
         gallery's totals; the gallery's pages are asked for on their own.
         """
         try:
-            from ..storage import load_model_metadata
             import os
 
             if not os.path.exists(path):
@@ -259,7 +257,9 @@ def register(app: FastAPI):
                 "file_modified": file_modified(path),
             }
 
-            # Try database first (more reliable - uses filename matching during scan)
+            # The database alone: a sidecar is no source for a file Civitai
+            # has not identified - a sync reads one only for a model Civitai
+            # does not have (SyncService._identify_by_sidecar).
             version_id = None
             db = get_models_db()
             db_version = db.get_version(path)
@@ -293,33 +293,6 @@ def register(app: FastAPI):
                             "download_count": db_model.get("stats_download_count", 0),
                         }
 
-            # Fall back to .civitai.info parsing (with filename matching)
-            if not version_id:
-                model_info, version_info, _ = load_model_metadata(path)
-
-                if model_info:
-                    result["civitai_model"] = {
-                        "id": model_info.id,
-                        "name": model_info.name,
-                        "description": model_info.description,
-                        "type": model_info.type,
-                        "nsfw": model_info.nsfw,
-                        "tags": model_info.tags,
-                        "creator": model_info.creator,
-                        "rating": model_info.rating,
-                        "download_count": model_info.download_count,
-                    }
-
-                if version_info:
-                    version_id = version_info.id
-                    result["civitai_version"] = {
-                        "id": version_info.id,
-                        "name": version_info.name,
-                        "base_model": version_info.base_model,
-                        "trained_words": version_info.trained_words,
-                        "published_at": version_info.published_at.isoformat() if version_info.published_at else None,
-                    }
-
             # The gallery's totals, for its banner. Its pages come from
             # /model-manager/images/gallery-page, after: page 1 may have to
             # be fetched from Civitai, and the details must not wait on it.
@@ -343,9 +316,9 @@ def register(app: FastAPI):
         The versions of a Civitai model: the local ones, and every one Civitai
         lists, as last recorded. Civitai is not asked.
 
-        A plain def: it may read the model's sidecars from disk, once, when
-        nothing has recorded the list yet - a library synced before the list
-        was kept.
+        A plain def: it may ask Civitai for the list, once, when nothing has
+        recorded it yet - a library synced before the list was kept. Never
+        the model's sidecars: Civitai has the model.
 
         Args:
             model_id: Civitai model ID.
@@ -356,17 +329,23 @@ def register(app: FastAPI):
             civitai_versions: Civitai's, in Civitai's order, each with `local`
                 and `paid_access`; empty when none are known.
             versions_synced_at: when Civitai itself last listed them; null
-                when the list was read from sidecars.
+                when it was not asked - or not answering - and the list came
+                from elsewhere, or there is none.
         """
         try:
             db = get_models_db()
             versions = db.get_versions_for_model(model_id)
             listed, synced_at = db.get_civitai_versions(model_id)
             if listed is None and versions:
-                for version in versions:
-                    payload = read_model_payload(version["file_path"]) or {}
-                    if payload.get("id") == model_id:
-                        db.store_civitai_versions(model_id, payload.get("modelVersions") or [])
+                try:
+                    with resources.lazy_client(CivitaiClient.from_settings) as civitai:
+                        payload = civitai().get_model(model_id)
+                    if payload:
+                        db.store_civitai_versions(model_id, payload.get("modelVersions") or [],
+                                                  from_civitai=True)
+                except Exception as e:
+                    # The local versions alone, until it answers.
+                    print(f"[ModelManager] Could not ask Civitai for model {model_id}'s versions: {e}")
                 listed, synced_at = db.get_civitai_versions(model_id)
 
             # Which of a version's files Send uses, shown in its Files list.
@@ -460,6 +439,8 @@ def register(app: FastAPI):
                     errors.append(f"File not found: {file_path}")
                     continue
 
+                # Forced, but with the hashes read from the file before if
+                # it has not changed: a force sync is what reads it again.
                 result = sync_service.sync_model(file_path, force=True)
                 if result.success:
                     synced_count += 1

@@ -265,6 +265,23 @@ class ModelHasher:
         return None
 
 
+# ---------------------------------------------------------------- trusting stored hashes
+# A file's hashes are read from its bytes once, and kept with what the file
+# was then (`hashes_checked` on its row): its size and modified time to the
+# nanosecond, not as local time - a clock moved to another time zone would
+# make every file in the library look changed, and gigabytes be read again.
+# Only hashes read from the file itself, or checked against it by a download,
+# carry one; a sidecar's never do.
+
+def fingerprint(path: str) -> Optional[str]:
+    """What a file is, as far as the disk says without reading it; None if it cannot be read."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return f"{stat.st_size}:{stat.st_mtime_ns}"
+
+
 # ---------------------------------------------------------------- reading stored hashes
 # Stored hashes arrive in either case - the hasher writes values upper case,
 # Civitai's lists and older rows lower - and every reader used to fold them

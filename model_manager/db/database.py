@@ -32,7 +32,7 @@ from ..model_dirs import file_modified
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 
 class ModelsDatabase:
@@ -283,6 +283,14 @@ class ModelsDatabase:
     def refresh_file_stats(self, rows: List[Dict[str, Any]]) -> int:
         """A walk's size and modified time for files already held. See db/models_ops.py."""
         return self._models.refresh_file_stats(rows)
+
+    def store_file_hashes(self, file_path: str, hashes: Dict[str, str], checked: Optional[str]) -> None:
+        """A file's hashes read from it, and what it was then. See db/models_ops.py."""
+        return self._models.store_file_hashes(file_path, hashes, checked)
+
+    def hashes_checked_by_path(self) -> Dict[str, str]:
+        """Files whose hashes were read from them. See db/models_ops.py."""
+        return self._models.hashes_checked_by_path()
 
     def never_asked_paths(self) -> List[str]:
         """Files neither identified nor asked about. See db/models_ops.py."""

@@ -35,7 +35,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `model_dirs.py` | where models live: one table of the folders a scan walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
 | `jobs.py` | the long jobs - a sync, a scan, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
-| `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them |
+| `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
@@ -107,6 +107,24 @@ image it is sent passes through the server, which stamps `mm_level` (and
 rule in `common.mjs`, fed by the words fetched from the server - two
 implementations to keep in step. A new endpoint that hands images to the page
 stamps them too; an image without a stamp reads as Unknown, and is hidden.
+
+**Civitai is the source; a sidecar is written, not read.** A sync and a
+download write `.civitai.info` beside a file, for other tools; nothing takes
+from one what Civitai can say. A sidecar is read in one case only: Civitai
+answers 404 for every hash of the file and for the model the sidecar names -
+deleted, most likely (`SyncService._identify_by_sidecar`). And "Civitai does
+not know" means a 404, never an error: an outage used to mark every file
+looked up during it "not on Civitai", and every sync after skipped them.
+Scan Disk, which still reads sidecars, is being folded into sync, whose walk
+(`walk_library`) already does the rest of what it did.
+
+**A file's hashes are read once.** Stored with them is what the file was then
+(`hashes_checked`: size and modified time to the nanosecond, never local
+time, which a time zone moves). While the file is as it was, Civitai is asked
+with them; a force sync reads every file again, and any sync reads again a
+file changed since (`files_to_identify`). Hashes written without the mark - a
+sidecar's, or stored before v33 - are never trusted, and never make a file
+look changed: no library has to be synced again for them.
 
 **Absent is not empty.** Both `upsert_version` and `upsert_civitai_model` keep
 what they hold when handed `NULL`, `'[]'`, `0` or Unknown. A scan reading a
@@ -927,7 +945,7 @@ real time once.
 python tests/run.py --all
 ```
 
-A hundred and sixty-one, as the runner counts them - 79 Python, 76 browser and
+A hundred and sixty-two, as the runner counts them - 80 Python, 76 browser and
 6 static checks, seven of them skipped unless asked (the NSFW trainer's with
 `--tools`, as it is run by hand) - four at a time: under 35 s. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,

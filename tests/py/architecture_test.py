@@ -204,7 +204,7 @@ recorded = []
 real_record = sync_module.record_architecture
 real_inner = sync_module.SyncService._sync_model
 sync_module.record_architecture = lambda db_, p, force=False: recorded.append((p, force))
-sync_module.SyncService._sync_model = lambda self, p, force=False, classify_checkpoint=True, known=None: \
+sync_module.SyncService._sync_model = lambda self, p, force=False, classify_checkpoint=True, known=None, rehash=False: \
     sync_module.SyncResult()
 try:
     sync = sync_module.SyncService(client=None)

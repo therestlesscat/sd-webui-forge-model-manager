@@ -1,5 +1,26 @@
 [
   {
+    "id": "shared-database-0-48",
+    "version": "0.48.1",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version notes which stored hashes were read from the file itself, and an older copy cannot open the database any more: its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database-0-46"
+    ]
+  },
+  {
     "id": "shared-database-0-46",
     "version": "0.46.0",
     "kind": "warning",

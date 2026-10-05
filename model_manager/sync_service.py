@@ -17,14 +17,14 @@ from .civitai import (
     generation_ids_needing_lookup,
     keep_generation_data,
 )
-from .hashing import HashResult, ModelHasher
+from .hashing import HashResult, ModelHasher, fingerprint
 from .model_dirs import (file_modified, find_model_files, forget_gone, library_dirs,
                          move_misplaced_files)
 from .payload_rows import file_row, model_row, version_row
-from .storage import get_metadata_paths, write_civitai_info
+from .storage import get_metadata_paths, names_a_version, read_model_payload, write_civitai_info
 from .file_identity import identify
 from .identity_store import needs_check, record_architecture, store_architecture
-from .nsfw import version_covers
+from .nsfw import showcase_is_complete, version_covers
 from .db import get_models_db
 from .forge_host import DEFAULTS, setting
 from .gallery import fetch_gallery, refresh_size
@@ -144,9 +144,17 @@ class SyncService:
 
         Returns:
             Tuple of (version_data, matched_hash_type, matched_hash_value) or (None, None, None).
+
+        Raises:
+            CivitaiAPIError: when the SHA-256 could not be asked about and no
+                other hash answered. Only Civitai's 404 for it says it does not
+                know the file; an outage used to say so too, and every file
+                looked up during one was marked "not on Civitai" and skipped
+                by every sync after.
         """
         model_name = os.path.basename(file_path)
         fallback_order = ModelHasher.get_fallback_order(file_path)
+        unasked = None
 
         # Also check .cm-info.json for stored hashes
         cm_info_hashes = ModelHasher.load_cm_info_hashes(file_path)
@@ -174,6 +182,8 @@ class SyncService:
             except CivitaiAPIError as e:
                 # API error, log but continue trying other hashes
                 print(f"[ModelManager] API error with {hash_type}: {e}")
+                if hash_type == "sha256":
+                    unasked = e
                 continue
 
         # If we have .cm-info.json hashes that we didn't calculate, try those too
@@ -191,11 +201,14 @@ class SyncService:
                 except (CivitaiNotFoundError, CivitaiAPIError):
                     continue
 
+        if unasked is not None:
+            raise CivitaiAPIError(f"Civitai could not be asked about {model_name}: {unasked}")
         return None, None, None
 
     def sync_model(self, model_path: str, force: bool = False,
                    classify_checkpoint: bool = True,
-                   known: Optional[Dict[str, Any]] = None) -> SyncResult:
+                   known: Optional[Dict[str, Any]] = None,
+                   rehash: bool = False) -> SyncResult:
         """
         Sync a single model with Civitai - see _sync_model().
 
@@ -205,7 +218,8 @@ class SyncService:
         said, and never a reason for the sync to fail.
         """
         result = self._sync_model(model_path, force=force,
-                                  classify_checkpoint=classify_checkpoint, known=known)
+                                  classify_checkpoint=classify_checkpoint, known=known,
+                                  rehash=rehash)
         if force:
             try:
                 record_architecture(get_models_db(), model_path, force=True)
@@ -216,7 +230,8 @@ class SyncService:
 
     def _sync_model(self, model_path: str, force: bool = False,
                     classify_checkpoint: bool = True,
-                    known: Optional[Dict[str, Any]] = None) -> SyncResult:
+                    known: Optional[Dict[str, Any]] = None,
+                    rehash: bool = False) -> SyncResult:
         """
         Sync a single model with Civitai.
 
@@ -241,6 +256,9 @@ class SyncService:
                 because the downloaded bytes matched its SHA-256), "version"
                 and "model" (Civitai's payloads). Hashing the file and looking
                 it up are skipped: they are what give the rest.
+            rehash: Read the file for its hashes even when the ones stored
+                were read from it and it has not changed since - a force
+                sync's. Otherwise those are asked with (_trusted_hashes).
 
         Returns:
             SyncResult with status and details.
@@ -273,10 +291,19 @@ class SyncService:
         print(f"[ModelManager] Processing {model_name}...")
 
         known = known if known and known.get("hashes") and known.get("version") else None
+        # What the file was when its hashes were read, if they are read now:
+        # stored with them, the mark that they are the file's own.
+        checked = None
         if known:
             hashes = known["hashes"]
+            # Its bytes matched Civitai's SHA-256 as they arrived.
+            checked = fingerprint(model_path)
         else:
-            hashes = self.calculate_hashes(model_path)
+            hashes = None if rehash else self._trusted_hashes(model_path)
+            if hashes is None:
+                # Before reading: a file written meanwhile then reads as changed.
+                checked = fingerprint(model_path)
+                hashes = self.calculate_hashes(model_path)
         if not hashes.sha256:
             result.error = "Failed to calculate hashes"
             return result
@@ -293,7 +320,15 @@ class SyncService:
 
             if not version_data:
                 print(f"[ModelManager] {model_name} not found on Civitai (tried all hash types)")
-                get_models_db().set_lookup_failed(model_path)
+                db = get_models_db()
+                # Kept, as for a file Civitai knows: asking again later, or
+                # an image's resource naming it, needs no reading.
+                if checked:
+                    db.store_file_hashes(model_path, self._hashes_to_dict(hashes), checked)
+                # Raises when Civitai cannot say whether it has the model the
+                # sidecar names: then the file is asked about again next time.
+                self._identify_by_sidecar(model_path, hashes, checked)
+                db.set_lookup_failed(model_path)
                 result.not_found = True
                 return result
 
@@ -343,7 +378,8 @@ class SyncService:
             # Update database with model and version data. A failure here
             # means the model will not show up in the UI, so it must not be
             # reported as a successful sync.
-            db_error = self._update_database(model_path, data_to_save, hashes)
+            db_error = self._update_database(model_path, data_to_save, hashes,
+                                             hashes_checked=checked, write_hashes=checked is not None)
             if db_error:
                 result.error = f"Database update failed: {db_error}"
                 return result
@@ -369,12 +405,84 @@ class SyncService:
             return result
 
         except CivitaiAPIError as e:
+            # No answer, so nothing is noted about the file - but its hashes
+            # are kept: asking again reads nothing.
+            if checked:
+                get_models_db().store_file_hashes(model_path, self._hashes_to_dict(hashes), checked)
             result.error = str(e)
             return result
 
         except Exception as e:
             result.error = f"Unexpected error: {e}"
             return result
+
+    def _trusted_hashes(self, model_path: str) -> Optional[HashResult]:
+        """
+        The hashes stored for a file, when they were read from it and it has
+        not changed since (hashing.fingerprint): Civitai is asked with them,
+        and gigabytes are not read again. None when there are none, when they
+        came from elsewhere - a sidecar, a library from before they were
+        marked - or when the file has changed.
+        """
+        row = get_models_db().get_version(model_path)
+        if not row or not row.get("hashes_checked") or row["hashes_checked"] != fingerprint(model_path):
+            return None
+        hashes = HashResult.from_stored(row.get("file_hashes"))
+        if not hashes.sha256:
+            return None
+        print(f"[ModelManager] {os.path.basename(model_path)}: asking with the hashes read from it before")
+        return hashes
+
+    def _identify_by_sidecar(self, model_path: str, hashes: HashResult,
+                             checked: Optional[str]) -> bool:
+        """
+        The one time a sidecar is read: Civitai knows no file with these
+        hashes, and has no model by the id the sidecar names either - a 404
+        for it: deleted, most likely. The sidecar is then all there is, and
+        the file is filed under what it says - the version's own level, no
+        showcase's. A model Civitai has leaves the file unidentified and its
+        sidecar unread: what the model holds is Civitai's to say, and it
+        holds no file with these bytes.
+
+        Raises CivitaiAPIError when Civitai cannot be asked about the model.
+        Returns whether the sidecar filed the file.
+        """
+        payload = read_model_payload(model_path)
+        model_id = (payload or {}).get("id")
+        if not model_id or not names_a_version(payload):
+            return False
+        if self.client.get_model(model_id) is not None:
+            return False
+
+        name = os.path.basename(model_path)
+        versions = [v for v in payload.get("modelVersions") or [] if isinstance(v, dict) and v.get("id")]
+        version = next((v for v in versions
+                        if any(isinstance(f, dict) and f.get("name") == name for f in v.get("files") or [])),
+                       versions[0])
+        stored = self._hashes_to_dict(hashes)
+        stat = os.stat(model_path)
+        showcase = version.get("images")
+        cover_url, safe_cover_url = version_covers(
+            showcase, complete=bool(showcase) and showcase_is_complete(showcase))
+        db = get_models_db()
+        db.upsert_civitai_model(model_row(payload))
+        db.upsert_version({
+            **version_row(version, model_id),
+            **file_row(version, name, stored),
+            "file_path": model_path,
+            "file_name": name,
+            "file_size": stat.st_size,
+            "file_modified": file_modified(model_path),
+            "file_extension": os.path.splitext(model_path)[1].lower(),
+            # The hashes are the file's own, read just now or before.
+            "file_hashes": stored if checked else None,
+            "hashes_checked": checked,
+            "cover_url": cover_url,
+            "safe_cover_url": safe_cover_url,
+        })
+        print(f"[ModelManager] {name}: model {model_id} is not on Civitai either - "
+              f"filed as its .civitai.info says")
+        return True
 
     def _record_found_files(self, model_paths: List[str]) -> int:
         """
@@ -535,7 +643,9 @@ class SyncService:
             return [p for p in model_paths if p in identified]
         return [p for p in model_paths if p not in identified]
 
-    def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult) -> Optional[str]:
+    def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult,
+                         hashes_checked: Optional[str] = None,
+                         write_hashes: bool = True) -> Optional[str]:
         """
         Update the database with model and version data from Civitai response.
 
@@ -543,6 +653,10 @@ class SyncService:
             model_path: Path to the local model file.
             civitai_data: Full Civitai model response (or version-only if model fetch failed).
             hashes: HashResult with all computed hashes.
+            hashes_checked: What the file was when they were read from it
+                (hashing.fingerprint), if they were.
+            write_hashes: False when the hashes are the ones already stored:
+                they are kept, and whether they are the file's own with them.
 
         Returns:
             None on success, or an error message describing the failure.
@@ -579,7 +693,8 @@ class SyncService:
                         "file_path": model_path,
                         "file_name": file_name,
                         "file_size": file_size,
-                        "file_hashes": self._hashes_to_dict(hashes),
+                        "file_hashes": self._hashes_to_dict(hashes) if write_hashes else None,
+                        "hashes_checked": hashes_checked,
                         "file_modified": modified,
                         "file_extension": file_ext,
                         "has_civitai_data": True,
@@ -599,7 +714,8 @@ class SyncService:
                     "file_path": model_path,
                     "file_name": file_name,
                     "file_size": file_size,
-                    "file_hashes": self._hashes_to_dict(hashes),
+                    "file_hashes": self._hashes_to_dict(hashes) if write_hashes else None,
+                    "hashes_checked": hashes_checked,
                     "file_modified": modified,
                     "file_extension": file_ext,
                     "has_civitai_data": True,
@@ -688,15 +804,17 @@ class SyncService:
         if targets in ("identified", "unidentified"):
             model_paths = self._filter_by_identification(model_paths, targets)
         # Every sync identifies the files Civitai has never been asked about,
-        # this one too.
+        # and the ones changed since they were read, this one too.
         if targets == "identified" and found:
-            unasked = {os.path.normcase(p) for p in get_models_db().never_asked_paths()}
-            model_paths += [p for p in found if os.path.normcase(p) in unasked]
+            new, changed = files_to_identify(found)
+            listed = {os.path.normcase(p) for p in model_paths}
+            model_paths += [p for p in new + changed if os.path.normcase(p) not in listed]
 
         self._progress.total = len(model_paths)
         print(f"[ModelManager] Starting sync with {max_workers} threads for {len(model_paths)} models")
 
-        self._sync_files(model_paths, force, max_workers)
+        # A force sync reads every file again, whatever is stored.
+        self._sync_files(model_paths, force, max_workers, rehash=force)
 
         self._progress.current_model = ""
         self._progress.is_complete = True
@@ -707,7 +825,8 @@ class SyncService:
 
         return self._progress
 
-    def _sync_files(self, model_paths: List[str], force: bool, max_workers: int) -> None:
+    def _sync_files(self, model_paths: List[str], force: bool, max_workers: int,
+                    rehash: bool = False) -> None:
         """
         sync_model() for each of these files, a few at a time, counted on the
         progress as each ends; then one question about trained or merged for
@@ -722,7 +841,7 @@ class SyncService:
                 return path, None
             # Not per file: the classifier answers about a hundred ids at a
             # time, so they are collected and asked about together below.
-            return path, self.sync_model(path, force=force, classify_checkpoint=False)
+            return path, self.sync_model(path, force=force, classify_checkpoint=False, rehash=rehash)
 
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -859,8 +978,7 @@ class SyncService:
         found = self.walk_library(reread_headers=reread_headers,
                                   move_misplaced=move_misplaced)
         db = get_models_db()
-        unasked = {os.path.normcase(p) for p in db.never_asked_paths()}
-        new_files = [p for p in found if os.path.normcase(p) in unasked]
+        new_files, changed = files_to_identify(found)
 
         versions = db.get_linked_versions(synced_before=synced_before,
                                           downloaded_after=downloaded_after)
@@ -884,7 +1002,7 @@ class SyncService:
         # over their versions for the galleries, which a version's files share
         # - so the bar counts both passes rather than filling up halfway.
         galleries = len({v["id"] for v in versions}) if include_images else 0
-        self._progress.total = len(versions) + galleries + len(new_files)
+        self._progress.total = len(versions) + galleries + len(new_files) + len(changed)
         self._progress.removed += len(missing)
         for version in missing:
             self._progress.error_messages.append(
@@ -901,6 +1019,11 @@ class SyncService:
         if new_files and not self._cancel_requested:
             print(f"[ModelManager] Identifying {len(new_files)} file(s) Civitai has not been asked about")
             self._sync_files(new_files, force=False, max_workers=configured_hash_threads())
+        # Asked about again whatever was said of them before: they are not
+        # the files that was said of.
+        if changed and not self._cancel_requested:
+            print(f"[ModelManager] Identifying {len(changed)} file(s) changed since they were read")
+            self._sync_files(changed, force=True, max_workers=configured_hash_threads())
 
         self._progress.is_complete = True
         self._progress.current_model = ""
@@ -962,7 +1085,7 @@ class SyncService:
                     raise RuntimeError("could not write civitai.info")
 
                 db_error = self._update_database(
-                    path, payload, HashResult.from_stored(version["file_hashes"])
+                    path, payload, HashResult.from_stored(version["file_hashes"]), write_hashes=False
                 )
                 if db_error:
                     raise RuntimeError(db_error)
@@ -1160,6 +1283,29 @@ class SyncService:
     def progress(self) -> SyncProgress:
         """Get current sync progress."""
         return self._progress
+
+
+def files_to_identify(found: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    Of the files a walk found, the ones every sync hashes and looks up: the
+    ones Civitai has never been asked about, and the ones changed since their
+    hashes were read from them (hashing.fingerprint) - other files now, for
+    all anyone can tell. A file whose hashes are not marked as its own - a
+    sidecar's, or stored before they were marked - is never taken as changed.
+
+    Returns (never asked about, changed).
+    """
+    db = get_models_db()
+    unasked = {os.path.normcase(p) for p in db.never_asked_paths()}
+    checked = {os.path.normcase(p): mark for p, mark in db.hashes_checked_by_path().items()}
+    new, changed = [], []
+    for path in found:
+        key = os.path.normcase(path)
+        if key in unasked:
+            new.append(path)
+        elif key in checked and checked[key] != fingerprint(path):
+            changed.append(path)
+    return new, changed
 
 
 def configured_hash_threads() -> int:

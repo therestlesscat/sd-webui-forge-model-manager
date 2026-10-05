@@ -101,6 +101,16 @@ def read_model_payload(model_path: str) -> Optional[Dict[str, Any]]:
     return as_model_payload(read_civitai_info(model_path))
 
 
+def names_a_version(payload: Optional[Dict[str, Any]]) -> bool:
+    """
+    Whether a sidecar, in the model format, names a version by its id. One
+    that names none - an error another tool wrote, a stub with a model id
+    alone - is no identification (#131).
+    """
+    versions = (payload or {}).get("modelVersions") or []
+    return any(isinstance(v, dict) and v.get("id") for v in versions)
+
+
 def download_payload(model_data: Dict[str, Any], version_data: Dict[str, Any],
                      model_type: str) -> Dict[str, Any]:
     """

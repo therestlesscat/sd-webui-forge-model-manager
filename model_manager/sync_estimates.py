@@ -13,7 +13,7 @@ from .civitai import CivitaiClient
 from .db import get_models_db
 from .gallery import IMAGES_PER_REQUEST, refresh_size
 from .model_dirs import find_model_files, library_dirs
-from .sync_service import SyncService
+from .sync_service import SyncService, files_to_identify
 
 
 # ---------------------------------------------------------------- estimating
@@ -187,9 +187,10 @@ def sync_window_counts(model_paths: Optional[List[str]] = None,
 def files_to_hash(found: Optional[List[str]] = None) -> Dict[str, int]:
     """
     What every sync will read in full: the files on disk that the library
-    does not hold yet, and the ones it holds that Civitai has never been
-    asked about - with their size, which is what reading them costs. A walk
-    of the folders, sizes only: no file is opened.
+    does not hold yet, the ones it holds that Civitai has never been asked
+    about, and the ones changed since their hashes were read
+    (files_to_identify) - with their size, which is what reading them costs.
+    A walk of the folders, sizes only: no file is opened.
 
     Args:
         found: The files a walk found, or None to walk the library now.
@@ -198,9 +199,8 @@ def files_to_hash(found: Optional[List[str]] = None) -> Dict[str, int]:
         found = find_model_files(library_dirs())
     db = get_models_db()
     held = {os.path.normcase(p) for p in db.get_all_version_paths() if p}
-    unasked = {os.path.normcase(p) for p in db.never_asked_paths()}
-    files = [p for p in found
-             if os.path.normcase(p) not in held or os.path.normcase(p) in unasked]
+    new, changed = files_to_identify(found)
+    files = [p for p in found if os.path.normcase(p) not in held] + new + changed
     size = 0
     for path in files:
         try:

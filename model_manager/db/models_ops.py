@@ -84,6 +84,12 @@ def keep_unless(nothing: str) -> Callable[[str, str], str]:
     return rule
 
 
+def with_hashes(table: str, column: str) -> str:
+    """Said by whoever writes the hashes, and kept when they are not
+    written: hashes written without it - a sidecar's - are not trusted."""
+    return f"CASE WHEN excluded.file_hashes IS NULL THEN {table}.{column} ELSE excluded.{column} END"
+
+
 class Column(NamedTuple):
     name: str
     update: Optional[Callable[[str, str], str]]
@@ -157,6 +163,8 @@ FILE_COLUMNS = (
     Column("file_name", overwrite),
     Column("file_size", overwrite),
     Column("file_hashes", keep),
+    # The file as it was when they were read from it (hashing.fingerprint).
+    Column("hashes_checked", with_hashes),
     Column("file_modified", overwrite),
     Column("file_extension", overwrite),
     Column("scanned_at", overwrite),
@@ -473,6 +481,7 @@ class ModelsOps:
                 "file_name": file_name,
                 "file_size": version_data.get("file_size"),
                 "file_hashes": file_hashes,
+                "hashes_checked": version_data.get("hashes_checked"),
                 "file_modified": version_data.get("file_modified"),
                 "file_extension": version_data.get("file_extension"),
                 "scanned_at": datetime.now().isoformat(),
@@ -748,6 +757,21 @@ class ModelsOps:
                       r.get("file_size"), r.get("file_modified")))
                 changed += max(cursor.rowcount, 0)
         return changed
+
+    def store_file_hashes(self, file_path: str, hashes: Dict[str, str],
+                          checked: Optional[str]) -> None:
+        """A file's hashes, read from it, and what the file was then - for a
+        file Civitai does not know, which no upsert writes."""
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE files SET file_hashes = ?, hashes_checked = ? WHERE file_path = ?",
+                           (json.dumps(hashes), checked, _stored_spelling(cursor, file_path)))
+
+    def hashes_checked_by_path(self) -> Dict[str, str]:
+        """Every file whose hashes were read from it, and what it was then."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path, hashes_checked FROM files "
+                           "WHERE hashes_checked IS NOT NULL AND file_path IS NOT NULL")
+            return {row[0]: row[1] for row in cursor.fetchall()}
 
     def never_asked_paths(self) -> List[str]:
         """Files no sync has identified, nor asked Civitai about: what a sync hashes."""
@@ -1173,6 +1197,7 @@ class ModelsOps:
             "file_name": row["file_name"],
             "file_size": row["file_size"],
             "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else None,
+            "hashes_checked": row["hashes_checked"] if "hashes_checked" in row.keys() else None,
             "file_modified": row["file_modified"],
             "file_extension": row["file_extension"],
             "has_civitai_data": bool(row["has_civitai_data"]),

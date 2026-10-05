@@ -1520,6 +1520,27 @@ def _migrate_to_v32(cursor, db_path: str):
         cursor.execute("ALTER TABLE civitai_models RENAME TO models")
     print(f"[ModelManager] Migration to v32 complete: {len(copies)} versions")
 
+def _migrate_to_v33(cursor):
+    """
+    When a file's hashes were read from the file itself: `hashes_checked`,
+    its size and modified time then (hashing.fingerprint). A stored hash is
+    trusted - Civitai asked with it, rather than gigabytes read again - only
+    while the file is as it was. Nothing is filled in: of the hashes already
+    stored, the ones Scan Disk copied from a sidecar cannot be told from the
+    ones a sync read, and none is trusted.
+
+    It is also a fence: a copy of the extension from before it refuses the
+    database (_init_db) - and with it, its Scan Disk, which would write a
+    sidecar's hashes over a file's own.
+    """
+    print("[ModelManager] Migrating to v33: when a file's hashes were read...")
+    cursor.execute("PRAGMA table_info(files)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if columns and "hashes_checked" not in columns:
+        cursor.execute("ALTER TABLE files ADD COLUMN hashes_checked TEXT")
+    print("[ModelManager] Migration to v33 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -1539,6 +1560,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         26: _migrate_to_v26, 27: _migrate_to_v27, 28: _migrate_to_v28, 29: _migrate_to_v29,
         30: _migrate_to_v30, 31: _migrate_to_v31,
         32: lambda c: _migrate_to_v32(c, db_path),
+        33: _migrate_to_v33,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

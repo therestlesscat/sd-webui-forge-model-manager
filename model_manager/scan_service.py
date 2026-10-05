@@ -21,13 +21,7 @@ from .nsfw import (
     PG, UNKNOWN, max_image_level, model_level, showcase_is_complete,
     version_covers,
 )
-from .storage import read_model_payload
-
-
-def _names_a_version(payload: Optional[Dict[str, Any]]) -> bool:
-    """Whether a sidecar, in the model format, names a version by its id."""
-    versions = (payload or {}).get("modelVersions") or []
-    return any(isinstance(v, dict) and v.get("id") for v in versions)
+from .storage import names_a_version, read_model_payload
 
 
 @dataclass
@@ -108,7 +102,7 @@ class ScanService:
         civitai_data = read_model_payload(model_path)
         civitai_model = None
 
-        if _names_a_version(civitai_data):
+        if names_a_version(civitai_data):
             version_data["has_civitai_data"] = True
             civitai_model = self._extract_civitai_metadata(civitai_data, version_data, model_path)
         else:

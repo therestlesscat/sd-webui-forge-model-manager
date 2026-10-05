@@ -161,23 +161,55 @@ if FastAPI:
     check('   each with its Civitai file id as stored - none, for a file the sync could not match (#133)',
           [v.get('civitai_file_id') for v in answer.get('versions', []) if v['file_path'] == path], [None])
 
-    # A library synced before the list was kept: the column is empty, and the
-    # sidecar beside the file has it.
+    check('   Civitai was not asked: the list was held', asked, [])
+
+    # A library synced before the list was kept: the column is empty. Civitai
+    # is asked for the list, once - never the sidecar beside the file, which
+    # is as old as its file's last sync.
     other = facts['linked_paths'][-1]
     lv = db.get_version(other)
-    with db._cursor() as cursor:
-        cursor.execute('UPDATE models SET versions = NULL, versions_synced_at = NULL WHERE id = ?',
-                       (lv['model_id'],))
+
+    def forget_list():
+        with db._cursor() as cursor:
+            cursor.execute('UPDATE models SET versions = NULL, versions_synced_at = NULL WHERE id = ?',
+                           (lv['model_id'],))
+
+    forget_list()
     fixtures.sidecar(other, {'id': lv['model_id'], 'name': 'Old', 'modelVersions': [
-        version(lv['id'], index=0), version(880001, index=1, paidAccess={'permanent': True})]})
+        version(lv['id'], index=0), version(770001, index=1)]})
+
+    class Civitai:
+        down = False
+        @classmethod
+        def from_settings(cls, *a, **k):
+            return cls()
+        def get_model(self, model_id):
+            asked.append(('get_model', model_id))
+            if Civitai.down:
+                raise civitai_pkg.CivitaiAPIError('Civitai is down')
+            return {'id': model_id, 'name': 'Now', 'modelVersions': [
+                version(lv['id'], index=0), version(880001, index=1, paidAccess={'permanent': True})]}
+        def close(self):
+            pass
+
+    models_api.CivitaiClient = Civitai
     answer = client.get('/model-manager/models/versions', params={'model_id': lv['model_id']}).json()
     listed = answer.get('civitai_versions') or []
-    check('10. with nothing held, the sidecar is read once and kept',
+    check('10. with nothing held, Civitai is asked for the list, and it is kept',
           ([v['id'] for v in listed], ids(lv['model_id'])), ([lv['id'], 880001], [lv['id'], 880001]))
+    check('    never the sidecar\'s', 770001 in [v['id'] for v in listed], False)
     check('    paid_access is worked out as the Civitai Browser does',
           [v['paid_access'] for v in listed], [None, {'permanent': True, 'ends_at': None, 'owned': None}])
-    check('    and says it did not come from Civitai', answer.get('versions_synced_at'), None)
-    check('11. Civitai was never asked', asked, [])
+    check('    and it says Civitai listed them', bool(answer.get('versions_synced_at')), True)
+    client.get('/model-manager/models/versions', params={'model_id': lv['model_id']})
+    check('11. Civitai was asked once: the list is held after', asked, [('get_model', lv['model_id'])])
+
+    forget_list()
+    Civitai.down = True
+    answer = client.get('/model-manager/models/versions', params={'model_id': lv['model_id']}).json()
+    check('    Civitai not answering leaves the local versions alone, and no error',
+          (answer.get('success'), answer.get('civitai_versions'), len(answer.get('versions') or []) > 0),
+          (True, [], True))
 
     none = client.get('/model-manager/models/versions', params={'model_id': 123456789}).json()
     check('12. a model nothing is known about has no versions, and no error',

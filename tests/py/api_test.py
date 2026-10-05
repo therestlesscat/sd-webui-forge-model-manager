@@ -167,8 +167,9 @@ code, body = get('/model-manager/images/gallery-page', version_id=first_version,
 check('its gallery\'s images judged here, for the browser to read',
       bool(body.get('images')) and all('mm_level' in i for i in body['images']), True)
 
-# A file with a .civitai.info and no row: the details come from the sidecar,
-# in the shape the database's give - a level as a number, nsfw.py's (#58).
+# A file with a .civitai.info and no row: the sidecar is no source - a sync
+# reads one only for a model Civitai does not have. It used to fill the
+# details in, as if Civitai had said it.
 unread = os.path.join(WORK, 'sidecar_only.safetensors')
 io.open(unread, 'wb').write(b'\0')
 io.open(os.path.splitext(unread)[0] + '.civitai.info', 'w', encoding='utf-8').write(json.dumps({
@@ -176,8 +177,9 @@ io.open(os.path.splitext(unread)[0] + '.civitai.info', 'w', encoding='utf-8').wr
     'modelVersions': [{'id': 819, 'name': 'v1', 'nsfwLevel': 4,
                        'files': [{'name': 'sidecar_only.safetensors'}]}]}))
 code, body = get('/model-manager/models/details', path=unread)
-check('a file known only by its sidecar gives its model\'s level as a number, as the database does',
-      (body.get('model') or {}).get('civitai_model', {}).get('nsfw'), 28)
+check('a file known only by its sidecar is shown as no model, its sidecar unread',
+      (body.get('success'), 'civitai_model' in (body.get('model') or {}),
+       'civitai_version' in (body.get('model') or {})), (True, False, False))
 
 code, body = get('/model-manager/models/details', path=r'Z:\nope\missing.safetensors')
 check('details for an unknown file do not pretend', body.get('success'), False)

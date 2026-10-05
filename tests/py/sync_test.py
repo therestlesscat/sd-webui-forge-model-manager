@@ -191,9 +191,16 @@ sync, client = service()
 check('a file Civitai knows nothing about answers nothing',
       sync._lookup_by_hash_with_fallback(LINKED, hashes), (None, None, None))
 
+# Only a 404 says Civitai does not know a file. An outage said so too, and
+# every file looked up during one was skipped by every sync after.
 sync, client = service(raises=CivitaiAPIError('server said no'))
-check('an API error on every kind is not a crash',
-      sync._lookup_by_hash_with_fallback(LINKED, hashes), (None, None, None))
+try:
+    sync._lookup_by_hash_with_fallback(LINKED, hashes)
+    outage = None
+except CivitaiAPIError as e:
+    outage = str(e)
+check('an API error on every kind is no answer, and says so',
+      bool(outage) and 'could not be asked' in outage, True)
 
 # A hash we do not compute, left by another extension.
 CM_INFO = os.path.splitext(LINKED)[0] + '.cm-info.json'
@@ -458,7 +465,7 @@ check('as does the other one', progress.total, len(facts['linked_paths']))
 
 # errors are counted and the last ten kept
 sync, client = service()
-sync.sync_model = lambda path, force=False, classify_checkpoint=True: (
+sync.sync_model = lambda path, force=False, classify_checkpoint=True, rehash=False: (
     _failing_result(path))
 
 
@@ -486,9 +493,9 @@ sync, client = service()
 real_sync_model = sync.sync_model
 
 
-def cancel_after_one(path, force=False, classify_checkpoint=True):
+def cancel_after_one(path, force=False, classify_checkpoint=True, rehash=False):
     sync.cancel()
-    return real_sync_model(path, force=force, classify_checkpoint=classify_checkpoint)
+    return real_sync_model(path, force=force, classify_checkpoint=classify_checkpoint, rehash=rehash)
 
 
 sync.sync_model = cancel_after_one
