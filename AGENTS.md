@@ -580,7 +580,10 @@ extensions' styles measured buttons the same that were not.
 - A commit message says what was wrong and what it now does, with the numbers
   that justify it - counted from the diff, not remembered: two messages in the
   0.44 round said 219 lines for 147 and 27 handlers for 28, and had to be
-  amended.
+  amended. Stage, read `git diff --cached --shortstat`, then write the number:
+  in the 0.48 round three more were amended - +603 for +753, +519 for +512,
+  and "26 new checks" added up from memory. And a message states only what was
+  seen: "wrapped line after line" was never looked at, and was taken out.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 
@@ -644,6 +647,8 @@ only by the owner.
 - **`checkpointType` is only known for models Civitai still serves.** Anything
   delisted stays Unknown; nothing can recover it.
 - Usage history and manual collections are unimplemented.
+- **Sort by "Scanned At" means first found or last synced.** Scan Disk stamped
+  every row at each scan (`scanned_at`); the walk stamps nothing.
 
 ## Learned the hard way
 
@@ -677,7 +682,14 @@ real time once.
   and is a bug in every library where another tool wrote stubs. Weigh a bug
   by what it does where the case exists, and fix what it has already written
   into those databases, not only what it would write next - a user does not
-  read the issue, or know to Force sync.
+  read the issue, or know to Force sync. So is this machine one of many: on
+  its NVMe and 32 cores 8 hash threads ran 3.58 GB/s against 2.02 at 4, but a
+  hard disk or a network drive gets slower with more, and the default stayed
+  4. A fallback this library never needs is reordered, not removed: BLAKE3
+  and CRC32 lookups stayed, last.
+- **A change asked for "only for me" is never committed.** It lives in the
+  working tree, and a commit is made around it: copy the files aside, strip
+  the hunks, run `--all`, commit, copy them back.
 - **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
   this folder, and the database is the live one, shared: a migration not yet
   committed runs on it at the next restart (v32 did, three times, in #133).
@@ -770,6 +782,19 @@ real time once.
   PG and its unsaid stats into 0, for versions of one file.
 - **A test that pins an incidental fact breaks on every change.** "The schema
   is at 29" failed the moment v30 came; assert what the test is about.
+- **A visual claim is measured, not eyeballed** - the owner's screenshot, pixel
+  by pixel. "Cancel looks taller" measured 36 px against 36 px: the disabled
+  Sync beside it, at opacity 0.6, read as the smaller. A headless Edge probe
+  lacks the CSS Gradio loads at run time; it can agree with itself and still
+  miss the page.
+- **A line the page rewrites later is recorded, not read.** The grid reloads
+  500 ms after a sync and replaces the status line; a check that read it
+  after a busy moment failed 3 runs in 10. `dialog_test` records every status
+  shown (`statusSeen`). The estimate, asked again once the new-file count has
+  come, is waited for, not settled.
+- **`progress_test.js` runs `pollSyncProgress`'s body in a vm sandbox.** A name
+  the poll starts using is given there too, or the poll throws inside its own
+  `try` and does nothing.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.
@@ -869,6 +894,14 @@ real time once.
 - **Civitai's image ratings miss some.** 256 of 31,745 PG/PG-13 images in one
   library had explicit prompts; Civitai rates 95% of the images using those
   words X or XXX.
+- **Images name a LoRA by AutoV3.** Of 80 image hashes that matched a local
+  file: 59 AutoV3, 9 AutoV2, 12 Civitai's 12-character `sha256_12` /
+  `sshs_12`; none BLAKE3 or CRC32. So AutoV3 is kept for every file, whatever
+  found it.
+- **Civitai's CRC32 is not always in zlib's byte order.** For `supe10` its list
+  gives `8EAD4C97` where zlib gives `974CAD8E` (2 of 1,190 files compared; the
+  other one's sidecar was another tool's). A CRC32 lookup misses such a file;
+  SHA-256 finds it.
 
 ### The code
 
@@ -903,6 +936,9 @@ real time once.
   into their type's folder got a box of its own, never ticked for anyone.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
+- **`check_js_references.mjs` reads a regex literal as code**: in
+  `/\b(error)/` it saw a call to `b`. Build such a pattern from a string,
+  `new RegExp('\\b(error)', 'i')`.
 - **Search the page too before saying the extension does not do something.**
   "Nothing refreshes Forge's checkpoint list after a download" was said from
   a search of the Python alone; `downloads.mjs` presses Forge's own refresh
