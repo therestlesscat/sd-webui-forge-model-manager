@@ -10,6 +10,12 @@
  * row opens its details: everything the task holds, and Load to UI, which
  * sets txt2img or img2img up with it (shared/send.mjs).
  *
+ * An ended task can be retried - a copy queued with the first run's seed or
+ * a random one (#161) - and any task but a running one deleted, with the
+ * images its run made or without (#162). Select ticks tasks in a list, a
+ * shift-click a range, for one Retry or Delete asked once (#163), as the
+ * Generations tab ticks images. Clear history hides History (#164).
+ *
  * The status line is asked for only while the tab shows, and writes only
  * what changed. The lists are read again when the tab opens, after an
  * action, and when the status finds the counts or the running task
@@ -49,7 +55,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
 const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
-    'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -58,6 +64,7 @@ const { tabShowing } = await shared('tabs.mjs');
 const { generationsEnabled } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
+const { selectBarHtml, pickRange } = await shared('generations.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 const { loadTask } = await shared('send.mjs');
 
@@ -79,7 +86,7 @@ const STATUSES = {
 const LISTS = {
     active: { element: 'queue_active', count: 'queue_active_count', empty: 'No task is waiting. '
               + 'Press Queue beside Generate, in txt2img or img2img, to add one.' },
-    history: { element: 'queue_history', count: 'queue_history_count', empty: 'No task has run yet.' },
+    history: { element: 'queue_history', count: 'queue_history_count', empty: 'History is empty: no task has ended, or Clear history hid them.' },
 };
 
 const pages = { active: 1, history: 1 };
@@ -88,6 +95,12 @@ let showing = false;
 let polling = false;
 // The counts and the running task the lists were last read under.
 let lastSeen = null;
+// Select, per list: whether it is on, the ids ticked, the rows of the page
+// shown, and the last row ticked - a shift-click's range starts there.
+const selecting = { active: false, history: false };
+const picked = { active: new Set(), history: new Set() };
+const shown = { active: [], history: [] };
+const lastPicked = { active: -1, history: -1 };
 
 function byId(id) {
     return document.getElementById(id);
@@ -222,14 +235,24 @@ function fact(text, title = '') {
     return text ? `<span class="queue-fact" title="${escapeHtml(title || text)}">${escapeHtml(text)}</span>` : '';
 }
 
-function taskRowHtml(task) {
+/** A running task is the queue's: it is neither ticked nor deleted. */
+const deletable = (task) => task.status !== 'running';
+const retryable = (task) => ['completed', 'stopped', 'failed'].includes(task.status);
+
+function taskRowHtml(task, which) {
     const status = STATUSES[task.status] || task.status;
+    const id = Number(task.id);
+    const pick = selecting[which] && deletable(task);
+    const ticked = pick && picked[which].has(id);
     const modules = (task.modules || []).map(fileName).join(', ');
     const sampler = [task.sampler, task.scheduler].filter(Boolean).join(' · ');
     const batch = task.batch_size || task.n_iter ? `${task.batch_size || 1} × ${task.n_iter || 1}` : '';
     return `
-        <div class="queue-task" data-action="queue.details" data-task="${Number(task.id)}"
-             data-status="${escapeHtml(task.status)}" title="Click for everything this task holds">
+        <div class="queue-task ${ticked ? 'queue-picked' : ''}" data-action="queue.details" data-task="${id}"
+             data-list="${which}" data-status="${escapeHtml(task.status)}"
+             title="${pick ? 'Click to tick it' : 'Click for everything this task holds'}">
+            ${pick ? `<input type="checkbox" class="queue-pick" data-queue-pick="${id}" data-list="${which}"
+                       aria-label="Tick task #${id}" ${ticked ? 'checked' : ''}>` : ''}
             <div class="queue-task-text">
                 <div class="queue-task-head">
                     <span class="queue-status" data-status="${escapeHtml(task.status)}">${escapeHtml(status)}</span>
@@ -252,7 +275,13 @@ function taskRowHtml(task) {
                 </div>
                 ${task.error ? `<div class="queue-error">${escapeHtml(task.error)}</div>` : ''}
             </div>
-            ${task.image_count ? `<div class="queue-images">${showImagesHtml(task)}</div>` : ''}
+            <div class="queue-actions">
+                ${task.image_count ? showImagesHtml(task) : ''}
+                ${retryable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.retry"
+                    data-task="${id}" title="Queue a copy of this task, at the end of the queue">Retry...</button>` : ''}
+                ${deletable(task) ? `<button type="button" class="mm-btn danger mm-btn-small" data-action="queue.delete"
+                    data-task="${id}" title="Delete this task for good">Delete...</button>` : ''}
+            </div>
         </div>`;
 }
 
@@ -288,10 +317,16 @@ async function refreshList(which) {
             return refreshList(which);
         }
         lastAnswers[which] = answer;
+        shown[which] = answer.tasks;
+        // A tick stays on a task still on the page, and still deletable.
+        const here = new Set(answer.tasks.filter(deletable).map((t) => Number(t.id)));
+        for (const id of [...picked[which]]) if (!here.has(id)) picked[which].delete(id);
         setText(byId(list.count), answer.total ? `(${answer.total})` : '');
         element.innerHTML = answer.tasks.length
-            ? answer.tasks.map(taskRowHtml).join('') + pagesHtml(which, answer)
+            ? answer.tasks.map((task) => taskRowHtml(task, which)).join('') + pagesHtml(which, answer)
             : `<div class="queue-empty">${escapeHtml(list.empty)}</div>`;
+        updateSelectBar(which);
+        if (which === 'history') setDisabled(byId('queue_clear_history'), !answer.total);
     } catch (e) {
         element.innerHTML = `<div class="queue-empty">Could not read the list: ${escapeHtml(e.message)}</div>`;
     }
@@ -308,6 +343,8 @@ function refresh() {
 function goToPage(which, page) {
     const last = lastAnswers[which]?.pages || 1;
     pages[which] = Math.min(Math.max(1, Number(page) || 1), last);
+    picked[which].clear();
+    lastPicked[which] = -1;
     return refreshList(which);
 }
 
@@ -315,7 +352,9 @@ function goToPage(which, page) {
 
 /**
  * A question with buttons, in the dialog every tab draws: resolves to the
- * value of the button pressed, or null - Esc, or a click beside it.
+ * value of the button pressed, with the dialog's fields as they were set
+ * ({value, fields}: a radio by its name, a checkbox ticked or not) - or
+ * null: Esc, or a click beside it.
  */
 function ask(title, bodyHtml, buttons) {
     return new Promise((resolve) => {
@@ -345,7 +384,12 @@ function ask(title, bodyHtml, buttons) {
         backdrop.addEventListener('click', (event) => {
             const button = event.target.closest?.('[data-answer]');
             if (button) {
-                answer = buttons[Number(button.getAttribute('data-answer'))].value;
+                const fields = {};
+                backdrop.querySelectorAll('input[name]').forEach((input) => {
+                    if (input.type === 'checkbox') fields[input.name] = input.checked;
+                    else if (input.type !== 'radio' || input.checked) fields[input.name] = input.value;
+                });
+                answer = { value: buttons[Number(button.getAttribute('data-answer'))].value, fields };
                 close();
             } else if (event.target === backdrop) {
                 close();
@@ -372,7 +416,7 @@ async function start() {
             { label: 'Cancel', value: false },
             { label: 'Run anyway', value: true, kind: 'primary' },
         ]);
-        if (!go) return;
+        if (!go?.value) return;
         answer = await post('/model-manager/queue/start?force=true');
     }
     if (!answer?.success) console.warn('[ModelManager] Could not start the queue:', answer?.error);
@@ -384,6 +428,203 @@ async function control(action) {
     if (!answer?.success) console.warn(`[ModelManager] Could not ${action} the queue:`, answer?.error);
     await refresh();
 }
+
+// ------------------------------------------------- Retry, Delete, Clear history
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** How the last action went, under the status line. */
+function report(text) {
+    const line = byId('queue_report');
+    setText(line, text);
+    setShown(line, Boolean(text));
+}
+
+/** "#15: still pending; #16: not found" - what the server did not do, and why. */
+function skippedText(skipped = []) {
+    return skipped.map((s) => `#${Number(s.id)}: ${s.why}`).join('; ');
+}
+
+/** The tasks these ids are, among the rows shown. */
+function tasksOf(ids) {
+    const all = [...shown.active, ...shown.history];
+    return ids.map((id) => all.find((t) => Number(t.id) === Number(id))).filter(Boolean);
+}
+
+/**
+ * Retry: a copy of each, queued at the end, asking once which seed (#161).
+ * The first run's makes the same images again; a task that never got one
+ * keeps the seed it was queued with.
+ */
+async function retry(ids) {
+    if (!ids.length) return;
+    const one = ids.length === 1;
+    const answer = await ask(one ? `Retry task #${Number(ids[0])}?` : `Retry ${ids.length} tasks?`, `
+        <p>${one ? 'A copy is' : 'Copies are'} queued at the end of the queue.</p>
+        <label class="queue-choice"><input type="radio" name="seed" value="first" checked>
+            The first run's seed: the same images again</label>
+        <label class="queue-choice"><input type="radio" name="seed" value="random">
+            A random seed</label>
+        <p class="queue-dialog-note">A task that never got a seed keeps the one it was queued with.</p>`, [
+        { label: 'Cancel', value: false },
+        { label: 'Retry', value: true, kind: 'primary' },
+    ]);
+    if (!answer?.value) return;
+    const result = await post('/model-manager/queue/retry', { ids: ids.join(','), seed: answer.fields.seed || 'first' });
+    if (!result?.success) {
+        report(`Could not retry: ${result?.error || 'no answer'}`);
+        return;
+    }
+    const skipped = skippedText(result.skipped);
+    const n = result.queued.length;
+    report(`Queued ${n} ${n === 1 ? 'copy' : 'copies'}.` + (skipped ? ` Not retried: ${skipped}.` : ''));
+    clearPicks();
+    await refresh();
+}
+
+/**
+ * Delete, for good, asking once whether the images their runs made go too:
+ * their records and their files, as the Generations tab deletes them (#162).
+ * Either way a task's own files go with it.
+ */
+async function deleteTasks(ids) {
+    if (!ids.length) return;
+    const images = tasksOf(ids).reduce((n, t) => n + (Number(t.image_count) || 0), 0);
+    const one = ids.length === 1;
+    const answer = await ask(one ? `Delete task #${Number(ids[0])}?` : `Delete ${ids.length} tasks?`, `
+        <p>${one ? 'It goes' : 'They go'} for good, with the files ${one ? 'it' : 'they'} kept to run.</p>
+        ${images ? `<label class="queue-choice"><input type="checkbox" name="with_data">
+            Also delete the ${plural(images, 'image')} ${one ? 'its run' : 'their runs'} made, files included</label>
+        <p class="queue-dialog-note">Otherwise the images stay in the Generations tab.</p>` : ''}`, [
+        { label: 'Cancel', value: false },
+        { label: 'Delete', value: true, kind: 'danger' },
+    ]);
+    if (!answer?.value) return;
+    const withData = Boolean(answer.fields.with_data);
+    const result = await post('/model-manager/queue/delete', { ids: ids.join(','), with_data: String(withData) });
+    if (!result?.success) {
+        report(`Could not delete: ${result?.error || 'no answer'}`);
+        return;
+    }
+    const skipped = skippedText(result.skipped);
+    const failed = (result.failed || []).length;
+    report(`Deleted ${plural(result.deleted.length, 'task')}`
+           + (withData ? `, and ${plural(result.deleted_files, 'image file')}` : '') + '.'
+           + (skipped ? ` Not deleted: ${skipped}.` : '')
+           + (failed ? ` ${plural(failed, 'file')} could not be deleted.` : ''));
+    clearPicks();
+    await refresh();
+}
+
+/** Clear history: every task in History hidden, asking first (#164). Nothing is deleted. */
+async function clearHistory() {
+    const total = Number(lastAnswers.history?.total) || 0;
+    if (!total) return;
+    const answer = await ask(`Clear ${plural(total, 'task')} from History?`, `
+        <p>They are hidden, not deleted: the tasks, the images their runs made and their files all stay.</p>`, [
+        { label: 'Cancel', value: false },
+        { label: 'Clear history', value: true, kind: 'primary' },
+    ]);
+    if (!answer?.value) return;
+    const result = await post('/model-manager/queue/history/clear', {});
+    report(result?.success ? `Hid ${plural(result.hidden, 'task')} from History.`
+        : `Could not clear History: ${result?.error || 'no answer'}`);
+    picked.history.clear();
+    pages.history = 1;
+    await refresh();
+}
+
+// ------------------------------------------------------------------ Select
+
+const BAR_ACTIONS = {
+    active: { all: 'queue.activeSelectAll', clear: 'queue.activeSelectClear', delete: 'queue.activeDeleteSelected' },
+    history: { all: 'queue.historySelectAll', clear: 'queue.historySelectClear', retry: 'queue.historyRetrySelected',
+               delete: 'queue.historyDeleteSelected' },
+};
+
+function updateSelectBar(which) {
+    const bar = byId(`queue_${which}_select_bar`);
+    if (!bar) return;
+    setShown(bar, selecting[which]);
+    const html = selecting[which]
+        ? selectBarHtml(picked[which].size, BAR_ACTIONS[which], { noun: 'task', all: 'Select all on this page' })
+        : '';
+    if (bar.innerHTML !== html) bar.innerHTML = html;
+}
+
+/** The ticks drawn as the selection is. */
+function showPicks(which) {
+    document.querySelectorAll(`#queue_${which} [data-queue-pick]`).forEach((box) => {
+        const on = picked[which].has(Number(box.dataset.queuePick));
+        box.checked = on;
+        box.closest('.queue-task')?.classList.toggle('queue-picked', on);
+    });
+    updateSelectBar(which);
+}
+
+function clearPicks() {
+    for (const which of ['active', 'history']) {
+        picked[which].clear();
+        lastPicked[which] = -1;
+    }
+}
+
+function setSelecting(which, on) {
+    selecting[which] = Boolean(on);
+    const box = byId(`queue_${which}_select`);
+    if (box) box.checked = selecting[which];
+    picked[which].clear();
+    lastPicked[which] = -1;
+    return refreshList(which);
+}
+
+/** Tick a row, or untick it - with shift, every row from the last ticked, as this one now is. */
+function pick(which, id, on, shift) {
+    const rows = shown[which];
+    const index = rows.findIndex((t) => Number(t.id) === Number(id));
+    if (index < 0) return;
+    const [from, to] = pickRange(lastPicked[which], index, shift);
+    for (let i = from; i <= to; i++) {
+        if (!deletable(rows[i])) continue;
+        if (on) picked[which].add(Number(rows[i].id));
+        else picked[which].delete(Number(rows[i].id));
+    }
+    lastPicked[which] = index;
+    showPicks(which);
+}
+
+function selectAll(which) {
+    shown[which].filter(deletable).forEach((t) => picked[which].add(Number(t.id)));
+    showPicks(which);
+}
+
+function selectClear(which) {
+    picked[which].clear();
+    lastPicked[which] = -1;
+    showPicks(which);
+}
+
+// Selecting, a click on a row ticks it rather than opening its details -
+// caught on the way down, before the row's own action. So is a click on its
+// tick, which went on to the row and opened them: the box is ticked by then,
+// and only the row's action is stopped. The row's buttons still work.
+document.addEventListener('click', (event) => {
+    const row = event.target.closest?.('.queue-task');
+    const which = row?.dataset.list;
+    if (!which || !selecting[which]) return;
+    const box = event.target.closest('[data-queue-pick]');
+    if (box) {
+        event.stopPropagation();
+        pick(which, box.dataset.queuePick, box.checked, event.shiftKey);
+        return;
+    }
+    if (event.target.closest('button')) return;
+    const id = Number(row.dataset.task);
+    if (!deletable(shown[which].find((t) => Number(t.id) === id) || {})) return;
+    event.stopPropagation();
+    event.preventDefault();
+    pick(which, id, !picked[which].has(id), event.shiftKey);
+}, true);
 
 // ------------------------------------------------------------ a task's details
 
@@ -451,6 +692,10 @@ function detailsHtml(task, inputs) {
                 </div>
                 <div class="mm-modal-footer">
                     ${showImagesHtml(task, 'mm-btn secondary')}
+                    ${retryable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.retry"
+                        data-task="${Number(task.id)}">Retry...</button>` : ''}
+                    ${deletable(task) ? `<button type="button" class="mm-btn danger" data-action="queue.delete"
+                        data-task="${Number(task.id)}">Delete...</button>` : ''}
                     <button type="button" class="mm-btn primary" data-action="queue.load" data-task="${Number(task.id)}"
                         title="Set ${escapeHtml(task.mode)} up with this task, to change it or run it by hand">Load to UI</button>
                 </div>
@@ -466,6 +711,17 @@ async function showDetails(taskId) {
     } catch (e) {
         console.warn('[ModelManager] Could not read the task:', e);
     }
+}
+
+/**
+ * A row's click: its details - but not while its list is selecting and the
+ * row can be ticked. The click ticks it then, taken on the way down; this
+ * holds as well where it is not, as the Generations tab's actions do.
+ */
+function rowClicked({ task, list }) {
+    const row = (shown[list] || []).find((t) => Number(t.id) === Number(task));
+    if (selecting[list] && row && deletable(row)) return undefined;
+    return showDetails(task);
 }
 
 /** The Generations tab, on a task's images. */
@@ -506,9 +762,20 @@ provide('queue.pause', () => control('pause'));
 provide('queue.resume', () => control('resume'));
 provide('queue.stop', () => control('stop'));
 provide('queue.refresh', () => refresh());
-provide('queue.details', ({ task }) => showDetails(task));
+provide('queue.details', (data) => rowClicked(data));
 provide('queue.showImages', ({ task }) => showImages(task));
 provide('queue.load', ({ task }) => load(task));
+provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
+provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
+provide('queue.clearHistory', () => clearHistory());
+provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
+provide('queue.activeSelectAll', () => selectAll('active'));
+provide('queue.activeSelectClear', () => selectClear('active'));
+provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
+provide('queue.historySelectAll', () => selectAll('history'));
+provide('queue.historySelectClear', () => selectClear('history'));
+provide('queue.historyRetrySelected', () => retry([...picked.history]));
+provide('queue.historyDeleteSelected', () => deleteTasks([...picked.history]));
 provide('queue.activePage', ({ page }) => goToPage('active', page));
 provide('queue.activePrev', () => goToPage('active', pages.active - 1));
 provide('queue.activeNext', () => goToPage('active', pages.active + 1));
@@ -535,6 +802,11 @@ onReady(async () => {
         return;
     }
     showNotes('queue', 'queue_notes');
+    // Select starts off, whatever the browser kept ticked from before.
+    for (const which of ['active', 'history']) {
+        const box = byId(`queue_${which}_select`);
+        if (box) box.checked = false;
+    }
     await poll();
     setInterval(poll, TIMING.poll);
 });

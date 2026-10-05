@@ -9,8 +9,10 @@
 // everything it holds, escaped; Load to UI asks the Queue tab's hidden
 // button for the task, after its send plan, and says what kept its value.
 // Start that finds tasks whose extensions are gone asks first: Cancel starts
-// nothing, Run anyway forces it.
-import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
+// nothing, Run anyway forces it. Retry asks which seed, Delete whether the
+// images go too, once for every task ticked; Select ticks a shift-click's
+// range, never a running task; Clear history asks first, saying how many.
+import { ROOT, act, checker, mountTab, sharedModule, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -55,6 +57,7 @@ let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, c
                            stopped: 0, notes: [], error: null } };
 const asked = [];
 const posted = [];
+const bodies = [];
 let startAnswers = [];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -62,7 +65,16 @@ globalThis.fetch = async (url, init = {}) => {
     const reply = (body) => ({ ok: true, status: 200, json: async () => structuredClone(body) });
     if (init.method === 'POST' && href.includes('/model-manager/queue/')) {
         posted.push(href.replace(/^https?:\/\/[^/]+/, ''));
+        const body = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+        bodies.push(body);
+        const ids = (body.ids || '').split(',').filter(Boolean).map(Number);
         if (href.includes('/queue/start')) return reply(startAnswers.shift() || { success: true, started: true, missing: [] });
+        if (href.includes('/queue/retry')) return reply({ success: true, queued: ids.map((_, i) => 30 + i), skipped: [] });
+        if (href.includes('/queue/delete')) {
+            return reply({ success: true, deleted: ids, skipped: [], deleted_files: body.with_data === 'true' ? 7 : 0,
+                           deleted_inputs: 1, failed: [] });
+        }
+        if (href.includes('/history/clear')) return reply({ success: true, hidden: 21 });
         return reply({ success: true, acted: true });
     }
     if (href.includes('/internal/progress')) {
@@ -165,9 +177,9 @@ check('a section per script, the selected one open',
       [["Generate's settings", true], ['Seed', false], ['X/Y/Z plot the script selected', true], ['ControlNet', false]]);
 check('a control by its label, or its place; an object by its fields; a value not kept as such',
       [cell('X type'), cell('#0'), cell('#1')], ['Seed', 'Unit (enabled: true, weight: 0.5)', 'not kept (Thing)']);
-check('with Show images and Load to UI',
+check('with Show images, Retry, Delete and Load to UI',
       [...details.querySelectorAll('.mm-modal-footer button')].map((b) => b.textContent.trim()),
-      ['Show images (7)', 'Load to UI']);
+      ['Show images (7)', 'Retry...', 'Delete...', 'Load to UI']);
 
 // ------------------------------------------------------------ Load to UI
 // The Queue tab's hidden button for txt2img: it answers the nonce it is asked with.
@@ -192,6 +204,115 @@ check('the details close', document.getElementById('mm_meta_modal'), null);
 check('what kept its value is said', document.querySelector('.mm-notice')?.textContent,
       'Task #14 is loaded. These keep what was on screen, or their defaults: ControlNet: 0.');
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// ------------------------------------------- Retry, Delete, Clear history
+/** Answer the open question with `label`, after `setup`; what it asked, and its seed choice as it opened. */
+async function answer(label, setup = () => {}) {
+    await waitFor(`the question for ${label}`, () => document.querySelector('.queue-dialog'));
+    const dialog = document.querySelector('.queue-dialog');
+    if (!dialog) return {};
+    const asked = { text: dialog.textContent.replace(/\s+/g, ' ').trim(),
+                    seed: [...dialog.querySelectorAll('input[name="seed"]')].find((r) => r.checked)?.value };
+    setup(dialog);
+    [...dialog.querySelectorAll('button')].find((b) => b.textContent === label)?.click();
+    return asked;
+}
+const actions = (id) => [...row(id).querySelectorAll('.queue-actions button')].map((b) => b.textContent.trim());
+check('an ended task offers Retry and Delete; a running one neither',
+      [actions(14), actions(13), actions(16)], [['Show images (7)', 'Retry...', 'Delete...'], ['Retry...', 'Delete...'], []]);
+
+posted.length = 0;
+bodies.length = 0;
+let doing = act('queue.retry', { task: 14 });
+let question = await answer('Retry', (d) => { d.querySelector('input[value="random"]').checked = true; });
+await doing;
+check("Retry asks which seed, the first run's ticked", [question.text.startsWith('Retry task #14?'), question.seed],
+      [true, 'first']);
+check('and queues a copy with the one chosen', [posted, bodies[0]],
+      [['/model-manager/queue/retry'], { ids: '14', seed: 'random' }]);
+await waitFor('the report', () => text('queue_report'));
+check('saying how it went', text('queue_report'), 'Queued 1 copy.');
+
+bodies.length = 0;
+doing = act('queue.delete', { task: 14 });
+question = await answer('Delete', (d) => { d.querySelector('input[name="with_data"]').checked = true; });
+await doing;
+check('Delete asks whether the images its run made go too',
+      [question.text.includes('Also delete the 7 images its run made, files included'), bodies[0]],
+      [true, { ids: '14', with_data: 'true' }]);
+check('and says how it went', text('queue_report'), 'Deleted 1 task, and 7 image files.');
+
+bodies.length = 0;
+doing = act('queue.delete', { task: 13 });
+question = await answer('Cancel');
+await doing;
+check('a task that made no images is not asked about them; Cancel deletes nothing',
+      [question.text.includes('Also delete'), bodies], [false, []]);
+
+// Select, in History: a shift-click's range, a row's click, one question for all.
+await tick('queue.selecting', true, { list: 'history' });
+await waitFor('the ticks', () => document.querySelectorAll('#queue_history [data-queue-pick]').length === 3);
+const pickBox = (id) => document.querySelector(`[data-queue-pick="${id}"]`);
+const click = (element, shift = false) => {
+    const event = new window.Event('click', { bubbles: true });
+    Object.defineProperty(event, 'shiftKey', { value: shift });
+    element.dispatchEvent(event);
+};
+pickBox(15).checked = true;
+click(pickBox(15));
+pickBox(13).checked = true;
+click(pickBox(13), true);
+const bar = () => document.getElementById('queue_history_select_bar').textContent.replace(/\s+/g, ' ').trim();
+check('a shift-click ticks the range', [[15, 14, 13].map((id) => pickBox(id).checked), bar().startsWith('3 tasks selected')],
+      [[true, true, true], true]);
+asked.length = 0;
+await new Promise((resolve) => setTimeout(resolve, 150));
+check("a tick does not open the task's details",
+      [document.getElementById('mm_meta_modal'), asked.filter((a) => /queue\/tasks\/\d+$/.test(a))], [null, []]);
+click(row(14).querySelector('.queue-prompt'));
+await new Promise((resolve) => setTimeout(resolve, 150));
+// (In a browser Select takes the click on the way down, before the row's action; this DOM has no
+// way down, and the action runs too - opening nothing while selecting, as checked here.)
+check("selecting, a row's click ticks it rather than opening it",
+      [pickBox(14).checked, document.getElementById('mm_meta_modal')], [false, null]);
+bodies.length = 0;
+const retryTicked = document.querySelector('#queue_history_select_bar [data-action="queue.historyRetrySelected"]');
+check("History's bar offers Retry for the ticked", Boolean(retryTicked), true);
+if (retryTicked) {
+    doing = act('queue.historyRetrySelected');
+    question = await answer('Retry');
+    await doing;
+}
+check('Retry asks once for every task ticked', [question.text?.startsWith('Retry 2 tasks?'), bodies[0]],
+      [true, { ids: '15,13', seed: 'first' }]);
+check('and the ticks go', [...document.querySelectorAll('#queue_history [data-queue-pick]')].some((b) => b.checked), false);
+await act('queue.historySelectAll');
+check('Select all ticks the page', bar().startsWith('3 tasks selected'), true);
+await act('queue.historySelectClear');
+check('Clear unticks it', bar().startsWith('0 tasks selected'), true);
+// A ticked task the list loses - deleted, hidden elsewhere - is no longer ticked.
+await act('queue.historySelectAll');
+LISTS.history = LISTS.history.filter((t) => t.id !== 13);
+STATUS = { ...STATUS, counts: { ...STATUS.counts, failed: 0 } };
+await waitFor('task 13 gone', () => !row(13));
+check('a ticked task that leaves the list is no longer ticked', bar().startsWith('2 tasks selected'), true);
+await act('queue.historySelectClear');
+await tick('queue.selecting', false, { list: 'history' });
+await waitFor('no ticks', () => !document.querySelector('#queue_history [data-queue-pick]'));
+await tick('queue.selecting', true, { list: 'active' });
+await waitFor('Active redrawn', () => rows('active').length);
+check('a running task cannot be ticked', document.querySelector('#queue_active [data-queue-pick]'), null);
+await tick('queue.selecting', false, { list: 'active' });
+
+bodies.length = 0;
+posted.length = 0;
+doing = act('queue.clearHistory');
+question = await answer('Clear history');
+await doing;
+check('Clear history asks first, saying how many, that nothing is deleted',
+      [question.text.startsWith('Clear 21 tasks from History?'), question.text.includes('hidden, not deleted'), posted],
+      [true, true, ['/model-manager/queue/history/clear']]);
+check('and says how it went', text('queue_report'), 'Hid 21 tasks from History.');
 
 // ----------------------------------------------------------------- paging
 check('History has its page strip', !!document.querySelector('#queue_history .mm-pagination'), true);

@@ -51,11 +51,32 @@ def create_queue_ui():
                 </div>
                 <!-- What the queue is saying: an error, inputs that ran at their defaults -->
                 <div id="queue_message" class="queue-message" hidden></div>
+                <!-- How the last Retry, Delete or Clear history went -->
+                <div id="queue_report" class="queue-report" role="status" hidden></div>
 
-                <h3 class="queue-list-title">Active <span id="queue_active_count" class="queue-list-count"></span></h3>
+                <!-- Each list: its count, Select, and the bar of what to do with the ticked -->
+                <div class="queue-list-head">
+                    <h3 class="queue-list-title">Active <span id="queue_active_count" class="queue-list-count"></span></h3>
+                    <label class="queue-select-switch" title="Tick waiting tasks, then delete them at once. A running task cannot be ticked">
+                        <input type="checkbox" id="queue_active_select" data-action="queue.selecting" data-list="active">
+                        Select
+                    </label>
+                    <span id="queue_active_select_bar" class="mm-select-bar" hidden></span>
+                </div>
                 <div id="queue_active" class="queue-list"><div class="queue-empty">Loading…</div></div>
 
-                <h3 class="queue-list-title">History <span id="queue_history_count" class="queue-list-count"></span></h3>
+                <div class="queue-list-head">
+                    <h3 class="queue-list-title">History <span id="queue_history_count" class="queue-list-count"></span></h3>
+                    <label class="queue-select-switch" title="Tick ended tasks, then retry or delete them at once">
+                        <input type="checkbox" id="queue_history_select" data-action="queue.selecting" data-list="history">
+                        Select
+                    </label>
+                    <span id="queue_history_select_bar" class="mm-select-bar" hidden></span>
+                    <span class="queue-bar-fill"></span>
+                    <button type="button" class="mm-btn secondary mm-btn-small" id="queue_clear_history"
+                            data-action="queue.clearHistory"
+                            title="Hide every task in History. Nothing is deleted: the tasks, their images and their files stay">Clear history</button>
+                </div>
                 <div id="queue_history" class="queue-list"><div class="queue-empty">Loading…</div></div>
             </div>
         """.replace("<!-- actions -->", header_actions("queue")), elem_id="queue_container")

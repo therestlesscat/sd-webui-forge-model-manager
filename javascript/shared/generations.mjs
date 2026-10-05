@@ -25,16 +25,21 @@ const { RATING_LEVELS, nsfwBadge } = await shared('nsfw.mjs');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * The bar Select shows: how many images, Select all loaded, Clear, Delete.
- * `actions` names what each button does (shared/calls.mjs).
+ * The bar Select shows: how many are picked, Select all, Clear, Delete - and
+ * Retry, where `actions` names one: the Queue tab's History. `actions` names
+ * what each button does (shared/calls.mjs); `noun` what is counted, `all`
+ * what Select all says.
  */
-export function selectBarHtml(images, actions) {
-    return `<span class="mm-select-count">${plural(images, 'image')} selected</span>
-        <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.all)}">Select all loaded</button>
+export function selectBarHtml(count, actions, { noun = 'image', all = 'Select all loaded' } = {}) {
+    const none = count ? '' : 'disabled';
+    return `<span class="mm-select-count">${plural(count, noun)} selected</span>
+        <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.all)}">${escapeHtml(all)}</button>
         <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.clear)}"
-                ${images ? '' : 'disabled'}>Clear</button>
+                ${none}>Clear</button>
+        ${actions.retry ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.retry)}"
+                ${none}>Retry...</button>` : ''}
         <button type="button" class="mm-btn danger mm-btn-small" data-action="${escapeHtml(actions.delete)}"
-                ${images ? '' : 'disabled'}>Delete...</button>`;
+                ${none}>Delete...</button>`;
 }
 
 /** What the one Delete asks: "Delete 37 images of 12 generations? (3 of them hidden by the NSFW filter)". */

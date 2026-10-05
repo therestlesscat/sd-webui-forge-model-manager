@@ -3762,7 +3762,8 @@ textarea.mm-settings-input {
     min-width: 140px;
 }
 
-.gen-view-switch {
+.gen-view-switch,
+.queue-select-switch {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -4618,8 +4619,18 @@ textarea.mm-settings-input {
     background: rgba(234, 179, 8, 0.16);
 }
 
-.queue-list-title {
+/* A list's head: its title and count, Select and its bar - and History's
+   Clear history at the far end. */
+.queue-list-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     margin: 14px 0 6px;
+}
+
+.queue-list-title {
+    margin: 0;
     font-size: 1.05em;
 }
 
@@ -4760,10 +4771,59 @@ textarea.mm-settings-input {
     color: #fca5a5 !important;
 }
 
-.queue-images {
+/* Show images, Retry and Delete, at a row's right. */
+.queue-actions {
     display: flex;
     flex-shrink: 0;
     align-items: center;
+    gap: 6px;
+}
+
+/* Selecting: a tick at a row's left, and a ticked row outlined in the tick's
+   own colour. Not the theme's primary: orange in this theme, it read as the
+   hover's. Later than :hover, so a ticked row keeps it under the pointer. */
+.queue-pick {
+    flex-shrink: 0;
+    margin-top: 3px;
+}
+
+.queue-task.queue-picked {
+    border-color: var(--checkbox-background-color-selected, #2563eb);
+    background: rgba(37, 99, 235, 0.06);
+}
+
+.dark .queue-task.queue-picked {
+    background: rgba(37, 99, 235, 0.14);
+}
+
+/* How the last Retry, Delete or Clear history went. */
+.queue-report {
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.dark .queue-report {
+    background: rgba(59, 130, 246, 0.16);
+}
+
+.queue-report[hidden] {
+    display: none !important;
+}
+
+/* A dialog's choices: Retry's seed, Delete's images. */
+.queue-choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    cursor: pointer;
+}
+
+.queue-dialog-note {
+    font-size: 0.9em;
+    color: var(--body-text-color-subdued, #6b7280) !important;
 }
 
 /* A task's details: wider than an image's metadata, a section per script. */
