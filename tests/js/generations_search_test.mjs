@@ -91,4 +91,20 @@ await waitFor('everything again', () => browsed.length && document.querySelector
 check('emptied, it shows everything again', [browsed[0]?.search, document.querySelectorAll('#gen_grid .gen-tile').length],
       [undefined, 2]);
 
+// The Queue's Show images: this tab, searched by the task, ungrouped for now.
+await call('generations.groupBy', 'prompt');
+await waitFor('grouped again', () => browsed.at(-1)?.group === 'prompt');
+browsed.length = 0;
+await call('generations.showTask', 19);
+await waitFor('the task asked', () => browsed.length);
+check("Show images searches by the task, with Group by at Nothing",
+      [box.value, browsed[0].search, browsed[0].group ?? '', document.getElementById('gen_group_by').textContent],
+      ['task:19', 'task:19', '', 'Nothing']);
+check('the grouping chosen before is still the one remembered',
+      window.localStorage.getItem('mm_generations_group_by'), 'prompt');
+browsed.length = 0;
+await call('generations.showTask', 19);
+await waitFor('asked again', () => browsed.length);
+check('asked again for the same task, it is drawn again', browsed[0]?.search, 'task:19');
+
 done();

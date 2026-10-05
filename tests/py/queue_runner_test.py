@@ -14,6 +14,7 @@ person's own Generate; pauses between tasks; asks before running tasks
 whose scripts are gone; and at startup stops what a restart left running.
 """
 import dataclasses
+import enum
 import json
 import os
 import sys
@@ -70,6 +71,9 @@ class Component(object):
     def preprocess(self, value):
         return value
 
+    def postprocess(self, value):
+        return value
+
 
 class Textbox(Component): pass
 class Slider(Component): pass
@@ -84,10 +88,17 @@ class Dropdown(Component):
         return value
 
 
+class Mode(enum.Enum):
+    BALANCED = 'Balanced'
+    PROMPT = 'My prompt is more important'
+
+
 @dataclasses.dataclass
 class Unit:
     enabled: bool = False
     weight: float = 1.0
+    # ControlNet's default holds an enum; the page sends back its text.
+    mode: object = Mode.BALANCED
 
 
 def script(title, start, end):
@@ -247,7 +258,7 @@ RUNNER.scripts.append(script('New Extension', 6, 7))
 own.inputs = FIXED + RUNNER.inputs
 values, notes = replay.rebuild('txt2img', own.inputs, db.get_task(task_id)['inputs'])
 check('an extension added since runs at its defaults', values[-1], 0.3)
-check('and the task says so', notes, ['New Extension: not in the task; its defaults ran'])
+check('and the task says so', notes, ['New Extension: not in the task; its defaults were used'])
 RUNNER.inputs.pop()
 RUNNER.scripts.pop()
 own.inputs = FIXED + RUNNER.inputs
@@ -256,7 +267,7 @@ kept = db.get_task(task_id)['inputs']
 kept['scripts']['ControlNet'][0]['value'] = {'__missing__': 'Thing'}
 values, notes = replay.rebuild('txt2img', own.inputs, kept)
 check("a value that was not kept runs at its control's default", values[len(FIXED) + 3], Unit())
-check('and says so', notes, ['ControlNet: 0: could not be restored; its default ran'])
+check('and says so', notes, ['ControlNet: 0: could not be restored; its default was used'])
 
 # ------------------------------------------------- scripts that are gone
 clear()
@@ -404,6 +415,48 @@ generations._link_to_task(db, generation_id + 1)
 forge.job = None
 check('the recorder links a generation to the task whose run made it', db.get_task(linked)['generations'],
       [generation_id])
+
+# ------------------------------------------------------------ Load to UI
+from model_manager.scheduler import load                 # noqa: E402
+
+clear()
+loaded, sent = queue_task('to load', unit=Unit(enabled=True, weight=0.7))
+SKIP = object()
+values, skipped, notes = load.task_values('txt2img', loaded, skip=SKIP)
+# Generate's inputs but the first: prompt, negative, batch count, then the scripts'.
+check("Load to UI hands each of Generate's inputs but the first its value",
+      (values[:3], values[4:6], values[8]), (sent[1:4], sent[5:7], sent[9]))
+check('an index as its choice, not its number', (values[3], values[7]), ('X/Y/Z plot', 'Seed'))
+check("a state - ControlNet's units - keeps what is on screen, and is named",
+      (values[6] is SKIP, skipped, notes), (True, ['ControlNet: 0'], []))
+plain, _ = queue_task('units left off', unit=Unit(mode='Balanced'))
+check("a state at its default keeps what is on screen, and is not named",
+      load.task_values('txt2img', plain, skip=SKIP)[1:], ([], []))
+SEED.postprocess = lambda value: (_ for _ in ()).throw(ValueError('not a seed'))
+values, skipped, _ = load.task_values('txt2img', loaded, skip=SKIP)
+del SEED.postprocess
+check('a value its control does not take is skipped too', (values[4] is SKIP, skipped),
+      (True, ['Seed: Seed', 'ControlNet: 0']))
+
+theirs = db.add_task({'install': 'another-install', 'mode': 'txt2img', 'inputs': {'fixed': {}}})
+other_tab = db.add_task({'install': INSTALL_KEY, 'mode': 'img2img', 'inputs': {'fixed': {}}})
+for task_id, why in ((theirs, 'No task #%d in this WebUI' % theirs), (other_tab, 'Task #%d is an img2img task' % other_tab)):
+    try:
+        load.task_values('txt2img', task_id)
+        raised = None
+    except replay.TaskError as e:
+        raised = str(e)
+    check('only this install\'s tasks of this tab are loaded', raised, why)
+
+import gradio as gr                                      # noqa: E402
+answered = load._loader('txt2img', 9)(json.dumps({'task': loaded, 'nonce': 'n1'}))
+check('the hidden button answers every output, and its own nonce, with what it skipped',
+      (len(answered), answered[0], json.loads(answered[-1])),
+      (10, 'to load', {'nonce': 'n1', 'task': loaded, 'skipped': ['ControlNet: 0'], 'notes': []}))
+failed_load = load._loader('txt2img', 9)(json.dumps({'task': theirs, 'nonce': 'n2'}))
+check('a task it cannot load changes nothing, and says why',
+      (failed_load[:9] == [gr.update()] * 9, json.loads(failed_load[-1])),
+      (True, {'nonce': 'n2', 'task': theirs, 'error': 'No task #%d in this WebUI' % theirs}))
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

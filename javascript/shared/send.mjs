@@ -709,16 +709,80 @@ async function applyPlannedModules(plan, vaeName) {
  * Civitai image's: patched to exactly what was loaded, checked with Forge, and
  * what is no longer there said.
  */
-async function applyRecordedModules(plan) {
+async function applyRecordedModules(plan, what = 'This generation was made with') {
     const target = plan.target || [];
     if (await patchForgeModules(target)) await checkForgeModules(target);
     const gone = [];
     if (plan.checkpoint_missing) gone.push(`its checkpoint ${plan.checkpoint_missing}`);
     if (plan.modules_missing?.length) gone.push(plan.modules_missing.join(', '));
     if (gone.length) {
-        showNotice(`This generation was made with ${gone.join(' and ')}, which Forge does not list any more: `
+        showNotice(`${what} ${gone.join(' and ')}, which Forge does not list any more: `
                    + 'the rest is sent, and the current choice is kept for what is missing.');
     }
+}
+
+// ----------------------------------------------------------- a queued task
+/**
+ * Load a queued task into its tab (#160), set up as Send sets Forge up: its
+ * UI preset and checkpoint first, then every control Generate takes - by
+ * the Queue tab's hidden button (scheduler/load.py), whose outputs they are,
+ * as Forge's own selectCheckpoint asks through a hidden textbox and button -
+ * then its VAE / text encoders. Not an infotext: Forge ticks Hires fix when
+ * a text holds its keys, and a task with it off still holds them. What
+ * could not be set keeps what was on screen, and is said. Answers the
+ * loader's answer, or null.
+ */
+export async function loadTask(taskId) {
+    let plan = null;
+    try {
+        plan = await apiCall({ endpoint: `/model-manager/queue/tasks/${Number(taskId)}/send-plan` });
+    } catch (error) {
+        plan = { success: false, error: error.message };
+    }
+    if (!plan?.success) {
+        showNotice(`Could not load task #${Number(taskId)}: ${plan?.error || 'no answer'}`);
+        return null;
+    }
+    const tab = plan.mode === 'img2img' ? 'img2img' : 'txt2img';
+    if (plan.preset) await switchForgePreset(plan.preset);
+    if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint);
+    // An earlier send's chips would stay; a task has none.
+    showResourceChips(tab, []);
+    const answer = await pressLoader(tab, taskId);
+    if (answer.error) {
+        showNotice(`Could not load task #${Number(taskId)}: ${answer.error}`);
+        return answer;
+    }
+    await applyRecordedModules(plan, `Task #${Number(taskId)} was queued with`);
+    showGenerationTab(tab);
+    const kept = [...(answer.skipped || []), ...(answer.notes || [])];
+    if (kept.length) {
+        showNotice(`Task #${Number(taskId)} is loaded. These keep what was on screen, or their defaults: `
+                   + `${kept.join('; ')}.`, { info: true });
+    }
+    return answer;
+}
+
+/** Ask the Queue tab's hidden button to load a task into `tab`: its answer, once it has come. */
+async function pressLoader(tab, taskId) {
+    const app = gradioApp();
+    const asked = app.querySelector(`#queue_load_${tab}_task textarea`);
+    const answered = app.querySelector(`#queue_load_${tab}_answer textarea`);
+    const button = app.querySelector(`#queue_load_${tab}`);
+    if (!asked || !answered || !button) return { error: 'the Queue tab is not built' };
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    asked.value = JSON.stringify({ task: Number(taskId), nonce });
+    asked.dispatchEvent(new Event('input', { bubbles: true }));
+    button.click();
+    const until = Date.now() + TIMING.loadTask;
+    while (Date.now() < until) {
+        try {
+            const answer = JSON.parse(answered.value || '{}');
+            if (answer.nonce === nonce) return answer;
+        } catch (e) { /* not an answer yet */ }
+        await nextFrame();
+    }
+    return { error: 'Forge did not answer' };
 }
 
 // Why a send waits for its checkpoint, as the dialog's Send says it.

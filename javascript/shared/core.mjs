@@ -28,6 +28,7 @@ export const TIMING = Object.freeze({
     drawRetry: 250,       // between looks for markup Gradio has not drawn yet
     previewWait: 300,     // the settings' card preview, drawn once a field stops changing
     restampPoll: 250,     // a restamp of stored image levels' progress
+    loadTask: 20000,      // a queued task loaded into its tab, at most: Forge sets every control
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

@@ -316,14 +316,23 @@ def selected_models() -> Dict[str, Any]:
             "modules": list(getattr(shared.opts, "forge_additional_modules", None) or [])}
 
 
-def checkpoint_listed(name: str) -> bool:
+def checkpoint_file(name: str) -> Optional[str]:
     """
-    Whether Forge lists a checkpoint by exactly this name. Never by part of
-    it, as get_closet_checkpoint_match would: `flux1-dev` is not
-    `flux1-dev-fp8` (#154). Forge's own override takes only these names.
+    The file Forge lists a checkpoint under by exactly this name, or None.
+    Never by part of it, as get_closet_checkpoint_match would: `flux1-dev`
+    is not `flux1-dev-fp8` (#154). Forge's own override takes only these
+    names.
     """
+    if not name:
+        return None
     from modules import sd_models
-    return sd_models.checkpoint_aliases.get(name) is not None
+    info = sd_models.checkpoint_aliases.get(name)
+    return getattr(info, "filename", None) if info is not None else None
+
+
+def checkpoint_listed(name: str) -> bool:
+    """Whether Forge lists a checkpoint by exactly this name: checkpoint_file()."""
+    return checkpoint_file(name) is not None
 
 
 def current_job() -> Optional[str]:

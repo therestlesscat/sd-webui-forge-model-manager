@@ -255,19 +255,29 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
     default), and a model that loaded no modules names none to clear.
 
     Returns:
+        plan_for()'s answer, or None for no such generation.
+    """
+    generation = db.get_generation(generation_id)
+    if not generation:
+        return None
+    return plan_for(db, generation.get("checkpoint_path") or "", generation.get("modules") or [])
+
+
+def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
+    """
+    How to set Forge up for a checkpoint file and these VAE / text encoder
+    files: a generation of your own sent back (send_plan), or a queued task
+    loaded into its tab (api/scheduler.py).
+
+    Returns:
         preset (None if unknown), checkpoint (the name Forge lists it under,
         None if it does not), checkpoint_missing (its file name, then),
         target (the module labels to hold), modules_missing (the recorded
-        modules Forge does not offer) - or None for no such generation.
+        modules Forge does not offer).
     """
     from ..file_identity import identify
     from ..forge_host import checkpoint_name, installed_modules
     from ..identity_store import record_architecture
-
-    generation = db.get_generation(generation_id)
-    if not generation:
-        return None
-    path = generation.get("checkpoint_path") or ""
 
     preset = None
     if path:
@@ -284,7 +294,7 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
 
     checkpoint = checkpoint_name(path)
     installed = installed_modules()
-    recorded = [os.path.basename(p) for p in generation.get("modules") or [] if p]
+    recorded = [os.path.basename(p) for p in modules if p]
     return {
         "preset": preset,
         "checkpoint": checkpoint,

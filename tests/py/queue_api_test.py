@@ -3,9 +3,10 @@ The queue's endpoints: model_manager/api/scheduler.py and scheduler/tasks.py
 (#151-#164), through FastAPI's test client, on the fixture library.
 
 The queue's controls reach the runner; the Active and History lists come in
-order, a page at a time, each row saying what its task asks for, with the
-images its run made through the Generations tab's NSFW switch; a task's
-details show everything it holds, readably; Retry queues a copy with the
+order, a page at a time, each row saying what its task asks for and how
+many images its run made - never the images, which the Generations tab
+shows; a task's details show everything it holds, readably; its send plan
+sets Forge up as a generation's Send does; Retry queues a copy with the
 first run's seed or a random one; Delete removes a task, with its data or
 without, and its own files - but those a copy still names; Clear history
 hides. Only this install's tasks are listed or acted on.
@@ -38,6 +39,7 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager import forge_host                     # noqa: E402
 from model_manager.api import scheduler as api           # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG, PG13, X               # noqa: E402
@@ -144,7 +146,7 @@ check("the status counts this install's tasks", (status['success'], status['coun
       (True, 1, 1, 1))
 active = listed('active')
 check("Active holds this install's pending tasks", [t['id'] for t in active['tasks']], [pending])
-history = listed('history', hide_nsfw_images='false')
+history = listed('history')
 check('History holds the ended ones, newest first', [t['id'] for t in history['tasks']], [broken, done])
 check('a list says its size', (history['total'], history['page'], history['pages']), (2, 1, 1))
 check('an unknown list is refused', client.get('/model-manager/queue/tasks', params={'which': 'all'}).status_code, 404)
@@ -158,18 +160,8 @@ check("a row says what its task asks for",
        'n_iter': 2, 'script': 'X/Y/Z plot', 'checkpoint': 'sdxl\\model.safetensors',
        'modules': ['F:\\vae\\sdxl_vae.safetensors'], 'first_seed': 1234})
 check('a failed one, its error', history['tasks'][0]['error'], 'boom')
-check("a row has its run's first images", ([i['generation_id'] for i in row['images']], row['image_count']),
-      ([made[0], made[0], made[1], made[1]], 6))
-check('drawn as the Generations tab draws them',
-      (row['images'][0]['url'], row['images'][1]['mm_level']),
-      ('/model-manager/generations/images/%d/file' % row['images'][0]['id'], X))
-hiding = listed('history', hide_nsfw_images='true')['tasks'][1]
-check('through its NSFW switch', ([i['mm_level'] for i in hiding['images']], hiding['hidden_nsfw']),
-      ([PG, PG, PG13, PG], 2))
-opts.model_manager_generations_hide_nsfw = True
-check("the Generations tab's own setting when the page sends none",
-      listed('history')['tasks'][1]['hidden_nsfw'], 2)
-opts.model_manager_generations_hide_nsfw = False
+check("a row says how many images its run made, and sends none", (row.get('image_count'), 'images' in row),
+      (6, False))
 
 hires = queue('hires', hires={'enable_hr': True, 'hr_scale': 1.5})
 resized = queue('resized', hires={'enable_hr': True, 'hr_resize_x': 2048})
@@ -185,8 +177,9 @@ check('a list comes a page at a time', ([t['id'] for t in second['tasks']], seco
 post('/model-manager/queue/delete', ids=','.join(map(str, many + [hires, resized])))
 
 # ------------------------------------------------------------- details
-details = client.get(f'/model-manager/queue/tasks/{done}', params={'hide_nsfw_images': 'false'}).json()
-check('details have every image of the run', len(details['task']['images']), 6)
+details = client.get(f'/model-manager/queue/tasks/{done}').json()
+check('details have the row, with no images', (details['task'].get('image_count'), 'images' in details['task']),
+      (6, False))
 fixed = {f['name']: f['value'] for f in details['inputs']['fixed']}
 check("and Generate's inputs, by name", (fixed['prompt'], fixed['negative_prompt'], fixed['width']),
       ('a lighthouse at dusk', 'blurry', 832))
@@ -200,6 +193,24 @@ check('an object by its class and fields, a value not kept as such',
        {'__kind__': 'missing', 'name': 'Thing'}])
 check("another install's task is not shown", client.get(f'/model-manager/queue/tasks/{theirs}').status_code, 404)
 check('nor one that is not there', client.get('/model-manager/queue/tasks/999999').status_code, 404)
+
+# ------------------------------------------------------------- send plan
+LISTED = {'sdxl\\model.safetensors': os.path.join(WORK, 'models', 'model.safetensors')}
+api.checkpoint_file = lambda name: LISTED.get(name)
+forge_host.checkpoint_name = lambda path: 'sdxl\\model.safetensors' if path in LISTED.values() else None
+forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': 'F:\\vae\\sdxl_vae.safetensors'}
+plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
+check("a task's send plan: its mode, checkpoint and modules, as Send sets them",
+      {k: plan.get(k) for k in ('mode', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
+      {'mode': 'txt2img', 'checkpoint': 'sdxl\\model.safetensors', 'checkpoint_missing': None,
+       'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
+LISTED.clear()
+forge_host.installed_modules = lambda: {}
+plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
+check('a checkpoint or a module this WebUI does not list is named',
+      (plan['checkpoint'], plan['checkpoint_missing'], plan['target'], plan['modules_missing']),
+      (None, 'sdxl\\model.safetensors', [], ['sdxl_vae.safetensors']))
+check("another install's task has none", client.get(f'/model-manager/queue/tasks/{theirs}/send-plan').status_code, 404)
 
 # ------------------------------------------------------------- Retry
 textbox = queue('a textbox seed', seed='-1')
@@ -237,7 +248,7 @@ check('its own files go, and their folder',
       (1, False, False))
 
 lighthouse_file = db.get_task(done)['inputs']['fixed']['init_img']['__image__']
-image_paths = [db.get_generation_image_path(i['id']) for i in details['task']['images']]
+image_paths = [db.get_generation_image_path(i['id']) for i in db.task_images([done])[done]]
 answer = post('/model-manager/queue/delete', ids=str(done), with_data='true')
 check('with its data, its generations go', [db.get_generation(g) for g in made], [None, None])
 check('their image files too', (answer['deleted_files'], [os.path.exists(p) for p in image_paths]),

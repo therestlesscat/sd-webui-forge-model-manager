@@ -5,8 +5,10 @@
  * how many tasks wait, are done, stopped or failed - with Start, Pause or
  * Resume, and Stop. Under it the Active list, in the order the tasks will
  * run, and History, newest first, each a page at a time. A row says what its
- * task asks for; a finished one shows the first images its run made, as the
- * Generations tab draws them.
+ * task asks for, and how many images its run made: Show images opens the
+ * Generations tab on them (task:<id>), as this tab shows none. A click on a
+ * row opens its details: everything the task holds, and Load to UI, which
+ * sets txt2img or img2img up with it (shared/send.mjs).
  *
  * The status line is asked for only while the tab shows, and writes only
  * what changed. The lists are read again when the tab opens, after an
@@ -46,17 +48,18 @@ const sharedVersion = await window.mmSharedVersion;
 const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'notes.mjs', 'grid.mjs', 'media.mjs',
-    'generations.mjs', 'update_notice.mjs', 'settings.mjs'];
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
+    'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
-const { provide } = await shared('calls.mjs');
+const { provide, ready, call } = await shared('calls.mjs');
 const { tabShowing } = await shared('tabs.mjs');
+const { generationsEnabled } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
-const { setupLazyMedia } = await shared('media.mjs');
-const { generationImageHtml } = await shared('generations.mjs');
+const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
+const { loadTask } = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -224,11 +227,9 @@ function taskRowHtml(task) {
     const modules = (task.modules || []).map(fileName).join(', ');
     const sampler = [task.sampler, task.scheduler].filter(Boolean).join(' · ');
     const batch = task.batch_size || task.n_iter ? `${task.batch_size || 1} × ${task.n_iter || 1}` : '';
-    const shown = task.images || [];
-    const rest = Math.max(0, (task.image_count || 0) - shown.length - (task.hidden_nsfw || 0));
-    const images = shown.map((img) => generationImageHtml(img)).join('');
     return `
-        <div class="queue-task" data-task="${Number(task.id)}" data-status="${escapeHtml(task.status)}">
+        <div class="queue-task" data-action="queue.details" data-task="${Number(task.id)}"
+             data-status="${escapeHtml(task.status)}" title="Click for everything this task holds">
             <div class="queue-task-text">
                 <div class="queue-task-head">
                     <span class="queue-status" data-status="${escapeHtml(task.status)}">${escapeHtml(status)}</span>
@@ -251,11 +252,17 @@ function taskRowHtml(task) {
                 </div>
                 ${task.error ? `<div class="queue-error">${escapeHtml(task.error)}</div>` : ''}
             </div>
-            ${shown.length || rest || task.hidden_nsfw ? `<div class="queue-images">${images}
-                ${rest ? `<span class="queue-more">+${rest}</span>` : ''}
-                ${task.hidden_nsfw ? `<span class="queue-more" title="Hidden by the Generations tab's NSFW setting">${Number(task.hidden_nsfw)} hidden</span>` : ''}
-            </div>` : ''}
+            ${task.image_count ? `<div class="queue-images">${showImagesHtml(task)}</div>` : ''}
         </div>`;
+}
+
+/** "Show images (3)": the Generations tab, on what a task's run made - while that tab is there. */
+function showImagesHtml(task, classes = 'mm-btn secondary mm-btn-small') {
+    const n = Number(task.image_count) || 0;
+    const off = !generationsEnabled();
+    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"
+        ${off || !n ? 'disabled' : ''} title="${off ? 'Your generations is off: nothing was recorded to show'
+        : `Open the Generations tab on the ${n} image${n === 1 ? '' : 's'} this task made`}">Show images (${n})</button>`;
 }
 
 /** A list's page strip, while it has more than one page. */
@@ -285,7 +292,6 @@ async function refreshList(which) {
         element.innerHTML = answer.tasks.length
             ? answer.tasks.map(taskRowHtml).join('') + pagesHtml(which, answer)
             : `<div class="queue-empty">${escapeHtml(list.empty)}</div>`;
-        setupLazyMedia(element);
     } catch (e) {
         element.innerHTML = `<div class="queue-empty">Could not read the list: ${escapeHtml(e.message)}</div>`;
     }
@@ -379,6 +385,101 @@ async function control(action) {
     await refresh();
 }
 
+// ------------------------------------------------------------ a task's details
+
+/** A kept value as text: a file by its name, an object by its class and fields. */
+function valueText(value) {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return value.map(valueText).join(', ');
+    if (typeof value !== 'object') return String(value);
+    if (value.__kind__ === 'object') {
+        const fields = Object.entries(value.fields || {}).map(([k, v]) => `${k}: ${valueText(v)}`);
+        return `${value.name} (${fields.join(', ')})`;
+    }
+    if (value.__kind__ === 'missing') return `not kept (${value.name})`;
+    if (value.__kind__) return `${value.__kind__}: ${value.name}`;
+    return JSON.stringify(value);
+}
+
+function rowsHtml(pairs) {
+    return pairs.filter(([, value]) => value !== '' && value !== null && value !== undefined)
+        .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(value))}</td></tr>`).join('');
+}
+
+/** Everything a task holds (#159): its prompts and files, Generate's inputs, each script's controls. */
+function detailsHtml(task, inputs) {
+    const fixed = Object.fromEntries((inputs.fixed || []).map((f) => [f.name, f.value]));
+    const about = rowsHtml([
+        ['Prompt', valueText(fixed.prompt)],
+        ['Negative prompt', valueText(fixed.negative_prompt)],
+        ['Checkpoint', task.checkpoint],
+        ['VAE / Text Encoder', (task.modules || []).join('\n')],
+        ['Queued', when(task.created_at)],
+        ['Started', when(task.started_at)],
+        ['Ended', when(task.finished_at)],
+        ['First seed', task.first_seed],
+        ['A copy of', task.retry_of ? `#${task.retry_of}` : ''],
+        ['Requeued as', task.retried_as ? `#${task.retried_as}` : ''],
+        ['Queued by', task.username],
+    ]);
+    const settings = rowsHtml((inputs.fixed || []).filter((f) => !['prompt', 'negative_prompt'].includes(f.name))
+        .map((f) => [f.name, valueText(f.value)]));
+    const scripts = (inputs.scripts || []).map((script) => {
+        const selected = script.title === inputs.script;
+        const controls = rowsHtml(script.controls.map((c, i) => [c.label || c.id || `#${i}`, valueText(c.value)]));
+        return `<details class="queue-section" ${selected ? 'open' : ''}>
+            <summary>${escapeHtml(script.title)}${selected ? ' <span class="queue-selected">the script selected</span>' : ''}</summary>
+            <table class="mm-meta-table"><tbody>${controls || '<tr><td>Nothing set</td></tr>'}</tbody></table>
+        </details>`;
+    }).join('');
+    const status = STATUSES[task.status] || task.status;
+    return `
+        <div class="mm-modal-overlay" id="mm_meta_modal">
+            <div class="mm-modal queue-details">
+                <div class="mm-modal-header">
+                    <h3>Task #${Number(task.id)} · ${escapeHtml(task.mode)} · ${escapeHtml(status)}</h3>
+                    <button class="mm-modal-close" aria-label="Close">&times;</button>
+                </div>
+                <div class="mm-modal-body">
+                    ${task.error ? `<div class="queue-error">${escapeHtml(task.error)}</div>` : ''}
+                    <table class="mm-meta-table"><tbody>${about}</tbody></table>
+                    <details class="queue-section" open>
+                        <summary>Generate's settings</summary>
+                        <table class="mm-meta-table"><tbody>${settings}</tbody></table>
+                    </details>
+                    ${scripts}
+                </div>
+                <div class="mm-modal-footer">
+                    ${showImagesHtml(task, 'mm-btn secondary')}
+                    <button type="button" class="mm-btn primary" data-action="queue.load" data-task="${Number(task.id)}"
+                        title="Set ${escapeHtml(task.mode)} up with this task, to change it or run it by hand">Load to UI</button>
+                </div>
+            </div>
+        </div>`;
+}
+
+async function showDetails(taskId) {
+    try {
+        const answer = await apiCall({ endpoint: `/model-manager/queue/tasks/${Number(taskId)}` });
+        if (!answer?.success) throw new Error(answer?.error || 'no answer');
+        openMetaModal(detailsHtml(answer.task, answer.inputs));
+    } catch (e) {
+        console.warn('[ModelManager] Could not read the task:', e);
+    }
+}
+
+/** The Generations tab, on a task's images. */
+async function showImages(taskId) {
+    if (!ready('generations.showTask')) return;
+    closeMetaModal();
+    await call('generations.showTask', Number(taskId));
+}
+
+async function load(taskId) {
+    closeMetaModal();
+    await loadTask(Number(taskId));
+}
+
 // -------------------------------------------------------------- the polling
 
 /**
@@ -405,6 +506,9 @@ provide('queue.pause', () => control('pause'));
 provide('queue.resume', () => control('resume'));
 provide('queue.stop', () => control('stop'));
 provide('queue.refresh', () => refresh());
+provide('queue.details', ({ task }) => showDetails(task));
+provide('queue.showImages', ({ task }) => showImages(task));
+provide('queue.load', ({ task }) => load(task));
 provide('queue.activePage', ({ page }) => goToPage('active', page));
 provide('queue.activePrev', () => goToPage('active', pages.active - 1));
 provide('queue.activeNext', () => goToPage('active', pages.active + 1));

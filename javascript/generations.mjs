@@ -57,6 +57,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
+const { showTab } = await shared('tabs.mjs');
 const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -1337,6 +1338,23 @@ function setSearch(value) {
     return reload();
 }
 
+/**
+ * A task's images, asked for by the Queue's Show images: this tab, searched
+ * by the task, with Group by at Nothing for this visit - the grouping chosen
+ * before is still the one remembered.
+ */
+async function showTask(taskId) {
+    await showTab('generations');
+    groupBy = '';
+    showGroupChoice();
+    const text = `task:${Number(taskId)}`;
+    const box = byId('gen_search');
+    if (box) box.value = text;
+    // Asked again for the same task, it is drawn again.
+    search = '';
+    return setSearch(text);
+}
+
 function showNsfw(checked) {
     hideNsfw = !checked;
     markAboveChanged();
@@ -1374,6 +1392,8 @@ provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
 provide('generations.groupBy', (value) => setGroupBy(value));
 provide('generations.loadMore', () => loadNext());
 provide('generations.spanFor', spanFor);
+// The Queue's Show images: a task's images, here.
+provide('generations.showTask', (taskId) => showTask(taskId));
 
 /**
  * The tab's markup, once Gradio has drawn it. The script runs when the page

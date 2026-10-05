@@ -1964,6 +1964,17 @@ body.mm-modal-open {
     flex: 1;
 }
 
+/* A modal's buttons, at its foot, as its header is at its top: the
+   metadata window's Copy JSON, a task's Show images and Load to UI. With no
+   rule of its own they sat on the window's corner. */
+.mm-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-color-primary, #374151);
+}
+
 .mm-meta-table {
     width: 100%;
     border-collapse: collapse;
@@ -4586,8 +4597,7 @@ textarea.mm-settings-input {
 .queue-id,
 .queue-script,
 .queue-copy,
-.queue-facts,
-.queue-more {
+.queue-facts {
     color: var(--body-text-color-subdued, #6b7280) !important;
 }
 
@@ -4627,7 +4637,8 @@ textarea.mm-settings-input {
     padding: 10px;
 }
 
-/* A task: what it asks for at the left, its first images at the right. */
+/* A task: what it asks for at the left, Show images at the right. A click
+   anywhere else opens its details. */
 .queue-task {
     display: flex;
     align-items: flex-start;
@@ -4637,6 +4648,11 @@ textarea.mm-settings-input {
     border: 1px solid var(--border-color-primary, #e5e7eb);
     border-radius: 8px;
     background: var(--background-fill-primary, #fff);
+    cursor: pointer;
+}
+
+.queue-task:hover {
+    border-color: var(--primary-500, #3b82f6);
 }
 
 .queue-task-text {
@@ -4748,20 +4764,47 @@ textarea.mm-settings-input {
     display: flex;
     flex-shrink: 0;
     align-items: center;
-    gap: 4px;
 }
 
-.queue-images .mm-generation-tile img {
-    display: block;
-    width: 72px;
-    height: 72px;
-    border-radius: 4px;
-    object-fit: cover;
+/* A task's details: wider than an image's metadata, a section per script. */
+.mm-modal.queue-details {
+    max-width: 960px;
 }
 
-.queue-more {
-    padding: 0 4px;
+.queue-section {
+    margin-top: 12px;
+}
+
+.queue-section > summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.queue-selected {
+    margin-left: 6px;
     font-size: 0.85em;
+    font-weight: normal;
+    color: #1d4ed8 !important;
+}
+
+.dark .queue-selected {
+    color: #93c5fd !important;
+}
+
+.queue-details .queue-error {
+    margin-bottom: 8px;
+}
+
+/* One column of names for every table in the window, so they line up: each
+   sized its own to its longest name. A long name wraps. */
+.queue-details .mm-meta-table {
+    table-layout: fixed;
+}
+
+.queue-details .mm-meta-table th {
+    width: 220px;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 /* Start's question: the tasks whose extensions are gone. */

@@ -4,36 +4,52 @@
 // task it is on and how far Forge is with it, the counts - and offers what
 // can be done now: Start, Pause or Resume, Stop. Nothing is asked while it is
 // hidden; opened, both lists are read again. A row says what its task asks
-// for, and shows the first images its run made. Start that finds tasks
-// whose extensions are gone asks first: Cancel starts nothing, Run anyway
-// forces it.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+// for, and how many images its run made - never the images: Show images
+// opens the Generations tab on them. A click on a row opens its details,
+// everything it holds, escaped; Load to UI asks the Queue tab's hidden
+// button for the task, after its send plan, and says what kept its value.
+// Start that finds tasks whose extensions are gone asks first: Cancel starts
+// nothing, Run anyway forces it.
+import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
 // Gradio's button for the tab, selected while the tab shows.
 document.body.insertAdjacentHTML('afterbegin', '<button id="tab_queue_tab-button" class="selected">Queue</button>');
 const tabButton = document.getElementById('tab_queue_tab-button');
-window.mmTiming = { poll: 40 };
+window.mmTiming = { poll: 40, loadTask: 1000 };
 
-const image = (id) => ({ id, generation_id: 1, position: 0, url: `/model-manager/generations/images/${id}/file`,
-                         exists: true, mm_level: 1, mm_level_from_prompt: false });
 const task = (id, status, extra = {}) => ({
     id, mode: 'txt2img', status, prompt: `task ${id}, a lighthouse`, script: null,
     checkpoint: '_SDXL\\Asgard\\asgard_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'],
     width: 832, height: 1216, hires: null, scale_by: null, sampler: 'Euler a', scheduler: 'Karras', steps: 30,
     batch_size: 1, n_iter: 2, created_at: '2026-10-05T12:50:00', started_at: null, finished_at: null,
-    error: null, first_seed: null, retry_of: null, retried_as: null, generations: [], images: [],
-    image_count: 0, hidden_nsfw: 0, ...extra,
+    error: null, first_seed: null, retry_of: null, retried_as: null, generations: [],
+    image_count: 0, ...extra,
 });
 const LISTS = {
     active: [task(15, 'running', { hires: { scale: 2 } }), task(16, 'pending', { retry_of: 4, prompt: 'a <b>bold</b> prompt' })],
     history: [
         task(14, 'completed', { finished_at: '2026-10-05T13:05:00', retried_as: 17, script: 'X/Y/Z plot',
-                                images: [image(1), image(2), image(3), image(4)], image_count: 7, hidden_nsfw: 1 }),
+                                image_count: 7 }),
         task(13, 'failed', { error: 'RuntimeError: boom', hires: { resize: [2048, 0] } }),
     ],
 };
+const INPUTS = {
+    fixed: [{ name: 'prompt', value: 'task 14, a lighthouse' }, { name: 'negative_prompt', value: 'a <i>blur</i>' },
+            { name: 'width', value: 832 }, { name: 'init_img', value: { __kind__: 'image', name: 'init.png' } }],
+    script: 'X/Y/Z plot',
+    scripts: [
+        { title: 'Seed', controls: [{ id: 'txt2img_seed', label: 'Seed', value: -1 }] },
+        { title: 'X/Y/Z plot', controls: [{ id: 'x', label: 'X type', value: 'Seed' }] },
+        { title: 'ControlNet', controls: [{ id: null, label: null, value: { __kind__: 'object', name: 'Unit',
+                                                                            fields: { enabled: true, weight: 0.5 } } },
+                                          { id: null, label: null, value: { __kind__: 'missing', name: 'Thing' } }] },
+    ],
+    loose: [],
+};
+const PLAN = { success: true, mode: 'txt2img', preset: null, checkpoint: null, checkpoint_missing: null,
+               target: [], modules_missing: [] };
 let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, completed: 3, stopped: 0, failed: 1 },
                progress: { state: 'running', task_id: 15, job: 'task(mmq-15-1)', completed: 0, failed: 0,
                            stopped: 0, notes: [], error: null } };
@@ -53,6 +69,9 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null });
     }
     if (href.includes('/model-manager/queue/status')) return reply(STATUS);
+    const detail = new URL(href, 'http://webui').pathname.match(/\/model-manager\/queue\/tasks\/(\d+)(\/send-plan)?$/);
+    if (detail?.[2]) return reply(PLAN);
+    if (detail) return reply({ success: true, task: LISTS.history.find((t) => t.id === Number(detail[1])), inputs: INPUTS });
     if (href.includes('/model-manager/queue/tasks')) {
         const params = new URL(href).searchParams;
         const which = params.get('which');
@@ -104,13 +123,10 @@ check('a status, a copy, a retried task and its script are labelled',
       ['Running', 'a copy of #4', 'Requeued as #17', 'X/Y/Z plot']);
 check('a prompt is text, never markup', [row(16).querySelector('.queue-prompt').textContent,
                                          row(16).querySelector('.queue-prompt b')], ['a <b>bold</b> prompt', null]);
-check("a finished task shows its run's first images, and how many more there are",
-      [row(14).querySelectorAll('.mm-generation-tile').length,
-       [...row(14).querySelectorAll('.queue-more')].map((m) => m.textContent.trim())],
-      [4, ['+2', '1 hidden']]);
-check('as the Generations tab draws them, by their record',
-      row(14).querySelector('.mm-generation-tile img').getAttribute('data-src'),
-      'http://localhost:7860/model-manager/generations/images/1/file');
+check('a task that made images offers to show them, and shows none',
+      [row(14).querySelector('[data-action="queue.showImages"]')?.textContent, row(14).querySelectorAll('img').length],
+      ['Show images (7)', 0]);
+check('one that made none does not', row(13).querySelector('[data-action="queue.showImages"]'), null);
 
 // ------------------------------------------------------ following the queue
 asked.length = 0;
@@ -126,6 +142,56 @@ await waitFor('task 15 in History', () => rows('history')[0]?.dataset.task === '
 check('a task that ends moves to History by itself, the next runs',
       [rows('active').map((r) => r.dataset.task), rows('history').map((r) => r.dataset.task)],
       [['16'], ['15', '14', '13']]);
+
+// ------------------------------------------------------- Show images
+const shownTasks = [];
+(await sharedModule('calls.mjs')).provide('generations.showTask', (taskId) => shownTasks.push(taskId));
+if (row(14).querySelector('[data-action="queue.showImages"]')) await act('queue.showImages', { task: 14 });
+check('Show images opens the Generations tab on the task', shownTasks, [14]);
+
+// --------------------------------------------------------------- details
+act('queue.details', { task: 14 });
+await waitFor('the details', () => document.querySelector('#mm_meta_modal .queue-details'));
+const details = document.querySelector('#mm_meta_modal');
+const cell = (key) => [...details.querySelectorAll('tr')].find((tr) => tr.querySelector('th')?.textContent === key)
+    ?.querySelector('td')?.textContent;
+check('a row opens its details: everything the task holds',
+      [details.querySelector('h3')?.textContent, cell('Prompt'), cell('Negative prompt'), cell('width'), cell('init_img')],
+      ['Task #14 · txt2img · Completed', 'task 14, a lighthouse', 'a <i>blur</i>', '832', 'image: init.png']);
+check('as text, never markup', details.querySelector('td i'), null);
+const sections = [...details.querySelectorAll('.queue-section')];
+check('a section per script, the selected one open',
+      sections.map((d) => [d.querySelector('summary').textContent.trim(), d.hasAttribute('open')]),
+      [["Generate's settings", true], ['Seed', false], ['X/Y/Z plot the script selected', true], ['ControlNet', false]]);
+check('a control by its label, or its place; an object by its fields; a value not kept as such',
+      [cell('X type'), cell('#0'), cell('#1')], ['Seed', 'Unit (enabled: true, weight: 0.5)', 'not kept (Thing)']);
+check('with Show images and Load to UI',
+      [...details.querySelectorAll('.mm-modal-footer button')].map((b) => b.textContent.trim()),
+      ['Show images (7)', 'Load to UI']);
+
+// ------------------------------------------------------------ Load to UI
+// The Queue tab's hidden button for txt2img: it answers the nonce it is asked with.
+document.body.insertAdjacentHTML('beforeend', `
+    <div id="queue_load_txt2img_task"><textarea></textarea></div>
+    <div id="queue_load_txt2img_answer"><textarea></textarea></div>
+    <button id="queue_load_txt2img"></button>`);
+const loads = [];
+document.getElementById('queue_load_txt2img').addEventListener('click', () => {
+    const request = JSON.parse(document.querySelector('#queue_load_txt2img_task textarea').value);
+    loads.push(request.task);
+    setTimeout(() => {
+        document.querySelector('#queue_load_txt2img_answer textarea').value = JSON.stringify(
+            { nonce: request.nonce, task: request.task, skipped: ['ControlNet: 0'], notes: [] });
+    }, 30);
+});
+asked.length = 0;
+await act('queue.load', { task: 14 });
+check('Load to UI asks for the send plan, then the hidden button for the task',
+      [asked.some((a) => a.endsWith('/model-manager/queue/tasks/14/send-plan')), loads], [true, [14]]);
+check('the details close', document.getElementById('mm_meta_modal'), null);
+check('what kept its value is said', document.querySelector('.mm-notice')?.textContent,
+      'Task #14 is loaded. These keep what was on screen, or their defaults: ControlNet: 0.');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ----------------------------------------------------------------- paging
 check('History has its page strip', !!document.querySelector('#queue_history .mm-pagination'), true);
@@ -167,11 +233,11 @@ check('Pause, Resume and Stop ask the queue', posted,
       ['/model-manager/queue/pause', '/model-manager/queue/resume', '/model-manager/queue/stop']);
 
 // ------------------------------------------------------- what it is doing
-STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'paused', notes: ['ControlNet: 0: could not be restored; its default ran'] } };
+STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'paused', notes: ['ControlNet: 0: could not be restored; its default was used'] } };
 await waitFor('paused', () => text('queue_state') === 'Paused');
 check('paused: Resume is offered, Pause is not', [button('pause').hidden, button('resume').hidden], [true, false]);
 check('inputs a task ran at their defaults are said', text('queue_message'),
-      'Task #16: ControlNet: 0: could not be restored; its default ran');
+      'Task #16: ControlNet: 0: could not be restored; its default was used');
 STATUS = { success: true, running: false, counts: { pending: 0, running: 0, completed: 4, stopped: 0, failed: 1 },
            progress: { state: 'stopped', task_id: null, job: null, notes: [], error: null } };
 await waitFor('stopped', () => text('queue_state') === 'Stopped');

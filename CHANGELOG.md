@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
 
+- **0.50.6** (build 382) - A click on a queued task shows everything it holds. Load to UI sets txt2img or img2img up with it, checkpoint and VAE included, to change it or run it by hand. The Queue tab shows no images: Show images opens the Generations tab on the ones a task made.
 - **0.50.5** (build 381) - The Generations tab has a search. Every word must be in an image's prompt or negative prompt; a quoted phrase counts as one word. task:17 shows the images task 17 of the queue made.
 - **0.50.4** (build 380) - The Queue tab shows the queue: what it is doing, with Start, Pause, Resume and Stop; and the Active and History lists, each task with what it asks for and the first images its run made. The lists follow the queue as tasks start and end.
 - **0.50.3** (build 379) - The queue can now be driven and read: its state, Start, Stop, Pause and Resume; the Active and History lists, a task's details and the images its run made; Retry, Delete and Clear history. The Queue tab that uses them comes next.

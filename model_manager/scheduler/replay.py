@@ -71,7 +71,7 @@ def _value(component, stored: Any, what: str, notes: List[str]) -> Any:
         return _index(component, stored, what)
     value = restore(stored)
     if value is MISSING:
-        notes.append(f"{what}: could not be restored; its default ran")
+        notes.append(f"{what}: could not be restored; its default was used")
         return default(component)
     return value
 
@@ -139,7 +139,7 @@ def rebuild(tab: str, components: List[Any], named: Dict[str, Any]) -> Tuple[Lis
             values[at] = _value(components[at], fixed[name], name, notes)
         else:
             values[at] = default(components[at])
-            notes.append(f"{name}: not in the task; its default ran")
+            notes.append(f"{name}: not in the task; its default was used")
 
     script_values = [default(c) for c in runner.inputs]
     title = named.get("script")
@@ -155,13 +155,13 @@ def rebuild(tab: str, components: List[Any], named: Dict[str, Any]) -> Tuple[Lis
     for key, start, end in _script_keys(runner):
         kept = kept_scripts.get(key)
         if kept is None:
-            notes.append(f"{key}: not in the task; its defaults ran")
+            notes.append(f"{key}: not in the task; its defaults were used")
             continue
         controls = runner.inputs[start:end]
         for offset, entry in enumerate(_place(controls, kept)):
             what = f"{key}: {(entry or {}).get('label') or getattr(controls[offset], 'label', None) or offset}"
             if entry is None:
-                notes.append(f"{what}: not in the task; its default ran")
+                notes.append(f"{what}: not in the task; its default was used")
                 continue
             script_values[start + offset] = _value(controls[offset], entry["value"], what, notes)
 
@@ -172,6 +172,24 @@ def rebuild(tab: str, components: List[Any], named: Dict[str, Any]) -> Tuple[Lis
 
     values[first_script:] = script_values
     return values, notes
+
+
+def input_names(tab: str, components: List[Any]) -> List[str]:
+    """
+    What each of Generate's inputs is called, in its order, as a task's
+    notes call it: a fixed input by its name, a script's control as "Title:
+    label", the script dropdown as "Script".
+    """
+    names = generate_names(tab)
+    runner = script_runner(tab)
+    first_script = len(components) - len(runner.inputs)
+    called: List[Optional[str]] = list(names[:first_script]) + [None] * len(runner.inputs)
+    called[first_script] = "Script"
+    for key, start, end in _script_keys(runner):
+        for at in range(start, end):
+            label = getattr(runner.inputs[at], "label", None)
+            called[first_script + at] = f"{key}: {label or at - start}"
+    return [name or f"input {at}" for at, name in enumerate(called)]
 
 
 def missing_scripts(tab: str, named: Dict[str, Any]) -> List[str]:

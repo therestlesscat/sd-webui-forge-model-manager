@@ -7,9 +7,9 @@ a task is, and what Retry and Delete make of one.
 Only this install's tasks are listed or acted on: another WebUI sharing the
 database queued its own, and runs them itself.
 
-A task's images are drawn as the Generations tab draws them: through its
-NSFW switch - its own setting when the page sends none - as its cards, and
-deleted as it deletes them.
+No image is sent with a task: a row says how many its run made, and the
+Generations tab shows them, searched by the task (task:<id>). Deleted with
+a task's data, they go as the Generations tab deletes them.
 """
 from typing import Any, Dict, List, Optional
 
@@ -18,11 +18,12 @@ from fastapi.responses import JSONResponse
 
 from ..console import say
 from ..db import get_models_db
+from ..forge_host import checkpoint_file
 from ..install import INSTALL_KEY
 from ..scheduler import runner, tasks
 from ..scheduler.values import files
 from .common import failed
-from .generations import PREVIEW_IMAGES, _delete_files, _filtered, _image, generations_hide_nsfw
+from .generations import _delete_files, plan_for
 
 # Tasks a list shows at a time.
 PAGE_SIZE = 20
@@ -38,31 +39,20 @@ def _ours(db, task_id: int) -> Optional[Dict[str, Any]]:
     return task if task and task.get("install") == INSTALL_KEY else None
 
 
-def _with_images(db, found: List[Dict[str, Any]], hide_nsfw: bool,
-                 limit: Optional[int]) -> List[Dict[str, Any]]:
-    """Each task's row, with the first `limit` images its run made that the switch shows - all, for None."""
-    images_of = db.task_images([t["id"] for t in found])
-    rows = []
-    for task in found:
-        made = images_of.get(task["id"], [])
-        shown, counts = _filtered(made, hide_nsfw, False)
-        shown = shown if limit is None else shown[:limit]
-        cards = db.get_generation_images([r["id"] for r in shown])
-        rows.append({**tasks.summary(task),
-                     "images": [_image(cards[r["id"]]) for r in shown if r["id"] in cards],
-                     "image_count": len(made),
-                     "hidden_nsfw": counts["hidden_nsfw"]})
-    return rows
+def _rows(db, found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Each task's row, with how many images its run made."""
+    made = db.task_images([t["id"] for t in found])
+    return [{**tasks.summary(task), "image_count": len(made.get(task["id"], []))} for task in found]
 
 
-def task_page(db, which: str, page: int = 1, hide_nsfw: bool = False) -> Dict[str, Any]:
+def task_page(db, which: str, page: int = 1) -> Dict[str, Any]:
     """
     A page of the Active or History list (#157): Active in the order the
-    tasks will run, History newest first. Each row with its first images.
+    tasks will run, History newest first.
     """
     page = max(1, int(page))
     found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE)
-    return {"which": which, "tasks": _with_images(db, found, hide_nsfw, PREVIEW_IMAGES),
+    return {"which": which, "tasks": _rows(db, found),
             "total": total, "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
             "page_size": PAGE_SIZE}
 
@@ -153,29 +143,49 @@ def register(app: FastAPI):
         return _act("resume")
 
     @app.get("/model-manager/queue/tasks")
-    def get_tasks(which: str = "active", page: int = 1, hide_nsfw_images: Optional[bool] = None):
+    def get_tasks(which: str = "active", page: int = 1):
         """A page of the Active or History list. See task_page()."""
         if which not in ("active", "history"):
             return JSONResponse({"success": False, "error": f"No list {which}"}, status_code=404)
         try:
-            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
-            return JSONResponse({"success": True, **task_page(get_models_db(), which, page, hide_nsfw)})
+            return JSONResponse({"success": True, **task_page(get_models_db(), which, page)})
         except Exception as e:
             return failed(e, "Queue list error")
 
     @app.get("/model-manager/queue/tasks/{task_id}")
-    def get_task(task_id: int, hide_nsfw_images: Optional[bool] = None):
-        """A task's details (#159): its row with every image, and everything it holds."""
+    def get_task(task_id: int):
+        """A task's details (#159): its row, and everything it holds."""
         try:
             db = get_models_db()
             task = _ours(db, task_id)
             if task is None:
                 return JSONResponse({"success": False, "error": "No such task"}, status_code=404)
-            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
-            return JSONResponse({"success": True, "task": _with_images(db, [task], hide_nsfw, None)[0],
+            return JSONResponse({"success": True, "task": _rows(db, [task])[0],
                                  "inputs": tasks.details(task)})
         except Exception as e:
             return failed(e, "Queue task error")
+
+    @app.get("/model-manager/queue/tasks/{task_id}/send-plan")
+    def get_send_plan(task_id: int):
+        """
+        How to set Forge up before a task is loaded into its tab (#160): its
+        checkpoint's UI preset, the checkpoint, and its VAE / text encoders,
+        as a generation's Send does - plan_for(). A checkpoint this WebUI
+        does not list is named in checkpoint_missing. A plain `def`: it may
+        read the checkpoint's header.
+        """
+        try:
+            db = get_models_db()
+            task = _ours(db, task_id)
+            if task is None:
+                return JSONResponse({"success": False, "error": "No such task"}, status_code=404)
+            path = checkpoint_file(task.get("checkpoint") or "")
+            plan = plan_for(db, path or "", task.get("modules") or [])
+            if task.get("checkpoint") and not path:
+                plan["checkpoint_missing"] = task["checkpoint"]
+            return JSONResponse({"success": True, "mode": task["mode"], **plan})
+        except Exception as e:
+            return failed(e, "Queue send plan error")
 
     @app.post("/model-manager/queue/retry")
     def post_retry(ids: str = Form(default=""), seed: str = Form(default="first")):
