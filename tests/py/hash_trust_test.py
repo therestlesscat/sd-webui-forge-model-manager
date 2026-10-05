@@ -31,7 +31,7 @@ import model_manager.sync_service as sync_module         # noqa: E402
 from modules import paths                                # noqa: E402  (webui_stub's)
 from model_manager.architecture import Architecture     # noqa: E402
 from model_manager.civitai import CivitaiAPIError, TokenBucketRateLimiter  # noqa: E402
-from model_manager.db.database import ModelsDatabase    # noqa: E402
+from model_manager.db.database import ModelsDatabase, SCHEMA_VERSION    # noqa: E402
 from model_manager.hashing import HashResult, fingerprint, read_hashes  # noqa: E402
 from model_manager.sync_service import SyncService, files_to_identify  # noqa: E402
 
@@ -122,7 +122,7 @@ def model_payload(model_id, version_id, name, file_name, level=1, images=()):
 with sqlite3.connect(facts['db_path']) as c:
     columns = {r[1] for r in c.execute('PRAGMA table_info(files)')}
     version = c.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()[0]
-check('a database made now has the column', ('hashes_checked' in columns, version), (True, '33'))
+check('a database made now has the column', ('hashes_checked' in columns, version), (True, str(SCHEMA_VERSION)))
 
 OLD = os.path.join(WORK, 'v32.db')
 with sqlite3.connect(facts['db_path']) as c:

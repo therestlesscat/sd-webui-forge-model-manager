@@ -1541,6 +1541,54 @@ def _migrate_to_v33(cursor):
     print("[ModelManager] Migration to v33 complete")
 
 
+def _migrate_to_v34(cursor):
+    """
+    The generation queue (#17). `tasks` holds one row per press of Queue:
+    every input Generate would have been sent, by name, kept to run later,
+    and what the queue made of it. `task_generations` names the generations
+    a task's run made - one per cell of an X/Y/Z plot, so a task can have
+    several. A task belongs to the install that queued it (`install`): two
+    WebUIs sharing this database have different extensions, and neither can
+    run the other's tasks.
+    """
+    print("[ModelManager] Migrating to v34: the generation queue...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            install TEXT NOT NULL,
+            forge TEXT,
+            mode TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            inputs TEXT NOT NULL,
+            checkpoint TEXT,
+            modules TEXT,
+            username TEXT,
+            first_seed INTEGER,
+            error TEXT,
+            retry_of INTEGER,
+            hidden INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_generations (
+            task_id INTEGER NOT NULL,
+            generation_id INTEGER NOT NULL,
+            PRIMARY KEY (task_id, generation_id)
+        )
+    """)
+    # The queue's next task, and Active in run order; History newest first.
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks(install, status, id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_history "
+                   "ON tasks(install, hidden, finished_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_retry_of ON tasks(retry_of)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_generations_generation "
+                   "ON task_generations(generation_id)")
+    print("[ModelManager] Migration to v34 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -1560,7 +1608,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         26: _migrate_to_v26, 27: _migrate_to_v27, 28: _migrate_to_v28, 29: _migrate_to_v29,
         30: _migrate_to_v30, 31: _migrate_to_v31,
         32: lambda c: _migrate_to_v32(c, db_path),
-        33: _migrate_to_v33,
+        33: _migrate_to_v33, 34: _migrate_to_v34,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

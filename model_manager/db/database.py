@@ -11,6 +11,7 @@ WHAT LIVES WHERE
   query.py              turning a filter bar into one grouped SQL query
   images_ops.py         the image rows belonging to a version
   generations_ops.py    the images you generate, and the model files each used
+  tasks_ops.py          the generation queue: tasks, and the generations each made
 
 Connections are per-thread: scans and syncs run on several threads at once and
 SQLite objects cannot cross between them.
@@ -27,13 +28,14 @@ from .models_ops import ModelsOps, _stored_spelling
 from .query import GridQuery
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
+from .tasks_ops import TasksOps
 from ..forge_host import setting
 from ..model_dirs import file_modified
 from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 
 class ModelsDatabase:
@@ -66,6 +68,7 @@ class ModelsDatabase:
         self._models = ModelsOps(self._cursor)
         self._images = ImagesOps(self._cursor)
         self._generations = GenerationsOps(self._cursor)
+        self._tasks = TasksOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -432,6 +435,72 @@ class ModelsDatabase:
     def restamp_generation_levels(self, level) -> Tuple[int, int]:
         """Judge every generated image's prompt again. See GenerationsOps.restamp_levels()."""
         return self._generations.restamp_levels(level)
+
+    # ==================== The generation queue (delegated) ====================
+
+    def add_task(self, task: Dict[str, Any]) -> int:
+        """Queue a task; returns its id. See db/tasks_ops.py."""
+        return self._tasks.add_task(task)
+
+    def get_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """A task, with the generations its run made and the id of its copy."""
+        return self._tasks.get_task(task_id)
+
+    def next_pending_task(self, install: str) -> Optional[Dict[str, Any]]:
+        """This install's oldest pending task."""
+        return self._tasks.next_pending(install)
+
+    def start_task(self, task_id: int) -> bool:
+        """Mark a pending task running; False if it was not pending."""
+        return self._tasks.start_task(task_id)
+
+    def finish_task(self, task_id: int, status: str, error: Optional[str] = None,
+                    first_seed: Optional[int] = None) -> None:
+        """Record how a task ended. See TasksOps.finish_task()."""
+        self._tasks.finish_task(task_id, status, error, first_seed)
+
+    def stop_running_tasks(self, install: str) -> int:
+        """At startup, mark this install's running tasks stopped (#155)."""
+        return self._tasks.stop_running(install)
+
+    def link_task_generation(self, task_id: int, generation_id: int) -> None:
+        """Note that a generation was made by this task's run."""
+        self._tasks.link_generation(task_id, generation_id)
+
+    def list_tasks(self, install: str, which: str, offset: int = 0,
+                   limit: Optional[int] = None) -> Tuple[List[Dict[str, Any]], int]:
+        """A page of this install's Active or History list, and the list's size."""
+        return self._tasks.list_tasks(install, which, offset, limit)
+
+    def count_tasks(self, install: str) -> Dict[str, int]:
+        """How many of this install's shown tasks have each status."""
+        return self._tasks.count_tasks(install)
+
+    def hide_task_history(self, install: str) -> int:
+        """Hide this install's History; nothing is deleted (#164)."""
+        return self._tasks.hide_history(install)
+
+    def delete_task(self, task_id: int, with_data: bool) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+        """
+        Delete a task, and with its data the generations its run made, in
+        one transaction (#162). A running task is not deleted.
+
+        Returns:
+            (the task as it was, or None if none was deleted; the paths of
+            its generations' images that no other record names). No file is
+            touched here: the caller deletes the images when asked to, and
+            the task's own queue-inputs files.
+        """
+        with self._cursor() as cursor:
+            made = self._tasks.generations_of(cursor, task_id)
+            task = self._tasks.remove(cursor, task_id)
+            if task is None:
+                return None, []
+            paths: List[str] = []
+            if with_data:
+                for generation_id in made:
+                    paths += self._generations.remove(cursor, generation_id)
+            return task, paths
 
     def get_images(
         self,

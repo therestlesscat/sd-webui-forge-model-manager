@@ -265,7 +265,8 @@ class GenerationsOps:
 
     def delete_generation(self, generation_id: int) -> List[str]:
         """
-        Remove a generation's rows from all three tables.
+        Remove a generation's rows from all three tables, and its link to
+        the queue's task that made it, if one did.
 
         Returns:
             The paths its images were saved to that no other record names,
@@ -275,19 +276,25 @@ class GenerationsOps:
             only its own. The files themselves are not touched here.
         """
         with self._cursor() as cursor:
-            cursor.execute("SELECT path FROM generation_images WHERE generation_id = ?",
-                           (generation_id,))
-            paths = [r[0] for r in cursor.fetchall()]
-            cursor.execute("DELETE FROM generation_files WHERE generation_id = ?", (generation_id,))
-            cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
-            cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
-            own = []
-            for path in dict.fromkeys(paths):
-                cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
-                               (path,))
-                if not cursor.fetchone():
-                    own.append(path)
-            return own
+            return self.remove(cursor, generation_id)
+
+    def remove(self, cursor, generation_id: int) -> List[str]:
+        """delete_generation() inside a caller's transaction: a task deleted
+        with its data takes its generations with it, in one (#162)."""
+        cursor.execute("SELECT path FROM generation_images WHERE generation_id = ?",
+                       (generation_id,))
+        paths = [r[0] for r in cursor.fetchall()]
+        cursor.execute("DELETE FROM generation_files WHERE generation_id = ?", (generation_id,))
+        cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
+        cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+        cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
+        own = []
+        for path in dict.fromkeys(paths):
+            cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
+                           (path,))
+            if not cursor.fetchone():
+                own.append(path)
+        return own
 
     def set_user_levels(self, image_ids: List[int], level: Optional[int]) -> int:
         """
@@ -309,7 +316,7 @@ class GenerationsOps:
     def delete_image(self, image_id: int) -> Tuple[List[str], Optional[int]]:
         """
         Remove one image of a generation, and the generation too when it was
-        the last one left.
+        the last one left - with its link to the task that made it.
 
         Returns:
             (its path, if no other record names it - as delete_generation()
@@ -332,6 +339,7 @@ class GenerationsOps:
                                (left, generation_id))
             else:
                 cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+                cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
                 gone = generation_id
             cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
                            (path,))

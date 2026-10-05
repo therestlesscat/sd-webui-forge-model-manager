@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.50 - A queue for your generations
+
+*5 October 2026*
+
+Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
+
+- **0.50.0** (build 376) - The database moves to v34, to keep queued generations. Two WebUIs sharing it must both be updated.
+
 ## 0.48 - Sync reads your model folders
 
 *4 October 2026*
