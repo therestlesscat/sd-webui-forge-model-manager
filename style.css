@@ -2831,7 +2831,7 @@ body.mm-modal-open {
     border-radius: 12px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     width: 100%;
-    max-width: 420px;
+    max-width: min(50%, 800px);
     padding: 20px;
 }
 
