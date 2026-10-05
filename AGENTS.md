@@ -319,6 +319,17 @@ pages kept beside a fresh first one would duplicate and leave gaps. Pages past
 what was fetched come again when someone pages there. A download's sync takes
 the first page: nothing is stored to keep.
 
+**What Civitai fails on during a sync is tried again at its end, patiently.**
+A model's details are stored before its gallery is fetched, so a gallery
+Civitai cannot serve costs only the gallery - 21 files of one force sync had
+kept their old details and levels when it cost both. Once every file has had
+its turn, what failed is asked again under `CivitaiClient.patiently()` - six
+retries, waiting 2, 4, 8, 8, 8 and 8 seconds, on that thread alone: the whole
+model where Civitai could not say what the file is, its images alone where
+only they failed (`SyncResult.civitai_failed`, `.images_error`). What fails
+the second time is an error, and a gallery that failed keeps the stored one.
+A refused key is never asked again: it would refuse again.
+
 **A version's stored NSFW level is Civitai's rating** - or, for a model
 Civitai no longer has, its sidecar's rating for the version. Scan Disk stored
 the higher of that and the worst showcase image, so the level meant two
@@ -959,7 +970,7 @@ real time once.
 python tests/run.py --all
 ```
 
-A hundred and sixty-three, as the runner counts them - 81 Python, 76 browser and
+A hundred and sixty-four, as the runner counts them - 82 Python, 76 browser and
 6 static checks, seven of them skipped unless asked (the NSFW trainer's with
 `--tools`, as it is run by hand) - four at a time: under 35 s. Not wider - each is a process of its own, and
 32 at once beside two running WebUIs left Windows out of memory. While working,

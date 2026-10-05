@@ -6,6 +6,7 @@ so a stub in front of it lets every endpoint method be driven - including the
 paths that only happen when Civitai says no.
 """
 import os
+import contextlib
 import sys
 import time
 
@@ -280,6 +281,54 @@ for body, want in (({'error': OVERLOADED}, 'Civitai: %s (503)' % OVERLOADED),
     check('a 503 says what Civitai said (%s)' % (body or 'nothing'), said, want)
     check('after the retries, as before (%s)' % (body or 'nothing'), len(asked),
           client.MAX_RETRIES + 1)
+
+# ------------------------------------------------------------- tried patiently
+# A sync tries again, at its end, what Civitai failed on: six retries, waiting
+# 2, 4, 8, 8, 8 and 8 seconds - here in thousandths, the same steps.
+import threading                                          # noqa: E402
+import model_manager.civitai.client as client_module      # noqa: E402
+waits = []
+real_sleep = client_module.time.sleep
+client_module.time.sleep = lambda seconds: waits.append(round(seconds / 0.001))
+try:
+    client = CivitaiClient()
+    client.RETRY_BACKOFF_BASE = 0.001
+    client.rate_limiter = TokenBucketRateLimiter(1000.0, 100)
+    asked = []
+    client.session.request = lambda method, url, **kw: asked.append(url) or Answer(503, {'error': OVERLOADED})
+    for patient in (False, True):
+        asked.clear()
+        waits.clear()
+        try:
+            with client.patiently() if patient else contextlib.nullcontext():
+                client.get_model_images(1, limit=1)
+        except CivitaiAPIError:
+            pass
+        check('%s: asked %s, waiting %s' % ('patiently' if patient else 'as usual', len(asked), waits),
+              (len(asked), waits), (7, [1, 2, 4, 4, 4, 4]) if patient else (4, [1, 2, 4]))
+    # Another thread, meanwhile, keeps the usual three.
+    other = []
+    def elsewhere():
+        try:
+            client.get_model_images(1, limit=1)
+        except CivitaiAPIError:
+            pass
+        other.append(len(asked))
+    with client.patiently():
+        asked.clear()
+        thread = threading.Thread(target=elsewhere)
+        thread.start()
+        thread.join()
+    check('patience is the thread\'s that asked for it, not every thread\'s', other, [4])
+    asked.clear()
+    waits.clear()
+    try:
+        client.get_model_images(1, limit=1)
+    except CivitaiAPIError:
+        pass
+    check('and it ends with its block', len(asked), 4)
+finally:
+    client_module.time.sleep = real_sleep
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

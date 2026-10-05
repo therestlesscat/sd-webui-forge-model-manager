@@ -204,9 +204,14 @@ class CivitaiClient:
     UNAUTH_RATE = 0.5
     UNAUTH_BURST = 5
 
-    # Retry settings
+    # Retry settings: a request is tried again MAX_RETRIES times, waiting
+    # BACKOFF_STEPS of RETRY_BACKOFF_BASE before each - 2, 4 and 8 seconds.
+    # Tried once more at the end of a sync (patiently()), six times: 2, 4, 8,
+    # 8, 8 and 8 - an overload Civitai has said is passing, waited out.
     MAX_RETRIES = 3
     RETRY_BACKOFF_BASE = 2.0  # seconds
+    BACKOFF_STEPS = (1, 2, 4)
+    PATIENT_STEPS = (1, 2, 4, 4, 4, 4)
 
     # Request timeout
     REQUEST_TIMEOUT = 30  # seconds
@@ -230,6 +235,8 @@ class CivitaiClient:
         # it would rather stop the page, which it can resume, than sit out
         # minutes of Retry-After with the stream showing nothing.
         self.wait_on_rate_limit = True
+        # This thread's waits between tries, while patiently() holds them.
+        self._local = threading.local()
         self.session = requests.Session()
         self.session.headers["User-Agent"] = "SD-WebUI-Forge-Model-Manager/1.0"
 
@@ -255,6 +262,25 @@ class CivitaiClient:
             pass
 
         return cls(api_key, requests_per_second=rate)
+
+    @contextlib.contextmanager
+    def patiently(self) -> Iterator["CivitaiClient"]:
+        """
+        Requests made inside it, on this thread, are tried again six times,
+        waiting 2, 4, 8, 8, 8 and 8 seconds (PATIENT_STEPS): a sync's second
+        try at a model Civitai failed on. Other threads keep their own.
+        """
+        local = self.__dict__.setdefault("_local", threading.local())
+        before = getattr(local, "steps", None)
+        local.steps = self.PATIENT_STEPS
+        try:
+            yield self
+        finally:
+            local.steps = before
+
+    def _backoff_steps(self) -> Tuple[float, ...]:
+        """The waits between this thread's tries, in RETRY_BACKOFF_BASE."""
+        return getattr(getattr(self, "_local", None), "steps", None) or self.BACKOFF_STEPS
 
     def _request(
         self,
@@ -296,12 +322,15 @@ class CivitaiClient:
             label = endpoint or url.split("?")[0]
         say(f"Request: {method} {label} (auth={'yes' if has_auth else 'no'})")
 
+        steps = self._backoff_steps()
+        retries = len(steps)
+
         def again(why: str, wait: float, attempt: int) -> None:
             # A sentence, whoever wrote it: Civitai's words may end without a stop.
             why = why if why.endswith((".", "!", "?")) else why + "."
-            tell(f"{why} Trying again ({attempt + 1} of {self.MAX_RETRIES})", wait)
+            tell(f"{why} Trying again ({attempt + 1} of {retries})", wait)
 
-        for attempt in range(self.MAX_RETRIES + 1):
+        for attempt in range(retries + 1):
             # Wait for rate limiter - shared by every request at this rate
             turn = self.rate_limiter.wait_time()
             if turn >= 1.0:
@@ -328,7 +357,7 @@ class CivitaiClient:
                 if response.status_code == 429:
                     # Rate limited - get retry-after if available
                     retry_after = int(response.headers.get("Retry-After", 60))
-                    if self.wait_on_rate_limit and attempt < self.MAX_RETRIES:
+                    if self.wait_on_rate_limit and attempt < retries:
                         say(f"Rate limited, waiting {retry_after}s...")
                         said = _civitai_says(response)
                         again(f"Civitai is limiting requests{': ' + said if said else '.'}",
@@ -343,8 +372,8 @@ class CivitaiClient:
                     # temporarily overloaded - please retry." It used to be
                     # left unread, and the page said only "Server error: 503".
                     said = _civitai_says(response)
-                    if attempt < self.MAX_RETRIES:
-                        wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
+                    if attempt < retries:
+                        wait_time = self.RETRY_BACKOFF_BASE * steps[attempt]
                         say(f"Server error {response.status_code}"
                               f"{': ' + said if said else ''}, retrying in {wait_time}s...")
                         again(f"Civitai: {said}" if said else f"Civitai answered {response.status_code}.",
@@ -361,8 +390,8 @@ class CivitaiClient:
 
             except requests.exceptions.Timeout:
                 last_error = CivitaiAPIError("Request timed out")
-                if attempt < self.MAX_RETRIES:
-                    wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
+                if attempt < retries:
+                    wait_time = self.RETRY_BACKOFF_BASE * steps[attempt]
                     say(f"Timeout, retrying in {wait_time}s...")
                     again(f"Civitai did not answer within {self.REQUEST_TIMEOUT} s.", wait_time, attempt)
                     time.sleep(wait_time)
@@ -370,8 +399,8 @@ class CivitaiClient:
 
             except requests.exceptions.ConnectionError as e:
                 last_error = CivitaiAPIError(f"Connection error: {e}")
-                if attempt < self.MAX_RETRIES:
-                    wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
+                if attempt < retries:
+                    wait_time = self.RETRY_BACKOFF_BASE * steps[attempt]
                     say(f"Connection error, retrying in {wait_time}s...")
                     again("Could not reach Civitai.", wait_time, attempt)
                     time.sleep(wait_time)
@@ -384,8 +413,8 @@ class CivitaiClient:
 
             except Exception as e:
                 last_error = CivitaiAPIError(f"Request failed: {e}")
-                if attempt < self.MAX_RETRIES:
-                    wait_time = self.RETRY_BACKOFF_BASE * (2 ** attempt)
+                if attempt < retries:
+                    wait_time = self.RETRY_BACKOFF_BASE * steps[attempt]
                     again(f"The request to Civitai failed: {e}.", wait_time, attempt)
                     time.sleep(wait_time)
                     continue

@@ -1,6 +1,7 @@
 """
 Sync service for fetching model data from Civitai.
 """
+import contextlib
 import os
 import json
 import threading
@@ -11,6 +12,7 @@ from typing import Optional, List, Dict, Any, Callable, Set, Tuple
 from .civitai import (
     CivitaiClient,
     CivitaiAPIError,
+    CivitaiAuthError,
     CivitaiNotFoundError,
     apply_generation_data,
     enrich_images_with_generation_data,
@@ -42,6 +44,12 @@ class SyncResult:
     model_id: Optional[int] = None
     version_id: Optional[int] = None
     image_count: int = 0
+    # Civitai failed to answer (after its retries): worth asking again later.
+    # Not a refused key, which would refuse again.
+    civitai_failed: bool = False
+    # The model is synced, but its gallery could not be fetched: the stored
+    # one stays.
+    images_error: Optional[str] = None
 
 
 @dataclass
@@ -194,6 +202,10 @@ class SyncService:
                 except CivitaiNotFoundError:
                     # This hash didn't match, try next
                     continue
+                except CivitaiAuthError:
+                    # A refused key refuses every hash: no use asking on, or
+                    # again at the end of the sync.
+                    raise
                 except CivitaiAPIError as e:
                     # API error, log but continue trying other hashes
                     say(f"API error with {hash_type}: {e}")
@@ -396,26 +408,11 @@ class SyncService:
                 result.error = "Failed to write civitai.info"
                 return result
 
-            # The first page of the gallery, at the size it is paged in, so
-            # opening the model needs no request of its own
-            if version_id and self._first_for_gallery(version_id):
-                say(f"Fetching images for {model_name}...")
-                db = get_models_db()
-                stored = db.count_images_by_version([version_id]).get(version_id, 0)
-                images, next_cursor = fetch_gallery(self.client, version_id,
-                                                    refresh_size(stored, self.keep_image_count))
-                # /images returns meta: null - generation data comes from a
-                # separate endpoint. Keep what is stored, then look up the
-                # rest; without both, a re-sync replaced prompts with nulls.
-                keep_generation_data(images, db.get_images(version_id))
-                enrich_images_with_generation_data(self.client, images)
-                result.image_count = len(images)
-
-                db.replace_first_page(version_id, images, next_cursor)
-
             # Update database with model and version data. A failure here
             # means the model will not show up in the UI, so it must not be
-            # reported as a successful sync.
+            # reported as a successful sync. Before the gallery: a gallery
+            # Civitai could not serve used to cost the model its fresh
+            # details too - 21 files of one force sync kept their old ones.
             db_error = self._update_database(model_path, data_to_save, hashes, hashes_checked=checked)
             if db_error:
                 result.error = f"Database update failed: {db_error}"
@@ -430,9 +427,22 @@ class SyncService:
             if classify_checkpoint and model_id and data_to_save.get("type") == "Checkpoint":
                 self._classify_checkpoints({model_id: data_to_save})
 
+            # The first page of the gallery, at the size it is paged in, so
+            # opening the model needs no request of its own. One that cannot
+            # be fetched is the gallery's failure, not the model's.
+            has_more = False
+            if version_id and self._first_for_gallery(version_id):
+                try:
+                    result.image_count, has_more = self._fetch_gallery(version_id, model_name)
+                except CivitaiAPIError as e:
+                    result.images_error = str(e)
+                    self._gallery_not_fetched(version_id)
+
             result.success = True
-            has_more = next_cursor is not None if version_id else False
-            say(f"Synced {model_name}: {result.image_count} images (has_more: {has_more})")
+            if result.images_error:
+                say(f"Synced {model_name}, but not its images: {result.images_error}")
+            else:
+                say(f"Synced {model_name}: {result.image_count} images (has_more: {has_more})")
 
             return result
 
@@ -447,11 +457,54 @@ class SyncService:
             if checked:
                 get_models_db().store_file_hashes(model_path, self._hashes_to_dict(hashes), checked)
             result.error = str(e)
+            result.civitai_failed = not isinstance(e, CivitaiAuthError)
             return result
 
         except Exception as e:
             result.error = f"Unexpected error: {e}"
             return result
+
+    def _patiently(self):
+        """The client's patient retries (CivitaiClient.patiently), where it has them."""
+        patiently = getattr(self.client, "patiently", None)
+        return patiently() if patiently else contextlib.nullcontext()
+
+    def _count_error(self, message: Optional[str]) -> None:
+        """One more error on the progress, its message among the last ten. Under the progress lock."""
+        self._progress.errors += 1
+        if message:
+            self._progress.error_messages.append(message)
+            if len(self._progress.error_messages) > 10:
+                self._progress.error_messages = self._progress.error_messages[-10:]
+
+    def _fetch_gallery(self, version_id: int, name: str) -> Tuple[int, bool]:
+        """
+        Replace a version's stored gallery with Civitai's first page of it,
+        at the size the sync was asked for (refresh_size), its prompts kept
+        and the rest looked up. Raises CivitaiAPIError when the images cannot
+        be fetched: the stored gallery then stays as it is.
+
+        Returns how many images came, and whether Civitai has more.
+        """
+        say(f"Fetching images for {name}...")
+        db = get_models_db()
+        stored = db.count_images_by_version([version_id]).get(version_id, 0)
+        images, next_cursor = fetch_gallery(self.client, version_id,
+                                            refresh_size(stored, self.keep_image_count))
+        # /images returns meta: null - generation data comes from a
+        # separate endpoint. Keep what is stored, then look up the
+        # rest; without both, a re-sync replaced prompts with nulls.
+        keep_generation_data(images, db.get_images(version_id))
+        enrich_images_with_generation_data(self.client, images)
+        db.replace_first_page(version_id, images, next_cursor)
+        return len(images), next_cursor is not None
+
+    def _gallery_not_fetched(self, version_id: int) -> None:
+        """A gallery that failed this run is still to fetch: another of the
+        version's files, or the try at the end, may."""
+        with self._galleries_lock:
+            if self.galleries_fetched is not None:
+                self.galleries_fetched.discard(version_id)
 
     def _adopt_listed_hashes(self, hashes: HashResult, version_data: Dict[str, Any]) -> None:
         """
@@ -894,23 +947,36 @@ class SyncService:
                     rehash: bool = False) -> None:
         """
         sync_model() for each of these files, a few at a time, counted on the
-        progress as each ends; then one question about trained or merged for
-        the checkpoints among them that were found.
+        progress as each ends. Then, once every file has had its turn, a
+        second try at what Civitai failed on, patiently (client.patiently:
+        six retries, waiting 2, 4, 8, 8, 8 and 8 seconds): the whole model
+        where Civitai could not say what it is, its images alone where only
+        they failed - the model's details are stored already. What fails the
+        second time is an error; a model whose images failed twice keeps its
+        fresh details and its stored gallery. Then one question about trained
+        or merged for the checkpoints among them that were found.
         """
         synced_model_ids = set()
         self.galleries_fetched = set()
+        again_models: List[str] = []                 # Civitai could not say what it is
+        again_images: List[Tuple[str, int]] = []     # synced, but not its gallery
 
-        def process_model(path: str) -> tuple:
+        def process_model(path: str, patient: bool = False) -> tuple:
             """Process a single model and return (path, result)."""
             if self._cancel_requested:
                 return path, None
             name = os.path.basename(path)
             with self._progress_lock:
                 self._in_flight.append(name)
+                if patient:
+                    self._progress.current_model = f"Trying again, more patiently: {name}"
             try:
                 # Not per file: the classifier answers about a hundred ids at a
                 # time, so they are collected and asked about together below.
-                return path, self.sync_model(path, force=force, classify_checkpoint=False, rehash=rehash)
+                # Tried again, it is not read again: its hashes were kept.
+                with self._patiently() if patient else contextlib.nullcontext():
+                    return path, self.sync_model(path, force=force, classify_checkpoint=False,
+                                                 rehash=rehash and not patient)
             finally:
                 with self._progress_lock:
                     self._in_flight.remove(name)
@@ -919,44 +985,70 @@ class SyncService:
                     say(f"{name}: finished after the cancel"
                         + (f" - {left} still finishing" if left else " - the last one"))
 
-        # Use ThreadPoolExecutor for parallel processing
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            futures = {executor.submit(process_model, path): path for path in model_paths}
+        def count(path: str, result: SyncResult, last_try: bool) -> None:
+            model_name = os.path.basename(path)
+            if result.success and result.model_id:
+                synced_model_ids.add(result.model_id)
+            if not last_try and result.civitai_failed:
+                # Counted when it has had its second try.
+                again_models.append(path)
+                say(f"{model_name}: Civitai did not answer ({result.error}) - "
+                    f"trying again at the end, more patiently")
+                return
+            if not last_try and result.success and result.images_error:
+                again_images.append((path, result.version_id))
+                say(f"{model_name}: its images are tried again at the end, more patiently")
+                result.images_error = None
 
-            # Process results as they complete
-            for future in as_completed(futures):
+            # Thread-safe progress update
+            with self._progress_lock:
+                self._progress.current_model = model_name
+                self._progress.processed += 1
+
+                if result.success:
+                    self._progress.synced += 1
+                    if result.images_error:
+                        self._count_error(f"{model_name}: images: {result.images_error}")
+                elif result.skipped:
+                    self._progress.skipped += 1
+                elif result.not_found:
+                    self._progress.not_found += 1
+                else:
+                    self._count_error(f"{model_name}: {result.error}" if result.error else None)
+
+        def run(paths: List[str], patient: bool) -> None:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(process_model, path, patient) for path in paths]
+                for future in as_completed(futures):
+                    if self._cancel_requested:
+                        break
+                    path, result = future.result()
+                    if result is not None:
+                        count(path, result, last_try=patient)
+
+        run(model_paths, patient=False)
+
+        if (again_models or again_images) and not self._cancel_requested:
+            say(f"Trying again, more patiently, what Civitai failed on: {len(again_models)} model(s), "
+                f"{len(again_images)} model(s)' images")
+            run(again_models, patient=True)
+            for path, version_id in again_images:
                 if self._cancel_requested:
                     break
-
-                path, result = future.result()
-                if result is None:
+                # Fetched meanwhile, through another of the version's files.
+                if not self._first_for_gallery(version_id):
                     continue
-
-                if result.success and result.model_id:
-                    synced_model_ids.add(result.model_id)
-
-                model_name = os.path.basename(path)
-
-                # Thread-safe progress update
+                name = os.path.basename(path)
                 with self._progress_lock:
-                    self._progress.current_model = model_name
-                    self._progress.processed += 1
-
-                    if result.success:
-                        self._progress.synced += 1
-                    elif result.skipped:
-                        self._progress.skipped += 1
-                    elif result.not_found:
-                        self._progress.not_found += 1
-                    else:
-                        self._progress.errors += 1
-                        if result.error:
-                            error_msg = f"{model_name}: {result.error}"
-                            self._progress.error_messages.append(error_msg)
-                            # Keep only last 10 errors
-                            if len(self._progress.error_messages) > 10:
-                                self._progress.error_messages = self._progress.error_messages[-10:]
+                    self._progress.current_model = f"Trying again, more patiently: images of {name}"
+                try:
+                    with self._patiently():
+                        images, _ = self._fetch_gallery(version_id, name)
+                    say(f"{name}: {images} images, at the second try")
+                except CivitaiAPIError as e:
+                    say(f"{name}: its images could not be fetched, twice - the stored ones stay")
+                    with self._progress_lock:
+                        self._count_error(f"{name}: images: {e}")
 
         self.galleries_fetched = None
 
@@ -1268,6 +1360,8 @@ class SyncService:
         sizes = {version_id: refresh_size(stored.get(version_id, 0), self.keep_image_count)
                  for version_id in stored}
         page_size = refresh_size(0, False)
+        # Galleries Civitai failed to serve: tried again at the end, patiently.
+        again: List[Dict[str, Any]] = []
 
         for start in range(0, len(versions), self.GALLERY_CHUNK):
             if self._cancel_requested:
@@ -1289,10 +1383,15 @@ class SyncService:
                 try:
                     images, next_cursor = fetch_gallery(self.client, version["id"],
                                                         sizes.get(version["id"], page_size))
+                except CivitaiAPIError as e:
+                    with self._progress_lock:
+                        again.append(version)
+                    say(f"{name}: images failed ({e}) - trying again at the end, more patiently")
+                    images = []
+                    next_cursor = False
                 except Exception as e:
                     with self._progress_lock:
-                        self._progress.errors += 1
-                        self._progress.error_messages.append(f"{name}: images: {e}")
+                        self._count_error(f"{name}: images: {e}")
                     images = []
                     next_cursor = False
                 with self._progress_lock:
@@ -1332,7 +1431,7 @@ class SyncService:
                     # the version has, so the stored one stays as it is. It
                     # used to be cleared and nothing stored in its place: a
                     # network error during a sync emptied the galleries it
-                    # touched. The failure is already counted as an error.
+                    # touched. It is tried again at the end of the sync.
                     # With where Civitai's next page starts, as a sync of one
                     # model keeps it. Without it "Download More Images" asked
                     # for the first page again - these images - and showed
@@ -1350,6 +1449,31 @@ class SyncService:
 
             if callback:
                 callback(self._progress)
+
+        if not again or self._cancel_requested:
+            return
+        say(f"Trying again, more patiently, {len(again)} gallery(ies) Civitai failed on")
+        for version in again:
+            if self._cancel_requested:
+                return
+            name = os.path.basename(version["file_path"])
+            with self._progress_lock:
+                self._progress.current_model = f"Trying again, more patiently: images of {name}"
+            try:
+                with self._patiently():
+                    images, next_cursor = fetch_gallery(self.client, version["id"],
+                                                        sizes.get(version["id"], page_size))
+                    keep_generation_data(images, db.get_images(version["id"]))
+                    if include_prompts:
+                        enrich_images_with_generation_data(self.client, images)
+                db.replace_first_page(version["id"], images, next_cursor)
+                say(f"{name}: {len(images)} images, at the second try")
+            except CivitaiAPIError as e:
+                say(f"{name}: its images could not be fetched, twice - the stored ones stay")
+                with self._progress_lock:
+                    self._count_error(f"{name}: images: {e}")
+        if callback:
+            callback(self._progress)
 
     def cancel(self):
         """
