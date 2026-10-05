@@ -1,0 +1,225 @@
+"""
+The generation queue (#151-#164): its state, Start, Stop, Pause and Resume;
+the Active and History lists and a task's details; Retry, Delete and Clear
+history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
+a task is, and what Retry and Delete make of one.
+
+Only this install's tasks are listed or acted on: another WebUI sharing the
+database queued its own, and runs them itself.
+
+A task's images are drawn as the Generations tab draws them: through its
+NSFW switch - its own setting when the page sends none - as its cards, and
+deleted as it deletes them.
+"""
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI, Form
+from fastapi.responses import JSONResponse
+
+from ..console import say
+from ..db import get_models_db
+from ..install import INSTALL_KEY
+from ..scheduler import runner, tasks
+from ..scheduler.values import files
+from .common import failed
+from .generations import PREVIEW_IMAGES, _delete_files, _filtered, _image, generations_hide_nsfw
+
+# Tasks a list shows at a time.
+PAGE_SIZE = 20
+
+
+def _ids(text: str) -> List[int]:
+    return list(dict.fromkeys(int(v) for v in (text or "").split(",") if v.strip().isdigit()))
+
+
+def _ours(db, task_id: int) -> Optional[Dict[str, Any]]:
+    """A task this install queued, or None."""
+    task = db.get_task(task_id)
+    return task if task and task.get("install") == INSTALL_KEY else None
+
+
+def _with_images(db, found: List[Dict[str, Any]], hide_nsfw: bool,
+                 limit: Optional[int]) -> List[Dict[str, Any]]:
+    """Each task's row, with the first `limit` images its run made that the switch shows - all, for None."""
+    images_of = db.task_images([t["id"] for t in found])
+    rows = []
+    for task in found:
+        made = images_of.get(task["id"], [])
+        shown, counts = _filtered(made, hide_nsfw, False)
+        shown = shown if limit is None else shown[:limit]
+        cards = db.get_generation_images([r["id"] for r in shown])
+        rows.append({**tasks.summary(task),
+                     "images": [_image(cards[r["id"]]) for r in shown if r["id"] in cards],
+                     "image_count": len(made),
+                     "hidden_nsfw": counts["hidden_nsfw"]})
+    return rows
+
+
+def task_page(db, which: str, page: int = 1, hide_nsfw: bool = False) -> Dict[str, Any]:
+    """
+    A page of the Active or History list (#157): Active in the order the
+    tasks will run, History newest first. Each row with its first images.
+    """
+    page = max(1, int(page))
+    found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE)
+    return {"which": which, "tasks": _with_images(db, found, hide_nsfw, PREVIEW_IMAGES),
+            "total": total, "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
+            "page_size": PAGE_SIZE}
+
+
+def retry(db, task_ids: List[int], seed: str) -> Dict[str, Any]:
+    """Queue a copy of each ended task, at the end of the queue (#161)."""
+    queued, skipped = [], []
+    for task_id in task_ids:
+        task = _ours(db, task_id)
+        if task is None:
+            skipped.append({"id": task_id, "why": "not found"})
+        elif task["status"] not in tasks.ENDED:
+            skipped.append({"id": task_id, "why": f"still {task['status']}"})
+        else:
+            queued.append(db.add_task(tasks.retried(task, seed)))
+    return {"queued": queued, "skipped": skipped}
+
+
+def delete(db, task_ids: List[int], with_data: bool) -> Dict[str, Any]:
+    """
+    Delete each task, and with its data the generations it made - their
+    rows and image files (#162). Either way its own input files go, but
+    those a retry's copy still names. A running task is not deleted.
+    """
+    deleted, skipped, images, inputs = [], [], [], []
+    for task_id in task_ids:
+        task = _ours(db, task_id)
+        if task is None:
+            skipped.append({"id": task_id, "why": "not found"})
+            continue
+        gone, paths = db.delete_task(task_id, with_data)
+        if gone is None:
+            skipped.append({"id": task_id, "why": "running"})
+            continue
+        deleted.append(task_id)
+        images += paths
+        inputs += files(gone.get("inputs"))
+    images_deleted, failed_files = _delete_files(list(dict.fromkeys(images))) if with_data else ([], [])
+    in_use = set(db.task_files_in_use(inputs))
+    inputs_deleted, failed_inputs = tasks.delete_inputs([p for p in dict.fromkeys(inputs) if p not in in_use])
+    return {"deleted": deleted, "skipped": skipped, "deleted_files": len(images_deleted),
+            "deleted_inputs": inputs_deleted, "failed": failed_files + failed_inputs}
+
+
+def register(app: FastAPI):
+    """Attach this module's endpoints to the app."""
+
+    @app.get("/model-manager/queue/status")
+    def get_status():
+        """The queue's state, the task it is on, and how many tasks have each status."""
+        try:
+            return JSONResponse({"success": True, **runner.status()})
+        except Exception as e:
+            return failed(e, "Queue status error")
+
+    @app.post("/model-manager/queue/start")
+    def start(force: bool = False):
+        """
+        Start the queue. Unless forced, not while a pending task uses a
+        script that is gone: those are answered, for the page to ask
+        whether to run them without it (#151).
+        """
+        try:
+            return JSONResponse({"success": True, **runner.start(force)})
+        except Exception as e:
+            return failed(e, "Queue start error")
+
+    def _act(action: str):
+        """`acted` is false with no queue running."""
+        try:
+            return JSONResponse({"success": True, "acted": getattr(runner, action)()})
+        except Exception as e:
+            return failed(e, f"Queue {action} error")
+
+    @app.post("/model-manager/queue/stop")
+    def stop():
+        """End the running task and start no other (#152)."""
+        return _act("stop")
+
+    @app.post("/model-manager/queue/pause")
+    def pause():
+        """Let the running task finish, then start no other (#153)."""
+        return _act("pause")
+
+    @app.post("/model-manager/queue/resume")
+    def resume():
+        """Go on with the next pending task (#153)."""
+        return _act("resume")
+
+    @app.get("/model-manager/queue/tasks")
+    def get_tasks(which: str = "active", page: int = 1, hide_nsfw_images: Optional[bool] = None):
+        """A page of the Active or History list. See task_page()."""
+        if which not in ("active", "history"):
+            return JSONResponse({"success": False, "error": f"No list {which}"}, status_code=404)
+        try:
+            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
+            return JSONResponse({"success": True, **task_page(get_models_db(), which, page, hide_nsfw)})
+        except Exception as e:
+            return failed(e, "Queue list error")
+
+    @app.get("/model-manager/queue/tasks/{task_id}")
+    def get_task(task_id: int, hide_nsfw_images: Optional[bool] = None):
+        """A task's details (#159): its row with every image, and everything it holds."""
+        try:
+            db = get_models_db()
+            task = _ours(db, task_id)
+            if task is None:
+                return JSONResponse({"success": False, "error": "No such task"}, status_code=404)
+            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
+            return JSONResponse({"success": True, "task": _with_images(db, [task], hide_nsfw, None)[0],
+                                 "inputs": tasks.details(task)})
+        except Exception as e:
+            return failed(e, "Queue task error")
+
+    @app.post("/model-manager/queue/retry")
+    def post_retry(ids: str = Form(default=""), seed: str = Form(default="first")):
+        """
+        Retry these tasks (#161, #163): `seed` is "first", the first run's,
+        or "random".
+
+        Returns:
+            queued: the copies' ids; skipped: each task not copied, and why.
+        """
+        if seed not in ("first", "random"):
+            return JSONResponse({"success": False, "error": f"No seed choice {seed}"}, status_code=400)
+        try:
+            result = retry(get_models_db(), _ids(ids), seed)
+            say(f"Queue: {len(result['queued'])} task(s) queued again")
+            return JSONResponse({"success": True, **result})
+        except Exception as e:
+            return failed(e, "Queue retry error")
+
+    @app.post("/model-manager/queue/delete")
+    def post_delete(ids: str = Form(default=""), with_data: bool = Form(default=False)):
+        """
+        Delete these tasks (#162, #163), and with_data the generations they
+        made, files included.
+
+        Returns:
+            deleted: the ids deleted; skipped: each not, and why;
+            deleted_files: image files deleted; deleted_inputs: the tasks'
+            own files deleted; failed: files that could not be, with why.
+        """
+        try:
+            result = delete(get_models_db(), _ids(ids), with_data)
+            say(f"Queue: deleted {len(result['deleted'])} task(s)"
+                + (f", {result['deleted_files']} image file(s)" if with_data else ""))
+            return JSONResponse({"success": True, **result})
+        except Exception as e:
+            return failed(e, "Queue delete error")
+
+    @app.post("/model-manager/queue/history/clear")
+    def clear_history():
+        """Hide every task in History (#164); nothing is deleted. `hidden`: how many."""
+        try:
+            hidden = get_models_db().hide_task_history(INSTALL_KEY)
+            say(f"Queue: {hidden} task(s) cleared from History")
+            return JSONResponse({"success": True, "hidden": hidden})
+        except Exception as e:
+            return failed(e, "Queue clear error")

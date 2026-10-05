@@ -11,6 +11,7 @@ Everything the browser can ask for, grouped by what it is asking about:
   webui.py        what Forge itself knows, such as samplers
   settings.py     the settings window: the settings, and saving them
   notes.py        notes to the user per release, and dismissing them; a newer version
+  scheduler.py    the generation queue: running it, its tasks, and acting on them
   annotations.py  marking a Civitai result with what we know locally
   prompts.py      deciding whether a model has usable prompts
 
@@ -22,7 +23,7 @@ runs it - not here, at import, which happens once a process.
 """
 from fastapi import FastAPI
 
-from . import civitai, generations, images, jobs, models, notes, settings, webui
+from . import civitai, generations, images, jobs, models, notes, scheduler, settings, webui
 from .. import prompt_levels, update_check
 from ..scheduler import runner
 from ..console import say
@@ -38,6 +39,7 @@ def setup_api(app: FastAPI):
     webui.register(app)
     settings.register(app)
     notes.register(app)
+    scheduler.register(app)
     say("API endpoints registered")
 
 

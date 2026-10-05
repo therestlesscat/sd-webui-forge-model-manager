@@ -24,6 +24,8 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from ..prompt_rules import trimmed_sql
+
 ACTIVE = ("pending", "running")
 HISTORY = ("completed", "stopped", "failed")
 
@@ -208,6 +210,46 @@ class TasksOps:
             cursor.execute(f"UPDATE tasks SET hidden = 1 WHERE install = ? AND hidden = 0 "
                            f"AND status IN ({_marks(HISTORY)})", (install, *HISTORY))
             return cursor.rowcount
+
+    def images_of(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """
+        The images each task's run made, by task: its generations oldest
+        first, each image in its place - with what the Generations tab's
+        switches read: its level, the user's rating when set, and how long
+        its prompt is.
+        """
+        if not task_ids:
+            return {}
+        found: Dict[int, List[Dict[str, Any]]] = {}
+        with self._cursor() as cursor:
+            cursor.execute(f"""
+                SELECT tg.task_id, gi.id, gi.generation_id, gi.position,
+                       COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
+                       LENGTH({trimmed_sql('gi.prompt')}) AS prompt_length
+                FROM task_generations tg
+                JOIN generation_images gi ON gi.generation_id = tg.generation_id
+                WHERE tg.task_id IN ({_marks(task_ids)})
+                ORDER BY tg.task_id, gi.generation_id, gi.position
+            """, list(task_ids))
+            for row in cursor.fetchall():
+                image = dict(row)
+                found.setdefault(image.pop("task_id"), []).append(image)
+        return found
+
+    def files_in_use(self, paths: List[str]) -> List[str]:
+        """
+        Which of these files a task still names in its inputs. A retry's copy
+        names its original's files, which outlive the original (#161).
+        """
+        used = []
+        with self._cursor() as cursor:
+            for path in paths:
+                # As add_task wrote it: a JSON string, quotes and all.
+                cursor.execute("SELECT 1 FROM tasks WHERE instr(inputs, ?) > 0 LIMIT 1",
+                               (json.dumps(path, ensure_ascii=False),))
+                if cursor.fetchone():
+                    used.append(path)
+        return used
 
     def generations_of(self, cursor, task_id: int) -> List[int]:
         """The generations a task's run made, oldest first, inside a caller's transaction."""

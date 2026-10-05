@@ -480,6 +480,14 @@ class ModelsDatabase:
         """Hide this install's History; nothing is deleted (#164)."""
         return self._tasks.hide_history(install)
 
+    def task_images(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        """The images each task's run made, briefly. See TasksOps.images_of()."""
+        return self._tasks.images_of(task_ids)
+
+    def task_files_in_use(self, paths: List[str]) -> List[str]:
+        """Which of these files a task's inputs still name (#161)."""
+        return self._tasks.files_in_use(paths)
+
     def delete_task(self, task_id: int, with_data: bool) -> Tuple[Optional[Dict[str, Any]], List[str]]:
         """
         Delete a task, and with its data the generations its run made, in
