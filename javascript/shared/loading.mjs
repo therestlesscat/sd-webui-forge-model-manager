@@ -15,11 +15,13 @@
  * observer, an action offered. Listeners on its own elements hide with it.
  *
  * Switched off mid-session, a tab stops at once: its scope takes all of that
- * back, its button hides, and the page leaves it if it showed. Switched on
- * again, a tab built at this start and not started yet starts at once; one
- * stopped earlier comes back with a page reload, as its state went with it;
- * one not built, with a restart. The shared services a tab started keep
- * running for now (#186). Once for the page: the tabs share this copy.
+ * back, its button hides, and the page leaves it if it showed. So does each
+ * shared service it used that no running tab uses any more (#186). Switched
+ * on again, a tab built at this start and not started yet starts at once;
+ * one that ran here comes back with a page reload, or a restart of the
+ * WebUI, which the popup offers - only a new page is sure to hold nothing a
+ * stop missed; one not built, with Reload UI. Once for the page: the tabs
+ * share this copy.
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -28,7 +30,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
 const { provide, withdraw } = await shared('calls.mjs');
-const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
+const { panelButton, showTab, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
 
 /**
@@ -186,9 +188,12 @@ export function createScope(name) {
         sleep: (ms) => {
             return new Promise((resolve) => scope.later(resolve, ms));
         },
-        /** onAfterUiUpdate: the WebUI keeps every callback, so a stopped tab's does nothing. */
+        /** onAfterUiUpdate: the WebUI keeps every callback, so a stopped tab's does nothing. Named as its work. */
         afterUpdate: (work) => {
-            if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(() => { if (scope.live) work(); });
+            if (typeof onAfterUiUpdate !== 'function') return;
+            const hook = () => { if (scope.live) work(); };
+            Object.defineProperty(hook, 'name', { value: work.name });
+            onAfterUiUpdate(hook);
         },
         /** An observer, disconnected on stop. */
         observe: (observer) => {
@@ -255,12 +260,68 @@ export function tabWork() {
     };
 }
 
+// ---------------------------------------------------- the shared services
+// What the tabs share - the page's actions, the notes, the settings window,
+// the downloads list, the sync, Send - each started once for the page, by the
+// first tab whose STARTS reach it, with a scope of its own (#186). Its users
+// are the running tabs that reach it; when the last one stops, so does it.
+// They used to start once and run on: with the Model Manager off, the page
+// still asked for the sync's progress each time it came back into view. A
+// service stopped does not start again in this page.
+
+const services = new Map();     // file -> { scope, users, ready, stopped }
+
+/** These services and what each starts in turn (its STARTS), each after what it starts. */
+async function reach(files, seen = new Set(), order = []) {
+    for (const file of files) {
+        if (seen.has(file)) continue;
+        seen.add(file);
+        await reach((await shared(file)).STARTS || [], seen, order);
+        order.push(file);
+    }
+    return order;
+}
+
+/**
+ * Start these services for `user` - a tab, or a suite - and what they start
+ * in turn: each once for the page, its users counted. Answers false,
+ * starting nothing, when one of them has stopped in this page.
+ */
+export async function useServices(files, user) {
+    const all = await reach(files);
+    if (all.some((file) => services.get(file)?.stopped)) return false;
+    for (const file of all) {
+        let service = services.get(file);
+        if (!service) {
+            const scope = createScope(file);
+            service = { scope, users: new Set(), stopped: false,
+                        ready: shared(file).then((module) => module.start?.(scope))
+                            .catch((error) => console.error(`[ModelManager] Starting ${file}:`, error)) };
+            services.set(file, service);
+        }
+        service.users.add(user);
+        await service.ready;
+    }
+    return true;
+}
+
+/** `user` uses no service any more: each it leaves without users stops, the last started first. */
+export function leaveServices(user) {
+    for (const service of [...services.values()].reverse()) {
+        if (!service.users.delete(user) || service.users.size) continue;
+        service.scope.stop();
+        service.stopped = true;
+    }
+}
+
 // ------------------------------------------------------- starting, stopping
 
 /**
  * Load a tab's script and start it, once its markup is there: the shared
- * modules it uses first (#182). Resolves once its start() has been called -
- * not when it is done, as a tab's start goes on with its first requests.
+ * services it uses first (#182, #186). Resolves once its start() has been
+ * called - not when it is done, as a tab's start goes on with its first
+ * requests - with its scope; null, starting nothing, when a service it needs
+ * has stopped in this page: only a reload brings that back.
  */
 export async function startTab(name) {
     const tab = TABS[name];
@@ -269,7 +330,13 @@ export async function startTab(name) {
     const scope = createScope(name);
     now.scope = scope;
     const module = await import(new URL(`../tabs/${tab.file}${new URL(import.meta.url).search}`, import.meta.url).href);
-    for (const service of module.STARTS) (await shared(service)).start();
+    if (!await useServices(module.STARTS, name)) {
+        now.scope = null;
+        scope.stop();
+        now.stopped = true;
+        changed(name);
+        return null;
+    }
     if (!await scope.markup(tab.markup)) {
         if (scope.live) console.warn(`[ModelManager] The ${name} tab never appeared; not loading it`);
         return scope;
@@ -282,7 +349,10 @@ export async function startTab(name) {
     return scope;
 }
 
-/** Stop a tab: its scope takes back all it added. It starts again only with a page reload. */
+/**
+ * Stop a tab: its scope takes back all it added, and each service only it
+ * still used stops. It starts again only in a new page.
+ */
 export function stopTab(name) {
     const now = state[name];
     if (!now.scope) return;
@@ -290,6 +360,7 @@ export function stopTab(name) {
     now.scope = null;
     now.started = false;
     now.stopped = true;
+    leaveServices(name);
     changed(name);
 }
 
@@ -329,6 +400,7 @@ function apply(name) {
 function applyAll() {
     Object.keys(TABS).forEach(apply);
     applyLinks();
+    if (returnTo) goBack();
 }
 
 /** A new answer for one tab: start or stop it, hide or show it, and tell the other tabs. */
@@ -337,28 +409,40 @@ function setOn(name, on) {
     const changed = now.on !== undefined && now.on !== on;
     now.on = on;
     if (changed && !on) {
+        // One that ran here may have left something a stop missed: a new
+        // page, or a restarted WebUI, is the clean slate.
+        const ran = Boolean(now.scope) || now.stopped;
         stopTab(name);
-        waitForReload(name, null);
+        waitForReload(name, ran ? 'off' : null);
     }
     if (changed && on) {
-        if (now.built && !now.stopped) startTab(name);
-        else waitForReload(name, now.built ? 'page' : 'ui');
+        if (now.built && !now.stopped) {
+            waitForReload(name, null);
+            startTab(name).then((scope) => { if (!scope) waitForReload(name, 'page'); });
+        } else {
+            waitForReload(name, now.built ? 'page' : 'ui');
+        }
     }
     apply(name);
     const event = TABS[name].event;
     if (changed && event) window.dispatchEvent(new CustomEvent(event, { detail: { enabled: on } }));
 }
 
-// ------------------------------------------------- what needs a reload
-// A switch turned on that cannot take effect in this page (#185): a tab that
-// ran here and stopped comes back with a page reload - its state went with
-// it; one this start did not build is created by Settings -> Reload UI. One
-// popup says which, for every switch saved, and offers it - the WebUI's own
-// Reload UI button, which reloads the page as well - or Later. Off, a tab
-// stops and hides at once; on, one built and never started starts at once:
-// neither asks anything.
+// --------------------------------------------- a restart, or a reload
+// A tab switch this page cannot fully take (#185, #186). A tab that ran here
+// may have left something its stop missed - a new page is sure to hold
+// nothing of it - and one turned on again comes back only in a new page; one
+// this start did not build is created by Settings -> Reload UI. One popup
+// says so for every switch saved, and offers Restart WebUI - the server and
+// the page afresh, the cleanest slate, where the WebUI comes back after it -
+// the lighter way, or Later. Either way the page comes back to the tab that
+// showed. A tab turned on that starts at once asks nothing.
 
-const waiting = new Map();          // tab -> 'page' or 'ui'
+const waiting = new Map();          // tab -> 'off', 'page' or 'ui'
+let restartable = false;            // whether the WebUI comes back after a restart (ui-options)
+const NOT_RESTARTABLE = 'This WebUI was not started by webui.bat or webui.sh: a restart would leave it shut down';
+const RETURN_KEY = 'mm-return-to';  // the tab that showed, for the page a reload brings
+let returnTo = null;
 
 function waitForReload(name, how) {
     if (how) waiting.set(name, how);
@@ -370,7 +454,7 @@ function reloadPopup() {
     return typeof document === 'undefined' ? null : document.querySelector('.mm-reload-dialog');
 }
 
-function drawReloadPopup() {
+function drawReloadPopup(error = null) {
     if (typeof document === 'undefined') return;
     if (!waiting.size) {
         closeReloadPopup();
@@ -385,16 +469,24 @@ function drawReloadPopup() {
         document.addEventListener('keydown', onReloadKey, true);
     }
     const ui = [...waiting.values()].includes('ui');
-    const lines = [...waiting].map(([name, how]) => (how === 'ui'
-        ? `${LABELS[name]} is created by Settings -> Reload UI.`
-        : `${LABELS[name]} comes back with a page reload.`));
+    const LINES = { off: 'is turned off.', page: 'comes back with a page reload.',
+                    ui: 'is created by Settings -> Reload UI.' };
+    const lines = [...waiting].map(([name, how]) => `${LABELS[name]} ${LINES[how]}`);
+    const notes = [restartable ? 'Restart WebUI starts the server and the page afresh: the cleanest slate. '
+                                 + 'A running generation and sync end; downloads pause, and resume after.'
+                               : `${NOT_RESTARTABLE}.`,
+                   'Reloading loses unsaved input, like a typed prompt.'];
     popup.innerHTML = `
         <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_reload_title">
-            <h3 id="mm_reload_title">Reload to apply</h3>
+            <h3 id="mm_reload_title">Restart or reload</h3>
             <div class="mm-reload-list">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')}</div>
+            <div class="mm-reload-notes">${notes.map((note) => `<p>${escapeHtml(note)}</p>`).join('\n')}</div>
+            ${error ? `<p class="mm-reload-error">${escapeHtml(error)}</p>` : ''}
             <div class="mm-dialog-buttons">
-                <button type="button" class="mm-btn primary" data-reload="${ui ? 'ui' : 'page'}">${
-                    ui ? 'Reload UI' : 'Reload the page'}</button>
+                <button type="button" class="mm-btn ${restartable ? 'primary' : 'secondary'}" data-reload="restart"${
+                    restartable ? '' : ` disabled title="${escapeHtml(NOT_RESTARTABLE)}"`}>Restart WebUI</button>
+                <button type="button" class="mm-btn ${restartable ? 'secondary' : 'primary'}" data-reload="${
+                    ui ? 'ui' : 'page'}">${ui ? 'Reload UI' : 'Reload the page'}</button>
                 <button type="button" class="mm-btn secondary" data-reload="later">Later</button>
             </div>
         </div>`;
@@ -406,11 +498,35 @@ function closeReloadPopup() {
     if (typeof document !== 'undefined') document.removeEventListener('keydown', onReloadKey, true);
 }
 
+/** The tab showing, for the page a reload brings to show again. */
+function rememberTab() {
+    try {
+        sessionStorage.setItem(RETURN_KEY, shownPanel() || '');
+    } catch {
+        // Without the storage, the new page starts on its first tab.
+    }
+}
+
+/** After a reload asked for here: the tab that showed, once Gradio has drawn its button - unless it is hidden now. */
+function goBack() {
+    const button = panelButton(returnTo);
+    if (!button) return;
+    returnTo = null;
+    if (button.style.display !== 'none') button.click();
+}
+
 function onReloadClick(event) {
     const button = event.target.closest?.('[data-reload]');
     if (!button && event.target !== event.currentTarget) return;
+    if (button?.disabled) return;
     const how = button?.dataset.reload || 'later';
+    if (how === 'restart') {
+        restartWebui(button);
+        return;
+    }
     closeReloadPopup();
+    if (how === 'later') return;
+    rememberTab();
     if (how === 'page') window.location.reload();
     if (how === 'ui') {
         const app = typeof gradioApp === 'function' ? gradioApp() : document;
@@ -418,6 +534,35 @@ function onReloadClick(event) {
         if (reloadUi) reloadUi.click();
         else window.location.reload();
     }
+}
+
+/**
+ * Restart WebUI: the server answers, then ends its process for its start
+ * script to start afresh; the page waits for it as the WebUI's own restart
+ * does (restart_reload, its ui.js), and loads again.
+ */
+async function restartWebui(button) {
+    button.disabled = true;
+    button.textContent = 'Restarting...';
+    let answer;
+    try {
+        answer = await (await fetch('/model-manager/restart', { method: 'POST' })).json();
+    } catch (error) {
+        answer = { success: false, error: String(error) };
+    }
+    if (!answer?.success) {
+        drawReloadPopup(`The WebUI did not restart: ${answer?.error || 'no answer'}`);
+        return;
+    }
+    rememberTab();
+    closeReloadPopup();
+    if (typeof restart_reload === 'function') {
+        restart_reload();
+        return;
+    }
+    const ask = () => fetch('./internal/ping').then((r) => (r.ok ? window.location.reload() : again()), again);
+    const again = () => setTimeout(ask, 500);
+    setTimeout(ask, 2000);
 }
 
 function onReloadKey(event) {
@@ -444,8 +589,15 @@ function takeSwitches(value) {
  * watched that page's Apply, and only a tab running starts it.
  */
 export const boot = once(() => {
+    try {
+        returnTo = sessionStorage.getItem(RETURN_KEY) || null;
+        sessionStorage.removeItem(RETURN_KEY);
+    } catch {
+        returnTo = null;
+    }
     onReady(async () => {
         const data = await uiOptions();
+        restartable = data?.restartable === true;
         for (const [name, tab] of Object.entries(TABS)) {
             const said = data?.tabs?.[tab.server];
             state[name].on = said ? said.on !== false : true;

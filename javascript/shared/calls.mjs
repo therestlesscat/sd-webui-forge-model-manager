@@ -78,13 +78,15 @@ function act(event) {
 
 /**
  * The page's one listener, started by the first tab that starts this module
- * (#182). Once for the page, as the map: a second copy of this module would
- * call every action twice.
+ * (#182), through the loading module's scope, which takes it back when the
+ * last tab stops (#186). Once for the page, as the map: a second copy of this
+ * module would call every action twice.
  */
-export function start() {
+export function start(scope) {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
             || globalThis.__mmActing) return;
     globalThis.__mmActing = true;
-    document.addEventListener('click', act);
-    document.addEventListener('change', act);
+    scope.onStop(() => { globalThis.__mmActing = false; });
+    scope.listen(document, 'click', act);
+    scope.listen(document, 'change', act);
 }

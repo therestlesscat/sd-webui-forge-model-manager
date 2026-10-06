@@ -14,8 +14,13 @@ import os
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from starlette.background import BackgroundTask
 from ..console import say
 from .common import gate
+
+# Why Restart WebUI is not offered (#186).
+NOT_RESTARTABLE = ("This WebUI was not started by webui.bat or webui.sh: "
+                   "a restart would leave it shut down")
 
 _SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "javascript")
 SHARED_SCRIPTS = os.path.join(_SCRIPTS, "shared")
@@ -213,7 +218,7 @@ def register(app: FastAPI):
     def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
-        from ..forge_host import samplers, schedulers, setting
+        from ..forge_host import restartable, samplers, schedulers, setting
         from ..model_dirs import shown_roots
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         from ..scheduler import queue_enabled
@@ -234,6 +239,8 @@ def register(app: FastAPI):
         # one switched on since needs a restart (tabs.py).
         made = built()
         tabs = {tab: {"on": on(tab), "built": tab in made} for tab in TABS}
+        # Whether Restart WebUI is offered after a tab switch: the WebUI comes back (#186).
+        can_restart = restartable()
         # Above how many images Generate asks whether to queue them (#166); 0 never.
         try:
             queue_ask_above = max(0, int(setting('model_manager_queue_ask_above') or 0))
@@ -261,6 +268,7 @@ def register(app: FastAPI):
                 "queue_enabled": queue_on,
                 "queue_ask_above": queue_ask_above,
                 "tabs": tabs,
+                "restartable": can_restart,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
                 "path_roots": shown_roots(),
             })
@@ -279,6 +287,20 @@ def register(app: FastAPI):
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_enabled": generations_on,
                  "queue_enabled": queue_on,
-                 "tabs": tabs},
+                 "tabs": tabs, "restartable": can_restart},
                 status_code=500
             )
+
+    @app.post("/model-manager/restart")
+    @gate("always")
+    def restart():
+        """
+        Restart the WebUI: a tab switch's cleanest slate, the server and the
+        page afresh (#186). Once the answer is sent, so the page hears it and
+        waits for the new process. Refused where the WebUI would not come back.
+        """
+        from ..forge_host import restart_webui, restartable
+        if not restartable():
+            return JSONResponse({"success": False, "error": NOT_RESTARTABLE}, status_code=409)
+        say("Restarting the WebUI, as asked after a tab switch")
+        return JSONResponse({"success": True}, background=BackgroundTask(restart_webui))

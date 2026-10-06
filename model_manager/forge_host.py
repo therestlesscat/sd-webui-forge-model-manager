@@ -401,6 +401,29 @@ def last_error() -> Optional[str]:
     return f"{type(error).__name__}: {error}"
 
 
+def restartable() -> bool:
+    """
+    Whether the WebUI comes back after restart_webui(): its own start script
+    (webui.bat, webui.sh) sets SD_WEBUI_RESTART and starts it again. Started
+    any other way, a restart would leave it shut down.
+    """
+    try:
+        from modules import restart
+    except ImportError:
+        return False
+    return bool(restart.is_restartable())
+
+
+def restart_webui() -> None:
+    """
+    End the WebUI's process for its start script to start afresh, as the
+    Extensions tab's Apply and restart UI does - without that button, which
+    applies the tab's own checkboxes too. Only once restartable() says so.
+    """
+    from modules import restart
+    restart.restart_program()
+
+
 # ------------------------------------- which Forge, and where the two differ
 
 def forge_name() -> str:

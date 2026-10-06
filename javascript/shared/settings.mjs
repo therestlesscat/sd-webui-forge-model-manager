@@ -20,8 +20,8 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, holdPage, once } = await shared('core.mjs');
-const { provide, ready, call } = await shared('calls.mjs');
+const { TIMING, escapeHtml, holdPage } = await shared('core.mjs');
+const { ready, call } = await shared('calls.mjs');
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -248,12 +248,15 @@ function createSettings() {
         root.addEventListener('input', onInput);
         root.addEventListener('change', onInput);
         root.querySelector('#mm_settings_search').addEventListener('input', applyVisibility);
-        document.addEventListener('keydown', (e) => {
+        const onKey = (e) => {
             if (e.key === 'Escape' && root.style.display !== 'none') {
                 e.stopPropagation();
                 close();
             }
-        });
+        };
+        // On the document: through the service's scope, gone with it (#186).
+        if (settingsScope) settingsScope.listen(document, 'keydown', onKey);
+        else document.addEventListener('keydown', onKey);
     }
 
     function renderBody() {
@@ -928,6 +931,13 @@ function createSettings() {
         holdPage('settings', false);
     }
 
+    /** Gone with the last tab (#186): its routes refuse now, so nothing in it is asked to be kept. */
+    function remove() {
+        if (root) holdPage('settings', false);
+        root?.remove();
+        root = null;
+    }
+
     async function save() {
         const keys = changedKeys();
         if (!keys.length || saving) return;
@@ -970,7 +980,7 @@ function createSettings() {
         }
     }
 
-    return { open, close };
+    return { open, close, remove };
 }
 
 // ------------------------------------------------------------------------
@@ -1118,7 +1128,16 @@ function createRestampNotice() {
         }
     }
 
-    return { watch, check };
+    /** Stopped with the last tab (#186): no more asking, and the notice gone. */
+    function stop() {
+        clearTimeout(polling);
+        clearTimeout(hideTimer);
+        polling = null;
+        box?.remove();
+        box = null;
+    }
+
+    return { watch, check, stop };
 }
 
 let notice = null;
@@ -1158,10 +1177,11 @@ export function changedOnSettingsPage(text) {
  * changes how images are judged. The Settings page is part of the same page as
  * the tabs, so this is one listener for it, set once.
  */
-function followSettingsPage() {
+function followSettingsPage(scope) {
     if (globalThis.__mmFollowingSettingsPage) return;
     globalThis.__mmFollowingSettingsPage = true;
-    document.addEventListener('click', (e) => {
+    scope.onStop(() => { globalThis.__mmFollowingSettingsPage = false; });
+    scope.listen(document, 'click', (e) => {
         if (!e.target?.closest?.('#settings_submit')) return;
         const app = typeof gradioApp === 'function' ? gradioApp() : document;
         const result = app.querySelector('#settings_result');
@@ -1190,6 +1210,7 @@ function followSettingsPage() {
 }
 
 let theWindow = null;
+let settingsScope = null;       // the service's, while it runs (#186)
 
 /** The one settings window, for whichever tab asks first. */
 export function settingsWindow() {
@@ -1200,10 +1221,19 @@ export function settingsWindow() {
  * Started by the first tab, each having a gear (#182): the window offered by
  * name - from code, and from the gear and the banners' links, with data-tab
  * or data-section - a restamp still running looked for, and the Settings
- * page followed.
+ * page followed. Stopped with the last tab (#186): the window and the notice
+ * go, as every route they ask refuses.
  */
-export const start = once(() => {
-    provide('settings.open', (options) => settingsWindow().open(options));
+export function start(scope) {
+    settingsScope = scope;
+    scope.provide('settings.open', (options) => settingsWindow().open(options));
     restampNotice();
-    followSettingsPage();
-});
+    followSettingsPage(scope);
+    scope.onStop(() => {
+        theWindow?.remove();
+        theWindow = null;
+        notice?.stop();
+        notice = null;
+        settingsScope = null;
+    });
+}

@@ -13,9 +13,8 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, once, safeId } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
 const { downloads, onItsWay, whenDownloading } = await shared('downloads.mjs');
-const { provide } = await shared('calls.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 
 // ------------------------------------------- an image's resources, looked up
@@ -533,13 +532,13 @@ function followResourceDownloads() {
  * list followed once a tab that downloads has started it. It used to start
  * the list itself, as it was imported.
  */
-export const start = once(() => {
-    provide('resources.sendAgain', () => sendAgain());
-    provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
+export function start(scope) {
+    scope.provide('resources.sendAgain', () => sendAgain());
+    scope.provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
     whenDownloading((list) => {
         // Downloads landed, and Forge's list refreshed (downloads.mjs): the
         // checkpoint may be one of them.
         list.onBatchDone(() => recheckSend());
         list.onChange(followResourceDownloads);
     });
-});
+}

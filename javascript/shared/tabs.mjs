@@ -39,6 +39,23 @@ export function tabButton(tab) {
     return find(`${PANELS[tab]}-button`);
 }
 
+/**
+ * The WebUI's top-level tab showing, any tab - its panel's id: tab_txt2img,
+ * tab_settings - from its selected button, as the WebUI's own
+ * get_uiCurrentTab reads it; null when none is.
+ */
+export function shownPanel() {
+    const root = typeof gradioApp === 'function' ? gradioApp() : document;
+    const selected = [...root.querySelectorAll('#tabs > .tab-nav > button, #tabs > button')]
+        .find((button) => button.classList.contains('selected') || button.getAttribute('aria-selected') === 'true');
+    return selected?.id?.replace(/-button$/, '') || null;
+}
+
+/** A top-level tab's button, by its panel's id (shownPanel), or null. */
+export function panelButton(id) {
+    return id ? find(`${id}-button`) : null;
+}
+
 /** Whether a tab is the one selected. */
 export function tabShowing(tab) {
     const button = tabButton(tab);

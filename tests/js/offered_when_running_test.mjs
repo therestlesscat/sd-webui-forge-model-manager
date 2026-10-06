@@ -3,7 +3,7 @@
 // and a tab without them - Generations, the Queue - sends without it. The
 // Resources dialog and the chips then offer no Download. A note's Sync,
 // while the Model Manager is available: tab_links_test.mjs (#184).
-import { checker, mountTab, sharedModule } from './harness.mjs';
+import { checker, mountTab, sharedModule, startServices } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -14,10 +14,9 @@ globalThis.fetch = async () => ({ ok: true, status: 200,
 
 // As the Generations tab starts them: Send, and with it the Resources dialog
 // and the chips - not the downloads list.
-for (const name of ['core.mjs', 'calls.mjs', 'send.mjs']) (await sharedModule(name)).start?.();
+await startServices('core.mjs', 'calls.mjs', 'send.mjs');
 const resources = await sharedModule('resources.mjs');
 const chips = await sharedModule('chips.mjs');
-const { start: startDownloads } = await sharedModule('downloads.mjs');
 
 // ------------------------------------------------------------ a download
 const IMAGE = { id: 1, meta: { prompt: 'a prompt',
@@ -40,7 +39,7 @@ globalThis.fetch = (url) => { if (String(url).includes('/civitai/download')) ask
 await resources.downloadResource(6001, 4001);
 check('and a download asked for all the same asks for nothing', asked, 0);
 
-startDownloads?.();              // as the Model Manager or the Civitai Browser starts it
+await startServices('downloads.mjs');   // as the Model Manager or the Civitai Browser starts it
 await resources.showImageResources(IMAGE, null);
 await waitFor('the dialog again', () => cell().includes('resources.download'));
 check('downloads on: the dialog offers Download', cell().includes('data-action="resources.download"'), true);

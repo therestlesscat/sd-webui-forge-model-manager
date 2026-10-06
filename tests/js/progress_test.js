@@ -28,13 +28,16 @@ function body(name) {
 
 for (const fn of ['startSync', 'startMetadataSync']) {
     const b = body(fn);
-    check(fn + ' arms a repeating poll',
-          /syncPollInterval = setInterval\(pollSyncProgress, [\w.]+\)/.test(b), b.slice(0, 200));
+    check(fn + ' arms a repeating poll', /\bpollSync\(\);/.test(b), b.slice(0, 200));
     check(fn + ' does not poll just once',
           !/^\s*pollSyncProgress\(\);\s*$/m.test(b), 'bare pollSyncProgress() found');
     check(fn + ' releases the UI when the request fails',
           /isSyncing = false;[\s\S]{0,60}updateSyncUI\(false\)/.test(b));
 }
+
+// The poll repeats, through the sync service's scope: it stops with the Model Manager (#186).
+check('pollSync arms an interval, through the scope',
+      /syncPollInterval = jobsScope\.every\(pollSyncProgress, [\w.]+\)/.test(body('pollSync')), body('pollSync'));
 
 // --- dynamic: run the real poll loop against a scripted progress feed -------
 const samples = [

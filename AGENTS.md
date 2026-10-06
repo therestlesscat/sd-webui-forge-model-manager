@@ -123,7 +123,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `tasks_ops` (the generation queue), `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `ownership` (which paid versions the key's account bought), `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
-| `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 71 to a table; startup work and the recorder ask it too |
+| `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 72 to a table; startup work and the recorder ask it too |
 | `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync from the dialog starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
 | `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
@@ -159,14 +159,18 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 What the tabs share, one module per job (#93), each asked for under one
 version (see "The WebUI's rules"). None does anything as it is imported: one
 with work - a listener, a hook, a request, an action offered - does it in its
-`start()`, once for the page, and a tab starts what it uses (`STARTS`, #182).
+`start(scope)`, once for the page, and a tab starts what it uses (`STARTS`, #182).
+The scope is the loading module's, as a tab's is, and stops with the last tab
+that uses the service (#186): with the Model Manager off, the sync still asked
+for its progress whenever the page came back into view. One that only relies
+on others names them in a `STARTS` of its own (`send`, `image_card`).
 A module imported for another's sake starts nothing: the notes once imported
 the sync's module, and the Queue alone asked for the sync's progress
 (`import_work_test.mjs`, `queue_alone_test.mjs`):
 
 | | |
 |---|---|
-| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches, saved in the settings window or on the WebUI's Settings page (`onOptionsChanged`: the way back with every tab off) - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`); and the only way between tabs (#184) - `available(tab)`, `open(tab, entry)` at what a tab's script `entries` offers, `linkTo` for a link to one; and the popup when a switch turned on cannot take effect in the page - a page reload, or Settings -> Reload UI for a tab this start did not build (#185) |
+| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches, saved in the settings window or on the WebUI's Settings page (`onOptionsChanged`: the way back with every tab off) - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`); and the only way between tabs (#184) - `available(tab)`, `open(tab, entry)` at what a tab's script `entries` offers, `linkTo` for a link to one; the shared services, each started once with a scope of its own and stopped with the last tab that uses it (`useServices`, `leaveServices`, #186); and the popup when a switch cannot fully take effect in the page - Restart WebUI, the cleanest slate, beside a page reload, or Settings -> Reload UI for a tab this start did not build (#185, #186) - the tab showing kept for the new page |
 | `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`, `withdraw`; and the page's one listener calling what markup names in `data-action` |
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
@@ -182,7 +186,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page; and scrolling to a gallery's top |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search and Save Search's flash, the checkpoint-type filter greyed while Type is not Checkpoint |
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
-| `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and Send's Resources and chips offer Download only while it does |
+| `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and stops with the last; Send's Resources and chips offer Download only while it runs |
 | `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
 | `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
@@ -534,8 +538,16 @@ or for a video (#8). See `model_manager/generations.py`.
   `start(scope)`, and all it adds outside its own markup - a listener on the
   document or the window, a timer, a hook, an observer, an action - goes
   through the scope, which takes it back when the tab is switched off
-  (`tab_stop_test.mjs`). Back on in the same page, a tab built at this start
-  and never started starts at once; one stopped comes back with a reload.
+  (`tab_stop_test.mjs`), as each service's scope does with the last tab that
+  uses it (`service_stop_test.mjs`). Back on in the same page, a tab built at
+  this start and never started starts at once - unless a service it needs has
+  stopped; one that ran here comes back only in a new page: a reload, or
+  Restart WebUI (`POST /model-manager/restart`, the WebUI's own
+  `restart_program`), which the popup offers. Only a new page is sure to hold
+  nothing a stop missed; restarting a tab in place was weighed and dropped
+  (#186). Restart WebUI is offered only where `is_restartable()`: started any
+  other way than by `webui.bat` or `webui.sh`, the WebUI would exit and stay
+  down.
 - `style.css` is found by name, and linked after the WebUI's own, one
   `<link>` per extension.
 - Both are stamped with the file's mtime **each time the UI is built** - at
@@ -875,7 +887,10 @@ waits - are in `tests/README.md`.
   word - `noclobber` refused `git show HEAD:<file> > <file>`, and an
   interactive `cp` waited for an answer that never came - and the "old code"
   run passed, on the new code. Write with `>|` and `command cp -f`, and see
-  `git diff --stat` show the file back at HEAD before reading the run.
+  `git diff --stat` show the file back at HEAD before reading the run. An
+  unquoted variable holding a list is one word in zsh: a loop over `$FILES`
+  ran once, on all nineteen names as one, and the "old code" run passed on the
+  new. Read a list line by line (`while IFS= read -r f`).
 - **A break must fail a check, not crash the suite.** `ORDER BY 0` is an
   SQLite error, not an order, and a check that sliced a list by what it
   assumed raised a `ValueError`: both "failed" without showing which check the

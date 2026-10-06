@@ -12,7 +12,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { apiCall, escapeHtml, once } = await shared('core.mjs');
+const { apiCall, escapeHtml } = await shared('core.mjs');
 const {
     resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownloads, downloadResource,
 } = await shared('resources.mjs');
@@ -651,11 +651,11 @@ function keepResourceChips() {
  * Resources dialog's downloads (resources.mjs) followed - each step redraws
  * them, and one in the library has them look again.
  */
-export const start = once(() => {
-    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
+export function start(scope) {
+    scope.afterUpdate(keepResourceChips);
     if (typeof window === 'undefined') return;
-    window.addEventListener?.('mm-resource-downloads', (event) => {
+    scope.listen(window, 'mm-resource-downloads', (event) => {
         if (event.detail?.installed) refreshResourceChips();
         else redrawResourceChips();
     });
-});
+}

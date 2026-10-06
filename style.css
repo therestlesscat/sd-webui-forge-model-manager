@@ -3049,6 +3049,31 @@ body.mm-modal-open {
     background: rgba(255, 255, 255, 0.07);
 }
 
+/* The restart-or-reload popup (shared/loading.mjs, #186): what each way
+   costs, under the tabs it is for. Faded rather than coloured, so it reads in
+   either mode. */
+.mm-reload-notes {
+    font-size: 12px;
+    line-height: 1.5;
+    opacity: 0.75;
+    margin: 12px 0 16px;
+}
+
+.mm-reload-notes p {
+    margin: 0 0 4px;
+}
+
+/* A restart the server refused: red that reads on each mode's dialog. */
+.mm-reload-error {
+    color: #dc2626;
+    font-size: 12px;
+    margin: 0 0 12px;
+}
+
+.dark .mm-reload-error {
+    color: #f87171;
+}
+
 .mm-dialog-actions {
     display: flex;
     justify-content: flex-end;

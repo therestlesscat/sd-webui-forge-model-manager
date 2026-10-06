@@ -10,7 +10,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, once } = await shared('core.mjs');
+const { TIMING, escapeHtml } = await shared('core.mjs');
 const { call, ready } = await shared('calls.mjs');
 const { available, open } = await shared('loading.mjs');
 
@@ -136,18 +136,17 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
 
 /**
  * One click handler for every tab's notes, and their redraw after each
- * update - this module runs once a page; started by the first tab (#182).
+ * update - this module runs once a page; started by the first tab (#182),
+ * until the last stops (#186).
  */
-export const start = once(() => {
-    if (typeof onAfterUiUpdate === 'function') {
-        onAfterUiUpdate(() => Object.keys(noteTabs).forEach((tab) => {
-            const box = document.getElementById(noteTabs[tab].containerId);
-            if (box && !box.children.length) drawNotes(tab);
-        }));
-    }
+export function start(scope) {
+    scope.afterUpdate(() => Object.keys(noteTabs).forEach((tab) => {
+        const box = document.getElementById(noteTabs[tab].containerId);
+        if (box && !box.children.length) drawNotes(tab);
+    }));
     if (typeof window === 'undefined') return;
     const redrawAll = () => Object.keys(noteTabs).forEach((tab) => drawNotes(tab));
-    document.addEventListener?.('click', (event) => {
+    scope.listen(document, 'click', (event) => {
         const target = event.target;
         const pileTab = target.closest?.('[data-note-pile]')?.dataset.notePile;
         const pile = pileTab && (notePiles[pileTab] ||= { index: 0, spread: false });
@@ -177,4 +176,4 @@ export const start = once(() => {
             body: new URLSearchParams({ id }) })
             .catch((error) => console.warn('[ModelManager] Could not dismiss the note:', error));
     });
-});
+}

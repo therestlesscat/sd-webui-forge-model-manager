@@ -10,7 +10,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { once, setText, setTitle } = await shared('core.mjs');
+const { setText, setTitle } = await shared('core.mjs');
 
 const UPDATE_SETTING = 'model_manager_check_updates';
 const UPDATE_HELP = 'To update: Extensions -> Check for updates, then Apply and restart UI.';
@@ -51,16 +51,16 @@ function askForUpdate() {
         .then(showUpdate);
 }
 
-/** Asked by the first tab that starts this module, and hourly after (#182). */
-export const start = once(() => {
+/** Asked by the first tab that starts this module, and hourly after (#182), until the last stops (#186). */
+export function start(scope) {
     if (typeof window === 'undefined' || typeof fetch !== 'function') return;
     askForUpdate();
-    setInterval(askForUpdate, 60 * 60 * 1000);
+    scope.every(askForUpdate, 60 * 60 * 1000);
     // Turned on, the server checks at once: ask again once it has had a moment.
     const changed = (keys) => {
-        if (keys.includes(UPDATE_SETTING)) [0, 5000].forEach((wait) => setTimeout(askForUpdate, wait));
+        if (keys.includes(UPDATE_SETTING)) [0, 5000].forEach((wait) => scope.later(askForUpdate, wait));
     };
-    window.addEventListener?.('mm-settings-saved', (event) => changed(event.detail?.changed || []));
-    window.addEventListener?.('mm-settings-page-applied', (event) => changed(event.detail?.changed || []));
-    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(showUpdate);
-});
+    scope.listen(window, 'mm-settings-saved', (event) => changed(event.detail?.changed || []));
+    scope.listen(window, 'mm-settings-page-applied', (event) => changed(event.detail?.changed || []));
+    scope.afterUpdate(showUpdate);
+}

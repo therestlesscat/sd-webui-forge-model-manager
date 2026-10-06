@@ -42,7 +42,7 @@ const { check, done, waitFor } = checker();
 let copies = 0;
 let askedBeforeOneRan = null;
 globalThis.onAfterUiUpdate = (fn) => {
-    if (!String(fn).includes('apiKeyBanners')) return;
+    if (fn.name !== 'keepApiKeyBanners') return;     // through its scope, named as its work
     copies += 1;
     askedBeforeOneRan ??= [...urls.keys()].sort();      // ui_options.mjs runs; what had been asked for
 };

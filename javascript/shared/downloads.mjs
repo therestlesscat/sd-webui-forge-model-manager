@@ -8,7 +8,6 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, formatBytes, formatDay } = await shared('core.mjs');
-const { provide } = await shared('calls.mjs');
 const { apiKeyIsMissing } = await shared('ui_options.mjs');
 
 // ------------------------------------------------------ a version to download
@@ -313,7 +312,7 @@ function renderDownloadItem(dl, prefix) {
     `;
 }
 
-function createDownloads() {
+function createDownloads(scope) {
     const items = {};          // version id -> the server's progress
     // The list's order, as the server keeps it: the order downloads were
     // added in, which ↑/↓ change - never their state, so no row moves when
@@ -327,6 +326,10 @@ function createDownloads() {
     // way can still carry one; it is not taken back unless it starts again.
     const dismissed = new Set();
     let poll = null;
+    /** Ask for the list each TIMING.poll - unless asking already, or the list has stopped (#186). */
+    const follow = () => {
+        if (!poll && scope.live) poll = setInterval(tick, TIMING.poll);
+    };
     let landed = false;        // a download reached the library in this batch
     const finished = (dl) => ['complete', 'error', 'cancelled'].includes(dl.status);
 
@@ -452,7 +455,7 @@ function createDownloads() {
             if (!sequence.includes(progress.version_id)) sequence.push(progress.version_id);
             render();
             told();
-            if (!poll) poll = setInterval(tick, TIMING.poll);
+            follow();
         },
 
         /**
@@ -504,7 +507,7 @@ function createDownloads() {
                         if (!dismissed.has(dl.version_id) || !finished(dl)) items[dl.version_id] = dl;
                     }
                     render();
-                    if (!poll && Object.values(items).some(running)) poll = setInterval(tick, TIMING.poll);
+                    if (Object.values(items).some(running)) follow();
                 }
                 return result;
             } catch (e) {
@@ -559,7 +562,7 @@ function createDownloads() {
     // once a download was started in this page, so neither was ever shown.
     if (typeof fetch === 'function') {
         tick().then(() => {
-            if (!poll && Object.values(items).some(running)) poll = setInterval(tick, TIMING.poll);
+            if (Object.values(items).some(running)) follow();
         });
     }
 
@@ -570,7 +573,7 @@ function createDownloads() {
     // panel holds its rows nothing is written, so this cannot set off the
     // next update itself (quiet_updates_test.mjs).
     if (typeof onAfterUiUpdate === 'function') {
-        onAfterUiUpdate(() => {
+        scope.afterUpdate(() => {
             if (!Object.keys(items).length) return;
             const empty = [...panels].some((prefix) => {
                 const list = document.getElementById(`${prefix}_download_list`);
@@ -582,10 +585,16 @@ function createDownloads() {
 
     // What the panels' buttons do - a row's, and Pause all, Resume all and
     // Dismiss all in the tabs' markup; a version 0 is all of them.
-    provide('downloads.control', ({ control, versionId }) => store.control(control, safeId(versionId) ?? 0));
-    provide('downloads.cancel', ({ versionId }) => store.cancel(safeId(versionId)));
-    provide('downloads.dismiss', ({ versionId }) => store.dismiss(safeId(versionId)));
-    provide('downloads.dismissFinished', () => store.dismissFinished());
+    scope.provide('downloads.control', ({ control, versionId }) => store.control(control, safeId(versionId) ?? 0));
+    scope.provide('downloads.cancel', ({ versionId }) => store.cancel(safeId(versionId)));
+    scope.provide('downloads.dismiss', ({ versionId }) => store.dismiss(safeId(versionId)));
+    scope.provide('downloads.dismissFinished', () => store.dismissFinished());
+    // Stopped with the last tab that downloads (#186): the poll too, which
+    // ran on while a download did.
+    scope.onStop(() => {
+        clearInterval(poll);
+        poll = null;
+    });
     return store;
 }
 
@@ -596,11 +605,13 @@ const waiting = [];         // what follows the list once it runs
  * The downloads list, started by the tabs that download - the Model Manager
  * and the Civitai Browser (#182). Send's Resources dialog and chips download
  * through it, and only while it runs. It used to start with the first module
- * to ask, and the Queue alone, through Send, asked for the list.
+ * to ask, and the Queue alone, through Send, asked for the list. It stops
+ * with the last of them (#186): null again, Download offered nowhere.
  */
-export function start() {
+export function start(scope) {
     if (downloadsPanel) return;
-    downloadsPanel = createDownloads();
+    downloadsPanel = createDownloads(scope);
+    scope.onStop(() => { downloadsPanel = null; });
     waiting.splice(0).forEach((follow) => follow(downloadsPanel));
 }
 

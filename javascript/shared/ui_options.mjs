@@ -9,7 +9,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, once } = await shared('core.mjs');
+const { TIMING } = await shared('core.mjs');
 
 /**
  * Show a tab's "no Civitai API key" banner, once both halves exist.
@@ -154,13 +154,13 @@ export function shownPath(path) {
  * ui-options, and the banners kept after each update. Which tabs are on, and
  * their switches followed as they are saved: shared/loading.mjs (#183).
  */
-export const start = once(() => {
-    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepApiKeyBanners);
+export function start(scope) {
+    scope.afterUpdate(keepApiKeyBanners);
     if (typeof window === 'undefined' || typeof fetch !== 'function') return;
     uiOptions().then((data) => {
         if (data && Array.isArray(data.path_roots)) pathRoots = data.path_roots;
     });
-});
+}
 
 // ---------------------------------------------------- which judges prompts
 // The settings' NSFW detection: a trained model, or the word

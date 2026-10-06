@@ -12,7 +12,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, formatBytes, once, setText } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -39,6 +39,14 @@ export function connectJobs(tab) {
 // Sync state
 let isSyncing = false;
 let syncPollInterval = null;
+// The service's scope while it runs (#186): the sync's poll, and the
+// Model Manager's sync controls, go through it, and go with it.
+let jobsScope = null;
+
+/** Follow the sync's progress, each TIMING.poll, unless it is followed already or this service has stopped. */
+function pollSync() {
+    if (!syncPollInterval && jobsScope?.live) syncPollInterval = jobsScope.every(pollSyncProgress, TIMING.poll);
+}
 
 // ==================== THE SYNC'S LOG ====================
 // Every line the extension writes to the console while a sync runs
@@ -127,7 +135,7 @@ async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
         if (data.success) {
             startSyncLog();
             // Start polling for progress
-            syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
+            pollSync();
         } else {
             setStatus('Sync failed: ' + (data.error || 'Unknown error'), true);
             isSyncing = false;
@@ -753,7 +761,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             // pollSyncProgress() is a single sample that clears this
             // interval once the run reports complete - without the
             // interval the bar freezes and isSyncing is never released.
-            syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
+            pollSync();
         } else {
             setStatus(`Metadata sync failed: ${data.error}`, true);
             isSyncing = false;
@@ -879,9 +887,7 @@ export async function checkOngoingProcesses() {
             setStatus(`Sync in progress: ${syncData.progress.processed}/${syncData.progress.total}`);
 
             // Resume polling
-            if (!syncPollInterval) {
-                syncPollInterval = setInterval(pollSyncProgress, TIMING.poll);
-            }
+            pollSync();
         }
     } catch (error) {
         console.log('[ModelManager] No ongoing sync');
@@ -891,15 +897,23 @@ export async function checkOngoingProcesses() {
 /**
  * Started by the Model Manager, whose sync this is (#182): a sync is looked
  * for again when the page comes back into view. A note's Sync opens its
- * dialog through the Model Manager's entries (#184).
+ * dialog through the Model Manager's entries (#184). Stopped with it (#186):
+ * the poll of a sync still running stopped only once the sync ended, and the
+ * page went on asking with the tab gone.
  */
-export const start = once(() => {
+export function start(scope) {
+    jobsScope = scope;
+    scope.onStop(() => {
+        clearInterval(syncPollInterval);
+        syncPollInterval = null;
+        isSyncing = false;
+    });
     if (typeof document === 'undefined') return;
-    document.addEventListener?.('visibilitychange', () => {
+    scope.listen(document, 'visibilitychange', () => {
         // Only check if we're not already tracking a process
         if (document.visibilityState === 'visible' && !isSyncing) checkOngoingProcesses();
     });
-});
+}
 
 /**
  * Wire the sync's button, its Cancel and its dialog - the Model Manager's
@@ -949,7 +963,8 @@ export function bindJobControls() {
         syncDialog.addEventListener('click', (e) => {
             if (e.target === syncDialog) closeSyncDialog();
         });
-        document.addEventListener('keydown', (e) => {
+        // On the document: through the service's scope, gone with it.
+        jobsScope?.listen(document, 'keydown', (e) => {
             if (e.key === 'Escape' && syncDialog.style.display !== 'none') closeSyncDialog();
         });
         const dialogCancel = document.getElementById('mm_sync_dialog_cancel');

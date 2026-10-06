@@ -8,7 +8,7 @@
 //
 // Here: one on its way - queued, downloading, paused - is followed, asking
 // nothing, to Installed; a finished one is asked for again.
-import { checker, mountTab, sharedModule } from './harness.mjs';
+import { checker, mountTab, sharedModule, startServices } from './harness.mjs';
 
 mountTab('model_manager/ui/tab_model_manager.py');
 const { check, done } = checker();
@@ -29,10 +29,9 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 // Started as the Model Manager or the Civitai Browser starts them (#182).
-const { downloads, start: startDownloads } = await sharedModule('downloads.mjs');
-const { downloadResource, resourceDownloads, start: startResources } = await sharedModule('resources.mjs');
-startDownloads();
-startResources();
+const { downloads } = await sharedModule('downloads.mjs');
+const { downloadResource, resourceDownloads } = await sharedModule('resources.mjs');
+await startServices('downloads.mjs', 'resources.mjs');
 const job = (id) => {
     const j = resourceDownloads[id] || {};
     return { state: j.state, target: j.target, percent: j.percent };

@@ -48,6 +48,18 @@ export async function startTab(name) {
 }
 
 /**
+ * Start shared services as a tab does (useServices in shared/loading.mjs,
+ * #186): each once for the page, after what it starts in turn - for the
+ * suite, as a user of its own, so no tab stopping stops them.
+ *
+ * @param {...string} files - their names in javascript/shared/: 'downloads.mjs'.
+ */
+export async function startServices(...files) {
+    const { useServices } = await sharedModule('loading.mjs');
+    return useServices(files, 'suite');
+}
+
+/**
  * Open a started tab at one of its entries, as another tab does (open in
  * shared/loading.mjs, #184): its tab shown, then the entry called.
  */

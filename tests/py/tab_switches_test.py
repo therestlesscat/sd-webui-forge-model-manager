@@ -2,13 +2,14 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 71 held to the table
+What is checked here: every route naming its area - all 72 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
 startup work left out; and the page told which tabs are on and were built.
 And the Model Manager's and the Civitai Browser's own switches (#185): off,
-neither is built, and its routes refuse.
+neither is built, and its routes refuse. And Restart WebUI's route (#186),
+answered with every tab off, and refused where the WebUI would not come back.
 """
 import asyncio
 import importlib.util
@@ -173,9 +174,10 @@ SPEC = {
     ('POST', '/model-manager/settings'): 'any',
     ('GET', '/model-manager/video-still'): 'any',
     ('GET', '/model-manager/asset-version'): 'always',
+    ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 71 routes', len(SPEC), 71)
+check('the spec holds 72 routes', len(SPEC), 72)
 
 app = FastAPI()
 api.setup_api(app)
@@ -351,6 +353,27 @@ check('the page told: on now, and whether this start created it',
 only('generations')
 tabs_callbacks[0]()
 check('built again - Reload UI: what this build created', sorted(tabs.built()), ['generations'])
+
+# ------------------------------------------------ Restart WebUI (#186)
+# The WebUI's own restart, stubbed: the real one ends this process.
+import modules                                           # noqa: E402  (webui_stub's)
+restarts = []
+restart_stub = types.ModuleType('modules.restart')
+restart_stub.can = False
+restart_stub.is_restartable = lambda: restart_stub.can
+restart_stub.restart_program = lambda: restarts.append('restart')
+sys.modules['modules.restart'] = restart_stub
+modules.restart = restart_stub
+only()
+answer = client.post('/model-manager/restart')
+check('every tab off, a restart is answered - refused, as the WebUI would not come back',
+      (answer.status_code, answer.json().get('success'), restarts,
+       client.get('/model-manager/ui-options').json().get('restartable')), (409, False, [], False))
+restart_stub.can = True
+answer = client.post('/model-manager/restart')
+check('started by its script: answered, then restarted',
+      (answer.status_code, answer.json(), restarts), (200, {'success': True}, ['restart']))
+check('and the page told it can', client.get('/model-manager/ui-options').json().get('restartable'), True)
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

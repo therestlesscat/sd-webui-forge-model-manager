@@ -84,22 +84,26 @@ const STARTED = {
     'resources.mjs': [],
     'samplers.mjs': [],
 };
+// Each started as a tab starts it, through the loading module (#186): with a
+// scope of its own, once for the page however many tabs use it.
+const { useServices } = modules['loading.mjs'];
 const started = {};
 const again = {};
 for (const name of Object.keys(STARTED)) {
     current = `${name} started`;
-    modules[name].start?.();
+    await useServices([name], 'a tab');
     await settle();
     started[name] = work.filter(([module]) => module === current).map(([, what]) => what).sort();
     current = `${name} again`;
-    modules[name].start?.();
+    await useServices([name], 'another tab');
     await settle();
     again[name] = work.filter(([module]) => module === current).map(([, what]) => what);
 }
 check('each start() does its own work - and image_card and send start what they rely on', started, STARTED);
-check('started again, nothing more', Object.fromEntries(Object.entries(again).filter(([, done]) => done.length)), {});
-check('every module with work has a start()',
-      names.filter((name) => STARTED[name] && typeof modules[name].start !== 'function'), []);
+check('used by another tab, nothing more', Object.fromEntries(Object.entries(again).filter(([, done]) => done.length)), {});
+check('every module with work has a start(), or STARTS: what it relies on',
+      names.filter((name) => STARTED[name] && typeof modules[name].start !== 'function'
+                             && !Array.isArray(modules[name].STARTS)), []);
 check('and no other module has one',
       names.filter((name) => !STARTED[name] && typeof modules[name].start === 'function'), []);
 

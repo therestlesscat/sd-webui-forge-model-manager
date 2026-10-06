@@ -11,7 +11,7 @@
       "civitai_browser"
     ],
     "title": "Turn off the tabs you do not use",
-    "text": "Each of the extension's tabs - the Queue, Generations, the Model Manager and the Civitai Browser - has a switch, together in the settings window's new Tabs section. A tab switched off is hidden at once and does nothing at all: from the next start it is not even loaded, and the buttons that lead to it are greyed, saying why. Turned back on, it returns at once, or after a page reload or Reload UI, which a popup offers. Nothing you have is deleted.",
+    "text": "Each of the extension's tabs - the Queue, Generations, the Model Manager and the Civitai Browser - has a switch, together in the settings window's new Tabs section. A tab switched off is hidden at once and does nothing at all: from the next start it is not even loaded, and the buttons that lead to it are greyed, saying why. Turned back on, it returns at once, or after a page reload or Reload UI, which a popup offers - with Restart WebUI for the cleanest slate. Nothing you have is deleted.",
     "action": {
       "id": "settings",
       "label": "Open settings",

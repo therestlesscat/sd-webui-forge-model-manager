@@ -301,13 +301,16 @@ export function sanitizeHtml(html) {
  * Buttons that used to carry the text in their handler -
  * `writeText(\`${prompt}\`)` ran any ${...} in a prompt - now carry it in a
  * data attribute, which is never executed, and this one listener acts on it.
- * Installed once, on the document, so it covers markup rendered later.
+ * Installed once, on the document, so it covers markup rendered later -
+ * through the scope the loading module gives it, which takes it back when
+ * the last tab stops (#186).
  */
-export const start = once(() => {
+export function start(scope) {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
             || globalThis.__mmDelegatedClicks) return;
     globalThis.__mmDelegatedClicks = true;
-    document.addEventListener('click', (event) => {
+    scope.onStop(() => { globalThis.__mmDelegatedClicks = false; });
+    scope.listen(document, 'click', (event) => {
         const target = event.target && event.target.closest
             ? event.target.closest('[data-copy], [data-open-url]')
             : null;
@@ -331,7 +334,7 @@ export const start = once(() => {
             setTimeout(() => target.classList.remove('mm-copied'), 600);
         }
     });
-});
+}
 
 export function formatNumber(num) {
     if (!num) return '0';

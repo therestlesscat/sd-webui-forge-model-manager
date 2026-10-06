@@ -9,7 +9,7 @@
 // metadata window reaches its listener; a name nothing provides says so. And
 // with the three tabs loaded, every action their markup names is there.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule, startServices, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
@@ -22,9 +22,10 @@ const warn = console.warn;
 console.warn = (...args) => warned.push(args.join(' '));
 
 // Started, as a tab starts it (#182) - the second copy too: it listens to nothing.
-const { provide, start } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
-start();
-(await import(`file:///${ROOT}/javascript/shared/calls.mjs?again`)).start();
+const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+await startServices('calls.mjs');
+const { createScope } = await sharedModule('loading.mjs');
+(await import(`file:///${ROOT}/javascript/shared/calls.mjs?again`)).start(createScope('again'));
 const pressed = [];
 provide('test.card', (data, element) => pressed.push(['card', data, element.id]));
 provide('test.pin', (data) => pressed.push(['pin', data]));
@@ -71,7 +72,7 @@ check('a name nothing provides says so', warned.splice(0),
 // The metadata window's Copy JSON: a stop in the window kept its click from
 // the listener that copies (shared/core.mjs), and the button did nothing.
 const { showImageMeta } = await import(`file:///${ROOT}/javascript/shared/image_card.mjs`);
-(await import(`file:///${ROOT}/javascript/shared/core.mjs`)).start();
+await startServices('core.mjs');
 let copied = null;
 Object.defineProperty(globalThis, 'navigator', { configurable: true,
     value: { clipboard: { writeText: (text) => { copied = text; return Promise.resolve(); } } } });

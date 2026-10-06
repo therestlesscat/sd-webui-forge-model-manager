@@ -4,11 +4,11 @@
 // its actions stayed offered. Now what a tab adds outside its own markup goes
 // through its scope (shared/loading.mjs), which takes it all back.
 //
-// The Queue's shared modules are started first: what they do is theirs, and
-// stops with the last tab that uses them (#186). From then on, every listener
+// The Queue's shared modules are started first, for the suite: what they do
+// is theirs, and stops with the last tab that uses them (service_stop_test.mjs). From then on, every listener
 // on the document or the window, interval, after-update hook and action is
 // the tab's. The switch that stops it, in the page: queue_switch_test.mjs.
-import { ROOT, checker, mountTab, sharedModule, startTab } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule, startServices, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -25,7 +25,7 @@ globalThis.fetch = async (url) => {
 
 // What the Queue tab uses, started first: importing its script does nothing.
 const { STARTS } = await import(`file:///${ROOT}/javascript/tabs/queue.mjs`);
-for (const name of STARTS) (await sharedModule(name)).start();
+await startServices(...STARTS);
 
 // From here on, everything added is the tab's.
 const listening = new Set();

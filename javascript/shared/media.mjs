@@ -192,12 +192,13 @@ export function fallBack(node) {
     if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
 }
 
-/** The page's one fallback listener, started by the first tab that shows media (#182). */
-export function start() {
+/** The page's one fallback listener, started by the first tab that shows media (#182), until the last stops (#186). */
+export function start(scope) {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
             || globalThis.__mmMediaFallback) return;
     globalThis.__mmMediaFallback = true;
-    document.addEventListener('error', (event) => fallBack(event.target), true);
+    scope.onStop(() => { globalThis.__mmMediaFallback = false; });
+    scope.listen(document, 'error', (event) => fallBack(event.target), true);
 }
 
 /**

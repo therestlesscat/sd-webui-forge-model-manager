@@ -19,8 +19,8 @@ Generations, the Model Manager and the Civitai Browser - has a switch, together 
 settings window's new Tabs section. A tab switched off does nothing at all: it is hidden at
 once, its requests are refused, from the next start it is not even loaded, and the buttons
 in the other tabs that lead to it are greyed, saying why. Turned back on, it returns at
-once, or after a page reload or Reload UI, which a popup offers. Nothing you have is
-deleted.
+once, or after a page reload or Reload UI, which a popup offers - with Restart WebUI for
+the cleanest slate. Nothing you have is deleted.
 
 **0.50 - A queue for your generations.** Press Queue beside Generate, in txt2img or
 img2img, and the generation is kept as a task instead of run: its checkpoint, VAE and text
@@ -318,8 +318,10 @@ In the settings window - the gear at the top right of each tab - grouped by what
 are for, or under **Settings -> Model Manager**. Both edit the same values. Each tab's
 switch comes first, in the window's Tabs section: a tab switched off does nothing at all,
 and the window shows only the sections of the tabs that are on. One switched back on that
-needs a page reload or Reload UI to return says so, and offers it. With every tab off, the
-window goes with them: the switches come first under **Settings -> Model Manager** too.
+needs a page reload or Reload UI to return says so, and offers it - beside **Restart WebUI**,
+which starts the server and the page afresh for the cleanest slate, where the WebUI was
+started by its own script. With every tab off, the window goes with them: the switches come
+first under **Settings -> Model Manager** too.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
