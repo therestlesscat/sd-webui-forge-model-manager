@@ -218,6 +218,11 @@ def register(app: FastAPI):
         generations_on = generations_enabled()
         # The queue: off, its tab and the Queue buttons are hidden (scheduler/__init__.py).
         queue_on = queue_enabled()
+        # Above how many images Generate asks whether to queue them (#166); 0 never.
+        try:
+            queue_ask_above = max(0, int(setting('model_manager_queue_ask_above') or 0))
+        except (TypeError, ValueError):
+            queue_ask_above = 0
         # Which judges prompts, as in force: "model" only when the trained
         # model is chosen and on. The pages say so when it is.
         try:
@@ -238,6 +243,7 @@ def register(app: FastAPI):
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
+                "queue_ask_above": queue_ask_above,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
                 "path_roots": shown_roots(),
             })

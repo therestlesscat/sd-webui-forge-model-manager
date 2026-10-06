@@ -253,6 +253,9 @@ Generations kept to run later, one at a time, while you go on working.
   range; **Clear history** hides the ended tasks
 - A task that uses an extension no longer installed asks before it runs: without it, or
   not at all
+- **Generate asks first** when it would make more than 4 images - batch count times batch
+  size, a setting: generate, queue the run instead, or cancel
+- Your own generations go first: the queue waits for them before each task
 - Two WebUIs sharing one database each keep a queue of their own
 
 ## Civitai Browser
@@ -318,6 +321,7 @@ are for, or under **Settings -> Model Manager**. Both edit the same values.
 | Your generations | on | Records every txt2img and img2img result saved to disk, for the Generations tab and each model's Your generations. Off: nothing is recorded, both are hidden at once, and the Generations tab is not created from the next start. What was recorded is kept |
 | Queue | on | A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, a running queue stops, and from the next start neither is created. The tasks are kept |
 | Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
+| Queue: ask before Generate makes more images than this | 4 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
 | Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |

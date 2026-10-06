@@ -7,7 +7,8 @@ The tasks are kept.
 
 What is checked here: the switch as the server reads it, the Queue buttons
 and the startup that leave the queue out, Start refused, the setting's
-onchange stopping a running queue, and ui-options telling the page.
+onchange stopping a running queue, and ui-options telling the page - with
+above how many images Generate asks whether to queue them instead (#166).
 """
 import importlib.util
 import os
@@ -118,6 +119,11 @@ switch(False)
 check('ui-options tells the page it is off', client.get('/model-manager/ui-options').json().get('queue_enabled'), False)
 switch(True)
 check('and on', client.get('/model-manager/ui-options').json().get('queue_enabled'), True)
+check('it says above how many images Generate asks first (#166): 4 by default',
+      client.get('/model-manager/ui-options').json().get('queue_ask_above'), 4)
+setattr(shared.opts, 'model_manager_queue_ask_above', 0)
+check('or never', client.get('/model-manager/ui-options').json().get('queue_ask_above'), 0)
+delattr(shared.opts, 'model_manager_queue_ask_above')
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

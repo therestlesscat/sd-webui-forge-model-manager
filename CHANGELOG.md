@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept as a task, to run later. The new Queue tab runs the tasks one at a time, each with its own checkpoint, VAE and text encoders, while you go on working - and shows them, loads one back into its tab, retries and deletes them. The Generations tab gains a search, which also shows the images a task made.
 
+- **0.50.17** (build 393) - Generate asks before making more than 4 images - batch count times batch size, a setting: generate, queue the run instead, or cancel. Each browser can be told not to ask again.
 - **0.50.16** (build 392) - Your own generations go first: while one runs or waits, and for two seconds after, the queue waits before its next task, and its status line says so. A task already running still finishes.
 - **0.50.15** (build 391) - The Queue tab's lists draw again only the tasks that changed; the rest stay as they are on screen.
 - **0.50.14** (build 390) - Show hidden, beside History's Select, brings back the tasks Clear history hid, marked Hidden among the rest, to retry, delete or unhide - one at a time or several selected. Clear history's question counts only what it hides.

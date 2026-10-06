@@ -366,6 +366,19 @@ def on_ui_settings():
                "tasks queued after it.")
     )
 
+    shared.opts.add_option(
+        "model_manager_queue_ask_above",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_queue_ask_above"],
+            label="Queue: ask before Generate makes more images than this",
+            component=gr.Slider,
+            component_args={"minimum": 0, "maximum": 100, "step": 1},
+            section=section,
+        ).info("Batch count times batch size. Above it, Generate asks whether to generate, "
+               "queue it instead, or cancel; the question can be turned off in each browser. "
+               "0: Generate never asks.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "

@@ -29,7 +29,11 @@
  * drawing only the rows that changed is #172's.
  *
  * Start and Run next may answer with tasks whose scripts are gone: a dialog
- * lists them, to run anyway or not start at all (#151). The server is api/scheduler.py;
+ * lists them, to run anyway or not start at all (#151).
+ *
+ * Generate itself asks before making more images than a setting says - batch
+ * count times batch size - whether to generate, queue the run instead, or
+ * cancel (#166). A browser can be told not to ask again. The server is api/scheduler.py;
  * how far along a task is, Forge's own progress, asked by the task's job id.
  */
 
@@ -67,7 +71,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 const { TIMING, onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 const { tabShowing } = await shared('tabs.mjs');
-const { generationsEnabled } = await shared('ui_options.mjs');
+const { generationsEnabled, queueEnabled, uiOptions, refreshUiOptions } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
 const { selectBarHtml, pickRange } = await shared('generations.mjs');
@@ -956,6 +960,103 @@ async function poll() {
         polling = false;
     }
 }
+
+// ------------------------------------------- asking before a large batch
+
+// Generate asks before making more images than the setting allows (#166). A
+// browser told not to ask again keeps that in its own storage (#180 would
+// give a way back).
+const ASK_SETTING = 'model_manager_queue_ask_above';
+const NEVER_ASK = 'mm_queue_never_ask_large_batch';
+let askAbove = 0;
+// When Ctrl+Enter last pressed Generate: Forge's script clicks it then, for the person.
+let ctrlEnterAt = 0;
+// Generate pressed again after the question: let it by.
+let passing = false;
+
+function neverAsk() {
+    try {
+        return localStorage.getItem(NEVER_ASK) === 'true';
+    } catch (e) {
+        return false;
+    }
+}
+
+/** Batch count and batch size, as the tab's controls say now. */
+function batchOf(tab) {
+    const read = (name) => Math.max(1, Number(document.querySelector(`#${tab}_${name} input[type="number"]`)?.value) || 1);
+    return { count: read('batch_count'), size: read('batch_size') };
+}
+
+/**
+ * Whether this press of Generate asks first: the person's own - a click, or
+ * Ctrl+Enter - above the setting, with the queue on and its button there.
+ * Generate forever presses Generate itself, and is never asked.
+ */
+function asksFirst(tab, event) {
+    if (passing || !askAbove || !queueEnabled() || neverAsk() || !byId(`${tab}_queue`)) return false;
+    if (!event.isTrusted && Date.now() - ctrlEnterAt > 1000) return false;
+    const { count, size } = batchOf(tab);
+    return count * size > askAbove;
+}
+
+/** The question: Generate, Queue or Cancel - and, with either of the first two, not again in this browser. */
+async function askLargeBatch(tab, generate) {
+    const { count, size } = batchOf(tab);
+    const answer = await ask(`Generate ${count * size} images?`, `
+        <p>Batch count ${count} × batch size ${size} makes more than ${askAbove} images.</p>
+        <p>Queue it instead, to run later from the Queue tab?</p>
+        <label class="queue-choice"><input type="checkbox" name="never"> Don't ask again in this browser</label>`, [
+        { label: 'Cancel', value: 'cancel' },
+        { label: 'Queue', value: 'queue' },
+        { label: 'Generate', value: 'generate', kind: 'primary' },
+    ]);
+    const choice = answer?.value;
+    if (choice !== 'generate' && choice !== 'queue') return;
+    if (answer.fields.never) {
+        try {
+            localStorage.setItem(NEVER_ASK, 'true');
+        } catch (e) { /* no storage here: asked again next time */ }
+    }
+    if (choice === 'queue') {
+        byId(`${tab}_queue`)?.click();
+        return;
+    }
+    passing = true;
+    try {
+        generate.click();
+    } finally {
+        passing = false;
+    }
+}
+
+function takeAskAbove(value) {
+    askAbove = Math.max(0, Number(value) || 0);
+}
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) ctrlEnterAt = Date.now();
+}, true);
+// Caught on the way down, before Forge's own listener on the button.
+document.addEventListener('click', (event) => {
+    const generate = event.target.closest?.('#txt2img_generate, #img2img_generate');
+    if (!generate) return;
+    const tab = generate.id.split('_')[0];
+    if (!asksFirst(tab, event)) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    askLargeBatch(tab, generate);
+}, true);
+uiOptions().then((data) => takeAskAbove(data?.queue_ask_above));
+window.addEventListener('mm-settings-saved', (event) => {
+    const value = event.detail?.settings?.[ASK_SETTING]?.value;
+    if (value !== undefined) takeAskAbove(value);
+});
+window.addEventListener('mm-settings-page-applied', (event) => {
+    if (!(event.detail?.changed || []).includes(ASK_SETTING)) return;
+    refreshUiOptions();
+    uiOptions().then((data) => takeAskAbove(data?.queue_ask_above));
+});
 
 // ---------------------------------------------------------------- markup
 provide('queue.start', () => start());
