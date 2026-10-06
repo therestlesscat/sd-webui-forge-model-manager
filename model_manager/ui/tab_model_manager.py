@@ -3,7 +3,7 @@ The Model Manager tab's markup.
 
 Static HTML only, the same as the browser tab: the filter bar, the toolbar,
 the progress panels and the empty containers the grid, details and image list
-are rendered into by javascript/model_manager.js.
+are rendered into by javascript/tabs/model_manager.mjs.
 """
 import gradio as gr
 

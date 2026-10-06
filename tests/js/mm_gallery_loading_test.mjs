@@ -3,7 +3,7 @@
 // a model is opened, over the current images, dimmed with their switches off,
 // when a switch changes - and a first page that fails is said in the gallery,
 // where it was the console's alone.
-import { ROOT, act, call, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -77,7 +77,7 @@ globalThis.fetch = async (url, init) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

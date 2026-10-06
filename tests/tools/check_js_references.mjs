@@ -118,7 +118,7 @@ for (const f of files) {
     // round trip after the one before. The list may also name what those
     // modules import, so that is asked for at once too - send.mjs's wan.mjs
     // came a round trip after send.mjs - but nothing they do not.
-    if (helper[1] === './shared/') {
+    if (helper[1] === '../shared/') {
         const listed = src.match(/const SHARED_MODULES = \[([^\]]*)\]/);
         const awaited = [...new Set(uses.map((m) => m[2]))].sort();
         const named = listed ? [...listed[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]).sort() : [];
@@ -168,7 +168,7 @@ const GLOBALS = new Set(['window', 'document', 'console', 'fetch', 'setTimeout',
     'selectCheckpoint', 'selectVAE', 'inputAccordionChecked', 'switch_to_txt2img',
     'globalThis', 'structuredClone', 'queueMicrotask']);
 
-const KEYWORDS = /^(if|for|while|switch|catch|return|typeof|await|new|delete|void|in|of|do|else|function|throw|yield|super|case|import)$/;
+const KEYWORDS = /^(if|for|while|switch|catch|return|typeof|await|async|new|delete|void|in|of|do|else|function|throw|yield|super|case|import)$/;
 
 // Comments are prose, and prose contains words followed by "(" — "card sizing
 // (default values)" would otherwise look like a call to `sizing`. Template

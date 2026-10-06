@@ -4,7 +4,7 @@
 // model asked for there is a request Civitai counts.
 // (The window's side - how many fit, never a second row - is in
 // settings_window_test.mjs.)
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 // The page first: the registry listens to it when it loads.
@@ -26,7 +26,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 check('the tab offers the settings window a preview of its cards', ready('cardPreview.model_manager_civitai_card_size'), true);
 const preview = (count) => call('cardPreview.model_manager_civitai_card_size', count);

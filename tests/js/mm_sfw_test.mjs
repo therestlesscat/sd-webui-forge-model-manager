@@ -4,7 +4,7 @@
 // owes it is the question. The box sits with the other options, is sent as
 // sfw_only only when ticked, and is kept by a saved search like every other
 // filter - a filter a saved search forgets is one that silently turns off.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -24,7 +24,7 @@ globalThis.fetch = async (url, init = {}) => {
         page_size: 20 }) };
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

@@ -13,7 +13,7 @@
 // second Load More could add images without a page of its own - "PAGE 3"
 // never showed. The whole gallery was drawn again on each Load More too, and
 // every image above came back blank until it reloaded, moving the page.
-import { ROOT, act, checker, mountTab, press, tick } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -100,7 +100,7 @@ const pagesAsked = (from) => asked.slice(from)
     .map((u) => new URL(u, 'http://webui').searchParams.get('page'));
 const loadMore = () => !!$('mm_load_more_btn');
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

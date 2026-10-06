@@ -48,7 +48,7 @@ for (method, route), names in sorted(endpoints.items()):
 
 # --- what the browser sends -------------------------------------------------
 # The Model Manager's page code: its script, and the jobs it connects (shared/jobs.mjs).
-js = io.open('javascript/model_manager.mjs', encoding='utf-8').read() \
+js = io.open('javascript/tabs/model_manager.mjs', encoding='utf-8').read() \
     + io.open('javascript/shared/jobs.mjs', encoding='utf-8').read()
 
 print('\n--- the dialog\'s POST body ---')

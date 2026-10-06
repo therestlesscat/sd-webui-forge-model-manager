@@ -9,7 +9,7 @@
 // files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, call, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 // The page first: the registry listens to it when it loads.
@@ -189,7 +189,8 @@ const app = document.getElementById('generations_app');
 const holder = app.parentNode;
 app.remove();
 
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+// Not awaited: the tab waits for its markup, drawn below, as the page's does.
+startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await new Promise((resolve) => setTimeout(resolve, 400));
 holder.appendChild(app);

@@ -106,7 +106,9 @@ scripts/model_manager_ui.py   the entry point Forge loads
 scripts/model_manager_generations.py
                               the always-on script that records your generations
 model_manager/                the extension proper
-javascript/                   the three tabs, and what they share
+javascript/loader.mjs         the one script the WebUI loads: the version, then the loading module
+javascript/tabs/              the four tabs' scripts, loaded only while on (shared/loading.mjs)
+javascript/shared/            what they share
 style.css                     picked up by filename; see "The WebUI's rules"
 tests/                        see tests/README.md
 tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
@@ -164,7 +166,8 @@ the sync's module, and the Queue alone asked for the sync's progress
 
 | | |
 |---|---|
-| `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`; and the page's one listener calling what markup names in `data-action` |
+| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`) |
+| `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`, `withdraw`; and the page's one listener calling what markup names in `data-action` |
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
@@ -511,29 +514,38 @@ or for a video (#8). See `model_manager/generations.py`.
 
 - `javascript/*.js` become classic scripts, `*.mjs` become
   `<script type="module">`, **in filename order**. Subdirectories are not
-  scanned: `list_scripts` uses `os.listdir`.
+  scanned: `list_scripts` uses `os.listdir`. So there is one, `loader.mjs`:
+  the tabs' scripts are in `javascript/tabs/`, where the WebUI loaded each of
+  them, whatever its switch said, until #183; the loading module
+  (`shared/loading.mjs`) loads those that are on. A tab's script does nothing
+  as it is imported: it declares what it will do (`tabWork`) and exports
+  `start(scope)`, and all it adds outside its own markup - a listener on the
+  document or the window, a timer, a hook, an observer, an action - goes
+  through the scope, which takes it back when the tab is switched off
+  (`tab_stop_test.mjs`). Back on in the same page, a tab built at this start
+  and never started starts at once; one stopped comes back with a reload.
 - `style.css` is found by name, and linked after the WebUI's own, one
   `<link>` per extension.
 - Both are stamped with the file's mtime **each time the UI is built** - at
   startup, and at Settings -> Reload UI - so a change needs a Reload UI to
-  reach the browser, not just a page reload. `javascript/shared/` needs only
-  a page reload (next).
+  reach the browser, not just a page reload. `javascript/shared/` and
+  `javascript/tabs/` need only a page reload (next).
 - Nothing in the WebUI versions `javascript/shared/`, and Gradio's file route
   sends no `Cache-Control`, so a browser may keep a copy without asking. A
   plain import resolves to a URL that never changes, and a newly exported name
   becomes a link error that kills the entire tab. The tabs used their own
   `?mtime` - which stayed the same when only a shared file changed (15 of 60
   releases that touched shared/). They now ask `/model-manager/asset-version`
-  for the newest mtime among the shared files, once a page (`window.
-  mmSharedVersion`), and import every shared module with it: one URL, so each
-  shared module also **runs once**, not once per tab. It is asked until it
+  for the newest mtime among the shared files and the tabs' scripts, once a
+  page, in the loader (`window.mmSharedVersion`), and import every module with
+  it: one URL, so each also **runs once**, not once per tab. It is asked until it
   answers: both WebUIs serve the page, then add their own routes (the
   `/internal/ping` a restarted page waits on), and only then run the
   extensions' `app_started`, which adds ours - a page reloaded by "Apply and
   restart UI" asked too early, fell back to each tab's own version, and ran a
   copy of every shared module per tab, page state and all, for the session
   (#121). A 404 or no connection is waited out; any other answer is taken, one
-  without a version as the first tab's own, for every tab. A wait that ended
+  without a version as the loader's own. A wait that ended
   on any answer without a version once hung four suites, whose fetch
   stand-ins answer `{success: true}`, until their processes were killed.
   A shared module that needs another imports it the same way, under its own
@@ -544,7 +556,9 @@ or for a video (#8). See `model_manager/generations.py`.
   `check_js_references.mjs` holds what is taken through it to what the module
   exports. A tab asks for every module it needs at once (`SHARED_MODULES`),
   then awaits each: awaited in turn, each module waited a round trip before
-  the next was asked for. The check holds the list to the awaits.
+  the next was asked for. The check holds the list to the awaits. What it
+  uses that has a `start()` it names in `STARTS`, which the loading module
+  starts before it (#182).
 - Gradio re-renders a `gr.HTML` block wholesale, and inline styles set on
   anything inside it do not survive. Anything set from script has to be
   reasserted from `onAfterUiUpdate`.
@@ -561,10 +575,10 @@ or for a video (#8). See `model_manager/generations.py`.
 - **Gradio draws the tabs after the scripts have run.** A module's top level
   finds none of its tab's markup; something drawn from there - an answer that
   comes back at load - is drawn again once the container is there, from
-  `onAfterUiUpdate` (the downloads panel, the notes). A tab's start waits for
-  its markup (`markupDrawn`): the Civitai Browser's did not, and in one load
-  of three on Neo it bound Save Search, Enter and the Type box to nothing
-  (#128).
+  `onAfterUiUpdate` (the downloads panel, the notes). A tab is started once
+  its markup is there (`scope.markup`, in the loading module): the Civitai
+  Browser's start did not wait, and in one load of three on Neo it bound Save
+  Search, Enter and the Type box to nothing (#128).
 - **A click on a tab's button never reaches the document from it.** Gradio's
   Tabs replace the button clicked with a selected one first, so a listener
   on the document sees a detached target (seen 3 of 3 on Neo). Watch for the

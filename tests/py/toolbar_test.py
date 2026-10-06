@@ -22,7 +22,7 @@ import sys
 UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_model_manager.py'), encoding='utf-8').read()
 CSS = io.open(os.path.join(ROOT, 'style.css'), encoding='utf-8').read()
 # The Model Manager's page code: its script, and the jobs it connects (shared/jobs.mjs).
-JS = io.open(os.path.join(ROOT, 'javascript/model_manager.mjs'), encoding='utf-8').read() \
+JS = io.open(os.path.join(ROOT, 'javascript/tabs/model_manager.mjs'), encoding='utf-8').read() \
     + io.open(os.path.join(ROOT, 'javascript/shared/jobs.mjs'), encoding='utf-8').read()
 
 fails = []
@@ -350,7 +350,7 @@ check('and the header rule names the shared one',
 check('it sends the same syntax this tab takes, naming the version shown',
       '`model:${modelId} version:${versionId}`' in JS)
 
-CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'),
+CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/tabs/civitai_browser.mjs'),
                       encoding='utf-8').read()
 check('the browser answers to that name', "provide('civitaiBrowser.showModel', showModel)" in CB_JS_EARLY)
 check('and still offers the trip the other way',
@@ -358,7 +358,7 @@ check('and still offers the trip the other way',
 
 # Both tabs carry it, from one implementation rather than two copies.
 CB_UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_civitai_browser.py'), encoding='utf-8').read()
-CB_JS = io.open(os.path.join(ROOT, 'javascript/civitai_browser.mjs'), encoding='utf-8').read()
+CB_JS = io.open(os.path.join(ROOT, 'javascript/tabs/civitai_browser.mjs'), encoding='utf-8').read()
 UI_OPTIONS = io.open(os.path.join(ROOT, 'javascript/shared/ui_options.mjs'), encoding='utf-8').read()
 
 cb_banner = block(CB_UI, '<div id="cb_api_key_warning"')

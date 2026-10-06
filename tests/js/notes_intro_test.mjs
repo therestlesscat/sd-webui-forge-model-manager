@@ -2,7 +2,7 @@
 // audience "new"): on top of the tab's pile, with a button for each step. The
 // Model Manager's opens the Sync dialog as it is, or set to Force sync on the
 // files Civitai has not identified - opened, never started.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -29,7 +29,7 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const top = () => document.querySelector('#mm_notes [data-note]');

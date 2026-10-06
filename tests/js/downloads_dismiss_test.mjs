@@ -6,7 +6,7 @@
 // poll, so the next download brought every dismissed one back. Dismiss now
 // asks the server to forget it; the list follows the server's; and "Dismiss
 // all" takes every finished one off at once, leaving what is still running.
-import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -37,7 +37,7 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 

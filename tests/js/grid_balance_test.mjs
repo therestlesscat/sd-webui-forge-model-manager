@@ -9,7 +9,7 @@
 // linkedom does no layout, so the widths are stubbed: every card is 200px,
 // the gap 15px, and the grid as wide as each check says. The layout is read
 // back from the cap put on the card list, which is what makes it wrap.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -68,7 +68,7 @@ function rows() {
     return out.join(' + ');
 }
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 gridWidth = roomFor(10) + 50;

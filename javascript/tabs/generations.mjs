@@ -19,44 +19,24 @@
  * shared/send.mjs's, as the Model Manager's is.
  */
 
-// The shared modules, asked for with the version the server gives them: see
-// the top of civitai_browser.mjs for why, and why this is not a plain import.
-window.mmSharedVersion ||= (async () => {
-    let waiting = false;
-    for (;;) {
-        try {
-            // Not there yet - 404, the extension's app_started not run - is
-            // waited out. Any other answer is taken, one without a version as
-            // this tab's own, for every tab: still one copy.
-            const response = await fetch('/model-manager/asset-version', { cache: 'no-store' });
-            if (response.status !== 404) {
-                const body = response.ok ? await response.json().catch(() => null) : null;
-                return /^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}`
-                    : new URL(import.meta.url).search;
-            }
-        } catch (e) { /* the server is not answering at all */ }
-        if (!waiting) {
-            waiting = true;
-            console.log("[ModelManager] waiting for the Model Manager's API...");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-})();
-const sharedVersion = await window.mmSharedVersion;
-const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+// The shared modules, under the version this script was asked for under: the
+// loading module imports it with the one the loader asked the server for
+// (loader.mjs), so every tab and the loading module use one copy of each.
+const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below. Awaited in turn, each
 // module waited a round trip of its own before the next was asked for. An
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
+const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
     'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
-const { onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
-const { provide, ready, call } = await shared('calls.mjs');
+const { apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { ready, call } = await shared('calls.mjs');
+const { tabWork } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
@@ -79,12 +59,16 @@ const {
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
-// What this tab uses that has work of its own - a listener, a request -
-// started: each module once for the page, by whichever tab is first (#182).
-// None does anything as it is imported, so what a tab does not use does not run.
-const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'send.mjs',
+// What this tab uses that has work of its own - a listener, a request: the
+// loading module starts each once for the page, before this tab (#182, #183).
+export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'send.mjs',
     'update_notice.mjs', 'settings.mjs'];
-for (const name of STARTS) (await shared(name)).start();
+
+// What this tab does once started, declared where it belongs below and done by
+// start(scope) through the scope (shared/loading.mjs, #183): nothing runs as
+// this script is imported, and all it added goes when the tab stops.
+const work = tabWork();
+let tabScope = null;        // this tab's, from start()
 
 // "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';
@@ -166,7 +150,7 @@ function closeGroupMenu() {
     return true;
 }
 
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const target = event.target;
     const list = groupList();
     if (!list) return;
@@ -195,7 +179,7 @@ document.addEventListener('click', (event) => {
     if (!target.closest?.('.gen-group-menu')) closeGroupMenu();
 });
 
-document.addEventListener('mouseover', (event) => {
+work.listen(document, 'mouseover', (event) => {
     const item = event.target.closest?.('.gen-group-item');
     if (item && groupList()?.contains(item) && !item.classList.contains('gen-group-open')) openGroupItem(item);
 });
@@ -240,7 +224,6 @@ let title = '';          // what the path calls it
 const levels = [];       // the levels above, each as it was left
 let loading = false;
 let request = 0;         // a newer load drops an older one's answer
-let started = false;
 
 function readFlag(key) {
     return readSetting(key, 'false') === 'true';
@@ -340,10 +323,10 @@ function loadIfNearEnd() {
 function watchEnd() {
     const sentinel = byId('gen_sentinel');
     if (!sentinel || !('IntersectionObserver' in window)) return;
-    new IntersectionObserver((entries) => {
+    tabScope.observe(new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) loadIfNearEnd();
-    }, { rootMargin: `${LOAD_AHEAD_PX}px 0px` }).observe(sentinel);
-    window.addEventListener('scroll', loadIfNearEnd, { passive: true });
+    }, { rootMargin: `${LOAD_AHEAD_PX}px 0px` })).observe(sentinel);
+    tabScope.listen(window, 'scroll', loadIfNearEnd, { passive: true });
 }
 
 // ------------------------------------------------------------- levels
@@ -911,7 +894,7 @@ function pickTile(index, on, shift) {
     showTicks();
 }
 
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const box = event.target.closest?.('[data-gen-pick]');
     if (!box) return;
     pickTile(Number(box.dataset.genPick), box.checked, event.shiftKey);
@@ -920,7 +903,7 @@ document.addEventListener('click', (event) => {
 // Selecting, a click anywhere on a tile's image ticks it - it neither opens
 // the viewer nor, on a batch, the batch. Caught on the way down, before the
 // image's own click; a group, which has no tick, still opens, and ⋯ is ⋯.
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     if (!selecting) return;
     const media = event.target.closest?.('#gen_grid .gen-media');
     if (!media || event.target.closest('[data-gen-pick], .gen-menu-btn, .gen-menu')) return;
@@ -1031,14 +1014,14 @@ function openMenu(anchor, items) {
     const away = (event) => {
         if (!element.contains(event.target)) closeMenu();
     };
-    setTimeout(() => document.addEventListener('click', away, true), 0);
+    tabScope.later(() => tabScope.listen(document, 'click', away, true), 0);
     menu = { element, away };
 }
 
 function closeMenu() {
     if (!menu) return false;
     menu.element.remove();
-    document.removeEventListener('click', menu.away, true);
+    tabScope.unlisten(document, 'click', menu.away, true);
     menu = null;
     return true;
 }
@@ -1118,7 +1101,7 @@ const viewerSource = {
     },
     more: () => more,
     loadMore: async () => {
-        while (loading) await new Promise((resolve) => setTimeout(resolve, 50));
+        while (loading) await tabScope.sleep(50);
         await loadNext();
     },
     onClick: (event, index) => {
@@ -1377,54 +1360,42 @@ const refresh = () => {
 // ---------------------------------------------------------------- markup
 // What this tab's markup does, by name: a tile, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
-provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.checked));
-provide('generations.rating', (data, box) => switchRating(box.checked));
-provide('generations.selecting', (data, box) => switchSelecting(box.checked));
-provide('generations.refresh', () => refresh());
-provide('generations.search', (data, box) => setSearch(box.value));
-provide('generations.showNsfw', (data, box) => showNsfw(box.checked));
-provide('generations.rate', ({ tile, level }) => rateTile(Number(tile), Number(level)));
-provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
-provide('generations.selectAll', () => selectAll());
-provide('generations.selectClear', () => selectClear());
-provide('generations.deleteSelected', () => deleteSelected());
-provide('generations.back', () => goBack());
-provide('generations.open', ({ tile }) => openTile(Number(tile)));
-provide('generations.view', ({ tile, image = 0 }) => viewTile(Number(tile), Number(image)));
-provide('generations.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
-provide('generations.send', ({ tile }) => sendTile(Number(tile)));
-provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
+work.provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.checked));
+work.provide('generations.rating', (data, box) => switchRating(box.checked));
+work.provide('generations.selecting', (data, box) => switchSelecting(box.checked));
+work.provide('generations.refresh', () => refresh());
+work.provide('generations.search', (data, box) => setSearch(box.value));
+work.provide('generations.showNsfw', (data, box) => showNsfw(box.checked));
+work.provide('generations.rate', ({ tile, level }) => rateTile(Number(tile), Number(level)));
+work.provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
+work.provide('generations.selectAll', () => selectAll());
+work.provide('generations.selectClear', () => selectClear());
+work.provide('generations.deleteSelected', () => deleteSelected());
+work.provide('generations.back', () => goBack());
+work.provide('generations.open', ({ tile }) => openTile(Number(tile)));
+work.provide('generations.view', ({ tile, image = 0 }) => viewTile(Number(tile), Number(image)));
+work.provide('generations.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
+work.provide('generations.send', ({ tile }) => sendTile(Number(tile)));
+work.provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
 // Not markup's: for code, and tests - grouping by a chain, the next part now,
 // and how many columns a wide image spans.
-provide('generations.groupBy', (value) => setGroupBy(value));
-provide('generations.loadMore', () => loadNext());
-provide('generations.spanFor', spanFor);
+work.provide('generations.groupBy', (value) => setGroupBy(value));
+work.provide('generations.loadMore', () => loadNext());
+work.provide('generations.spanFor', spanFor);
 // The Queue's Show images: a task's images, here.
-provide('generations.showTask', (taskId) => showTask(taskId));
+work.provide('generations.showTask', (taskId) => showTask(taskId));
 
 /**
- * The tab's markup, once Gradio has drawn it. The script runs when the page
- * is ready and Gradio draws the tab after, so the first load found no grid
- * and the tab stayed empty until Refresh; the other tabs never met this, as
- * they load only on a click.
+ * Started by the loading module once Gradio has drawn the tab (#183) - which
+ * it draws after the page is ready: the first load once found no grid, and
+ * the tab stayed empty until Refresh. What is declared above, then the boxes,
+ * the grid and the first page.
  */
-function markupDrawn(tries = 240) {
-    return new Promise((resolve) => {
-        const look = (left) => {
-            if (byId('gen_grid') || left <= 0) resolve(!!byId('gen_grid'));
-            else setTimeout(() => look(left - 1), 250);
-        };
-        look(tries);
-    });
-}
-
-onReady(async () => {
-    if (started) return;
-    started = true;
-    if (!await markupDrawn()) {
-        console.warn('[ModelManager] The Generations tab never appeared; not loading it');
-        return;
-    }
+export async function start(scope) {
+    tabScope = scope;
+    work.start(scope);
+    // A menu open as it stops goes with it: it is on the page's body, not in the tab.
+    tabScope.onStop(() => closeMenu());
     showNotes('generations', 'gen_notes');
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;
@@ -1446,12 +1417,10 @@ onReady(async () => {
         hideNsfw = (await galleryDefaults()).generationsHideNsfw;
     } catch (e) { /* the gallery's default: hidden */ }
     watchEnd();
-    document.addEventListener('keydown', onKey);
+    tabScope.listen(document, 'keydown', onKey);
     // Hidden, nothing could be measured: measure again once it is shown.
-    window.addEventListener('resize', layout);
-    if (typeof onAfterUiUpdate === 'function') {
-        onAfterUiUpdate(layout);
-        onAfterUiUpdate(showGroupChoice);
-    }
+    tabScope.listen(window, 'resize', layout);
+    tabScope.afterUpdate(layout);
+    tabScope.afterUpdate(showGroupChoice);
     await reload();
-});
+}

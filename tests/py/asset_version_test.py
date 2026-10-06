@@ -1,7 +1,7 @@
 """
-/model-manager/asset-version: the version the tabs import javascript/shared/
-with (#53) - the newest mtime among those files, so it moves when only a
-shared file changes, and never cached. The page's side is
+/model-manager/asset-version: the version the loader imports javascript/shared/
+and javascript/tabs/ with (#53, #183) - the newest mtime among those files, so
+it moves when only one of them changes, and never cached. The page's side is
 shared_version_test.mjs.
 """
 import io
@@ -34,8 +34,9 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 
 
-check('it looks in the extension\'s javascript/shared',
-      os.path.isfile(os.path.join(webui.SHARED_SCRIPTS, 'core.mjs')), True)
+check('it looks in the extension\'s javascript/shared and javascript/tabs',
+      (os.path.isfile(os.path.join(webui.SHARED_SCRIPTS, 'core.mjs')),
+       os.path.isfile(os.path.join(getattr(webui, 'TAB_SCRIPTS', ''), 'queue.mjs'))), (True, True))
 
 WORK = os.path.join(TESTS, 'work', 'asset_version')
 shutil.rmtree(WORK, ignore_errors=True)
@@ -46,6 +47,12 @@ for name, when in (('core.mjs', 1_700_000_000), ('viewer.mjs', 1_700_000_500),
     io.open(path, 'w').write('x')
     os.utime(path, (when, when))
 webui.SHARED_SCRIPTS = WORK
+TABS = os.path.join(TESTS, 'work', 'asset_version_tabs')
+shutil.rmtree(TABS, ignore_errors=True)
+os.makedirs(TABS)
+io.open(os.path.join(TABS, 'queue.mjs'), 'w').write('x')
+os.utime(os.path.join(TABS, 'queue.mjs'), (1_600_000_000, 1_600_000_000))
+webui.TAB_SCRIPTS = TABS
 
 app = FastAPI()
 webui.register(app)
@@ -60,6 +67,9 @@ later = os.path.join(WORK, 'nested', 'part.mjs')
 os.utime(later, (1_700_009_999, 1_700_009_999))
 check('a change to one shared file alone moves it',
       client.get('/model-manager/asset-version').json()['version'], '1700009999')
+os.utime(os.path.join(TABS, 'queue.mjs'), (1_700_012_345, 1_700_012_345))
+check('and so does a change to one tab\'s script alone',
+      client.get('/model-manager/asset-version').json()['version'], '1700012345')
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

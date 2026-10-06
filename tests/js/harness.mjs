@@ -35,6 +35,40 @@ export async function sharedModule(name) {
 }
 
 /**
+ * Start a tab as the page does (shared/loading.mjs, #183): its script, the
+ * shared modules it uses, then its start(scope) - once its markup is there,
+ * so mount it first. Resolves once start() has been called; the scope, to
+ * stop it as the page would.
+ *
+ * @param {string} name - as tabs.mjs knows it: queue, generations, modelManager, civitaiBrowser.
+ */
+export async function startTab(name) {
+    const { startTab: start } = await sharedModule('loading.mjs');
+    return start(name);
+}
+
+/**
+ * Start the page as loader.mjs does: boot() asks ui-options which tabs are on
+ * and built, starts those, and follows their switches as they are saved. A
+ * stub's ui-options says which, in `tabs` - tabsAnswer() - else every tab is
+ * taken to be on.
+ */
+export async function bootPage() {
+    const { boot } = await sharedModule('loading.mjs');
+    boot();
+}
+
+/**
+ * The `tabs` of a ui-options answer (tabs.py's names): each tab named is
+ * built, and on as said; any other, not built.
+ */
+export function tabsAnswer(on) {
+    const names = ['queue', 'generations', 'model_manager', 'civitai_browser'];
+    return Object.fromEntries(names.map((name) => [name, name in on ? { on: on[name], built: true }
+                                                                    : { on: true, built: false }]));
+}
+
+/**
  * Press `element`, or the nearest around it that names an action: a click on
  * it, or a field's change, which the page's one listener takes (shared/calls.mjs)
  * - and what the action answered, to await. It throws what the action threw,

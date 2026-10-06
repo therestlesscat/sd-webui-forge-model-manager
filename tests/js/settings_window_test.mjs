@@ -2,7 +2,7 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, call, checker, mountTab, sharedModule, tabMarkup } from './harness.mjs';
+import { ROOT, call, checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits, shortened (TIMING): the preview's, the restamp's poll, a redraw's.
@@ -184,7 +184,7 @@ window.confirm = () => confirmAnswer;
 const saved = [];
 window.addEventListener('mm-settings-saved', (e) => saved.push(e.detail.changed));
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 // -------------------------------------------------------------- the gear

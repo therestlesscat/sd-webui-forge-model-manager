@@ -6,7 +6,7 @@
 // Model" for a model with one version here, and for one with several,
 // "Delete Current Model Version" - the version shown - and "Delete All Model
 // Versions".
-import { ROOT, act, checker, mountTab, press } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -43,7 +43,7 @@ globalThis.fetch = async (url, init = {}) => {
 let confirmText = '';
 window.confirm = globalThis.confirm = (text) => { confirmText = text; return true; };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const open = async () => {
     document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));

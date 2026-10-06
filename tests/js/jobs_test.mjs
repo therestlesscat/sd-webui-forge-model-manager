@@ -13,7 +13,7 @@ import { ROOT, checker } from './harness.mjs';
 const { check, done } = checker();
 const code = (path) => readFileSync(`${ROOT}/javascript/${path}`, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-const tab = code('model_manager.mjs');
+const tab = code('tabs/model_manager.mjs');
 const JOBS = ['startSync', 'pollSyncProgress', 'cancelSync', 'openSyncDialog', 'closeSyncDialog', 'startSyncFromDialog',
               'startMetadataSync', 'refreshSyncEstimate', 'updateSyncUI', 'checkOngoingProcesses'];
 check('the Model Manager\'s script defines none of the jobs',

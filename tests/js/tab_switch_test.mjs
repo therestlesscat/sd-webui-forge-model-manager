@@ -9,7 +9,7 @@
 // shows - not before, and not never. And the ids are the ones the extension's
 // tabs register with.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
@@ -70,9 +70,9 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
+await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const selected = () => bar.querySelector('button.selected')?.id;

@@ -19,7 +19,7 @@
 // check that matters is what the request says, not only how the box looks.
 //
 // A gallery a filter has emptied must keep the banner, and with it the switch.
-import { ROOT, act, call, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -122,7 +122,7 @@ const ticked = (id) => images().querySelector(`#${id}`)?.checked;
 const NSFW = 'mm_show_nsfw_images';
 const PROMPT = 'mm_show_promptless_images';
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

@@ -3,7 +3,7 @@
 // downloads list. It used to: the notes imported the sync's module, whose
 // listener came with it, and Send's Resources dialog started the downloads
 // list as it was imported. Each module's work, and start(): import_work_test.mjs.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -25,7 +25,7 @@ globalThis.fetch = async (url) => {
 };
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
 
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+await startTab('queue');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the Queue tab to load', () => asked.includes('/model-manager/queue/tasks'));
 

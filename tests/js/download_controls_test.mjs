@@ -6,7 +6,7 @@
 // there is something to pause or resume.
 // Each asks the server (/download/control) and takes the list it answers.
 // The server's side: download_test.py.
-import { ROOT, act, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -53,7 +53,7 @@ const panelPlace = panelBox.parentNode;
 const panelNext = panelBox.nextSibling;
 panelBox.remove();
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await new Promise((resolve) => setTimeout(resolve, 100));

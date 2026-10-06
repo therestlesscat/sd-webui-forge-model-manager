@@ -10,7 +10,7 @@
 // button before the click reaches the document, so a listener there never
 // saw a click on it. After each change the WebUI runs its after-update
 // callbacks, as onAfterUiUpdate does.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -80,7 +80,8 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+// Not awaited: the tab waits for its markup, drawn below, as the page's does.
+startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 // A moment passes before Gradio draws the tab: time enough for the answers -

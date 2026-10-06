@@ -9,7 +9,7 @@
 // goes in, since a preset change resets the sampler, steps and modules, and
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
-import { ROOT, act, checker, mountTab, sharedModule, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
@@ -133,7 +133,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 // The last send's work after its paste, as the tab's copy of send.mjs keeps it.
 const { sendInfotext, whenSendSettled } = await sharedModule('send.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));

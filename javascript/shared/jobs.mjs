@@ -19,15 +19,22 @@ const { provide } = await shared('calls.mjs');
 // its grid and the base models listed for it, loaded again once a job has
 // changed the library; and its filters and how many models they match, for a
 // sync of "these results".
-let setStatus = () => {};
-let loadModels = () => {};
-let loadBaseModelOptions = () => {};
-let getFilters = () => ({});
-let gridTotal = () => 0;
+const UNCONNECTED = { setStatus: () => {}, loadModels: () => {}, loadBaseModelOptions: () => {},
+                      getFilters: () => ({}), gridTotal: () => 0 };
+let setStatus = UNCONNECTED.setStatus;
+let loadModels = UNCONNECTED.loadModels;
+let loadBaseModelOptions = UNCONNECTED.loadBaseModelOptions;
+let getFilters = UNCONNECTED.getFilters;
+let gridTotal = UNCONNECTED.gridTotal;
 
-/** Connect the jobs to the Model Manager's status line and grid: it calls this once. */
+/**
+ * Connect the jobs to the Model Manager's status line and grid: it calls this
+ * as it starts, and what this answers as it stops (#183) - a sync's progress
+ * then calls nothing of it.
+ */
 export function connectJobs(tab) {
-    ({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal } = tab);
+    ({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal } = { ...UNCONNECTED, ...tab });
+    return () => connectJobs(UNCONNECTED);
 }
 
 // Sync state

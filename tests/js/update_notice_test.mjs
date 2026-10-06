@@ -2,7 +2,7 @@
 // check (update_check_test.py) found a newer one: linking where the version
 // does, saying in its tooltip how to update. Put back after Gradio redraws the
 // header; gone when the setting is turned off.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -26,7 +26,7 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const notice = () => document.querySelector('.gen-header .mm-update');

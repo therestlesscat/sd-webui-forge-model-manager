@@ -4,7 +4,7 @@
 // Civitai's own filters allow. What a draw cannot use - the text, the sort,
 // the checks made here - is greyed out and not sent, and keeps what it holds
 // for when the box is unticked. A draw is one page: no page strip.
-import { ROOT, act, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -40,7 +40,7 @@ globalThis.fetch = async (url, options = {}) => {
     return { ok: true, json: async () => ({ success: true, models: [], nextCursor: 'next', pageSize: 20 }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

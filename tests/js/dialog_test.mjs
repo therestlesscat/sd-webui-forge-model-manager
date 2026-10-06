@@ -10,7 +10,7 @@ import { parseHTML } from 'linkedom';
 
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { tabMarkup } from './harness.mjs';
+import { startTab, tabMarkup } from './harness.mjs';
 
 // The extension, found from this file rather than from a drive letter.
 const ROOT = process.env.MM_ROOT
@@ -267,7 +267,7 @@ const syncEnd = () => [...statusSeen].reverse().find((text) => /^Sync (complete|
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 const { showSyncDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
 // linkedom has no readyState, so onReady() is waiting on the event rather
 // than its 100ms timer. Fire it, as a browser would.

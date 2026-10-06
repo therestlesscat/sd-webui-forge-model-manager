@@ -3,7 +3,7 @@
 // what is not a size left out - kept with the saved search and restored with
 // it, and loosened, with every other filter, when a model is jumped to. The
 // server's side: grid_query_test.py, api_test.py.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
@@ -27,7 +27,7 @@ globalThis.fetch = async (url, init = {}) => {
     return { ok: true, json: async () => ({ success: true, models: [], total: 0, page: 1, page_size: 20 }) };
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

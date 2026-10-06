@@ -6,7 +6,7 @@
 // Here the Generations tab is loaded alone. Its Send pastes the generation's
 // infotext into the tab it was made in and presses paste, shows that tab,
 // and leaves Forge's scheduler set; the Model Manager's script never loads.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -60,7 +60,7 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('generations');
 const { ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);

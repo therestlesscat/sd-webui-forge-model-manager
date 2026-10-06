@@ -9,7 +9,7 @@
 // a card passes over a flagged image as over any unsafe one, and the gallery
 // hides it with NSFW hidden and badges it "X · prompt" when shown. The words
 // are made up.
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -38,7 +38,7 @@ globalThis.fetch = async (url) => {
 };
 
 const shared = await import(`file:///${ROOT}/javascript/shared/nsfw.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 // ---------------------------------------------------- the server's verdict

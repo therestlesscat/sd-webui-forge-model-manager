@@ -11,7 +11,7 @@
 // real data: "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix". What
 // this checks is therefore which endpoint was asked and what came back, not
 // only the number of rows.
-import { ROOT, act, checker, mountTab, press, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -140,7 +140,7 @@ const names = (selector) => Array.from(panel().querySelectorAll(selector))
         return (version ? text.replace(version.textContent, '') : text).trim();
     });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
 document.getElementById('mm_load_btn')

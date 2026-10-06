@@ -7,7 +7,7 @@
 // it at 0, with the queue off, or for a press Generate forever makes itself -
 // though Ctrl+Enter, which Forge's script turns into a press, is the person's.
 // In img2img alike. The setting comes from ui-options, and again when saved.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, bootPage, checker, mountTab, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -33,14 +33,15 @@ globalThis.fetch = async (url) => {
     const reply = (body) => ({ ok: true, status: 200, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], generations_enabled: true, queue_enabled: true,
-                       queue_ask_above: askAbove });
+                       queue_ask_above: askAbove, tabs: tabsAnswer({ queue: true }) });
     }
     if (href.includes('/asset-version')) return reply({ success: true, version: '1' });
     return reply({ success: true, notes: [], tasks: [], total: 0, page: 1, pages: 1 });
 };
 
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+await bootPage();
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
+await waitFor('the Queue tab to start', () => globalThis.__mmOffered?.has('queue.start'));
 // Forge's own listener on Generate. A browser runs the page's capture listener
 // before it; this DOM has no capture phase, so it stands after ours on the
 // document. tests/work/probe_queue_ask/ shows the hold in a real browser.
@@ -115,14 +116,6 @@ window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { cha
     settings: { model_manager_queue_ask_above: { value: 4 } } } }));
 
 pressed.length = 0;
-window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { changed: ['model_manager_queue_enabled'],
-    settings: { model_manager_queue_enabled: { value: false } } } }));
-press('txt2img');
-check('with the queue off, never asked', [pressed, dialog()], [['txt2img generate'], null]);
-window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { changed: ['model_manager_queue_enabled'],
-    settings: { model_manager_queue_enabled: { value: true } } } }));
-
-pressed.length = 0;
 press('txt2img');
 await answer('Generate', true);
 check("Don't ask again, with Generate, is kept in the browser",
@@ -130,5 +123,19 @@ check("Don't ask again, with Generate, is kept in the browser",
 pressed.length = 0;
 press('txt2img');
 check('and then the browser is never asked', [pressed, dialog()], [['txt2img generate'], null]);
+localStorage.removeItem('mm_queue_never_ask_large_batch');
+
+// The queue off stops its tab (#183): what asks went with it. On again in the
+// same page, it comes back only with a reload.
+pressed.length = 0;
+window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { changed: ['model_manager_queue_enabled'],
+    settings: { model_manager_queue_enabled: { value: false } } } }));
+press('txt2img');
+check('with the queue off, never asked', [pressed, dialog()], [['txt2img generate'], null]);
+window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { changed: ['model_manager_queue_enabled'],
+    settings: { model_manager_queue_enabled: { value: true } } } }));
+pressed.length = 0;
+press('txt2img');
+check('on again in the same page: not until a reload', [pressed, dialog()], [['txt2img generate'], null]);
 
 done();

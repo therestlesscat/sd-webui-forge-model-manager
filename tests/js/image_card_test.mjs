@@ -9,7 +9,7 @@
 // Here one image is drawn in both tabs: the card says the same in each, and
 // Show All opens the same window - the table, with a Copy JSON button.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, tabMarkup } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -57,8 +57,8 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

@@ -5,7 +5,7 @@
 // ui-options, and again when the setting is saved: in the settings window
 // (its answer carries the value) or on the Settings page (only which keys
 // changed, so the page asks). The server's side: generations_switch_test.py.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, bootPage, checker, mountTab, tabsAnswer, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -32,7 +32,8 @@ globalThis.fetch = withGalleryPages(async (url) => {
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], has_api_key: true,
-                       generations_enabled: serverSays });
+                       generations_enabled: serverSays,
+                       tabs: tabsAnswer({ generations: serverSays, model_manager: true }) });
     }
     if (href.includes('/models/details')) {
         return reply({ success: true, model: { ...MODEL, images: [], generations_count: 3,
@@ -45,7 +46,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     return reply({ success: true, generations: [], total: 0 });
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await bootPage();
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 await waitFor('the switch', () => tabButton('Generations').style.display === 'none');

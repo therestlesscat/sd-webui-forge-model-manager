@@ -33,7 +33,7 @@ def check(label, got, want=True):
 
 # ---------------------------------------------------------------- the markup
 UI = io.open(os.path.join(ROOT, 'model_manager/ui/tab_model_manager.py'), encoding='utf-8').read()
-JS = io.open(os.path.join(ROOT, 'javascript/model_manager.mjs'), encoding='utf-8').read()
+JS = io.open(os.path.join(ROOT, 'javascript/tabs/model_manager.mjs'), encoding='utf-8').read()
 
 for control in ('mm_allow_derivatives', 'mm_allow_different_license'):
     block = UI[UI.index('id="%s"' % control):]

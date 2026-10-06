@@ -2,7 +2,7 @@
 The Civitai Browser tab's markup.
 
 Static HTML only: every row, card and panel is filled in by
-javascript/civitai_browser.js against the API. Gradio is used for the shell
+javascript/tabs/civitai_browser.mjs against the API. Gradio is used for the shell
 so the tab appears in the right place, and for nothing else.
 """
 import gradio as gr

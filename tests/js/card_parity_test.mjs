@@ -73,7 +73,7 @@ if (mode === 'dump') {
         }
         return { ok: true, json: async () => ({ success: true }) };
     };
-    await import(`file:///${ROOT}/javascript/${tab === 'mm' ? 'model_manager' : 'civitai_browser'}.mjs`);
+    await (await import('./harness.mjs')).startTab(tab === 'mm' ? 'modelManager' : 'civitaiBrowser');
     document.dispatchEvent(new window.Event('DOMContentLoaded'));
     const gridId = tab === 'mm' ? 'mm_grid' : 'cb_grid';
     if (tab === 'mm') {

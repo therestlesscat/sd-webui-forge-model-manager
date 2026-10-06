@@ -17,26 +17,29 @@ from fastapi.responses import JSONResponse
 from ..console import say
 from .common import gate
 
-SHARED_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                              "javascript", "shared")
+_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "javascript")
+SHARED_SCRIPTS = os.path.join(_SCRIPTS, "shared")
+TAB_SCRIPTS = os.path.join(_SCRIPTS, "tabs")
 
 
 def shared_version() -> str:
     """
-    The newest modification time among javascript/shared/, as the version
-    every tab asks for those modules with.
+    The newest modification time among javascript/shared/ and
+    javascript/tabs/, as the version the loader asks for both with.
 
-    The WebUI stamps only the scripts it lists, javascript/*.mjs, each with
+    The WebUI stamps only the scripts it lists, javascript/*.mjs - the loader
+    alone, since the tabs' scripts moved to javascript/tabs/ (#183) - each with
     its own mtime; the tabs used theirs for the shared modules too. A release
     that changed only a shared file left every URL as it was, and Gradio's
     file route sends no Cache-Control, so a browser could keep the copy it
-    held. One version for all three also loads each shared module once.
+    held. One version for all also loads each module once.
     """
     newest = 0.0
-    for root, _, files in os.walk(SHARED_SCRIPTS):
-        for name in files:
-            if name.endswith((".mjs", ".js")):
-                newest = max(newest, os.path.getmtime(os.path.join(root, name)))
+    for folder in (SHARED_SCRIPTS, TAB_SCRIPTS):
+        for root, _, files in os.walk(folder):
+            for name in files:
+                if name.endswith((".mjs", ".js")):
+                    newest = max(newest, os.path.getmtime(os.path.join(root, name)))
     return str(int(newest))
 
 

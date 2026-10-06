@@ -7,7 +7,7 @@
 // Browser: the fewest rows the width allows, the cards spread across them.
 //
 // linkedom does no layout, so widths are stubbed as in grid_balance_test.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -71,7 +71,7 @@ function rows() {
     return out.join(' + ');
 }
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 gridWidth = roomFor(13);

@@ -6,7 +6,7 @@
 // ran with them. With all four tabs loaded, as in the WebUI, a second round
 // of the callbacks, nothing having changed, has to change nothing.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -34,10 +34,10 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
-await import(`file:///${ROOT}/javascript/generations.mjs`);
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
+await startTab('generations');
+await startTab('queue');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the update notice', () => document.querySelector('.mm-update'));
 await new Promise((resolve) => setTimeout(resolve, 300));

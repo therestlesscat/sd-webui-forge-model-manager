@@ -1,7 +1,7 @@
 // The Generations tab opens as its own setting says: it followed the Model
 // Manager's image gallery setting. Here the gallery's hides explicit images
 // and the tab's shows them; the tab's first page must ask for them shown.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -22,7 +22,7 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the first page', () => browsed.length);
 check('the Generations tab asks for its explicit images shown, as its own setting says',

@@ -13,7 +13,7 @@
 // under a .mp4 name, so a card asking for the original got 17 MB of GIF,
 // read it as video by its name, could not play it, and stayed blank (model
 // 11718). A copy is a real MP4.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -103,7 +103,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     return reply({ success: true });
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the card', () => document.querySelector('#mm_grid .model-card'));

@@ -37,41 +37,21 @@
  * how far along a task is, Forge's own progress, asked by the task's job id.
  */
 
-// The shared modules, asked for with the version the server gives them: see
-// the top of civitai_browser.mjs for why, and why this is not a plain import.
-window.mmSharedVersion ||= (async () => {
-    let waiting = false;
-    for (;;) {
-        try {
-            // Not there yet - 404, the extension's app_started not run - is
-            // waited out. Any other answer is taken, one without a version as
-            // this tab's own, for every tab: still one copy.
-            const response = await fetch('/model-manager/asset-version', { cache: 'no-store' });
-            if (response.status !== 404) {
-                const body = response.ok ? await response.json().catch(() => null) : null;
-                return /^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}`
-                    : new URL(import.meta.url).search;
-            }
-        } catch (e) { /* the server is not answering at all */ }
-        if (!waiting) {
-            waiting = true;
-            console.log("[ModelManager] waiting for the Model Manager's API...");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-})();
-const sharedVersion = await window.mmSharedVersion;
-const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+// The shared modules, under the version this script was asked for under: the
+// loading module imports it with the one the loader asked the server for
+// (loader.mjs), so every tab and the loading module use one copy of each.
+const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
+const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
     'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
-const { TIMING, onReady, apiCall, escapeHtml, setText } = await shared('core.mjs');
-const { provide, ready, call } = await shared('calls.mjs');
+const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { ready, call } = await shared('calls.mjs');
 const { tabShowing } = await shared('tabs.mjs');
-const { generationsEnabled, queueEnabled, uiOptions, refreshUiOptions } = await shared('ui_options.mjs');
+const { tabWork, generationsEnabled, queueEnabled } = await shared('loading.mjs');
+const { uiOptions, refreshUiOptions } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
 const { selectBarHtml, pickRange } = await shared('generations.mjs');
@@ -84,12 +64,16 @@ await shared('update_notice.mjs');
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
-// What this tab uses that has work of its own - a listener, a request -
-// started: each module once for the page, by whichever tab is first (#182).
-// None does anything as it is imported, so what a tab does not use does not run.
-const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'send.mjs', 'update_notice.mjs',
+// What this tab uses that has work of its own - a listener, a request: the
+// loading module starts each once for the page, before this tab (#182, #183).
+export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'send.mjs', 'update_notice.mjs',
     'settings.mjs'];
-for (const name of STARTS) (await shared(name)).start();
+
+// What this tab does once started, declared where it belongs below and done by
+// start(scope) through the scope (shared/loading.mjs, #183): nothing runs as
+// this script is imported, and all it added goes when the tab stops.
+const work = tabWork();
+let tabScope = null;        // this tab's, from start()
 
 // What the status line calls each state of the queue (runner.Progress).
 const STATES = {
@@ -115,7 +99,6 @@ const LISTS = {
 };
 
 const pages = { active: 1, history: 1 };
-let started = false;
 let showing = false;
 let polling = false;
 // The counts and the running task the lists were last read under.
@@ -497,7 +480,7 @@ function ask(title, bodyHtml, buttons) {
         const close = () => {
             if (!backdrop.isConnected) return;
             backdrop.remove();
-            document.removeEventListener('keydown', onEscape, true);
+            tabScope.unlisten(document, 'keydown', onEscape, true);
             resolve(answer);
         };
         const onEscape = (event) => {
@@ -519,7 +502,7 @@ function ask(title, bodyHtml, buttons) {
                 close();
             }
         });
-        document.addEventListener('keydown', onEscape, true);
+        tabScope.listen(document, 'keydown', onEscape, true);
         document.body.appendChild(backdrop);
     });
 }
@@ -542,7 +525,7 @@ async function runAnyway(missing) {
     return Boolean(go?.value);
 }
 
-async function start() {
+async function startQueue() {
     let answer = await post('/model-manager/queue/start');
     if (answer?.success && !answer.started && answer.missing?.length) {
         if (!await runAnyway(answer.missing)) return;
@@ -815,7 +798,7 @@ function selectClear(which) {
 // caught on the way down, before the row's own action. So is a click on its
 // tick, which went on to the row and opened them: the box is ticked by then,
 // and only the row's action is stopped. The row's buttons still work.
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const row = event.target.closest?.('.queue-task');
     const which = row?.dataset.list;
     if (!which || !selecting[which]) return;
@@ -1041,11 +1024,11 @@ function takeAskAbove(value) {
     askAbove = Math.max(0, Number(value) || 0);
 }
 
-document.addEventListener('keydown', (event) => {
+work.listen(document, 'keydown', (event) => {
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) ctrlEnterAt = Date.now();
 }, true);
 // Caught on the way down, before Forge's own listener on the button.
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const generate = event.target.closest?.('#txt2img_generate, #img2img_generate');
     if (!generate) return;
     const tab = generate.id.split('_')[0];
@@ -1054,69 +1037,59 @@ document.addEventListener('click', (event) => {
     event.preventDefault();
     askLargeBatch(tab, generate);
 }, true);
-uiOptions().then((data) => takeAskAbove(data?.queue_ask_above));
-window.addEventListener('mm-settings-saved', (event) => {
+work.run(() => uiOptions().then((data) => takeAskAbove(data?.queue_ask_above)));
+work.listen(window, 'mm-settings-saved', (event) => {
     const value = event.detail?.settings?.[ASK_SETTING]?.value;
     if (value !== undefined) takeAskAbove(value);
 });
-window.addEventListener('mm-settings-page-applied', (event) => {
+work.listen(window, 'mm-settings-page-applied', (event) => {
     if (!(event.detail?.changed || []).includes(ASK_SETTING)) return;
     refreshUiOptions();
     uiOptions().then((data) => takeAskAbove(data?.queue_ask_above));
 });
 
 // ---------------------------------------------------------------- markup
-provide('queue.start', () => start());
-provide('queue.pause', () => control('pause'));
-provide('queue.resume', () => control('resume'));
-provide('queue.stop', () => control('stop'));
-provide('queue.refresh', () => refresh());
-provide('queue.details', (data) => rowClicked(data));
-provide('queue.showImages', ({ task }) => showImages(task));
-provide('queue.load', ({ task }) => load(task));
-provide('queue.runNext', ({ task }) => { closeMetaModal(); return runNext([Number(task)]); });
-provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });
-provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
-provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
-provide('queue.clearHistory', () => clearHistory());
-provide('queue.showHidden', (data, box) => setShowHidden(box.checked));
-provide('queue.unhide', ({ task }) => { closeMetaModal(); return unhideTasks([Number(task)]); });
-provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
-provide('queue.activeSelectAll', () => selectAll('active'));
-provide('queue.activeSelectClear', () => selectClear('active'));
-provide('queue.activeRunNextSelected', () => runNext([...picked.active]));
-provide('queue.activeCancelSelected', () => cancelTasks([...picked.active]));
-provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
-provide('queue.historySelectAll', () => selectAll('history'));
-provide('queue.historySelectClear', () => selectClear('history'));
-provide('queue.historyRetrySelected', () => retry([...picked.history]));
-provide('queue.historyUnhideSelected', () => unhideTasks([...picked.history]));
-provide('queue.historyDeleteSelected', () => deleteTasks([...picked.history]));
-provide('queue.activePage', ({ page }) => goToPage('active', page));
-provide('queue.activePrev', () => goToPage('active', pages.active - 1));
-provide('queue.activeNext', () => goToPage('active', pages.active + 1));
-provide('queue.historyPage', ({ page }) => goToPage('history', page));
-provide('queue.historyPrev', () => goToPage('history', pages.history - 1));
-provide('queue.historyNext', () => goToPage('history', pages.history + 1));
+work.provide('queue.start', () => startQueue());
+work.provide('queue.pause', () => control('pause'));
+work.provide('queue.resume', () => control('resume'));
+work.provide('queue.stop', () => control('stop'));
+work.provide('queue.refresh', () => refresh());
+work.provide('queue.details', (data) => rowClicked(data));
+work.provide('queue.showImages', ({ task }) => showImages(task));
+work.provide('queue.load', ({ task }) => load(task));
+work.provide('queue.runNext', ({ task }) => { closeMetaModal(); return runNext([Number(task)]); });
+work.provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });
+work.provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
+work.provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
+work.provide('queue.clearHistory', () => clearHistory());
+work.provide('queue.showHidden', (data, box) => setShowHidden(box.checked));
+work.provide('queue.unhide', ({ task }) => { closeMetaModal(); return unhideTasks([Number(task)]); });
+work.provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
+work.provide('queue.activeSelectAll', () => selectAll('active'));
+work.provide('queue.activeSelectClear', () => selectClear('active'));
+work.provide('queue.activeRunNextSelected', () => runNext([...picked.active]));
+work.provide('queue.activeCancelSelected', () => cancelTasks([...picked.active]));
+work.provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
+work.provide('queue.historySelectAll', () => selectAll('history'));
+work.provide('queue.historySelectClear', () => selectClear('history'));
+work.provide('queue.historyRetrySelected', () => retry([...picked.history]));
+work.provide('queue.historyUnhideSelected', () => unhideTasks([...picked.history]));
+work.provide('queue.historyDeleteSelected', () => deleteTasks([...picked.history]));
+work.provide('queue.activePage', ({ page }) => goToPage('active', page));
+work.provide('queue.activePrev', () => goToPage('active', pages.active - 1));
+work.provide('queue.activeNext', () => goToPage('active', pages.active + 1));
+work.provide('queue.historyPage', ({ page }) => goToPage('history', page));
+work.provide('queue.historyPrev', () => goToPage('history', pages.history - 1));
+work.provide('queue.historyNext', () => goToPage('history', pages.history + 1));
 
-/** The tab's markup, once Gradio has drawn it: see generations.mjs. */
-function markupDrawn(tries = 240) {
-    return new Promise((resolve) => {
-        const look = (left) => {
-            if (byId('queue_active') || left <= 0) resolve(!!byId('queue_active'));
-            else setTimeout(() => look(left - 1), TIMING.drawRetry);
-        };
-        look(tries);
-    });
-}
-
-onReady(async () => {
-    if (started) return;
-    started = true;
-    if (!await markupDrawn()) {
-        console.warn('[ModelManager] The Queue tab never appeared; not loading it');
-        return;
-    }
+/**
+ * Started by the loading module once Gradio has drawn the tab (#183): what is
+ * declared above, then the notes, the boxes, and the status line, asked for
+ * while the tab shows.
+ */
+export async function start(scope) {
+    tabScope = scope;
+    work.start(scope);
     showNotes('queue', 'queue_notes');
     // Select and Show hidden start off, whatever the browser kept ticked from before.
     for (const id of ['queue_active_select', 'queue_history_select', 'queue_history_hidden']) {
@@ -1124,5 +1097,5 @@ onReady(async () => {
         if (box) box.checked = false;
     }
     await poll();
-    setInterval(poll, TIMING.poll);
-});
+    tabScope.every(poll, TIMING.poll);
+}

@@ -5,7 +5,7 @@
 // Now a bar shows at once: over an emptied gallery saying it is loading when
 // a model is opened, over the current images - dimmed, their switches off -
 // when a switch changes; and a failure is said.
-import { ROOT, act, browserGalleryAnswer, call, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, call, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -64,7 +64,7 @@ globalThis.fetch = async (url, init) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

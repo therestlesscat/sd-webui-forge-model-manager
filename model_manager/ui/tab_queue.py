@@ -1,7 +1,7 @@
 """
 The Queue tab's markup (#156): where the generation queue is managed.
 
-Static HTML only, as the other tabs: javascript/queue.mjs fills it from the
+Static HTML only, as the other tabs: javascript/tabs/queue.mjs fills it from the
 queue's endpoints (api/scheduler.py). A status line with the queue's
 controls, then the Active list, in the order the tasks will run, and History,
 newest first.

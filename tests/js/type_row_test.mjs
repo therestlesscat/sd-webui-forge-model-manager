@@ -4,7 +4,7 @@
 // are a VAE and a text encoder. The row shows the file's own type, notes what
 // Civitai calls it where that differs, says what decided it on hover - and
 // follows the version picked, since versions of one model need not be alike.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -42,7 +42,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

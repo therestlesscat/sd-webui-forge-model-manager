@@ -8,7 +8,7 @@
 // It is one for the page, even when the shared modules load twice. And with
 // all three tabs loaded, every name the page calls has been offered.
 import { readdirSync, readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
@@ -40,9 +40,9 @@ check('but the same registry', other.call('test.echo'), 'later');
 // ---------------------------------------------- every name the page calls
 globalThis.onAfterUiUpdate = () => {};
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ success: true }) });
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
+await startTab('generations');
 
 const files = [...readdirSync(`${ROOT}/javascript`).filter((f) => f.endsWith('.mjs')),
                ...readdirSync(`${ROOT}/javascript/shared`).filter((f) => f.endsWith('.mjs')).map((f) => `shared/${f}`)];

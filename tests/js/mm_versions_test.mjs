@@ -8,7 +8,7 @@
 // Civitai Browser's information and Download, and its download is followed in
 // the downloads panel both tabs share; once it is in the library, it is shown
 // as a local version.
-import { ROOT, act, checker, choose, mountTab, press } from './harness.mjs';
+import { ROOT, act, checker, choose, mountTab, press, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page first: the registry listens to it when it loads.
@@ -71,7 +71,7 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

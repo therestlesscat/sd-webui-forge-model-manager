@@ -9,7 +9,7 @@
 // the switches, and say what a download brought beside the button: three
 // clicks on one model stored 30 images, 26 of them R or above, and looked
 // like clicks that did nothing.
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -52,7 +52,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

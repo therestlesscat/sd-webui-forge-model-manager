@@ -5,7 +5,7 @@
 // settings window (its answer carries the value) or on the Settings page (only
 // which keys changed, so the page asks). Your generations' switch, beside it,
 // is left as it was. The server's side: queue_switch_test.py.
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, bootPage, checker, mountTab, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -29,13 +29,14 @@ globalThis.fetch = async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, status: 200, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
-        return reply({ success: true, samplers: [], schedulers: [], generations_enabled: true, queue_enabled: serverSays });
+        return reply({ success: true, samplers: [], schedulers: [], generations_enabled: true, queue_enabled: serverSays,
+                       tabs: tabsAnswer({ queue: serverSays }) });
     }
     if (href.includes('/asset-version')) return reply({ success: true, version: '1' });
     return reply({ success: true, notes: [], tasks: [], total: 0, page: 1, pages: 1 });
 };
 
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+await bootPage();
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 await waitFor('the switch', () => byId('tab_queue_tab-button').style.display === 'none');
@@ -46,11 +47,16 @@ check("Your generations' tab is left as it was", byId('tab_generations_tab-butto
 window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: { changed: ['model_manager_queue_enabled'],
     settings: { model_manager_queue_enabled: { value: true } } } }));
 check('on again, from the settings window: all three are back', hidden(), [false, false, false]);
+// Built at this start and never started in this page: it starts at once (#183).
+await waitFor('the Queue tab to start', () => globalThis.__mmOffered.has('queue.start'));
+check('and its tab starts at once', globalThis.__mmOffered.has('queue.start'), true);
 
 serverSays = false;
 window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied',
     { detail: { changed: ['model_manager_queue_enabled'] } }));
 await waitFor('the page to ask', () => byId('tab_queue_tab-button').style.display === 'none');
 check('off again, from the Settings page: hidden', hidden(), [true, true, true]);
+check('and its tab stopped: none of its actions offered (#183)',
+      [...globalThis.__mmOffered.keys()].filter((name) => name.startsWith('queue.')), []);
 
 done();

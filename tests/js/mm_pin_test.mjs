@@ -4,7 +4,7 @@
 // its details both pin it - a Civitai model by its id, a file Civitai does
 // not know by its path - and show it pinned where it is, without moving it
 // from under the pointer; the tabs' counts follow at once.
-import { ROOT, act, checker, mountTab, press, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page first: the registry listens to it when it loads.
@@ -50,7 +50,7 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     return reply({ success: true });
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const names = () => Array.from(document.querySelectorAll('#mm_grid .model-card-name')).map((n) => n.textContent);

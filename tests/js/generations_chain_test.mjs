@@ -5,7 +5,7 @@
 // what was opened (in_group the section, in_subgroup the group, generation),
 // named on the path, Back one level at a time. Groups cannot be ticked, so
 // Select is hidden among them. The server's side: generations_test.py.
-import { ROOT, act, call, checker, mountTab } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -61,7 +61,7 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

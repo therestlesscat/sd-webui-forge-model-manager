@@ -52,7 +52,8 @@ export function onReady(callback) {
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(callback, 100);
     } else {
-        document.addEventListener('DOMContentLoaded', callback);
+        // Once: the page is ready once, and a test that says so twice is not a second page.
+        document.addEventListener('DOMContentLoaded', callback, { once: true });
     }
 }
 

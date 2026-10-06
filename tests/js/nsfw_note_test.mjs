@@ -6,7 +6,7 @@
 // says so and where to switch: above the results while "Only Show Models with
 // SFW images" is ticked, and in the gallery's filter banner. The word list
 // needs no note; sfw_filter_test.mjs checks the Civitai Browser says none.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -39,7 +39,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     return reply({ success: true });
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const $ = (id) => document.getElementById(id);
 const NOTE = 'NSFW is judged by a trained model';

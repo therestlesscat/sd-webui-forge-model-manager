@@ -9,7 +9,7 @@
 // into the library - with its own gallery's version left out. Both tabs'
 // scripts are on one page, as in the WebUI.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, press, tabMarkup } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, press, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -84,8 +84,8 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

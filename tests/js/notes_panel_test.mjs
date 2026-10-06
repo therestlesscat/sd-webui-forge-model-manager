@@ -7,7 +7,7 @@
 // Manager's "Sync once" note opens the sync dialog with "Read every file's
 // header again" ticked.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
+import { ROOT, checker, mountTab, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -40,7 +40,7 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 // The other tabs import the shared module too - under the same version, so
 // the same copy (#53): one click dismisses a note once.
 await sharedModule('notes.mjs');

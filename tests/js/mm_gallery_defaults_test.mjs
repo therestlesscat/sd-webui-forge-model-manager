@@ -5,7 +5,7 @@
 // The page used to send its own "hide" on the first request, so the server's
 // fall-back to the settings never ran and neither setting was read at all;
 // and a switch ticked on one model stayed ticked for every model after it.
-import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -55,7 +55,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 1);

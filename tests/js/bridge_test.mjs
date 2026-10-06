@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { act, browserGalleryAnswer, tabMarkup, tick } from './harness.mjs';
+import { act, browserGalleryAnswer, startTab, tabMarkup, tick } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
@@ -140,7 +140,7 @@ const searches = () => asked.filter((u) => /\/civitai\/models\?/.test(u));
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
                     scrollSettle: 20 };
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 await settle();
 

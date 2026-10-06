@@ -432,8 +432,12 @@ function createDownloads() {
 
     const store = {
         /** Draw the list in this tab's panel: `<prefix>_downloads` and the ids inside it. */
-        addPanel: (prefix) => { panels.add(prefix); render(); },
-        onComplete: (callback) => { completed.push(callback); },
+        // Each answers how to take it back: a tab that stops does (#183).
+        addPanel: (prefix) => { panels.add(prefix); render(); return () => panels.delete(prefix); },
+        onComplete: (callback) => {
+            completed.push(callback);
+            return () => { if (completed.includes(callback)) completed.splice(completed.indexOf(callback), 1); };
+        },
         onBatchDone: (callback) => { batchDone.push(callback); },
         /** Called after each look at the list, and when one is added to it. */
         onChange: (callback) => { changed.push(callback); },

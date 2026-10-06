@@ -9,7 +9,8 @@
 // version on it - by the tabs, and by the shared modules importing each
 // other: a plain import between them would be a URL without it, and a second
 // copy with state of its own. Every URL Node resolves under javascript/shared/
-// is recorded while all three tabs load.
+// is recorded while the page loads as the WebUI loads it: the loader, then
+// the four tabs (#183).
 //
 // And asked for at once: a tab that awaited each before asking for the next
 // waited a round trip per module. So by the time the first of them runs, the
@@ -36,7 +37,7 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py', 'tab_queue.py']) {
     document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
-const { check, done } = checker();
+const { check, done, waitFor } = checker();
 
 let copies = 0;
 let askedBeforeOneRan = null;
@@ -48,10 +49,12 @@ globalThis.onAfterUiUpdate = (fn) => {
 globalThis.fetch = async (url) => ({ ok: true, json: async () => (String(url).includes('/asset-version')
     ? { success: true, version: '1700000123' } : { success: true, downloads: [], notes: [] }) });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
-await import(`file:///${ROOT}/javascript/generations.mjs`);
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+// The page as the WebUI loads it: the loader alone, which asks for the version
+// and boots the loading module, which loads the four tabs (#183).
+await import(`file:///${ROOT}/javascript/loader.mjs`);
+document.dispatchEvent(new window.Event('DOMContentLoaded'));
+await waitFor('the four tabs to start', () => ['queue.start', 'generations.refresh', 'modelManager.selectModel',
+                                                'civitaiBrowser.search'].every((name) => globalThis.__mmOffered?.has(name)));
 
 const shared = readdirSync(`${ROOT}/javascript/shared`).filter((name) => name.endsWith('.mjs')).sort();
 check('every shared module is loaded by the tabs', [...urls.keys()].sort(), shared);

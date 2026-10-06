@@ -4,68 +4,31 @@
  */
 
 
-// The WebUI versions the tab scripts and nothing else: list_scripts() uses
-// os.listdir(), which does not recurse, so javascript/shared/ is never listed
-// and never gets a ?mtime. A plain import of it therefore resolved to a URL
-// that never changed, a browser cached it forever, and an export added here
-// was missing from the copy the browser held - which is a link error, so the
-// whole tab script stopped running until someone happened to force a reload.
-//
-// So the shared modules are asked for with a version of their own, the newest
-// mtime among them, which the server is asked for: this script's version, as
-// they used to take, stayed the same when only a shared file changed, and
-// Gradio's file route sends no Cache-Control, so a browser could keep the
-// copy it held. All three tabs share the one answer, so each shared module is
-// one URL and runs once, not once per tab. It is asked until it is answered:
-// a page reloaded by "Apply and restart UI" comes back as soon as the WebUI's
-// own routes answer, before the extensions' app_started adds ours, and each
-// tab fell back to a version of its own - a copy of every shared module per
-// tab, and a downloads list and a note pile each, for the session (#121). A
-// dynamic import is the only way to build that URL at runtime, which is why
-// this is not a plain import statement.
-window.mmSharedVersion ||= (async () => {
-    let waiting = false;
-    for (;;) {
-        try {
-            // Not there yet - 404, the extension's app_started not run - is
-            // waited out. Any other answer is taken, one without a version as
-            // this tab's own, for every tab: still one copy.
-            const response = await fetch('/model-manager/asset-version', { cache: 'no-store' });
-            if (response.status !== 404) {
-                const body = response.ok ? await response.json().catch(() => null) : null;
-                return /^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}`
-                    : new URL(import.meta.url).search;
-            }
-        } catch (e) { /* the server is not answering at all */ }
-        if (!waiting) {
-            waiting = true;
-            console.log("[ModelManager] waiting for the Model Manager's API...");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-})();
-const sharedVersion = await window.mmSharedVersion;
-const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+// The shared modules, under the version this script was asked for under: the
+// loading module imports it with the one the loader asked the server for
+// (loader.mjs), so every tab and the loading module use one copy of each.
+const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below. Awaited in turn, each
 // module waited a round trip of its own before the next was asked for. An
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
+const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
     'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'send.mjs',
     'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, apiCallTelling, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes,
+    apiCall, apiCallTelling, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes,
     formatDay, setText,
 } = await shared('core.mjs');
-const { provide, ready, call } = await shared('calls.mjs');
+const { ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
+const { tabWork, generationsEnabled } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, generationsEnabled, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -107,12 +70,16 @@ const {
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
-// What this tab uses that has work of its own - a listener, a request -
-// started: each module once for the page, by whichever tab is first (#182).
-// None does anything as it is imported, so what a tab does not use does not run.
-const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs', 'media.mjs', 'downloads.mjs',
+// What this tab uses that has work of its own - a listener, a request: the
+// loading module starts each once for the page, before this tab (#182, #183).
+export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs', 'media.mjs', 'downloads.mjs',
     'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
-for (const name of STARTS) (await shared(name)).start();
+
+// What this tab does once started, declared where it belongs below and done by
+// start(scope) through the scope (shared/loading.mjs, #183): nothing runs as
+// this script is imported, and all it added goes when the tab stops.
+const work = tabWork();
+let tabScope = null;        // this tab's, from start()
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
@@ -153,8 +120,9 @@ let filterDefaultsPromise = null;
 
 
 // Sync with Civitai (shared/jobs.mjs), connected to this tab's
-// status line and grid.
-connectJobs({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal: () => totalModels });
+// status line and grid - and disconnected when it stops.
+work.run((scope) => scope.onStop(
+    connectJobs({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal: () => totalModels })));
 
 // Image gallery state
 let currentVersionId = null;
@@ -236,7 +204,7 @@ function setPreviewCheckboxFrom(previewLeastNsfw) {
 // asked for again; the gallery reads its settings each time a model opens.
 const GRID_SETTINGS = ['model_manager_page_size', 'model_manager_card_size',
                        'model_manager_preview_least_nsfw'];
-window.addEventListener('mm-settings-saved', (e) => {
+work.listen(window, 'mm-settings-saved', (e) => {
     const changed = e.detail?.changed || [];
     refreshUiOptions();
     if (changed.includes('model_manager_preview_least_nsfw')) {
@@ -266,7 +234,7 @@ async function cardPreview(count) {
     }
     return models.slice(0, count).map((model, index) => mmCard(model, index)).join('');
 }
-provide('cardPreview.model_manager_card_size', cardPreview);
+work.provide('cardPreview.model_manager_card_size', cardPreview);
 
 function getFilters() {
     const useMax = document.getElementById('mm_nsfw_use_max')?.checked || false;
@@ -423,7 +391,7 @@ function setupCommercialControls() {
     });
 
     // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
+    tabScope.listen(document, 'click', (e) => {
         const dropdown = document.getElementById('mm_commercial_dropdown');
         const panel = document.getElementById('mm_commercial_panel');
         if (dropdown && panel && !dropdown.contains(e.target)) {
@@ -453,7 +421,7 @@ function setupNsfwControls() {
                 const clickedIndex = NSFW_LEVEL_ORDER.indexOf(clickedLevel);
 
                 // Use setTimeout to override after the default toggle
-                setTimeout(() => {
+                tabScope.later(() => {
                     levelCheckboxes.forEach(otherCb => {
                         const otherIndex = NSFW_LEVEL_ORDER.indexOf(otherCb.value);
                         otherCb.checked = otherIndex <= clickedIndex;
@@ -467,7 +435,7 @@ function setupNsfwControls() {
     });
 
     // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
+    tabScope.listen(document, 'click', (e) => {
         const dropdown = document.getElementById('mm_nsfw_dropdown');
         const panel = document.getElementById('mm_nsfw_panel');
         if (dropdown && panel && !dropdown.contains(e.target)) {
@@ -669,7 +637,7 @@ function updateGridTabs() {
     });
 }
 
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const tab = event.target.closest?.('#mm_grid_tabs [data-grid-tab]');
     if (!tab || tab.dataset.gridTab === gridTab || isLoading) return;
     gridTab = tab.dataset.gridTab;
@@ -1514,8 +1482,10 @@ async function versionDownloaded(dl) {
     }
 }
 
-downloads().addPanel('mm');
-downloads().onComplete(versionDownloaded);
+work.run((scope) => {
+    scope.onStop(downloads().addPanel('mm'));
+    scope.onStop(downloads().onComplete(versionDownloaded));
+});
 
 // Render model details panel
 function renderModelDetails(model, fullDetails = null) {
@@ -1612,7 +1582,7 @@ function updateDescription(description) {
             </div>
         `;
         // Check if content is short enough to not need toggle
-        setTimeout(() => {
+        tabScope.later(() => {
             const content = document.getElementById('mm_description_content');
             const toggle = document.getElementById('mm_description_toggle');
             if (content && toggle) {
@@ -2038,7 +2008,7 @@ async function showGalleryTab(tab) {
 
 // "Your generations" turned off or on: the gallery's tab goes or comes back at
 // once - off while it shows, to the Civitai images.
-window.addEventListener('mm-generations-enabled', (event) => {
+work.listen(window, 'mm-generations-enabled', (event) => {
     if (!document.querySelector('#mm_images .mm-images-header')) return;
     if (!event.detail.enabled && galleryTab === 'generations') {
         showGalleryTab('civitai');
@@ -2105,7 +2075,7 @@ function setSelectingGenerations(checked) {
     renderGenerations();
 }
 
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const box = event.target.closest?.('#mm_images [data-mm-pick]');
     if (!box) return;
     const index = generationCards.findIndex((card) => card.id === Number(box.dataset.mmPick));
@@ -2121,7 +2091,7 @@ document.addEventListener('click', (event) => {
 
 // Selecting, a click on a card's images ticks the card rather than opening
 // the viewer - caught on the way down, before the image's own click.
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     if (!selectingGenerations) return;
     const card = event.target.closest?.('#mm_images .mm-generation-card');
     if (!card || event.target.closest('[data-mm-pick]')) return;
@@ -2568,7 +2538,7 @@ async function deleteGenerationImage(card, image) {
 
 // A card's image, or a video's ⤢, opens the viewer: from data on it, not an
 // inline handler, as every image here opens.
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const civitai = event.target.closest?.('#mm_images [data-view-index]');
     if (civitai) {
         event.preventDefault();
@@ -2740,7 +2710,7 @@ function updateResourceButtons() {
     });
 }
 // New hash answers (resources.mjs): the Civitai Browser relabels its own.
-window.addEventListener('mm-resource-hashes', updateResourceButtons);
+work.listen(window, 'mm-resource-hashes', updateResourceButtons);
 
 /**
  * Learn what the server already knows about the gallery's hashes - its
@@ -2883,7 +2853,7 @@ async function showModel(query) {
         setStatus(`Nothing found for "${what}". It may not be downloaded, or the database needs a refresh.`, true);
     }
 }
-provide('modelManager.showModel', showModel);
+work.provide('modelManager.showModel', showModel);
 
 /**
  * Show one model file here, from another tab: this tab, the file's model,
@@ -2897,7 +2867,7 @@ async function showFile(path) {
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
     if (wanted >= 0) await selectVersion(wanted);
 }
-provide('modelManager.showFile', showFile);
+work.provide('modelManager.showFile', showFile);
 
 /**
  * Show one version here, from another tab, by its id - this tab, its model,
@@ -2913,7 +2883,7 @@ async function showVersion(versionId, path) {
     const file = files.find((v) => path && (v.file_path || '').toLowerCase() === path.toLowerCase()) || files[0];
     if (file) await selectVersion(currentVersions.indexOf(file));
 }
-provide('modelManager.showVersion', showVersion);
+work.provide('modelManager.showVersion', showVersion);
 
 /**
  * The Information table's first row. The button works out which version to
@@ -3184,10 +3154,10 @@ function selectBaseModel(value) {
 // there yet when init() runs, and Gradio replaces it when it redraws - a
 // listener on the element was lost, and ticking the box showed no banner.
 // For the same redraw, which resets inline styles, it is shown again after.
-document.addEventListener('change', (event) => {
+work.listen(document, 'change', (event) => {
     if (event.target?.id === 'mm_sfw_only') syncSfwOnlyBanner();
 });
-if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncSfwOnlyBanner);
+work.afterUpdate(syncSfwOnlyBanner);
 
 function syncSfwOnlyBanner() {
     const banner = document.getElementById('mm_sfw_only_banner');
@@ -3303,7 +3273,7 @@ function bindElements() {
 
     if (!loadBtn) {
         console.log('[ModelManager] Button not found yet, retrying...');
-        setTimeout(bindElements, 500);
+        tabScope.later(bindElements, 500);
         return;
     }
 
@@ -3420,9 +3390,9 @@ function setupScrollToTop() {
 
     // Listen to scroll events (throttled)
     let scrollTimeout = null;
-    window.addEventListener('scroll', () => {
+    tabScope.listen(window, 'scroll', () => {
         if (scrollTimeout) return;
-        scrollTimeout = setTimeout(() => {
+        scrollTimeout = tabScope.later(() => {
             updateButtonVisibility();
             scrollTimeout = null;
         }, 100);
@@ -3432,49 +3402,63 @@ function setupScrollToTop() {
 // ---------------------------------------------------------------- markup
 // What this tab's markup does, by name: a card, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
-provide('modelManager.toggleNsfwDropdown', () => toggleNsfwDropdown());
-provide('modelManager.toggleCommercialDropdown', () => toggleCommercialDropdown());
-provide('modelManager.selectModel', ({ index }) => selectModel(Number(index)));
-provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
-provide('modelManager.prevPage', () => prevPage());
-provide('modelManager.nextPage', () => nextPage());
-provide('modelManager.togglePin', ({ index }) => togglePin(Number(index)));
-provide('modelManager.showNsfwImages', (data, box) => toggleShowNsfwImages(box.checked));
-provide('modelManager.showPromptless', (data, box) => toggleShowPromptless(box.checked));
-provide('modelManager.loadMoreImages', () => loadMoreImages());
-provide('modelManager.selectAllGenerations', () => selectAllGenerations());
-provide('modelManager.clearGenerationPicks', () => clearGenerationPicks());
-provide('modelManager.deletePickedGenerations', () => deletePickedGenerations());
-provide('modelManager.rateInViewer', ({ level }) => rateInViewer(Number(level)));
-provide('modelManager.rateGeneration', ({ generation, level, image }) =>
+work.provide('modelManager.toggleNsfwDropdown', () => toggleNsfwDropdown());
+work.provide('modelManager.toggleCommercialDropdown', () => toggleCommercialDropdown());
+work.provide('modelManager.selectModel', ({ index }) => selectModel(Number(index)));
+work.provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
+work.provide('modelManager.prevPage', () => prevPage());
+work.provide('modelManager.nextPage', () => nextPage());
+work.provide('modelManager.togglePin', ({ index }) => togglePin(Number(index)));
+work.provide('modelManager.showNsfwImages', (data, box) => toggleShowNsfwImages(box.checked));
+work.provide('modelManager.showPromptless', (data, box) => toggleShowPromptless(box.checked));
+work.provide('modelManager.loadMoreImages', () => loadMoreImages());
+work.provide('modelManager.selectAllGenerations', () => selectAllGenerations());
+work.provide('modelManager.clearGenerationPicks', () => clearGenerationPicks());
+work.provide('modelManager.deletePickedGenerations', () => deletePickedGenerations());
+work.provide('modelManager.rateInViewer', ({ level }) => rateInViewer(Number(level)));
+work.provide('modelManager.rateGeneration', ({ generation, level, image }) =>
     rateGeneration(Number(generation), Number(level), image ? Number(image) : null));
-provide('modelManager.download', ({ modelId, versionId, fileId }) =>
+work.provide('modelManager.download', ({ modelId, versionId, fileId }) =>
     startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
-provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
-provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
-provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
-provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
-provide('modelManager.selectPill', ({ index }) => selectPill(Number(index)));
-provide('modelManager.deleteFile', ({ index }) => {
+work.provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
+work.provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
+work.provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
+work.provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
+work.provide('modelManager.selectPill', ({ index }) => selectPill(Number(index)));
+work.provide('modelManager.deleteFile', ({ index }) => {
     const file = currentVersions[Number(index)];
     return file ? deleteModel('file', file) : undefined;
 });
-provide('modelManager.toggleBookmark', ({ modelId }) => toggleBookmark(safeId(modelId)));
-provide('modelManager.deleteModel', ({ scope }) => deleteModel(scope));
-provide('modelManager.syncModel', () => forceSyncModel());
-provide('modelManager.closeDetails', () => closeDetails());
-provide('modelManager.toggleDescription', () => toggleDescription());
-provide('modelManager.rateGenerations', (data, box) => setRatingGenerations(box.checked));
-provide('modelManager.selectGenerations', (data, box) => setSelectingGenerations(box.checked));
-provide('modelManager.refreshGenerations', () => refreshGenerations());
-provide('modelManager.showGalleryTab', ({ tab }) => showGalleryTab(tab));
-provide('modelManager.showMoreGenerations', () => showMoreGenerations());
-provide('modelManager.sendGeneration', ({ generation }) => sendGeneration(Number(generation)));
-provide('modelManager.showGenerationResources', ({ generation }) => showGenerationResources(Number(generation)));
-provide('modelManager.showAllGeneration', ({ generation }) => showAllGeneration(Number(generation)));
-provide('modelManager.deleteGeneration', ({ generation }) => deleteGeneration(Number(generation)));
-provide('modelManager.showInCivitaiBrowser', () => showInCivitaiBrowser());
-provide('modelManager.restoreScrollPosition', () => restoreScrollPosition());
+work.provide('modelManager.toggleBookmark', ({ modelId }) => toggleBookmark(safeId(modelId)));
+work.provide('modelManager.deleteModel', ({ scope }) => deleteModel(scope));
+work.provide('modelManager.syncModel', () => forceSyncModel());
+work.provide('modelManager.closeDetails', () => closeDetails());
+work.provide('modelManager.toggleDescription', () => toggleDescription());
+work.provide('modelManager.rateGenerations', (data, box) => setRatingGenerations(box.checked));
+work.provide('modelManager.selectGenerations', (data, box) => setSelectingGenerations(box.checked));
+work.provide('modelManager.refreshGenerations', () => refreshGenerations());
+work.provide('modelManager.showGalleryTab', ({ tab }) => showGalleryTab(tab));
+work.provide('modelManager.showMoreGenerations', () => showMoreGenerations());
+work.provide('modelManager.sendGeneration', ({ generation }) => sendGeneration(Number(generation)));
+work.provide('modelManager.showGenerationResources', ({ generation }) => showGenerationResources(Number(generation)));
+work.provide('modelManager.showAllGeneration', ({ generation }) => showAllGeneration(Number(generation)));
+work.provide('modelManager.deleteGeneration', ({ generation }) => deleteGeneration(Number(generation)));
+work.provide('modelManager.showInCivitaiBrowser', () => showInCivitaiBrowser());
+work.provide('modelManager.restoreScrollPosition', () => restoreScrollPosition());
 
-onReady(init);
-onReady(setupScrollToTop);
+/**
+ * Started by the loading module once Gradio has drawn the tab (#183): what is
+ * declared above, then the tab's own controls, and the button that scrolls
+ * back up. What it puts on the page's body - that button, a model's sync
+ * overlay - goes when it stops.
+ */
+export function start(scope) {
+    tabScope = scope;
+    work.start(scope);
+    tabScope.onStop(() => {
+        hideSyncOverlay();
+        document.querySelector('.mm-scroll-to-top')?.remove();
+    });
+    init();
+    setupScrollToTop();
+}

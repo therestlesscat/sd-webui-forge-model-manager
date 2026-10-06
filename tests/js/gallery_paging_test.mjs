@@ -28,7 +28,7 @@ check('and a page - its separator, its cards, its note - once',
 const code = (f) => readFileSync(`${ROOT}/javascript/${f}`, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 check('the tabs keep no pages of their own',
-      ['model_manager.mjs', 'civitai_browser.mjs'].filter((f) =>
+      ['tabs/model_manager.mjs', 'tabs/civitai_browser.mjs'].filter((f) =>
           /(?<![\w$.])(currentImages|imagePages|pageRequestError|loadingImagePage)\b|\.\.\.(currentImages|imagePages)\b/.test(code(f))),
       []);
 

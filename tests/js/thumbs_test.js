@@ -9,8 +9,8 @@ const path = require('path');
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
 const common = require('./shared_script.cjs')();
-const browser = fs.readFileSync(REPO + '/javascript/civitai_browser.mjs', 'utf8');
-const manager = fs.readFileSync(REPO + '/javascript/model_manager.mjs', 'utf8');
+const browser = fs.readFileSync(REPO + '/javascript/tabs/civitai_browser.mjs', 'utf8');
+const manager = fs.readFileSync(REPO + '/javascript/tabs/model_manager.mjs', 'utf8');
 
 const sandbox = {
     console: { log() {}, warn() {} },

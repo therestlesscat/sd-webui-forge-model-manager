@@ -6,7 +6,7 @@
 // sent as on. When it is on, the search streams - it checks models one at a time -
 // and the status line says what it left out, and when Civitai's rate limit
 // cut a page short.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 // The page first: the registry listens to it when it loads.
@@ -35,7 +35,7 @@ globalThis.fetch = async (url) => {
     }) } };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

@@ -5,65 +5,28 @@
  */
 
 
-// The WebUI versions the tab scripts and nothing else: list_scripts() uses
-// os.listdir(), which does not recurse, so javascript/shared/ is never listed
-// and never gets a ?mtime. A plain import of it therefore resolved to a URL
-// that never changed, a browser cached it forever, and an export added here
-// was missing from the copy the browser held - which is a link error, so the
-// whole tab script stopped running until someone happened to force a reload.
-//
-// So the shared modules are asked for with a version of their own, the newest
-// mtime among them, which the server is asked for: this script's version, as
-// they used to take, stayed the same when only a shared file changed, and
-// Gradio's file route sends no Cache-Control, so a browser could keep the
-// copy it held. All three tabs share the one answer, so each shared module is
-// one URL and runs once, not once per tab. It is asked until it is answered:
-// a page reloaded by "Apply and restart UI" comes back as soon as the WebUI's
-// own routes answer, before the extensions' app_started adds ours, and each
-// tab fell back to a version of its own - a copy of every shared module per
-// tab, and a downloads list and a note pile each, for the session (#121). A
-// dynamic import is the only way to build that URL at runtime, which is why
-// this is not a plain import statement.
-window.mmSharedVersion ||= (async () => {
-    let waiting = false;
-    for (;;) {
-        try {
-            // Not there yet - 404, the extension's app_started not run - is
-            // waited out. Any other answer is taken, one without a version as
-            // this tab's own, for every tab: still one copy.
-            const response = await fetch('/model-manager/asset-version', { cache: 'no-store' });
-            if (response.status !== 404) {
-                const body = response.ok ? await response.json().catch(() => null) : null;
-                return /^\d+$/.test(String(body?.version ?? '')) ? `?v=${body.version}`
-                    : new URL(import.meta.url).search;
-            }
-        } catch (e) { /* the server is not answering at all */ }
-        if (!waiting) {
-            waiting = true;
-            console.log("[ModelManager] waiting for the Model Manager's API...");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-})();
-const sharedVersion = await window.mmSharedVersion;
-const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, import.meta.url).href);
+// The shared modules, under the version this script was asked for under: the
+// loading module imports it with the one the loader asked the server for
+// (loader.mjs), so every tab and the loading module use one copy of each.
+const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 
 // Asked for all at once, then taken one by one below. Awaited in turn, each
 // module waited a round trip of its own before the next was asked for. An
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
+const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
     'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    TIMING, onReady, apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml,
+    apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml,
     formatNumber, formatBytes: formatFileSize, formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
-const { provide, ready, call } = await shared('calls.mjs');
+const { ready, call } = await shared('calls.mjs');
 const { showTab, tabShowing } = await shared('tabs.mjs');
+const { tabWork } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -100,12 +63,16 @@ const { openViewer, cardSource, dialogShowing, viewerIsOpen } = await shared('vi
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
-// What this tab uses that has work of its own - a listener, a request -
-// started: each module once for the page, by whichever tab is first (#182).
-// None does anything as it is imported, so what a tab does not use does not run.
-const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'downloads.mjs',
+// What this tab uses that has work of its own - a listener, a request: the
+// loading module starts each once for the page, before this tab (#182, #183).
+export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'downloads.mjs',
     'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'settings.mjs'];
-for (const name of STARTS) (await shared(name)).start();
+
+// What this tab does once started, declared where it belongs below and done by
+// start(scope) through the scope (shared/loading.mjs, #183): nothing runs as
+// this script is imported, and all it added goes when the tab stops.
+const work = tabWork();
+let tabScope = null;        // this tab's, from start()
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
@@ -149,7 +116,7 @@ const cardSize = createCardSize({ containerId: 'civitai_browser_app', logTag: 'C
 // After the settings window saved: redo what this tab drew from the settings.
 // The page size applies from the next search, and the gallery reads its
 // settings each time a model opens.
-window.addEventListener('mm-settings-saved', (e) => {
+work.listen(window, 'mm-settings-saved', (e) => {
     refreshUiOptions().then(syncSfwOnlyEnabled);
     if ((e.detail?.changed || []).includes('model_manager_civitai_card_size')) {
         // Saved as the server normalises it: "200x280".
@@ -176,7 +143,7 @@ async function cardPreview(count) {
     }
     return models.slice(0, count).map((model, index) => renderCard(model, index)).join('');
 }
-provide('cardPreview.model_manager_civitai_card_size', cardPreview);
+work.provide('cardPreview.model_manager_civitai_card_size', cardPreview);
 
 // Cursor-based pagination state
 // cursors[N-1] = cursor to fetch page N
@@ -286,10 +253,10 @@ function sfwOnlyEnabled() {
 // pages come back short, and without this that reads as something broken.
 // Listened for on the page, not on the checkboxes, and redrawn after Gradio
 // redraws the tab: see syncSfwOnlyBanner() in model_manager.mjs.
-document.addEventListener('change', (event) => {
+work.listen(document, 'change', (event) => {
     if (event.target?.id === 'cb_nsfw' || event.target?.id === 'cb_sfw_only') syncSfwOnlyEnabled();
 });
-if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncSfwOnlyEnabled);
+work.afterUpdate(syncSfwOnlyEnabled);
 
 function syncSfwOnlyEnabled() {
     const box = document.getElementById('cb_sfw_only');
@@ -357,7 +324,7 @@ function syncLucky() {
     setText(button, lucky ? 'Draw' : 'Search');
     setTitle(button, lucky ? 'Draw a page of models at random from those the filters allow' : '');
 }
-if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(syncLucky);
+work.afterUpdate(syncLucky);
 
 // Update status
 function updateStatus(message) {
@@ -983,7 +950,7 @@ function renderModelDetails() {
     container.style.display = 'block';
 
     // Check if description needs toggle
-    setTimeout(() => {
+    tabScope.later(() => {
         const content = document.getElementById('cb_description_content');
         const toggle = document.getElementById('cb_description_toggle');
         if (content && toggle) {
@@ -1283,7 +1250,7 @@ const showImageMetaAt = (index) => showImageMeta(imageGallery.images[index]);
 // its file large, its buttons below, its text beside (shared/viewer.mjs) -
 // from data on it, not an inline handler, as every image here opens.
 const browserCards = () => Array.from(document.querySelectorAll('#cb_images .model-images-list .mm-image-card'));
-document.addEventListener('click', (event) => {
+work.listen(document, 'click', (event) => {
     const target = event.target.closest?.('#cb_images [data-view-index]');
     if (!target) return;
     event.preventDefault();
@@ -1324,7 +1291,7 @@ function updateResourceButtons() {
         else button.remove();
     });
 }
-window.addEventListener('mm-resource-hashes', updateResourceButtons);
+work.listen(window, 'mm-resource-hashes', updateResourceButtons);
 
 function showResources(index) {
     const img = imageGallery.images[index];
@@ -1348,8 +1315,10 @@ async function startDownload(modelId, versionId, fileId) {
     }
 }
 
-downloads().addPanel('cb');
-downloads().onComplete(dl => markVersionOwned(dl.version_id));
+work.run((scope) => {
+    scope.onStop(downloads().addPanel('cb'));
+    scope.onStop(downloads().onComplete(dl => markVersionOwned(dl.version_id)));
+});
 
 // Mark a freshly downloaded version as owned without re-running the
 // search. Re-searching would close the details panel the user is looking
@@ -1603,7 +1572,7 @@ function initTagInput() {
     }
 
     // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
+    tabScope.listen(document, 'click', (e) => {
         if (!e.target.closest('.cb-tag-container')) {
             tagSuggestions = [];
             renderTagDropdown();
@@ -1660,7 +1629,7 @@ function init() {
     loadEnums();
 
     // Civitai's lists, asked again until they come.
-    const initRetry = setInterval(() => {
+    const initRetry = tabScope.every(() => {
         if (!tagInputInitialized) {
             initTagInput();
         }
@@ -1673,13 +1642,13 @@ function init() {
     }, 500);
 
     // Stop retrying after 10 seconds
-    setTimeout(() => clearInterval(initRetry), 10000);
+    tabScope.later(() => clearInterval(initRetry), 10000);
 
     // Esc closes the tag suggestions, then the open model - this tab's, while
     // it is the one showing and nothing is open over it. A dialog or a viewer
     // closes itself (closeOnEscape); this used to close the first modal on
     // the page whatever tab it was, and the open model with any Escape.
-    document.addEventListener('keydown', (e) => {
+    tabScope.listen(document, 'keydown', (e) => {
         if (e.key !== 'Escape' || dialogShowing() || viewerIsOpen()) return;
         if (document.getElementById('cb_grid')?.offsetParent === null) return;
         if (tagSuggestions.length) {
@@ -1768,7 +1737,7 @@ async function clearCbSearch() {
 async function prepareSavedSearch() {
     savedFilters = await savedSearch('civitai_browser');
     if (!savedFilters) return;
-    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(runIfShown);
+    tabScope.afterUpdate(runIfShown);
     runIfShown();
 }
 
@@ -1848,7 +1817,7 @@ async function showModel(query) {
 
     await searchModels(1);
 }
-provide('civitaiBrowser.showModel', showModel);
+work.provide('civitaiBrowser.showModel', showModel);
 
 // Open this model over in the Model Manager tab, which shows itself.
 function showInModelManager(modelId) {
@@ -1863,46 +1832,33 @@ function showInModelManager(modelId) {
 // ---------------------------------------------------------------- markup
 // What this tab's markup does, by name: a card, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
-provide('civitaiBrowser.search', () => search());
-provide('civitaiBrowser.feelingLucky', () => syncLucky());
-provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
-provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
-provide('civitaiBrowser.prevPage', () => prevPage());
-provide('civitaiBrowser.nextPage', () => nextPage());
-provide('civitaiBrowser.showAllImages', (data, box) => toggleShowAllImages(box.checked));
-provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
-provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
-provide('civitaiBrowser.download', ({ modelId, versionId, fileId }) =>
+work.provide('civitaiBrowser.search', () => search());
+work.provide('civitaiBrowser.feelingLucky', () => syncLucky());
+work.provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
+work.provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
+work.provide('civitaiBrowser.prevPage', () => prevPage());
+work.provide('civitaiBrowser.nextPage', () => nextPage());
+work.provide('civitaiBrowser.showAllImages', (data, box) => toggleShowAllImages(box.checked));
+work.provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
+work.provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
+work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId }) =>
     startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
-provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
-provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
-provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));
-provide('civitaiBrowser.selectVersion', ({ index }) => selectVersion(Number(index)));
-provide('civitaiBrowser.toggleDescription', () => toggleDescription());
-provide('civitaiBrowser.showInModelManager', ({ modelId }) => showInModelManager(safeId(modelId)));
-provide('civitaiBrowser.closeDetails', () => closeDetails());
+work.provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
+work.provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
+work.provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));
+work.provide('civitaiBrowser.selectVersion', ({ index }) => selectVersion(Number(index)));
+work.provide('civitaiBrowser.toggleDescription', () => toggleDescription());
+work.provide('civitaiBrowser.showInModelManager', ({ modelId }) => showInModelManager(safeId(modelId)));
+work.provide('civitaiBrowser.closeDetails', () => closeDetails());
 
 /**
- * The tab's markup, once Gradio has drawn it - after the scripts have run.
- * Bound before it, Save Search, Enter in the search box and the Type box's
- * change were bound to nothing, and a saved search was put in a bar that was
- * not there: in one load of three on Neo (#128). As generations.mjs waits.
+ * Started by the loading module once Gradio has drawn the tab (#183) - after
+ * the scripts have run. Started before it, Save Search, Enter in the search
+ * box and the Type box's change were bound to nothing, and a saved search was
+ * put in a bar that was not there: in one load of three on Neo (#128).
  */
-function markupDrawn(tries = 240) {
-    return new Promise((resolve) => {
-        const drawn = () => Boolean(document.getElementById('cb_search_btn'));
-        const look = (left) => {
-            if (drawn() || left <= 0) resolve(drawn());
-            else setTimeout(() => look(left - 1), TIMING.drawRetry);
-        };
-        look(tries);
-    });
-}
-
-onReady(async () => {
-    if (!await markupDrawn()) {
-        console.warn('[ModelManager] The Civitai Browser tab never appeared; not loading it');
-        return;
-    }
+export function start(scope) {
+    tabScope = scope;
+    work.start(scope);
     init();
-});
+}

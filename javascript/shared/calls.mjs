@@ -29,6 +29,11 @@ export function provide(name, fn) {
     offered.set(name, fn);
 }
 
+/** Take back what was offered under `name`: its tab has stopped (#183). Another's offer of it stays. */
+export function withdraw(name, fn) {
+    if (offered.get(name) === fn) offered.delete(name);
+}
+
 /** Whether `name` has been offered - its tab has loaded. */
 export function ready(name) {
     return offered.has(name);

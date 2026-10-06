@@ -9,7 +9,7 @@ const path = require('path');
 // The extension, found from this file rather than from a drive letter, so the
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
-const src = fs.readFileSync(REPO + '/javascript/civitai_browser.mjs', 'utf8');
+const src = fs.readFileSync(REPO + '/javascript/tabs/civitai_browser.mjs', 'utf8');
 
 // --- a <select> that behaves like the real thing -----------------------------
 class Option {

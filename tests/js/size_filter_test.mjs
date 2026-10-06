@@ -9,7 +9,7 @@
 //
 // A range whose minimum is above its maximum is refused before any search,
 // since it would spend every search it is allowed on finding nothing.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -43,7 +43,7 @@ globalThis.fetch = async (url) => {
     }) } };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

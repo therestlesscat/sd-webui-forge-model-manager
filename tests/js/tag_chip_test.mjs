@@ -6,7 +6,7 @@
 // The x takes it out and gives the empty box back. Text typed and never
 // chosen still counts, as it always did, and becomes a chip on Enter or at
 // Search, so what the search is filtered by is always on show.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -27,7 +27,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 // The tab starts once it has found its markup (#128) - here at once, a step later.
 await new Promise((resolve) => setTimeout(resolve, 0));

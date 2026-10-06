@@ -18,7 +18,7 @@
 // Start, about extensions that are gone; Select ticks a shift-click's
 // range, never a running task; Clear history asks first, saying how many;
 // Show hidden lists the tasks it hid, marked, to unhide - one or ticked.
-import { ROOT, act, checker, mountTab, sharedModule, tick } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sharedModule, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -111,7 +111,7 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true, notes: [] });
 };
 
-await import(`file:///${ROOT}/javascript/queue.mjs`);
+await startTab('queue');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const text = (id) => document.getElementById(id)?.textContent.trim();

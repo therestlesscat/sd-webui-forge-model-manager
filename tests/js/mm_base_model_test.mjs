@@ -6,7 +6,7 @@
 // saved search is restored without waiting for them, so a base model it names
 // has to survive the list arriving after it - and one no longer in the
 // library stays selected rather than quietly becoming "All".
-import { ROOT, checker, mountTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -40,7 +40,7 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 window.localStorage.setItem('mm_saved_filters', JSON.stringify({ base_model: 'Wan Video 14B t2v' }));
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

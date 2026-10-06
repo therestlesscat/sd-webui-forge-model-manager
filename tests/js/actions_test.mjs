@@ -9,7 +9,7 @@
 // metadata window reaches its listener; a name nothing provides says so. And
 // with the three tabs loaded, every action their markup names is there.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
@@ -84,9 +84,9 @@ check('Copy JSON copies the image\'s data', JSON.parse(copied ?? 'null'), { prom
 // ------------------------------------------- every action the tabs name
 globalThis.onAfterUiUpdate = () => {};
 globalThis.fetch = async () => ({ ok: true, json: async () => ({ success: true }) });
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
-await import(`file:///${ROOT}/javascript/generations.mjs`);
+await startTab('modelManager');
+await startTab('civitaiBrowser');
+await startTab('generations');
 const { ready } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { downloads } = await import(`file:///${ROOT}/javascript/shared/downloads.mjs`);
 downloads();                                  // the panels' own, offered once the list is made

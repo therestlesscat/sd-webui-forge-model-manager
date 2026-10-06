@@ -15,7 +15,7 @@
 // linkedom does not run inline handlers, so the checks are on what the markup
 // *is* rather than on whether something fired: no hostile value may end up in
 // an event attribute, and what is copied must be the text itself.
-import { ROOT, act, checker, mountTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -76,7 +76,7 @@ const copied = [];
 Object.defineProperty(globalThis, 'navigator', { configurable: true,
     value: { clipboard: { writeText: (text) => { copied.push(text); return Promise.resolve(); } } } });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);

@@ -7,7 +7,11 @@
 //
 // Each module is imported with every kind of work recorded, then started, then
 // started again. The Queue alone, through its tab: queue_alone_test.mjs.
-import { readdirSync } from 'fs';
+//
+// So are the tabs' own scripts (#183), in javascript/tabs/: importing one does
+// nothing. The loading module (shared/loading.mjs) starts it, with a scope
+// that takes back all it added when the tab stops: tab_stop_test.mjs.
+import { existsSync, readdirSync } from 'fs';
 import { ROOT, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
@@ -63,8 +67,8 @@ const STARTED = {
     'core.mjs': ['document listener: click'],
     'calls.mjs': ['document listener: change', 'document listener: click'],
     'media.mjs': ['document listener: error'],
-    'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate', 'onAfterUiUpdate',
-                       'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
+    // The tabs' switches are the loading module's (#183): it follows them.
+    'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate'],
     'jobs.mjs': ['document listener: visibilitychange', 'provide sync.showDialog'],
     'notes.mjs': ['document listener: click', 'onAfterUiUpdate'],
     'settings.mjs': ['document listener: click', 'fetch /model-manager/settings/nsfw-levels',
@@ -98,6 +102,25 @@ check('every module with work has a start()',
       names.filter((name) => STARTED[name] && typeof modules[name].start !== 'function'), []);
 check('and no other module has one',
       names.filter((name) => !STARTED[name] && typeof modules[name].start === 'function'), []);
+
+// ------------------------------------------------ the tabs, imported
+const TAB_FILES = ['civitai_browser.mjs', 'generations.mjs', 'model_manager.mjs', 'queue.mjs'];
+const tabsFolder = `${ROOT}/javascript/tabs`;
+const tabFiles = existsSync(tabsFolder) ? readdirSync(tabsFolder).filter((f) => f.endsWith('.mjs')).sort() : [];
+check('the four tabs\' scripts are in javascript/tabs', tabFiles, TAB_FILES);
+const tabImport = {};
+const tabModules = {};
+for (const name of tabFiles) {
+    current = `tabs/${name}`;
+    tabModules[name] = await import(`file:///${tabsFolder}/${name}`);
+    await settle();
+    tabImport[name] = work.filter(([module]) => module === current).map(([, what]) => what);
+}
+check('no tab\'s script does anything as it is imported',
+      Object.fromEntries(Object.entries(tabImport).filter(([, done]) => done.length)), {});
+check('each offers start(scope), and what it uses that has a start()',
+      tabFiles.filter((name) => typeof tabModules[name].start !== 'function' || !Array.isArray(tabModules[name].STARTS)),
+      []);
 
 // What the samplers do once started is read the ui-options answer: the
 // scheduler at the end of an image's sampler text is told apart.

@@ -7,7 +7,8 @@ Everything Gradio renders.
   tab_generations.py      the Generations tab's markup
   tab_queue.py            the Queue tab's markup, and the Queue buttons' wiring
 
-The markup is static; the tabs are filled in by the scripts under javascript/.
+The markup is static; the tabs are filled in by the scripts under javascript/tabs/, which the
+loader (javascript/loader.mjs) loads for the tabs that are on.
 """
 from .settings import on_ui_settings
 from .tab_civitai_browser import create_civitai_browser_ui

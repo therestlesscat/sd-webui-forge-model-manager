@@ -5,7 +5,7 @@
 // earlier visit had reached page 6, a new search offered pages 1 to 6 while
 // having been to page 2. Resume is gone, and nothing is saved: every search
 // starts fresh.
-import { ROOT, act, checker, mountTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -23,7 +23,7 @@ globalThis.fetch = async (url) => {
                    modelVersions: [{ id: n * 10, images: [], files: [] }] }] }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

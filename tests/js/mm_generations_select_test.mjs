@@ -2,7 +2,7 @@
 // (generations_select_test.mjs): a tick on every card - its generation whole,
 // as its Delete - shift-click for a range, Select all loaded, and one Delete
 // for all, asked once. Select and Rate are not on together.
-import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -55,7 +55,7 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     return reply({ success: true });
 });
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelector('#mm_grid .model-card'));

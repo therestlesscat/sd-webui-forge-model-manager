@@ -7,7 +7,7 @@
 // models are listed, not which of their images are shown. Then it read the
 // settings once per page, so a change on the Settings page reached a model
 // opened afterwards only after a reload.
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, tick } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -38,7 +38,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, json: async () => ({ success: true }) };
 };
 
-await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
+await startTab('civitaiBrowser');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const $ = (id) => document.getElementById(id);

@@ -1,7 +1,7 @@
 """
 The Generations tab's markup: every image you have generated, newest first.
 
-Static HTML only, as the other tabs: javascript/generations.mjs fills the
+Static HTML only, as the other tabs: javascript/tabs/generations.mjs fills the
 grid from the API. A tile per generation - its first images, and how many it
 has - or per group of images, "Group by" says what; a click on one opens it
 in a grid of its own, with Back. A search narrows them to the images whose

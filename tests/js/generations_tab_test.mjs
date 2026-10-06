@@ -7,7 +7,7 @@
 // one whose file is gone says so and opens nothing. Send pastes the
 // generation's own infotext, as Forge's PNG Info does, and Delete removes the
 // record - and the files only with the box beside it ticked.
-import { ROOT, act, checker, mountTab, tick, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, startTab, tick, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -112,7 +112,7 @@ for (const tab of ['txt2img', 'img2img']) {
     document.querySelector(`#${tab}_tools #paste`).addEventListener('click', () => { pasted[tab] += 1; });
 }
 
-await import(`file:///${ROOT}/javascript/model_manager.mjs`);
+await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
