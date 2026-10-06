@@ -526,6 +526,13 @@ check('inputs a task ran at their defaults are said', text('queue_message'),
 STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'running' } };
 await waitFor('running again', () => text('queue_state') === 'Running');
 check('resumed: Pause is back as it was', [...pause(), button('resume').hidden], [false, false, 'Pause', true]);
+const runningStatus = STATUS;
+STATUS = { ...STATUS, progress: { ...STATUS.progress, task_id: null, job: null, holding: true } };
+await waitFor('the queue holding', () => text('queue_task') === 'Waiting for your own generation to end');
+check("waiting for the person's own generation, the status line says so",
+      text('queue_task'), 'Waiting for your own generation to end');
+STATUS = runningStatus;
+await waitFor('the task again', () => text('queue_task')?.startsWith('Task #'));
 STATUS = { success: true, running: false, counts: { pending: 0, running: 0, completed: 4, stopped: 0, failed: 1 },
            progress: { state: 'stopped', task_id: null, job: null, notes: [], error: null } };
 await waitFor('stopped', () => text('queue_state') === 'Stopped');

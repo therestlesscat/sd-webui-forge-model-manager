@@ -348,6 +348,20 @@ def current_job() -> Optional[str]:
     return getattr(progress, "current_task", None)
 
 
+def forge_jobs() -> List[str]:
+    """
+    The ids of every generation Forge is running or holding for its lock -
+    the person's own Generate, another tool's, or the queue's (#170).
+    """
+    try:
+        from modules import progress
+    except ImportError:
+        return []
+    running = getattr(progress, "current_task", None)
+    waiting = list(getattr(progress, "pending_tasks", None) or [])
+    return [job for job in [running, *waiting] if job]
+
+
 def interrupt() -> None:
     """Forge's Interrupt, for the generation running now."""
     from modules import shared

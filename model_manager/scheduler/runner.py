@@ -26,6 +26,13 @@ Forge's own Interrupt too, after which the queue goes on; else Completed,
 with the first run's seed from its generation info (#161). Then the next,
 until none is left, and the queue stops by itself.
 
+The person's own generations go first (#170): Forge's lock already keeps a
+task and the person's Generate apart, but their Generate would wait behind a
+long task. So before each task the queue waits while a run that is not the
+queue's holds Forge's lock or waits for it, and a moment after, as Generate
+forever presses Generate again half a second after each run. A task already
+running finishes first.
+
 Run next (#169) puts pending tasks before every other, in the order asked:
 the running queue takes them after its task; a paused one runs them and
 stays paused; with none running, a queue starts for them alone, and stops
@@ -55,6 +62,9 @@ from ..jobs import jobs
 from . import capture, queue_enabled, replay
 
 KIND = "queue"
+# How long after the person's own run the queue waits before its next task:
+# Generate forever presses Generate again half a second after each run (#170).
+HOLD_GRACE = 2.0
 _JOB = re.compile(r"^task\(mmq-(\d+)-\d+\)$")
 _ERROR = re.compile(r"<div class='error'>(.*?)</div>", re.S)
 
@@ -81,6 +91,7 @@ class Progress(object):
         self.stopped = 0
         self.notes: List[str] = []      # the running task's inputs that took their default
         self.error: Optional[str] = None
+        self.holding = False            # waiting for the person's own generation (#170)
 
     def fail(self, message: str) -> None:
         self.error = message
@@ -102,6 +113,7 @@ class Queue(object):
         self._wake = threading.Event()
         self._paused = False
         self._ending = False
+        self._person_seen = 0.0
 
     def cancel(self) -> None:
         self.stop()
@@ -154,6 +166,8 @@ class Queue(object):
     def run(self) -> None:
         db = get_models_db()
         while not self._stop.is_set():
+            if not self._paused and self._hold():
+                continue
             task = self._next(db)
             if task is not None:
                 self._run_task(db, task)
@@ -163,7 +177,21 @@ class Queue(object):
                 self._wake.clear()
             elif self._end():
                 break
+        self.progress.holding = False
         self.progress.state = "stopped"
+
+    def _hold(self) -> bool:
+        """
+        Whether to wait before the next task: a run not the queue's holds
+        Forge's lock or waits for it, or did within HOLD_GRACE (#170).
+        """
+        if person_busy():
+            self._person_seen = time.time()
+        self.progress.holding = time.time() - self._person_seen < HOLD_GRACE
+        if self.progress.holding:
+            self._wake.wait(0.5)
+            self._wake.clear()
+        return self.progress.holding
 
     def _next(self, db) -> Optional[Dict[str, Any]]:
         """
@@ -304,6 +332,11 @@ def on_postprocess(p, processed) -> None:
     run = _run_of_now()
     if run is not None and forge_host.was_interrupted():
         run["interrupted"] = True
+
+
+def person_busy() -> bool:
+    """Whether Forge runs, or holds for its lock, a generation not the queue's (#170)."""
+    return any(queued_task(job) is None for job in forge_host.forge_jobs())
 
 
 def queued_task(job: Optional[str] = None) -> Optional[int]:

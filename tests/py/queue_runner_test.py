@@ -10,8 +10,8 @@ defaults, a label no longer offered failing the task. The queue runs this
 install's tasks in order, each through Generate's function under our own
 id, until none is left; ends a task as failed, stopped or completed, and
 goes on; sets each run up with its task's files; never interrupts the
-person's own Generate; pauses between tasks; runs a task now, before the
-others (#169); asks before running tasks whose scripts are gone; and at
+person's own Generate, and waits for it before each task (#170); pauses
+between tasks; runs a task now, before the others (#169); asks before running tasks whose scripts are gone; and at
 startup stops what a restart left running.
 """
 import dataclasses
@@ -502,6 +502,30 @@ jobs.join(10)
 check('Run anyway runs it without them', status_of(uses), 'completed')
 RUNNER.inputs[:], RUNNER.scripts[:], SCRIPT_LIST.choices[:] = saved
 own.inputs = FIXED + RUNNER.inputs
+
+# ------------------------------------- the person's own generation first
+modules.progress = types.SimpleNamespace(current_task='task(abc)',
+                                         pending_tasks={'task(mmq-3-1)': 1.0, 'task(def)': 2.0})
+sys.modules['modules.progress'] = modules.progress
+check("Forge's runs: the one holding its lock, then those waiting for it", forge_host.forge_jobs(),
+      ['task(abc)', 'task(mmq-3-1)', 'task(def)'])
+del sys.modules['modules.progress'], modules.progress
+clear()
+held, _ = queue_task('held')
+real_jobs, real_grace = forge_host.forge_jobs, runner.HOLD_GRACE
+forge_jobs_now = ['task(person-1)']
+forge_host.forge_jobs = lambda: list(forge_jobs_now)
+runner.HOLD_GRACE = 0.3
+runner.start()
+time.sleep(0.6)
+check("while the person's own generation runs, the queue waits before its task",
+      (ran(), status_of(held), runner.status()['progress']['holding']), ([], 'pending', True))
+forge_jobs_now[:] = ['task(mmq-99-1)']
+check("the queue's own runs do not hold it: a moment after, it goes on",
+      wait_until(lambda: status_of(held) == 'completed'), True)
+jobs.join(10)
+check('and no longer says it waits', runner.status()['progress']['holding'], False)
+forge_host.forge_jobs, runner.HOLD_GRACE = real_jobs, real_grace
 
 # --------------------------------------------------------------- startup
 clear()

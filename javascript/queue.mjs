@@ -162,8 +162,9 @@ function countsText(counts = {}) {
     return parts.join(' · ');
 }
 
-/** The task the queue is on, and how far along Forge says it is. */
+/** The task the queue is on, and how far along Forge says it is - or that it waits for the person's own run (#170). */
 function nowText(progress, forge) {
+    if (progress?.holding) return 'Waiting for your own generation to end';
     if (!progress?.task_id) return '';
     let text = `Task #${progress.task_id}`;
     if (forge?.queued) text += ' · waiting for Forge';
