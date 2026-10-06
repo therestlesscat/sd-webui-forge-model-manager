@@ -473,7 +473,10 @@ function drawReloadPopup(error = null) {
                     ui: 'is created by Settings -> Reload UI.' };
     const lines = [...waiting].map(([name, how]) => `${LABELS[name]} ${LINES[how]}`);
     const notes = [restartable ? 'Restart WebUI starts the server and the page afresh: the cleanest slate. '
-                                 + 'A running generation and sync end; downloads pause, and resume after.'
+                                 // A download's .partial is kept, paused: none resumes by itself
+                                 // (download_service.restore); one not started has none to keep.
+                                 + 'A running generation and sync end. Downloads under way come back paused: '
+                                 + 'resume them after. Ones not yet started leave the list.'
                                : `${NOT_RESTARTABLE}.`,
                    'Reloading loses unsaved input, like a typed prompt.'];
     popup.innerHTML = `
