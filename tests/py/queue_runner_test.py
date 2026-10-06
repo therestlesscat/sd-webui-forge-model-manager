@@ -10,8 +10,9 @@ defaults, a label no longer offered failing the task. The queue runs this
 install's tasks in order, each through Generate's function under our own
 id, until none is left; ends a task as failed, stopped or completed, and
 goes on; sets each run up with its task's files; never interrupts the
-person's own Generate; pauses between tasks; asks before running tasks
-whose scripts are gone; and at startup stops what a restart left running.
+person's own Generate; pauses between tasks; runs a task now, before the
+others (#169); asks before running tasks whose scripts are gone; and at
+startup stops what a restart left running.
 """
 import dataclasses
 import enum
@@ -214,6 +215,8 @@ def clear():
     forge.plan, forge.calls, forge.interrupts = [], [], []
     forge.waiting.clear()
     forge.release.clear()
+    runner._first.clear()
+    runner._go.clear()
 
 
 def run_queue(force=False):
@@ -386,6 +389,119 @@ check('and no other started', status_of(two), 'pending')
 runner.resume()
 jobs.join(10)
 check('Resume goes on with the next', status_of(two), 'completed')
+
+# --------------------------------------------------------------- Run next
+def ran():
+    return [runner.queued_task(c['job']) for c in forge.calls]
+
+
+def active():
+    return [t['id'] for t in db.list_tasks(INSTALL_KEY, 'active', first=runner.first())[0]]
+
+
+clear()
+a, _ = queue_task('a')
+b, _ = queue_task('b')
+c, _ = queue_task('c')
+check('stopped, Run next would move any task: it runs it alone', runner.unmoved(), set())
+answer = runner.run_next([c])
+jobs.join(10)
+check('a stopped queue starts for the task alone', (answer['first'], answer['after'], ran()), ([c], None, [c]))
+check('and stops after it, the rest left waiting',
+      (runner.status()['progress']['state'], status_of(a), status_of(b)), ('stopped', 'pending', 'pending'))
+
+clear()
+a, _ = queue_task('a')
+b, _ = queue_task('b')
+c, _ = queue_task('c')
+d, _ = queue_task('d')
+e, _ = queue_task('e')
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+check('running, Run next would not move the next task', runner.unmoved(), {b})
+answer = runner.run_next([d, c])
+check('a running queue takes them next, in the order queued, after its task',
+      (answer['first'], answer['after']), ([c, d], a))
+check('Active shows them so', active(), [a, c, d, b, e])
+check('nor them, nor the oldest left waiting, which runs after them anyway', runner.unmoved(), {c, d, b})
+forge.release.set()
+jobs.join(10)
+check('and runs them so', ran(), [a, c, d, b, e])
+
+clear()
+a, _ = queue_task('a')
+b, _ = queue_task('b')
+c, _ = queue_task('c')
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+runner.run_next([c])
+runner.pause()
+forge.release.set()
+check('Pause holds a task Run next asked for before it',
+      wait_until(lambda: runner.status()['progress']['state'] == 'paused'), True)
+time.sleep(0.6)
+check('it waits', (ran(), status_of(c)), ([a], 'pending'))
+check('paused, Run next would move it: it would run', runner.unmoved(), set())
+answer = runner.run_next([b])
+check('a paused queue runs one asked for since', wait_until(lambda: status_of(b) == 'completed'), True)
+check('then is paused again', wait_until(lambda: runner.status()['progress']['state'] == 'paused'), True)
+time.sleep(0.6)
+check('the one held stays held', (answer['after'], ran(), status_of(c)), (None, [a, b], 'pending'))
+runner.resume()
+jobs.join(10)
+check('Resume runs it', (ran(), status_of(c)), ([a, b, c], 'completed'))
+
+clear()
+a, _ = queue_task('a')
+b, _ = queue_task('b')
+forge.plan = ['running']
+runner.run_next([a])
+forge.waiting.wait(5)
+check('Start, while a queue runs for Run next alone, has it go on with the rest', runner.start(),
+      {'started': True, 'missing': []})
+forge.release.set()
+jobs.join(10)
+check('and it does', ran(), [a, b])
+
+clear()
+a, _ = queue_task('a')
+b, _ = queue_task('b')
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+runner.stop()
+check('not while the queue is stopping: it would end first', runner.run_next([b]),
+      {'first': [], 'after': None, 'skipped': [], 'missing': [], 'stopping': True})
+forge.release.set()
+jobs.join(10)
+check('nothing was put first', (runner.first(), status_of(b)), ([], 'pending'))
+
+clear()
+a, _ = queue_task('a')
+runner.run_next([a])
+jobs.join(10)
+gone = db.add_task({'install': 'another-install', 'mode': 'txt2img', 'inputs': {'fixed': {}}})
+check('a task that ran, or is not this install\'s, is not run', runner.run_next([a, gone, 10 ** 9])['skipped'],
+      [{'id': a, 'why': 'already completed'}, {'id': gone, 'why': 'not found'}, {'id': 10 ** 9, 'why': 'not found'}])
+
+clear()
+uses, _ = queue_task('uses X/Y/Z')
+saved = list(RUNNER.inputs), list(RUNNER.scripts), list(SCRIPT_LIST.choices)
+del RUNNER.inputs[4:6]
+del RUNNER.scripts[2]
+SCRIPT_LIST.choices[:] = [('None', 'None')]
+own.inputs = FIXED + RUNNER.inputs
+answer = runner.run_next([uses])
+check('a task whose scripts are gone asks first, as Start does',
+      (answer['missing'], answer['first'], status_of(uses)),
+      ([{'task': uses, 'prompt': 'uses X/Y/Z', 'missing': ['X/Y/Z plot']}], [], 'pending'))
+runner.run_next([uses], force=True)
+jobs.join(10)
+check('Run anyway runs it without them', status_of(uses), 'completed')
+RUNNER.inputs[:], RUNNER.scripts[:], SCRIPT_LIST.choices[:] = saved
+own.inputs = FIXED + RUNNER.inputs
 
 # --------------------------------------------------------------- startup
 clear()

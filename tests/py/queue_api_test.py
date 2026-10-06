@@ -7,7 +7,8 @@ order, a page at a time, each row saying what its task asks for and how
 many images its run made - never the images, which the Generations tab
 shows; a task's details show everything it holds, readably; its send plan
 sets Forge up as a generation's Send does; Retry queues a copy with the
-first run's seed or a random one; Cancel takes a pending task into History
+first run's seed or a random one; Run next reaches the runner, and Active
+lists its tasks first (#169); Cancel takes a pending task into History
 (#177); Delete removes a task, with its data or without, and its own files -
 but those a copy still names; Clear history hides. Only this install's tasks
 are listed or acted on.
@@ -133,6 +134,15 @@ check('Run anyway forces it', client.post('/model-manager/queue/start', params={
 check('Stop, Pause and Resume reach the runner',
       [post(f'/model-manager/queue/{a}')['acted'] for a in ('stop', 'pause', 'resume')], [True, True, False])
 check('in that order', calls, [('start', False), ('start', True), ('stop',), ('pause',), ('resume',)])
+real_run_next = runner.run_next
+runner.run_next = lambda ids, force=False: calls.append(('run_next', ids, force)) or {
+    'first': ids, 'after': None, 'skipped': [], 'missing': []}
+calls.clear()
+check('Run next reaches the runner',
+      [post('/model-manager/queue/run-next', ids='3,1,x,3')['first'],
+       post('/model-manager/queue/run-next', ids='2', force='true')['first']], [[3, 1], [2]])
+check('with each task once, and whether forced', calls, [('run_next', [3, 1], False), ('run_next', [2], True)])
+runner.run_next = real_run_next
 
 # ------------------------------------------------------------- the lists
 pending = queue('a red apple', image='apple')
@@ -170,6 +180,16 @@ resized = queue('resized', hires={'enable_hr': True, 'hr_resize_x': 2048})
 rows = {t['id']: t for t in listed('active')['tasks']}
 check("hires fix as it was set: a scale, or a resize", (rows[hires]['hires'], rows[resized]['hires']),
       ({'scale': 1.5}, {'resize': [2048, 0]}))
+runner._first[:] = [resized, hires]
+check("Active lists Run next's tasks first, in the order asked", [t['id'] for t in listed('active')['tasks']],
+      [resized, hires, pending])
+runner._first.clear()
+real_unmoved = runner.unmoved
+runner.unmoved = lambda: {resized}
+check('a row says whether Run next would move it', {t['id']: t['ahead'] for t in listed('active')['tasks']},
+      {resized: True, hires: False, pending: False})
+check("so do a task's details", client.get(f'/model-manager/queue/tasks/{resized}').json()['task']['ahead'], True)
+runner.unmoved = real_unmoved
 
 many = [queue(f'page filler {n}') for n in range(api.PAGE_SIZE)]
 second = listed('active', page=2)

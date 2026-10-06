@@ -13,7 +13,8 @@
 // Start that finds tasks whose extensions are gone asks first: Cancel starts
 // nothing, Run anyway forces it. Retry asks which seed, Delete whether the
 // images go too, once for every task ticked; Cancel asks nothing, a pending
-// task going to History; Select ticks a shift-click's
+// task going to History; Run next says when the task runs, asking first, as
+// Start, about extensions that are gone; Select ticks a shift-click's
 // range, never a running task; Clear history asks first, saying how many.
 import { ROOT, act, checker, mountTab, sharedModule, tick } from './harness.mjs';
 
@@ -64,6 +65,7 @@ const asked = [];
 const posted = [];
 const bodies = [];
 let startAnswers = [];
+let runNextAnswers = [];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
@@ -76,6 +78,9 @@ globalThis.fetch = async (url, init = {}) => {
         if (href.includes('/queue/start')) return reply(startAnswers.shift() || { success: true, started: true, missing: [] });
         if (href.includes('/queue/retry')) return reply({ success: true, queued: ids.map((_, i) => 30 + i), skipped: [] });
         if (href.includes('/queue/cancel')) return reply({ success: true, cancelled: ids, skipped: [] });
+        if (href.includes('/queue/run-next')) {
+            return reply(runNextAnswers.shift() || { success: true, first: ids, after: 16, skipped: [], missing: [] });
+        }
         if (href.includes('/queue/delete')) {
             return reply({ success: true, deleted: ids, skipped: [], deleted_files: body.with_data === 'true' ? 7 : 0,
                            deleted_inputs: 1, failed: [] });
@@ -353,8 +358,47 @@ if (cancelOf(18)) await act('queue.cancel', { task: 18 });
 check('Cancel asks nothing: the task goes to History at once',
       [posted, bodies], [['/model-manager/queue/cancel'], [{ ids: '18' }]]);
 check('and says how it went', text('queue_report'), 'Cancelled 1 task.');
+
+// ---------------------------------------------------------------- Run next
+const runNextOf = (id) => row(id)?.querySelector('[data-action="queue.runNext"]');
+check('a pending task offers Run next; a running or ended one does not',
+      [Boolean(runNextOf(18)), Boolean(runNextOf(16)), Boolean(runNextOf(20))], [true, false, false]);
+bodies.length = 0;
+posted.length = 0;
+if (runNextOf(18)) await act('queue.runNext', { task: 18 });
+check('Run next asks the queue, with the task', [posted, bodies], [['/model-manager/queue/run-next'], [{ ids: '18' }]]);
+check('and says when it runs', text('queue_report'), 'Task #18 runs next, after task #16.');
+runNextAnswers = [{ success: true, first: [], after: null, skipped: [], missing: [{ task: 19, prompt: 'uses a plot',
+                                                                                    missing: ['X/Y/Z plot'] }] },
+                 { success: true, first: [19], after: null, skipped: [], missing: [] }];
+bodies.length = 0;
+doing = runNextOf(19) ? act('queue.runNext', { task: 19 }) : null;
+question = await answer('Run anyway');
+await doing;
+check("a task whose extensions are gone asks first, as Start does; Run anyway forces it",
+      [question.text?.includes('X/Y/Z plot'), bodies], [true, [{ ids: '19' }, { ids: '19', force: 'true' }]]);
+check('with nothing running, it runs now', text('queue_report'), 'Task #19 runs now.');
+runNextAnswers = [{ success: true, first: [], after: null, skipped: [], missing: [], stopping: true }];
+if (runNextOf(19)) await act('queue.runNext', { task: 19 });
+check('not while the queue is stopping, and says so', text('queue_report'),
+      'The queue is stopping: press Run next once it has stopped.');
+
+LISTS.active = [task(16, 'running'), task(18, 'pending', { ahead: true }), task(19, 'pending')];
+STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 3 } };
+await waitFor('task 18 next in line', () => runNextOf(18)?.disabled);
+check('a task already next in line has Run next disabled, saying why; the others not',
+      [runNextOf(18)?.disabled, runNextOf(18)?.title, runNextOf(19)?.disabled], [true, 'Already next in line', false]);
+STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 2 } };
+
 await tick('queue.selecting', true, { list: 'active' });
 await waitFor('Active ticks', () => document.querySelectorAll('#queue_active [data-queue-pick]').length === 2);
+await act('queue.activeSelectAll');
+const runTicked = document.querySelector('#queue_active_select_bar [data-action="queue.activeRunNextSelected"]');
+check("Active's bar offers Run next for the ticked", Boolean(runTicked), true);
+bodies.length = 0;
+if (runTicked) await act('queue.activeRunNextSelected');
+check('one Run next for every task ticked, and the report says them all',
+      [bodies, text('queue_report')], [[{ ids: '18,19' }], 'Tasks #18, #19 run next, after task #16.']);
 await act('queue.activeSelectAll');
 const cancelTicked = document.querySelector('#queue_active_select_bar [data-action="queue.activeCancelSelected"]');
 check("Active's bar offers Cancel for the ticked", Boolean(cancelTicked), true);

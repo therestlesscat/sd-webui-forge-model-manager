@@ -12,11 +12,12 @@
  * row opens its details: everything the task holds, and Load to UI, which
  * sets txt2img or img2img up with it (shared/send.mjs).
  *
- * A pending task can be cancelled: it moves to History, as Cancelled (#177).
+ * A pending task can be run next, before any other (#169), or cancelled: it
+ * moves to History, as Cancelled (#177).
  * An ended task can be retried - a copy queued with the first run's seed or
  * a random one (#161) - and any task but a running one deleted, with the
  * images its run made or without (#162). Select ticks tasks in a list, a
- * shift-click a range, for one Cancel, Retry or Delete (#163), as the
+ * shift-click a range, for one Run next, Cancel, Retry or Delete (#163), as the
  * Generations tab ticks images. Clear history hides History (#164).
  *
  * The status line is asked for only while the tab shows, and writes only
@@ -25,8 +26,8 @@
  * changed: a task started, ended or queued. Each list is drawn whole again;
  * drawing only the rows that changed is #172's.
  *
- * Start may answer with tasks whose scripts are gone: a dialog lists them,
- * to run anyway or not start at all (#151). The server is api/scheduler.py;
+ * Start and Run next may answer with tasks whose scripts are gone: a dialog
+ * lists them, to run anyway or not start at all (#151). The server is api/scheduler.py;
  * how far along a task is, Forge's own progress, asked by the task's job id.
  */
 
@@ -88,7 +89,9 @@ const STATUSES = {
 };
 // The statuses of a task that has ended: History's (db/tasks_ops.py).
 const ENDED = ['completed', 'stopped', 'failed', 'cancelled'];
-// What Cancel says it does, on a row and in a task's details.
+// What Run next and Cancel say they do, on a row and in a task's details.
+const RUN_NEXT_TITLE = 'Run it before any other: now, or after the running task';
+const AHEAD_TITLE = 'Already next in line';
 const CANCEL_TITLE = 'Take it out of the queue. It moves to History, where Retry queues it again';
 // The two lists, each with its element, its page, and its count.
 const LISTS = {
@@ -271,7 +274,7 @@ function fact(text, title = '') {
 /** A running task is the queue's: it is neither ticked nor deleted. */
 const deletable = (task) => task.status !== 'running';
 const retryable = (task) => ENDED.includes(task.status);
-const cancellable = (task) => task.status === 'pending';
+const waiting = (task) => task.status === 'pending';
 
 function taskRowHtml(task, which) {
     const status = STATUSES[task.status] || task.status;
@@ -311,7 +314,8 @@ function taskRowHtml(task, which) {
             </div>
             <div class="queue-actions">
                 ${task.image_count ? showImagesHtml(task) : ''}
-                ${cancellable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.cancel"
+                ${waiting(task) ? `${runNextHtml(task, 'mm-btn secondary mm-btn-small')}
+                <button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.cancel"
                     data-task="${id}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
                 ${retryable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.retry"
                     data-task="${id}" title="Queue a copy of this task, at the end of the queue">Retry...</button>` : ''}
@@ -329,6 +333,12 @@ function progressHtml(taskId) {
                  aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
                 <div class="sync-progress-fill" style="width: ${percent}%"></div>
             </div>`;
+}
+
+/** Run next, for a waiting task: disabled where it would move nothing - the task is next in line (`ahead`). */
+function runNextHtml(task, classes) {
+    return `<button type="button" class="${classes}" data-action="queue.runNext" data-task="${Number(task.id)}"
+        ${task.ahead ? 'disabled' : ''} title="${task.ahead ? AHEAD_TITLE : RUN_NEXT_TITLE}">Run next</button>`;
 }
 
 /** "Show images (3)": the Generations tab, on what a task's run made - while that tab is there. */
@@ -455,17 +465,54 @@ function missingHtml(missing) {
             <span class="queue-missing-names">${escapeHtml((m.missing || []).join(', '))}</span></li>`).join('')}</ul>`;
 }
 
+/** Whether to run tasks without the extensions they used: Cancel runs nothing. */
+async function runAnyway(missing) {
+    const go = await ask('Some tasks need missing extensions', missingHtml(missing), [
+        { label: 'Cancel', value: false },
+        { label: 'Run anyway', value: true, kind: 'primary' },
+    ]);
+    return Boolean(go?.value);
+}
+
 async function start() {
     let answer = await post('/model-manager/queue/start');
     if (answer?.success && !answer.started && answer.missing?.length) {
-        const go = await ask('Some tasks need missing extensions', missingHtml(answer.missing), [
-            { label: 'Cancel', value: false },
-            { label: 'Run anyway', value: true, kind: 'primary' },
-        ]);
-        if (!go?.value) return;
+        if (!await runAnyway(answer.missing)) return;
         answer = await post('/model-manager/queue/start?force=true');
     }
     if (!answer?.success) console.warn('[ModelManager] Could not start the queue:', answer?.error);
+    await refresh();
+}
+
+/** What Run next did: "Task #12 runs next, after task #10." */
+function runNextText(answer) {
+    const skipped = skippedText(answer.skipped);
+    const not = skipped ? ` Not run: ${skipped}.` : '';
+    if (answer.off) return 'The queue is off, in the settings.';
+    if (answer.stopping) return `The queue is stopping: press Run next once it has stopped.${not}`;
+    const first = answer.first || [];
+    if (!first.length) return `Nothing to run.${not}`;
+    const one = first.length === 1;
+    const names = `${one ? 'Task' : 'Tasks'} ${first.map((id) => `#${Number(id)}`).join(', ')}`;
+    const when = answer.after ? `next, after task #${Number(answer.after)}` : 'now';
+    return `${names} run${one ? 's' : ''} ${when}.${not}`;
+}
+
+/**
+ * Run next: these pending tasks before any other, in the order they were
+ * queued (#169) - after the running task, or now. A stopped queue starts for
+ * them alone; a paused one runs them and stays paused. Tasks whose
+ * extensions are gone ask first, as Start does.
+ */
+async function runNext(ids) {
+    if (!ids.length) return;
+    let answer = await post('/model-manager/queue/run-next', { ids: ids.join(',') });
+    if (answer?.success && answer.missing?.length) {
+        if (!await runAnyway(answer.missing)) return;
+        answer = await post('/model-manager/queue/run-next', { ids: ids.join(','), force: 'true' });
+    }
+    report(answer?.success ? runNextText(answer) : `Could not run it next: ${answer?.error || 'no answer'}`);
+    clearPicks();
     await refresh();
 }
 
@@ -602,7 +649,8 @@ async function clearHistory() {
 
 const BAR_ACTIONS = {
     active: { all: 'queue.activeSelectAll', clear: 'queue.activeSelectClear', delete: 'queue.activeDeleteSelected',
-              more: [{ action: 'queue.activeCancelSelected', label: 'Cancel' }] },
+              more: [{ action: 'queue.activeRunNextSelected', label: 'Run next' },
+                     { action: 'queue.activeCancelSelected', label: 'Cancel' }] },
     history: { all: 'queue.historySelectAll', clear: 'queue.historySelectClear', delete: 'queue.historyDeleteSelected',
                more: [{ action: 'queue.historyRetrySelected', label: 'Retry...' }] },
 };
@@ -757,7 +805,8 @@ function detailsHtml(task, inputs) {
                 </div>
                 <div class="mm-modal-footer">
                     ${showImagesHtml(task, 'mm-btn secondary')}
-                    ${cancellable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.cancel"
+                    ${waiting(task) ? `${runNextHtml(task, 'mm-btn secondary')}
+                    <button type="button" class="mm-btn secondary" data-action="queue.cancel"
                         data-task="${Number(task.id)}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
                     ${retryable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.retry"
                         data-task="${Number(task.id)}">Retry...</button>` : ''}
@@ -832,6 +881,7 @@ provide('queue.refresh', () => refresh());
 provide('queue.details', (data) => rowClicked(data));
 provide('queue.showImages', ({ task }) => showImages(task));
 provide('queue.load', ({ task }) => load(task));
+provide('queue.runNext', ({ task }) => { closeMetaModal(); return runNext([Number(task)]); });
 provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });
 provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
 provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
@@ -839,6 +889,7 @@ provide('queue.clearHistory', () => clearHistory());
 provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
 provide('queue.activeSelectAll', () => selectAll('active'));
 provide('queue.activeSelectClear', () => selectClear('active'));
+provide('queue.activeRunNextSelected', () => runNext([...picked.active]));
 provide('queue.activeCancelSelected', () => cancelTasks([...picked.active]));
 provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
 provide('queue.historySelectAll', () => selectAll('history'));

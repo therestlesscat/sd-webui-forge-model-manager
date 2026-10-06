@@ -1,7 +1,7 @@
 """
-The generation queue (#151-#164, #177): its state, Start, Stop, Pause and
-Resume; the Active and History lists and a task's details; Cancel, Retry,
-Delete and Clear history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
+The generation queue (#151-#164, #169, #177): its state, Start, Stop, Pause
+and Resume; the Active and History lists and a task's details; Run next,
+Cancel, Retry, Delete and Clear history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
 a task is, and what Retry and Delete make of one.
 
 Only this install's tasks are listed or acted on: another WebUI sharing the
@@ -40,18 +40,23 @@ def _ours(db, task_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _rows(db, found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Each task's row, with how many images its run made."""
+    """
+    Each task's row, with how many images its run made, and whether Run next
+    would move it (`ahead`: it runs before the other waiting tasks already).
+    """
     made = db.task_images([t["id"] for t in found])
-    return [{**tasks.summary(task), "image_count": len(made.get(task["id"], []))} for task in found]
+    ahead = runner.unmoved()
+    return [{**tasks.summary(task), "image_count": len(made.get(task["id"], [])),
+             "ahead": task["id"] in ahead} for task in found]
 
 
 def task_page(db, which: str, page: int = 1) -> Dict[str, Any]:
     """
     A page of the Active or History list (#157): Active in the order the
-    tasks will run, History newest first.
+    tasks will run - Run next's first (#169) - History newest first.
     """
     page = max(1, int(page))
-    found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE)
+    found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE, runner.first())
     return {"which": which, "tasks": _rows(db, found),
             "total": total, "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
             "page_size": PAGE_SIZE}
@@ -205,6 +210,21 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, "mode": task["mode"], **plan})
         except Exception as e:
             return failed(e, "Queue send plan error")
+
+    @app.post("/model-manager/queue/run-next")
+    def post_run_next(ids: str = Form(default=""), force: bool = Form(default=False)):
+        """
+        Run these pending tasks before any other (#169, #163): see
+        runner.run_next(). Unless forced, tasks whose scripts are gone come
+        back, as Start's do.
+        """
+        try:
+            result = runner.run_next(_ids(ids), force)
+            if result["first"]:
+                say(f"Queue: run next {', '.join(f'#{i}' for i in result['first'])}")
+            return JSONResponse({"success": True, **result})
+        except Exception as e:
+            return failed(e, "Queue run next error")
 
     @app.post("/model-manager/queue/cancel")
     def post_cancel(ids: str = Form(default="")):

@@ -26,8 +26,17 @@ Forge's own Interrupt too, after which the queue goes on; else Completed,
 with the first run's seed from its generation info (#161). Then the next,
 until none is left, and the queue stops by itself.
 
-The queue's state lives in memory: a restart leaves it stopped, and the
-tasks it left running are marked stopped at startup (recover, #155).
+Run next (#169) puts pending tasks before every other, in the order asked:
+the running queue takes them after its task; a paused one runs them and
+stays paused; with none running, a queue starts for them alone, and stops
+after them - unless Start is pressed meanwhile. Pause holds those asked
+before it too. Their order is not stored: the database runs tasks in the
+order queued, and a column for it would be a migration that both WebUIs
+sharing a database must take.
+
+The queue's state lives in memory, Run next's order with it: a restart leaves
+it stopped, and the tasks it left running are marked stopped at startup
+(recover, #155).
 """
 import html
 import json
@@ -36,7 +45,7 @@ import re
 import threading
 import time
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .. import forge_host
 from ..console import say
@@ -51,6 +60,13 @@ _ERROR = re.compile(r"<div class='error'>(.*?)</div>", re.S)
 
 # The running queue, or the last one: its progress is what the page polls.
 _queue: Optional["Queue"] = None
+
+# Run next's tasks, in the order asked (#169), and those asked since the last
+# Pause - which run while the queue is paused. A queue deciding it is done
+# looks at them under the same lock as Run next adds to them.
+_first: List[int] = []
+_go: Set[int] = set()
+_first_lock = threading.Lock()
 
 
 class Progress(object):
@@ -77,12 +93,15 @@ class Progress(object):
 class Queue(object):
     """A run of the queue: jobs.py's service for it."""
 
-    def __init__(self):
+    def __init__(self, only: bool = False):
         self.progress = Progress()
         self.run_now: Optional[Dict[str, Any]] = None
+        # Started by Run next: only its tasks, then stop - until Start.
+        self.only = only
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._paused = False
+        self._ending = False
 
     def cancel(self) -> None:
         self.stop()
@@ -104,7 +123,12 @@ class Queue(object):
                 forge_host.interrupt()
 
     def pause(self) -> None:
-        """Let the running task finish, then start no other until resumed (#153)."""
+        """
+        Let the running task finish, then start no other until resumed (#153)
+        - nor one Run next asked for before.
+        """
+        with _first_lock:
+            _go.clear()
         self._paused = True
         self.progress.state = "pausing" if self.run_now else "paused"
 
@@ -114,19 +138,56 @@ class Queue(object):
         if self.progress.state in ("pausing", "paused"):
             self.progress.state = "running"
 
+    def again(self) -> bool:
+        """
+        Run next, while this queue runs (jobs.start's `again`): True when it
+        will take the tasks asked for - woken, if it is paused - and False
+        when it has just decided it is done, or Stop ended it while it was
+        paused; jobs.py then starts another.
+        """
+        with _first_lock:
+            if self._ending or self._stop.is_set():
+                return False
+        self._wake.set()
+        return True
+
     def run(self) -> None:
         db = get_models_db()
         while not self._stop.is_set():
-            if self._paused:
+            task = self._next(db)
+            if task is not None:
+                self._run_task(db, task)
+            elif self._paused:
                 self.progress.state = "paused"
                 self._wake.wait(0.5)
                 self._wake.clear()
-                continue
-            task = db.next_pending_task(INSTALL_KEY)
-            if task is None:
+            elif self._end():
                 break
-            self._run_task(db, task)
         self.progress.state = "stopped"
+
+    def _next(self, db) -> Optional[Dict[str, Any]]:
+        """
+        The task to run now: Run next's first, a paused queue only those asked
+        since the Pause; then, unless paused or started for Run next alone,
+        the oldest pending one.
+        """
+        with _first_lock:
+            for task_id in list(_first):
+                task = db.get_task(task_id)
+                if task is None or task["status"] != "pending" or task.get("install") != INSTALL_KEY:
+                    _first.remove(task_id)
+                    _go.discard(task_id)
+                elif not self._paused or task_id in _go:
+                    return task
+        if self._paused or self.only:
+            return None
+        return db.next_pending_task(INSTALL_KEY)
+
+    def _end(self) -> bool:
+        """Whether the queue is done: not if Run next asked for a task meanwhile."""
+        with _first_lock:
+            self._ending = not _first
+            return self._ending
 
     def _run_task(self, db, task: Dict[str, Any]) -> None:
         task_id = task["id"]
@@ -135,6 +196,9 @@ class Queue(object):
         run = {"task": task, "job": f"task(mmq-{task_id}-{int(time.time() * 1000)})",
                "stop": False, "interrupted": False}
         self.run_now = run
+        if self._paused:
+            # A task Run next asked for while paused: the queue pauses again after it.
+            self.progress.state = "pausing"
         self.progress.task_id, self.progress.job, self.progress.notes = task_id, run["job"], []
         say(f"Queue: task {task_id} ({task['mode']}) starting")
         try:
@@ -253,22 +317,25 @@ def queued_task(job: Optional[str] = None) -> Optional[int]:
 
 def missing_extensions() -> List[Dict[str, Any]]:
     """Each pending task that uses a script this WebUI no longer has, and which."""
-    found = []
     tasks, _total = get_models_db().list_tasks(INSTALL_KEY, "active")
+    return _missing([task for task in tasks if task["status"] == "pending"])
+
+
+def _make(only: bool = False) -> Queue:
+    global _queue
+    _queue = Queue(only)
+    return _queue
+
+
+def _missing(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Each of these tasks that uses a script this WebUI no longer has, and which."""
+    found = []
     for task in tasks:
-        if task["status"] != "pending":
-            continue
         missing = replay.missing_scripts(task["mode"], task["inputs"])
         if missing:
             found.append({"task": task["id"], "prompt": (task["inputs"].get("fixed") or {}).get("prompt"),
                           "missing": missing})
     return found
-
-
-def _make() -> Queue:
-    global _queue
-    _queue = Queue()
-    return _queue
 
 
 def start(force: bool = False) -> Dict[str, Any]:
@@ -284,7 +351,86 @@ def start(force: bool = False) -> Dict[str, Any]:
         missing = missing_extensions()
         if missing:
             return {"started": False, "missing": missing}
+    queue = _running()
+    if queue is not None and queue.only:
+        # Started for Run next alone: it goes on with the rest - unless it
+        # has just decided it is done, and a new queue starts.
+        with _first_lock:
+            if not queue._ending:
+                queue.only = False
+                return {"started": True, "missing": []}
+        return {"started": jobs.start(KIND, _make, lambda queue: queue.run(), again=True), "missing": []}
     return {"started": jobs.start(KIND, _make, lambda queue: queue.run()), "missing": []}
+
+
+def run_next(task_ids: List[int], force: bool = False) -> Dict[str, Any]:
+    """
+    Run these pending tasks before any other, in the order they were queued
+    (#169): after the running task, or now - a stopped queue starts for them
+    alone, a paused one runs them and stays paused. Not while the queue is
+    stopping: it would end before them. Unless forced, not when one uses a
+    script that is gone, as Start.
+
+    Returns:
+        first: the tasks put first; after: the task they wait for, if one is
+        running; skipped: each not, and why; missing: as Start's; `off` or
+        `stopping` when nothing could be done.
+    """
+    answer: Dict[str, Any] = {"first": [], "after": None, "skipped": [], "missing": []}
+    if not queue_enabled():
+        return {**answer, "off": True}
+    db = get_models_db()
+    pending = []
+    for task_id in task_ids:
+        task = db.get_task(task_id)
+        if task is None or task.get("install") != INSTALL_KEY:
+            answer["skipped"].append({"id": task_id, "why": "not found"})
+        elif task["status"] != "pending":
+            answer["skipped"].append({"id": task_id, "why": f"already {task['status']}"})
+        else:
+            pending.append(task)
+    pending.sort(key=lambda task: task["id"])
+    if not force:
+        answer["missing"] = _missing(pending)
+        if answer["missing"]:
+            return answer
+    queue = _running()
+    if queue is not None and queue.progress.state == "stopping":
+        return {**answer, "stopping": True}
+    if not pending:
+        return answer
+    ids = [task["id"] for task in pending]
+    with _first_lock:
+        _first.extend(task_id for task_id in ids if task_id not in _first)
+        _go.update(ids)
+    running = queue.run_now if queue is not None else None
+    jobs.start(KIND, lambda: _make(only=True), lambda queue: queue.run(), again=True)
+    return {**answer, "first": ids, "after": running["task"]["id"] if running else None}
+
+
+def first() -> List[int]:
+    """Run next's tasks, in the order they will run: Active lists them so."""
+    with _first_lock:
+        return list(_first)
+
+
+def unmoved() -> Set[int]:
+    """
+    The tasks Run next would not move: those a running queue takes before
+    every other already - Run next's, and else the oldest waiting. Paused, a
+    queue runs only those asked for since; stopped, Run next runs any task.
+    The page disables Run next on them.
+    """
+    queue = _running()
+    if queue is None or queue.progress.state == "stopping":
+        return set()
+    with _first_lock:
+        found = {task_id for task_id in _first if not queue._paused or task_id in _go}
+    if not queue._paused and not queue.only:
+        oldest = get_models_db().next_pending_task(INSTALL_KEY)
+        if oldest is not None:
+            found.add(oldest["id"])
+    return found
 
 
 def _running() -> Optional[Queue]:

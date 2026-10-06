@@ -476,9 +476,9 @@ class ModelsDatabase:
         self._tasks.link_generation(task_id, generation_id)
 
     def list_tasks(self, install: str, which: str, offset: int = 0,
-                   limit: Optional[int] = None) -> Tuple[List[Dict[str, Any]], int]:
-        """A page of this install's Active or History list, and the list's size."""
-        return self._tasks.list_tasks(install, which, offset, limit)
+                   limit: Optional[int] = None, first: Optional[List[int]] = None) -> Tuple[List[Dict[str, Any]], int]:
+        """A page of this install's Active or History list, and the list's size. See TasksOps.list_tasks()."""
+        return self._tasks.list_tasks(install, which, offset, limit, first)
 
     def count_tasks(self, install: str) -> Dict[str, int]:
         """How many of this install's shown tasks have each status."""

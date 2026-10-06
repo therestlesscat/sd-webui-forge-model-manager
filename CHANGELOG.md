@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept as a task, to run later. The new Queue tab runs the tasks one at a time, each with its own checkpoint, VAE and text encoders, while you go on working - and shows them, loads one back into its tab, retries and deletes them. The Generations tab gains a search, which also shows the images a task made.
 
+- **0.50.13** (build 389) - Run next runs a waiting task before the others, alone or several selected: after the running task, or at once when the queue is stopped or paused. A stopped queue runs only those and stops again; a paused one stays paused. A task already next in line has Run next greyed out.
 - **0.50.12** (build 388) - A waiting task can be cancelled, alone or several selected: it moves to History as Cancelled, where Retry queues it again.
 - **0.50.11** (build 387) - The queue is ready. A note on the Queue tab says what it does, and one on the Generations tab tells of its search. Two WebUIs sharing one database are told to update the other copy before starting it. The queue's folder setting says it keeps ControlNet's images too, not only img2img's.
 - **0.50.10** (build 386) - Pause says "Pausing…" while the running task finishes, and offers Resume only once the queue has paused.

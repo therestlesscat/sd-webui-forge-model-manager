@@ -177,18 +177,23 @@ class TasksOps:
             cursor.execute("INSERT OR IGNORE INTO task_generations (task_id, generation_id) "
                            "VALUES (?, ?)", (task_id, generation_id))
 
-    def list_tasks(self, install: str, which: str, offset: int = 0,
-                   limit: Optional[int] = None) -> Tuple[List[Dict[str, Any]], int]:
+    def list_tasks(self, install: str, which: str, offset: int = 0, limit: Optional[int] = None,
+                   first: Optional[List[int]] = None) -> Tuple[List[Dict[str, Any]], int]:
         """
         A page of this install's Active or History list, and how many the
-        whole list holds. Active is in run order; History newest first, by
+        whole list holds. Active is in run order: the running task, then
+        `first` - Run next's, in the order asked (#169), which the database
+        does not keep - then the rest as queued. History newest first, by
         when each ended and then by id - two can end in the same second.
         Hidden tasks are in neither (#164).
         """
+        first = list(first or [])
         if which == "active":
-            statuses, order = ACTIVE, "id"
+            statuses = ACTIVE
+            asked = " ".join(f"WHEN ? THEN {n}" for n in range(len(first)))
+            order = "status = 'running' DESC" + (f", CASE id {asked} ELSE {len(first)} END" if first else "") + ", id"
         elif which == "history":
-            statuses, order = HISTORY, "finished_at DESC, id DESC"
+            statuses, order, first = HISTORY, "finished_at DESC, id DESC", []
         else:
             raise ValueError(f"no list {which!r}")
         where = f"install = ? AND hidden = 0 AND status IN ({_marks(statuses)})"
@@ -197,7 +202,7 @@ class TasksOps:
             cursor.execute(f"SELECT COUNT(*) FROM tasks WHERE {where}", args)
             total = cursor.fetchone()[0]
             page = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""
-            cursor.execute(f"SELECT * FROM tasks WHERE {where} ORDER BY {order}{page}", args)
+            cursor.execute(f"SELECT * FROM tasks WHERE {where} ORDER BY {order}{page}", args + first)
             tasks = [_read(r) for r in cursor.fetchall()]
             _add_links(cursor, tasks)
             return tasks, total

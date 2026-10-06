@@ -231,6 +231,17 @@ check('a task the queue has started is not cancelled', (db.cancel_task(HERE_INST
       (False, 'running'))
 check("nor another install's", (db.cancel_task(HERE_INSTALL, y), db.get_task(y)['status']), (False, 'pending'))
 
+# ---------------------------------------------------------------- Run next
+q, r, s = queue(12), queue(13), queue(14)
+# d and n are running.
+order = [t['id'] for t in db.list_tasks(HERE_INSTALL, 'active', first=[s, r])[0]]
+check('Active: the running tasks, then Run next\'s in the order asked, then the rest as queued',
+      (order[:4], order.index(q) > 3), ([d, n, s, r], True))
+check('a page of it keeps that order',
+      [t['id'] for t in db.list_tasks(HERE_INSTALL, 'active', 2, 2, first=[s, r])[0]], [s, r])
+check('History has no such order', db.list_tasks(HERE_INSTALL, 'history', first=[m])[0][0]['id'],
+      db.list_tasks(HERE_INSTALL, 'history')[0][0]['id'])
+
 db.close()
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
