@@ -40,6 +40,8 @@ const K = {
     recordGenerations: 'model_manager_record_generations',
     generationsNsfw: 'model_manager_generations_hide_nsfw',
     queueEnabled: 'model_manager_queue_enabled',
+    mmEnabled: 'model_manager_model_manager_enabled',
+    cbEnabled: 'model_manager_civitai_browser_enabled',
     queueInputs: 'model_manager_queue_inputs_dir',
     queueAskAbove: 'model_manager_queue_ask_above',
     detection: 'model_manager_nsfw_detection',
@@ -57,29 +59,37 @@ const MODULES_PREFIX = 'model_manager_modules_';
  */
 // Every section starts collapsed; opened from a tab's gear, the ones that tab
 // uses are open (`tabs`), and a note's button opens the one it is about, by
-// its id (`section` in model_manager/data/release_notes.json).
+// its id (`section` in model_manager/data/release_notes.json). A section is
+// shown while a tab it serves is on (`shownWith`; none: always, #185) - not
+// its `tabs`: the connection serves Generations' Send too, and storage holds
+// the database every tab uses.
 const SECTIONS = [
+    { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.mmEnabled, K.cbEnabled] },
     { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
-      keys: [K.apiKey, K.rate] },
-    { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'],
+      shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.apiKey, K.rate] },
+    { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
       keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
-    { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'],
+    { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
       keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
     { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser'],
-      keys: [K.galleryNsfw, K.promptless, K.pageSize] },
+      shownWith: ['model_manager', 'civitai_browser'], keys: [K.galleryNsfw, K.promptless, K.pageSize] },
     { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
-      keys: [K.recordGenerations, K.generationsNsfw] },
-    { id: 'queue', title: 'Queue', tabs: ['queue'], keys: [K.queueEnabled, K.queueInputs, K.queueAskAbove] },
+      shownWith: ['generations'], keys: [K.generationsNsfw] },
+    { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
     { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations'],
-      keys: [K.detection, K.percent, K.words] },
+      shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.detection, K.percent, K.words] },
     { id: 'storage', title: 'Sync and storage', tabs: ['model_manager'], keys: [K.threads, K.database] },
     { id: 'modules', title: 'Send to txt2img: text encoders and VAE', tabs: [], prefix: MODULES_PREFIX,
       intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
              + 'instead. A file chosen for one model is filled in for the others that use it, '
              + 'where nothing is chosen yet.' },
     { id: 'updates', title: 'Updates', tabs: [], keys: [K.checkUpdates] },
-    { id: 'advanced', title: 'Advanced', tabs: ['civitai_browser'], keys: [K.fillPage] },
+    { id: 'advanced', title: 'Advanced', tabs: ['civitai_browser'], shownWith: ['civitai_browser'], keys: [K.fillPage] },
 ];
+
+// Each tab's switch, by the name the sections give it.
+const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, model_manager: K.mmEnabled,
+                       civitai_browser: K.cbEnabled };
 
 /** Shorter labels than the Settings page's, which have to say which tab. */
 const LABELS = {
@@ -99,6 +109,8 @@ const LABELS = {
     [K.recordGenerations]: 'Your generations: record the images you generate, and show them',
     [K.generationsNsfw]: 'Generations tab: hide explicit images by default',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
+    [K.mmEnabled]: 'Model Manager tab',
+    [K.cbEnabled]: 'Civitai Browser tab',
     [K.queueInputs]: 'Folder for the images a task needs',
     [K.queueAskAbove]: 'Ask before Generate makes more images than this',
     [K.detection]: 'What finds explicit images Civitai rates PG or PG-13',
@@ -705,10 +717,13 @@ function createSettings() {
                 section.hidden = Boolean(query);
                 return;
             }
+            // Every tab it serves off, as the window holds them now: not shown.
+            const served = SECTIONS.find((s) => s.id === section.dataset.section)?.shownWith;
+            const tabOn = !served || served.some((tab) => state.value(TAB_SWITCHES[tab]) !== false);
             let any = false;
             section.querySelectorAll('.mm-settings-field').forEach((field) => {
                 const rule = SHOWN_WHEN[field.dataset.key];
-                const shown = (!rule || rule(state))
+                const shown = tabOn && (!rule || rule(state))
                     && (!query || field.dataset.search.includes(query));
                 field.hidden = !shown;
                 any = any || shown;

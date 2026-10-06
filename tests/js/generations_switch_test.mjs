@@ -3,9 +3,10 @@
 // the Model Manager if it was showing, and each model's gallery shows only
 // its Civitai images - and comes back when it is on again. Known from
 // ui-options, and again when the setting is saved: in the settings window
-// (its answer carries the value) or on the Settings page (only which keys
-// changed, so the page asks). The server's side: generations_switch_test.py.
-import { ROOT, act, bootPage, checker, mountTab, tabsAnswer, withGalleryPages } from './harness.mjs';
+// (its answer carries the value) or on the WebUI's Settings page (the WebUI
+// hands every setting back). The server's side: generations_switch_test.py.
+import { ROOT, act, bootPage, checker, mountTab, settingsPageApplied, tabsAnswer,
+         withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -70,21 +71,18 @@ await act('modelManager.showGalleryTab', { tab: 'generations' });
 check('which opens', document.querySelector('#mm_images .mm-gallery-tab.active')?.textContent.trim(),
       'Your generations (3)');
 
-// Turned off on the Settings page: which keys changed is all it says, so the
-// page asks the server.
+// Turned off on the WebUI's Settings page.
 serverSays = false;
-window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied',
-    { detail: { changed: ['model_manager_record_generations'] } }));
-await waitFor('the page to ask', () => tabButton('Generations').style.display === 'none');
+settingsPageApplied({ model_manager_record_generations: false });
+await waitFor('the button to hide', () => tabButton('Generations').style.display === 'none');
 check('off again, from the Settings page: the button hidden', tabButton('Generations').style.display, 'none');
 check('and the gallery leaves Your generations for the Civitai images',
       [galleryTabs(), document.querySelector('#mm_images .mm-gallery-tab.active')?.textContent.trim()],
       [['Civitai images'], 'Civitai images']);
 
 // Another setting applied there changes nothing.
-serverSays = true;
-window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied', { detail: { changed: ['model_manager_page_size'] } }));
+settingsPageApplied({ model_manager_page_size: 30 });
 await new Promise((resolve) => setTimeout(resolve, 50));
-check('another setting applied asks nothing, and changes nothing', tabButton('Generations').style.display, 'none');
+check('another setting applied changes nothing', tabButton('Generations').style.display, 'none');
 
 done();

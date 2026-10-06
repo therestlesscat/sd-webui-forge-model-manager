@@ -88,6 +88,19 @@ export function tabsAnswer(on) {
                                                                     : { on: true, built: false }]));
 }
 
+// The WebUI's onOptionsChanged callbacks.
+const optionsChanged = [];
+
+/**
+ * Apply on the WebUI's Settings page: the WebUI's `opts` take every setting
+ * as the server now has it - here, these changed - and it calls each
+ * onOptionsChanged callback.
+ */
+export function settingsPageApplied(values) {
+    Object.assign(globalThis.opts, values);
+    optionsChanged.forEach((callback) => callback());
+}
+
 /**
  * Press `element`, or the nearest around it that names an action: a click on
  * it, or a field's change, which the page's one listener takes (shared/calls.mjs)
@@ -213,6 +226,7 @@ export function mountTab(tabFile) {
     globalThis.onAfterUiUpdate = () => {};
     globalThis.onUiUpdate = () => {};
     globalThis.opts = {};
+    globalThis.onOptionsChanged = (callback) => optionsChanged.push(callback);
     globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
     window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

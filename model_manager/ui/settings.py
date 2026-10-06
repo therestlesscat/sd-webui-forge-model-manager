@@ -15,16 +15,74 @@ from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from .. import prompt_levels
 from ..scheduler import QUEUE_ENABLED
+from ..tabs import TABS
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
 from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESETS,
                              SETTING_PREFIX, preset_classes, preset_files)
 
 EXTENSION_NAME = "Model Manager"
+MODEL_MANAGER_ENABLED = TABS["model_manager"]
+CIVITAI_BROWSER_ENABLED = TABS["civitai_browser"]
 
 
 def on_ui_settings():
     """Register extension settings."""
     section = ("model_manager", EXTENSION_NAME)
+
+    # Each tab's switch, first, in the order of the tabs (tabs.py, #185).
+    shared.opts.add_option(
+        QUEUE_ENABLED,
+        shared.OptionInfo(
+            default=DEFAULTS[QUEUE_ENABLED],
+            label="Queue",
+            component=gr.Checkbox,
+            onchange=_queue_enabled_changed,
+            section=section,
+        ).info("On: a Queue button beside Generate, in txt2img and img2img, keeps the "
+               "generation as a task, and the Queue tab runs the tasks. Off: the tab and the "
+               "buttons are hidden at once, and a running queue stops; from the next start "
+               "neither is created at all. The tasks are kept, and come back when this is on "
+               "again.")
+    )
+
+    shared.opts.add_option(
+        RECORD_GENERATIONS,
+        shared.OptionInfo(
+            default=DEFAULTS[RECORD_GENERATIONS],
+            label="Your generations",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: every txt2img and img2img result saved to disk is recorded with all its "
+               "settings, and shown in the Generations tab and the gallery of each model it "
+               "used. Off: nothing is recorded, and the Generations tab and each model's Your "
+               "generations are hidden at once; from the next start the Generations tab is not "
+               "created at all. What was recorded is kept, and comes back when this is on again.")
+    )
+
+    shared.opts.add_option(
+        MODEL_MANAGER_ENABLED,
+        shared.OptionInfo(
+            default=DEFAULTS[MODEL_MANAGER_ENABLED],
+            label="Model Manager tab",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: the Model Manager tab - your models, their details and galleries, and the "
+               "sync with Civitai. Off: the tab is hidden at once and stops, and from the next "
+               "start it is not created at all; a sync already running finishes. Your library "
+               "is kept, and downloads still add to it.")
+    )
+
+    shared.opts.add_option(
+        CIVITAI_BROWSER_ENABLED,
+        shared.OptionInfo(
+            default=DEFAULTS[CIVITAI_BROWSER_ENABLED],
+            label="Civitai Browser tab",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: the Civitai Browser tab - searching Civitai, and downloading from it. Off: "
+               "the tab is hidden at once and stops, and from the next start it is not created "
+               "at all; downloads already running finish.")
+    )
 
     shared.opts.add_option(
         "model_manager_civitai_api_key",
@@ -124,19 +182,6 @@ def on_ui_settings():
                "from the panel above the images.")
     )
 
-    shared.opts.add_option(
-        RECORD_GENERATIONS,
-        shared.OptionInfo(
-            default=DEFAULTS[RECORD_GENERATIONS],
-            label="Your generations",
-            component=gr.Checkbox,
-            section=section,
-        ).info("On: every txt2img and img2img result saved to disk is recorded with all its "
-               "settings, and shown in the Generations tab and the gallery of each model it "
-               "used. Off: nothing is recorded, and the Generations tab and each model's Your "
-               "generations are hidden at once; from the next start the Generations tab is not "
-               "created at all. What was recorded is kept, and comes back when this is on again.")
-    )
 
     # The Generations tab followed the image gallery's setting; it starts from
     # what that said - once - and the two are independent after.
@@ -336,20 +381,6 @@ def on_ui_settings():
                "never asked.")
     )
 
-    shared.opts.add_option(
-        QUEUE_ENABLED,
-        shared.OptionInfo(
-            default=DEFAULTS[QUEUE_ENABLED],
-            label="Queue",
-            component=gr.Checkbox,
-            onchange=_queue_enabled_changed,
-            section=section,
-        ).info("On: a Queue button beside Generate, in txt2img and img2img, keeps the "
-               "generation as a task, and the Queue tab runs the tasks. Off: the tab and the "
-               "buttons are hidden at once, and a running queue stops; from the next start "
-               "neither is created at all. The tasks are kept, and come back when this is on "
-               "again.")
-    )
 
     shared.opts.add_option(
         "model_manager_queue_inputs_dir",

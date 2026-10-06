@@ -2,10 +2,10 @@
 // Generate are hidden at once, without a restart - the page leaving the
 // Queue tab for txt2img if it was showing - and come back when it is on
 // again. Known from ui-options, and again when the setting is saved: in the
-// settings window (its answer carries the value) or on the Settings page (only
-// which keys changed, so the page asks). Your generations' switch, beside it,
-// is left as it was. The server's side: queue_switch_test.py.
-import { ROOT, bootPage, checker, mountTab, tabsAnswer } from './harness.mjs';
+// settings window (its answer carries the value) or on the WebUI's Settings
+// page (the WebUI hands every setting back). Your generations' switch, beside
+// it, is left as it was. The server's side: queue_switch_test.py.
+import { ROOT, bootPage, checker, mountTab, settingsPageApplied, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
 const { check, waitFor, done } = checker();
@@ -52,9 +52,8 @@ await waitFor('the Queue tab to start', () => globalThis.__mmOffered.has('queue.
 check('and its tab starts at once', globalThis.__mmOffered.has('queue.start'), true);
 
 serverSays = false;
-window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied',
-    { detail: { changed: ['model_manager_queue_enabled'] } }));
-await waitFor('the page to ask', () => byId('tab_queue_tab-button').style.display === 'none');
+settingsPageApplied({ model_manager_queue_enabled: false });
+await waitFor('the button to hide', () => byId('tab_queue_tab-button').style.display === 'none');
 check('off again, from the Settings page: hidden', hidden(), [true, true, true]);
 check('and its tab stopped: none of its actions offered (#183)',
       [...globalThis.__mmOffered.keys()].filter((name) => name.startsWith('queue.')), []);

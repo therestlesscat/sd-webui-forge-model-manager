@@ -31,6 +31,12 @@ from .console import say
 # until a person saves it, and wherever Forge cannot be asked. In the order
 # Settings -> Model Manager lists them.
 DEFAULTS = {
+    # Each tab's switch, first (tabs.py, #185): the queue, all of it (#156);
+    # your generations, recorded and shown; the Model Manager; the Civitai Browser.
+    "model_manager_queue_enabled": True,
+    "model_manager_record_generations": True,
+    "model_manager_model_manager_enabled": True,
+    "model_manager_civitai_browser_enabled": True,
     "model_manager_civitai_api_key": "",
     "model_manager_page_size": 20,
     "model_manager_database_path": "",
@@ -38,7 +44,6 @@ DEFAULTS = {
     "model_manager_gallery_hide_nsfw": True,
     "model_manager_civitai_page_size": 20,
     "model_manager_hide_promptless_images": True,
-    "model_manager_record_generations": True,
     "model_manager_generations_hide_nsfw": True,
     "model_manager_gallery_page_size": 100,
     "model_manager_civitai_folder_template": "_{baseModel}/{modelName}",
@@ -52,9 +57,8 @@ DEFAULTS = {
     "model_manager_nsfw_detection": "model",
     "model_manager_nsfw_prompt_model_percent": 2.0,
     "model_manager_check_updates": True,
-    # The generation queue, all of it (#156); and where it keeps the images a
-    # task needs to run, empty for the WebUI's own queue-inputs folder (#149).
-    "model_manager_queue_enabled": True,
+    # Where the queue keeps the images a task needs to run, empty for the
+    # WebUI's own queue-inputs folder (#149).
     "model_manager_queue_inputs_dir": "",
     # Generate asks whether to queue a run of more images than this; 0 never (#166).
     "model_manager_queue_ask_above": 4,

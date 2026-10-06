@@ -29,12 +29,12 @@ const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).sea
 const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
 const { provide, withdraw } = await shared('calls.mjs');
 const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
-const { uiOptions, fetchUiOptions } = await shared('ui_options.mjs');
+const { uiOptions } = await shared('ui_options.mjs');
 
 /**
  * Each tab, by the name tabs.mjs knows it by, in the order the WebUI shows
  * them: its script in javascript/tabs/; its name in ui-options (tabs.py); its
- * switch, if it has one yet (#185); the element that says Gradio has drawn
+ * switch (#185); the element that says Gradio has drawn
  * its markup; where the page goes when it hides while showing; what else
  * hides with it; and the event that tells the other tabs.
  */
@@ -43,9 +43,10 @@ export const TABS = {
              elsewhere: 'txt2img', also: ['txt2img_queue', 'img2img_queue'], event: 'mm-queue-enabled' },
     generations: { file: 'generations.mjs', server: 'generations', setting: 'model_manager_record_generations',
                    markup: 'gen_grid', elsewhere: 'modelManager', also: [], event: 'mm-generations-enabled' },
-    modelManager: { file: 'model_manager.mjs', server: 'model_manager', setting: null, markup: 'mm_load_btn',
-                    elsewhere: 'txt2img', also: [], event: null },
-    civitaiBrowser: { file: 'civitai_browser.mjs', server: 'civitai_browser', setting: null, markup: 'cb_search_btn',
+    modelManager: { file: 'model_manager.mjs', server: 'model_manager', setting: 'model_manager_model_manager_enabled',
+                    markup: 'mm_load_btn', elsewhere: 'txt2img', also: [], event: null },
+    civitaiBrowser: { file: 'civitai_browser.mjs', server: 'civitai_browser',
+                      setting: 'model_manager_civitai_browser_enabled', markup: 'cb_search_btn',
                       elsewhere: 'txt2img', also: [], event: null },
 };
 
@@ -335,24 +336,101 @@ function setOn(name, on) {
     const now = state[name];
     const changed = now.on !== undefined && now.on !== on;
     now.on = on;
-    if (changed && !on) stopTab(name);
+    if (changed && !on) {
+        stopTab(name);
+        waitForReload(name, null);
+    }
     if (changed && on) {
         if (now.built && !now.stopped) startTab(name);
-        else console.info(`[ModelManager] The ${name} tab comes back with a page reload`
-                          + (now.built ? '' : ' after a restart'));
+        else waitForReload(name, now.built ? 'page' : 'ui');
     }
     apply(name);
     const event = TABS[name].event;
     if (changed && event) window.dispatchEvent(new CustomEvent(event, { detail: { enabled: on } }));
 }
 
-/** What a ui-options answer says of each tab. */
-function takeTabs(data) {
+// ------------------------------------------------- what needs a reload
+// A switch turned on that cannot take effect in this page (#185): a tab that
+// ran here and stopped comes back with a page reload - its state went with
+// it; one this start did not build is created by Settings -> Reload UI. One
+// popup says which, for every switch saved, and offers it - the WebUI's own
+// Reload UI button, which reloads the page as well - or Later. Off, a tab
+// stops and hides at once; on, one built and never started starts at once:
+// neither asks anything.
+
+const waiting = new Map();          // tab -> 'page' or 'ui'
+
+function waitForReload(name, how) {
+    if (how) waiting.set(name, how);
+    else waiting.delete(name);
+    drawReloadPopup();
+}
+
+function reloadPopup() {
+    return typeof document === 'undefined' ? null : document.querySelector('.mm-reload-dialog');
+}
+
+function drawReloadPopup() {
+    if (typeof document === 'undefined') return;
+    if (!waiting.size) {
+        closeReloadPopup();
+        return;
+    }
+    let popup = reloadPopup();
+    if (!popup) {
+        popup = document.createElement('div');
+        popup.className = 'mm-dialog-backdrop mm-reload-dialog';
+        popup.addEventListener('click', onReloadClick);
+        document.body.appendChild(popup);
+        document.addEventListener('keydown', onReloadKey, true);
+    }
+    const ui = [...waiting.values()].includes('ui');
+    const lines = [...waiting].map(([name, how]) => (how === 'ui'
+        ? `${LABELS[name]} is created by Settings -> Reload UI.`
+        : `${LABELS[name]} comes back with a page reload.`));
+    popup.innerHTML = `
+        <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_reload_title">
+            <h3 id="mm_reload_title">Reload to apply</h3>
+            <div class="mm-reload-list">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')}</div>
+            <div class="mm-dialog-buttons">
+                <button type="button" class="mm-btn primary" data-reload="${ui ? 'ui' : 'page'}">${
+                    ui ? 'Reload UI' : 'Reload the page'}</button>
+                <button type="button" class="mm-btn secondary" data-reload="later">Later</button>
+            </div>
+        </div>`;
+}
+
+function closeReloadPopup() {
+    waiting.clear();
+    reloadPopup()?.remove();
+    if (typeof document !== 'undefined') document.removeEventListener('keydown', onReloadKey, true);
+}
+
+function onReloadClick(event) {
+    const button = event.target.closest?.('[data-reload]');
+    if (!button && event.target !== event.currentTarget) return;
+    const how = button?.dataset.reload || 'later';
+    closeReloadPopup();
+    if (how === 'page') window.location.reload();
+    if (how === 'ui') {
+        const app = typeof gradioApp === 'function' ? gradioApp() : document;
+        const reloadUi = app.querySelector('#settings_restart_gradio');
+        if (reloadUi) reloadUi.click();
+        else window.location.reload();
+    }
+}
+
+function onReloadKey(event) {
+    if (event.key !== 'Escape' || !reloadPopup()) return;
+    event.stopPropagation();
+    closeReloadPopup();
+}
+
+/** Each switch, as `value(setting)` says it: one it says nothing of stays as it is. */
+function takeSwitches(value) {
     for (const [name, tab] of Object.entries(TABS)) {
-        const said = data?.tabs?.[tab.server];
-        if (!said || typeof said.on !== 'boolean') continue;
-        state[name].built = said.built !== false;
-        setOn(name, said.on);
+        const on = value(tab.setting);
+        if (typeof on === 'boolean') setOn(name, on);
     }
 }
 
@@ -360,7 +438,10 @@ function takeTabs(data) {
  * Start the page: the tabs that are on and built, once the page is ready -
  * every one when the server cannot say, as before - then follow their
  * switches, saved in the settings window (its answer says each value) or on
- * the Settings page (only which keys changed: asked again).
+ * the WebUI's Settings page. There the WebUI hands every setting, as the
+ * server now has it, to onOptionsChanged - the only way back with every tab
+ * off, when the settings window cannot open. The settings window's module
+ * watched that page's Apply, and only a tab running starts it.
  */
 export const boot = once(() => {
     onReady(async () => {
@@ -373,17 +454,11 @@ export const boot = once(() => {
             if (state[name].on && state[name].built) startTab(name);
         }
         window.addEventListener('mm-settings-saved', (event) => {
-            for (const [name, tab] of Object.entries(TABS)) {
-                const value = tab.setting && event.detail?.settings?.[tab.setting]?.value;
-                if (typeof value === 'boolean') setOn(name, value);
-            }
+            takeSwitches((setting) => event.detail?.settings?.[setting]?.value);
         });
-        window.addEventListener('mm-settings-page-applied', (event) => {
-            const changed = event.detail?.changed || [];
-            if (Object.values(TABS).some((tab) => tab.setting && changed.includes(tab.setting))) {
-                fetchUiOptions().then(takeTabs);
-            }
-        });
+        if (typeof onOptionsChanged === 'function') {
+            onOptionsChanged(() => takeSwitches((setting) => (typeof opts === 'object' ? opts?.[setting] : undefined)));
+        }
         if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(applyAll);
     });
 });

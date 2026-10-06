@@ -14,6 +14,14 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.51 - Turn off the tabs you do not use.** Each of the extension's tabs - the Queue,
+Generations, the Model Manager and the Civitai Browser - has a switch, together in the
+settings window's new Tabs section. A tab switched off does nothing at all: it is hidden at
+once, its requests are refused, from the next start it is not even loaded, and the buttons
+in the other tabs that lead to it are greyed, saying why. Turned back on, it returns at
+once, or after a page reload or Reload UI, which a popup offers. Nothing you have is
+deleted.
+
 **0.50 - A queue for your generations.** Press Queue beside Generate, in txt2img or
 img2img, and the generation is kept as a task instead of run: its checkpoint, VAE and text
 encoders, its scripts and ControlNet units, and the images it was given. The new Queue tab
@@ -307,10 +315,18 @@ starting either.
 ## Settings
 
 In the settings window - the gear at the top right of each tab - grouped by what they
-are for, or under **Settings -> Model Manager**. Both edit the same values.
+are for, or under **Settings -> Model Manager**. Both edit the same values. Each tab's
+switch comes first, in the window's Tabs section: a tab switched off does nothing at all,
+and the window shows only the sections of the tabs that are on. One switched back on that
+needs a page reload or Reload UI to return says so, and offers it. With every tab off, the
+window goes with them: the switches come first under **Settings -> Model Manager** too.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| Queue | on | A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, a running queue stops, and from the next start neither is created. The tasks are kept |
+| Your generations | on | Records every txt2img and img2img result saved to disk, for the Generations tab and each model's Your generations. Off: nothing is recorded, both are hidden at once, and the Generations tab is not created from the next start. What was recorded is kept |
+| Model Manager tab | on | Your models, their details and galleries, and the sync with Civitai. Off: the tab is hidden at once and stops, and from the next start it is not created at all; a sync already running finishes. Your library is kept, and downloads still add to it |
+| Civitai Browser tab | on | Searching Civitai, and downloading from it. Off: the tab is hidden at once and stops, and from the next start it is not created at all; downloads already running finish |
 | Civitai API Key | empty | Optional. Higher rate limits for Civitai API requests; without one, image prompts cannot be fetched and some models refuse to download |
 | Model Manager: Models per page | 20 | Model Manager page size (5-50) |
 | Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
@@ -318,8 +334,6 @@ are for, or under **Settings -> Model Manager**. Both edit the same values.
 | Image gallery: hide explicit images by default | on | How a model's image gallery opens, in both tabs. The Show NSFW switch above the images shows them for that model |
 | Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
 | Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
-| Your generations | on | Records every txt2img and img2img result saved to disk, for the Generations tab and each model's Your generations. Off: nothing is recorded, both are hidden at once, and the Generations tab is not created from the next start. What was recorded is kept |
-| Queue | on | A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, a running queue stops, and from the next start neither is created. The tasks are kept |
 | Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
 | Queue: ask before Generate makes more images than this | 4 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
 | Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |

@@ -26,6 +26,9 @@ const SETTINGS = {
     model_manager_preview_least_nsfw: setting('bool', true),
     model_manager_gallery_hide_nsfw: setting('bool', true),
     model_manager_record_generations: setting('bool', true),
+    model_manager_queue_enabled: setting('bool', true),
+    model_manager_model_manager_enabled: setting('bool', true),
+    model_manager_civitai_browser_enabled: setting('bool', true),
     model_manager_generations_hide_nsfw: setting('bool', true),
     model_manager_nsfw_detection: setting('choice', 'words', { default: 'model', choices: [
         ['Trained model', 'model'], ['Word list', 'words']] }),
@@ -220,11 +223,38 @@ check('asking the server, each time it opens', settingsAsked, 1);
 
 const titles = Array.from(document.querySelectorAll('.mm-settings-section > summary')).map((s) => s.textContent);
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
-check('grouped into sections, in order, with a setting no section names under Other - What\'s new first',
-      titles, ["What's new",
+check('grouped into sections, in order, with a setting no section names under Other - What\'s new first, then Tabs',
+      titles, ["What's new", 'Tabs',
     'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'Your generations', 'NSFW detection',
     'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
-check('the text encoders collapsed', document.querySelectorAll('.mm-settings-section')[7].hasAttribute('open'), false);
+check('the text encoders collapsed', $('.mm-settings-section[data-section="modules"]')?.hasAttribute('open'), false);
+
+// ------------------------------------------------------------- the tabs
+// Each tab's switch, in one section, first, in the WebUI's tab order (#185).
+const TAB_KEYS = ['model_manager_queue_enabled', 'model_manager_record_generations',
+                  'model_manager_model_manager_enabled', 'model_manager_civitai_browser_enabled'];
+check('Tabs holds the four switches, in the order of the tabs',
+      Array.from(document.querySelectorAll('.mm-settings-section[data-section="tabs"] .mm-settings-field'))
+          .map((f) => f.dataset.key), TAB_KEYS);
+// A section shows while a tab that uses it is on: switched off in the
+// window, a tab's sections go at once; the rest stay.
+const sectionShown = (id) => { const s = $(`.mm-settings-section[data-section="${id}"]`); return Boolean(s) && !s.hidden; };
+const SECTION_IDS = ['tabs', 'connection', 'model_manager', 'civitai_browser', 'gallery', 'generations', 'nsfw',
+                     'modules', 'advanced', 'other'];
+const tickTab = (key, on) => {
+    const box = field(key).querySelector('input[type="checkbox"]');
+    box.checked = on;
+    box.dispatchEvent(new window.Event('change', { bubbles: true }));
+};
+tickTab('model_manager_model_manager_enabled', false);
+tickTab('model_manager_civitai_browser_enabled', false);
+check('the Model Manager and the Civitai Browser off: theirs go - the connection stays, for Generations\' Send',
+      SECTION_IDS.filter(sectionShown), ['tabs', 'connection', 'generations', 'nsfw', 'modules', 'other']);
+tickTab('model_manager_record_generations', false);
+check('Generations off too: the connection and the NSFW detection go with it',
+      SECTION_IDS.filter(sectionShown), ['tabs', 'modules', 'other']);
+TAB_KEYS.forEach((key) => tickTab(key, true));
+check('all on again: every section', SECTION_IDS.filter(sectionShown), SECTION_IDS);
 
 // "What's new": every note that applies, dismissed ones too, by version -
 // where a note dismissed in a tab can be read again. Collapsed.

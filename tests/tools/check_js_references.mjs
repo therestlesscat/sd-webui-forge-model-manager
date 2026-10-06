@@ -164,8 +164,8 @@ const GLOBALS = new Set(['window', 'document', 'console', 'fetch', 'setTimeout',
     'RegExp', 'Error', 'TypeError', 'parseInt', 'parseFloat', 'isNaN', 'encodeURIComponent',
     'decodeURIComponent', 'atob', 'btoa', 'alert', 'confirm', 'requestAnimationFrame',
     // provided by the WebUI's own classic scripts
-    'gradioApp', 'onUiLoaded', 'onAfterUiUpdate', 'onUiUpdate', 'opts', 'updateInput',
-    'selectCheckpoint', 'selectVAE', 'inputAccordionChecked', 'switch_to_txt2img',
+    'gradioApp', 'onUiLoaded', 'onAfterUiUpdate', 'onUiUpdate', 'onOptionsChanged', 'opts',
+    'updateInput', 'selectCheckpoint', 'selectVAE', 'inputAccordionChecked', 'switch_to_txt2img',
     'globalThis', 'structuredClone', 'queueMicrotask']);
 
 const KEYWORDS = /^(if|for|while|switch|catch|return|typeof|await|async|new|delete|void|in|of|do|else|function|throw|yield|super|case|import)$/;

@@ -166,7 +166,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 
 | | |
 |---|---|
-| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`); and the only way between tabs (#184) - `available(tab)`, `open(tab, entry)` at what a tab's script `entries` offers, `linkTo` for a link to one |
+| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches, saved in the settings window or on the WebUI's Settings page (`onOptionsChanged`: the way back with every tab off) - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`); and the only way between tabs (#184) - `available(tab)`, `open(tab, entry)` at what a tab's script `entries` offers, `linkTo` for a link to one; and the popup when a switch turned on cannot take effect in the page - a page reload, or Settings -> Reload UI for a tab this start did not build (#185) |
 | `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`, `withdraw`; and the page's one listener calling what markup names in `data-action` |
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
@@ -549,8 +549,9 @@ or for a video (#8). See `model_manager/generations.py`.
   `?mtime` - which stayed the same when only a shared file changed (15 of 60
   releases that touched shared/). They now ask `/model-manager/asset-version`
   for the newest mtime among the shared files and the tabs' scripts, once a
-  page, in the loader (`window.mmSharedVersion`), and import every module with
-  it: one URL, so each also **runs once**, not once per tab. It is asked until it
+  page, in the loader (`window.mmSharedVersion`) - an area of `tabs.py`'s
+  `ALWAYS`, like ui-options: gated `any`, it refused with every tab off -
+  and import every module with it: one URL, so each also **runs once**, not once per tab. It is asked until it
   answers: both WebUIs serve the page, then add their own routes (the
   `/internal/ping` a restarted page waits on), and only then run the
   extensions' `app_started`, which adds ours - a page reloaded by "Apply and

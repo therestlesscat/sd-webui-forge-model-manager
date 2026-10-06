@@ -7,9 +7,8 @@ below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
 startup work left out; and the page told which tabs are on and were built.
-
-The Model Manager and the Civitai Browser have no switch yet (#185): to see
-the shared areas go off, they are given one here.
+And the Model Manager's and the Civitai Browser's own switches (#185): off,
+neither is built, and its routes refuse.
 """
 import asyncio
 import importlib.util
@@ -72,6 +71,16 @@ switch(GENERATIONS, False)
 check('Generations off: its tab\'s page refused', client.get('/model-manager/generations/browse').status_code, 403)
 switch(GENERATIONS, True)
 check('on: answered', client.get('/model-manager/generations/browse').status_code, 200)
+
+# The Model Manager and the Civitai Browser have switches of their own (#185).
+MM, CB = 'model_manager_model_manager_enabled', 'model_manager_civitai_browser_enabled'
+switch(MM, False)
+check('the Model Manager off: its grid refused', client.get('/model-manager/models').status_code, 403)
+switch(MM, True)
+check('on: answered', client.get('/model-manager/models').status_code, 200)
+switch(CB, False)
+check('the Civitai Browser off: its search refused', client.get('/model-manager/civitai/enums').status_code, 403)
+switch(CB, True)
 
 # ------------------------------------------------------------- the startup
 # Queued tasks a restart left running are stopped at startup: seen where it
@@ -162,8 +171,8 @@ SPEC = {
     ('POST', '/model-manager/settings/test-key'): 'any',
     ('GET', '/model-manager/settings/nsfw-levels'): 'any',
     ('POST', '/model-manager/settings'): 'any',
-    ('GET', '/model-manager/asset-version'): 'any',
     ('GET', '/model-manager/video-still'): 'any',
+    ('GET', '/model-manager/asset-version'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
 check('the spec holds 71 routes', len(SPEC), 71)
@@ -177,14 +186,9 @@ check('every route names its area', sorted(key for key, area in areas.items() if
 check('each route\'s area is the spec\'s', areas, SPEC)
 
 # ------------------------------------------------------ the shared areas
-# The Model Manager and the Civitai Browser given a switch, as #185 will.
-import model_manager.forge_host as forge_host             # noqa: E402
 import model_manager.tabs as tabs                         # noqa: E402
-MM, CB = 'mm_test_model_manager_enabled', 'mm_test_civitai_browser_enabled'
-real_tabs = dict(tabs.TABS)
-forge_host.DEFAULTS.update({MM: True, CB: True})
-tabs.TABS.update(model_manager=MM, civitai_browser=CB)
 KEYS = {'queue': QUEUE, 'generations': GENERATIONS, 'model_manager': MM, 'civitai_browser': CB}
+check('each tab\'s switch, in one table', tabs.TABS, KEYS)
 
 
 def only(*on):
@@ -210,7 +214,7 @@ check('Generations alone: Send and the restamp - no downloads, no saved searches
 only('queue')
 check('the Queue alone: Send', areas_on(), ['always', 'any', 'queue', 'send'])
 only()
-check('all off: ui-options alone', areas_on(), ['always'])
+check('all off: what the loader asks alone', areas_on(), ['always'])
 delattr(shared.opts, QUEUE)
 check('a switch never set is on, as by default', tabs.on('queue'), True)
 
@@ -273,6 +277,10 @@ if ran == ['plain', 'async'] and areas_on() == ['always']:
             for key, area in SPEC.items() if area != tabs.ALWAYS}
     check('all off: every route refused, saying why, as every failure answers', refusals, want)
 check('async routes among them', sum(asyncio.iscoroutinefunction(route.endpoint) for route in routes.values()) > 0)
+# The loader asks for the version first, whatever is on: refused, it was a
+# console error on every load, and the shared modules took its own version.
+answer = client.get('/model-manager/asset-version')
+check('the version still answers', (answer.status_code, 'version' in answer.json()), (200, True))
 answer = client.get('/model-manager/ui-options')
 check('ui-options still answers, and says each tab is off',
       (answer.status_code, {tab: state['on'] for tab, state in answer.json().get('tabs', {}).items()}),
@@ -344,8 +352,6 @@ only('generations')
 tabs_callbacks[0]()
 check('built again - Reload UI: what this build created', sorted(tabs.built()), ['generations'])
 
-tabs.TABS.clear()
-tabs.TABS.update(real_tabs)
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -81,9 +81,12 @@ def _listed_label(path: str, installed: dict):
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/asset-version")
-    @gate("any")
+    @gate("always")
     def asset_version():
-        """The version the tabs import javascript/shared/ with; never cached."""
+        """
+        The version the loader imports javascript/shared/ and the tabs with;
+        never cached. Asked before anything, so with every tab off too.
+        """
         return JSONResponse({"success": True, "version": shared_version()},
                             headers={"Cache-Control": "no-store"})
 

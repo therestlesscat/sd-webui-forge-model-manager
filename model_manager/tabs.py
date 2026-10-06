@@ -12,17 +12,17 @@ An area is a tab, a service, ALWAYS, or ANY - every tab's. Routes and startup wo
 name theirs (api/common.py's gate; tab_switches_test.py holds every route to
 one), and a misspelt one is a KeyError, not an area that is always on.
 """
-from typing import Dict, FrozenSet, Iterable, Optional, Tuple
+from typing import Dict, FrozenSet, Iterable, Tuple
 
 from .forge_host import setting
 
 # Each tab, in the order they are created, and the setting that switches it
-# off; None where it has none yet (#185). Their defaults are forge_host.DEFAULTS'.
-TABS: Dict[str, Optional[str]] = {
+# off (#185). Their defaults are forge_host.DEFAULTS'.
+TABS: Dict[str, str] = {
     "queue": "model_manager_queue_enabled",
     "generations": "model_manager_record_generations",
-    "model_manager": None,
-    "civitai_browser": None,
+    "model_manager": "model_manager_model_manager_enabled",
+    "civitai_browser": "model_manager_civitai_browser_enabled",
 }
 
 # What a refusal calls each tab.
@@ -51,8 +51,8 @@ SERVICES: Dict[str, Tuple[str, ...]] = {
     ANY: tuple(TABS),
 }
 
-# ui-options alone: how the page learns what is on, so it answers even with
-# every tab off.
+# What the loader asks before anything - the shared version, and ui-options,
+# how the page learns what is on - so they answer even with every tab off.
 ALWAYS = "always"
 
 _built: FrozenSet[str] = frozenset()
@@ -74,8 +74,7 @@ def on(area: str) -> bool:
     if area == ALWAYS:
         return True
     if area in TABS:
-        key = TABS[area]
-        return key is None or bool(setting(key))
+        return bool(setting(TABS[area]))
     return any(on(tab) for tab in SERVICES[area])
 
 
