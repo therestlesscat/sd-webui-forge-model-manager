@@ -65,7 +65,11 @@ longer existed.
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
   checked, say you have not checked. Proving a change has lessons of its own
-  ("Proving a change").
+  ("Proving a change"). So is what a turn's own calls did: in the #41 round,
+  12 replies said a step was still to come that a call earlier in the same
+  turn had done - the test browser closed, a memory note written, the change
+  staged, the issue opened. Write what a turn did from its results, read
+  before the summary.
 
 ### The live data, and the WebUI running
 
@@ -438,7 +442,9 @@ expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
 there, and checks the finished file as ever. What is running or paused is kept
 in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
 or a crash leaves it paused, and a WebUI sharing the database never takes it
-up.
+up. Only a download with a `.partial` is kept: one still waiting, never
+started, has none - its path is set as its own thread begins fetching - and a
+restart forgets it (#187), since 0.43.0 (48ad567).
 
 ### The page
 
@@ -619,7 +625,14 @@ or for a video (#8). See `model_manager/generations.py`.
   keeps the package imported, so a script that imports a name added since the
   start fails: 0.50.8 added `queue_enabled` to `scheduler/__init__.py` at
   15:42, and 7870, started at 15:23 and reloaded, failed with an ImportError
-  in `model_manager_ui.py`. A real restart cleared it.
+  in `model_manager_ui.py`. A real restart cleared it. Its button interrupts
+  a running generation first: `request_restart` calls
+  `shared.state.interrupt()` (Neo's `modules/shared_state.py`).
+- **A page reload starts on the first tab, every field as the UI was built.**
+  A prompt typed in txt2img was gone after one on 7870. So a popup that
+  offers a reload says unsaved input is lost, and the loading module brings
+  the page back to the tab that showed (`mm-return-to` in sessionStorage,
+  #186).
 - **`onAfterUiUpdate` runs 250 ms after any change to the page**
   (`scheduleAfterUiUpdateCallbacks` in the WebUI's `script.js`). A callback
   that writes even the same text again changes the page and schedules itself:
@@ -797,6 +810,11 @@ extensions' styles measured buttons the same that were not.
 - **A stop needs a way back.** A dialog that blocks an action offers that
   action again once its cause is fixed: the Resources dialog's Send works once
   the server says the checkpoint is there (0.47.3).
+- **Text that tells the user what another part does is read against that
+  part's code.** The restart popup said downloads "pause, and resume after";
+  `restore()` brings them back paused, and forgets one never started (#187).
+  A side agent's review found it after the commit, and two patches (0.51.7,
+  0.51.8) followed - the first one's wording unclear in turn.
 
 ## Versions
 

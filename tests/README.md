@@ -52,6 +52,11 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 ```
 
+Whose a listener or a timer is, a suite reads from the stack.
+`service_stop_test` wraps `addEventListener` and the timers and names the
+file of ours that asked - past the loading module, whose scopes add for the
+tabs and services - so what a stop leaves behind says whose it is.
+
 ## The library they run against
 
 `fixtures.py` builds one from nothing: twelve models, fourteen linked versions,
@@ -122,6 +127,10 @@ that the WebUI does not - and ask a real browser ("Probes").
 
 ## Traps suites fell into
 
+- **A `{ once: true }` listener goes without a `removeEventListener`.** A suite
+  that tracks listeners by wrapping `addEventListener` drops one when it
+  fires: `service_stop_test` counted core's `DOMContentLoaded` as left behind
+  until it did.
 - **Wait for what is shown, not what is drawn.** A closed list keeps its
   items: `tag_chip_test` waited for three suggestions in the markup, found the
   last round's, and pressed Esc before the answer came - the fix looked
