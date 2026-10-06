@@ -16,5 +16,7 @@ module.exports = function sharedScript() {
     return ORDER.map((name) => fs.readFileSync(path.join(SHARED, `${name}.mjs`), 'utf8')
         .replace(/^const shared = .*\n/m, '')
         .replace(/^const \{[^}]*\} = await shared\('[^']+'\);\n/gm, '')
-        .replace(/^export /gm, '')).join('\n');
+        .replace(/^export /gm, '')
+        // Each module's start() (#182), named for it: in one script they would clash.
+        .replace(/^(const|function) start\b/m, `$1 start_${name}`)).join('\n');
 };

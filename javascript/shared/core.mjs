@@ -32,6 +32,22 @@ export const TIMING = Object.freeze({
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 
+/**
+ * A module's start(): its work - a listener, a hook, a request - done the
+ * first time it is asked for, and never again, however many tabs ask (#182).
+ * No shared module does anything as it is imported: a tab starts what it
+ * uses, so one tab's work does not run wherever another does
+ * (import_work_test.mjs).
+ */
+export function once(work) {
+    let done = false;
+    return () => {
+        if (done) return;
+        done = true;
+        work();
+    };
+}
+
 export function onReady(callback) {
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(callback, 100);
@@ -286,9 +302,9 @@ export function sanitizeHtml(html) {
  * data attribute, which is never executed, and this one listener acts on it.
  * Installed once, on the document, so it covers markup rendered later.
  */
-if (typeof document !== 'undefined'
-        && typeof document.addEventListener === 'function'
-        && !globalThis.__mmDelegatedClicks) {
+export const start = once(() => {
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
+            || globalThis.__mmDelegatedClicks) return;
     globalThis.__mmDelegatedClicks = true;
     document.addEventListener('click', (event) => {
         const target = event.target && event.target.closest
@@ -314,7 +330,7 @@ if (typeof document !== 'undefined'
             setTimeout(() => target.classList.remove('mm-copied'), 600);
         }
     });
-}
+});
 
 export function formatNumber(num) {
     if (!num) return '0';

@@ -10,18 +10,21 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml } = await shared('core.mjs');
-const { call } = await shared('calls.mjs');
-const { showSyncDialog } = await shared('jobs.mjs');
+const { TIMING, escapeHtml, once } = await shared('core.mjs');
+const { call, ready } = await shared('calls.mjs');
 
 // What a note's button does, by the id its note names - with the action, for
-// the settings section it is about.
+// the settings section it is about - and what has to be there for it: a
+// button is drawn only while it is. The sync's dialog is the Model
+// Manager's (jobs.mjs), offered once it has started: the notes, in every
+// tab, no longer import it (#182).
 const NOTE_ACTIONS = {
-    reread_headers: () => showSyncDialog({ rereadHeaders: true }),
-    settings: (action) => call('settings.open', { section: action.section || null }),
-    sync: () => showSyncDialog(),
-    sync_unidentified: () => showSyncDialog({ force: 'unidentified' }),
+    reread_headers: { needs: 'sync.showDialog', run: () => call('sync.showDialog', { rereadHeaders: true }) },
+    settings: { needs: 'settings.open', run: (action) => call('settings.open', { section: action.section || null }) },
+    sync: { needs: 'sync.showDialog', run: () => call('sync.showDialog') },
+    sync_unidentified: { needs: 'sync.showDialog', run: () => call('sync.showDialog', { force: 'unidentified' }) },
 };
+const noteAction = (id) => (NOTE_ACTIONS[id] && ready(NOTE_ACTIONS[id].needs) ? NOTE_ACTIONS[id] : null);
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };
 // On top: a tab's introduction, for someone new; then the important ones,
 // then what needs doing, then warnings, then features - each newest first,
@@ -93,7 +96,7 @@ function drawNotes(tab, attempt = 0) {
 function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
     const kind = NOTE_ICONS[note.kind] ? note.kind : 'feature';
     const actions = (note.actions || (note.action ? [note.action] : []))
-        .filter((action) => action && NOTE_ACTIONS[action.id])
+        .filter((action) => action && noteAction(action.id))
         .map((action) => `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(action.id)}"
                    data-note-section="${escapeHtml(action.section || '')}">${escapeHtml(action.label || 'Do it')}</button>`)
         .join('');
@@ -127,8 +130,18 @@ function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
         </div>`;
 }
 
-// One click handler for every tab's notes - this module runs once a page.
-if (typeof window !== 'undefined') {
+/**
+ * One click handler for every tab's notes, and their redraw after each
+ * update - this module runs once a page; started by the first tab (#182).
+ */
+export const start = once(() => {
+    if (typeof onAfterUiUpdate === 'function') {
+        onAfterUiUpdate(() => Object.keys(noteTabs).forEach((tab) => {
+            const box = document.getElementById(noteTabs[tab].containerId);
+            if (box && !box.children.length) drawNotes(tab);
+        }));
+    }
+    if (typeof window === 'undefined') return;
     const redrawAll = () => Object.keys(noteTabs).forEach((tab) => drawNotes(tab));
     document.addEventListener?.('click', (event) => {
         const target = event.target;
@@ -148,7 +161,7 @@ if (typeof window !== 'undefined') {
         if (!note) return;
         const button = target.closest('[data-note-action]');
         if (button) {
-            NOTE_ACTIONS[button.dataset.noteAction]?.({ section: button.dataset.noteSection });
+            noteAction(button.dataset.noteAction)?.run({ section: button.dataset.noteSection });
             return;
         }
         if (!target.closest('[data-note-dismiss]')) return;
@@ -160,10 +173,4 @@ if (typeof window !== 'undefined') {
             body: new URLSearchParams({ id }) })
             .catch((error) => console.warn('[ModelManager] Could not dismiss the note:', error));
     });
-}
-if (typeof onAfterUiUpdate === 'function') {
-    onAfterUiUpdate(() => Object.keys(noteTabs).forEach((tab) => {
-        const box = document.getElementById(noteTabs[tab].containerId);
-        if (box && !box.children.length) drawNotes(tab);
-    }));
-}
+});

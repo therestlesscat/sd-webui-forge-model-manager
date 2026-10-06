@@ -13,8 +13,8 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
-const { downloads, onItsWay } = await shared('downloads.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, once, safeId } = await shared('core.mjs');
+const { downloads, onItsWay, whenDownloading } = await shared('downloads.mjs');
 const { provide } = await shared('calls.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 
@@ -389,18 +389,14 @@ async function recheckSend() {
         wanted.checking = false;
     }
 }
-// Downloads landed, and Forge's list refreshed (downloads.mjs): the
-// checkpoint may be one of them.
-downloads().onBatchDone(() => recheckSend());
-
 // The dialog's Send: closed, and the image sent again, through every check.
-provide('resources.sendAgain', () => {
+function sendAgain() {
     const send = resourcesSend;
     if (!send?.ready) return undefined;
     closeMetaModal();
     resourcesSend = null;
     return send.run();
-});
+}
 
 // ------------------------------------------- downloading from the dialog
 // The dialog's Download used to be a link to Civitai's download URL: the
@@ -430,6 +426,8 @@ function resourceDownloadCell(resource) {
     if (job && job.state === 'unavailable') {
         return `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Not on Civitai</span>`;
     }
+    // Downloads run with the Model Manager or the Civitai Browser (#182).
+    if (!downloads()) return '<span class="mm-res-state">Not in the library</span>';
     const retry = job && job.state === 'error'
         ? `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Failed</span> ` : '';
     const modelId = resource.modelId || (job && job.modelId);
@@ -459,6 +457,7 @@ async function checkInstalledResources(resources) {
 
 /** Download a resource into the library: the version the image names, or its model's newest if it is gone. */
 export async function downloadResource(versionId, modelId) {
+    if (!downloads()) return;
     if (onItsWay(versionId)) {
         // Coming already - started in the Civitai Browser, say: followed as
         // it is, not asked for again. It was refused, marked failed and never
@@ -496,8 +495,6 @@ export async function downloadResource(versionId, modelId) {
     redrawResourceDownload(versionId, { versionId, modelId });
     announceDownloads();
 }
-// Its markup's Download.
-provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
 
 function finishResourceDownload(versionId) {
     resourceDownloads[versionId].state = 'installed';
@@ -530,4 +527,19 @@ function followResourceDownloads() {
     }
     announceDownloads();
 }
-if (typeof window !== 'undefined') downloads().onChange(followResourceDownloads);
+/**
+ * Started by what opens the dialog - Send, an image's card, the Civitai
+ * Browser (#182): its Send and Download offered by name, and the downloads
+ * list followed once a tab that downloads has started it. It used to start
+ * the list itself, as it was imported.
+ */
+export const start = once(() => {
+    provide('resources.sendAgain', () => sendAgain());
+    provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
+    whenDownloading((list) => {
+        // Downloads landed, and Forge's list refreshed (downloads.mjs): the
+        // checkpoint may be one of them.
+        list.onBatchDone(() => recheckSend());
+        list.onChange(followResourceDownloads);
+    });
+});

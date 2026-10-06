@@ -28,8 +28,11 @@ globalThis.fetch = async (url, init = {}) => {
     return reply({ success: true });
 };
 
-const { downloads } = await sharedModule('downloads.mjs');
-const { downloadResource, resourceDownloads } = await sharedModule('resources.mjs');
+// Started as the Model Manager or the Civitai Browser starts them (#182).
+const { downloads, start: startDownloads } = await sharedModule('downloads.mjs');
+const { downloadResource, resourceDownloads, start: startResources } = await sharedModule('resources.mjs');
+startDownloads();
+startResources();
 const job = (id) => {
     const j = resourceDownloads[id] || {};
     return { state: j.state, target: j.target, percent: j.percent };

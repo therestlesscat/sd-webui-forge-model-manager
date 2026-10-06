@@ -53,7 +53,7 @@ const shared = (name) => import(new URL(`./shared/${name}${sharedVersion}`, impo
 // import of a URL already asked for is the same module, so the awaits find
 // them on their way. A failure still stops the tab at its await; the catch
 // here only keeps it from being reported twice.
-const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
+const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
     'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
@@ -99,6 +99,13 @@ const { openViewer, cardSource, dialogShowing, viewerIsOpen } = await shared('vi
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// What this tab uses that has work of its own - a listener, a request -
+// started: each module once for the page, by whichever tab is first (#182).
+// None does anything as it is imported, so what a tab does not use does not run.
+const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'downloads.mjs',
+    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'settings.mjs'];
+for (const name of STARTS) (await shared(name)).start();
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).

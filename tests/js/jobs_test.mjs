@@ -4,8 +4,9 @@
 // Manager's script, and the notes reached them through the registry.
 //
 // Here: the Model Manager's script keeps none of it, only connecting the jobs
-// to its status line and its grid; and the notes open the dialogs through the
-// module's own API.
+// to its status line and its grid; and the notes open the dialog by name,
+// which the module offers once the Model Manager starts it: the notes, in
+// every tab, no longer import it (#182).
 import { readFileSync } from 'node:fs';
 import { ROOT, checker } from './harness.mjs';
 
@@ -22,8 +23,8 @@ check('nor keeps their state', ['isSyncing', 'syncPollInterval']
 check('it connects them to its status line and its grid', /connectJobs\(\{/.test(tab), true);
 
 const notes = code('shared/notes.mjs');
-check('the notes open the dialog through the jobs\' own API, not the registry',
-      [/showSyncDialog\(/.test(notes), /call\('modelManager\.open(Sync|Scan)Dialog'/.test(notes)],
+check('the notes open the dialog by name, without importing the jobs\' module',
+      [/call\('sync\.showDialog'/.test(notes), /shared\('jobs\.mjs'\)/.test(notes)],
       [true, false]);
 
 let jobs = '';

@@ -84,6 +84,13 @@ await shared('update_notice.mjs');
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
+// What this tab uses that has work of its own - a listener, a request -
+// started: each module once for the page, by whichever tab is first (#182).
+// None does anything as it is imported, so what a tab does not use does not run.
+const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'send.mjs', 'update_notice.mjs',
+    'settings.mjs'];
+for (const name of STARTS) (await shared(name)).start();
+
 // What the status line calls each state of the queue (runner.Progress).
 const STATES = {
     running: 'Running', pausing: 'Pausing…', paused: 'Paused', stopping: 'Stopping…', stopped: 'Stopped',

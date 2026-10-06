@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, holdPage } = await shared('core.mjs');
+const { TIMING, escapeHtml, holdPage, once } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
 
 const K = {
@@ -1181,7 +1181,14 @@ export function settingsWindow() {
     return (theWindow ||= createSettings());
 }
 
-// From code, and from the gear and the banners' links: data-tab or data-section.
-provide('settings.open', (options) => settingsWindow().open(options));
-restampNotice();
-followSettingsPage();
+/**
+ * Started by the first tab, each having a gear (#182): the window offered by
+ * name - from code, and from the gear and the banners' links, with data-tab
+ * or data-section - a restamp still running looked for, and the Settings
+ * page followed.
+ */
+export const start = once(() => {
+    provide('settings.open', (options) => settingsWindow().open(options));
+    restampNotice();
+    followSettingsPage();
+});

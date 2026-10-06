@@ -21,8 +21,10 @@ const warned = [];
 const warn = console.warn;
 console.warn = (...args) => warned.push(args.join(' '));
 
-const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
-await import(`file:///${ROOT}/javascript/shared/calls.mjs?again`);     // a second copy listens to nothing
+// Started, as a tab starts it (#182) - the second copy too: it listens to nothing.
+const { provide, start } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
+start();
+(await import(`file:///${ROOT}/javascript/shared/calls.mjs?again`)).start();
 const pressed = [];
 provide('test.card', (data, element) => pressed.push(['card', data, element.id]));
 provide('test.pin', (data) => pressed.push(['pin', data]));
@@ -69,6 +71,7 @@ check('a name nothing provides says so', warned.splice(0),
 // The metadata window's Copy JSON: a stop in the window kept its click from
 // the listener that copies (shared/core.mjs), and the button did nothing.
 const { showImageMeta } = await import(`file:///${ROOT}/javascript/shared/image_card.mjs`);
+(await import(`file:///${ROOT}/javascript/shared/core.mjs`)).start();
 let copied = null;
 Object.defineProperty(globalThis, 'navigator', { configurable: true,
     value: { clipboard: { writeText: (text) => { copied = text; return Promise.resolve(); } } } });

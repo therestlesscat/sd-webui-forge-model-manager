@@ -83,12 +83,12 @@ const ON_ITS_WAY = new Set(['starting', 'pending', 'downloading', 'finishing', '
 
 /** Whether a version's download is on its way: asked for, queued, coming, being added, or paused. */
 export function onItsWay(versionId) {
-    return ON_ITS_WAY.has(downloads().status(versionId));
+    return ON_ITS_WAY.has(downloads()?.status(versionId));
 }
 
 /** A Download button's label and whether it is disabled, from its version's download. */
 function downloadButtonState(versionId) {
-    const busy = DOWNLOAD_BUTTON_BUSY[downloads().status(versionId)];
+    const busy = DOWNLOAD_BUTTON_BUSY[downloads()?.status(versionId)];
     return { disabled: !!busy, label: busy || 'Download' };
 }
 
@@ -586,8 +586,27 @@ function createDownloads() {
 }
 
 let downloadsPanel = null;
+const waiting = [];         // what follows the list once it runs
 
-/** The downloads both tabs show. See above. */
+/**
+ * The downloads list, started by the tabs that download - the Model Manager
+ * and the Civitai Browser (#182). Send's Resources dialog and chips download
+ * through it, and only while it runs. It used to start with the first module
+ * to ask, and the Queue alone, through Send, asked for the list.
+ */
+export function start() {
+    if (downloadsPanel) return;
+    downloadsPanel = createDownloads();
+    waiting.splice(0).forEach((follow) => follow(downloadsPanel));
+}
+
+/** The downloads both tabs show (see above): null until a tab that downloads has started it. */
 export function downloads() {
-    return (downloadsPanel ||= createDownloads());
+    return downloadsPanel;
+}
+
+/** `follow(list)` once the downloads list runs - now, if it does. */
+export function whenDownloading(follow) {
+    if (downloadsPanel) follow(downloadsPanel);
+    else waiting.push(follow);
 }

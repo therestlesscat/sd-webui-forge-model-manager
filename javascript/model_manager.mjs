@@ -107,6 +107,13 @@ const {
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
+// What this tab uses that has work of its own - a listener, a request -
+// started: each module once for the page, by whichever tab is first (#182).
+// None does anything as it is imported, so what a tab does not use does not run.
+const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs', 'media.mjs', 'downloads.mjs',
+    'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+for (const name of STARTS) (await shared(name)).start();
+
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
 const DOWNLOAD_CONTROLS = { prefix: 'mm', download: 'modelManager.download', selectFile: 'modelManager.selectFile' };

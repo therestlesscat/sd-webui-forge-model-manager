@@ -192,8 +192,10 @@ export function fallBack(node) {
     if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
 }
 
-if (typeof document !== 'undefined' && typeof document.addEventListener === 'function'
-        && !globalThis.__mmMediaFallback) {
+/** The page's one fallback listener, started by the first tab that shows media (#182). */
+export function start() {
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
+            || globalThis.__mmMediaFallback) return;
     globalThis.__mmMediaFallback = true;
     document.addEventListener('error', (event) => fallBack(event.target), true);
 }

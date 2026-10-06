@@ -11,6 +11,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
+const { once } = await shared('core.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
 
 // Cache for samplers and schedulers loaded from API
@@ -104,8 +105,10 @@ function matchSamplerName(samplerName) {
     return samplerName.replace(/_/g, ' ');
 }
 
-// Load UI options on init
-if (typeof window !== 'undefined') loadUIOptionsFromAPI();
+/** Read once, by the first tab or module that starts this one (#182): Send, an image's card. */
+export const start = once(() => {
+    if (typeof window !== 'undefined') loadUIOptionsFromAPI();
+});
 
 // Split combined "Sampler Scheduler" format into separate parts
 // e.g., "Euler a Karras" -> { sampler: "Euler a", scheduler: "Karras" }

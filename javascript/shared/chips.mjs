@@ -12,10 +12,11 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { apiCall, escapeHtml } = await shared('core.mjs');
+const { apiCall, escapeHtml, once } = await shared('core.mjs');
 const {
     resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownloads, downloadResource,
 } = await shared('resources.mjs');
+const { downloads } = await shared('downloads.mjs');
 
 // What Forge loads through <lora:...>, by the file's own type or Civitai's.
 const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
@@ -292,6 +293,11 @@ function missingChipState(chip) {
                  title: `${chip.title}: the image names it without a hash or a version, so it cannot be found` };
     }
     const job = chip.versionId ? resourceDownloads[chip.versionId] : chip.lookup;
+    // Downloads run with the Model Manager or the Civitai Browser (#182).
+    if (!downloads() && !job) {
+        return { busy: true, unavailable: true, note: 'not in the library',
+                 title: `${chip.title} is not in the library` };
+    }
     if (chip.notOnCivitai && !job) {
         return { busy: true, unavailable: true, note: 'not on Civitai',
                  title: `${chip.title}: Civitai does not have it` };
@@ -640,13 +646,16 @@ function keepResourceChips() {
     }
 }
 
-if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
-
-// The Resources dialog's downloads (resources.mjs): each step redraws the
-// chips, and one in the library has them look again.
-if (typeof window !== 'undefined') {
+/**
+ * Started by Send (#182): the chips kept in place after each update, and the
+ * Resources dialog's downloads (resources.mjs) followed - each step redraws
+ * them, and one in the library has them look again.
+ */
+export const start = once(() => {
+    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepResourceChips);
+    if (typeof window === 'undefined') return;
     window.addEventListener?.('mm-resource-downloads', (event) => {
         if (event.detail?.installed) refreshResourceChips();
         else redrawResourceChips();
     });
-}
+});

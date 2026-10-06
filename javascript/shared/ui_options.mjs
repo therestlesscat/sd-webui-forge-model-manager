@@ -9,7 +9,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING } = await shared('core.mjs');
+const { TIMING, once } = await shared('core.mjs');
 const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
 
 /**
@@ -21,8 +21,8 @@ const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
  * fails, and both tabs need to say so.
  *
  * Nothing orders the two things this needs. The answer comes from a fetch
- * started at import, from a <script type="module"> in the head; the markup
- * appears when Gradio renders the tab. Applying it at fixed moments failed,
+ * a tab starts as its script runs, from a <script type="module"> in the
+ * head; the markup appears when Gradio renders the tab. Applying it at fixed moments failed,
  * because whichever ran first found the other half missing. So it waits for
  * both, briefly, rather than guessing when they will be ready.
  *
@@ -113,15 +113,13 @@ export function showApiKeyBanner(bannerId, attempt = 0) {
  * something inside it does not survive that - the element comes back as the
  * markup declares it, which is hidden. Setting it once during startup is
  * therefore not enough: it has to be reasserted whenever the UI is rebuilt,
- * which is what this hook is for.
+ * which is what this hook is for. Run from start(), below.
  */
-if (typeof onAfterUiUpdate === 'function') {
-    onAfterUiUpdate(() => {
-        if (apiKeyMissing === null) return;
-        apiKeyBanners.forEach((bannerId) => {
-            const banner = document.getElementById(bannerId);
-            if (banner) banner.style.display = apiKeyMissing ? 'flex' : 'none';
-        });
+function keepApiKeyBanners() {
+    if (apiKeyMissing === null) return;
+    apiKeyBanners.forEach((bannerId) => {
+        const banner = document.getElementById(bannerId);
+        if (banner) banner.style.display = apiKeyMissing ? 'flex' : 'none';
     });
 }
 
@@ -225,7 +223,14 @@ export function shownPath(path) {
     return path;
 }
 
-if (typeof window !== 'undefined' && typeof fetch === 'function') {
+/**
+ * Asked once, by the first tab that starts this module (#182): the page's
+ * ui-options, the switches followed as they are saved, and the banners and
+ * switches kept after each update.
+ */
+export const start = once(() => {
+    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(keepApiKeyBanners);
+    if (typeof window === 'undefined' || typeof fetch !== 'function') return;
     uiOptions().then((data) => {
         takeFeatures(data);
         if (data && Array.isArray(data.path_roots)) pathRoots = data.path_roots;
@@ -244,7 +249,7 @@ if (typeof window !== 'undefined' && typeof fetch === 'function') {
         fetchUiOptions().then(takeFeatures);
     });
     if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(applyFeatures);
-}
+});
 
 // ---------------------------------------------------- which judges prompts
 // The settings' NSFW detection: a trained model, or the word

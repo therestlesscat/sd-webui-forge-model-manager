@@ -16,17 +16,29 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall } = await shared('core.mjs');
+const { TIMING, apiCall, once } = await shared('core.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
     collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips,
-    showResourceChips, lookUpMissingChips, updateResourceChipStates,
+    showResourceChips, lookUpMissingChips, updateResourceChipStates, start: startChips,
 } = await shared('chips.mjs');
 const { videoFrames, videoSize } = await shared('wan.mjs');
-const { showImageResources } = await shared('resources.mjs');
+const { showImageResources, start: startResources } = await shared('resources.mjs');
 const { refreshWebUiModelList } = await shared('downloads.mjs');
-const { splitSamplerScheduler } = await shared('samplers.mjs');
+const { splitSamplerScheduler, start: startSamplers } = await shared('samplers.mjs');
+
+/**
+ * What a send relies on running, started by each tab that sends (#182): the
+ * chips kept under the prompt, the Resources dialog a stopped send opens,
+ * and Forge's samplers to read an image's by. Not the downloads list: that
+ * runs with the tabs that download.
+ */
+export const start = once(() => {
+    startChips();
+    startResources();
+    startSamplers();
+});
 
 /** Where a generation's settings go: back to the tab it was made in. */
 export function sendTab(card) {

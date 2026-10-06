@@ -155,7 +155,12 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 ### `javascript/shared/`
 
 What the tabs share, one module per job (#93), each asked for under one
-version (see "The WebUI's rules"):
+version (see "The WebUI's rules"). None does anything as it is imported: one
+with work - a listener, a hook, a request, an action offered - does it in its
+`start()`, once for the page, and a tab starts what it uses (`STARTS`, #182).
+A module imported for another's sake starts nothing: the notes once imported
+the sync's module, and the Queue alone asked for the sync's progress
+(`import_work_test.mjs`, `queue_alone_test.mjs`):
 
 | | |
 |---|---|
@@ -163,8 +168,8 @@ version (see "The WebUI's rules"):
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
-| `notes` | notes to the user, at the top of each tab |
-| `jobs` | the long job, Sync with Civitai: its dialog, starting, following and cancelling one, and finding one still running; the Model Manager connects it to its status line and grid (`connectJobs`), a note's button opens its dialog (`showSyncDialog`) |
+| `notes` | notes to the user, at the top of each tab; a button is drawn only while what it opens is offered |
+| `jobs` | the long job, Sync with Civitai: its dialog, starting, following and cancelling one, and finding one still running; the Model Manager connects it to its status line and grid (`connectJobs`), a note's button opens its dialog by name (`sync.showDialog`, offered once the Model Manager starts it) |
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
 | `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
@@ -174,7 +179,7 @@ version (see "The WebUI's rules"):
 | `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page; and scrolling to a gallery's top |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search and Save Search's flash, the checkpoint-type filter greyed while Type is not Checkpoint |
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
-| `downloads` | a version's Download button, and the downloads panel both tabs show |
+| `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and Send's Resources and chips offer Download only while it does |
 | `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`) |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
 | `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
@@ -460,7 +465,8 @@ document, after anything around its element has heard it - an inline handler
 ran first: the viewer, which closes on Send, closes once the click is done.
 
 **One downloads list for both tabs.** `downloads()` in
-`javascript/shared/downloads.mjs` polls once and draws into each tab's panel. It
+`javascript/shared/downloads.mjs` polls once and draws into each tab's panel -
+started by the Model Manager and the Civitai Browser, null before. It
 is module state: the tabs share one copy of the module (see "The WebUI's
 rules"), and so do the notes, the update notice, the Your generations switch
 and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓

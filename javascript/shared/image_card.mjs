@@ -11,13 +11,23 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml, safeId } = await shared('core.mjs');
+const { escapeHtml, once, safeId } = await shared('core.mjs');
 const { IMAGE_PLACEHOLDER_SVG, isVideoUrl, mediaFallback, mediaShape, originalMediaUrl, sizedMediaUrl, videoPosterUrl } = await shared('media.mjs');
 const { nsfwBadge } = await shared('nsfw.mjs');
 const { renderResource } = await shared('chips.mjs');
-const { resourceButtonLabel } = await shared('resources.mjs');
-const { splitSamplerScheduler } = await shared('samplers.mjs');
+const { resourceButtonLabel, start: startResources } = await shared('resources.mjs');
+const { splitSamplerScheduler, start: startSamplers } = await shared('samplers.mjs');
 const { openMetaModal } = await shared('viewer.mjs');
+
+/**
+ * What a card relies on running, started by each tab that draws one (#182):
+ * the Resources dialog its button opens, and Forge's samplers to read the
+ * image's by.
+ */
+export const start = once(() => {
+    startResources();
+    startSamplers();
+});
 
 /**
  * The text of an image card: its prompt, negative prompt, settings, hires and

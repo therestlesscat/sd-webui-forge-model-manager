@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Each of the extension's tabs can be turned off, and one that is off does nothing at all: it is not created, its code does not run, its requests are refused, and the other tabs stop pointing to it. What the tabs share - downloads, Send to txt2img - stays on while any tab that uses it is.
 
+- **0.51.1** (build 396) - Each tab starts only the shared parts it uses. The Queue and Generations tabs start neither the downloads list nor the check for a running sync: the Model Manager and the Civitai Browser start those. A note's Sync button shows only where the sync can be opened, and the Resources dialog and the chips offer Download only while downloads run.
 - **0.51.0** (build 395) - One place now decides which tabs are on. A tab switched off - the Queue, or Your generations - has every request of its own refused, and what it would start in the background is not started: with the Queue off, the tasks a restart left running are marked stopped at the first start with it on.
 
 ## 0.50 - A queue for your generations
