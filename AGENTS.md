@@ -562,7 +562,11 @@ or for a video (#8). See `model_manager/generations.py`.
   `app_started` itself), never at import - and nothing deletes the extension's
   modules to "reload" them: that once left two copies running, the recording
   script and the settings on one, the API on the other. Edited Python needs a
-  real restart; the scripts and the stylesheet, a Reload UI.
+  real restart; the scripts and the stylesheet, a Reload UI. A Reload UI
+  keeps the package imported, so a script that imports a name added since the
+  start fails: 0.50.8 added `queue_enabled` to `scheduler/__init__.py` at
+  15:42, and 7870, started at 15:23 and reloaded, failed with an ImportError
+  in `model_manager_ui.py`. A real restart cleared it.
 - **`onAfterUiUpdate` runs 250 ms after any change to the page**
   (`scheduleAfterUiUpdateCallbacks` in the WebUI's `script.js`). A callback
   that writes even the same text again changes the page and schedules itself:
@@ -706,6 +710,11 @@ ticked checkboxes that looked empty.
   button did not look like the buttons beside it, and two CSS fixes did not
   make it: a button that opens a page is a `<button data-open-url>`
   (`core.mjs`), not an `<a>`. Five links still break it (#144).
+- **It gives an input a bottom margin**
+  (`.gradio-container-4-40-0 .prose input`, 4px), which only a last child
+  escapes (`.prose :last-child`): Show hidden's box, its count in a `<span>`
+  after it, sat 2px above Select's on 7870. A switch's box says `margin: 0`
+  (`.queue-select-switch > input[type="checkbox"]`).
 
 **Seen in both modes, in a real browser, before it is done.** linkedom has
 no layout and no cascade worth the name: headless Edge (`tests/README.md`,
@@ -826,6 +835,11 @@ waits - are in `tests/README.md`.
   interactive `cp` waited for an answer that never came - and the "old code"
   run passed, on the new code. Write with `>|` and `command cp -f`, and see
   `git diff --stat` show the file back at HEAD before reading the run.
+- **A break must fail a check, not crash the suite.** `ORDER BY 0` is an
+  SQLite error, not an order, and a check that sliced a list by what it
+  assumed raised a `ValueError`: both "failed" without showing which check the
+  break reached. Compare whole values, and break with a valid alternative -
+  `(1 = 1)` for the order.
 - **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
   source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
   is the same size, a swap reproduced the timestamp, and the stale bytecode
@@ -988,7 +1002,9 @@ waits - are in `tests/README.md`.
   (`refreshWebUiModelList`) once a batch of downloads lands.
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
-  block names and differ in MLP width, which a LoRA's shapes show.
+  block names and differ in MLP width, which a LoRA's shapes show. It lists
+  VAEs and text encoders by file name (`refresh_models`,
+  `modules_forge/main_entry.py`): a name in two folders shows once.
 
 ### The environment
 
@@ -1018,6 +1034,15 @@ waits - are in `tests/README.md`.
 - `gh` is Windows' `gh.exe`, and cannot tell the repository from `origin`,
   which goes through an SSH host alias: pass `--repo
   therestlesscat/sd-webui-forge-model-manager`.
+- **Neo's `webui.bat` calls `webui.settings.bat` first, when there is one**,
+  and 7870's arguments are there: `webui-user.bat`'s are overridden, and were
+  once read as the real ones. What a running WebUI was given: ui-options'
+  `path_roots`.
+- **A WebUI that dies without a traceback: read Windows' event log.** One Neo
+  died in `c10.dll` (0xc0000005) five seconds after System's
+  Resource-Exhaustion-Detector (id 2004) named it at 55.1 GB of commit,
+  against a 110 GB limit, while another program held 61 GB. Application's id
+  1000 has the crash; neither reaches the console.
 
 ## Branches
 

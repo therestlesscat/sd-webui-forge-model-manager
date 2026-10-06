@@ -93,6 +93,11 @@ is close to a browser and not one:
 - **No capture phase.** A listener for the way down runs with the ones on the
   way up, and an event that does not bubble - an image's load error - reaches
   none on the document: a suite calls `fallBack` (`shared/media.mjs`) itself.
+  A hold on the way down - Generate's question, #166 - is checked with the
+  held listener on the document after the page's (`queue_ask_test.mjs`), and
+  proven in headless Edge ("Probes").
+- **No `KeyboardEvent`.** A key press is a plain `Event` with its keys
+  assigned (`queue_ask_test.mjs`).
 - **No layout.** Widths and positions are 0; a suite checks the stylesheet's
   rule instead.
 - **Its MutationObserver misses a change made through `element.style`**, which
@@ -208,6 +213,12 @@ git-ignored: a probe is local, and written again when needed.
   --allow-file-access-from-files --virtual-time-budget=5000 --dump-dom
   file:///...` on a page under `tests/work/`, with its own `--user-data-dir`.
   For styles, load what the WebUI loads (AGENTS.md, "Seen in both modes").
+- **A whole tab module over HTTP.** From `file://`, `queue.mjs` never finished
+  loading: `shared/send.mjs` stayed pending, even alone, though each of its
+  imports loaded. Served by Windows' `python -m http.server 8765 --bind
+  127.0.0.1` from the repository, under `timeout`, it loaded, with `fetch`
+  stubbed in a classic script before the import. Stop the server after, by its
+  PID from `netstat.exe -ano`, its command line checked first.
 - **A Node probe exits by itself, or never.** One that loads the shared modules
   or a tab keeps their timers alive - the update notice's, the downloads
   poll's. End it with `process.exit(0)`, run it under `timeout 30`, in a call
