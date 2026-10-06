@@ -119,6 +119,9 @@ const along = { task: null, percent: 0 };
 const selecting = { active: false, history: false };
 const picked = { active: new Set(), history: new Set() };
 const shown = { active: [], history: [] };
+// What each list was last drawn from: each part's HTML, by its key - a task's
+// id, "pages", "empty" or "error" (#172).
+const drawnParts = { active: new Map(), history: new Map() };
 const lastPicked = { active: -1, history: -1 };
 
 function byId(id) {
@@ -398,13 +401,47 @@ async function refreshList(which) {
         const here = new Set(answer.tasks.filter(deletable).map((t) => Number(t.id)));
         for (const id of [...picked[which]]) if (!here.has(id)) picked[which].delete(id);
         setText(byId(list.count), answer.total ? `(${answer.total})` : '');
-        element.innerHTML = answer.tasks.length
-            ? answer.tasks.map((task) => taskRowHtml(task, which)).join('') + pagesHtml(which, answer)
-            : `<div class="queue-empty">${escapeHtml(list.empty)}</div>`;
+        const parts = answer.tasks.map((task) => [String(task.id), taskRowHtml(task, which)]);
+        const strip = pagesHtml(which, answer);
+        if (strip) parts.push(['pages', strip]);
+        if (!parts.length) parts.push(['empty', `<div class="queue-empty">${escapeHtml(list.empty)}</div>`]);
+        drawParts(element, which, parts);
         updateSelectBar(which);
     } catch (e) {
-        element.innerHTML = `<div class="queue-empty">Could not read the list: ${escapeHtml(e.message)}</div>`;
+        drawParts(element, which, [['error', `<div class="queue-empty">Could not read the list: ${escapeHtml(e.message)}</div>`]]);
     }
+}
+
+
+/**
+ * Draw a list from its parts, in order, writing only what changed (#172): a
+ * part drawn from the same HTML as before keeps its element - and with it
+ * the hover, and a running task's bar as the status line last set it. One
+ * that changed is replaced; a new one is added, one gone removed, and the
+ * order put right. Each list was drawn whole again on every change before.
+ */
+function drawParts(element, which, parts) {
+    const drawn = drawnParts[which];
+    const onScreen = new Map();
+    for (const child of [...element.children]) {
+        const key = child.dataset.part;
+        if (key && drawn.get(key) !== undefined) onScreen.set(key, child);
+    }
+    const wanted = parts.map(([key, html]) => {
+        const kept = onScreen.get(key);
+        if (kept && drawn.get(key) === html) return kept;
+        const box = document.createElement('div');
+        box.innerHTML = html.trim();
+        const made = box.firstElementChild;
+        made.dataset.part = key;
+        return made;
+    });
+    wanted.forEach((node, at) => {
+        if (element.children[at] !== node) element.insertBefore(node, element.children[at] || null);
+    });
+    while (element.children.length > wanted.length) element.lastElementChild.remove();
+    drawn.clear();
+    for (const [key, html] of parts) drawn.set(key, html);
 }
 
 function refreshLists() {
@@ -714,6 +751,8 @@ function showPicks(which) {
         const on = picked[which].has(Number(box.dataset.queuePick));
         box.checked = on;
         box.closest('.queue-task')?.classList.toggle('queue-picked', on);
+        // Changed here, not drawn: no HTML says how it looks now, so the next reload draws it again.
+        drawnParts[which].delete(box.dataset.queuePick);
     });
     updateSelectBar(which);
 }

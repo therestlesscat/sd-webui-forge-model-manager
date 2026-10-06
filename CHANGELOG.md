@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept as a task, to run later. The new Queue tab runs the tasks one at a time, each with its own checkpoint, VAE and text encoders, while you go on working - and shows them, loads one back into its tab, retries and deletes them. The Generations tab gains a search, which also shows the images a task made.
 
+- **0.50.15** (build 391) - The Queue tab's lists draw again only the tasks that changed; the rest stay as they are on screen.
 - **0.50.14** (build 390) - Show hidden, beside History's Select, brings back the tasks Clear history hid, marked Hidden among the rest, to retry, delete or unhide - one at a time or several selected. Clear history's question counts only what it hides.
 - **0.50.13** (build 389) - Run next runs a waiting task before the others, alone or several selected: after the running task, or at once when the queue is stopped or paused. A stopped queue runs only those and stops again; a paused one stays paused. A task already next in line has Run next greyed out.
 - **0.50.12** (build 388) - A waiting task can be cancelled, alone or several selected: it moves to History as Cancelled, where Retry queues it again.

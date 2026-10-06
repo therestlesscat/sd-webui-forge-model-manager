@@ -3,7 +3,8 @@
 // While the tab shows, its status line says what the queue is doing - the
 // task it is on and how far Forge is with it, the counts - and offers what
 // can be done now: Start, Pause or Resume, Stop. Nothing is asked while it is
-// hidden; opened, both lists are read again. A row says what its task asks
+// hidden; opened, both lists are read again, and only the rows that changed
+// are drawn again (#172). A row says what its task asks
 // for, and how many images its run made - never the images: Show images
 // opens the Generations tab on them. The running task's row has a bar, as
 // far along as Forge says, kept when Forge is done with the run and the queue
@@ -184,6 +185,11 @@ asked.length = 0;
 await new Promise((resolve) => setTimeout(resolve, 200));
 check('while nothing changes, the lists are not read again',
       asked.filter((a) => a.includes('/queue/tasks')), []);
+// Only what changed is drawn again (#172): a row as it was keeps its element.
+const before = { 14: row(14), 13: row(13), 16: row(16) };
+await act('queue.refresh');
+check('read again with nothing changed, each row keeps its element',
+      [row(14) === before[14], row(13) === before[13], row(16) === before[16]], [true, true, true]);
 // Task 15 ends; 16 starts.
 LISTS.active = [task(16, 'running')];
 LISTS.history = [task(15, 'completed', { finished_at: '2026-10-05T13:10:00' }), ...LISTS.history];
@@ -195,6 +201,15 @@ check('a task that ends moves to History by itself, the next runs',
       [['16'], ['15', '14', '13']]);
 await waitFor("the next task's bar", () => along(16)[0] === '45');
 check('the bar goes with it, to the next task', [progressBar(15), ...along(16)], [null, '45', '45%']);
+check('only the rows that changed are drawn again',
+      [row(14) === before[14], row(13) === before[13], row(16) === before[16]], [true, true, false]);
+LISTS.history = [LISTS.history[0], LISTS.history[2], LISTS.history[1]];
+STATUS = { ...STATUS, counts: { ...STATUS.counts, stopped: 1 } };
+await waitFor('History in its new order', () => rows('history').map((r) => r.dataset.task).join() === '15,13,14');
+check('a row that moves keeps its element', [row(14) === before[14], row(13) === before[13]], [true, true]);
+LISTS.history = [LISTS.history[0], LISTS.history[2], LISTS.history[1]];
+STATUS = { ...STATUS, counts: { ...STATUS.counts, stopped: 0 } };
+await waitFor('History as it was', () => rows('history').map((r) => r.dataset.task).join() === '15,14,13');
 
 // ------------------------------------------------------- Show images
 const shownTasks = [];
