@@ -26,9 +26,10 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
  * The bar Select shows: how many are picked, Select all, Clear, Delete - and
- * Retry, where `actions` names one: the Queue tab's History. `actions` names
- * what each button does (shared/calls.mjs); `noun` what is counted, `all`
- * what Select all says.
+ * before Delete, any more a list asks for (`actions.more`, each an action
+ * and its label): the Queue tab's Cancel, Retry. `actions` names what each
+ * button does (shared/calls.mjs); `noun` what is counted, `all` what Select
+ * all says.
  */
 export function selectBarHtml(count, actions, { noun = 'image', all = 'Select all loaded' } = {}) {
     const none = count ? '' : 'disabled';
@@ -36,8 +37,8 @@ export function selectBarHtml(count, actions, { noun = 'image', all = 'Select al
         <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.all)}">${escapeHtml(all)}</button>
         <button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.clear)}"
                 ${none}>Clear</button>
-        ${actions.retry ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="${escapeHtml(actions.retry)}"
-                ${none}>Retry...</button>` : ''}
+        ${(actions.more || []).map((more) => `<button type="button" class="mm-btn secondary mm-btn-small"
+                data-action="${escapeHtml(more.action)}" ${none}>${escapeHtml(more.label)}</button>`).join('')}
         <button type="button" class="mm-btn danger mm-btn-small" data-action="${escapeHtml(actions.delete)}"
                 ${none}>Delete...</button>`;
 }

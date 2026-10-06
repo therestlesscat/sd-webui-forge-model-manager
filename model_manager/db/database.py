@@ -463,6 +463,10 @@ class ModelsDatabase:
         """Record how a task ended. See TasksOps.finish_task()."""
         self._tasks.finish_task(task_id, status, error, first_seed)
 
+    def cancel_task(self, install: str, task_id: int) -> bool:
+        """Take a pending task out of the queue (#177). See TasksOps.cancel()."""
+        return self._tasks.cancel(install, task_id)
+
     def stop_running_tasks(self, install: str) -> int:
         """At startup, mark this install's running tasks stopped (#155)."""
         return self._tasks.stop_running(install)

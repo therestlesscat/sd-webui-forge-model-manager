@@ -139,7 +139,7 @@ check('there is no third list', raises(lambda: db.list_tasks(HERE_INSTALL, 'hidd
 listed = {t['id'] for which in ('active', 'history') for t in db.list_tasks(HERE_INSTALL, which)[0]}
 check("another install's tasks are in neither list", x in listed, False)
 check('the counts, by status', db.count_tasks(HERE_INSTALL),
-      {'pending': 2, 'running': 0, 'completed': 1, 'stopped': 1, 'failed': 1})
+      {'pending': 2, 'running': 0, 'completed': 1, 'stopped': 1, 'failed': 1, 'cancelled': 0})
 
 # ------------------------------------------------- generations and copies
 OUT = os.path.join(WORK, 'outputs')
@@ -215,6 +215,21 @@ db.link_task_generation(k, g5)
 image_id = db.get_generation(g5)['images'][0]['id']
 db.delete_generation_image(image_id)
 check('so does a generation whose last image is deleted', db.get_task(k)['generations'], [])
+
+# ----------------------------------------------------------------- Cancel
+m, n, y = queue(9), queue(10), queue(11, OTHER_INSTALL)
+check('a pending task is cancelled', db.cancel_task(HERE_INSTALL, m), True)
+cancelled = db.get_task(m)
+check('it ends, never having started', (cancelled['status'], bool(cancelled['finished_at']), cancelled['started_at']),
+      ('cancelled', True, None))
+check('it is in History, counted', (m in [t['id'] for t in db.list_tasks(HERE_INSTALL, 'history')[0]],
+                                    db.count_tasks(HERE_INSTALL)['cancelled']), (True, 1))
+check('it leaves Active', m in [t['id'] for t in db.list_tasks(HERE_INSTALL, 'active')[0]], False)
+check('and cannot start it', db.start_task(m), False)
+db.start_task(n)
+check('a task the queue has started is not cancelled', (db.cancel_task(HERE_INSTALL, n), db.get_task(n)['status']),
+      (False, 'running'))
+check("nor another install's", (db.cancel_task(HERE_INSTALL, y), db.get_task(y)['status']), (False, 'pending'))
 
 db.close()
 

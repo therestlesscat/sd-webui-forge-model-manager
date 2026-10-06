@@ -7,9 +7,10 @@ order, a page at a time, each row saying what its task asks for and how
 many images its run made - never the images, which the Generations tab
 shows; a task's details show everything it holds, readably; its send plan
 sets Forge up as a generation's Send does; Retry queues a copy with the
-first run's seed or a random one; Delete removes a task, with its data or
-without, and its own files - but those a copy still names; Clear history
-hides. Only this install's tasks are listed or acted on.
+first run's seed or a random one; Cancel takes a pending task into History
+(#177); Delete removes a task, with its data or without, and its own files -
+but those a copy still names; Clear history hides. Only this install's tasks
+are listed or acted on.
 """
 import dataclasses
 import os
@@ -41,6 +42,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager import forge_host                     # noqa: E402
 from model_manager.api import scheduler as api           # noqa: E402
+from model_manager.db.tasks_ops import HISTORY          # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG, PG13, X               # noqa: E402
 from model_manager.scheduler import runner               # noqa: E402
@@ -237,8 +239,30 @@ check('or with a random seed', db.get_task(random_copy)['inputs']['scripts']['Se
 check('an unknown seed choice is refused',
       client.post('/model-manager/queue/retry', data={'ids': str(done), 'seed': 'lucky'}).status_code, 400)
 
+# ------------------------------------------------------------- Cancel
+waiting, also_waiting, racing = queue('cancel me'), queue('cancel me too'), queue('started meanwhile')
+db.start_task(racing)
+answer = post('/model-manager/queue/cancel', ids=f'{waiting},{also_waiting},{done},{racing},{theirs}')
+check('Cancel takes each pending task out of the queue', answer['cancelled'], [waiting, also_waiting])
+check("but not one that ended, one the queue started meanwhile, nor another install's", answer['skipped'],
+      [{'id': done, 'why': 'already completed'}, {'id': racing, 'why': 'already running'},
+       {'id': theirs, 'why': 'not found'}])
+gone = db.get_task(waiting)
+check('it ends as cancelled, never having started',
+      (gone['status'], bool(gone['finished_at']), gone['started_at']), ('cancelled', True, None))
+check('it leaves Active for History',
+      ([t['id'] for t in listed('active')['tasks'] if t['id'] in (waiting, also_waiting)],
+       [t['id'] for t in listed('history')['tasks'][:2]]), ([], [also_waiting, waiting]))
+check('the status line counts it', client.get('/model-manager/queue/status').json()['counts']['cancelled'], 2)
+again = post('/model-manager/queue/retry', ids=str(waiting))
+check('Retry queues it again, with the seed it was queued with',
+      (again['skipped'], db.get_task(again['queued'][0])['inputs']['scripts']['Seed'][0]['value']), ([], -1))
+check("History's statuses are the ones Retry copies", api.tasks.ENDED, HISTORY)
+db.finish_task(racing, 'stopped')
+post('/model-manager/queue/delete', ids=','.join(map(str, [waiting, also_waiting, racing] + again['queued'])))
+
 # ------------------------------------------------------------- Delete
-clock_file = db.get_task(broken)['inputs']['fixed']['init_img']['__image__']
+clock_file =db.get_task(broken)['inputs']['fixed']['init_img']['__image__']
 clock_generation = db.get_task(broken)['generations'][0]
 answer = post('/model-manager/queue/delete', ids=str(broken))
 check('Delete removes the task', (answer['deleted'], db.get_task(broken)), ([broken], None))

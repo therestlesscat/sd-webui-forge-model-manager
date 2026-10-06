@@ -1,7 +1,7 @@
 """
-The generation queue (#151-#164): its state, Start, Stop, Pause and Resume;
-the Active and History lists and a task's details; Retry, Delete and Clear
-history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
+The generation queue (#151-#164, #177): its state, Start, Stop, Pause and
+Resume; the Active and History lists and a task's details; Cancel, Retry,
+Delete and Clear history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
 a task is, and what Retry and Delete make of one.
 
 Only this install's tasks are listed or acted on: another WebUI sharing the
@@ -55,6 +55,25 @@ def task_page(db, which: str, page: int = 1) -> Dict[str, Any]:
     return {"which": which, "tasks": _rows(db, found),
             "total": total, "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
             "page_size": PAGE_SIZE}
+
+
+def cancel(db, task_ids: List[int]) -> Dict[str, Any]:
+    """
+    Take each pending task out of the queue (#177): cancelled, it stays in
+    History, where Retry queues it again. One the queue has started is
+    skipped: Stop ends it.
+    """
+    cancelled, skipped = [], []
+    for task_id in task_ids:
+        task = _ours(db, task_id)
+        if task is None:
+            skipped.append({"id": task_id, "why": "not found"})
+        elif db.cancel_task(INSTALL_KEY, task_id):
+            cancelled.append(task_id)
+        else:
+            now = _ours(db, task_id) or task
+            skipped.append({"id": task_id, "why": f"already {now['status']}"})
+    return {"cancelled": cancelled, "skipped": skipped}
 
 
 def retry(db, task_ids: List[int], seed: str) -> Dict[str, Any]:
@@ -186,6 +205,21 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, "mode": task["mode"], **plan})
         except Exception as e:
             return failed(e, "Queue send plan error")
+
+    @app.post("/model-manager/queue/cancel")
+    def post_cancel(ids: str = Form(default="")):
+        """
+        Cancel these pending tasks (#177, #163).
+
+        Returns:
+            cancelled: the ids cancelled; skipped: each not, and why.
+        """
+        try:
+            result = cancel(get_models_db(), _ids(ids))
+            say(f"Queue: {len(result['cancelled'])} task(s) cancelled")
+            return JSONResponse({"success": True, **result})
+        except Exception as e:
+            return failed(e, "Queue cancel error")
 
     @app.post("/model-manager/queue/retry")
     def post_retry(ids: str = Form(default=""), seed: str = Form(default="first")):

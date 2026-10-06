@@ -4711,6 +4711,14 @@ textarea.mm-settings-input {
     color: #b91c1c !important;
 }
 
+/* Cancelled never ran: Pending's grey would read as still waiting. */
+.queue-status[data-status="cancelled"] {
+    padding: 0 7px;
+    border: 1px dashed rgba(107, 114, 128, 0.6);
+    background: transparent;
+    color: #6b7280 !important;
+}
+
 .dark .queue-status {
     color: #d1d5db !important;
 }
@@ -4729,6 +4737,11 @@ textarea.mm-settings-input {
 
 .dark .queue-status[data-status="failed"] {
     color: #fca5a5 !important;
+}
+
+.dark .queue-status[data-status="cancelled"] {
+    border-color: rgba(156, 163, 175, 0.6);
+    color: #9ca3af !important;
 }
 
 .queue-requeued {

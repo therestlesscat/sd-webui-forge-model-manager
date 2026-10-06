@@ -13,6 +13,7 @@ A task's status:
   completed   it ran to the end
   stopped     Stop or Interrupt ended it, or a restart did (#152, #155)
   failed      Forge reported an error, or a file it names is missing
+  cancelled   taken out of the queue before it ran (#177)
 
 Active is pending and running, in run order; History the rest, newest first.
 Every list is one install's: another WebUI sharing the database cannot run
@@ -27,7 +28,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..prompt_rules import trimmed_sql
 
 ACTIVE = ("pending", "running")
-HISTORY = ("completed", "stopped", "failed")
+HISTORY = ("completed", "stopped", "failed", "cancelled")
 
 # Written when a task is queued; the rest is the queue's record of it.
 _QUEUED_COLUMNS = ("install", "forge", "mode", "inputs", "checkpoint", "modules",
@@ -143,6 +144,18 @@ class TasksOps:
             cursor.execute("UPDATE tasks SET status = ?, error = ?, finished_at = ?, "
                            "first_seed = COALESCE(first_seed, ?) WHERE id = ?",
                            (status, error, _now(), first_seed, task_id))
+
+    def cancel(self, install: str, task_id: int) -> bool:
+        """
+        Take a pending task of this install's out of the queue: it ends as
+        cancelled, and stays in History (#177). False if it was not pending -
+        the queue may have started it meanwhile, and then Stop ends it.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE tasks SET status = 'cancelled', finished_at = ? "
+                           "WHERE id = ? AND install = ? AND status = 'pending'",
+                           (_now(), task_id, install))
+            return cursor.rowcount == 1
 
     def stop_running(self, install: str) -> int:
         """

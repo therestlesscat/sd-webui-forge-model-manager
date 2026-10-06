@@ -12,7 +12,8 @@
 // button for the task, after its send plan, and says what kept its value.
 // Start that finds tasks whose extensions are gone asks first: Cancel starts
 // nothing, Run anyway forces it. Retry asks which seed, Delete whether the
-// images go too, once for every task ticked; Select ticks a shift-click's
+// images go too, once for every task ticked; Cancel asks nothing, a pending
+// task going to History; Select ticks a shift-click's
 // range, never a running task; Clear history asks first, saying how many.
 import { ROOT, act, checker, mountTab, sharedModule, tick } from './harness.mjs';
 
@@ -74,6 +75,7 @@ globalThis.fetch = async (url, init = {}) => {
         const ids = (body.ids || '').split(',').filter(Boolean).map(Number);
         if (href.includes('/queue/start')) return reply(startAnswers.shift() || { success: true, started: true, missing: [] });
         if (href.includes('/queue/retry')) return reply({ success: true, queued: ids.map((_, i) => 30 + i), skipped: [] });
+        if (href.includes('/queue/cancel')) return reply({ success: true, cancelled: ids, skipped: [] });
         if (href.includes('/queue/delete')) {
             return reply({ success: true, deleted: ids, skipped: [], deleted_files: body.with_data === 'true' ? 7 : 0,
                            deleted_inputs: 1, failed: [] });
@@ -333,6 +335,37 @@ await tick('queue.selecting', true, { list: 'active' });
 await waitFor('Active redrawn', () => rows('active').length);
 check('a running task cannot be ticked', document.querySelector('#queue_active [data-queue-pick]'), null);
 await tick('queue.selecting', false, { list: 'active' });
+
+// ----------------------------------------------------------------- Cancel
+LISTS.active = [task(16, 'running'), task(18, 'pending'), task(19, 'pending')];
+LISTS.history = [task(20, 'cancelled', { finished_at: '2026-10-05T13:20:00' }), ...LISTS.history];
+STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 2, cancelled: 1 } };
+await waitFor('the pending tasks', () => row(18) && row(20));
+const cancelOf = (id) => row(id)?.querySelector('[data-action="queue.cancel"]');
+check('a pending task offers Cancel; a running or ended one does not',
+      [Boolean(cancelOf(18)), Boolean(cancelOf(16)), Boolean(cancelOf(20))], [true, false, false]);
+check('a cancelled task says so, is counted, and can be retried',
+      [row(20).querySelector('.queue-status').textContent, text('queue_counts').endsWith('· 1 cancelled'),
+       Boolean(row(20).querySelector('[data-action="queue.retry"]'))], ['Cancelled', true, true]);
+bodies.length = 0;
+posted.length = 0;
+if (cancelOf(18)) await act('queue.cancel', { task: 18 });
+check('Cancel asks nothing: the task goes to History at once',
+      [posted, bodies], [['/model-manager/queue/cancel'], [{ ids: '18' }]]);
+check('and says how it went', text('queue_report'), 'Cancelled 1 task.');
+await tick('queue.selecting', true, { list: 'active' });
+await waitFor('Active ticks', () => document.querySelectorAll('#queue_active [data-queue-pick]').length === 2);
+await act('queue.activeSelectAll');
+const cancelTicked = document.querySelector('#queue_active_select_bar [data-action="queue.activeCancelSelected"]');
+check("Active's bar offers Cancel for the ticked", Boolean(cancelTicked), true);
+bodies.length = 0;
+if (cancelTicked) await act('queue.activeCancelSelected');
+check('one Cancel for every task ticked, never the running one', bodies, [{ ids: '18,19' }]);
+await tick('queue.selecting', false, { list: 'active' });
+LISTS.active = [task(16, 'running')];
+LISTS.history = LISTS.history.filter((t) => t.id !== 20);
+STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 0, cancelled: 0 } };
+await waitFor('the lists as they were', () => !row(18) && !row(20));
 
 bodies.length = 0;
 posted.length = 0;

@@ -12,10 +12,11 @@
  * row opens its details: everything the task holds, and Load to UI, which
  * sets txt2img or img2img up with it (shared/send.mjs).
  *
+ * A pending task can be cancelled: it moves to History, as Cancelled (#177).
  * An ended task can be retried - a copy queued with the first run's seed or
  * a random one (#161) - and any task but a running one deleted, with the
  * images its run made or without (#162). Select ticks tasks in a list, a
- * shift-click a range, for one Retry or Delete asked once (#163), as the
+ * shift-click a range, for one Cancel, Retry or Delete (#163), as the
  * Generations tab ticks images. Clear history hides History (#164).
  *
  * The status line is asked for only while the tab shows, and writes only
@@ -83,7 +84,12 @@ const STATES = {
 // What a row calls each status of a task (db/tasks_ops.py).
 const STATUSES = {
     pending: 'Pending', running: 'Running', completed: 'Completed', stopped: 'Stopped', failed: 'Failed',
+    cancelled: 'Cancelled',
 };
+// The statuses of a task that has ended: History's (db/tasks_ops.py).
+const ENDED = ['completed', 'stopped', 'failed', 'cancelled'];
+// What Cancel says it does, on a row and in a task's details.
+const CANCEL_TITLE = 'Take it out of the queue. It moves to History, where Retry queues it again';
 // The two lists, each with its element, its page, and its count.
 const LISTS = {
     active: { element: 'queue_active', count: 'queue_active_count', empty: 'No task is waiting. '
@@ -135,10 +141,10 @@ async function forgeProgress(job) {
     }
 }
 
-/** "3 pending · 9 completed · 1 failed": the statuses some task has. */
+/** "3 pending · 9 completed · 1 failed · 2 cancelled": the statuses some task has. */
 function countsText(counts = {}) {
     const parts = [`${counts.pending || 0} pending`];
-    for (const status of ['completed', 'stopped', 'failed']) {
+    for (const status of ENDED) {
         if (counts[status]) parts.push(`${counts[status]} ${status}`);
     }
     return parts.join(' · ');
@@ -264,7 +270,8 @@ function fact(text, title = '') {
 
 /** A running task is the queue's: it is neither ticked nor deleted. */
 const deletable = (task) => task.status !== 'running';
-const retryable = (task) => ['completed', 'stopped', 'failed'].includes(task.status);
+const retryable = (task) => ENDED.includes(task.status);
+const cancellable = (task) => task.status === 'pending';
 
 function taskRowHtml(task, which) {
     const status = STATUSES[task.status] || task.status;
@@ -304,6 +311,8 @@ function taskRowHtml(task, which) {
             </div>
             <div class="queue-actions">
                 ${task.image_count ? showImagesHtml(task) : ''}
+                ${cancellable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.cancel"
+                    data-task="${id}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
                 ${retryable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.retry"
                     data-task="${id}" title="Queue a copy of this task, at the end of the queue">Retry...</button>` : ''}
                 ${deletable(task) ? `<button type="button" class="mm-btn danger mm-btn-small" data-action="queue.delete"
@@ -466,7 +475,7 @@ async function control(action) {
     await refresh();
 }
 
-// ------------------------------------------------- Retry, Delete, Clear history
+// ------------------------------------------ Cancel, Retry, Delete, Clear history
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -486,6 +495,24 @@ function skippedText(skipped = []) {
 function tasksOf(ids) {
     const all = [...shown.active, ...shown.history];
     return ids.map((id) => all.find((t) => Number(t.id) === Number(id))).filter(Boolean);
+}
+
+/**
+ * Cancel: each pending task out of the queue, into History (#177). Nothing
+ * is asked: Retry queues it again. One the queue started meanwhile is
+ * skipped, and said - Stop ends it.
+ */
+async function cancelTasks(ids) {
+    if (!ids.length) return;
+    const result = await post('/model-manager/queue/cancel', { ids: ids.join(',') });
+    if (!result?.success) {
+        report(`Could not cancel: ${result?.error || 'no answer'}`);
+        return;
+    }
+    const skipped = skippedText(result.skipped);
+    report(`Cancelled ${plural(result.cancelled.length, 'task')}.` + (skipped ? ` Not cancelled: ${skipped}.` : ''));
+    clearPicks();
+    await refresh();
 }
 
 /**
@@ -574,9 +601,10 @@ async function clearHistory() {
 // ------------------------------------------------------------------ Select
 
 const BAR_ACTIONS = {
-    active: { all: 'queue.activeSelectAll', clear: 'queue.activeSelectClear', delete: 'queue.activeDeleteSelected' },
-    history: { all: 'queue.historySelectAll', clear: 'queue.historySelectClear', retry: 'queue.historyRetrySelected',
-               delete: 'queue.historyDeleteSelected' },
+    active: { all: 'queue.activeSelectAll', clear: 'queue.activeSelectClear', delete: 'queue.activeDeleteSelected',
+              more: [{ action: 'queue.activeCancelSelected', label: 'Cancel' }] },
+    history: { all: 'queue.historySelectAll', clear: 'queue.historySelectClear', delete: 'queue.historyDeleteSelected',
+               more: [{ action: 'queue.historyRetrySelected', label: 'Retry...' }] },
 };
 
 function updateSelectBar(which) {
@@ -729,6 +757,8 @@ function detailsHtml(task, inputs) {
                 </div>
                 <div class="mm-modal-footer">
                     ${showImagesHtml(task, 'mm-btn secondary')}
+                    ${cancellable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.cancel"
+                        data-task="${Number(task.id)}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
                     ${retryable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.retry"
                         data-task="${Number(task.id)}">Retry...</button>` : ''}
                     ${deletable(task) ? `<button type="button" class="mm-btn danger" data-action="queue.delete"
@@ -802,12 +832,14 @@ provide('queue.refresh', () => refresh());
 provide('queue.details', (data) => rowClicked(data));
 provide('queue.showImages', ({ task }) => showImages(task));
 provide('queue.load', ({ task }) => load(task));
+provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });
 provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
 provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
 provide('queue.clearHistory', () => clearHistory());
 provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
 provide('queue.activeSelectAll', () => selectAll('active'));
 provide('queue.activeSelectClear', () => selectClear('active'));
+provide('queue.activeCancelSelected', () => cancelTasks([...picked.active]));
 provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
 provide('queue.historySelectAll', () => selectAll('history'));
 provide('queue.historySelectClear', () => selectClear('history'));

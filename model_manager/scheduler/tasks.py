@@ -13,8 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .capture import LABEL
 
-# Retry copies a task that has ended; one pending or running is still to run.
-ENDED = ("completed", "stopped", "failed")
+# Retry copies a task that has ended, a cancelled one too; one pending or
+# running is still to run. tasks_ops.HISTORY, as this module may not import
+# it: queue_api_test.py holds the two the same.
+ENDED = ("completed", "stopped", "failed", "cancelled")
 
 # What a list's row says of a task besides its inputs (#158).
 ROW_FIELDS = ("id", "mode", "status", "checkpoint", "modules", "username", "created_at",
