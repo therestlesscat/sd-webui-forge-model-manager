@@ -178,14 +178,15 @@ class TasksOps:
                            "VALUES (?, ?)", (task_id, generation_id))
 
     def list_tasks(self, install: str, which: str, offset: int = 0, limit: Optional[int] = None,
-                   first: Optional[List[int]] = None) -> Tuple[List[Dict[str, Any]], int]:
+                   first: Optional[List[int]] = None, hidden: bool = False) -> Tuple[List[Dict[str, Any]], int]:
         """
         A page of this install's Active or History list, and how many the
         whole list holds. Active is in run order: the running task, then
         `first` - Run next's, in the order asked (#169), which the database
         does not keep - then the rest as queued. History newest first, by
         when each ended and then by id - two can end in the same second.
-        Hidden tasks are in neither (#164).
+        Hidden tasks are in neither (#164) - but in History, with `hidden`,
+        among the rest in their place (#178).
         """
         first = list(first or [])
         if which == "active":
@@ -196,7 +197,8 @@ class TasksOps:
             statuses, order, first = HISTORY, "finished_at DESC, id DESC", []
         else:
             raise ValueError(f"no list {which!r}")
-        where = f"install = ? AND hidden = 0 AND status IN ({_marks(statuses)})"
+        shown = "" if hidden and which == "history" else "hidden = 0 AND "
+        where = f"install = ? AND {shown}status IN ({_marks(statuses)})"
         args = [install, *statuses]
         with self._cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) FROM tasks WHERE {where}", args)
@@ -208,12 +210,17 @@ class TasksOps:
             return tasks, total
 
     def count_tasks(self, install: str) -> Dict[str, int]:
-        """How many of this install's tasks have each status, hidden ones left out."""
+        """
+        How many of this install's tasks have each status, hidden ones left
+        out - and how many are hidden (`hidden`), for History to offer (#178).
+        """
         counts = {status: 0 for status in ACTIVE + HISTORY}
         with self._cursor() as cursor:
             cursor.execute("SELECT status, COUNT(*) FROM tasks WHERE install = ? AND hidden = 0 "
                            "GROUP BY status", (install,))
             counts.update({status: count for status, count in cursor.fetchall()})
+            cursor.execute("SELECT COUNT(*) FROM tasks WHERE install = ? AND hidden = 1", (install,))
+            counts["hidden"] = cursor.fetchone()[0]
         return counts
 
     def hide_history(self, install: str) -> int:
@@ -228,6 +235,13 @@ class TasksOps:
             cursor.execute(f"UPDATE tasks SET hidden = 1 WHERE install = ? AND hidden = 0 "
                            f"AND status IN ({_marks(HISTORY)})", (install, *HISTORY))
             return cursor.rowcount
+
+    def unhide(self, install: str, task_id: int) -> bool:
+        """Show a task Clear history hid in History again (#178). False if it was not hidden."""
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE tasks SET hidden = 0 WHERE id = ? AND install = ? AND hidden = 1",
+                           (task_id, install))
+            return cursor.rowcount == 1
 
     def images_of(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
         """

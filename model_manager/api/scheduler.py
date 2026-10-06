@@ -1,7 +1,8 @@
 """
-The generation queue (#151-#164, #169, #177): its state, Start, Stop, Pause
-and Resume; the Active and History lists and a task's details; Run next,
-Cancel, Retry, Delete and Clear history. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
+The generation queue (#151-#164, #169, #177, #178): its state, Start, Stop,
+Pause and Resume; the Active and History lists and a task's details; Run
+next, Cancel, Retry, Delete, Clear history, and the tasks it hid shown and
+unhidden. The queue runs in scheduler/runner.py; scheduler/tasks.py says what
 a task is, and what Retry and Delete make of one.
 
 Only this install's tasks are listed or acted on: another WebUI sharing the
@@ -50,13 +51,14 @@ def _rows(db, found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
              "ahead": task["id"] in ahead} for task in found]
 
 
-def task_page(db, which: str, page: int = 1) -> Dict[str, Any]:
+def task_page(db, which: str, page: int = 1, hidden: bool = False) -> Dict[str, Any]:
     """
     A page of the Active or History list (#157): Active in the order the
-    tasks will run - Run next's first (#169) - History newest first.
+    tasks will run - Run next's first (#169) - History newest first, with
+    `hidden` the tasks Clear history hid among them (#178).
     """
     page = max(1, int(page))
-    found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE, runner.first())
+    found, total = db.list_tasks(INSTALL_KEY, which, (page - 1) * PAGE_SIZE, PAGE_SIZE, runner.first(), hidden)
     return {"which": which, "tasks": _rows(db, found),
             "total": total, "page": page, "pages": max(1, -(-total // PAGE_SIZE)),
             "page_size": PAGE_SIZE}
@@ -167,12 +169,12 @@ def register(app: FastAPI):
         return _act("resume")
 
     @app.get("/model-manager/queue/tasks")
-    def get_tasks(which: str = "active", page: int = 1):
+    def get_tasks(which: str = "active", page: int = 1, hidden: bool = False):
         """A page of the Active or History list. See task_page()."""
         if which not in ("active", "history"):
             return JSONResponse({"success": False, "error": f"No list {which}"}, status_code=404)
         try:
-            return JSONResponse({"success": True, **task_page(get_models_db(), which, page)})
+            return JSONResponse({"success": True, **task_page(get_models_db(), which, page, hidden)})
         except Exception as e:
             return failed(e, "Queue list error")
 
@@ -277,6 +279,29 @@ def register(app: FastAPI):
             return JSONResponse({"success": True, **result})
         except Exception as e:
             return failed(e, "Queue delete error")
+
+    @app.post("/model-manager/queue/unhide")
+    def post_unhide(ids: str = Form(default="")):
+        """
+        Show these tasks in History again (#178, #163).
+
+        Returns:
+            unhidden: the ids unhidden; skipped: each not, and why.
+        """
+        try:
+            db = get_models_db()
+            unhidden, skipped = [], []
+            for task_id in _ids(ids):
+                if _ours(db, task_id) is None:
+                    skipped.append({"id": task_id, "why": "not found"})
+                elif db.unhide_task(INSTALL_KEY, task_id):
+                    unhidden.append(task_id)
+                else:
+                    skipped.append({"id": task_id, "why": "not hidden"})
+            say(f"Queue: {len(unhidden)} task(s) shown in History again")
+            return JSONResponse({"success": True, "unhidden": unhidden, "skipped": skipped})
+        except Exception as e:
+            return failed(e, "Queue unhide error")
 
     @app.post("/model-manager/queue/history/clear")
     def clear_history():

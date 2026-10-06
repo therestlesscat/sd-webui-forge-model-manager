@@ -57,7 +57,7 @@ def create_queue_ui():
                 <!-- Each list: its count, Select, and the bar of what to do with the ticked -->
                 <div class="queue-list-head">
                     <h3 class="queue-list-title">Active <span id="queue_active_count" class="queue-list-count"></span></h3>
-                    <label class="queue-select-switch" title="Tick waiting tasks, then delete them at once. A running task cannot be ticked">
+                    <label class="queue-select-switch" title="Tick waiting tasks, then run them next, cancel or delete them at once. A running task cannot be ticked">
                         <input type="checkbox" id="queue_active_select" data-action="queue.selecting" data-list="active">
                         Select
                     </label>
@@ -67,9 +67,14 @@ def create_queue_ui():
 
                 <div class="queue-list-head">
                     <h3 class="queue-list-title">History <span id="queue_history_count" class="queue-list-count"></span></h3>
-                    <label class="queue-select-switch" title="Tick ended tasks, then retry or delete them at once">
+                    <label class="queue-select-switch" title="Tick ended tasks, then retry, unhide or delete them at once">
                         <input type="checkbox" id="queue_history_select" data-action="queue.selecting" data-list="history">
                         Select
+                    </label>
+                    <!-- The tasks Clear history hid, shown among the rest: their count is the queue's -->
+                    <label class="queue-select-switch" title="Show the tasks Clear history hid, among the rest, to retry, unhide or delete them">
+                        <input type="checkbox" id="queue_history_hidden" data-action="queue.showHidden" disabled>
+                        <span id="queue_hidden_label">Show hidden</span>
                     </label>
                     <span id="queue_history_select_bar" class="mm-select-bar" hidden></span>
                     <span class="queue-bar-fill"></span>

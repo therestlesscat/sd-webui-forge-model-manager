@@ -139,7 +139,7 @@ check('there is no third list', raises(lambda: db.list_tasks(HERE_INSTALL, 'hidd
 listed = {t['id'] for which in ('active', 'history') for t in db.list_tasks(HERE_INSTALL, which)[0]}
 check("another install's tasks are in neither list", x in listed, False)
 check('the counts, by status', db.count_tasks(HERE_INSTALL),
-      {'pending': 2, 'running': 0, 'completed': 1, 'stopped': 1, 'failed': 1, 'cancelled': 0})
+      {'pending': 2, 'running': 0, 'completed': 1, 'stopped': 1, 'failed': 1, 'cancelled': 0, 'hidden': 0})
 
 # ------------------------------------------------- generations and copies
 OUT = os.path.join(WORK, 'outputs')
@@ -172,6 +172,16 @@ check('nothing is deleted: the task is only hidden', db.get_task(a)['hidden'], 1
 check('its generations stay', db.get_generation(g1) is not None, True)
 check('the counts leave hidden tasks out', db.count_tasks(HERE_INSTALL)['completed'], 0)
 check("another install's History is its own", db.list_tasks(OTHER_INSTALL, 'history')[1], 1)
+check('the counts say how many are hidden', db.count_tasks(HERE_INSTALL)['hidden'], 3)
+shown, total = db.list_tasks(HERE_INSTALL, 'history', hidden=True)
+check('History shows them when asked, in their place', ([t['id'] for t in shown], total), ([c, b, a], 3))
+check('Active never holds them', [t['id'] for t in db.list_tasks(HERE_INSTALL, 'active', hidden=True)[0]],
+      [d, e, copy])
+check('a hidden task is unhidden', (db.unhide_task(HERE_INSTALL, b), db.get_task(b)['hidden']), (True, 0))
+check('once', db.unhide_task(HERE_INSTALL, b), False)
+check("not by another install", db.unhide_task(OTHER_INSTALL, a), False)
+check('it is back in History', [t['id'] for t in db.list_tasks(HERE_INSTALL, 'history')[0]], [b])
+db.hide_task_history(HERE_INSTALL)
 
 
 def links(task_id):

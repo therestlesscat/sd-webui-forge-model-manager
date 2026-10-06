@@ -9,7 +9,7 @@ shows; a task's details show everything it holds, readably; its send plan
 sets Forge up as a generation's Send does; Retry queues a copy with the
 first run's seed or a random one; Run next reaches the runner, and Active
 lists its tasks first (#169); Cancel takes a pending task into History
-(#177); Delete removes a task, with its data or without, and its own files -
+(#177); hidden tasks are counted, listed when asked, and unhidden (#178); Delete removes a task, with its data or without, and its own files -
 but those a copy still names; Clear history hides. Only this install's tasks
 are listed or acted on.
 """
@@ -313,6 +313,19 @@ answer = post('/model-manager/queue/history/clear')
 check('Clear history hides every ended task', (answer['hidden'], listed('history')['total']), (ended, 0))
 check('and nothing else', [t['id'] for t in listed('active')['tasks']], [pending] + copies[1:])
 check('nothing is deleted', db.get_task(textbox)['status'], 'stopped')
+
+# ------------------------------------------------------- the hidden tasks
+check('the status says how many are hidden', client.get('/model-manager/queue/status').json()['counts']['hidden'],
+      ended)
+shown = listed('history', hidden='true')
+check('History shows them when asked, each marked hidden',
+      (shown['total'], {t['hidden'] for t in shown['tasks']}), (ended, {1}))
+answer = post('/model-manager/queue/unhide', ids=f'{textbox},{pending},{theirs}')
+check('Unhide shows a hidden task in History again', (answer['unhidden'], [t['id'] for t in listed('history')['tasks']]),
+      ([textbox], [textbox]))
+check("not one that is not hidden, nor another install's", answer['skipped'],
+      [{'id': pending, 'why': 'not hidden'}, {'id': theirs, 'why': 'not found'}])
+check('and the count follows', client.get('/model-manager/queue/status').json()['counts']['hidden'], ended - 1)
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

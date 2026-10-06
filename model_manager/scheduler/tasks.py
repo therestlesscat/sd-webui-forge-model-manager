@@ -21,7 +21,7 @@ ENDED = ("completed", "stopped", "failed", "cancelled")
 # What a list's row says of a task besides its inputs (#158).
 ROW_FIELDS = ("id", "mode", "status", "checkpoint", "modules", "username", "created_at",
               "started_at", "finished_at", "error", "first_seed", "retry_of", "retried_as",
-              "generations")
+              "generations", "hidden")
 
 # A kept value the page cannot draw as it is: a file, an object, a value not
 # kept. Marked by "__kind__", which no kept value holds.

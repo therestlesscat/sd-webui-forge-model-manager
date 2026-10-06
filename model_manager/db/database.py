@@ -475,10 +475,10 @@ class ModelsDatabase:
         """Note that a generation was made by this task's run."""
         self._tasks.link_generation(task_id, generation_id)
 
-    def list_tasks(self, install: str, which: str, offset: int = 0,
-                   limit: Optional[int] = None, first: Optional[List[int]] = None) -> Tuple[List[Dict[str, Any]], int]:
+    def list_tasks(self, install: str, which: str, offset: int = 0, limit: Optional[int] = None,
+                   first: Optional[List[int]] = None, hidden: bool = False) -> Tuple[List[Dict[str, Any]], int]:
         """A page of this install's Active or History list, and the list's size. See TasksOps.list_tasks()."""
-        return self._tasks.list_tasks(install, which, offset, limit, first)
+        return self._tasks.list_tasks(install, which, offset, limit, first, hidden)
 
     def count_tasks(self, install: str) -> Dict[str, int]:
         """How many of this install's shown tasks have each status."""
@@ -487,6 +487,10 @@ class ModelsDatabase:
     def hide_task_history(self, install: str) -> int:
         """Hide this install's History; nothing is deleted (#164)."""
         return self._tasks.hide_history(install)
+
+    def unhide_task(self, install: str, task_id: int) -> bool:
+        """Show a hidden task in History again (#178). See TasksOps.unhide()."""
+        return self._tasks.unhide(install, task_id)
 
     def task_images(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
         """The images each task's run made, briefly. See TasksOps.images_of()."""

@@ -15,7 +15,8 @@
 // images go too, once for every task ticked; Cancel asks nothing, a pending
 // task going to History; Run next says when the task runs, asking first, as
 // Start, about extensions that are gone; Select ticks a shift-click's
-// range, never a running task; Clear history asks first, saying how many.
+// range, never a running task; Clear history asks first, saying how many;
+// Show hidden lists the tasks it hid, marked, to unhide - one or ticked.
 import { ROOT, act, checker, mountTab, sharedModule, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
@@ -54,6 +55,7 @@ const INPUTS = {
     ],
     loose: [],
 };
+const HIDDEN = task(9, 'completed', { finished_at: '2026-10-05T09:00:00', hidden: 1 });
 const PLAN = { success: true, mode: 'txt2img', preset: null, checkpoint: null, checkpoint_missing: null,
                target: [], modules_missing: [] };
 let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, completed: 3, stopped: 0, failed: 1 },
@@ -78,6 +80,7 @@ globalThis.fetch = async (url, init = {}) => {
         if (href.includes('/queue/start')) return reply(startAnswers.shift() || { success: true, started: true, missing: [] });
         if (href.includes('/queue/retry')) return reply({ success: true, queued: ids.map((_, i) => 30 + i), skipped: [] });
         if (href.includes('/queue/cancel')) return reply({ success: true, cancelled: ids, skipped: [] });
+        if (href.includes('/queue/unhide')) return reply({ success: true, unhidden: ids, skipped: [] });
         if (href.includes('/queue/run-next')) {
             return reply(runNextAnswers.shift() || { success: true, first: ids, after: 16, skipped: [], missing: [] });
         }
@@ -97,7 +100,8 @@ globalThis.fetch = async (url, init = {}) => {
         const params = new URL(href).searchParams;
         const which = params.get('which');
         const page = Number(params.get('page'));
-        const all = LISTS[which];
+        // Show hidden: History with the task Clear history hid.
+        const all = which === 'history' && params.get('hidden') === 'true' ? [...LISTS[which], HIDDEN] : LISTS[which];
         const pages = which === 'history' ? 2 : 1;
         return reply({ success: true, which, page, pages, page_size: 20, total: which === 'history' ? 21 : all.length,
                        tasks: page === 1 ? all : [task(1, 'completed', { finished_at: '2026-10-05T10:00:00' })] });
@@ -411,13 +415,46 @@ LISTS.history = LISTS.history.filter((t) => t.id !== 20);
 STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 0, cancelled: 0 } };
 await waitFor('the lists as they were', () => !row(18) && !row(20));
 
+// ------------------------------------------------------------ Show hidden
+const hiddenBox = document.getElementById('queue_history_hidden');
+check('with nothing hidden, Show hidden is offered greyed out',
+      [hiddenBox.disabled, text('queue_hidden_label')], [true, 'Show hidden']);
+STATUS = { ...STATUS, counts: { ...STATUS.counts, hidden: 1 } };
+await waitFor('the hidden count', () => !hiddenBox.disabled);
+check('it says how many are hidden', text('queue_hidden_label'), 'Show hidden (1)');
+asked.length = 0;
+await tick('queue.showHidden', true);
+await waitFor('the hidden task', () => row(9));
+check('ticked, History asks for them too', asked.some((a) => a.includes('which=history') && a.includes('hidden=true')), true);
+check('a hidden task is marked, and offers Unhide with the rest',
+      [row(9)?.querySelector('.queue-hidden-mark')?.textContent, actions(9)], ['Hidden', ['Unhide', 'Retry...', 'Delete...']]);
+check('the others are not marked', row(14)?.querySelector('.queue-hidden-mark'), null);
+bodies.length = 0;
+posted.length = 0;
+if (row(9)) await act('queue.unhide', { task: 9 });
+check('Unhide asks nothing', [posted, bodies], [['/model-manager/queue/unhide'], [{ ids: '9' }]]);
+check('and says how it went', text('queue_report'), 'Unhid 1 task.');
+await tick('queue.selecting', true, { list: 'history' });
+await waitFor('History ticks', () => document.querySelectorAll('#queue_history [data-queue-pick]').length === 3);
+await act('queue.historySelectAll');
+const unhideTicked = document.querySelector('#queue_history_select_bar [data-action="queue.historyUnhideSelected"]');
+check("History's bar offers Unhide for the ticked", Boolean(unhideTicked), true);
+bodies.length = 0;
+if (unhideTicked) await act('queue.historyUnhideSelected');
+check('one Unhide for every task ticked', bodies, [{ ids: '15,14,9' }]);
+await tick('queue.selecting', false, { list: 'history' });
+await tick('queue.showHidden', false);
+await waitFor('the hidden task gone', () => !row(9));
+STATUS = { ...STATUS, counts: { ...STATUS.counts, hidden: 0 } };
+
+// How many: the ended tasks the status counts - 4 completed - hidden ones left out, not the list's size.
 bodies.length = 0;
 posted.length = 0;
 doing = act('queue.clearHistory');
 question = await answer('Clear history');
 await doing;
 check('Clear history asks first, saying how many, that nothing is deleted',
-      [question.text.startsWith('Clear 21 tasks from History?'), question.text.includes('hidden, not deleted'), posted],
+      [question.text.startsWith('Clear 4 tasks from History?'), question.text.includes('hidden, not deleted'), posted],
       [true, true, ['/model-manager/queue/history/clear']]);
 check('and says how it went', text('queue_report'), 'Hid 21 tasks from History.');
 

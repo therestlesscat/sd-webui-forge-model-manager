@@ -18,7 +18,9 @@
  * a random one (#161) - and any task but a running one deleted, with the
  * images its run made or without (#162). Select ticks tasks in a list, a
  * shift-click a range, for one Run next, Cancel, Retry or Delete (#163), as the
- * Generations tab ticks images. Clear history hides History (#164).
+ * Generations tab ticks images. Clear history hides History (#164); Show
+ * hidden brings those tasks back among the rest, marked, to retry, delete or
+ * unhide (#178). It is not remembered.
  *
  * The status line is asked for only while the tab shows, and writes only
  * what changed. The lists are read again when the tab opens, after an
@@ -92,6 +94,7 @@ const ENDED = ['completed', 'stopped', 'failed', 'cancelled'];
 // What Run next and Cancel say they do, on a row and in a task's details.
 const RUN_NEXT_TITLE = 'Run it before any other: now, or after the running task';
 const AHEAD_TITLE = 'Already next in line';
+const UNHIDE_TITLE = 'Show it in History again, as before Clear history';
 const CANCEL_TITLE = 'Take it out of the queue. It moves to History, where Retry queues it again';
 // The two lists, each with its element, its page, and its count.
 const LISTS = {
@@ -106,6 +109,9 @@ let showing = false;
 let polling = false;
 // The counts and the running task the lists were last read under.
 let lastSeen = null;
+// The counts as last read, and whether History shows the tasks Clear history hid.
+let lastCounts = {};
+let showHidden = false;
 // How far along the running task is, as its row's bar shows it.
 const along = { task: null, percent: 0 };
 // Select, per list: whether it is on, the ids ticked, the rows of the page
@@ -220,6 +226,16 @@ function drawStatus(answer, forge = null) {
     setDisabled(byId('queue_pause'), pausing);
     setShown(byId('queue_resume'), running && state === 'paused');
     setDisabled(byId('queue_stop'), !running || state === 'stopping');
+    lastCounts = answer?.counts || {};
+    setDisabled(byId('queue_clear_history'), !endedCount());
+    const hidden = Number(lastCounts.hidden) || 0;
+    setText(byId('queue_hidden_label'), hidden ? `Show hidden (${hidden})` : 'Show hidden');
+    setDisabled(byId('queue_history_hidden'), !hidden && !showHidden);
+}
+
+/** How many ended tasks History shows, hidden ones left out: what Clear history hides. */
+function endedCount() {
+    return ENDED.reduce((n, status) => n + (Number(lastCounts[status]) || 0), 0);
 }
 
 /** Draw the status line; true when the counts or the running task changed since last read. */
@@ -298,6 +314,7 @@ function taskRowHtml(task, which) {
                     ${task.script ? `<span class="queue-script">${escapeHtml(task.script)}</span>` : ''}
                     ${task.retry_of ? `<span class="queue-copy">a copy of #${Number(task.retry_of)}</span>` : ''}
                     ${task.retried_as ? `<span class="queue-requeued">Requeued as #${Number(task.retried_as)}</span>` : ''}
+                    ${task.hidden ? '<span class="queue-hidden-mark" title="Clear history hid it">Hidden</span>' : ''}
                 </div>
                 <div class="queue-prompt" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt) || '<em>No prompt</em>'}</div>
                 <div class="queue-facts">
@@ -317,6 +334,8 @@ function taskRowHtml(task, which) {
                 ${waiting(task) ? `${runNextHtml(task, 'mm-btn secondary mm-btn-small')}
                 <button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.cancel"
                     data-task="${id}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
+                ${task.hidden ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.unhide"
+                    data-task="${id}" title="${UNHIDE_TITLE}">Unhide</button>` : ''}
                 ${retryable(task) ? `<button type="button" class="mm-btn secondary mm-btn-small" data-action="queue.retry"
                     data-task="${id}" title="Queue a copy of this task, at the end of the queue">Retry...</button>` : ''}
                 ${deletable(task) ? `<button type="button" class="mm-btn danger mm-btn-small" data-action="queue.delete"
@@ -364,8 +383,9 @@ async function refreshList(which) {
     const element = byId(list.element);
     if (!element) return;
     try {
+        const hidden = which === 'history' && showHidden ? { hidden: 'true' } : {};
         const answer = await apiCall({ endpoint: '/model-manager/queue/tasks',
-                                       params: { which, page: pages[which] } });
+                                       params: { which, page: pages[which], ...hidden } });
         if (!answer?.success) throw new Error(answer?.error || 'no answer');
         // Past the end, after a delete: the last page there is.
         if (answer.page > answer.pages) {
@@ -382,7 +402,6 @@ async function refreshList(which) {
             ? answer.tasks.map((task) => taskRowHtml(task, which)).join('') + pagesHtml(which, answer)
             : `<div class="queue-empty">${escapeHtml(list.empty)}</div>`;
         updateSelectBar(which);
-        if (which === 'history') setDisabled(byId('queue_clear_history'), !answer.total);
     } catch (e) {
         element.innerHTML = `<div class="queue-empty">Could not read the list: ${escapeHtml(e.message)}</div>`;
     }
@@ -629,7 +648,7 @@ async function deleteTasks(ids) {
 
 /** Clear history: every task in History hidden, asking first (#164). Nothing is deleted. */
 async function clearHistory() {
-    const total = Number(lastAnswers.history?.total) || 0;
+    const total = endedCount();
     if (!total) return;
     const answer = await ask(`Clear ${plural(total, 'task')} from History?`, `
         <p>They are hidden, not deleted: the tasks, the images their runs made and their files all stay.</p>`, [
@@ -645,6 +664,29 @@ async function clearHistory() {
     await refresh();
 }
 
+/** Unhide: these hidden tasks shown in History again (#178). Nothing is asked. */
+async function unhideTasks(ids) {
+    if (!ids.length) return;
+    const result = await post('/model-manager/queue/unhide', { ids: ids.join(',') });
+    if (!result?.success) {
+        report(`Could not unhide: ${result?.error || 'no answer'}`);
+        return;
+    }
+    const skipped = skippedText(result.skipped);
+    report(`Unhid ${plural(result.unhidden.length, 'task')}.` + (skipped ? ` Not unhidden: ${skipped}.` : ''));
+    clearPicks();
+    await refresh();
+}
+
+/** Show hidden: History with the tasks Clear history hid, from its first page. */
+function setShowHidden(on) {
+    showHidden = Boolean(on);
+    pages.history = 1;
+    picked.history.clear();
+    lastPicked.history = -1;
+    return refreshList('history');
+}
+
 // ------------------------------------------------------------------ Select
 
 const BAR_ACTIONS = {
@@ -652,7 +694,8 @@ const BAR_ACTIONS = {
               more: [{ action: 'queue.activeRunNextSelected', label: 'Run next' },
                      { action: 'queue.activeCancelSelected', label: 'Cancel' }] },
     history: { all: 'queue.historySelectAll', clear: 'queue.historySelectClear', delete: 'queue.historyDeleteSelected',
-               more: [{ action: 'queue.historyRetrySelected', label: 'Retry...' }] },
+               more: [{ action: 'queue.historyRetrySelected', label: 'Retry...' },
+                      { action: 'queue.historyUnhideSelected', label: 'Unhide' }] },
 };
 
 function updateSelectBar(which) {
@@ -808,6 +851,8 @@ function detailsHtml(task, inputs) {
                     ${waiting(task) ? `${runNextHtml(task, 'mm-btn secondary')}
                     <button type="button" class="mm-btn secondary" data-action="queue.cancel"
                         data-task="${Number(task.id)}" title="${CANCEL_TITLE}">Cancel</button>` : ''}
+                    ${task.hidden ? `<button type="button" class="mm-btn secondary" data-action="queue.unhide"
+                        data-task="${Number(task.id)}" title="${UNHIDE_TITLE}">Unhide</button>` : ''}
                     ${retryable(task) ? `<button type="button" class="mm-btn secondary" data-action="queue.retry"
                         data-task="${Number(task.id)}">Retry...</button>` : ''}
                     ${deletable(task) ? `<button type="button" class="mm-btn danger" data-action="queue.delete"
@@ -886,6 +931,8 @@ provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Nu
 provide('queue.retry', ({ task }) => { closeMetaModal(); return retry([Number(task)]); });
 provide('queue.delete', ({ task }) => { closeMetaModal(); return deleteTasks([Number(task)]); });
 provide('queue.clearHistory', () => clearHistory());
+provide('queue.showHidden', (data, box) => setShowHidden(box.checked));
+provide('queue.unhide', ({ task }) => { closeMetaModal(); return unhideTasks([Number(task)]); });
 provide('queue.selecting', ({ list }, box) => setSelecting(list, box.checked));
 provide('queue.activeSelectAll', () => selectAll('active'));
 provide('queue.activeSelectClear', () => selectClear('active'));
@@ -895,6 +942,7 @@ provide('queue.activeDeleteSelected', () => deleteTasks([...picked.active]));
 provide('queue.historySelectAll', () => selectAll('history'));
 provide('queue.historySelectClear', () => selectClear('history'));
 provide('queue.historyRetrySelected', () => retry([...picked.history]));
+provide('queue.historyUnhideSelected', () => unhideTasks([...picked.history]));
 provide('queue.historyDeleteSelected', () => deleteTasks([...picked.history]));
 provide('queue.activePage', ({ page }) => goToPage('active', page));
 provide('queue.activePrev', () => goToPage('active', pages.active - 1));
@@ -922,9 +970,9 @@ onReady(async () => {
         return;
     }
     showNotes('queue', 'queue_notes');
-    // Select starts off, whatever the browser kept ticked from before.
-    for (const which of ['active', 'history']) {
-        const box = byId(`queue_${which}_select`);
+    // Select and Show hidden start off, whatever the browser kept ticked from before.
+    for (const id of ['queue_active_select', 'queue_history_select', 'queue_history_hidden']) {
+        const box = byId(id);
         if (box) box.checked = false;
     }
     await poll();
