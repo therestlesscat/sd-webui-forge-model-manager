@@ -561,7 +561,14 @@ or for a video (#8). See `model_manager/generations.py`.
 - **Gradio draws the tabs after the scripts have run.** A module's top level
   finds none of its tab's markup; something drawn from there - an answer that
   comes back at load - is drawn again once the container is there, from
-  `onAfterUiUpdate` (the downloads panel, the notes).
+  `onAfterUiUpdate` (the downloads panel, the notes). A tab's start waits for
+  its markup (`markupDrawn`): the Civitai Browser's did not, and in one load
+  of three on Neo it bound Save Search, Enter and the Type box to nothing
+  (#128).
+- **A click on a tab's button never reaches the document from it.** Gradio's
+  Tabs replace the button clicked with a selected one first, so a listener
+  on the document sees a detached target (seen 3 of 3 on Neo). Watch for the
+  tab showing - `tabShowing` from `onAfterUiUpdate` - not the click (#128).
 - **Settings -> Reload UI runs the scripts again in the same process**, with
   the extension already imported, after clearing every callback; Extensions
   -> Apply and restart UI is a new process. So every callback is registered
@@ -919,9 +926,11 @@ waits - are in `tests/README.md`.
   sidecars and was not hidden by the default filter (#125). Survey each - the
   code, a count from the real data - and put it to the owner with a
   recommendation. #128's cause, read from Gradio's Tabs bundle (the clicked
-  button replaced before the click reaches the document), was wrong: a click
-  on the tab did run the saved search (2026-10-04). The issue stays open, to
-  investigate.
+  button replaced before the click reaches the document), was set aside when
+  a click on the tab ran the saved search (2026-10-04) - and was right: a
+  probe on the live page saw the click reach the document from a detached
+  button, 3 loads of 3 (2026-10-06). One success does not clear a race;
+  measure it over several loads.
 
 ### The data
 

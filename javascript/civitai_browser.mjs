@@ -59,11 +59,11 @@ const SHARED_MODULES = ['core.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', '
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
-    onReady, apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber,
-    formatBytes: formatFileSize, formatDay: formatDate, setText, setTitle,
+    TIMING, onReady, apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml,
+    formatNumber, formatBytes: formatFileSize, formatDay: formatDate, setText, setTitle,
 } = await shared('core.mjs');
 const { provide, ready, call } = await shared('calls.mjs');
-const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
+const { showTab, tabShowing } = await shared('tabs.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -1656,11 +1656,10 @@ function init() {
     }
     prepareSavedSearch();
 
-    // Initialize tag input (try now and also watch for dynamic loading)
     initTagInput();
     loadEnums();
 
-    // Retry initialization for dynamically loaded elements (Gradio tabs)
+    // Civitai's lists, asked again until they come.
     const initRetry = setInterval(() => {
         if (!tagInputInitialized) {
             initTagInput();
@@ -1702,6 +1701,8 @@ function init() {
 // Model Manager's "Show in Civitai Browser" brings, comes first and it stands
 // aside.
 let savedSearchDone = false;
+let savedSearchStarted = false;
+let savedFilters = null;            // asked as the tab starts; put in the bar when it first shows
 
 /** The filters as the bar shows them, as Save Search keeps them - the boxes, not what is sent. */
 function currentSearch() {
@@ -1757,30 +1758,37 @@ async function clearCbSearch() {
     flashSaveSearch('cb_save_search_btn', '✗ Cleared');
 }
 
-function runSavedSearch() {
-    if (savedSearchDone) return;
-    savedSearchDone = true;
-    search();
+/**
+ * The saved search, asked as the tab starts, and run the first time the tab
+ * shows - however it came to: a click, the keyboard, a script. It ran from a
+ * click on the tab's button, which a listener on the document never saw:
+ * Gradio replaces the button clicked before the click reaches the document
+ * (#128). The WebUI runs its after-update callbacks once the tab shows.
+ */
+async function prepareSavedSearch() {
+    savedFilters = await savedSearch('civitai_browser');
+    if (!savedFilters) return;
+    if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(runIfShown);
+    runIfShown();
+}
+
+function runIfShown() {
+    if (savedSearchStarted || savedSearchDone || !tabShowing('civitaiBrowser')) return;
+    savedSearchStarted = true;
+    runSavedSearch();
 }
 
 /**
  * Fill the bar from the saved search - once Civitai's lists are in, or a
  * type or base model not in the page's first list would not take - and run
- * it when the tab is first shown.
+ * it, unless the reader's own search came first.
  */
-async function prepareSavedSearch() {
-    const filters = await savedSearch('civitai_browser');
-    if (!filters || savedSearchDone) return;
+async function runSavedSearch() {
     await loadEnums();
     if (savedSearchDone) return;
-    applySearch(filters);
-    if (tabShowing('civitaiBrowser')) {
-        runSavedSearch();
-        return;
-    }
-    document.addEventListener('click', (event) => {
-        if (tabButton('civitaiBrowser')?.contains(event.target)) runSavedSearch();
-    });
+    savedSearchDone = true;
+    applySearch(savedFilters);
+    search();
 }
 
 // Expose functions to window for inline handlers
@@ -1874,5 +1882,27 @@ provide('civitaiBrowser.toggleDescription', () => toggleDescription());
 provide('civitaiBrowser.showInModelManager', ({ modelId }) => showInModelManager(safeId(modelId)));
 provide('civitaiBrowser.closeDetails', () => closeDetails());
 
-// Initialize when ready
-onReady(init);
+/**
+ * The tab's markup, once Gradio has drawn it - after the scripts have run.
+ * Bound before it, Save Search, Enter in the search box and the Type box's
+ * change were bound to nothing, and a saved search was put in a bar that was
+ * not there: in one load of three on Neo (#128). As generations.mjs waits.
+ */
+function markupDrawn(tries = 240) {
+    return new Promise((resolve) => {
+        const drawn = () => Boolean(document.getElementById('cb_search_btn'));
+        const look = (left) => {
+            if (drawn() || left <= 0) resolve(drawn());
+            else setTimeout(() => look(left - 1), TIMING.drawRetry);
+        };
+        look(tries);
+    });
+}
+
+onReady(async () => {
+    if (!await markupDrawn()) {
+        console.warn('[ModelManager] The Civitai Browser tab never appeared; not loading it');
+        return;
+    }
+    init();
+});

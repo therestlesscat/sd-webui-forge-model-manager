@@ -29,6 +29,8 @@ globalThis.fetch = async (url) => {
 
 await import(`file:///${ROOT}/javascript/civitai_browser.mjs`);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
+// The tab starts once it has found its markup (#128) - here at once, a step later.
+await new Promise((resolve) => setTimeout(resolve, 0));
 
 const $ = (id) => document.getElementById(id);
 const input = $('cb_tag_input');
