@@ -46,13 +46,15 @@ from typing import Any, Dict, List, Optional
 from .db import get_models_db
 from .forge_host import (available, closest_checkpoint, forge_name, infotext_settings,
                          installed_modules, loaded_model, loaded_modules, main_infotext,
-                         parse_generation_parameters, setting)
+                         parse_generation_parameters)
 from .nsfw import generated_level
 from .console import say
 from .scheduler.runner import queued_task
+from .tabs import TABS, on
 
-# Whether generations are recorded at all; registered in ui/settings.py.
-RECORD_GENERATIONS = "model_manager_record_generations"
+# Whether generations are recorded at all: the Generations tab's switch
+# (tabs.py), registered in ui/settings.py.
+RECORD_GENERATIONS = TABS["generations"]
 # How the Generations tab opens: its explicit images hidden or shown. Its own:
 # it used to follow the Model Manager's image gallery setting.
 GENERATIONS_HIDE_NSFW = "model_manager_generations_hide_nsfw"
@@ -189,7 +191,7 @@ def postprocess(p, processed) -> Optional[int]:
 
 def _recording() -> bool:
     # Outside a WebUI nothing is generated, and nothing is recorded.
-    return available() and bool(setting(RECORD_GENERATIONS))
+    return available() and on("generations")
 
 
 def generations_enabled() -> bool:
@@ -200,7 +202,7 @@ def generations_enabled() -> bool:
     What was recorded is kept either way. For the UI, a setting that cannot
     be read is on, as by default.
     """
-    return bool(setting(RECORD_GENERATIONS))
+    return on("generations")
 
 
 def _text(value: Any) -> Optional[str]:

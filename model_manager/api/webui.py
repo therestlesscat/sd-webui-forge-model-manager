@@ -15,6 +15,7 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from ..console import say
+from .common import gate
 
 SHARED_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                               "javascript", "shared")
@@ -77,12 +78,14 @@ def _listed_label(path: str, installed: dict):
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/asset-version")
+    @gate("any")
     def asset_version():
         """The version the tabs import javascript/shared/ with; never cached."""
         return JSONResponse({"success": True, "version": shared_version()},
                             headers={"Cache-Control": "no-store"})
 
     @app.get("/model-manager/forge-modules")
+    @gate("send")
     def forge_modules_for(file_path: str = "", base_model: str = "",
                           version_ids: str = "", hashes: str = "", model_name: str = "",
                           vae: str = ""):
@@ -189,6 +192,7 @@ def register(app: FastAPI):
         return JSONResponse(answer)
 
     @app.get("/model-manager/forge-modules/current")
+    @gate("send")
     def forge_modules_current():
         """
         The modules Forge holds now - what it will load - for Send to check
@@ -199,6 +203,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True, "modules": current_modules()})
 
     @app.get("/model-manager/ui-options")
+    @gate("always")
     def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
@@ -206,6 +211,7 @@ def register(app: FastAPI):
         from ..model_dirs import shown_roots
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         from ..scheduler import queue_enabled
+        from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
         # the Model Manager's asks the details endpoint, which reads the same
@@ -218,6 +224,10 @@ def register(app: FastAPI):
         generations_on = generations_enabled()
         # The queue: off, its tab and the Queue buttons are hidden (scheduler/__init__.py).
         queue_on = queue_enabled()
+        # Each tab: whether it is on, and whether this start created it -
+        # one switched on since needs a restart (tabs.py).
+        made = built()
+        tabs = {tab: {"on": on(tab), "built": tab in made} for tab in TABS}
         # Above how many images Generate asks whether to queue them (#166); 0 never.
         try:
             queue_ask_above = max(0, int(setting('model_manager_queue_ask_above') or 0))
@@ -244,6 +254,7 @@ def register(app: FastAPI):
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
                 "queue_ask_above": queue_ask_above,
+                "tabs": tabs,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
                 "path_roots": shown_roots(),
             })
@@ -261,6 +272,7 @@ def register(app: FastAPI):
                  "hide_promptless_images": hide_promptless_images,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_enabled": generations_on,
-                 "queue_enabled": queue_on},
+                 "queue_enabled": queue_on,
+                 "tabs": tabs},
                 status_code=500
             )

@@ -25,7 +25,7 @@ from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
-from .common import failed
+from .common import failed, gate
 from ..console import say
 
 # The images a card shows before "Show images".
@@ -538,6 +538,7 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
 
     @app.get("/model-manager/generations/browse")
+    @gate("generations")
     def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
                               group: str = "", in_group: str = "",
                               generation: Optional[int] = None, in_subgroup: str = "",
@@ -562,6 +563,7 @@ def register(app: FastAPI):
             return failed(e, "Generations page error")
 
     @app.get("/model-manager/generations/page")
+    @gate("generations")
     def get_generation_page(path: str, page: int = 1,
                                   hide_nsfw_images: Optional[bool] = None,
                                   hide_promptless_images: Optional[bool] = None):
@@ -583,6 +585,7 @@ def register(app: FastAPI):
             return failed(e, "Generation page error")
 
     @app.get("/model-manager/generations/{generation_id}/images")
+    @gate("generations")
     def get_generation_all_images(generation_id: int, path: str = "",
                                         hide_nsfw_images: Optional[bool] = None,
                                         hide_promptless_images: Optional[bool] = None):
@@ -607,6 +610,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/{generation_id}/send-plan")
+    @gate("generations")
     def get_send_plan(generation_id: int):
         """
         How to set Forge up before sending a generation back: see send_plan().
@@ -622,6 +626,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/images/{image_id}/file")
+    @gate("generations")
     def get_generation_image_file(image_id: int):
         """A generated image, by its record: only what was recorded is served."""
         path = get_models_db().get_generation_image_path(image_id)
@@ -630,6 +635,7 @@ def register(app: FastAPI):
         return FileResponse(path)
 
     @app.post("/model-manager/generations/images/{image_id}/delete")
+    @gate("generations")
     def delete_generation_image(image_id: int, delete_files: bool = Form(default=False)):
         """
         Remove one generated image's record - its generation's too, when it
@@ -652,6 +658,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/rate")
+    @gate("generations")
     def rate_generated_images(level: str = Form(default=""), image_id: Optional[int] = Form(default=None),
                               group: str = Form(default=""), in_group: str = Form(default=""),
                               in_subgroup: str = Form(default=""),
@@ -709,6 +716,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/delete-many")
+    @gate("generations")
     def delete_many(generation_ids: str = Form(default=""), image_ids: str = Form(default=""),
                     delete_files: bool = Form(default=False)):
         """
@@ -751,6 +759,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/generations/{generation_id}/delete")
+    @gate("generations")
     def delete_generation(generation_id: int, delete_files: bool = Form(default=False)):
         """
         Remove a generation's records, and with delete_files its image files.

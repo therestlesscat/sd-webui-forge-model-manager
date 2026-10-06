@@ -12,10 +12,12 @@ from ..db import get_models_db
 from ..release_notes import dismiss, notes_for
 from ..update_check import status as update_status
 from ..console import say
+from .common import gate
 
 
 def register(app: FastAPI):
     @app.get("/model-manager/notes")
+    @gate("any")
     def get_notes(tab: Optional[str] = None):
         """
         With `tab` (one of release_notes.TABS): the
@@ -30,6 +32,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e), "notes": []}, status_code=500)
 
     @app.post("/model-manager/notes/dismiss")
+    @gate("any")
     def dismiss_note(id: str = Form(...)):
         """Dismiss a note: gone from the tabs, for every browser using this database."""
         try:
@@ -40,6 +43,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/update")
+    @gate("any")
     def get_update():
         """The version out, as last read from GitHub, and whether it is newer than this one."""
         return JSONResponse({"success": True, **update_status()})

@@ -502,9 +502,10 @@ def recover() -> int:
     """
     At startup: this install's tasks left running by a restart or a crash
     become stopped (#155). Not while a queue runs: Settings -> Reload UI
-    starts the page again in the same process, with the queue still on.
+    starts the page again in the same process, with the queue still on. Nor
+    while the queue is off: the first start with it on does it.
     """
-    if jobs.running(KIND):
+    if not queue_enabled() or jobs.running(KIND):
         return 0
     count = get_models_db().stop_running_tasks(INSTALL_KEY)
     if count:

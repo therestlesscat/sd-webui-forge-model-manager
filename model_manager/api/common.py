@@ -2,7 +2,8 @@
 What the endpoint modules share and none of them owns: no endpoints here.
 
 The card-size parser was written four times, and the same try/except that
-logs a failure and answers 500 twenty-four times.
+logs a failure and answers 500 twenty-four times. And the gate every route
+passes, refusing it while its tab is off.
 """
 import functools
 import inspect
@@ -17,6 +18,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..civitai.client import telling
 from ..forge_host import DEFAULTS, setting
+from ..tabs import check_area, on, why_off
 from ..console import say
 
 
@@ -49,6 +51,43 @@ def failed(e: Exception, doing: Optional[str] = None) -> JSONResponse:
         say(f"{doing}: {e}")
     traceback.print_exc()
     return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+def gate(area: str) -> Callable:
+    """
+    A route of `area` - a tab, what several share, or ALWAYS (tabs.py): run
+    while it is on, refused while it is off, before anything else runs - with
+    403, success false and why, as every failure answers. On the line under
+    each route's own, so the next route is written with it;
+    tab_switches_test.py fails on a route without one.
+
+    Not a FastAPI dependency: that answers {"detail": ...}, which the pages
+    do not read. Not a middleware: Starlette refuses one once the app has
+    served a request, and our routes are added after the WebUI's have.
+    """
+    check_area(area)
+
+    def wrap(endpoint: Callable) -> Callable:
+        if inspect.iscoroutinefunction(endpoint):
+            @functools.wraps(endpoint)
+            async def answer(*args, **kwargs):
+                if not on(area):
+                    return refused(area)
+                return await endpoint(*args, **kwargs)
+        else:
+            @functools.wraps(endpoint)
+            def answer(*args, **kwargs):
+                if not on(area):
+                    return refused(area)
+                return endpoint(*args, **kwargs)
+        answer.mm_area = area
+        return answer
+    return wrap
+
+
+def refused(area: str) -> JSONResponse:
+    """What a route of an area that is off answers."""
+    return JSONResponse({"success": False, "error": why_off(area), "off": area}, status_code=403)
 
 
 def streams_status(endpoint: Callable) -> Callable:

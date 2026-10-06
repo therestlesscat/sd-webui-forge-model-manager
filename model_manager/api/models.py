@@ -18,7 +18,7 @@ from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
 from .images import gallery_state, gallery_switches
-from .common import card_size, failed
+from .common import card_size, failed, gate
 from ..model_dirs import COMPANIONS, file_modified
 from .. import resources
 from ..console import say
@@ -35,6 +35,7 @@ def register(app: FastAPI):
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
     @app.get("/model-manager/models")
+    @gate("model_manager")
     def get_models(
         search: str = "",
         type: str = "",
@@ -217,6 +218,7 @@ def register(app: FastAPI):
             return failed(e, "API error")
 
     @app.get("/model-manager/filter-defaults")
+    @gate("model_manager")
     async def get_filter_defaults():
         """Get default filter values needed before first model load."""
         try:
@@ -234,6 +236,7 @@ def register(app: FastAPI):
             return failed(e, "Filter defaults error")
 
     @app.get("/model-manager/models/details")
+    @gate("model_manager")
     def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
                                 hide_promptless_images: Optional[bool] = None):
         """
@@ -312,6 +315,7 @@ def register(app: FastAPI):
             return failed(e, "API error")
 
     @app.get("/model-manager/models/versions")
+    @gate("model_manager")
     def get_model_versions(model_id: int):
         """
         The versions of a Civitai model: the local ones, and every one Civitai
@@ -377,6 +381,7 @@ def register(app: FastAPI):
             return failed(e, "Get versions error")
 
     @app.get("/model-manager/filters")
+    @gate("model_manager")
     def get_filter_options():
         """Get distinct values for filter dropdowns."""
         try:
@@ -394,6 +399,7 @@ def register(app: FastAPI):
             return failed(e, "Filters error")
 
     @app.post("/model-manager/models/force-sync")
+    @gate("model_manager")
     def force_sync_model(model_id: int = Form(...), keep_image_count: str = Form(default="false")):
         """
         Force sync a model and all its local versions.
@@ -459,6 +465,7 @@ def register(app: FastAPI):
             return failed(e, "Force sync error")
 
     @app.post("/model-manager/models/delete")
+    @gate("model_manager")
     def delete_model(path: str = Form(...)):
         """
         Delete a model and all related files.
@@ -544,6 +551,7 @@ def register(app: FastAPI):
             return failed(e, "Delete error")
 
     @app.post("/model-manager/pin")
+    @gate("model_manager")
     def set_pin(
         pinned: bool = Form(...),
         model_id: Optional[int] = Form(None),
@@ -564,6 +572,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/bookmark")
+    @gate("model_manager")
     def toggle_bookmark(
         model_id: int = Form(...),
         bookmarked: bool = Form(...)
@@ -598,6 +607,7 @@ def register(app: FastAPI):
             return failed(e, "Bookmark error")
 
     @app.post("/model-manager/resolve-hashes")
+    @gate("send")
     def resolve_hashes(hashes: str = Form(default=""),
                        local_only: bool = Form(default=False)):
         """
@@ -671,6 +681,7 @@ def register(app: FastAPI):
             return failed(e, "Resolve hashes error")
 
     @app.post("/model-manager/missing-resources")
+    @gate("send")
     def missing_resources(versions: str = Form(default="[]"), hashes: str = Form(default="")):
         """
         What the resources an image names, and the library lacks, will be
@@ -716,6 +727,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/image-resources")
+    @gate("send")
     def image_resources(version_ids: str = "", hashes: str = "", names: str = ""):
         """
         Which local file each of an image's resources is, for the resource

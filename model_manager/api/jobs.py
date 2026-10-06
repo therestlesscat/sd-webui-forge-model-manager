@@ -16,7 +16,7 @@ from ..model_dirs import misplaced_files
 from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_refresh_options,
                               sync_window_counts, window_cutoff)
 from ..sync_service import SyncService
-from .common import failed
+from .common import failed, gate
 from .. import console
 from ..console import say
 
@@ -56,6 +56,7 @@ def _yes(value: Any) -> bool:
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.post("/model-manager/sync")
+    @gate("model_manager")
     async def start_sync(
         force: str = Form(default="false"),  # Form data comes as string
         targets: str = Form(default="all"),
@@ -103,6 +104,7 @@ def register(app: FastAPI):
                       "Sync started")
 
     @app.post("/model-manager/sync/metadata")
+    @gate("model_manager")
     async def start_metadata_sync(
         include_images: str = Form(default="false"),
         include_prompts: str = Form(default="true"),
@@ -161,6 +163,7 @@ def register(app: FastAPI):
                       "Metadata sync started" + (" (with images)" if with_images else ""))
 
     @app.get("/model-manager/sync/estimate")
+    @gate("model_manager")
     def get_sync_estimate(
         include_images: str = "false",
         include_prompts: str = "true",
@@ -225,6 +228,7 @@ def register(app: FastAPI):
             return failed(e)
 
     @app.get("/model-manager/sync/new-files")
+    @gate("model_manager")
     def get_files_to_hash():
         """
         The files every sync will read in full, and their total size: new on
@@ -238,6 +242,7 @@ def register(app: FastAPI):
             return failed(e)
 
     @app.get("/model-manager/sync/misplaced")
+    @gate("model_manager")
     def get_sync_misplaced():
         """The files in another type's folder, for the sync dialog to show before it moves any."""
         try:
@@ -246,6 +251,7 @@ def register(app: FastAPI):
             return failed(e)
 
     @app.get("/model-manager/sync/progress")
+    @gate("model_manager")
     async def get_sync_progress(since: Optional[int] = None):
         """
         Get current sync progress - and, with `since`, the console's lines
@@ -262,6 +268,7 @@ def register(app: FastAPI):
         return JSONResponse(body)
 
     @app.post("/model-manager/sync/cancel")
+    @gate("model_manager")
     async def cancel_sync():
         """Cancel active sync operation."""
         return _cancel("sync")

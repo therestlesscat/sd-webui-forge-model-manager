@@ -23,7 +23,7 @@ from ..forge_host import checkpoint_file
 from ..install import INSTALL_KEY
 from ..scheduler import runner, tasks
 from ..scheduler.values import files
-from .common import failed
+from .common import failed, gate
 from .generations import _delete_files, plan_for
 
 # Tasks a list shows at a time.
@@ -127,6 +127,7 @@ def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
 
     @app.get("/model-manager/queue/status")
+    @gate("queue")
     def get_status():
         """The queue's state, the task it is on, and how many tasks have each status."""
         try:
@@ -135,6 +136,7 @@ def register(app: FastAPI):
             return failed(e, "Queue status error")
 
     @app.post("/model-manager/queue/start")
+    @gate("queue")
     def start(force: bool = False):
         """
         Start the queue. Unless forced, not while a pending task uses a
@@ -154,21 +156,25 @@ def register(app: FastAPI):
             return failed(e, f"Queue {action} error")
 
     @app.post("/model-manager/queue/stop")
+    @gate("queue")
     def stop():
         """End the running task and start no other (#152)."""
         return _act("stop")
 
     @app.post("/model-manager/queue/pause")
+    @gate("queue")
     def pause():
         """Let the running task finish, then start no other (#153)."""
         return _act("pause")
 
     @app.post("/model-manager/queue/resume")
+    @gate("queue")
     def resume():
         """Go on with the next pending task (#153)."""
         return _act("resume")
 
     @app.get("/model-manager/queue/tasks")
+    @gate("queue")
     def get_tasks(which: str = "active", page: int = 1, hidden: bool = False):
         """A page of the Active or History list. See task_page()."""
         if which not in ("active", "history"):
@@ -179,6 +185,7 @@ def register(app: FastAPI):
             return failed(e, "Queue list error")
 
     @app.get("/model-manager/queue/tasks/{task_id}")
+    @gate("queue")
     def get_task(task_id: int):
         """A task's details (#159): its row, and everything it holds."""
         try:
@@ -192,6 +199,7 @@ def register(app: FastAPI):
             return failed(e, "Queue task error")
 
     @app.get("/model-manager/queue/tasks/{task_id}/send-plan")
+    @gate("queue")
     def get_send_plan(task_id: int):
         """
         How to set Forge up before a task is loaded into its tab (#160): its
@@ -214,6 +222,7 @@ def register(app: FastAPI):
             return failed(e, "Queue send plan error")
 
     @app.post("/model-manager/queue/run-next")
+    @gate("queue")
     def post_run_next(ids: str = Form(default=""), force: bool = Form(default=False)):
         """
         Run these pending tasks before any other (#169, #163): see
@@ -229,6 +238,7 @@ def register(app: FastAPI):
             return failed(e, "Queue run next error")
 
     @app.post("/model-manager/queue/cancel")
+    @gate("queue")
     def post_cancel(ids: str = Form(default="")):
         """
         Cancel these pending tasks (#177, #163).
@@ -244,6 +254,7 @@ def register(app: FastAPI):
             return failed(e, "Queue cancel error")
 
     @app.post("/model-manager/queue/retry")
+    @gate("queue")
     def post_retry(ids: str = Form(default=""), seed: str = Form(default="first")):
         """
         Retry these tasks (#161, #163): `seed` is "first", the first run's,
@@ -262,6 +273,7 @@ def register(app: FastAPI):
             return failed(e, "Queue retry error")
 
     @app.post("/model-manager/queue/delete")
+    @gate("queue")
     def post_delete(ids: str = Form(default=""), with_data: bool = Form(default=False)):
         """
         Delete these tasks (#162, #163), and with_data the generations they
@@ -281,6 +293,7 @@ def register(app: FastAPI):
             return failed(e, "Queue delete error")
 
     @app.post("/model-manager/queue/unhide")
+    @gate("queue")
     def post_unhide(ids: str = Form(default="")):
         """
         Show these tasks in History again (#178, #163).
@@ -304,6 +317,7 @@ def register(app: FastAPI):
             return failed(e, "Queue unhide error")
 
     @app.post("/model-manager/queue/history/clear")
+    @gate("queue")
     def clear_history():
         """Hide every task in History (#164); nothing is deleted. `hidden`: how many."""
         try:

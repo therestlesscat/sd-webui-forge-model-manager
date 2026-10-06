@@ -35,7 +35,7 @@ from .images import PAGE_FETCHES
 # 150, 200 and 201 all came back as 100.
 CIVITAI_IMAGES_PER_REQUEST = 100
 from .prompts import PROMPT_CHECK_WORKERS, inspect_models
-from .common import card_size, failed, streams_status
+from .common import card_size, failed, gate, streams_status
 from ..console import say
 
 # Cached Civitai enums (model types, base models). They change only when
@@ -183,6 +183,7 @@ def register(app: FastAPI):
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
     @app.get("/model-manager/civitai/models")
+    @gate("civitai_browser")
     def civitai_search_models(
         query: str = "",
         types: str = "",          # Comma-separated: Checkpoint,LORA,etc
@@ -250,6 +251,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai search error")
 
     @app.get("/model-manager/civitai/models/stream")
+    @gate("civitai_browser")
     async def civitai_search_models_stream(
         query: str = "",
         types: str = "",
@@ -333,6 +335,7 @@ def register(app: FastAPI):
         )
 
     @app.get("/model-manager/civitai/models/random")
+    @gate("civitai_browser")
     async def civitai_random_models(
         types: str = "",
         base_models: str = "",
@@ -395,6 +398,7 @@ def register(app: FastAPI):
         )
 
     @app.get("/model-manager/civitai/models/{model_id}")
+    @gate("civitai_browser")
     def civitai_get_model(model_id: int):
         """
         Get full model details from Civitai with local ownership status.
@@ -424,6 +428,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai get model error")
 
     @app.get("/model-manager/civitai/versions/{version_id}/images")
+    @gate("civitai_browser")
     @streams_status
     def civitai_get_version_images(
         version_id: int,
@@ -504,6 +509,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai images error")
 
     @app.post("/model-manager/civitai/download")
+    @gate("downloads")
     def civitai_download_model(
         version_id: int = Form(...),
         model_id: Optional[int] = Form(default=None),
@@ -607,6 +613,7 @@ def register(app: FastAPI):
             return failed(e, "Civitai download error")
 
     @app.get("/model-manager/civitai/download/progress")
+    @gate("downloads")
     def civitai_download_progress(version_id: Optional[int] = None):
         """
         Get download progress for one or all downloads.
@@ -639,6 +646,7 @@ def register(app: FastAPI):
             return failed(e, "Download progress error")
 
     @app.post("/model-manager/civitai/download/cancel")
+    @gate("downloads")
     def civitai_cancel_download(version_id: int = Form(default=0)):
         """
         Cancel a download. If version_id=0, cancels all downloads.
@@ -665,6 +673,7 @@ def register(app: FastAPI):
             return failed(e, "Cancel download error")
 
     @app.post("/model-manager/civitai/download/control")
+    @gate("downloads")
     def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
         """
         Steer the downloads: `pause` or `resume` one, `start_now` a waiting
@@ -696,6 +705,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/civitai/download/dismiss")
+    @gate("downloads")
     def civitai_dismiss_download(version_id: int = Form(default=0)):
         """
         Forget a finished download, so the downloads list stops showing it -
@@ -713,6 +723,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/civitai/tags")
+    @gate("civitai_browser")
     def civitai_search_tags(
         query: str = "",
         limit: int = 20,
@@ -759,6 +770,7 @@ def register(app: FastAPI):
             )
 
     @app.get("/model-manager/civitai/enums")
+    @gate("civitai_browser")
     def civitai_enums():
         """
         Model types and base models Civitai currently accepts as filters.

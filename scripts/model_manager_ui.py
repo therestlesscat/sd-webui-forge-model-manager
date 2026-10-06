@@ -16,8 +16,8 @@ Reload UI, which stamps them again.
 from modules import script_callbacks
 
 from model_manager import api
-from model_manager.generations import generations_enabled
-from model_manager.scheduler import capture, queue_enabled
+from model_manager.scheduler import capture
+from model_manager.tabs import mark_built, on
 from model_manager.ui import (
     create_civitai_browser_ui,
     create_generations_ui,
@@ -32,14 +32,21 @@ from model_manager.console import say
 def create_all_tabs():
     """
     Create all Model Manager tabs: the Queue first, then Generations, before
-    the Model Manager - each unless its switch is off, when it is not created
-    at all.
+    the Model Manager - each unless its switch is off (model_manager/tabs.py),
+    when it is not created at all. What was created is kept, for the page.
     """
-    tabs = [(create_queue_ui(), "Queue", "queue_tab")] if queue_enabled() else []
-    tabs += [(create_generations_ui(), "Generations", "generations_tab")] if generations_enabled() else []
-    tabs += create_ui()
-    civitai_tab = create_civitai_browser_ui()
-    tabs.append((civitai_tab, "Civitai Browser", "civitai_browser_tab"))
+    builds = (
+        ("queue", lambda: [(create_queue_ui(), "Queue", "queue_tab")]),
+        ("generations", lambda: [(create_generations_ui(), "Generations", "generations_tab")]),
+        ("model_manager", create_ui),
+        ("civitai_browser", lambda: [(create_civitai_browser_ui(), "Civitai Browser", "civitai_browser_tab")]),
+    )
+    tabs, built = [], []
+    for name, build in builds:
+        if on(name):
+            tabs += build()
+            built.append(name)
+    mark_built(built)
     return tabs
 
 

@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
+from .common import gate
 
 SECTION_ID = "model_manager"
 SECRET = "model_manager_civitai_api_key"
@@ -269,6 +270,7 @@ def _saved_search_key(tab: str) -> str:
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.get("/model-manager/saved-search")
+    @gate("saved_search")
     def get_saved_search(tab: str = ""):
         """A tab's saved search: `filters`, or null when none is saved."""
         if tab not in SAVED_SEARCH_TABS:
@@ -282,6 +284,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True, "filters": filters if isinstance(filters, dict) else None})
 
     @app.post("/model-manager/saved-search")
+    @gate("saved_search")
     def set_saved_search(body: Dict[str, Any] = Body(...)):
         """Save a tab's search - {tab, filters} - or forget it, with filters null."""
         tab = body.get("tab")
@@ -298,6 +301,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True})
 
     @app.get("/model-manager/settings")
+    @gate("any")
     def get_settings():
         """Every Model Manager setting: its value, default, label and bounds."""
         try:
@@ -306,6 +310,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/settings/folder-example")
+    @gate("any")
     async def get_folder_example(template: str = ""):
         """Where the sample model would be filed under a folder template."""
         try:
@@ -314,6 +319,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/settings/modules")
+    @gate("any")
     def get_modules_table(drafts: str = ""):
         """
         Each preset's text encoders and VAE: what is installed, what would be
@@ -327,6 +333,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.post("/model-manager/settings/test-key")
+    @gate("any")
     def post_test_key(key: Optional[str] = Body(None, embed=True)):
         """
         Ask Civitai whether a key works. A plain `def`: it waits on Civitai.
@@ -338,6 +345,7 @@ def register(app: FastAPI):
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/settings/nsfw-levels")
+    @gate("any")
     async def get_nsfw_levels():
         """How far judging the stored images again has got, after a change
         to how they are judged. See prompt_levels.progress()."""
@@ -345,6 +353,7 @@ def register(app: FastAPI):
         return JSONResponse({"success": True, **progress()})
 
     @app.post("/model-manager/settings")
+    @gate("any")
     def save_settings(values: Dict[str, Any] = Body(..., embed=True)):
         """Save the settings given, all or none; answers what they are now."""
         try:

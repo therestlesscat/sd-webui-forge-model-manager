@@ -19,7 +19,7 @@ from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..gallery import filter_images, gallery_page_size
-from .common import failed, streams_status
+from .common import failed, gate, streams_status
 from ..console import say
 
 # How many batches of 100 "Download More Images" asks Civitai for, at most,
@@ -256,6 +256,7 @@ def register(app: FastAPI):
     on a worker thread instead. tests/py/loop_test.py holds this in place.
     """
     @app.get("/model-manager/images/gallery-page")
+    @gate("model_manager")
     @streams_status
     def get_gallery_page(version_id: int, page: int = 1,
                          hide_nsfw_images: Optional[bool] = None,
@@ -280,6 +281,7 @@ def register(app: FastAPI):
             return failed(e, "Gallery page error")
 
     @app.get("/model-manager/video-still")
+    @gate("any")
     def video_still(url: str = ""):
         """
         A video card's still, checked: a redirect to Civitai's still when it

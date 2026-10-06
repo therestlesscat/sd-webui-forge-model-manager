@@ -45,6 +45,7 @@ def setup_api(app: FastAPI):
 
 def on_app_started(demo, app):
     setup_api(app)
+    # Each of these is left out while the tabs it serves are off (tabs.py).
     # Stored image levels, redone if the NSFW prompt words changed.
     prompt_levels.start_in_background()
     # Whether a newer version is out: now, then every 12 hours.

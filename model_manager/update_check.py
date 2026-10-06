@@ -25,6 +25,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from .forge_host import setting
 from .version import REPOSITORY, VERSION, _git
 from .console import say
+from .tabs import ANY, on
 
 SETTING = "model_manager_check_updates"
 INTERVAL = 12 * 60 * 60
@@ -50,7 +51,8 @@ def is_newer(latest, current=VERSION) -> bool:
 
 
 def enabled() -> bool:
-    return bool(setting(SETTING))
+    # With every tab off (tabs.py) there is no header to say it in.
+    return bool(setting(SETTING)) and on(ANY)
 
 
 def branches() -> List[str]:
@@ -127,8 +129,11 @@ def _loop():
 
 
 def start_in_background() -> None:
-    """The 12-hourly check, once per process - Forge can import this module again."""
-    if any(t.name == THREAD_NAME for t in threading.enumerate()):
+    """
+    The 12-hourly check, once per process - Forge can import this module
+    again. Not with every tab off (tabs.py): turning one on takes a restart.
+    """
+    if not on(ANY) or any(t.name == THREAD_NAME for t in threading.enumerate()):
         return
     threading.Thread(target=_loop, name=THREAD_NAME, daemon=True).start()
 

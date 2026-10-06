@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional
 from .jobs import jobs
 from .nsfw import generated_level, prompt_words_fingerprint
 from .console import say
+from .tabs import on
 
 FINGERPRINT_KEY = "nsfw_prompt_words"
 KIND = "restamp"
@@ -152,6 +153,10 @@ def start_in_background() -> None:
     """
     A pass, as one of the long jobs, so neither the WebUI's start nor a
     settings save waits for it. Asked again while one runs, it runs once more
-    afterwards, with the words as they are then.
+    afterwards, with the words as they are then. None while every tab that
+    shows stored images is off (tabs.py): the fingerprint stays, and the
+    first start with one on runs the pass.
     """
+    if not on("restamp"):
+        return
     jobs.start(KIND, Restamp, lambda restamp: restamp.run(), again=True)

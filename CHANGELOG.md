@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.51 - Turn off each tab
+
+*6 October 2026*
+
+Each of the extension's tabs can be turned off, and one that is off does nothing at all: it is not created, its code does not run, its requests are refused, and the other tabs stop pointing to it. What the tabs share - downloads, Send to txt2img - stays on while any tab that uses it is.
+
+- **0.51.0** (build 395) - One place now decides which tabs are on. A tab switched off - the Queue, or Your generations - has every request of its own refused, and what it would start in the background is not started: with the Queue off, the tasks a restart left running are marked stopped at the first start with it on.
+
 ## 0.50 - A queue for your generations
 
 *5 October 2026*
