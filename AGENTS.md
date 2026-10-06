@@ -883,6 +883,14 @@ waits - are in `tests/README.md`.
 - **A visual claim is measured, not eyeballed** - the owner's screenshot, pixel
   by pixel. "Cancel looks taller" measured 36 px against 36 px: the disabled
   Sync beside it, at opacity 0.6, read as the smaller.
+- **Old code and new, side by side on the live page, with nothing written.**
+  Playwright's `page.route` serves a file of our own to the test browser
+  alone - HEAD's from `git archive HEAD javascript`, or the working tree's
+  past a stale copy - while the WebUI, its database and the owner's browser
+  stay as they are; no Reload UI. With `page.addInitScript`, a probe runs
+  before the page's scripts and watches what they cannot: #128's click
+  reaching the document from a detached button, its markup drawn after
+  `init()`. Run each side several times: a race shows in some loads only.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.
