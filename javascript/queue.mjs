@@ -203,8 +203,13 @@ function drawStatus(answer, forge = null) {
     setShown(byId('queue_message'), Boolean(message));
     const running = Boolean(answer?.running);
     setDisabled(byId('queue_start'), running || !answer?.counts?.pending);
-    setShown(byId('queue_pause'), running && state === 'running');
-    setShown(byId('queue_resume'), running && (state === 'paused' || state === 'pausing'));
+    // Pausing, the running task still runs: Pause says so, and Resume waits
+    // until nothing does - offered at once, it read as though it had stopped.
+    const pausing = state === 'pausing';
+    setShown(byId('queue_pause'), running && (state === 'running' || pausing));
+    setText(byId('queue_pause'), pausing ? STATES.pausing : 'Pause');
+    setDisabled(byId('queue_pause'), pausing);
+    setShown(byId('queue_resume'), running && state === 'paused');
     setDisabled(byId('queue_stop'), !running || state === 'stopping');
 }
 

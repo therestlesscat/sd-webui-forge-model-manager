@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
 
+- **0.50.10** (build 386) - Pause says "Pausing…" while the running task finishes, and offers Resume only once the queue has paused.
 - **0.50.9** (build 385) - The running task in the Queue tab has a bar along its row, showing how far along it is.
 - **0.50.8** (build 384) - The queue can be turned off, as Your generations can: in the settings window's new Queue section, or Settings -> Model Manager. Off, the Queue tab and the Queue buttons are hidden at once, and a running queue stops. The tasks are kept.
 - **0.50.7** (build 383) - Queued tasks can be retried, with the first run's seed or a random one, and deleted, with the images they made or without. Select ticks several at once. Clear history hides the ended tasks.

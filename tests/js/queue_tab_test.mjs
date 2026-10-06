@@ -384,11 +384,19 @@ check('Pause, Resume and Stop ask the queue', posted,
       ['/model-manager/queue/pause', '/model-manager/queue/resume', '/model-manager/queue/stop']);
 
 // ------------------------------------------------------- what it is doing
+const pause = () => [button('pause').hidden, button('pause').disabled, button('pause').textContent.trim()];
+STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'pausing' } };
+await waitFor('pausing', () => text('queue_state') === 'Pausing…');
+check('pausing, the task still runs: Pause says so, disabled; Resume is not offered yet',
+      [...pause(), button('resume').hidden], [false, true, 'Pausing…', true]);
 STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'paused', notes: ['ControlNet: 0: could not be restored; its default was used'] } };
 await waitFor('paused', () => text('queue_state') === 'Paused');
 check('paused: Resume is offered, Pause is not', [button('pause').hidden, button('resume').hidden], [true, false]);
 check('inputs a task ran at their defaults are said', text('queue_message'),
       'Task #16: ControlNet: 0: could not be restored; its default was used');
+STATUS = { ...STATUS, progress: { ...STATUS.progress, state: 'running' } };
+await waitFor('running again', () => text('queue_state') === 'Running');
+check('resumed: Pause is back as it was', [...pause(), button('resume').hidden], [false, false, 'Pause', true]);
 STATUS = { success: true, running: false, counts: { pending: 0, running: 0, completed: 4, stopped: 0, failed: 1 },
            progress: { state: 'stopped', task_id: null, job: null, notes: [], error: null } };
 await waitFor('stopped', () => text('queue_state') === 'Stopped');
