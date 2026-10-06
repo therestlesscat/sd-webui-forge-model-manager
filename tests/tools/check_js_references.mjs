@@ -262,6 +262,39 @@ for (const [f, src] of sources) {
     }
 }
 
+// --- 3b. tabs reach each other through the loading module -------------------
+// A tab called another's actions by name - Show in Model Manager was
+// call('modelManager.showModel') - and checked ready() its own way, and drew
+// its link whether that tab was there or not (#184). Now it asks the loading
+// module (shared/loading.mjs): available(tab), and open(tab, entry). So no
+// tab's script, and no shared module but the loading module and tabs.mjs,
+// names another tab's area in call, ready, provide, showTab, tabButton or
+// tabShowing - nor imports another tab's script.
+const TAB_AREAS = { model_manager: 'modelManager', civitai_browser: 'civitaiBrowser', generations: 'generations',
+                    queue: 'queue' };
+const AREA_NAMES = new Set(Object.values(TAB_AREAS));
+for (const [f, src] of sources) {
+    const where = f.replace(ROOT, '');
+    const tab = where.match(/^\/tabs\/(\w+)\.mjs$/)?.[1];
+    if (!tab && !where.startsWith('/shared/')) continue;
+    if (where === '/shared/loading.mjs' || where === '/shared/tabs.mjs') continue;
+    const own = tab ? TAB_AREAS[tab] : null;
+    const reached = new Set();
+    for (const m of src.matchAll(/\b(call|ready|provide|showTab|tabButton|tabShowing)\(\s*([^)]*)/g)) {
+        for (const q of m[2].matchAll(/['"`](\w+)(?:\.\w+)?['"`]/g)) {
+            if (AREA_NAMES.has(q[1]) && q[1] !== own) reached.add(`${m[1]}('${q[1]}…')`);
+        }
+    }
+    for (const m of src.matchAll(/tabs\/(\w+)\.mjs/g)) {
+        if (TAB_AREAS[m[1]] && TAB_AREAS[m[1]] !== own) reached.add(`imports tabs/${m[1]}.mjs`);
+    }
+    if (reached.size) {
+        console.log(`FAIL ${where}: reaches another tab directly - ${[...reached].join(', ')}`
+                    + ' - ask the loading module: available(tab), open(tab, entry)');
+        failures += reached.size;
+    }
+}
+
 // --- 4. markup names what it does ------------------------------------------
 // Markup said what a click did in JavaScript - onclick="window.mmSelectModel(3)"
 // - a window global named in a string, in the modules' templates and in the

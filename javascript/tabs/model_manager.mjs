@@ -26,7 +26,7 @@ const {
 } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
-const { tabWork, generationsEnabled } = await shared('loading.mjs');
+const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath,
 } = await shared('ui_options.mjs');
@@ -54,7 +54,7 @@ const {
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
 } = await shared('downloads.mjs');
-const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount } = await shared('jobs.mjs');
+const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount, showSyncDialog } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
 const { sendInfotext, sendTab, sendGalleryImage, cannotSend } = await shared('send.mjs');
@@ -2853,7 +2853,6 @@ async function showModel(query) {
         setStatus(`Nothing found for "${what}". It may not be downloaded, or the database needs a refresh.`, true);
     }
 }
-work.provide('modelManager.showModel', showModel);
 
 /**
  * Show one model file here, from another tab: this tab, the file's model,
@@ -2867,7 +2866,6 @@ async function showFile(path) {
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
     if (wanted >= 0) await selectVersion(wanted);
 }
-work.provide('modelManager.showFile', showFile);
 
 /**
  * Show one version here, from another tab, by its id - this tab, its model,
@@ -2883,7 +2881,13 @@ async function showVersion(versionId, path) {
     const file = files.find((v) => path && (v.file_path || '').toLowerCase() === path.toLowerCase()) || files[0];
     if (file) await selectVersion(currentVersions.indexOf(file));
 }
-work.provide('modelManager.showVersion', showVersion);
+
+/**
+ * What the other tabs may open this one at, through the loading module
+ * (open, #184): a model, a file, a version - and the sync's dialog, which a
+ * note's Sync opens from any tab.
+ */
+export const entries = { showModel, showFile, showVersion, showSyncDialog: (options) => showSyncDialog(options) };
 
 /**
  * The Information table's first row. The button works out which version to
@@ -2892,8 +2896,8 @@ work.provide('modelManager.showVersion', showVersion);
  */
 function showInCivitaiRow() {
     return `<tr class="mm-show-in-cb-row"><td colspan="2">`
-        + `<button class="mm-btn secondary mm-btn-small" data-action="modelManager.showInCivitaiBrowser" `
-        + `title="Open this version in the Civitai Browser tab">Show in Civitai Browser</button></td></tr>`;
+        + `<button class="mm-btn secondary mm-btn-small" data-action="modelManager.showInCivitaiBrowser"`
+        + `${linkTo('civitaiBrowser', 'Open this version in the Civitai Browser tab')}>Show in Civitai Browser</button></td></tr>`;
 }
 
 /** The query that shows the version on screen in the Civitai Browser. */
@@ -2909,14 +2913,9 @@ function showInCivitaiBrowser() {
     openInCivitaiBrowser(civitaiBrowserQuery());
 }
 
-/** "model:<id> version:<id>" in the Civitai Browser tab, which shows itself. */
-function openInCivitaiBrowser(query) {
-    if (!query) return;
-    if (!ready('civitaiBrowser.showModel')) {
-        setStatus('Civitai Browser tab has not initialised yet - open it once and try again.', true);
-        return;
-    }
-    call('civitaiBrowser.showModel', query);
+/** "model:<id> version:<id>" in the Civitai Browser tab, through the loading module (#184). */
+async function openInCivitaiBrowser(query) {
+    if (query) await open('civitaiBrowser', 'showModel', query);
 }
 
 function closeDetails() {

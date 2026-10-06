@@ -212,10 +212,11 @@ STATUS = { ...STATUS, counts: { ...STATUS.counts, stopped: 0 } };
 await waitFor('History as it was', () => rows('history').map((r) => r.dataset.task).join() === '15,14,13');
 
 // ------------------------------------------------------- Show images
-const shownTasks = [];
-(await sharedModule('calls.mjs')).provide('generations.showTask', (taskId) => shownTasks.push(taskId));
-if (row(14).querySelector('[data-action="queue.showImages"]')) await act('queue.showImages', { task: 14 });
-check('Show images opens the Generations tab on the task', shownTasks, [14]);
+// The Generations tab is not started here: the button says why (#184). That
+// it opens the tab on the task: tab_links_test.mjs.
+const showImages = row(14).querySelector('[data-action="queue.showImages"]');
+check('Show images, without the Generations tab: disabled, saying why',
+      [showImages?.disabled, showImages?.title], [true, 'Your generations has not started yet']);
 
 // --------------------------------------------------------------- details
 act('queue.details', { task: 14 });

@@ -4,7 +4,7 @@
 // its details both pin it - a Civitai model by its id, a file Civitai does
 // not know by its path - and show it pinned where it is, without moving it
 // from under the pointer; the tabs' counts follow at once.
-import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages, openTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page first: the registry listens to it when it loads.
@@ -125,7 +125,7 @@ check('an empty Pinned tab says how to pin',
 tabs = { pinned: [PINNED], others: [LOCAL] };
 click(tab('others'));
 await waitFor('Unpinned', () => names()[0] === 'Local only');
-await call('modelManager.showModel', 'Pinned already');
+await openTab('modelManager', 'showModel', 'Pinned already');
 check('a model shown from elsewhere is found in the Pinned tab if it is pinned, and opened',
       [tab('pinned').classList.contains('active'), names(), !!document.querySelector('#mm_details .detail-header')],
       [true, ['Pinned already'], true]);

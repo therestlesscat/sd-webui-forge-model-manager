@@ -8,7 +8,7 @@
 // Civitai Browser's information and Download, and its download is followed in
 // the downloads panel both tabs share; once it is in the library, it is shown
 // as a local version.
-import { ROOT, act, checker, choose, mountTab, press, startTab } from './harness.mjs';
+import { ROOT, act, checker, choose, mountTab, press, startTab, openTab, tabEntries, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page first: the registry listens to it when it loads.
@@ -85,9 +85,12 @@ const pill = (name) => pills().find((p) => p.textContent.trim().startsWith(name)
 const row = (label) => Array.from(details().querySelectorAll('.detail-table tr'))
     .find((tr) => tr.querySelector('td')?.textContent.trim() === label)?.querySelectorAll('td')[1]?.textContent.trim();
 
-// "Show in Civitai Browser" hands the Civitai Browser a query; stand in for it.
+// "Show in Civitai Browser" hands the Civitai Browser a query, through the
+// loading module (#184): the Browser, started beside this tab, watched at its entry.
+document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_civitai_browser.py'));
+await startTab('civitaiBrowser');
 const shownInBrowser = [];
-provide('civitaiBrowser.showModel', async (query) => { shownInBrowser.push(query); });
+(await tabEntries('civitai_browser.mjs')).showModel = async (query) => { shownInBrowser.push(query); };
 const showInBrowser = async () => {
     const buttons = details().querySelectorAll('button[data-action="modelManager.showInCivitaiBrowser"]');
     click(buttons[0]);
@@ -226,12 +229,12 @@ globalThis.fetch = async (url, init) => {
 };
 await click(pill('v1'));
 check('   (v1 shown first, so the file has to be found)', active(), ['v1 ✓']);
-await call('modelManager.showFile', 'C:/models/v3.safetensors');
+await openTab('modelManager', 'showFile', 'C:/models/v3.safetensors');
 check('10. a file shown from another tab is looked up by its exact path, and its own version opened',
       [searched.at(-1), active(), detailsAsked.at(-1)], ['path:C:/models/v3.safetensors', ['v3 ✓'], 'C:/models/v3.safetensors']);
 // By its version, as the Generations tab now asks (#42): no path passed about.
 await click(pill('v1'));
-await call('modelManager.showVersion', 503);
+await openTab('modelManager', 'showVersion', 503);
 check('11. a version shown from another tab is looked up by its id, and opened',
       [searched.at(-1), active()], ['version:503', ['v3 ✓']]);
 globalThis.fetch = realFetch;
@@ -292,7 +295,7 @@ check('    nothing in it to pick', details().querySelectorAll('.mm-files-slot .m
 check('    and the Information table says nothing of one file',
       Array.from(details().querySelectorAll('.mm-file-fact')).map((tr) => tr.style.display), ['none', 'none', 'none']);
 await click(pill('v1'));
-await call('modelManager.showVersion', 501, 'C:/forge/models/Lora/v1_fp32.safetensors');
+await openTab('modelManager', 'showVersion', 501, 'C:/forge/models/Lora/v1_fp32.safetensors');
 check('14. a version shown from another tab opens the file it names', detailsAsked.at(-1),
       'C:/forge/models/Lora/v1_fp32.safetensors');
 

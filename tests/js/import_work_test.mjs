@@ -69,7 +69,7 @@ const STARTED = {
     'media.mjs': ['document listener: error'],
     // The tabs' switches are the loading module's (#183): it follows them.
     'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate'],
-    'jobs.mjs': ['document listener: visibilitychange', 'provide sync.showDialog'],
+    'jobs.mjs': ['document listener: visibilitychange'],
     'notes.mjs': ['document listener: click', 'onAfterUiUpdate'],
     'settings.mjs': ['document listener: click', 'fetch /model-manager/settings/nsfw-levels',
                      'provide settings.open'],

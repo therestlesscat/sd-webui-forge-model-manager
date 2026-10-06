@@ -166,12 +166,12 @@ the sync's module, and the Queue alone asked for the sync's progress
 
 | | |
 |---|---|
-| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`) |
+| `loading` | the loading module (#183): which tabs run - `boot()` loads only the tabs that are on and built, and follows their switches - and each tab's scope, which takes back all it added when it stops (`createScope`); what a tab's script declares to do once started (`tabWork`); and the only way between tabs (#184) - `available(tab)`, `open(tab, entry)` at what a tab's script `entries` offers, `linkTo` for a link to one |
 | `calls` | what one part of the page offers the rest, by name: `provide`, `ready`, `call`, `withdraw`; and the page's one listener calling what markup names in `data-action` |
 | `tabs` | the WebUI's tabs by id: `showTab` (resolves once Gradio shows it), `tabButton`, `tabShowing` |
 | `core` | what every part uses: `TIMING`, `apiCall`, `escapeHtml` (the one escape), `dataAttributes` (what an action reads), `holdPage` (the page held still while the viewer, a dialog or the settings window is open over it - the one place that sets `mm-modal-open`), `setText` / `setTitle`, `safeId` / `safeUrl`, `sanitizeHtml`; numbers, sizes and dates as a person reads them |
 | `ui_options` | the server's ui-options, asked once a page: the API-key banner, which judges NSFW, how a gallery opens, whether your generations are shown |
-| `notes` | notes to the user, at the top of each tab; a button is drawn only while what it opens is offered |
+| `notes` | notes to the user, at the top of each tab; a button is drawn only while what it opens is there - a Sync, while the Model Manager is available |
 | `jobs` | the long job, Sync with Civitai: its dialog, starting, following and cancelling one, and finding one still running; the Model Manager connects it to its status line and grid (`connectJobs`), a note's button opens its dialog by name (`sync.showDialog`, offered once the Model Manager starts it) |
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
@@ -438,15 +438,27 @@ up.
 
 ### The page
 
-**Calls between files go through `shared/calls.mjs`.** A tab that offers
-something to the others - the Model Manager's `modelManager.showModel`, the
-settings window's `settings.open`, a tab's `cardPreview.<setting key>` -
-provides it by name; the others `call` it, and ask `ready` first where they
-tell the user that tab has not loaded. They reached each other through window
-globals (`window.mmShowModel`), and a caller found out what was missing its
-own way, or not at all. `check_js_references.mjs` fails on a file that reads
-another's window global, and on a call to a name nothing provides. Events
-stay window events (`mm-settings-saved` and the others named `mm-`).
+**Calls between files go through `shared/calls.mjs`.** A shared module that
+offers something to the page - the settings window's `settings.open`, a
+tab's `cardPreview.<setting key>` - provides it by name; the others `call`
+it. They reached each other through window globals (`window.mmShowModel`),
+and a caller found out what was missing its own way, or not at all.
+`check_js_references.mjs` fails on a file that reads another's window
+global, and on a call to a name nothing provides. Events stay window events
+(`mm-settings-saved` and the others named `mm-`).
+
+**A tab reaches another only through the loading module** (#184):
+`available(tab)` - on, and started in this page - and `open(tab, entry,
+...)`, which shows it and calls one of what its script `entries` offers
+(the Model Manager's `showModel`, `showFile`, `showVersion`,
+`showSyncDialog`). Tabs called each other's actions by name, each checking
+`ready()` its own way, and drew a link whether its tab was there or not. A
+link to another tab is disabled, saying why, while that tab is not
+available - `linkTo(tab, title)` draws it so, and the loading module keeps
+every `data-needs-tab` element so after each update. `check_js_references.mjs`
+fails on a tab, or a shared module but the loading module and `tabs.mjs`,
+naming another tab's area in `call`, `ready`, `provide`, `showTab`,
+`tabButton` or `tabShowing`, or importing its script.
 
 **Markup names what it does, the same way** (#95):
 `data-action="modelManager.selectModel"`, with what it needs in `data-*`,

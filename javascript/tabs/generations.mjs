@@ -36,7 +36,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
-const { tabWork } = await shared('loading.mjs');
+const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext } = await shared('send.mjs');
 const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
@@ -971,7 +971,8 @@ function menuFor(subject) {
     if (checkpoint) {
         items.push(showItem('Show model in Model Manager', checkpoint));
         if (checkpoint.model_id) {
-            items.push({ label: 'Show model in Civitai Browser', run: () => showOnCivitai(checkpoint) });
+            items.push(toTab('civitaiBrowser', { label: 'Show model in Civitai Browser',
+                                                  run: () => showOnCivitai(checkpoint) }));
         }
     }
     for (const lora of subject?.loras || []) items.push(showItem(`Show LoRA ${lora.name} in Model Manager`, lora));
@@ -980,8 +981,13 @@ function menuFor(subject) {
 
 function showItem(label, file) {
     return file.in_library
-        ? { label, run: () => showModel(file) }
+        ? toTab('modelManager', { label, run: () => showModel(file) })
         : { label, disabled: true, title: `${file.name} is not in the library: deleted, moved, or never scanned` };
+}
+
+/** An item opening another tab: greyed, saying why, while that tab is not available (#184). */
+function toTab(name, item) {
+    return available(name) ? item : { label: item.label, disabled: true, title: unavailableReason(name) };
 }
 
 function openTileMenu(index, button) {
@@ -1014,7 +1020,12 @@ function openMenu(anchor, items) {
     const away = (event) => {
         if (!element.contains(event.target)) closeMenu();
     };
-    tabScope.later(() => tabScope.listen(document, 'click', away, true), 0);
+    // A moment later, so the click that opened it does not close it - and only
+    // while it is still open: an item clicked at once had closed it, and its
+    // listener stayed, closing the next menu at a click inside it (#184).
+    tabScope.later(() => {
+        if (menu?.away === away) tabScope.listen(document, 'click', away, true);
+    }, 0);
     menu = { element, away };
 }
 
@@ -1026,26 +1037,20 @@ function closeMenu() {
     return true;
 }
 
-/** This model, in the Model Manager tab: by its version, or by its file where Civitai does not know it. */
+/**
+ * This model, in the Model Manager tab - by its version, or by its file where
+ * Civitai does not know it - through the loading module (#184).
+ */
 function showModel(file) {
     closeViewer();
-    const byVersion = Boolean(file.version_id);
-    if (!ready(byVersion ? 'modelManager.showVersion' : 'modelManager.showFile')) {
-        setStatus('The Model Manager tab has not started yet: open it once and try again.');
-        return;
-    }
-    if (byVersion) call('modelManager.showVersion', file.version_id, file.path);
-    else call('modelManager.showFile', file.path);
+    return file.version_id ? open('modelManager', 'showVersion', file.version_id, file.path)
+        : open('modelManager', 'showFile', file.path);
 }
 
-/** Its model and version in the Civitai Browser tab, which shows itself. */
+/** Its model and version in the Civitai Browser tab, through the loading module (#184). */
 function showOnCivitai(file) {
     closeViewer();
-    if (!ready('civitaiBrowser.showModel')) {
-        setStatus('The Civitai Browser tab has not started yet: open it once and try again.');
-        return;
-    }
-    call('civitaiBrowser.showModel', file.version_id ? `model:${file.model_id} version:${file.version_id}`
+    return open('civitaiBrowser', 'showModel', file.version_id ? `model:${file.model_id} version:${file.version_id}`
         : `model:${file.model_id}`);
 }
 
@@ -1382,8 +1387,9 @@ work.provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
 work.provide('generations.groupBy', (value) => setGroupBy(value));
 work.provide('generations.loadMore', () => loadNext());
 work.provide('generations.spanFor', spanFor);
-// The Queue's Show images: a task's images, here.
-work.provide('generations.showTask', (taskId) => showTask(taskId));
+// What the other tabs may open this one at, through the loading module
+// (open, #184): the Queue's Show images, a task's images, here.
+export const entries = { showTask };
 
 /**
  * Started by the loading module once Gradio has drawn the tab (#183) - which

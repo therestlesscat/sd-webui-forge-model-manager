@@ -9,7 +9,7 @@
 // files only when asked. Each tile says when it was made, in its corner. The
 // grid loads on as it is scrolled; only the NSFW switch applies.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, call, checker, mountTab, startTab, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab, tabEntries, tabMarkup, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 // The page first: the registry listens to it when it loads.
@@ -163,11 +163,15 @@ for (const mode of ['txt2img', 'img2img']) {
         sent.push({ infotext: document.querySelector(`#${mode}_prompt textarea`).value, mode });
     });
 }
-// The Model Manager's showing a file, which this tab calls.
+// The Model Manager, started beside this tab: what this tab opens it at, through
+// the loading module (#184), watched at its entries.
+document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_model_manager.py'));
+await startTab('modelManager');
+const managerAt = await tabEntries('model_manager.mjs');
 const shownFiles = [];
-provide('modelManager.showFile', (path) => { shownFiles.push(path); });
+managerAt.showFile = (path) => { shownFiles.push(path); };
 const shownVersions = [];
-provide('modelManager.showVersion', (id) => { shownVersions.push(id); });
+managerAt.showVersion = (id) => { shownVersions.push(id); };
 const civitaiAsked = [];
 
 // This DOM has no layout: the end of the grid is put where the test says,
@@ -201,7 +205,8 @@ const tileEls = () => Array.from(grid().querySelectorAll('.gen-tile'));
 const tileIds = () => tileEls().map((t) => `${t.getAttribute('data-generation')}`
     + `${t.classList.contains('gen-grouping') ? 'G' : t.classList.contains('gen-group') ? 'g' : ''}`);
 const pathText = () => (document.getElementById('gen_path')?.textContent || '').replace(/\s+/g, ' ').trim();
-const click = (el) => el.dispatchEvent(new window.Event('click', { bubbles: true }));
+// Nothing to click is nothing clicked: a menu that did not open fails its check, not the suite.
+const click = (el) => el?.dispatchEvent(new window.Event('click', { bubbles: true }));
 // The question showing - not the hidden dialog put in the page above.
 const dialog = () => Array.from(document.querySelectorAll('.mm-dialog-backdrop'))
     .filter((d) => d.style.display !== 'none').pop() || null;
@@ -269,30 +274,38 @@ check('its NSFW badge moved to the left, out of ⋯\'s way: the tab\'s styleshee
 act('generations.menu', { tile: 0 });
 const items = () => Array.from(menuEl()?.querySelectorAll('button') || []).map((b) => [b.textContent.trim(), b.disabled]);
 check('⋯ opens a menu: the model in the Model Manager and the Civitai Browser, then each LoRA - '
-      + 'one the library no longer has greyed',
-      items(), [['Show model in Model Manager', false], ['Show model in Civitai Browser', false],
+      + 'one the library no longer has greyed, and the Civitai Browser while it has not started',
+      items(), [['Show model in Model Manager', false], ['Show model in Civitai Browser', true],
                 ['Show LoRA detail in Model Manager', false], ['Show LoRA gone in Model Manager', true]]);
-check('the greyed one says why', menuEl().querySelectorAll('button')[3].getAttribute('title'),
+check('the greyed one says why', menuEl()?.querySelectorAll('button')[3]?.getAttribute('title'),
       'gone is not in the library: deleted, moved, or never scanned');
-click(menuEl().querySelectorAll('button')[3]);
+click(menuEl()?.querySelectorAll('button')[3]);
 check('and does nothing', [menuEl() !== null, shownVersions, shownFiles], [true, [], []]);
 key('Escape');
 check('Esc closes it', menuEl(), null);
 act('generations.menu', { tile: 0 });
-click(menuEl().querySelector('button'));
+click(menuEl()?.querySelector('button'));
+await waitFor('the Model Manager to be asked', () => shownVersions.length);
 check('the model is asked for by its version, not its file', [shownVersions, shownFiles, menuEl()], [[701], [], null]);
-// The Civitai Browser asked directly: not loaded, this tab says so, not the
-// Model Manager's status line in a tab nobody is looking at.
+// A menu an item closed at once leaves nothing behind: its click-away
+// listener, added a moment later, closed the next menu (#184).
 act('generations.menu', { tile: 0 });
-click(menuEl().querySelectorAll('button')[1]);
-check('without the Civitai Browser, this tab says so',
-      document.getElementById('gen_status')?.textContent, 'The Civitai Browser tab has not started yet: open it once and try again.');
-provide('civitaiBrowser.showModel', (query) => { civitaiAsked.push(query); });
+check('a menu closed by its item leaves nothing behind: the next one opens', Boolean(menuEl()), true);
+// Another tab not there: its item greyed, saying why (#184), rather than a
+// click that says so after.
+check('without the Civitai Browser, its item says why',
+      menuEl()?.querySelectorAll('button')[1]?.getAttribute('title'), 'The Civitai Browser tab has not started yet');
+key('Escape');
+document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_civitai_browser.py'));
+await startTab('civitaiBrowser');
+(await tabEntries('civitai_browser.mjs')).showModel = (query) => { civitaiAsked.push(query); };
 act('generations.menu', { tile: 0 });
-click(menuEl().querySelectorAll('button')[1]);
+click(menuEl()?.querySelectorAll('button')[1]);
+await waitFor('the Civitai Browser to be asked', () => civitaiAsked.length);
 check('and in the Civitai Browser by its model and version', civitaiAsked, ['model:70 version:701']);
 act('generations.menu', { tile: 0 });
-click(menuEl().querySelectorAll('button')[2]);
+click(menuEl()?.querySelectorAll('button')[2]);
+await waitFor('the LoRA to be asked for', () => shownVersions.length > 1);
 check('a LoRA by its own version', shownVersions, [701, 801]);
 
 // ---------------------------------------------------------------- the viewer
@@ -314,7 +327,8 @@ check('with its details beside it: its prompts and what was recorded, and a way 
 check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.mm-viewer-actions > button'))
       .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
 click(viewer().querySelector('[data-gen-menu]'));
-click(menuEl().querySelector('button'));
+click(menuEl()?.querySelector('button'));
+await waitFor('the file to be asked for', () => shownFiles.length);
 check('⋯ in the viewer shows the image\'s own checkpoint - one Civitai does not know, by its file - closing the viewer',
       [shownFiles.at(-1), viewer()], [ANIMA_PATH, null]);
 await call('generations.view', { tile: 0 });     // a batch: a click opens it

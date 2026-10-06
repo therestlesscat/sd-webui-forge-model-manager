@@ -45,6 +45,8 @@ check('with a button for each step, and Dismiss',
       ['Open Sync', 'Open Force sync', 'Dismiss']);
 
 click(top().querySelector('[data-note-action="sync"]'));
+// Through the loading module, which shows the Model Manager first (#184).
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
 check('Open Sync opens it as it is - all models, not re-reading every header',
       [document.getElementById('mm_sync_dialog')?.style.display,
        document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
@@ -53,6 +55,7 @@ check('Open Sync opens it as it is - all models, not re-reading every header',
 click(document.getElementById('mm_sync_dialog_cancel'));
 
 click(top().querySelector('[data-note-action="sync_unidentified"]'));
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
 check('Open Force sync opens the sync dialog set to Force sync, on the files Civitai has not identified',
       [document.getElementById('mm_sync_dialog')?.style.display,
        document.querySelector('input[name="mm_sync_scope"]:checked')?.value,

@@ -50,7 +50,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabShowing } = await shared('tabs.mjs');
-const { tabWork, generationsEnabled, queueEnabled } = await shared('loading.mjs');
+const { tabWork, queueEnabled, linkTo, open } = await shared('loading.mjs');
 const { uiOptions, refreshUiOptions } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
@@ -358,13 +358,15 @@ function runNextHtml(task, classes) {
         ${task.ahead ? 'disabled' : ''} title="${task.ahead ? AHEAD_TITLE : RUN_NEXT_TITLE}">Run next</button>`;
 }
 
-/** "Show images (3)": the Generations tab, on what a task's run made - while that tab is there. */
+/**
+ * "Show images (3)": the Generations tab, on what a task's run made - while
+ * that tab is there, else disabled, saying why (#184); and while it made any.
+ */
 function showImagesHtml(task, classes = 'mm-btn secondary mm-btn-small') {
     const n = Number(task.image_count) || 0;
-    const off = !generationsEnabled();
-    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"
-        ${off || !n ? 'disabled' : ''} title="${off ? 'Your generations is off: nothing was recorded to show'
-        : `Open the Generations tab on the ${n} image${n === 1 ? '' : 's'} this task made`}">Show images (${n})</button>`;
+    const title = `Open the Generations tab on the ${n} image${n === 1 ? '' : 's'} this task made`;
+    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"`
+        + `${linkTo('generations', title, { disabled: !n })}>Show images (${n})</button>`;
 }
 
 /** A list's page strip, while it has more than one page. */
@@ -919,11 +921,10 @@ function rowClicked({ task, list }) {
     return showDetails(task);
 }
 
-/** The Generations tab, on a task's images. */
+/** The Generations tab, on a task's images, through the loading module (#184). */
 async function showImages(taskId) {
-    if (!ready('generations.showTask')) return;
     closeMetaModal();
-    await call('generations.showTask', Number(taskId));
+    await open('generations', 'showTask', Number(taskId));
 }
 
 async function load(taskId) {

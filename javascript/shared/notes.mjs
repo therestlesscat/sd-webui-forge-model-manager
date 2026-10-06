@@ -12,19 +12,23 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, once } = await shared('core.mjs');
 const { call, ready } = await shared('calls.mjs');
+const { available, open } = await shared('loading.mjs');
 
 // What a note's button does, by the id its note names - with the action, for
 // the settings section it is about - and what has to be there for it: a
 // button is drawn only while it is. The sync's dialog is the Model
-// Manager's (jobs.mjs), offered once it has started: the notes, in every
-// tab, no longer import it (#182).
+// Manager's, opened through the loading module (#184): the notes, in every
+// tab, do not import it (#182).
 const NOTE_ACTIONS = {
-    reread_headers: { needs: 'sync.showDialog', run: () => call('sync.showDialog', { rereadHeaders: true }) },
+    reread_headers: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog', { rereadHeaders: true }) },
     settings: { needs: 'settings.open', run: (action) => call('settings.open', { section: action.section || null }) },
-    sync: { needs: 'sync.showDialog', run: () => call('sync.showDialog') },
-    sync_unidentified: { needs: 'sync.showDialog', run: () => call('sync.showDialog', { force: 'unidentified' }) },
+    sync: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog') },
+    sync_unidentified: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog', { force: 'unidentified' }) },
 };
-const noteAction = (id) => (NOTE_ACTIONS[id] && ready(NOTE_ACTIONS[id].needs) ? NOTE_ACTIONS[id] : null);
+const noteAction = (id) => {
+    const action = NOTE_ACTIONS[id];
+    return action && (action.tab ? available(action.tab) : ready(action.needs)) ? action : null;
+};
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };
 // On top: a tab's introduction, for someone new; then the important ones,
 // then what needs doing, then warnings, then features - each newest first,

@@ -48,6 +48,26 @@ export async function startTab(name) {
 }
 
 /**
+ * Open a started tab at one of its entries, as another tab does (open in
+ * shared/loading.mjs, #184): its tab shown, then the entry called.
+ */
+export async function openTab(name, entry, ...args) {
+    const { open } = await sharedModule('loading.mjs');
+    return open(name, entry, ...args);
+}
+
+/**
+ * A tab's entries - what the others may open it at - as the loading module
+ * holds them: one replaced here is what open() calls.
+ *
+ * @param {string} file - its script's name in javascript/tabs/: 'civitai_browser.mjs'.
+ */
+export async function tabEntries(file) {
+    const version = (await globalThis.window?.mmSharedVersion) || '';
+    return (await import(`file:///${ROOT}/javascript/tabs/${file}${version}`)).entries;
+}
+
+/**
  * Start the page as loader.mjs does: boot() asks ui-options which tabs are on
  * and built, starts those, and follows their switches as they are saved. A
  * stub's ui-options says which, in `tabs` - tabsAnswer() - else every tab is

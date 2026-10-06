@@ -330,8 +330,8 @@ check('and the modifier is not named after one tab',
 # these only check the two halves are wired to each other's names.
 check('the details table offers the jump, as its first row',
       'data-action="modelManager.showInCivitaiBrowser"' in JS and '${modelId ? showInCivitaiRow() : \'\'}' in JS)
-check('it asks the browser, which finds its own tab by the id it is registered under',
-      "call('civitaiBrowser.showModel', query)" in JS
+check('it asks the browser through the loading module (#184), which finds its tab by the id it is registered under',
+      "open('civitaiBrowser', 'showModel', query)" in JS
       and "'tab_civitai_browser_tab'" in io.open(os.path.join(ROOT, 'javascript/shared/tabs.mjs'), encoding='utf-8').read())
 check('and the browser registers exactly that',
       '"civitai_browser_tab"' in io.open(
@@ -352,7 +352,7 @@ check('it sends the same syntax this tab takes, naming the version shown',
 
 CB_JS_EARLY = io.open(os.path.join(ROOT, 'javascript/tabs/civitai_browser.mjs'),
                       encoding='utf-8').read()
-check('the browser answers to that name', "provide('civitaiBrowser.showModel', showModel)" in CB_JS_EARLY)
+check('the browser answers to that name: an entry the loading module opens', "export const entries = { showModel };" in CB_JS_EARLY)
 check('and still offers the trip the other way',
       "provide('civitaiBrowser.showInModelManager'" in CB_JS_EARLY)
 

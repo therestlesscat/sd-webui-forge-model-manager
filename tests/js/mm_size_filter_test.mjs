@@ -3,7 +3,7 @@
 // what is not a size left out - kept with the saved search and restored with
 // it, and loosened, with every other filter, when a model is jumped to. The
 // server's side: grid_query_test.py, api_test.py.
-import { ROOT, checker, mountTab, startTab } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, openTab } from './harness.mjs';
 const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
@@ -63,7 +63,7 @@ check('Save Search keeps it', [saves.at(-1).filters.min_size, saves.at(-1).filte
 // explicit image, though its file was in the library.
 $('mm_sfw_only').checked = true;
 const before = listed.length;
-await call('modelManager.showModel', 'path:C:\\models\\some model.safetensors');
+await openTab('modelManager', 'showModel', 'path:C:\\models\\some model.safetensors');
 check('jumping to a model loosens it, with every other filter', [$('mm_min_size').value, $('mm_max_size').value],
       ['', '']);
 check('SFW only included', $('mm_sfw_only').checked, false);

@@ -74,6 +74,8 @@ check('its button, Dismiss, and the arrows',
       [['Open Sync', 'Dismiss'], [false, false]]);
 
 click(top().querySelector('[data-note-action]'));
+// Through the loading module, which shows the Model Manager first (#184).
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
 check('which opens the sync dialog with "Read every file\'s header again" ticked, and the move not',
       [document.getElementById('mm_sync_dialog')?.style.display, document.getElementById('mm_sync_reread')?.checked,
        document.getElementById('mm_sync_move')?.checked],

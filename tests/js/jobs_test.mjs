@@ -23,8 +23,8 @@ check('nor keeps their state', ['isSyncing', 'syncPollInterval']
 check('it connects them to its status line and its grid', /connectJobs\(\{/.test(tab), true);
 
 const notes = code('shared/notes.mjs');
-check('the notes open the dialog by name, without importing the jobs\' module',
-      [/call\('sync\.showDialog'/.test(notes), /shared\('jobs\.mjs'\)/.test(notes)],
+check('the notes open the dialog through the loading module, without importing the jobs\' module',
+      [/open\('modelManager', 'showSyncDialog'/.test(notes), /shared\('jobs\.mjs'\)/.test(notes)],
       [true, false]);
 
 let jobs = '';

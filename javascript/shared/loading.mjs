@@ -26,7 +26,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, onReady, once } = await shared('core.mjs');
+const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
 const { provide, withdraw } = await shared('calls.mjs');
 const { showTab, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions, fetchUiOptions } = await shared('ui_options.mjs');
@@ -49,10 +49,16 @@ export const TABS = {
                       elsewhere: 'txt2img', also: [], event: null },
 };
 
+// What a disabled link says each tab is (tabs.py's NAMES).
+const LABELS = { queue: 'The Queue', generations: 'Your generations', modelManager: 'The Model Manager tab',
+                 civitaiBrowser: 'The Civitai Browser tab' };
+
 // Each tab: whether it is on and built, as the server last said - undefined
-// until it has - its running scope, and whether it ran and stopped.
+// until it has - its running scope and script, whether its start() has been
+// called, and whether it ran and stopped.
 const state = Object.fromEntries(Object.keys(TABS).map((name) => [name, { on: undefined, built: undefined,
-                                                                         scope: null, stopped: false }]));
+                                                                         scope: null, module: null,
+                                                                         started: false, stopped: false }]));
 
 /** Whether your generations are shown: false only once the server said so. */
 export function generationsEnabled() {
@@ -62,6 +68,73 @@ export function generationsEnabled() {
 /** Whether the queue is on: false only once the server said so. */
 export function queueEnabled() {
     return state.queue.on !== false;
+}
+
+// ------------------------------------------------------- between tabs
+// A tab reaches another only through here (#184): whether it is available,
+// and open it at one of its entries - what its script offers the others. It
+// called the other's actions by name, after checking ready() its own way,
+// and drew its link whether that tab was there or not.
+
+/** Whether a tab is there for the others: on, and started in this page. */
+export function available(name) {
+    const now = state[name];
+    return Boolean(now && now.on !== false && now.started && now.scope?.live);
+}
+
+/** Why a tab is not available, as a link to it says. */
+export function unavailableReason(name) {
+    const now = state[name];
+    const label = LABELS[name] || name;
+    if (now?.on === false) return `${label} is turned off in the settings`;
+    if (now?.built === false) return `${label} was turned on after the WebUI started: it comes with a restart`;
+    if (now?.stopped) return `${label} was turned off in this page: it comes back with a reload`;
+    return `${label} has not started yet`;
+}
+
+/**
+ * The attributes of a link to another tab: its own title while that tab is
+ * available; else disabled, saying why - as every control that would do
+ * nothing. `disabled`: disabled for a reason of its own as well. The page's
+ * one rule keeps it so as tabs come and go (applyLinks).
+ */
+export function linkTo(name, title, { disabled = false } = {}) {
+    const on = available(name);
+    return ` data-needs-tab="${escapeHtml(name)}" data-title-available="${escapeHtml(title)}"`
+        + `${disabled ? ' data-disabled-own' : ''} title="${escapeHtml(on ? title : unavailableReason(name))}"`
+        + `${on && !disabled ? '' : ' disabled'}`;
+}
+
+/**
+ * Show a tab and open it at one of its entries, with these arguments.
+ * Answers false, doing nothing, when it is not available.
+ */
+export async function open(name, entry, ...args) {
+    if (!available(name)) return false;
+    const fn = state[name].module?.entries?.[entry];
+    if (typeof fn !== 'function') throw new Error(`The ${name} tab offers no ${entry}`);
+    await showTab(name);
+    await fn(...args);
+    return true;
+}
+
+/** Every link to another tab, as that tab is now - writing only what differs: this runs after every update. */
+function applyLinks() {
+    if (typeof document === 'undefined') return;
+    for (const link of document.querySelectorAll('[data-needs-tab]')) {
+        const name = link.dataset.needsTab;
+        const on = available(name);
+        const disabled = !on || 'disabledOwn' in link.dataset;
+        if (link.disabled !== disabled) link.disabled = disabled;
+        const title = on ? (link.dataset.titleAvailable ?? '') : unavailableReason(name);
+        if (link.title !== title) link.title = title;
+    }
+}
+
+/** A tab came or went: its links, and the others told. */
+function changed(name) {
+    applyLinks();
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('mm-tabs-changed', { detail: { tab: name } }));
 }
 
 // ------------------------------------------------------------- the scope
@@ -200,8 +273,11 @@ export async function startTab(name) {
         if (scope.live) console.warn(`[ModelManager] The ${name} tab never appeared; not loading it`);
         return scope;
     }
+    now.module = module;
+    now.started = true;
     Promise.resolve().then(() => module.start(scope))
         .catch((error) => console.error(`[ModelManager] Starting the ${name} tab:`, error));
+    changed(name);
     return scope;
 }
 
@@ -211,13 +287,26 @@ export function stopTab(name) {
     if (!now.scope) return;
     now.scope.stop();
     now.scope = null;
+    now.started = false;
     now.stopped = true;
+    changed(name);
 }
 
 /** Show or hide an element - writing only what differs: this runs after every update. */
 function showElement(element, shown) {
     const display = shown ? '' : 'none';
     if (element && element.style.display !== display) element.style.display = display;
+}
+
+/**
+ * Where the page goes when a tab hides while showing: its own fallback,
+ * unless that one is not there - off, not built, or stopped; one still
+ * starting is, as at the page's load.
+ */
+function fallbackFor(name) {
+    const elsewhere = TABS[name].elsewhere;
+    const there = state[elsewhere];
+    return there && (there.on === false || there.built === false || there.stopped) ? 'txt2img' : elsewhere;
 }
 
 /**
@@ -233,11 +322,12 @@ function apply(name) {
     showElement(tabButton(name), on && !now.stopped);
     const app = typeof gradioApp === 'function' ? gradioApp() : document;
     tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on));
-    if ((!on || now.stopped) && tabShowing(name)) showTab(tab.elsewhere);
+    if ((!on || now.stopped) && tabShowing(name)) showTab(fallbackFor(name));
 }
 
 function applyAll() {
     Object.keys(TABS).forEach(apply);
+    applyLinks();
 }
 
 /** A new answer for one tab: start or stop it, hide or show it, and tell the other tabs. */

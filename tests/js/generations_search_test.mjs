@@ -5,7 +5,7 @@
 // opened before - and the same search goes with every part after, and with
 // a batch's rating. Emptied - by hand, or by the box's × - it shows
 // everything again. Nothing found says so.
-import { ROOT, act, call, checker, mountTab, startTab, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, startTab, tick, openTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -95,7 +95,7 @@ check('emptied, it shows everything again', [browsed[0]?.search, document.queryS
 await call('generations.groupBy', 'prompt');
 await waitFor('grouped again', () => browsed.at(-1)?.group === 'prompt');
 browsed.length = 0;
-await call('generations.showTask', 19);
+await openTab('generations', 'showTask', 19);
 await waitFor('the task asked', () => browsed.length);
 check("Show images searches by the task, with Group by at Nothing",
       [box.value, browsed[0].search, browsed[0].group ?? '', document.getElementById('gen_group_by').textContent],
@@ -103,7 +103,7 @@ check("Show images searches by the task, with Group by at Nothing",
 check('the grouping chosen before is still the one remembered',
       window.localStorage.getItem('mm_generations_group_by'), 'prompt');
 browsed.length = 0;
-await call('generations.showTask', 19);
+await openTab('generations', 'showTask', 19);
 await waitFor('asked again', () => browsed.length);
 check('asked again for the same task, it is drawn again', browsed[0]?.search, 'task:19');
 

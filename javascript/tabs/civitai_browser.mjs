@@ -26,7 +26,7 @@ const {
 } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showTab, tabShowing } = await shared('tabs.mjs');
-const { tabWork } = await shared('loading.mjs');
+const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
 } = await shared('ui_options.mjs');
@@ -901,7 +901,7 @@ function renderModelDetails() {
     // Lives on the header row so it stays reachable while scrolling the
     // details panel, rather than only at the very bottom.
     const showInManagerBtn = model.owned_locally
-        ? `<button class="mm-btn secondary mm-btn-small header-action" data-action="civitaiBrowser.showInModelManager"${dataAttributes({ modelId: safeId(model.id) })} title="Open this model in the Model Manager tab">Show in Model Manager</button>`
+        ? `<button class="mm-btn secondary mm-btn-small header-action" data-action="civitaiBrowser.showInModelManager"${dataAttributes({ modelId: safeId(model.id) })}${linkTo('modelManager', 'Open this model in the Model Manager tab')}>Show in Model Manager</button>`
         : '';
 
     container.innerHTML = `
@@ -1817,15 +1817,12 @@ async function showModel(query) {
 
     await searchModels(1);
 }
-work.provide('civitaiBrowser.showModel', showModel);
+// What the other tabs may open this one at, through the loading module (open, #184).
+export const entries = { showModel };
 
-// Open this model over in the Model Manager tab, which shows itself.
+// Open this model over in the Model Manager tab, through the loading module (#184).
 function showInModelManager(modelId) {
-    if (!ready('modelManager.showModel')) {
-        updateStatus('Model Manager tab has not initialised yet - open it once and try again.');
-        return;
-    }
-    call('modelManager.showModel', 'model:' + modelId);
+    return open('modelManager', 'showModel', 'model:' + modelId);
 }
 
 

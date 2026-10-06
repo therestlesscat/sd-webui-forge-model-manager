@@ -13,7 +13,6 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, formatBytes, once, setText } = await shared('core.mjs');
-const { provide } = await shared('calls.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -891,11 +890,10 @@ export async function checkOngoingProcesses() {
 
 /**
  * Started by the Model Manager, whose sync this is (#182): a sync is looked
- * for again when the page comes back into view, and the dialog is offered by
- * name - a note's Sync button opens it (notes.mjs), drawn only while it is.
+ * for again when the page comes back into view. A note's Sync opens its
+ * dialog through the Model Manager's entries (#184).
  */
 export const start = once(() => {
-    provide('sync.showDialog', (options) => showSyncDialog(options));
     if (typeof document === 'undefined') return;
     document.addEventListener?.('visibilitychange', () => {
         // Only check if we're not already tracking a process

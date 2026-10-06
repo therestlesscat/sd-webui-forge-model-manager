@@ -9,7 +9,7 @@
 // shows - not before, and not never. And the ids are the ones the extension's
 // tabs register with.
 import { readFileSync } from 'node:fs';
-import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
+import { ROOT, checker, mountTab, startTab, tabMarkup, openTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
@@ -78,7 +78,7 @@ const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const selected = () => bar.querySelector('button.selected')?.id;
 
 // ------------------------------------------ the Civitai Browser, asked for
-call('civitaiBrowser.showModel', 'model:12345');
+openTab('civitaiBrowser', 'showModel', 'model:12345');
 await waitFor('the Civitai Browser\'s search', () => searches.some((s) => s.tab === 'civitaiBrowser'), 30);
 check('a model asked of the Civitai Browser switches to its tab', selected(), 'tab_civitai_browser_tab-button');
 check('and is searched for once that tab shows - not while it is hidden',
@@ -98,7 +98,7 @@ const translated = { 'Model Manager': 'Modellverwaltung', 'Civitai Browser': 'Ci
 bar.querySelectorAll('button').forEach((b) => { b.textContent = translated[b.textContent] || b.textContent; });
 bar.prepend(bar.querySelector('#tab_civitai_browser_tab-button'));
 searches.length = 0;
-call('civitaiBrowser.showModel', 'model:12345');
+openTab('civitaiBrowser', 'showModel', 'model:12345');
 await waitFor('the search, with the labels translated', () => searches.length > 0, 30);
 check('a translated label and another order find the same tab', selected(), 'tab_civitai_browser_tab-button');
 
@@ -108,7 +108,7 @@ await new Promise((r) => setTimeout(r, SHOW_AFTER + 50));
 gradioStuck = true;
 searches.length = 0;
 const asked = Date.now();
-call('modelManager.showModel', 'model:12345');
+openTab('modelManager', 'showModel', 'model:12345');
 await waitFor('the search, though the tab never showed', () => searches.length > 0, 40);
 check('a tab that never shows is waited on no longer than TIMING.tabShown, then searched anyway',
       [searches[0]?.showing, Date.now() - asked >= 1000], [false, true]);

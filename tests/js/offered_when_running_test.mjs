@@ -1,30 +1,20 @@
-// What is offered only while what it needs runs (#182).
-//
-// A download, while the downloads list runs: the Model Manager and the
-// Civitai Browser start it, and a tab without them - Generations, the Queue -
-// sends without it. The Resources dialog and the chips then offer no Download.
-// A note's Sync button, while the sync's dialog is offered: the Model Manager
-// starts it, and the notes in every tab no longer import it.
+// What is offered only while what it needs runs (#182): a download, while the
+// downloads list runs. The Model Manager and the Civitai Browser start it,
+// and a tab without them - Generations, the Queue - sends without it. The
+// Resources dialog and the chips then offer no Download. A note's Sync,
+// while the Model Manager is available: tab_links_test.mjs (#184).
 import { checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
-document.body.insertAdjacentHTML('beforeend', `
-    <div id="txt2img_neg_prompt_row"></div>
-    <div id="notes_before"></div><div id="notes_after"></div>`);
+document.body.insertAdjacentHTML('beforeend', '<div id="txt2img_neg_prompt_row"></div>');
 
-const SYNC_NOTE = { id: 'a-sync-note', version: '0.1.0', kind: 'action', title: 'Sync again', text: 't',
-                    action: { id: 'sync', label: 'Sync' } };
-globalThis.fetch = async (url) => {
-    const body = String(url).includes('/model-manager/notes')
-        ? { success: true, notes: [SYNC_NOTE] }
-        : { success: true, versions: {}, hashes: {}, downloads: [], resources: {} };
-    return { ok: true, status: 200, json: async () => body };
-};
+globalThis.fetch = async () => ({ ok: true, status: 200,
+    json: async () => ({ success: true, versions: {}, hashes: {}, downloads: [], resources: {} }) });
 
 // As the Generations tab starts them: Send, and with it the Resources dialog
 // and the chips - not the downloads list.
-for (const name of ['core.mjs', 'calls.mjs', 'notes.mjs', 'send.mjs']) (await sharedModule(name)).start?.();
+for (const name of ['core.mjs', 'calls.mjs', 'send.mjs']) (await sharedModule(name)).start?.();
 const resources = await sharedModule('resources.mjs');
 const chips = await sharedModule('chips.mjs');
 const { start: startDownloads } = await sharedModule('downloads.mjs');
@@ -56,21 +46,5 @@ await waitFor('the dialog again', () => cell().includes('resources.download'));
 check('downloads on: the dialog offers Download', cell().includes('data-action="resources.download"'), true);
 chips.showResourceChips('txt2img', [{ ...CHIP }]);
 check('and so does the chip', [chip()?.disabled, chip()?.dataset.state], [false, 'download']);
-
-// --------------------------------------------------------- a note's Sync
-const { showNotes } = await sharedModule('notes.mjs');
-const button = (id) => document.querySelector(`#${id} [data-note-action="sync"]`);
-showNotes('before', 'notes_before');
-await waitFor('the first notes', () => document.querySelector('#notes_before [data-note]'));
-check('the sync\'s dialog not offered: the note has no Sync button', button('notes_before'), null);
-
-(await sharedModule('jobs.mjs')).start?.();     // as the Model Manager starts it
-const opened = [];
-globalThis.__mmOffered.set('sync.showDialog', (options) => opened.push(options ?? null));
-showNotes('after', 'notes_after');
-await waitFor('the second notes', () => document.querySelector('#notes_after [data-note]'));
-check('offered: the note has one', Boolean(button('notes_after')), true);
-button('notes_after')?.dispatchEvent(new window.Event('click', { bubbles: true }));
-check('and it opens the dialog by name', opened, [null]);
 
 done();
