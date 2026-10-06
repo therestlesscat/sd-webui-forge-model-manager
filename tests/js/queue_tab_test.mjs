@@ -5,7 +5,9 @@
 // can be done now: Start, Pause or Resume, Stop. Nothing is asked while it is
 // hidden; opened, both lists are read again. A row says what its task asks
 // for, and how many images its run made - never the images: Show images
-// opens the Generations tab on them. A click on a row opens its details,
+// opens the Generations tab on them. The running task's row has a bar, as
+// far along as Forge says, kept when Forge is done with the run and the queue
+// not yet, empty while the run waits for Forge. A click on a row opens its details,
 // everything it holds, escaped; Load to UI asks the Queue tab's hidden
 // button for the task, after its send plan, and says what kept its value.
 // Start that finds tasks whose extensions are gone asks first: Cancel starts
@@ -55,6 +57,8 @@ const PLAN = { success: true, mode: 'txt2img', preset: null, checkpoint: null, c
 let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, completed: 3, stopped: 0, failed: 1 },
                progress: { state: 'running', task_id: 15, job: 'task(mmq-15-1)', completed: 0, failed: 0,
                            stopped: 0, notes: [], error: null } };
+// What Forge says of the running task's job.
+let FORGE = { active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null };
 const asked = [];
 const posted = [];
 const bodies = [];
@@ -77,9 +81,7 @@ globalThis.fetch = async (url, init = {}) => {
         if (href.includes('/history/clear')) return reply({ success: true, hidden: 21 });
         return reply({ success: true, acted: true });
     }
-    if (href.includes('/internal/progress')) {
-        return reply({ active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null });
-    }
+    if (href.includes('/internal/progress')) return reply(FORGE);
     if (href.includes('/model-manager/queue/status')) return reply(STATUS);
     const detail = new URL(href, 'http://webui').pathname.match(/\/model-manager\/queue\/tasks\/(\d+)(\/send-plan)?$/);
     if (detail?.[2]) return reply(PLAN);
@@ -140,6 +142,32 @@ check('a task that made images offers to show them, and shows none',
       ['Show images (7)', 0]);
 check('one that made none does not', row(13).querySelector('[data-action="queue.showImages"]'), null);
 
+// ---------------------------------------------------- the running task's bar
+const progressBar = (id) => row(id)?.querySelector('.queue-progress');
+const along = (id) => [progressBar(id)?.getAttribute('aria-valuenow'), progressBar(id)?.firstElementChild.style.width];
+await waitFor('the bar', () => along(15)[0] === '45');
+check('the running task has a bar along its row, as far along as Forge says', along(15), ['45', '45%']);
+check('no other task has one', [progressBar(16), progressBar(14), progressBar(13)], [null, null, null]);
+FORGE = { ...FORGE, progress: 0.8 };
+await waitFor('the bar to follow', () => along(15)[0] === '80');
+check('it follows Forge', along(15), ['80', '80%']);
+// Drawn again with its list alone - Select redraws Active - while no status
+// read can draw the bar after it: the tab hidden, nothing is asked.
+tabButton.classList.remove('selected');
+await new Promise((resolve) => setTimeout(resolve, 150));
+const drawn = row(15);
+await tick('queue.selecting', true, { list: 'active' });
+check('drawn again with its list, it keeps how far along it is', [row(15) !== drawn, ...along(15)], [true, '80', '80%']);
+await tick('queue.selecting', false, { list: 'active' });
+tabButton.classList.add('selected');
+FORGE = { active: false, queued: false, completed: true, textinfo: 'Waiting...' };
+await new Promise((resolve) => setTimeout(resolve, 150));
+check('Forge done with the run, the queue not yet: it stays', along(15), ['80', '80%']);
+FORGE = { active: false, queued: true, completed: false, textinfo: 'In queue: 2/2' };
+await waitFor('the bar to empty', () => along(15)[0] === '0');
+check("waiting for Forge's lock: empty", along(15), ['0', '0%']);
+FORGE = { active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null };
+
 // ------------------------------------------------------ following the queue
 asked.length = 0;
 await new Promise((resolve) => setTimeout(resolve, 200));
@@ -154,6 +182,8 @@ await waitFor('task 15 in History', () => rows('history')[0]?.dataset.task === '
 check('a task that ends moves to History by itself, the next runs',
       [rows('active').map((r) => r.dataset.task), rows('history').map((r) => r.dataset.task)],
       [['16'], ['15', '14', '13']]);
+await waitFor("the next task's bar", () => along(16)[0] === '45');
+check('the bar goes with it, to the next task', [progressBar(15), ...along(16)], [null, '45', '45%']);
 
 // ------------------------------------------------------- Show images
 const shownTasks = [];

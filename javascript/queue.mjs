@@ -6,7 +6,9 @@
  * Resume, and Stop. Under it the Active list, in the order the tasks will
  * run, and History, newest first, each a page at a time. A row says what its
  * task asks for, and how many images its run made: Show images opens the
- * Generations tab on them (task:<id>), as this tab shows none. A click on a
+ * Generations tab on them (task:<id>), as this tab shows none. The running
+ * task's row has a bar along its bottom edge, as far along as Forge is with
+ * it, read with the status line. A click on a
  * row opens its details: everything the task holds, and Load to UI, which
  * sets txt2img or img2img up with it (shared/send.mjs).
  *
@@ -95,6 +97,8 @@ let showing = false;
 let polling = false;
 // The counts and the running task the lists were last read under.
 let lastSeen = null;
+// How far along the running task is, as its row's bar shows it.
+const along = { task: null, percent: 0 };
 // Select, per list: whether it is on, the ids ticked, the rows of the page
 // shown, and the last row ticked - a shift-click's range starts there.
 const selecting = { active: false, history: false };
@@ -159,6 +163,23 @@ function messageText(progress) {
     return notes.length ? `Task #${progress.task_id}: ${notes.join('; ')}` : '';
 }
 
+/**
+ * The running task's bar: Forge's progress while the run is Forge's, empty
+ * while it waits for Forge's lock - the person's own Generate holds it. In
+ * between, Forge done with the run and the queue not yet, it stays as it was.
+ */
+function drawProgress(progress, forge) {
+    const taskId = progress?.task_id ?? null;
+    if (taskId !== along.task) Object.assign(along, { task: taskId, percent: 0 });
+    if (forge?.active && typeof forge.progress === 'number') along.percent = Math.round(forge.progress * 100);
+    else if (forge?.queued) along.percent = 0;
+    const bar = taskId === null ? null : document.querySelector(`.queue-task[data-task="${taskId}"] .queue-progress`);
+    const value = String(along.percent);
+    if (!bar || bar.getAttribute('aria-valuenow') === value) return;
+    bar.setAttribute('aria-valuenow', value);
+    bar.firstElementChild.style.width = `${value}%`;
+}
+
 function setShown(element, shown) {
     if (element && element.hidden === shown) element.hidden = !shown;
 }
@@ -175,6 +196,7 @@ function drawStatus(answer, forge = null) {
     setText(shown, STATES[state] || state);
     if (shown && shown.getAttribute('data-state') !== state) shown.setAttribute('data-state', state);
     setText(byId('queue_task'), answer?.running ? nowText(progress, forge) : '');
+    drawProgress(answer?.running ? progress : null, forge);
     setText(byId('queue_counts'), countsText(answer?.counts));
     const message = messageText(progress);
     setText(byId('queue_message'), message);
@@ -282,7 +304,17 @@ function taskRowHtml(task, which) {
                 ${deletable(task) ? `<button type="button" class="mm-btn danger mm-btn-small" data-action="queue.delete"
                     data-task="${id}" title="Delete this task for good">Delete...</button>` : ''}
             </div>
+            ${task.status === 'running' ? progressHtml(id) : ''}
         </div>`;
+}
+
+/** The bar along a running task's row, as far along as last read: the sync dialog's, thinner. */
+function progressHtml(taskId) {
+    const percent = along.task === taskId ? along.percent : 0;
+    return `<div class="sync-progress-bar queue-progress" role="progressbar" aria-label="How far along task #${taskId} is"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
+                <div class="sync-progress-fill" style="width: ${percent}%"></div>
+            </div>`;
 }
 
 /** "Show images (3)": the Generations tab, on what a task's run made - while that tab is there. */

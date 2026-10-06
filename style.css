@@ -4796,6 +4796,28 @@ textarea.mm-settings-input {
     background: rgba(37, 99, 235, 0.14);
 }
 
+/* The running task's bar, along its row's bottom edge: the sync dialog's
+   bar, thinner, clipped by the row to its rounded corners. */
+.queue-task[data-status="running"] {
+    position: relative;
+    overflow: hidden;
+}
+
+.queue-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 4px;
+    border-radius: 0;
+    /* The theme's secondary fill is all but the row's own: an empty bar showed nothing. */
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.dark .queue-progress {
+    background: rgba(255, 255, 255, 0.1);
+}
+
 /* How the last Retry, Delete or Clear history went. */
 .queue-report {
     margin: 0 0 8px;
