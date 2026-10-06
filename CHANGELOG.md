@@ -10,8 +10,9 @@ structure keeps its version and moves the build on, and is not listed here.
 
 *5 October 2026*
 
-Set up a generation, and press Queue instead of Generate: it is kept, to run later. This version is being built, and each patch below adds a part.
+Set up a generation, and press Queue instead of Generate: it is kept as a task, to run later. The new Queue tab runs the tasks one at a time, each with its own checkpoint, VAE and text encoders, while you go on working - and shows them, loads one back into its tab, retries and deletes them. The Generations tab gains a search, which also shows the images a task made.
 
+- **0.50.11** (build 387) - The queue is ready. A note on the Queue tab says what it does, and one on the Generations tab tells of its search. Two WebUIs sharing one database are told to update the other copy before starting it. The queue's folder setting says it keeps ControlNet's images too, not only img2img's.
 - **0.50.10** (build 386) - Pause says "Pausing…" while the running task finishes, and offers Resume only once the queue has paused.
 - **0.50.9** (build 385) - The running task in the Queue tab has a bar along its row, showing how far along it is.
 - **0.50.8** (build 384) - The queue can be turned off, as Your generations can: in the settings window's new Queue section, or Settings -> Model Manager. Off, the Queue tab and the Queue buttons are hidden at once, and a running queue stops. The tasks are kept.

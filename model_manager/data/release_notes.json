@@ -1,5 +1,55 @@
 [
   {
+    "id": "queue-tab",
+    "version": "0.50.11",
+    "kind": "feature",
+    "audience": "everyone",
+    "important": true,
+    "tabs": [
+      "queue"
+    ],
+    "title": "Queue a generation, and run it later",
+    "text": "Press Queue beside Generate, in txt2img or img2img, and what Generate would run is kept as a task instead: its checkpoint, VAE and text encoders, its scripts and ControlNet units, and the images it was given. Start runs the tasks here one at a time, in the order they were queued, while you go on working - with this page closed too, and a restart keeps them. A click on a task shows everything it holds; Load to UI sets its tab up with it again, and Show images opens the Generations tab on what it made. If you would rather not have it, turn the queue off in the settings: this tab and the Queue buttons go, and your tasks are kept.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "queue"
+    }
+  },
+  {
+    "id": "generations-search",
+    "version": "0.50.11",
+    "kind": "feature",
+    "audience": "update",
+    "tabs": [
+      "generations"
+    ],
+    "title": "Search your generations",
+    "text": "The search box above the grid finds the images whose prompt or negative prompt holds every word you type, as generated or as you typed it; a quoted phrase counts as one word. task:17 shows the images task 17 of the queue made - the Queue tab's Show images does that for you."
+  },
+  {
+    "id": "shared-database-0-50",
+    "version": "0.50.11",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager",
+      "queue"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version keeps the queue's tasks in the database, and an older copy cannot open the database any more: its tabs would fail until it is updated. Each WebUI keeps a queue of its own: a task runs only in the WebUI it was queued in. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database-0-48"
+    ]
+  },
+  {
     "id": "scan-disk-in-sync",
     "version": "0.48.3",
     "kind": "feature",

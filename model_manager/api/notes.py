@@ -18,7 +18,7 @@ def register(app: FastAPI):
     @app.get("/model-manager/notes")
     def get_notes(tab: Optional[str] = None):
         """
-        With `tab` ("model_manager", "civitai_browser", "generations"): the
+        With `tab` (one of release_notes.TABS): the
         notes that tab shows - that apply to this install and are not
         dismissed. Without: every note that applies, dismissed or not, each
         with `dismissed`, for "What's new".

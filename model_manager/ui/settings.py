@@ -359,8 +359,9 @@ def on_ui_settings():
             component=gr.Textbox,
             component_args={"placeholder": "e.g., D:\\queue-inputs"},
             section=section,
-        ).info("A queued img2img task keeps its source image and mask here until it is "
-               "deleted, one folder per task. Empty: queue-inputs in the WebUI's folder, "
+        ).info("A queued task keeps the images it was given here - an img2img source "
+               "and mask, ControlNet's images - until it is deleted, one folder per task. "
+               "Empty: queue-inputs in the WebUI's folder, "
                "beside outputs. Tasks keep their files' full paths, so a change applies to "
                "tasks queued after it.")
     )

@@ -18,7 +18,8 @@ A note is:
     audience  "everyone"; "update": only for a database that existed before
               that version - a fresh install has nothing to redo; or "new":
               only for one created by that version or later - a first install
-    tabs      where it shows: "model_manager", "civitai_browser", "generations"
+    tabs      where it shows: "model_manager", "civitai_browser", "generations",
+              "queue"
     title, text
     actions   optional, several buttons, each as `action`
     action    optional {"id", "label", "section"}: a button that does it - the
@@ -50,7 +51,7 @@ NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "r
 
 KINDS = ("feature", "action", "warning", "intro")
 AUDIENCES = ("everyone", "update", "new")
-TABS = ("model_manager", "civitai_browser", "generations")
+TABS = ("model_manager", "civitai_browser", "generations", "queue")
 ACTIONS = ("reread_headers", "settings", "sync", "sync_unidentified")
 
 

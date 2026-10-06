@@ -14,6 +14,14 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.50 - A queue for your generations.** Press Queue beside Generate, in txt2img or
+img2img, and the generation is kept as a task instead of run: its checkpoint, VAE and text
+encoders, its scripts and ControlNet units, and the images it was given. The new Queue tab
+runs the tasks one at a time, in the order they were queued, while you go on working - with
+the page closed too, and a restart keeps them. A task opens to everything it holds; Load to
+UI sets its tab up with it again, and Retry, Delete, Pause and Stop are there. The
+Generations tab gains a search, which also shows the images a task made.
+
 **0.48 - Sync reads your model folders.** Every sync starts by reading your model folders,
 whichever models it refreshes: files you have added join the library and are looked up on
 Civitai, files you have deleted leave it - so Scan Disk is gone. The sync dialog says how
@@ -36,47 +44,6 @@ searched for: tick "I'm feeling lucky" and Search becomes Draw - a page of model
 random from all of Civitai, every model your filters allow as likely as any other. Type,
 base model, tag, period and NSFW still apply; what a draw cannot use is greyed out while
 the box is ticked.
-
-**0.44 - Sounder foundations.** A review of how the extension's parts depend on each other,
-worked through one finding at a time: bugs that lose or misstate what your library knows,
-fixed one by one - the first, Scan Disk lowering a version's NSFW level to PG when its
-sidecar was missing - and code written twice brought to one place, so the tabs stop
-disagreeing about the same image or model.
-
-**0.43 - Downloads you control.** A download can be paused and resumed, carrying on from
-where it stopped - after a WebUI restart, or a crash, too - and the queue can be steered:
-start a waiting download now, move it up or down, cancel it before it starts, or pause and
-resume everything at once. The downloads list keeps its order whatever each download is
-doing; only you move a row.
-
-**0.42 - Grouping in two levels.** The Generations tab's Group by is a menu, and groups
-by two things at once: a model, then the prompts used with it; a day, then the models; any
-two of prompt, base model, model, LoRA combination, size and day. A click on a grouping groups by it;
-its "then by" list, beside it on hover, adds the second. The grid is then in sections - a
-header row for each model, say, with its prompts' groups under it - and a group opens
-straight onto its batches.
-
-**0.41 - Notes to you, per release.** The tabs say what is new, and what to do after an
-update, in a note at the top of the tab it concerns: a feature worth knowing, something to
-do once - with a button that does it, such as opening the sync dialog with the right box ticked -
-or a warning. One click dismisses a note for every browser using the database; the
-settings window's "What's new" keeps them all. A fresh install sees only what is for
-everyone.
-
-**0.40 - Generations.** A new tab, before the Model Manager, with every image you have
-generated, newest first, whatever model made it. Each generation is a tile - a batch shows
-its first four images and how many there are, and opens out in place - and the grid loads
-on as you scroll. A click opens the image large, with the arrow keys or the wheel to step
-through them all and its prompt and settings beside it. Sending one back to txt2img or
-img2img sets Forge up as it was made: its preset, checkpoint, text encoders and VAE.
-
-**0.30 - Your generations.** Every image you generate and save is recorded - the prompt
-as you typed it, the infotext written into each file, every setting and the arguments of
-each extension - and filed under every model it used, LoRAs included. A model's gallery
-gets a second tab beside its Civitai images, with your own generations with it: a card
-per generation, its images opening full size, and a button that sends its settings back
-to the tab it was made in. Only images generated from now on are recorded; a setting
-turns it off.
 
 Every change, version by version, is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -137,6 +104,21 @@ removes the record, and the image files too if you tick the box beside it. Recor
 starts once the extension is installed, and can be turned off in its settings.
 
 ![A model's Your generations tab: a card per generation](docs/images/mm-your-generations.png)
+
+### Generations, queued for later
+
+Press **Queue** beside Generate, in txt2img or img2img, and what Generate would run is
+kept as a task: the checkpoint, VAE and text encoders, every setting, the scripts and their
+arguments - an X/Y/Z plot, ControlNet's units with their images - and the images it was
+given. The **Queue** tab runs the tasks one at a time, in the order they were queued, each
+with its own checkpoint, while you go on working; it carries on with the page closed, and a
+restart keeps the tasks. A bar along the running task shows how far along it is. **Pause**
+lets it finish and starts no other; **Stop** ends it, keeping what it made. A click on a
+task shows everything it holds, and **Load to UI** sets its tab up with it again; **Show
+images** opens the Generations tab on the images it made. **Retry** queues a copy, with the
+same seed or a random one, and **Select** ticks several to retry or delete at once.
+
+![Queue tab: the running task with its progress bar, the tasks waiting, and History](docs/images/queue.png)
 
 ### Keeping it in sync
 
@@ -233,6 +215,8 @@ image of a batch used.
 
 - **Grid** of batches and images, newest first, loading on as you scroll; **Preserve
   order** keeps every tile one column, strictly newest first
+- **Search** the prompts and negative prompts, as generated or as typed: every word must be
+  there, and a quoted phrase counts as one; `task:17` shows what task 17 of the queue made
 - **Group by** prompt (as written or as generated), base model, model, LoRA combination,
   size or day - or two at once, from the menu's "then by" list: the first grouping is a
   row across the grid, the second its groups under it
@@ -243,6 +227,33 @@ image of a batch used.
   them at once, asked once, the files too if you choose
 - **Send** to txt2img or img2img, with the preset, checkpoint, text encoders and VAE the
   image was made with; **Show model in Model Manager**, from a tile's ⋯ menu, opens it there
+
+## Queue
+
+Generations kept to run later, one at a time, while you go on working.
+
+- **Queue**, beside Generate in txt2img and img2img: what Generate would run, kept as a
+  task - the checkpoint, VAE and text encoders, every setting, the scripts and their
+  arguments, ControlNet's units with their images, and the images it was given
+- **Start** runs the pending tasks in the order they were queued, each with its own
+  checkpoint, VAE and text encoders, through Forge's own Generate: its progress, scripts and
+  saving all apply. A task whose checkpoint or VAE is gone fails rather than run on another.
+  The queue carries on with the page closed; a restart leaves it stopped, the tasks kept
+- **Pause** lets the running task finish and starts no other until **Resume**; **Stop**
+  ends it, keeping the images it made. Forge's own Interrupt stops the task, and the queue
+  goes on
+- **Active** and **History**: what each task asks for - checkpoint, VAE, size and hires
+  fix, sampler, steps, batch - and how many images it made; the running one has a bar
+  showing how far along it is
+- A click on a task shows everything it holds; **Load to UI** sets its tab up with it
+  again, checkpoint and VAE included; **Show images** opens the Generations tab on what it
+  made
+- **Retry** queues a copy, with the first run's seed or a random one; **Delete** removes a
+  task, with the images it made or without; **Select** ticks several, shift-click for a
+  range; **Clear history** hides the ended tasks
+- A task that uses an extension no longer installed asks before it runs: without it, or
+  not at all
+- Two WebUIs sharing one database each keep a queue of their own
 
 ## Civitai Browser
 
@@ -305,6 +316,8 @@ are for, or under **Settings -> Model Manager**. Both edit the same values.
 | Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
 | Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
 | Your generations | on | Records every txt2img and img2img result saved to disk, for the Generations tab and each model's Your generations. Off: nothing is recorded, both are hidden at once, and the Generations tab is not created from the next start. What was recorded is kept |
+| Queue | on | A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, a running queue stops, and from the next start neither is created. The tasks are kept |
+| Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
 | Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |
@@ -349,7 +362,9 @@ reported in a notice.
 
 Metadata lives in a SQLite database (`models.db` in the extension folder by default),
 with your generations, your pins and saved searches, the downloads waiting to be resumed,
-and which notes you have dismissed.
+the queue's tasks, and which notes you have dismissed. The images a queued task was given
+are files in `queue-inputs`, in the WebUI's folder unless the settings name another, and
+are deleted with the task.
 Before an update that rebuilds one of its tables, a copy is written beside it
 (`models.db.backup_<date>_<time>`). Forge Neo and the original Forge can share one
 database; keep the extension at the same version in both. Sidecar files written next to
