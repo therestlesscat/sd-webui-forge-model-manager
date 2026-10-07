@@ -233,6 +233,48 @@ function pressOption(element) {
     element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
 }
 
+/**
+ * Choose `label` in one of Gradio's dropdowns, as a person does: open its
+ * list, press the option. Writing the input's text and firing its events
+ * changes nothing - Gradio puts the text back once the field loses focus -
+ * and Send's scheduler was set so (#138). False, and the dropdown left as it
+ * was, when no list opens - a dropdown in a closed accordion is hidden, takes
+ * no focus and opens none - or it does not offer `label`. A field Forge's
+ * paste knows is set through the paste instead, hidden or not: Hires fix's
+ * upscaler is (see buildInfotext).
+ */
+async function chooseOption(container, label) {
+    const input = container?.querySelector('input');
+    if (!input) return false;
+    const was = input.value;
+    input.focus();
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await nextFrame();
+    const option = readModuleOptions(container).find((o) => o.label === label);
+    if (option) {
+        pressOption(option.element);
+    } else {
+        // Its text back: cleared to open the list, it was left blank.
+        input.value = was;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    input.blur();
+    return Boolean(option);
+}
+
+/** chooseOption() in the dropdown with this id, saying so when it cannot. */
+async function chooseInDropdown(elemId, label) {
+    const container = gradioApp().querySelector(`#${elemId}`);
+    if (!container) {
+        console.warn(`[ModelManager] Dropdown not found: ${elemId}`);
+        return false;
+    }
+    const chosen = await chooseOption(container, label);
+    if (!chosen) console.warn(`[ModelManager] ${elemId} offers no "${label}"; left as it was`);
+    return chosen;
+}
+
 /** Drop every module currently selected. */
 function clearModules(container) {
     // One ✕ clears the lot; otherwise drop the tokens one by one. Both are
@@ -584,18 +626,10 @@ async function switchForgePreset(preset) {
         return await presetTaken(preset, callsBefore);
     }
 
-    input.focus();
-    input.value = '';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    await nextFrame();
-    const option = readModuleOptions(container).find((o) => o.label === preset);
-    if (!option) {
-        input.blur();
+    if (!(await chooseOption(container, preset))) {
         console.warn(`[ModelManager] Forge offers no "${preset}" preset; left as it was`);
         return false;
     }
-    pressOption(option.element);
-    input.blur();
     return await presetTaken(preset, callsBefore);
 }
 
@@ -1024,7 +1058,7 @@ function unquotePrompt(text) {
 }
 
 // Build infotext string from image metadata (A1111 format)
-function buildInfotext(meta, { denoisingStrength = null } = {}) {
+function buildInfotext(meta, { denoisingStrength = null, hiresUpscaler = null } = {}) {
     if (!meta) return '';
 
     let infotext = '';
@@ -1081,9 +1115,14 @@ function buildInfotext(meta, { denoisingStrength = null } = {}) {
     // This prevents paste from enabling hires when image doesn't have hires data
     if (hasHiresFix) {
         if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
-        if (meta['Hires upscaler']) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
+        if (meta['Hires upscaler'] && !hiresUpscaler) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
         if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
     }
+    // An upscaler's gallery's own, over the image's (#134): Forge's paste sets
+    // the dropdown even in Hires fix's closed accordion, where a choice pressed
+    // in its list never opened (#138); it turns Hires fix on only with
+    // "Denoising strength" too, which an image without hires fix is not sent.
+    if (hiresUpscaler) params.push(`Hires upscaler: ${hiresUpscaler}`);
 
     // Add any other parameters from meta that we haven't explicitly handled
     // Lora hashes are not pasted: see withoutLoraHashes().
@@ -1114,37 +1153,6 @@ function buildInfotext(meta, { denoisingStrength = null } = {}) {
     }
 
     return infotext;
-}
-
-// Set Gradio dropdown value programmatically
-function setGradioDropdown(elem_id, value) {
-    const container = gradioApp().querySelector(`#${elem_id}`);
-    if (!container) {
-        console.warn(`[ModelManager] Dropdown not found: ${elem_id}`);
-        return false;
-    }
-
-    // Try input element (common in newer Gradio)
-    const input = container.querySelector('input');
-    if (input) {
-        input.value = value;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log(`[ModelManager] Set ${elem_id} via input:`, value);
-        return true;
-    }
-
-    // Try select element
-    const select = container.querySelector('select');
-    if (select) {
-        select.value = value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log(`[ModelManager] Set ${elem_id} via select:`, value);
-        return true;
-    }
-
-    console.warn(`[ModelManager] Could not find input/select in ${elem_id}`);
-    return false;
 }
 
 // Send image generation params to txt2img using paste button
@@ -1211,7 +1219,7 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {
     pasteButton.click();
 
     sendSettled = new Promise((settled) => setTimeout(async () => {
-        setGradioDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
+        await chooseInDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
         const pending = afterPaste ? afterPaste() : null;
 
         // Reset hires fix if the infotext has no hires data. InputAccordion
@@ -1337,8 +1345,8 @@ export async function sendGalleryImage({ img, model, version }) {
         }
 
         // Build infotext from metadata
-        const infotext = buildInfotext(sendMeta,
-                                       { denoisingStrength: tab === 'img2img' ? 1 : null });
+        const infotext = buildInfotext(sendMeta, { denoisingStrength: tab === 'img2img' ? 1 : null,
+                                                   hiresUpscaler: tab === 'txt2img' ? plan?.upscaler : null });
         if (!infotext) {
             console.error('[ModelManager] No infotext to send');
             return;
@@ -1347,11 +1355,8 @@ export async function sendGalleryImage({ img, model, version }) {
         const pasted = pasteInfotext(tab, infotext, {
             scheduler,
             hasHiresFix,
-            afterPaste: () => {
+            afterPaste: async () => {
                 updateResourceChipStates(tab);
-                // An upscaler's gallery: that upscaler as Hires fix's, over the
-                // image's the paste set. Hires fix stays as the image had it.
-                if (plan?.upscaler && tab === 'txt2img') setGradioDropdown('txt2img_hr_upscaler', plan.upscaler);
                 // After the paste: it re-renders much of the page, and it never
                 // touches the modules itself - Neo reads "Module 1"/"Module 2"
                 // from an infotext, not the "VAE:" line we write. A model whose

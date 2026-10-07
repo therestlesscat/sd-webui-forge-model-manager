@@ -528,6 +528,21 @@ works once the server says it can (`checkpoint_problem`). An image that names
 no checkpoint has Send disabled outside a checkpoint's gallery (`cannotSend`).
 Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
 
+**Send sets a field through Forge's paste wherever the paste has one** (#138).
+Gradio 4's dropdown takes a value only from a choice pressed in its open
+list: writing its text and firing its events changes nothing, and Gradio
+puts the text back once the field loses focus. A control in a closed
+accordion is hidden, takes no focus and opens no list - Hires fix's upscaler
+sits in one, and pressed there it was never set, the text left blank. So a
+field the paste knows goes in the infotext (`buildInfotext`: the upscaler,
+ADetailer's switch, a video's frames), which sets it hidden or not, and
+turns Hires fix on only with `Denoising strength` too. Send presses an
+option itself (`chooseOption`) only for a control the paste does not cover
+and that is always shown - the UI preset, the VAE / Text Encoder control,
+the scheduler - and gives up, the text as it was, when no list opens. A
+suite's stand-in has to behave so: a plain `<input>` stood in for the
+upscaler, and the suites passed while it was never set.
+
 **A gallery switch's number holds when it is flipped.** An image both the NSFW
 and the prompt filter hide is counted apart (`hidden_both`), not credited to
 either: credited to NSFW, "Show NSFW" said 51 while hiding and 49 once ticked.

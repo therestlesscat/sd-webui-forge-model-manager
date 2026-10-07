@@ -338,6 +338,53 @@ check('one Forge does not list: said, by its file', (body.get('upscaler'), body.
       (None, os.path.basename(upscaler_path)))
 check('and any other gallery has no upscaler to set',
       (sent_from(lora_path).get('upscaler'), sent_from(lora_path).get('upscaler_not_listed')), (None, None))
+
+# The same upscaler twice - the WebUI's own folder and the one its
+# --esrgan-models-path names - and Forge lists only the copy in the folder
+# it was given. The gallery's card shows the other: it was "not listed"
+# though Forge offers it (#138). Forge's name is found by any copy.
+shown = db.get_version(upscaler_path) or {}
+db.upsert_version({'file_path': upscaler_path, 'file_name': os.path.basename(upscaler_path), 'id': shown.get('id'),
+                   'model_id': shown.get('model_id'), 'civitai_file_id': 2037845, 'has_civitai_data': True})
+given = os.path.join(facts['directory'], 'given', os.path.basename(upscaler_path))
+db.upsert_version({'file_path': given, 'file_name': os.path.basename(given), 'id': shown.get('id'),
+                   'model_id': shown.get('model_id'), 'civitai_file_id': 2037845, 'has_civitai_data': True})
+db.set_architecture(given, None, None, False, False, '9999', file_type='Upscaler')
+upscalers.clear()
+upscalers[given] = '4x-UltraSharp'
+body = sent_from(upscaler_path, version_ids=str(flux_id))
+check('the gallery\'s copy not listed, another copy of the file listed: Forge\'s name, by that copy',
+      (body.get('upscaler'), body.get('upscaler_not_listed')), ('4x-UltraSharp', None))
+upscalers.clear()
+body = sent_from(upscaler_path, version_ids=str(flux_id))
+check('no copy listed: said, by the gallery\'s file, as before',
+      (body.get('upscaler'), body.get('upscaler_not_listed')), (None, os.path.basename(upscaler_path)))
+upscalers[upscaler_path] = 'own copy'
+upscalers[given] = 'other copy'
+check('the gallery\'s own copy listed: its name, first',
+      sent_from(upscaler_path, version_ids=str(flux_id)).get('upscaler'), 'own copy')
+# Copies whose Civitai file id was never learned: found by their version.
+nameless_shown, nameless_given = (os.path.join(facts['directory'], d, 'nameless_up.pth') for d in ('own', 'given'))
+for path in (nameless_shown, nameless_given):
+    db.upsert_version({'file_path': path, 'file_name': 'nameless_up.pth', 'id': 777001, 'model_id': 777000,
+                       'has_civitai_data': True})
+    db.set_architecture(path, None, None, False, False, '9999', file_type='Upscaler')
+upscalers.clear()
+upscalers[nameless_given] = 'by version'
+check('copies with no file id: found by their version',
+      sent_from(nameless_shown, version_ids=str(flux_id)).get('upscaler'), 'by version')
+# A version of two files - this one, and a sibling - both listed: the very
+# file's copy is Forge's name, not the sibling's, stored first though it is.
+trio = {d: os.path.join(facts['directory'], d, f) for d, f in
+        (('shown', 'x4.pth'), ('sibling', 'x2.pth'), ('exact', 'x4.pth'))}
+for key, file_id in (('shown', 888011), ('sibling', 888012), ('exact', 888011)):
+    db.upsert_version({'file_path': trio[key], 'file_name': os.path.basename(trio[key]), 'id': 888001,
+                       'model_id': 888000, 'civitai_file_id': file_id, 'has_civitai_data': True})
+    db.set_architecture(trio[key], None, None, False, False, '9999', file_type='Upscaler')
+upscalers.clear()
+upscalers.update({trio['sibling']: 'sibling x2', trio['exact']: 'exact x4'})
+check('the very file before another of its version',
+      sent_from(trio['shown'], version_ids=str(flux_id)).get('upscaler'), 'exact x4')
 host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
 

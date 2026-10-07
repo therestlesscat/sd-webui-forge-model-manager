@@ -48,6 +48,34 @@ def shared_version() -> str:
     return str(int(newest))
 
 
+def _listed_upscaler(db, file_path: str):
+    """
+    The name Forge lists an upscaler's gallery's file under - or, where it
+    does not list that copy, another copy of it the library holds: by its
+    Civitai file, then its version. Forge reads the folder it was given
+    alone (--esrgan-models-path, else its own), and the same upscaler can
+    be in both: the gallery's card showed the copy in the other, and Send
+    said "not listed" though Forge offered it (#138).
+    """
+    from ..forge_host import upscaler_name
+    name = upscaler_name(file_path)
+    if name:
+        return name
+    row = db.get_version(file_path) or {}
+    file_id, version_id = row.get("civitai_file_id"), row.get("id")
+    copies = (db.library_files(file_ids=[file_id]) if file_id is not None else []) \
+        + (db.library_files(version_ids=[version_id]) if version_id is not None else [])
+    tried = {file_path}
+    for copy in copies:
+        if copy["file_path"] in tried:
+            continue
+        tried.add(copy["file_path"])
+        name = upscaler_name(copy["file_path"])
+        if name:
+            return name
+    return None
+
+
 def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str) -> dict:
     """
     The image's checkpoint for a send from a gallery that is not a
@@ -170,8 +198,7 @@ def register(app: FastAPI):
         if gallery_type != "Checkpoint":
             answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name))
         if gallery_type == "Upscaler":
-            from ..forge_host import upscaler_name
-            answer["upscaler"] = upscaler_name(file_path)
+            answer["upscaler"] = _listed_upscaler(db, file_path)
             answer["upscaler_not_listed"] = None if answer["upscaler"] else os.path.basename(file_path)
 
         # The gallery's own VAE or text encoder, as Forge lists it: the

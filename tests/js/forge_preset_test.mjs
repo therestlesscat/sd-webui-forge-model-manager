@@ -21,7 +21,11 @@ const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page
 const events = [];                       // what happened, in order
-function dropdown(id, options, multi) {
+// What Gradio's dropdowns hold: changed only by a choice in the open list,
+// never by the input's text - which a script can write, and Gradio puts back
+// as soon as the field loses focus (#138).
+const commits = {};
+function dropdown(id, options, multi, onCommit = null) {
     const root = document.createElement('div');
     root.id = id;
     root.innerHTML = '<div class="wrap-inner"></div><input><ul class="options"></ul>';
@@ -29,6 +33,8 @@ function dropdown(id, options, multi) {
     const list = root.querySelector('ul');
     input.addEventListener('input', () => {        // typing opens the list
         list.innerHTML = '';
+        // Hidden - in a closed accordion - it takes no focus, and no list opens (#138).
+        if (root.dataset.hidden) return;
         for (const label of options) {
             const li = document.createElement('li');
             li.setAttribute('data-testid', 'dropdown-option');
@@ -45,6 +51,9 @@ function dropdown(id, options, multi) {
                     });
                     root.querySelector('.wrap-inner').appendChild(token);
                     events.push(`module+:${label}`);
+                } else if (onCommit) {
+                    input.value = label;
+                    onCommit(label);
                 } else {
                     input.value = label;
                     events.push(`preset:${label}`);
@@ -66,6 +75,10 @@ const MODULE_FILES = ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safete
 const preset = dropdown('forge_ui_preset', ['sd', 'xl', 'flux', 'qwen'], false);
 preset.querySelector('input').value = 'sd';
 const modules = dropdown('setting_sd_modules', MODULE_FILES, true);
+// txt2img's scheduler, left on Beta by the last generation.
+const scheduler = dropdown('txt2img_scheduler', ['Automatic', 'Simple', 'Beta'], false,
+                           (label) => { commits.txt2img_scheduler = label; });
+scheduler.querySelector('input').value = 'Beta';
 const selected = () => Array.from(modules.querySelectorAll('.token'))
     .map((t) => t.textContent.replace(/×$/, '').trim());
 // A leftover from whatever was generated last.
@@ -168,6 +181,15 @@ check('nothing is missing, so nothing is said', document.querySelector('.mm-noti
 // A preset already right is not switched again.
 await send();
 check('a preset already right is left alone', events.filter((e) => e.startsWith('preset')), []);
+
+// The scheduler, after the paste: the image's, or Automatic when it names
+// none - chosen in the list, as Gradio takes it. Its text alone was put back
+// (#138): an image naming none left the last generation's.
+check('an image naming no scheduler: Automatic is chosen', commits.txt2img_scheduler, 'Automatic');
+IMAGE.meta['Schedule type'] = 'Simple';
+await send();
+check('one naming its scheduler: that one is chosen', commits.txt2img_scheduler, 'Simple');
+delete IMAGE.meta['Schedule type'];
 
 // ---------------------------------------------- a module not installed
 plan = { ...plan, preset: 'qwen', select: ['ae.safetensors'], missing: ['qwen25_7b'] };
@@ -406,33 +428,58 @@ check('an image naming its checkpoint by hash alone can be sent', button.disable
 IMAGE.meta = named;
 await sendButton();
 
-// An upscaler's gallery: that upscaler goes in as Hires fix's, after the
-// paste - which sets the image's own - by the name the server says Forge
-// lists it under. Hires fix itself stays as the image had it.
-const hires = document.createElement('div');
-hires.id = 'txt2img_hr_upscaler';
-hires.innerHTML = '<input>';
+// An upscaler's gallery: that upscaler goes in as Hires fix's, by the name
+// the server says Forge lists it under - through Forge's paste, which sets the
+// dropdown hidden or not: in Hires fix's closed accordion, a choice pressed in
+// its list never opened, and the field was left blank (#138). Without
+// "Denoising strength" the paste leaves Hires fix off; it stays as the image
+// had it.
+const pasted = () => promptBox.querySelector('textarea').value;
+const hires = dropdown('txt2img_hr_upscaler', ['Latent', 'Lanczos', '4x-UltraSharp'], false,
+                       (label) => { commits.txt2img_hr_upscaler = label; });
+hires.querySelector('input').value = 'Latent';
+hires.dataset.hidden = '1';                                 // Hires fix's accordion closed
 const hiresBox = document.createElement('div');
 hiresBox.id = 'txt2img_hr-checkbox';
 hiresBox.innerHTML = '<input type="checkbox">';
-document.body.append(hires, hiresBox);
+document.body.append(hiresBox);
 hiresBox.querySelector('input').checked = true;            // left on from the last generation
 MODEL.model_type = 'Upscaler';
 plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [],
          checkpoint: 'anima-preview2.safetensors [635cf338]', upscaler: '4x-UltraSharp' };
 await send();
-check('an upscaler\'s gallery sets Hires fix\'s upscaler to it, and loads the image\'s checkpoint',
-      [hires.querySelector('input').value, events.includes('checkpoint:anima-preview2.safetensors [635cf338]')],
-      ['4x-UltraSharp', true]);
+check('an upscaler\'s gallery pastes it as Hires fix\'s upscaler, and loads the image\'s checkpoint',
+      [/Hires upscaler: 4x-UltraSharp(,|$)/m.test(pasted()), events.includes('checkpoint:anima-preview2.safetensors [635cf338]')],
+      [true, true]);
+check('with no Denoising strength, so the paste does not turn Hires fix on', /Denoising strength/.test(pasted()), false);
+check('and the hidden dropdown is not touched: its text as it was', hires.querySelector('input').value, 'Latent');
 check('Hires fix stays as the image had it: off, as it used none', hiresBox.querySelector('input').checked, false);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 hires.querySelector('input').value = 'Latent';
+delete commits.txt2img_hr_upscaler;
 plan = { ...plan, upscaler: null, upscaler_not_listed: '4x-UltraSharp.pth' };
 await send();
 check('one Forge does not list is said, and Hires fix\'s left as the paste set it',
       [document.querySelector('.mm-notice')?.textContent.includes('4x-UltraSharp.pth'),
-       hires.querySelector('input').value], [true, 'Latent']);
+       /Hires upscaler/.test(pasted()), hires.querySelector('input').value], [true, false, 'Latent']);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+// An image made with Hires fix: the gallery's upscaler in place of its own.
+Object.assign(IMAGE.meta, { 'Denoising strength': 0.4, 'Hires upscale': 2, 'Hires upscaler': 'Latent' });
+plan = { ...plan, upscaler: '4x-UltraSharp', upscaler_not_listed: null };
+await send();
+check('an image with Hires fix: the gallery\'s upscaler in place of the image\'s, once',
+      [(pasted().match(/Hires upscaler: [^,\n]+/g) || []), /Denoising strength: 0.4/.test(pasted())],
+      [['Hires upscaler: 4x-UltraSharp'], true]);
+for (const key of ['Denoising strength', 'Hires upscale', 'Hires upscaler']) delete IMAGE.meta[key];
+// A choice pressed in a hidden dropdown's list: none opens. It gives up, and
+// leaves the text as it was - it used to clear it first, and leave it blank.
+scheduler.dataset.hidden = '1';
+delete commits.txt2img_scheduler;
+scheduler.querySelector('input').value = 'Beta';
+await send();
+check('a hidden dropdown: nothing chosen, its text left as it was',
+      [commits.txt2img_scheduler, scheduler.querySelector('input').value], [undefined, 'Beta']);
+delete scheduler.dataset.hidden;
 MODEL.model_type = 'LORA';
 delete plan.upscaler_not_listed;
 hires.remove();
@@ -896,9 +943,12 @@ const moduleChanges = () => events.filter((e) => e.startsWith('module'));
 preset.querySelector('input').value = 'flux';
 generationPlan = { success: true, preset: 'flux', checkpoint: '_Flux/flux1.safetensors [aa6ba2ab9f]',
                    checkpoint_missing: null, target: ['clip_l.safetensors', 'ae.safetensors'], modules_missing: [] };
+commits.txt2img_scheduler = 'Beta';
 await sendGeneration(299);
 check('a generation is sent with the modules it loaded, exactly', selected().sort(),
       ['ae.safetensors', 'clip_l.safetensors']);
+// Its infotext names no scheduler: the paste's own fallback, Automatic (#138).
+check('a generation naming no scheduler: Automatic is chosen', commits.txt2img_scheduler, 'Automatic');
 generationPlan = { success: true, preset: 'sd', checkpoint: '_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]',
                    checkpoint_missing: null, target: [], modules_missing: [] };
 await sendGeneration(263);
