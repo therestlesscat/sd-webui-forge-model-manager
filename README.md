@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.52 - The download queue survives a restart.** Downloads waiting in the queue are kept,
+as running and paused ones were: after a restart, or a crash, every download not finished
+is back in the list, paused, in its place, to be resumed. One you have downloaded
+meanwhile - by hand, or in the other WebUI - is not brought back.
+
 **0.51 - Turn off the tabs you do not use.** Each of the extension's tabs - the Queue,
 Generations, the Model Manager and the Civitai Browser - has a switch, together in the
 settings window's new Tabs section. A tab switched off does nothing at all: it is hidden at

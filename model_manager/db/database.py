@@ -12,6 +12,7 @@ WHAT LIVES WHERE
   images_ops.py         the image rows belonging to a version
   generations_ops.py    the images you generate, and the model files each used
   tasks_ops.py          the generation queue: tasks, and the generations each made
+  downloads_ops.py      the download queue, kept across a restart
 
 Connections are per-thread: scans and syncs run on several threads at once and
 SQLite objects cannot cross between them.
@@ -29,13 +30,14 @@ from .query import GridQuery
 from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
 from .tasks_ops import TasksOps
+from .downloads_ops import DownloadsOps
 from ..forge_host import setting
 from ..model_dirs import file_modified
 from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 
 class ModelsDatabase:
@@ -69,6 +71,7 @@ class ModelsDatabase:
         self._images = ImagesOps(self._cursor)
         self._generations = GenerationsOps(self._cursor)
         self._tasks = TasksOps(self._cursor)
+        self._downloads = DownloadsOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -337,6 +340,10 @@ class ModelsDatabase:
         """Which of these models and versions the library holds. See ModelsOps.owned_by_library()."""
         return self._models.owned_by_library(model_ids, version_ids)
 
+    def held_files(self, file_id: Optional[int]) -> List[str]:
+        """The library's files that are this Civitai file. See ModelsOps.held_files()."""
+        return self._models.held_files(file_id)
+
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""
         return self._models.local_versions_by_name(names)
@@ -439,6 +446,16 @@ class ModelsDatabase:
     def restamp_generation_levels(self, level) -> Tuple[int, int]:
         """Judge every generated image's prompt again. See GenerationsOps.restamp_levels()."""
         return self._generations.restamp_levels(level)
+
+    # ==================== The download queue (delegated) ====================
+
+    def kept_downloads(self, install: str) -> List[Dict[str, Any]]:
+        """This install's downloads kept across a restart, in order. See db/downloads_ops.py."""
+        return self._downloads.kept(install)
+
+    def keep_downloads(self, install: str, rows: List[Dict[str, Any]]) -> None:
+        """Replace this install's kept downloads with these. See db/downloads_ops.py."""
+        self._downloads.keep(install, rows)
 
     # ==================== The generation queue (delegated) ====================
 

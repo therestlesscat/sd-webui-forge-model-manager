@@ -1064,6 +1064,19 @@ class ModelsOps:
                     owned_versions.add(row["id"])
         return owned_models, owned_versions
 
+    def held_files(self, file_id: Optional[int]) -> List[str]:
+        """
+        The paths of the library's files that are this Civitai file - by its
+        id alone, so a version's fp32 is never taken for its fp16. No id, no
+        file: nothing is guessed from the version. Whether each is on disk,
+        and in this WebUI's folders, is the caller's to ask (#187).
+        """
+        if file_id is None:
+            return []
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path FROM files WHERE civitai_file_id = ?", (file_id,))
+            return [row[0] for row in cursor.fetchall()]
+
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """
         The local files named each of these, by file name without its

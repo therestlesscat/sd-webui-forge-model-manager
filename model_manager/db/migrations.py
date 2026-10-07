@@ -1589,6 +1589,56 @@ def _migrate_to_v34(cursor):
     print("[ModelManager] Migration to v34 complete")
 
 
+def _migrate_to_v35(cursor):
+    """
+    The download queue, kept across a restart in a table of its own (#187).
+    Until now each install kept a JSON list in schema_info, under
+    "downloads:<install>", and only of downloads with a .partial: a restart
+    forgot every download still waiting. `downloads` holds each install's
+    downloads not over, one row each, in the list's order (`position`); the
+    lists kept so far become its rows, and their keys go. A list that cannot
+    be read is dropped with its key.
+
+    Scan Disk's `last_scan` goes too: nothing has read it since 0.48.3, and
+    nothing ever did.
+    """
+    print("[ModelManager] Migrating to v35: the download queue...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS downloads (
+            install TEXT NOT NULL,
+            version_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            model_id INTEGER,
+            file_id INTEGER,
+            file_index INTEGER,
+            file_name TEXT,
+            partial_path TEXT,
+            total_bytes INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (install, version_id)
+        )
+    """)
+    cursor.execute("SELECT key, value FROM schema_info WHERE key LIKE 'downloads:%'")
+    for key, value in cursor.fetchall():
+        install = key[len("downloads:"):]
+        try:
+            entries = [e for e in json.loads(value or "[]") if isinstance(e, dict)]
+        except (TypeError, ValueError):
+            print(f"[ModelManager] v35: could not read the downloads kept under {key}; dropped")
+            entries = []
+        for position, entry in enumerate(entries):
+            if entry.get("version_id") is None:
+                continue
+            cursor.execute(
+                "INSERT OR IGNORE INTO downloads (install, version_id, position, model_id, file_id, "
+                "file_index, file_name, partial_path, total_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (install, entry["version_id"], position, entry.get("model_id"), entry.get("file_id"),
+                 entry.get("file_index"), entry.get("file_name"), entry.get("partial_path"),
+                 entry.get("total_bytes") or 0))
+        cursor.execute("DELETE FROM schema_info WHERE key = ?", (key,))
+    cursor.execute("DELETE FROM schema_info WHERE key = 'last_scan'")
+    print("[ModelManager] Migration to v35 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -1608,7 +1658,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         26: _migrate_to_v26, 27: _migrate_to_v27, 28: _migrate_to_v28, 29: _migrate_to_v29,
         30: _migrate_to_v30, 31: _migrate_to_v31,
         32: lambda c: _migrate_to_v32(c, db_path),
-        33: _migrate_to_v33, 34: _migrate_to_v34,
+        33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

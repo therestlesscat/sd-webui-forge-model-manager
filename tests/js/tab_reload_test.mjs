@@ -77,8 +77,7 @@ check('off, after it ran here: it stops at once, and a clean slate is offered',
       [said(), buttons()], ['The Queue is turned off.', ['Restart WebUI', 'Reload the page', 'Later']]);
 check('what each way costs, said', notes(),
       'Restart WebUI starts the server and the page afresh: the cleanest slate. A running generation and sync '
-      + 'end. Downloads under way come back paused: resume them after. Queued downloads that haven\'t started '
-      + 'are forgotten: download them again. '
+      + 'end. Downloads come back paused: resume them after. '
       + 'Reloading loses unsaved input, like a typed prompt.');
 press('Later');
 check('Later closes it, and reloads nothing', [popup(), reloaded, restarted], [null, 0, 0]);

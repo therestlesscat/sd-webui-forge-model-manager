@@ -136,7 +136,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 
 | | |
 |---|---|
-| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `tasks_ops` (the generation queue), `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
+| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `tasks_ops` (the generation queue), `downloads_ops` (the download queue, across a restart), `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `ownership` (which paid versions the key's account bought), `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
 | `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 72 to a table; startup work and the recorder ask it too |
@@ -451,12 +451,17 @@ the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
 a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
 Resume asks Civitai's download address again (its storage link is signed and
 expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
-there, and checks the finished file as ever. What is running or paused is kept
-in `schema_info` under a key for this install (`RESUMABLE_KEY`), so a restart
-or a crash leaves it paused, and a WebUI sharing the database never takes it
-up. Only a download with a `.partial` is kept: one still waiting, never
-started, has none - its path is set as its own thread begins fetching - and a
-restart forgets it (#187), since 0.43.0 (48ad567).
+there, and checks the finished file as ever. What is not over - running,
+paused or waiting - is kept in the `downloads` table, one row each in the
+list's order, under this install's key (`INSTALL_KEY`): a restart or a crash
+leaves it paused, and a WebUI sharing the database never takes it up. Each
+save replaces the install's rows whole (`_save`), so the table cannot miss a
+change: from 0.43.0 (48ad567) only a download with a `.partial` was kept, in
+`schema_info`, and a restart forgot every one still waiting (#187). A kept
+download whose file the library has by then - its Civitai file id, on disk,
+in this WebUI's folders (`_held`) - is not brought back, and a resumed one is
+asked again before anything is fetched. Never by its version alone: a
+version's other file is not this one.
 
 ### The page
 
@@ -824,7 +829,7 @@ extensions' styles measured buttons the same that were not.
   the server says the checkpoint is there (0.47.3).
 - **Text that tells the user what another part does is read against that
   part's code.** The restart popup said downloads "pause, and resume after";
-  `restore()` brings them back paused, and forgets one never started (#187).
+  `restore()` brought them back paused, and forgot one never started (#187).
   A side agent's review found it after the commit, and two patches (0.51.7,
   0.51.8) followed - the first one's wording unclear in turn.
 

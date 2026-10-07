@@ -8,9 +8,10 @@ they were added in, which ↑/↓ change - and a state never moves one: up to
 the top starts. A waiting download can be started at once (over the limit),
 moved up or down, or cancelled before it starts. A running one can be
 paused: it keeps its .partial, gives up its place, and resumes with an HTTP
-Range request from where it stopped. What is running or paused is kept in the
-database (schema_info, under a key for this install), so after a restart -
-or a crash - it is there again, paused, to be resumed.
+Range request from where it stopped. What is not over - running, paused or
+waiting - is kept in the database (the downloads table, under this install's
+key), so after a restart - or a crash - it is there again, paused, to be
+resumed; one whose file the library has by then is not (#187).
 """
 import hashlib
 import os
@@ -29,7 +30,7 @@ from .civitai.ownership import owned_versions
 from .forge_host import setting
 from .hashing import HashResult
 from .install import INSTALL_KEY
-from .model_dirs import download_dir, filed_as, proper_place
+from .model_dirs import download_dir, filed_as, folder_of, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
 from .console import say
 
@@ -49,11 +50,6 @@ RANGE_TRIES = 3
 
 # Bound once: what the speed is measured by, whatever later replaces `time`.
 _clock = time.monotonic
-
-# Where this install keeps its downloads that can be resumed: under its own
-# key (install.py), so a WebUI sharing the database never takes up another's.
-RESUMABLE_KEY = "downloads:" + INSTALL_KEY
-
 
 #: A download asked for and not yet over: asked for again, it is not started again.
 ON_ITS_WAY = ("pending", "downloading", "finishing", "paused")
@@ -249,8 +245,10 @@ class DownloadService:
     - Automatic metadata file creation
     """
 
-    # (get, set) for what can be resumed, instead of the database's.
+    # (read, write) of the downloads kept across a restart, and the
+    # library's files of a download, instead of the database's.
     store = None
+    library = None
 
     def __init__(self, max_concurrent: int = 2):
         """
@@ -271,10 +269,15 @@ class DownloadService:
         self._threads: List[threading.Thread] = []
         self._cancel_flags: Dict[int, bool] = {}
         self._pause_flags: Dict[int, bool] = {}
-        # (get, set) of the stored value: the database's, unless one is set
-        # on the class - as the tests do, so none of them opens a database.
+        # (read, write) of the kept rows, and the library's files of a
+        # download: the database's, unless set on the class - as the tests
+        # do, so none of them opens a database.
         self._store = DownloadService.store
+        self._library = DownloadService.library
         self._stored_any = False
+        # A save's snapshot and its write, as one step: two threads saving
+        # could otherwise write theirs out of order. Never taken under _lock.
+        self._save_lock = threading.Lock()
         self._tqdm_positions: Dict[int, int] = {}  # version_id -> tqdm position
         self._lock = threading.Lock()
 
@@ -300,6 +303,7 @@ class DownloadService:
         one never starts; a paused one is dropped, its .partial with it.
         """
         partial = None
+        dropped = False
         with self._lock:
             self._cancel_flags[version_id] = True
             progress = self._active_downloads.get(version_id)
@@ -307,9 +311,10 @@ class DownloadService:
                 partial = (self._jobs.get(version_id) or {}).pop("partial_path", None)
                 progress.status = "cancelled"
                 progress.error = "Download cancelled"
+                dropped = True
         if partial and os.path.exists(partial):
             os.remove(partial)
-        if partial:
+        if dropped:
             self._save()
 
     def cancel_all(self):
@@ -354,6 +359,10 @@ class DownloadService:
         """One download, on its own thread; then the next in the queue."""
         try:
             job = self._jobs.get(version_id) or {}
+            # Resumed, it may have arrived meanwhile - since a restart, by
+            # hand, in the other WebUI: then nothing is fetched (#187).
+            if job.get("resume") and self._already_here(version_id, job):
+                return
             if job.get("version_data") is None:
                 self._fetch_job(version_id, job)
             if job.get("version_data") is None:
@@ -370,7 +379,54 @@ class DownloadService:
         finally:
             with self._lock:
                 self._running.discard(version_id)
+            # One that ended here and not in download_version - already here,
+            # or its fetch from Civitai failed - is kept no longer.
+            self._save()
             self._pump()
+
+    def _already_here(self, version_id: int, job: Dict[str, Any]) -> bool:
+        """
+        A resumed download whose file the library has now: complete, that
+        file, nothing fetched - and its own .partial, of no more use, gone.
+        """
+        found = self._held(job.get("file_id"))
+        if not found:
+            return False
+        job.pop("resume", None)
+        partial = job.pop("partial_path", None)
+        if partial and os.path.exists(partial):
+            os.remove(partial)
+        progress = self._active_downloads.get(version_id)
+        if progress:
+            progress.file_path = found[0]
+            progress.filed = "Already in your library"
+            # In the library already: the page waits for `synced` to say so.
+            progress.synced = True
+            progress.status = "complete"
+        say(f"Already in your library, not downloaded again: {found[0]}")
+        return True
+
+    def _held(self, file_id: Optional[int]) -> List[str]:
+        """
+        The library's files that are this download's Civitai file, on disk
+        and in this WebUI's folders: what "already downloaded" means. A row
+        whose file is gone does not count, nor the other WebUI's file, which
+        this one cannot load. With no file id - a download 0.51.8 kept from
+        the Resources dialog - nothing does: another file of the version is
+        not this one, and taking it for this one dropped a download and its
+        .partial.
+        """
+        if file_id is None:
+            return []
+        try:
+            if self._library is None:
+                from .db import get_models_db
+                self._library = get_models_db().held_files
+            paths = self._library(file_id)
+        except Exception as e:
+            say(f"Could not ask the library about file {file_id}: {e}")
+            return []
+        return [path for path in paths if os.path.isfile(path) and folder_of(path)[0] is not None]
 
     def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
         """A download remembered across a restart knows its ids only: ask Civitai again."""
@@ -419,7 +475,8 @@ class DownloadService:
             i, j = order.index(version_id), order.index(other)
             order[i], order[j] = order[j], order[i]
             self._active_downloads = {v: self._active_downloads[v] for v in order}
-            return True
+        self._save()
+        return True
 
     def pause(self, version_id: int) -> bool:
         """
@@ -494,54 +551,80 @@ class DownloadService:
         if self._store is None:
             from .db import get_models_db
             db = get_models_db()
-            self._store = (lambda: db.get_info(RESUMABLE_KEY), lambda value: db.set_info(RESUMABLE_KEY, value))
+            self._store = (lambda: db.kept_downloads(INSTALL_KEY), lambda rows: db.keep_downloads(INSTALL_KEY, rows))
         return self._store
 
     def _save(self) -> None:
-        """What can be resumed after a restart: every download with a .partial, running or paused."""
-        with self._lock:
-            entries = []
-            for version_id, progress in self._active_downloads.items():
-                job = self._jobs.get(version_id) or {}
-                if job.get("partial_path") and progress.status in ("downloading", "paused", "pending"):
-                    entries.append({"version_id": version_id, "model_id": job.get("model_id"),
-                                    "file_id": job.get("file_id"), "file_index": job.get("file_index"),
-                                    "file_name": progress.file_name, "partial_path": job["partial_path"],
-                                    "total_bytes": progress.total_bytes})
-        # Nothing to keep, and nothing kept before: the database is not touched.
-        if not entries and not self._stored_any:
-            return
-        try:
-            self._stored()[1](json.dumps(entries) if entries else None)
-            self._stored_any = bool(entries)
-        except Exception as e:
-            say(f"Could not keep the downloads to resume: {e}")
+        """
+        What a restart brings back: every download not over - running, paused
+        or waiting - in the list's order. One still waiting has no .partial:
+        only one begun was kept, and a restart forgot the rest of the queue
+        (#187).
+        """
+        with self._save_lock:
+            with self._lock:
+                rows = []
+                for version_id, progress in self._active_downloads.items():
+                    if progress.status not in ("downloading", "paused", "pending"):
+                        continue
+                    job = self._jobs.get(version_id) or {}
+                    rows.append({"version_id": version_id, "model_id": job.get("model_id"),
+                                 "file_id": job.get("file_id"), "file_index": job.get("file_index"),
+                                 "file_name": progress.file_name, "partial_path": job.get("partial_path"),
+                                 "total_bytes": progress.total_bytes})
+            # Nothing to keep, and nothing kept before: the database is not touched.
+            if not rows and not self._stored_any:
+                return
+            try:
+                self._stored()[1](rows)
+                self._stored_any = bool(rows)
+            except Exception as e:
+                say(f"Could not keep the downloads to resume: {e}")
 
     def restore(self) -> None:
         """
-        After a restart, the downloads that were running or paused, paused -
-        a running one included: its thread died with the WebUI, its .partial
-        did not. One whose .partial is gone is forgotten.
+        After a restart, the downloads not over, paused, in their order - a
+        running one included: its thread died with the WebUI, its .partial
+        did not. A waiting one comes back paused too, so a restart starts
+        nothing by itself. Not brought back: one begun whose .partial is
+        gone, and one whose file the library has by now - downloaded since,
+        by hand or in the other WebUI - whose .partial, of no more use, goes.
         """
         try:
-            entries = json.loads(self._stored()[0]() or "[]")
+            rows = self._stored()[0]() or []
         except Exception as e:
             say(f"Could not read the downloads to resume: {e}")
             return
-        self._stored_any = bool(entries)
+        self._stored_any = bool(rows)
+        back = []
+        for row in rows:
+            version_id = row.get("version_id")
+            partial = row.get("partial_path")
+            if version_id is None or (partial and not os.path.exists(partial)):
+                continue
+            found = self._held(row.get("file_id"))
+            if found:
+                if partial:
+                    try:
+                        os.remove(partial)
+                    except OSError as e:
+                        say(f"Could not remove {partial}: {e}")
+                say(f"Already in your library, not brought back: {row.get('file_name') or version_id} "
+                    f"({found[0]})")
+                continue
+            back.append(row)
         with self._lock:
-            for entry in entries:
-                partial = entry.get("partial_path")
-                version_id = entry.get("version_id")
-                if not partial or version_id is None or not os.path.exists(partial):
-                    continue
+            for row in back:
+                version_id, partial = row["version_id"], row.get("partial_path")
                 self._active_downloads[version_id] = DownloadProgress(
-                    version_id=version_id, file_name=entry.get("file_name") or "",
-                    total_bytes=entry.get("total_bytes") or 0,
-                    downloaded_bytes=os.path.getsize(partial), status="paused")
-                self._jobs[version_id] = {"model_id": entry.get("model_id"), "file_id": entry.get("file_id"),
-                                          "file_index": entry.get("file_index"), "model_data": None,
-                                          "version_data": None, "partial_path": partial}
+                    version_id=version_id, file_name=row.get("file_name") or "",
+                    total_bytes=row.get("total_bytes") or 0,
+                    downloaded_bytes=os.path.getsize(partial) if partial else 0, status="paused")
+                job = {"model_id": row.get("model_id"), "file_id": row.get("file_id"),
+                       "file_index": row.get("file_index"), "model_data": None, "version_data": None}
+                if partial:
+                    job["partial_path"] = partial
+                self._jobs[version_id] = job
         self._save()
 
     def get_progress(self, version_id: int) -> Optional[DownloadProgress]:
@@ -1042,10 +1125,13 @@ class DownloadService:
         """Queue a download for parallel processing."""
         progress = DownloadProgress(version_id=version_id)
         files = version_data.get("files", [])
-        progress.file_name = (
-            files[pick_file_index(files, file_index, file_id)].get("name", "Unknown")
-            if files else "Unknown"
-        )
+        chosen = files[pick_file_index(files, file_index, file_id)] if files else {}
+        progress.file_name = chosen.get("name", "Unknown")
+        # Civitai's size (in KiB), shown before it begins - and after a restart.
+        progress.total_bytes = int((chosen.get("sizeKB") or 0) * 1024)
+        # The file chosen, by Civitai's id: after a restart the version is
+        # fetched again, and its list may come in another order (#187).
+        file_id = chosen.get("id", file_id)
 
         with self._lock:
             # One on its way is answered as it is: dropping its row and
@@ -1063,6 +1149,7 @@ class DownloadService:
             self._jobs[version_id] = {"model_data": model_data, "version_data": version_data,
                                       "file_index": file_index, "file_id": file_id,
                                       "model_id": (model_data or {}).get("id")}
+        self._save()
         self._pump()
         return progress
 

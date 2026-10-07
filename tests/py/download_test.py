@@ -44,9 +44,15 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 
 
-# What can be resumed is kept here, never in a database (DownloadService.store).
-kept = {'value': None}
-DownloadService.store = (lambda: kept['value'], lambda value: kept.__setitem__('value', value))
+# What comes back after a restart is kept here, never in a database
+# (DownloadService.store): this install's rows, in the list's order.
+kept = {'rows': []}
+DownloadService.store = (lambda: [dict(row) for row in kept['rows']],
+                         lambda rows: kept.__setitem__('rows', [dict(row) for row in rows]))
+# The library's files of a Civitai file, by its id - none unless a check puts
+# some here (DownloadService.library).
+in_library = {}
+DownloadService.library = lambda file_id: list(in_library.get(file_id, []))
 
 # Retries sleep for three seconds each; the test does not need to.
 ds.time = types.SimpleNamespace(sleep=lambda seconds: None)
@@ -682,8 +688,11 @@ check('when places free up, they start from the top - the resumed one told it is
 release(605)
 release(604)
 queue.wait()
+# Each by the id of the file chosen when it was queued - Civitai's primary,
+# unless one was asked for - so a list fetched again after a restart, in
+# another order, picks the same file (#187). A version with no files has none.
 check('each ran with its own file', sorted(q[:3] for q in queued),
-      [(600, None, 1), (601, None, None), (602, None, None), (604, None, None), (605, None, None)])
+      [(600, None, 1), (601, None, None), (602, None, 1), (604, None, 1), (605, None, 1)])
 
 # Pause all holds the waiting ones too, so none starts in the places it frees.
 queue.queue_download(610, CHECKPOINT, version(id=610))
@@ -910,11 +919,11 @@ def pause_it(version_id):
     return lambda: service._pause_flags.__setitem__(version_id, True)
 
 
-kept['value'] = None
+kept['rows'] = []
 civitai_says(FakeResponse([FULL[:11], pause_it(530), FULL[11:]], total=len(FULL)))
 paused = service.download_version(530, CHECKPOINT, hashed(530, FULL_SHA))
 partial = os.path.join(CKPT_DIR, 'hashed_530.safetensors.partial')
-saved = json.loads(kept['value'] or '[]')
+saved = kept['rows']
 check('paused mid-download, it stops, says so, and keeps what it had',
       [paused.status, io.open(partial, 'rb').read(), os.path.exists(partial[:-len('.partial')])],
       ['paused', FULL[:11], False])
@@ -927,7 +936,7 @@ check('resumed, only the rest is asked for', FakeSession.asked[0][1].get('Range'
 check('and added on: the whole file, its hash Civitai\'s, complete',
       [resumed.status, io.open(resumed.file_path, 'rb').read(), resumed.sha256, resumed.started_over],
       ['complete', FULL, FULL_SHA, False])
-check('and no longer kept to resume', kept['value'], None)
+check('and no longer kept to resume', kept['rows'], [])
 check('the progress the page followed is the same one throughout', resumed is paused, True)
 
 # Civitai's storage now and then ignores the range - with an API key, 1 of 8
@@ -954,7 +963,7 @@ check('a server that sends the whole file every time: taken from the start, and 
 # when the WebUI stopped too - and one whose .partial is gone is forgotten.
 left = os.path.join(CKPT_DIR, 'left_behind.safetensors.partial')
 io.open(left, 'wb').write(b'12345')
-kept['value'] = json.dumps([
+kept['rows'] = ([
     {'version_id': 540, 'model_id': 42, 'file_id': 9, 'file_index': None, 'file_name': 'left_behind.safetensors',
      'partial_path': left, 'total_bytes': 50},
     {'version_id': 541, 'model_id': 42, 'file_id': 9, 'file_index': None, 'file_name': 'gone.safetensors',
@@ -964,13 +973,148 @@ restarted.restore()
 check('after a restart, a kept download is back, paused, as far as its .partial got',
       [(p['version_id'], p['status'], p['downloaded_bytes'], p['total_bytes']) for p in restarted.get_all_progress()],
       [(540, 'paused', 5, 50)])
-check('and one whose .partial is gone is forgotten', [e['version_id'] for e in json.loads(kept['value'])], [540])
+check('and one whose .partial is gone is forgotten', [e['version_id'] for e in kept['rows']], [540])
 check('it knows its ids only, to fetch from Civitai when resumed',
-      {k: restarted._jobs[540].get(k) for k in ('model_id', 'file_id', 'version_data')},
+      {k: (restarted._jobs.get(540) or {}).get(k) for k in ('model_id', 'file_id', 'version_data')},
       {'model_id': 42, 'file_id': 9, 'version_data': None})
 restarted.cancel(540)
 check('cancelled while paused, it goes, its .partial with it',
-      [restarted.get_progress(540).status, os.path.exists(left), kept['value']], ['cancelled', False, None])
+      [getattr(restarted.get_progress(540), 'status', None), os.path.exists(left), kept['rows']], ['cancelled', False, []])
+
+# --------------------------------------------- the queue across a restart (#187)
+# Every download not over is kept - waiting ones too - in the list's order, and
+# comes back paused. Only one with a .partial was, and one is named only once
+# its thread begins: queue ten, two running, and a restart forgot the other eight.
+import model_manager.console as console                  # noqa: E402
+
+
+def kept_ids():
+    return [row['version_id'] for row in kept['rows']]
+
+
+one_place = Queueing(max_concurrent=1)
+one_place.queue_download(660, CHECKPOINT, version(id=660))
+one_place.queue_download(661, CHECKPOINT, version(id=661))
+check('kept the moment it is queued, before any download has begun', kept_ids(), [660, 661])
+release(660, 661)
+one_place.wait()
+
+
+class Begun(DownloadService):
+    """As download_version does: running, its .partial named, kept and begun - until let go."""
+    def download_version(self, version_id, model_data, version_data,
+                         file_index=None, file_id=None, resume=False):
+        progress = self._active_downloads[version_id]
+        progress.status = 'downloading'
+        path = os.path.join(CKPT_DIR, 'begun_%d.safetensors.partial' % version_id)
+        io.open(path, 'wb').write(b'123')
+        self._jobs[version_id]['partial_path'] = path
+        self._save()
+        gates.setdefault(version_id, threading.Event()).wait(5)
+        progress.status = 'paused'
+        return progress
+
+
+def sized(version_id, file_id, size_kb):
+    """A version whose one file Civitai sizes, and names by its own id."""
+    return version(id=version_id, files=[{'id': file_id, 'name': 'sized_%d.safetensors' % version_id,
+                                          'primary': True, 'sizeKB': size_kb,
+                                          'downloadUrl': 'https://example.invalid/s'}])
+
+
+kept['rows'] = []
+before = Begun(max_concurrent=2)
+for version_id in (650, 651, 652):
+    before.queue_download(version_id, CHECKPOINT, version(id=version_id))
+before.queue_download(653, CHECKPOINT, sized(653, 77, 2.0))
+settle()
+before.move(653, -1)
+restarted = DownloadService(max_concurrent=2)
+restarted.restore()
+check('after a restart, the running ones and the queued ones are back, paused, in their order',
+      [(p['version_id'], p['status'], p['downloaded_bytes']) for p in restarted.get_all_progress()],
+      [(650, 'paused', 3), (651, 'paused', 3), (653, 'paused', 0), (652, 'paused', 0)])
+check('a queued one knows its model, the file chosen and its size, to fetch from Civitai when resumed',
+      [{k: (restarted._jobs.get(653) or {}).get(k) for k in ('model_id', 'file_id', 'version_data', 'partial_path')},
+       getattr(restarted.get_progress(653), 'total_bytes', None)],
+      [{'model_id': 42, 'file_id': 77, 'version_data': None, 'partial_path': None}, 2048])
+check('and the restart starts none of them by itself', [restarted._running, restarted._threads], [set(), []])
+restarted.cancel(652)
+check('cancelled while queued, it is kept no longer', kept_ids(), [650, 651, 653])
+
+
+def gone_from_civitai(version_id, job):
+    restarted._active_downloads[version_id].status = 'error'
+
+
+restarted._fetch_job = gone_from_civitai
+restarted.resume(653)
+restarted.wait()
+check('resumed, and Civitai no longer listing it, it fails and is kept no longer',
+      [getattr(restarted.get_progress(653), 'status', None), kept_ids()], ['error', [650, 651]])
+before.cancel(652)
+before.cancel(653)
+release(650, 651)
+before.wait()
+for version_id in (650, 651):
+    restarted.cancel(version_id)
+
+# Already downloaded - since, by hand, or in the other tab - it is not brought
+# back: the library has the very file, on disk, in this WebUI's folders. A row
+# whose file is gone, or a file in a folder this WebUI does not load from,
+# does not count. Nor does anything for a download with no file id - one
+# 0.51.8 kept from the Resources dialog: the version's other file is not it.
+ELSEWHERE = os.path.join(WORK, 'elsewhere')
+os.makedirs(ELSEWHERE, exist_ok=True)
+
+
+def on_disk(folder, name):
+    path = os.path.join(folder, name)
+    io.open(path, 'wb').write(b'weights')
+    return path
+
+
+def row(version_id, file_id, partial=None):
+    return {'version_id': version_id, 'model_id': 42, 'file_id': file_id, 'file_index': None,
+            'file_name': 'kept_%d.safetensors' % version_id, 'partial_path': partial, 'total_bytes': 0}
+
+
+here = on_disk(CKPT_DIR, 'held_670.safetensors')
+away = on_disk(ELSEWHERE, 'held_672.safetensors')
+dropped_partial = on_disk(CKPT_DIR, 'kept_670.safetensors.partial')
+kept_partial = on_disk(CKPT_DIR, 'kept_674.safetensors.partial')
+no_id_partial = on_disk(CKPT_DIR, 'kept_675.safetensors.partial')
+in_library.update({70: [here], 71: [os.path.join(CKPT_DIR, 'deleted.safetensors')], 72: [away], None: [here]})
+kept['rows'] = [row(670, 70, dropped_partial), row(671, 71), row(672, 72), row(674, 74, kept_partial),
+                row(675, None, no_id_partial)]
+said_from = console.said()
+restarted = DownloadService(max_concurrent=2)
+restarted.restore()
+check('at a restart, one whose file the library has is not brought back, and its .partial goes',
+      [[p['version_id'] for p in restarted.get_all_progress()], kept_ids(), os.path.exists(dropped_partial)],
+      [[671, 672, 674, 675], [671, 672, 674, 675], False])
+check('one with no file id comes back, its .partial kept', os.path.exists(no_id_partial), True)
+check('the console says which', any('kept_670.safetensors' in line['text'] and 'Already in your library' in line['text']
+                                    for line in console.since(said_from)[0]), True)
+
+# Resumed, it is asked again: it may have arrived since the restart.
+fetched = []
+restarted._fetch_job = lambda version_id, job: fetched.append(version_id)
+in_library[74] = [here]
+restarted.resume(674)
+restarted.wait()
+found = restarted.get_progress(674)
+check('resumed when the library has it now: complete, that file, nothing fetched, its .partial gone',
+      [getattr(found, 'status', None), getattr(found, 'file_path', None), getattr(found, 'filed', None),
+       fetched, os.path.exists(kept_partial), kept_ids()],
+      ['complete', here, 'Already in your library', [], False, [671, 672, 675]])
+# The page follows a complete download until it is synced: in the library.
+check('and synced, so the page stops following it', getattr(found, 'synced', None), True)
+for version_id in (671, 672, 675):
+    restarted.cancel(version_id)
+in_library.clear()
+for path in (here, away):
+    os.remove(path)
 
 leftovers = [os.path.join(root, f) for root, _, files in os.walk(MODELS) for f in files if f.endswith('.partial')]
 check('after every download here, failed ones included, no .partial is left anywhere', leftovers, [])

@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.52 - The download queue survives a restart
+
+*6 October 2026*
+
+Downloads waiting in the queue are kept across a restart, as running and paused ones were. After a restart or a crash, every download not finished is back in the list, paused, in its place, to be resumed. One you have downloaded meanwhile - by hand, or in the other WebUI - is not brought back.
+
+- **0.52.0** (build 407) - The download queue is kept in a table of its own, and a restart brings back the downloads still waiting too: only a download that had begun was kept, so a restart forgot the rest of the queue. Each comes back paused, with its size. One whose file the library already has is not brought back, and Resume checks again before downloading. If two WebUIs share one database, update both (#187).
+
 ## 0.51 - Turn off each tab
 
 *6 October 2026*
