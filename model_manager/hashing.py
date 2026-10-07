@@ -248,49 +248,6 @@ class ModelHasher:
             order.insert(0, "autov3")
         return order
 
-    @classmethod
-    def get_fallback_order(cls, file_path: str) -> List[str]:
-        """
-        Get the order of hash types to try for lookup.
-
-        Args:
-            file_path: Path to model file (to check if safetensors).
-
-        Returns:
-            List of hash type names in fallback order.
-        """
-        return list(cls.FIRST_LOOKUPS) + cls.later_lookups(file_path)
-
-    @classmethod
-    def load_cm_info_hashes(cls, file_path: str) -> Optional[Dict[str, str]]:
-        """
-        Load hashes from .cm-info.json file if it exists.
-
-        Args:
-            file_path: Path to model file.
-
-        Returns:
-            Dict of hash type -> hash value, or None if not found.
-        """
-        base = os.path.splitext(file_path)[0]
-        cm_info_path = base + ".cm-info.json"
-
-        if not os.path.exists(cm_info_path):
-            return None
-
-        try:
-            with open(cm_info_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            hashes = data.get("Hashes", {})
-            if hashes:
-                # Normalize to our format (uppercase)
-                return {k.lower(): v.upper() for k, v in hashes.items()}
-        except Exception as e:
-            say(f"Error reading .cm-info.json: {e}")
-
-        return None
-
 
 # ---------------------------------------------------------------- trusting stored hashes
 # A file's hashes are read from its bytes once, and kept with what the file

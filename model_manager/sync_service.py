@@ -174,25 +174,17 @@ class SyncService:
                 by every sync after.
         """
         model_name = os.path.basename(file_path)
-        fallback_order = ModelHasher.get_fallback_order(file_path)
         unasked = None
-
-        # Also check .cm-info.json for stored hashes
-        cm_info_hashes = ModelHasher.load_cm_info_hashes(file_path)
 
         def ask(kinds):
             nonlocal unasked
             for hash_type in kinds:
-                # Get hash value from our calculations
+                # Only what was read from the file. Another tool's
+                # .cm-info.json filled the kinds it lacked, and was asked its
+                # own as well: its hashes need not be these bytes (#140).
                 hash_value = getattr(hashes, hash_type, None)
-
-                # Skip if we don't have this hash
                 if not hash_value:
-                    # Check if .cm-info.json has it
-                    if cm_info_hashes and hash_type in cm_info_hashes:
-                        hash_value = cm_info_hashes[hash_type]
-                    else:
-                        continue
+                    continue
 
                 try:
                     version_data = self.client.get_model_by_hash(hash_value)
@@ -228,22 +220,6 @@ class SyncService:
         found = ask(ModelHasher.later_lookups(file_path))
         if found:
             return found
-
-        # If we have .cm-info.json hashes that we didn't calculate, try those too
-        if cm_info_hashes:
-            for hash_type, hash_value in cm_info_hashes.items():
-                # Skip if already tried
-                if hash_type in fallback_order:
-                    continue
-
-                try:
-                    version_data = self.client.get_model_by_hash(hash_value)
-                    if version_data:
-                        say(f"Found {model_name} via .cm-info.json {hash_type.upper()}: {hash_value[:16]}...")
-                        return version_data, hash_type, hash_value
-                except (CivitaiNotFoundError, CivitaiAPIError):
-                    continue
-
         return None, None, None
 
     def sync_model(self, model_path: str, force: bool = False,

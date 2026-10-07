@@ -205,15 +205,34 @@ except CivitaiAPIError as e:
 check('an API error on every kind is no answer, and says so',
       bool(outage) and 'could not be asked' in outage, True)
 
-# A hash we do not compute, left by another extension.
+# Another tool's .cm-info.json is not the file's word: its hashes need not
+# be these bytes - 11 of 157 in one library were another file's. None of them
+# is asked, whatever its kind (#140).
 CM_INFO = os.path.splitext(LINKED)[0] + '.cm-info.json'
-io.open(CM_INFO, 'w', encoding='utf-8').write(
-    json.dumps({'Hashes': {'AutoV3': 'a' * 64, 'Weird': 'b' * 32}}))
-sync, client = service(by_hash={('b' * 32).upper(): found})
-data, kind, _ = sync._lookup_by_hash_with_fallback(LINKED, HashResult())
-check('a kind only .cm-info.json has is tried too', kind, 'weird')
-check('and one it shares with our own list is used when we have no value',
-      ('A' * 64) in [a[1] for a in client.asked], True)
+SIDECAR = {'SHA256': 'C' * 64, 'BLAKE3': 'D' * 64, 'AutoV3': 'A' * 64, 'Weird': 'B' * 32}
+io.open(CM_INFO, 'w', encoding='utf-8').write(json.dumps({'Hashes': SIDECAR}))
+by_sidecar = dict.fromkeys(SIDECAR.values(), found)
+sync, client = service(by_hash=by_sidecar)
+check("a file only another tool's .cm-info.json would find stays unidentified",
+      sync._lookup_by_hash_with_fallback(LINKED, sync.calculate_hashes(LINKED)), (None, None, None))
+check('and none of its hashes is asked', [a[1] for a in client.asked if a[1] in by_sidecar], [])
+
+# Without the blake3 package - the original Forge has none - the file's own
+# BLAKE3 stays empty, and the sidecar's used to be sent in its place. The
+# kinds every sidecar in one library held, and no others.
+SIDECAR = {'SHA256': 'C' * 64, 'CRC32': 'E' * 8, 'BLAKE3': 'D' * 64}
+io.open(CM_INFO, 'w', encoding='utf-8').write(json.dumps({'Hashes': SIDECAR}))
+by_sidecar = dict.fromkeys(SIDECAR.values(), found)
+import model_manager.hashing as hashing_module                # noqa: E402
+had_blake3 = hashing_module.BLAKE3_AVAILABLE
+hashing_module.BLAKE3_AVAILABLE = False
+try:
+    sync, client = service(by_hash=by_sidecar)
+    found_as = sync._lookup_by_hash_with_fallback(LINKED, sync.calculate_hashes(LINKED))
+    check("without a BLAKE3 of its own, the sidecar's is not asked either",
+          [found_as, [a[1] for a in client.asked if a[1] in by_sidecar]], [(None, None, None), []])
+finally:
+    hashing_module.BLAKE3_AVAILABLE = had_blake3
 os.remove(CM_INFO)
 
 # ------------------------------------------------------- syncing one model

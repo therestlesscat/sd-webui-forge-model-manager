@@ -338,9 +338,11 @@ names is a 404 too - deleted, most likely (`SyncService._identify_by_sidecar`).
 And "Civitai does not know" means a 404, never an error: an outage used to
 mark every file looked up during it "not on Civitai", and every sync after
 skipped them. An error on the SHA-256 is asked again at the sync's end; on a
-later kind it counts as a miss. Another tool's `.cm-info.json` is still asked
-with once every hash read from the file has missed - against this rule
-(#140). Scan Disk read every sidecar as a source, and wrote its hashes as the
+later kind it counts as a miss. Another tool's `.cm-info.json` was asked
+with until 0.53.6 (#140): its hashes filled the kinds the file's read
+lacked - in the original Forge, which has no `blake3` package, its BLAKE3
+for every file Civitai did not know - though 11 of 157 in one library were
+another file's. Scan Disk read every sidecar as a source, and wrote its hashes as the
 file's; it is gone (0.48.3), and the walk every sync from the dialog starts
 with (`walk_library`) does the rest of what it did. A model's Sync and a
 download's sync do not walk.
