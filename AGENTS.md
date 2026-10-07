@@ -21,6 +21,18 @@ longer existed.
   change.
 - **A proposal needs an explicit yes.** "Go ahead?" answered by moving on to
   something else is not one; an implementation started on that was undone.
+- **No change without an approved plan. This is a hard rule.** "Start on #N"
+  asks for a plan, not for code, and an issue's own "What" is not one. A plan
+  is not a list of steps. It says where each thing lives and how it is
+  stored; what each change does, function by function, before and after; the
+  alternatives, with their pros and cons side by side; what is old and what
+  this work makes new; what it costs - a migration, the other WebUI, the live
+  database; how it is tested, each check failing on the old code first; and
+  the version. Each choice goes to the owner as a numbered question with a
+  recommendation. Code starts on an explicit yes to that plan, and anything
+  found later that changes it goes back as a plan. #187 was implemented
+  straight from a survey and undone; its next plan, seven steps, was sent back
+  for having no storage, no alternatives and no pros and cons (2026-10-06).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
