@@ -142,7 +142,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 73 to a table; startup work and the recorder ask it too |
 | `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync from the dialog starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
-| `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`) |
+| `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`); and what "held" means (`held_here`): a library file on disk, in a folder this WebUI loads from - Owned in the Civitai Browser, left out of a draw, not downloaded again (#188) |
 | `jobs.py` | the long jobs - a sync, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
 | `scheduler/` | the generation queue (#17): `capture` (the Queue button beside Generate: what Generate would be sent, named and kept as a task), `values` (a value as a task keeps it - images, arrays, objects - and back) |
@@ -230,7 +230,7 @@ wherever NSFW is.
 worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
 switches hide), `payload_rows.py` (a Civitai payload as rows),
 `hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
-setting's default), `tabs.py` (whether a tab is on). Each found a second copy that had already begun to
+setting's default), `tabs.py` (whether a tab is on), `model_dirs.held_here` (whether the library holds a file - with `library_files`, the one read behind it: three rules had grown, by row, by model and by file, #188). Each found a second copy that had already begun to
 disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
 to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
 table (`forge_host_test`), and `check_hash_access.py` keeps readers on the

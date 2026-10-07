@@ -1041,50 +1041,31 @@ class ModelsOps:
         return ({i: rows[p] for i, p in id_paths.items()},
                 {h: rows[p] for h, p in hash_paths.items()})
 
-    def owned_by_library(self, model_ids, version_ids) -> Tuple[Set[int], Set[int]]:
+    def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
         """
-        Which of these models and versions the library holds: (model ids,
-        version ids). A model is held if any file in the library is of it - by
-        its model id, or by a version id of it - including a version Civitai
-        no longer lists. The Civitai Browser's search cards and its details
-        panel each had a rule of their own, and a model held through a deleted
-        version was "Owned" on one and not on the other.
+        The library's files of these models, versions or Civitai files - any
+        of them - each with its model, version and Civitai file id; with no
+        ids at all, every file with a version. The one read behind every
+        question of what the library holds (#188): whether a file is held is
+        model_dirs.held_here's, from its path. A model is found through any
+        of its versions, one Civitai no longer lists included.
         """
-        owned_models, owned_versions = set(), set()
+        if model_ids is None and version_ids is None and file_ids is None:
+            where, args = "id IS NOT NULL", []
+        else:
+            clauses, args = [], []
+            for column, ids in (("model_id", model_ids), ("id", version_ids), ("civitai_file_id", file_ids)):
+                wanted = sorted({i for i in (ids or ()) if i is not None})
+                if wanted:
+                    clauses.append(f"{column} IN ({','.join('?' * len(wanted))})")
+                    args.extend(wanted)
+            if not clauses:
+                return []
+            where = " OR ".join(clauses)
         with self._cursor() as cursor:
-            for column, ids in (("model_id", set(model_ids)), ("id", set(version_ids))):
-                ids.discard(None)
-                if not ids:
-                    continue
-                cursor.execute(
-                    f"SELECT DISTINCT model_id, id FROM {LIBRARY} "
-                    f"WHERE {column} IN ({','.join('?' * len(ids))})", list(ids))
-                for row in cursor.fetchall():
-                    owned_models.add(row["model_id"])
-                    owned_versions.add(row["id"])
-        return owned_models, owned_versions
-
-    def held_model_ids(self) -> Set[int]:
-        """
-        Every Civitai model the library has a file of, in either WebUI's
-        folders: what I'm feeling lucky leaves out (#191).
-        """
-        with self._cursor() as cursor:
-            cursor.execute(f"SELECT DISTINCT model_id FROM {LIBRARY} WHERE model_id IS NOT NULL")
-            return {row[0] for row in cursor.fetchall()}
-
-    def held_files(self, file_id: Optional[int]) -> List[str]:
-        """
-        The paths of the library's files that are this Civitai file - by its
-        id alone, so a version's fp32 is never taken for its fp16. No id, no
-        file: nothing is guessed from the version. Whether each is on disk,
-        and in this WebUI's folders, is the caller's to ask (#187).
-        """
-        if file_id is None:
-            return []
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM files WHERE civitai_file_id = ?", (file_id,))
-            return [row[0] for row in cursor.fetchall()]
+            cursor.execute(f"SELECT file_path, model_id, id AS version_id, civitai_file_id FROM {LIBRARY} "
+                           f"WHERE {where}", args)
+            return [dict(row) for row in cursor.fetchall()]
 
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """

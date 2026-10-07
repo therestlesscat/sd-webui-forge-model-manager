@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 A draw no longer shows you what you have already seen. Each Draw leaves out the models the draws before it showed, under the same filters, and every model you already have in your library. Start over, beside Draw, forgets what was shown, so it can come up again; changing the filters or restarting the WebUI starts afresh too.
 
+- **0.53.1** (build 410) - Owned in the Civitai Browser means a file you have here: on disk, in a folder this WebUI loads from. A file deleted by hand no longer blocks downloading it again until a sync (#188), and having one file of a version - its fp16, say - no longer blocks downloading another (#189): Download says when you have another file of the version. The page asks again what you have when its tab shows, a model is opened or a download is done, so a model deleted in the Model Manager is no longer shown as Owned (#190). Show in Model Manager still shows for every model the Model Manager lists. I'm feeling lucky leaves out the models you have here by the same rule.
 - **0.53.0** (build 409) - I'm feeling lucky leaves out the models earlier draws showed and the models in your library: their ids are never asked of Civitai, and when few models match, the listing drops them. The status line says how many were left out, and says so when every match was. Start over forgets what was shown (#191).
 
 ## 0.52 - The download queue survives a restart

@@ -8,7 +8,13 @@ was "Owned" on its card and not in its details, which then hid "Show in
 Model Manager" - the file there all along. What is checked: both answer
 alike - for that model, for one held through a listed version, and for one
 not held - and no endpoint module reads the database with a cursor of its
-own; the rule is the database's (owned_by_library).
+own.
+
+Held means one thing everywhere (#188, #189): a library row whose file is on
+disk, in a folder this WebUI loads from (model_dirs.held_here). A row whose
+file is gone, or the other WebUI's file, is not held - but is listed, and
+"Show in MM" goes by that, as the Model Manager lists it. And a version is
+held file by file: having its fp16 is not having its fp32.
 """
 import ast
 import os
@@ -23,7 +29,8 @@ for _p in (ROOT, TESTS):
 
 import webui_stub                                        # noqa: E402
 
-webui_stub.install()
+WORK = os.path.join(TESTS, 'work', 'ownership_rule')
+webui_stub.install(models_path=os.path.join(WORK, 'models'))
 
 try:
     from fastapi import FastAPI
@@ -38,8 +45,6 @@ import model_manager.api.civitai as civitai_api          # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 from model_manager.api.annotations import annotate_local_ownership  # noqa: E402
 
-WORK = os.path.join(TESTS, 'work', 'ownership_rule')
-
 fails = []
 def check(label, got, want=True):
     if got != want:
@@ -48,18 +53,38 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
-LIB = os.path.join(WORK, 'library')
+LIB = os.path.join(WORK, 'models', 'Lora')            # a folder this WebUI loads from
+AWAY = os.path.join(WORK, 'elsewhere')                # the other WebUI's, say
+os.makedirs(AWAY, exist_ok=True)
+
+
+def library_file(folder, name, model_id, version_id, file_id=None, on_disk=True):
+    path = os.path.join(folder, name)
+    if on_disk:
+        open(path, 'wb').write(b'weights')
+    db.upsert_version({'file_path': path, 'file_name': name, 'id': version_id, 'model_id': model_id,
+                       'civitai_file_id': file_id, 'has_civitai_data': True})
+
+
 # Model 4242: held through version 42420, which Civitai lists no more.
 # Model 4343: held through 43431, which it still lists.
-for path, model_id, version_id in ((os.path.join(LIB, 'old_version.safetensors'), 4242, 42420),
-                                   (os.path.join(LIB, 'listed.safetensors'), 4343, 43431)):
-    db.upsert_version({'file_path': path, 'file_name': os.path.basename(path), 'id': version_id,
-                       'model_id': model_id, 'has_civitai_data': True})
+library_file(LIB, 'old_version.safetensors', 4242, 42420)
+library_file(LIB, 'listed.safetensors', 4343, 43431, file_id=434311)
+# Model 4545: its row stays, its file is gone - deleted by hand (#188).
+library_file(LIB, 'gone.safetensors', 4545, 45451, on_disk=False)
+# Model 4646: on disk, in a folder this WebUI does not load from.
+library_file(AWAY, 'away.safetensors', 4646, 46461)
+# Model 4747: version 47471's fp16 is held, its fp32 not (#189).
+library_file(LIB, 'two_files_fp16.safetensors', 4747, 47471, file_id=474711)
 
 PAYLOADS = {
     4242: {'id': 4242, 'name': 'Deleted version held', 'modelVersions': [{'id': 42421}, {'id': 42422}]},
     4343: {'id': 4343, 'name': 'Listed version held', 'modelVersions': [{'id': 43430}, {'id': 43431}]},
     4444: {'id': 4444, 'name': 'Not held', 'modelVersions': [{'id': 44441}]},
+    4545: {'id': 4545, 'name': 'File gone', 'modelVersions': [{'id': 45451}]},
+    4646: {'id': 4646, 'name': 'Other WebUI\'s file', 'modelVersions': [{'id': 46461}]},
+    4747: {'id': 4747, 'name': 'One file of two held',
+           'modelVersions': [{'id': 47471, 'files': [{'id': 474711}, {'id': 474712}]}]},
 }
 
 
@@ -93,7 +118,14 @@ def detailed(model_id):
     return http.get('/model-manager/civitai/models/%d' % model_id).json()['model']
 
 
-for model_id, owned, versions in ((4242, True, []), (4343, True, [43431]), (4444, False, [])):
+# (model, owned, owned versions, listed - Show in MM - and each version's held files)
+CASES = ((4242, True, [], True, {42421: [], 42422: []}),
+         (4343, True, [43431], True, {43430: [], 43431: [434311]}),
+         (4444, False, [], False, {44441: []}),
+         (4545, False, [], True, {45451: []}),
+         (4646, False, [], True, {46461: []}),
+         (4747, True, [47471], True, {47471: [474711]}))
+for model_id, owned, versions, listed, files in CASES:
     card, details = searched(model_id), detailed(model_id)
     name = PAYLOADS[model_id]['name']
     check('%s: the search card says %s' % (name, owned), (card['owned_locally'], card['owned_versions']), (owned, versions))
@@ -101,6 +133,21 @@ for model_id, owned, versions in ((4242, True, []), (4343, True, [43431]), (4444
           (owned, versions))
     check('%s: each version marked alike' % name,
           [v['owned_locally'] for v in details['modelVersions']], [v['owned_locally'] for v in card['modelVersions']])
+    check('%s: listed, for Show in MM: %s' % (name, listed), (card.get('listed_locally'), details.get('listed_locally')),
+          (listed, listed))
+    check('%s: each version\'s held files' % name,
+          {v['id']: v.get('owned_files') for v in card['modelVersions']}, files)
+
+# Asked again by the page (#190): the same answer, by the same rule.
+answer = http.get('/model-manager/civitai/owned', params={'model_ids': '4343,4545,4747',
+                                                          'version_ids': '43431,45451,47471'})
+got = answer.json() if answer.status_code == 200 else {}
+check('the page can ask again which models are held, and is answered by the rule',
+      (got.get('models'), got.get('versions')),
+      ({'4343': {'owned': True, 'listed': True}, '4545': {'owned': False, 'listed': True},
+        '4747': {'owned': True, 'listed': True}},
+       {'43431': {'owned': True, 'files': [434311]}, '45451': {'owned': False, 'files': []},
+        '47471': {'owned': True, 'files': [474711]}}))
 
 # No endpoint module reads the database itself.
 API = os.path.join(ROOT, 'model_manager', 'api')

@@ -336,17 +336,9 @@ class ModelsDatabase:
         """Store each file's path as a walk finds it. See ModelsOps.normalize_version_paths()."""
         return self._models.normalize_version_paths()
 
-    def owned_by_library(self, model_ids, version_ids) -> Tuple[Set[int], Set[int]]:
-        """Which of these models and versions the library holds. See ModelsOps.owned_by_library()."""
-        return self._models.owned_by_library(model_ids, version_ids)
-
-    def held_model_ids(self) -> Set[int]:
-        """Every Civitai model the library has a file of. See ModelsOps.held_model_ids()."""
-        return self._models.held_model_ids()
-
-    def held_files(self, file_id: Optional[int]) -> List[str]:
-        """The library's files that are this Civitai file. See ModelsOps.held_files()."""
-        return self._models.held_files(file_id)
+    def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
+        """The library's files of these models, versions or Civitai files. See ModelsOps.library_files()."""
+        return self._models.library_files(model_ids, version_ids, file_ids)
 
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""

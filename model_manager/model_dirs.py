@@ -228,6 +228,18 @@ def folder_of(path: str, cmd_opts=None, models_path: Optional[str] = None):
     return None, None
 
 
+
+def held_here(path: str, cmd_opts=None, models_path: Optional[str] = None) -> bool:
+    """
+    Whether a library file is held here: on disk, in a folder this WebUI
+    loads from - the one meaning of "held" (#188). A row whose file is gone,
+    deleted by hand and not yet forgotten by a walk, is not; nor is the other
+    WebUI's file, sharing the database, which this one cannot load. What is
+    held is Owned in the Civitai Browser, left out of a draw, and not
+    downloaded again.
+    """
+    return bool(path) and os.path.isfile(path) and folder_of(path, cmd_opts, models_path)[0] is not None
+
 def filed_as(file_type: Optional[str], model_class: Optional[str]) -> Optional[str]:
     """
     The type a file is filed by, when it is not where that type goes: its

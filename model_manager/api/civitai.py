@@ -26,7 +26,8 @@ from ..civitai import (
     search_models_with_usable_prompts,
     size_range_check,
 )
-from .annotations import annotate_image_levels, annotate_local_ownership, annotate_paid_access
+from .annotations import (annotate_image_levels, annotate_local_ownership, annotate_paid_access,
+                          held_model_ids, ownership)
 from ..nsfw import stamp_levels
 from ..gallery import gallery_page_size
 from ..gallery import filter_images
@@ -381,7 +382,7 @@ def register(app: FastAPI):
                 }) + "\n"
                 shown = random_draw.shown_for(filters)
                 try:
-                    library = get_models_db().held_model_ids()
+                    library = held_model_ids(get_models_db())
                 except Exception as e:
                     say(f"Could not read the library's models, so a draw keeps them in: {e}")
                     library = set()
@@ -417,6 +418,22 @@ def register(app: FastAPI):
         random_draw.forget_shown()
         return {"success": True}
 
+    @app.get("/model-manager/civitai/owned")
+    @gate("civitai_browser")
+    def civitai_owned(model_ids: str = "", version_ids: str = ""):
+        """
+        What the library holds of these models and versions, asked again by
+        the page (#190): a search's answer is kept, and the library changes
+        under it - a delete here or by hand, a download in the other WebUI.
+        Comma-separated ids; the answer is ownership()'s, keyed by id.
+        """
+        def ids(text):
+            return {int(i) for i in text.split(",") if i.strip().isdigit()}
+        held = ownership(get_models_db(), ids(model_ids), ids(version_ids))
+        return {"success": True,
+                "models": {str(k): v for k, v in held["models"].items()},
+                "versions": {str(k): v for k, v in held["versions"].items()}}
+
     @app.get("/model-manager/civitai/models/{model_id}")
     @gate("civitai_browser")
     def civitai_get_model(model_id: int):
@@ -436,7 +453,7 @@ def register(app: FastAPI):
                     status_code=404
                 )
 
-            # Owned as a search card says it: the one rule (owned_by_library).
+            # Owned as a search card says it: the one rule (annotations.ownership).
             _annotate([model])
 
             return JSONResponse({

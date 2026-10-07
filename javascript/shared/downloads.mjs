@@ -105,7 +105,7 @@ function downloadButtonState(versionId) {
  * the version is downloading - from the click until it is in the library - the
  * button says so and takes no clicks: a second click started it again.
  */
-export function renderDownloadControls({ controls, modelId, version, fileIndex, owned }) {
+export function renderDownloadControls({ controls, modelId, version, fileIndex, owned, ownedOther = false }) {
     const { prefix, download, selectFile } = controls;
     const files = version?.files || [];
     const file = files[fileIndex];
@@ -125,8 +125,10 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
         const state = downloadButtonState(version?.id);
-        const bought = paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
-        button = `<button class="mm-btn primary" id="${prefix}_download_btn"${bought} `
+        // Another file of the version held is no reason not to fetch this one (#189).
+        const title = ownedOther ? ' title="You have another file of this version."'
+            : paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
+        button = `<button class="mm-btn primary" id="${prefix}_download_btn"${title} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
             + `data-action="${escapeHtml(download)}"`
             + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id) })}>`

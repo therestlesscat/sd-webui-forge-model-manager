@@ -350,6 +350,13 @@ globalThis.fetch = async (url, init) => {
     if (href.includes('/civitai/download')) {
         return { ok: true, json: async () => ({ success: true, progress: structuredClone(downloads[0]) }) };
     }
+    // What the library holds, as the server says it (#190): the model once
+    // its download is in the library - synced - and not before.
+    if (href.includes('/civitai/owned')) {
+        const held = downloads[0]?.status === 'complete' && downloads[0]?.synced === true;
+        return { ok: true, json: async () => ({ success: true,
+            models: { 31: { owned: held, listed: held } }, versions: { 62: { owned: held, files: held ? [1] : [] } } }) };
+    }
     return fetchBefore(url, init);
 };
 const badge = () => document.querySelector('#cb_downloads .cb-download-status-badge')?.textContent.trim();
@@ -374,7 +381,7 @@ check('on disk and being added to the library, it says so - and still no button'
 
 Object.assign(downloads[0], { status: 'complete', synced: true });
 await poll();
-check('Complete and the button arrive in the same update', [badge(), showInManager()],
+check('Complete, and the button by the server\'s answer, arrive together', [badge(), showInManager()],
       ['Complete', true]);
 
 console.log(fails.length

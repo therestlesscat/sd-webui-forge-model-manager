@@ -4,8 +4,8 @@ ModelsDatabase facade - and migration v35, on a database at v34.
 
 What is kept is one install's downloads not over, in the list's order: a save
 replaces that install's rows, and leaves another's alone. The library's files
-of a download are asked by Civitai's file id alone, so a sibling file of the
-same version is never taken for it. v35 moves what v34 kept in schema_info - one
+of a download are asked by Civitai's file id, so a sibling file of the same
+version is never taken for it. v35 moves what v34 kept in schema_info - one
 JSON list per install - into the table, and forgets Scan Disk's last_scan.
 """
 import json
@@ -90,10 +90,22 @@ with sqlite3.connect(db.db_path) as c:
                   [('C:\\m\\a_fp16.safetensors', 10, 'a_fp16.safetensors', 100),
                    ('C:\\m\\a_fp32.safetensors', 10, 'a_fp32.safetensors', 101),
                    ('C:\\m\\b.safetensors', 11, 'b.safetensors', None)])
-check('the very file, by its Civitai id', asked(db, 'held_files', 100), ['C:\\m\\a_fp16.safetensors'])
-check('not its sibling', asked(db, 'held_files', 101), ['C:\\m\\a_fp32.safetensors'])
-check('a file the library does not have is none', asked(db, 'held_files', 999), [])
-check('with no file id, none - not any file of the version', asked(db, 'held_files', None), [])
+def paths(rows):
+    return sorted(r['file_path'] for r in rows) if isinstance(rows, list) else rows
+
+
+# One read for every "held" question (#188): the rows, by Civitai's file id,
+# version or model; on disk and in this WebUI's folders is model_dirs'.
+check('the very file, by its Civitai id', paths(asked(db, 'library_files', None, None, [100])),
+      ['C:\\m\\a_fp16.safetensors'])
+check('not its sibling', paths(asked(db, 'library_files', None, None, [101])), ['C:\\m\\a_fp32.safetensors'])
+check('a file the library does not have is none', paths(asked(db, 'library_files', None, None, [999])), [])
+check('by version: every file of it', paths(asked(db, 'library_files', None, [10], None)),
+      ['C:\\m\\a_fp16.safetensors', 'C:\\m\\a_fp32.safetensors'])
+check('each row says its model, version and Civitai file',
+      sorted((r['version_id'], r['civitai_file_id']) for r in asked(db, 'library_files', None, [10, 11], None) or []),
+      [(10, 100), (10, 101), (11, None)])
+check('no ids at all: every file with a version', len(asked(db, 'library_files') or []), 3)
 db.close()
 
 # -------------------------------------------------------------------- v35

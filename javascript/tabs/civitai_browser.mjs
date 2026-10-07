@@ -811,6 +811,7 @@ async function openModel(index, versionIndex = 0) {
     });
 
     renderModelDetails();
+    refreshOwnership();
     // At once, before even the settings are asked: the last model's images
     // stayed up for a second or more, as if the click had done nothing.
     showImagesLoading();
@@ -880,6 +881,25 @@ function renderVersionSelector() {
     `;
 }
 
+/**
+ * Whether the chosen file is held here (#189): by its Civitai id, so a
+ * version's fp16 held is not its fp32 - unless no held file's id is known,
+ * when which one is held cannot be told, and the version's answer stands.
+ */
+function fileHeld(version, file) {
+    const files = version?.owned_files || [];
+    if (files.includes(file?.id) || (version?.owned_locally && !files.length)) return { owned: true };
+    return { owned: false, ownedOther: Boolean(version?.owned_locally) };
+}
+
+/** View on Civitai and the Download controls, for the chosen file. */
+function detailActions(model, version, fileIndex) {
+    const file = (version?.files || [])[fileIndex];
+    return `<a class="mm-btn secondary" href="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}" target="_blank">View on Civitai</a>
+                ${renderDownloadControls({ controls: DOWNLOAD_CONTROLS, modelId: model.id, version, fileIndex,
+                                           ...fileHeld(version, file) })}`;
+}
+
 // Render model details panel (like Model Manager)
 function renderModelDetails() {
     const container = document.getElementById('cb_details');
@@ -888,7 +908,6 @@ function renderModelDetails() {
     const model = selectedModel;
     const versions = model.modelVersions || [];
     const version = getSelectedVersion() || versions[0];
-    const isOwned = version?.owned_locally || model.owned_versions?.includes(version?.id);
     const versionFiles = version?.files || [];
     const fileIndex = chosenFileIndex(version);
     const file = versionFiles[fileIndex];
@@ -936,13 +955,12 @@ function renderModelDetails() {
     const stats = model.stats || {};
 
     const paidLabel = paidAccessLabel(version);
-    const downloadControls = renderDownloadControls({
-        controls: DOWNLOAD_CONTROLS, modelId: model.id, version, fileIndex, owned: isOwned });
 
-    // Only offer the jump for models that are actually in the library.
+    // Only offer the jump for models the Model Manager lists - the other
+    // WebUI's files too, which are not held here (#188).
     // Lives on the header row so it stays reachable while scrolling the
     // details panel, rather than only at the very bottom.
-    const showInManagerBtn = model.owned_locally
+    const showInManagerBtn = (model.listed_locally ?? model.owned_locally)
         ? `<button class="mm-btn secondary mm-btn-small header-action" data-action="civitaiBrowser.showInModelManager"${dataAttributes({ modelId: safeId(model.id) })}${linkTo('modelManager', 'Open this model in the Model Manager tab')}>Show in Model Manager</button>`
         : '';
 
@@ -982,9 +1000,8 @@ function renderModelDetails() {
             ${tags}
             ${descriptionHtml}
 
-            <div class="detail-section detail-actions">
-                <a class="mm-btn secondary" href="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}" target="_blank">View on Civitai</a>
-                ${downloadControls}
+            <div class="detail-section detail-actions" id="cb_detail_actions">
+                ${detailActions(model, version, fileIndex)}
             </div>
         </div>
     `;
@@ -1035,6 +1052,9 @@ function selectFile(fileIndex) {
 
     selectedFileIndex = index;
     showChosenFile(DOWNLOAD_CONTROLS, selectedModel?.id, version, file);
+    // Held or not is the file's (#189): Already Owned for one, Download for another.
+    const actions = document.getElementById('cb_detail_actions');
+    if (actions && selectedModel) actions.innerHTML = detailActions(selectedModel, version, index);
 }
 
 function selectVersion(versionIndex) {
@@ -1359,36 +1379,65 @@ async function startDownload(modelId, versionId, fileId) {
 
 work.run((scope) => {
     scope.onStop(downloads().addPanel('cb'));
-    scope.onStop(downloads().onComplete(dl => markVersionOwned(dl.version_id)));
+    scope.onStop(downloads().onComplete(() => refreshOwnership()));
 });
 
-// Mark a freshly downloaded version as owned without re-running the
-// search. Re-searching would close the details panel the user is looking
-// at, and costs a round trip just to learn what we already know.
-function markVersionOwned(versionId) {
-    let touchedOpenModel = false;
-
-    currentModels.forEach(model => {
-        (model.modelVersions || []).forEach(version => {
-            if (version.id !== versionId) return;
-
-            version.owned_locally = true;
-            model.owned_locally = true;
-            if (!Array.isArray(model.owned_versions)) model.owned_versions = [];
-            if (!model.owned_versions.includes(versionId)) {
-                model.owned_versions.push(versionId);
-            }
-            if (selectedModel && selectedModel.id === model.id) {
-                touchedOpenModel = true;
-            }
-        });
-    });
-
-    renderGrid();
-    if (touchedOpenModel) {
-        renderModelDetails();
+// What the library holds, asked again (#190). A search's answer is kept, and
+// the library changes under it - a delete here or by hand, a download here
+// or in the other WebUI - so the page asks when its tab shows, a model is
+// opened and a download is done: one request for the models on the page.
+// Not a search again, which would close the details panel being read; and
+// redrawn only where an answer changed. A download used to mark its version
+// owned by the page's own guess, and nothing ever unmarked one.
+let ownershipAsked = 0;
+async function refreshOwnership() {
+    const models = currentModels.filter((m) => m?.id);
+    if (!models.length) return;
+    const asked = ++ownershipAsked;
+    const versionIds = models.flatMap((m) => (m.modelVersions || []).map((v) => v.id)).filter(Boolean);
+    let answer;
+    try {
+        answer = await apiCall({ endpoint: '/model-manager/civitai/owned', params: {
+            model_ids: models.map((m) => m.id).join(','), version_ids: versionIds.join(',') } });
+    } catch (e) {
+        console.error('[CivitaiBrowser] Ownership error:', e);
+        return;
     }
+    if (asked !== ownershipAsked || !answer?.success || !answer.models) return;
+    let changed = false;
+    const set = (target, key, value) => {
+        if (JSON.stringify(target[key]) === JSON.stringify(value)) return;
+        target[key] = value;
+        changed = true;
+    };
+    for (const model of currentModels) {
+        const mine = answer.models[model?.id];
+        if (!mine) continue;
+        set(model, 'owned_locally', mine.owned);
+        set(model, 'listed_locally', mine.listed);
+        const ownedVersions = [];
+        for (const version of model.modelVersions || []) {
+            const theirs = answer.versions?.[version.id];
+            if (!theirs) continue;
+            set(version, 'owned_locally', theirs.owned);
+            set(version, 'owned_files', theirs.files || []);
+            if (theirs.owned) ownedVersions.push(version.id);
+        }
+        set(model, 'owned_versions', ownedVersions);
+    }
+    if (!changed) return;
+    renderGrid();
+    if (selectedModel) renderModelDetails();
 }
+
+// Asked again as the tab comes into view: the WebUI runs its after-update
+// callbacks once it shows (#128).
+let browserShowing = false;
+work.afterUpdate(() => {
+    const showing = tabShowing('civitaiBrowser');
+    if (showing && !browserShowing) refreshOwnership();
+    browserShowing = showing;
+});
 
 // ===== Tag Autocomplete (Single Tag) =====
 

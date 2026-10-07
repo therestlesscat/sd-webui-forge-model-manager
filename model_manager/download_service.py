@@ -30,7 +30,7 @@ from .civitai.ownership import owned_versions
 from .forge_host import setting
 from .hashing import HashResult
 from .install import INSTALL_KEY
-from .model_dirs import download_dir, filed_as, folder_of, proper_place
+from .model_dirs import download_dir, filed_as, held_here, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
 from .console import say
 
@@ -421,12 +421,13 @@ class DownloadService:
         try:
             if self._library is None:
                 from .db import get_models_db
-                self._library = get_models_db().held_files
+                db = get_models_db()
+                self._library = lambda fid: [row["file_path"] for row in db.library_files(file_ids=[fid])]
             paths = self._library(file_id)
         except Exception as e:
             say(f"Could not ask the library about file {file_id}: {e}")
             return []
-        return [path for path in paths if os.path.isfile(path) and folder_of(path)[0] is not None]
+        return [path for path in paths if held_here(path)]
 
     def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
         """A download remembered across a restart knows its ids only: ask Civitai again."""

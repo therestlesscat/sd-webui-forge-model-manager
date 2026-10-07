@@ -49,6 +49,8 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
+# The fixture's files are under its models folder: held, as a WebUI's are.
+sys.modules['modules'].paths.models_path = facts['models_dir']
 
 app = FastAPI()
 setup_api(app)
@@ -304,10 +306,21 @@ check('a draw that fails says so in the stream', (lines[-1]['type'], lines[-1]['
 # the same filters, and every model the library has a file of.
 import model_manager.civitai.random_draw as rd           # noqa: E402
 endpoints.iter_random_models = fake_draw
-held = getattr(db, 'held_model_ids', None)
-library = held() if held else set()
-check('the library\'s models: those with a file, no other',
-      (OWNED_MODEL in library, 90001 in library), (True, False))
+# Held means a file on disk, in a folder this WebUI loads from (#188): a
+# row whose file is gone, or one elsewhere, is not held.
+GONE, AWAY = 777001, 777002
+db.upsert_version({'file_path': os.path.join(facts['models_dir'], 'Lora', 'gone.safetensors'),
+                   'file_name': 'gone.safetensors', 'id': GONE * 10, 'model_id': GONE, 'has_civitai_data': True})
+away = os.path.join(WORK, 'elsewhere', 'away.safetensors')
+os.makedirs(os.path.dirname(away), exist_ok=True)
+open(away, 'wb').write(b'weights')
+db.upsert_version({'file_path': away, 'file_name': 'away.safetensors', 'id': AWAY * 10, 'model_id': AWAY,
+                   'has_civitai_data': True})
+import model_manager.api.annotations as annotations      # noqa: E402
+held = getattr(annotations, 'held_model_ids', None)
+library = held(db) if held else set()
+check('the library\'s models: those with a file held here, no other',
+      (OWNED_MODEL in library, 90001 in library, GONE in library, AWAY in library), (True, False, False, False))
 
 
 def draw_now(**params):
