@@ -1913,8 +1913,14 @@ body.mm-modal-open {
     padding: 20px;
 }
 
+/* Added to the page's body, outside Gradio's container, whose rules colour
+   every element in it: the body's own colour is dark grey in both modes, so
+   text the modal did not colour itself - the Resources dialog's note, a
+   task's script titles - was dark on the dark modal (#139). It states its
+   colour, as it states its background. */
 .mm-modal {
     background: var(--background-fill-primary, #1f2937);
+    color: var(--body-text-color, #1f2937);
     border-radius: 12px;
     max-width: 800px;
     max-height: 80vh;

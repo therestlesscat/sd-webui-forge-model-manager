@@ -110,5 +110,18 @@ check('it states a height',
       any(d.startswith('height:') for d in control[0]), True)
 check('and measures it from the border', 'box-sizing: border-box' in control[0], True)
 
+# ------------------------------------------------------ a modal's text (#139)
+# The modals - an image's metadata, Resources, a queued task - are added to
+# the page's body, outside Gradio's container, whose rules colour every
+# element in it. The body's own colour is dark grey in both modes, so text a
+# modal did not colour itself - the Resources dialog's note - was dark on the
+# dark modal. A modal states its colour, as it states its background.
+modal = [d for sel, d in RULES if sel == '.mm-modal']
+check('the modal box is defined once', len(modal), 1)
+check('it states its text colour from the theme, as its background',
+      [any(x.startswith('background: var(--background-fill-primary') for x in modal[0]),
+       any(re.match(r'color:\s*var\(--body-text-color', x) for x in modal[0])] if modal else None,
+      [True, True])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
