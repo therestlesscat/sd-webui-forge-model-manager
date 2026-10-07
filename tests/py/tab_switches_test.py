@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 72 held to the table
+What is checked here: every route naming its area - all 73 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
@@ -107,6 +107,7 @@ SPEC = {
     ('GET', '/model-manager/civitai/models'): 'civitai_browser',
     ('GET', '/model-manager/civitai/models/stream'): 'civitai_browser',
     ('GET', '/model-manager/civitai/models/random'): 'civitai_browser',
+    ('POST', '/model-manager/civitai/models/random/forget'): 'civitai_browser',
     ('GET', '/model-manager/civitai/models/{model_id}'): 'civitai_browser',
     ('GET', '/model-manager/civitai/versions/{version_id}/images'): 'civitai_browser',
     ('GET', '/model-manager/civitai/tags'): 'civitai_browser',
@@ -177,7 +178,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 72 routes', len(SPEC), 72)
+check('the spec holds 73 routes', len(SPEC), 73)
 
 app = FastAPI()
 api.setup_api(app)

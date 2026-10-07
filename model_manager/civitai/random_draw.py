@@ -27,12 +27,18 @@ matches takes nine batches - and listing every match costs more the more
 there are: after each batch the draw estimates how many match and does
 whichever is cheaper. The two meet near 1,300 matches, at about thirteen
 requests for a page of 20, which is the slowest draw.
+
+A draw leaves out what it is told to (#191) - the models the draws before it
+showed under the same filters, and those the library has: their ids are
+never asked, a listing drops them, and the estimate counts only the ids that
+can still be drawn. What was shown is kept here, with the filters it was
+drawn under; a draw under others starts afresh, and Start over forgets it.
 """
 import math
 import random
 import threading
 import time
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 from ..remembered import Remembered
 from .client import CivitaiAPIError, CivitaiRateLimitError
@@ -58,6 +64,10 @@ NEWEST_ID_SECONDS = 60 * 60
 _newest_lock = threading.Lock()
 _newest: Dict[str, Any] = {"id": None, "at": 0.0}
 
+# The models the draws have shown, and the filters they were drawn under.
+_shown_lock = threading.Lock()
+_shown: Dict[str, Any] = {"key": None, "ids": set()}
+
 # (ids asked, ids that matched) per set of filters, from every draw so far:
 # a second draw sizes its first batch from them, or lists at once.
 _rates = Remembered(most=64)
@@ -69,18 +79,49 @@ def _filters_key(filters: Dict[str, Any]) -> Tuple:
 
 
 def forget() -> None:
-    """Forget the newest id and every hit rate: for tests."""
+    """Forget the newest id, every hit rate and what was shown: for tests."""
     with _newest_lock:
         _newest.update(id=None, at=0.0)
     _rates.clear()
+    forget_shown()
+
+
+def shown_for(filters: Dict[str, Any]) -> Set[int]:
+    """
+    The models the draws have shown under these filters. Under others,
+    none: what was shown is forgotten once the filters change.
+    """
+    key = _filters_key(filters)
+    with _shown_lock:
+        if _shown["key"] != key:
+            _shown.update(key=key, ids=set())
+        return set(_shown["ids"])
+
+
+def remember_shown(filters: Dict[str, Any], model_ids: Iterable[int]) -> None:
+    """These models were shown by a draw under these filters."""
+    key = _filters_key(filters)
+    with _shown_lock:
+        if _shown["key"] != key:
+            _shown.update(key=key, ids=set())
+        _shown["ids"].update(model_ids)
+
+
+def forget_shown() -> None:
+    """Start over: every model can be drawn again."""
+    with _shown_lock:
+        _shown.update(key=None, ids=set())
 
 
 class _Draw(object):
     """One draw's state: what it asked, what it found, what it cost."""
 
     def __init__(self, client, filters: Dict[str, Any], page_size: int,
-                 rng: random.Random, now: Callable[[], float]):
+                 rng: random.Random, now: Callable[[], float], leave_out: Iterable[int] = ()):
         self.client = client
+        self.leave_out = set(leave_out)
+        self.open_ids = 0           # ids from 1 to the newest not left out
+        self.left_out_matches = 0   # matches a listing dropped as left out
         self.filters = filters
         self.page_size = page_size
         self.rng = rng
@@ -130,11 +171,11 @@ class _Draw(object):
         asked = self.prior_asked + self.asked
         if not asked:
             return None
-        return max((self.prior_hits + self.hits) / asked * self.newest, self.floor)
+        return max((self.prior_hits + self.hits) / asked * self.open_ids, self.floor)
 
     def sample_cost(self, matches: float) -> float:
         """Requests ids would take to fill the rest of the page."""
-        per_request = min(matches / self.newest * MOST_IDS, AIM_HITS)
+        per_request = min(matches / self.open_ids * MOST_IDS, AIM_HITS) if self.open_ids else 0
         if per_request <= 0:
             return math.inf
         return math.ceil((self.page_size - len(self.found)) / per_request)
@@ -148,10 +189,10 @@ class _Draw(object):
             return MOST_IDS if self.filtered else FIRST_BATCH_UNFILTERED
         if matches <= 0:
             return MOST_IDS
-        return max(1, min(MOST_IDS, int(AIM_HITS / (matches / self.newest))))
+        return max(1, min(MOST_IDS, int(AIM_HITS / (matches / max(self.open_ids, 1)))))
 
     def pick(self, size: int) -> List[int]:
-        """`size` ids from 1 to the newest, none asked before this draw."""
+        """`size` ids from 1 to the newest, none asked before this draw nor left out."""
         ids = []
         while len(ids) < size and len(self.drawn) < self.newest:
             value = self.rng.randint(1, self.newest)
@@ -216,12 +257,16 @@ class _Draw(object):
                 self.listing = 0
                 return
 
-        everything = list(models.values())
+        everything = [model for model_id, model in models.items() if model_id not in self.leave_out]
+        self.left_out_matches = len(models) - len(everything)
         self.listed = len(everything)
         self.chosen = self.rng.sample(everything, min(self.page_size, len(everything)))
 
     def run(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
         self.ask_newest()
+        # Taken as asked already: pick() never draws them.
+        self.drawn.update(i for i in self.leave_out if 1 <= i <= self.newest)
+        self.open_ids = self.newest - len(self.drawn)
         while len(self.found) < self.page_size and not self.stopped:
             if self.requests >= SAFETY_STOP:
                 self.stopped = True
@@ -241,7 +286,8 @@ class _Draw(object):
     # ---------------------------------------------------------- reporting
     def remember(self) -> None:
         if self.listed is not None:
-            _rates[self.key] = (self.newest, self.listed)
+            # Every match, those left out too: the next draw may leave out others.
+            _rates[self.key] = (self.newest, self.listed + self.left_out_matches)
             return
         asked, hits = self.prior_asked + self.asked, self.prior_hits + self.hits
         if self.floor and (not asked or hits / asked * self.newest < self.floor):
@@ -264,6 +310,7 @@ class _Draw(object):
             "requests": self.requests,
             "listed": self.listed is not None,
             "matches": None if matches is None else int(round(matches)),
+            "left_out_matches": self.left_out_matches,
             "rate_limited": self.rate_limited,
             "stopped": self.stopped,
         }
@@ -271,7 +318,8 @@ class _Draw(object):
 
 def iter_random_models(client, filters: Dict[str, Any], page_size: int,
                        rng: Optional[random.Random] = None,
-                       now: Callable[[], float] = time.monotonic):
+                       now: Callable[[], float] = time.monotonic,
+                       leave_out: Iterable[int] = ()):
     """
     Draw up to `page_size` models at random from those Civitai's filters allow.
 
@@ -282,15 +330,17 @@ def iter_random_models(client, filters: Dict[str, Any], page_size: int,
             checkpoint_type, period. Never a query or a sort.
         page_size: How many models to draw.
         rng, now: The randomness and the clock, for tests.
+        leave_out: Model ids never to draw: shown before, or in the library.
 
     Yields:
         ("progress", {"asked", "found", "requests", "listing"}) before each
             batch of ids, and each page while listing every match
         ("done", summary) once, last: models (in random order), asked,
             requests, listed (drawn from every match), matches (how many:
-            exact when listed, else an estimate), rate_limited, stopped
+            exact when listed, else an estimate; none left out),
+            left_out_matches (those a listing dropped), rate_limited, stopped
     """
-    draw = _Draw(client, dict(filters), max(1, int(page_size)), rng or random.Random(), now)
+    draw = _Draw(client, dict(filters), max(1, int(page_size)), rng or random.Random(), now, leave_out)
     try:
         yield from draw.run()
     except CivitaiRateLimitError:

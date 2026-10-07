@@ -231,5 +231,79 @@ done, _ = draw(tiny, page=20)
 check('a range smaller than a batch: every id asked once, a page drawn',
       (len(done['models']), len(set(tiny.asked[1]['ids']))), (20, 30))
 
+# ------------------------------------------- what is left out (#191)
+# A draw leaves out the models shown by the draws before it, and those the
+# library has: their ids are never asked, a listing drops them, and the
+# estimate counts only the ids that can still be drawn.
+import inspect                                           # noqa: E402
+takes_leave_out = 'leave_out' in inspect.signature(rd.iter_random_models).parameters
+check('a draw can be told what to leave out', takes_leave_out, True)
+
+
+def draw_leaving(civitai, leave_out, filters=None, page=20, seed=1):
+    events = list(rd.iter_random_models(civitai, filters or {'nsfw': True}, page,
+                                        rng=random.Random(seed), leave_out=leave_out))
+    return events[-1][1]
+
+
+if takes_leave_out:
+    rd.forget()
+    rng = random.Random(21)
+    present = set(rng.sample(range(1, 1_000_001), 200_000))
+    everyone = Civitai(1_000_000, present)
+    first, _ = draw(everyone, seed=1)
+    left = set(rng.sample(sorted(present), 50_000)) | {m['id'] for m in first['models']}
+    everyone.asked.clear()
+    done = draw_leaving(everyone, left, seed=1)
+    asked_ids = {i for kw in everyone.asked if kw.get('ids') for i in kw['ids']}
+    check('ids left out are never asked', asked_ids & left, set())
+    check('nor drawn: the same seed draws others', {m['id'] for m in done['models']} & left, set())
+    check('and the page is still full', len(done['models']), 20)
+
+    rd.forget()
+    half = Civitai(1000, range(1, 1001))
+    done = draw_leaving(half, set(range(1, 501)))
+    check('every id a model and half left out: about 500 match, not 1,000', done['matches'], 500)
+
+    rd.forget()
+    done = draw_leaving(small, set(sorted(few)[:100]), {'types': ['Checkpoint'], 'nsfw': True})
+    check('a listing drops what is left out, and counts the rest',
+          (done['listed'], done['matches'], done.get('left_out_matches')), (True, 50, 100))
+    check('drawing only from the rest', {m['id'] for m in done['models']} <= set(sorted(few)[100:]), True)
+    check('its count remembered whole, to size the next draw',
+          (rd._rates.get(rd._filters_key({'types': ['Checkpoint'], 'nsfw': True})) or (None, None))[1], 150)
+
+    rd.forget()
+    done = draw_leaving(small, set(few), {'types': ['Checkpoint'], 'nsfw': True})
+    check('every match left out: none drawn, saying how many were left out',
+          (done['models'], done['listed'], done['matches'], done.get('left_out_matches')), ([], True, 0, 150))
+
+    rd.forget()
+    tiny = Civitai(30, range(1, 31))
+    done = draw_leaving(tiny, set(range(1, 31)))
+    check('every id in range left out: nothing to ask, and the draw ends',
+          (done['models'], done['requests']), ([], 1))
+
+# What was shown is kept for the filters it was drawn under: a draw under
+# others starts afresh, and Start over forgets it.
+F, G = {'types': ['LORA'], 'nsfw': True}, {'types': ['Checkpoint'], 'nsfw': True}
+shown_for, remember_shown, forget_shown = (getattr(rd, name, None) for name in
+                                           ('shown_for', 'remember_shown', 'forget_shown'))
+check('what was shown can be kept, read and forgotten', None not in (shown_for, remember_shown, forget_shown), True)
+if None not in (shown_for, remember_shown, forget_shown):
+    forget_shown()
+    remember_shown(F, [1, 2])
+    remember_shown(F, [3])
+    check('what each draw showed adds up', shown_for(F), {1, 2, 3})
+    check('other filters: nothing shown under them', shown_for(G), set())
+    check('and what was shown under the old ones is gone', shown_for(F), set())
+    remember_shown(F, [4])
+    forget_shown()
+    check('Start over forgets it', shown_for(F), set())
+    rd.forget()
+    remember_shown(F, [5])
+    rd.forget()
+    check('and so does forget(), for tests', shown_for(F), set())
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

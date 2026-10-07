@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..db import get_models_db
 from ..forge_host import setting
+from ..civitai import random_draw
 from ..civitai import (
     CivitaiClient,
     decode_filter_token,
@@ -357,7 +358,9 @@ def register(app: FastAPI):
 
         It takes no text query and no sort - a query ignores the ids a draw
         asks for - and none of the filters checked here (prompts, SFW images,
-        file size), which would cost requests per model.
+        file size), which would cost requests per model. It leaves out the
+        models the draws before it showed, under the same filters, and those
+        the library has (#191); "done" says how many of each.
         """
         search = _search(query="", types=types, base_models=base_models, nsfw=nsfw, sort="",
                          period=period, tag=tag, checkpoint_type=checkpoint_type,
@@ -376,11 +379,21 @@ def register(app: FastAPI):
                     "cardWidth": search.card_width,
                     "cardHeight": search.card_height,
                 }) + "\n"
-                for kind, payload in iter_random_models(client, filters, search.limit):
+                shown = random_draw.shown_for(filters)
+                try:
+                    library = get_models_db().held_model_ids()
+                except Exception as e:
+                    say(f"Could not read the library's models, so a draw keeps them in: {e}")
+                    library = set()
+                for kind, payload in iter_random_models(client, filters, search.limit,
+                                                        leave_out=shown | library):
                     if kind == "progress":
                         yield json.dumps({"type": "progress", **payload}) + "\n"
                     elif kind == "done":
                         models = payload.pop("models")
+                        random_draw.remember_shown(filters, [m["id"] for m in models if m.get("id") is not None])
+                        payload.update(shown_before=len(shown - library), in_library=len(library),
+                                       shown_total=len(random_draw.shown_for(filters) - library))
                         _annotate(models)
                         yield json.dumps({"type": "done", "models": models, "draw": payload}) + "\n"
             except Exception as e:
@@ -396,6 +409,13 @@ def register(app: FastAPI):
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/model-manager/civitai/models/random/forget")
+    @gate("civitai_browser")
+    def civitai_random_forget():
+        """Start over: forget the models the draws have shown, so they can be drawn again (#191)."""
+        random_draw.forget_shown()
+        return {"success": True}
 
     @app.get("/model-manager/civitai/models/{model_id}")
     @gate("civitai_browser")

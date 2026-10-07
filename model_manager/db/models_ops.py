@@ -1064,6 +1064,15 @@ class ModelsOps:
                     owned_versions.add(row["id"])
         return owned_models, owned_versions
 
+    def held_model_ids(self) -> Set[int]:
+        """
+        Every Civitai model the library has a file of, in either WebUI's
+        folders: what I'm feeling lucky leaves out (#191).
+        """
+        with self._cursor() as cursor:
+            cursor.execute(f"SELECT DISTINCT model_id FROM {LIBRARY} WHERE model_id IS NOT NULL")
+            return {row[0] for row in cursor.fetchall()}
+
     def held_files(self, file_id: Optional[int]) -> List[str]:
         """
         The paths of the library's files that are this Civitai file - by its

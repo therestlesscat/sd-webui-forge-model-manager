@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.53 - I'm feeling lucky shows you something new.** Each Draw leaves out the models the
+draws before it showed, under the same filters, and every model already in your library -
+so a draw brings models you have not seen. Start over, beside Draw, forgets what was shown;
+changing the filters or restarting the WebUI starts afresh too.
+
 **0.52 - The download queue survives a restart.** Downloads waiting in the queue are kept,
 as running and paused ones were: after a restart, or a crash, every download not finished
 is back in the list, paused, in its place, to be resumed. One you have downloaded

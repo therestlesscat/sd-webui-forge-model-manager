@@ -340,6 +340,10 @@ class ModelsDatabase:
         """Which of these models and versions the library holds. See ModelsOps.owned_by_library()."""
         return self._models.owned_by_library(model_ids, version_ids)
 
+    def held_model_ids(self) -> Set[int]:
+        """Every Civitai model the library has a file of. See ModelsOps.held_model_ids()."""
+        return self._models.held_model_ids()
+
     def held_files(self, file_id: Optional[int]) -> List[str]:
         """The library's files that are this Civitai file. See ModelsOps.held_files()."""
         return self._models.held_files(file_id)

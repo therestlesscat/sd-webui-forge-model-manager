@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.53 - I'm feeling lucky shows you something new
+
+*6 October 2026*
+
+A draw no longer shows you what you have already seen. Each Draw leaves out the models the draws before it showed, under the same filters, and every model you already have in your library. Start over, beside Draw, forgets what was shown, so it can come up again; changing the filters or restarting the WebUI starts afresh too.
+
+- **0.53.0** (build 409) - I'm feeling lucky leaves out the models earlier draws showed and the models in your library: their ids are never asked of Civitai, and when few models match, the listing drops them. The status line says how many were left out, and says so when every match was. Start over forgets what was shown (#191).
+
 ## 0.52 - The download queue survives a restart
 
 *6 October 2026*

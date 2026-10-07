@@ -293,8 +293,15 @@ function requirePromptEnabled() {
 // civitai/random_draw.py). What a draw cannot use is greyed out, keeping
 // what it holds for when the box is unticked: the text - Civitai's text
 // search ignores the ids a draw asks for - the sort, and the checks made
-// here, which cost requests per model.
+// here, which cost requests per model. A draw leaves out the models the
+// draws before it showed and those the library has (#191): Start over, beside
+// it, forgets what was shown.
 const NOT_IN_A_DRAW = "Not used while I'm feeling lucky is ticked.";
+// The models the draws have shown under the filters drawn last, as the
+// server counts them: what Start over would forget.
+let shownTotal = 0;
+
+const modelCount = (n) => `${n.toLocaleString()} model${n === 1 ? '' : 's'}`;
 
 function feelingLucky() {
     return document.getElementById('cb_lucky')?.checked || false;
@@ -323,8 +330,34 @@ function syncLucky() {
     const button = byId('cb_search_btn');
     setText(button, lucky ? 'Draw' : 'Search');
     setTitle(button, lucky ? 'Draw a page of models at random from those the filters allow' : '');
+    // Written only where it differs: onAfterUiUpdate runs again after any change.
+    const startOver = byId('cb_start_over_btn');
+    if (startOver) {
+        const display = lucky ? '' : 'none';
+        if (startOver.style.display !== display) startOver.style.display = display;
+        if (startOver.disabled !== !shownTotal) startOver.disabled = !shownTotal;
+        setTitle(startOver, shownTotal
+            ? `Forget the ${modelCount(shownTotal)} drawn so far, so they can be drawn again.`
+            : 'Nothing drawn yet: there is nothing to start over from.');
+    }
 }
 work.afterUpdate(syncLucky);
+
+/** Start over: the server forgets what the draws have shown, so it can be drawn again. */
+async function startOver() {
+    const forgot = shownTotal;
+    try {
+        const response = await fetch('/model-manager/civitai/models/random/forget', { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'the server did not forget them');
+        shownTotal = 0;
+        syncLucky();
+        updateStatus(`Forgot the ${modelCount(forgot)} drawn so far: they can be drawn again.`);
+    } catch (e) {
+        console.error('[CivitaiBrowser] Start over error:', e);
+        updateStatus(`Error: ${e.message}`);
+    }
+}
 
 // Update status
 function updateStatus(message) {
@@ -436,10 +469,14 @@ function describeDrawProgress(evt) {
 
 /** What a draw came back with, and what it cost. */
 function describeDraw(count, draw) {
-    let text;
     if (draw.listed && !draw.matches) {
-        text = 'No models match these filters.';
-    } else if (draw.listed && count >= draw.matches) {
+        return draw.left_out_matches
+            ? `All ${modelCount(draw.left_out_matches)} these filters match are left out: seen before, or in `
+              + 'your library. Start over to draw them again.'
+            : 'No models match these filters.';
+    }
+    let text;
+    if (draw.listed && count >= draw.matches) {
         text = `All ${count.toLocaleString()} models these filters match, in random order`;
     } else if (draw.listed) {
         text = `Drew ${count} models at random from all ${draw.matches.toLocaleString()} these filters match`;
@@ -449,6 +486,9 @@ function describeDraw(count, draw) {
             + ` - ${draw.asked.toLocaleString()} ids asked in ${draw.requests} `
             + `request${draw.requests === 1 ? '' : 's'}`;
     }
+    const leftOut = [draw.shown_before ? `${draw.shown_before.toLocaleString()} seen before` : '',
+                     draw.in_library ? `${draw.in_library.toLocaleString()} in your library` : ''].filter(Boolean);
+    if (leftOut.length) text += `. Left out: ${leftOut.join(', ')}`;
     if (draw.rate_limited) {
         text += '. Civitai is limiting requests, so the draw stopped early; wait a moment, then press Draw again.';
     } else if (draw.stopped) {
@@ -499,6 +539,8 @@ async function drawModels() {
                 finished = true;
                 currentModels = evt.models || [];
                 isStreaming = false;
+                if (typeof evt.draw?.shown_total === 'number') shownTotal = evt.draw.shown_total;
+                syncLucky();
                 renderGrid();
                 updateStatus(describeDraw(currentModels.length, evt.draw || {}));
             } else if (evt.type === 'error') {
@@ -1831,6 +1873,7 @@ function showInModelManager(modelId) {
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
 work.provide('civitaiBrowser.search', () => search());
 work.provide('civitaiBrowser.feelingLucky', () => syncLucky());
+work.provide('civitaiBrowser.startOver', () => startOver());
 work.provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
 work.provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('civitaiBrowser.prevPage', () => prevPage());

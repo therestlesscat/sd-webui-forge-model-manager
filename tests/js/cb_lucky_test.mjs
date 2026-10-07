@@ -10,10 +10,15 @@ const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py')
 const { check, waitFor, done } = checker();
 
 const asked = [];
+const forgotten = [];       // each Start over the server was asked for
 let drawn = null;           // what the next draw answers
 let gate = null;            // held, the draw waits after its progress line
 globalThis.fetch = async (url, options = {}) => {
     const href = String(url);
+    if (href.includes('/random/forget')) {
+        forgotten.push(options.method || 'GET');
+        return { ok: true, json: async () => ({ success: true }) };
+    }
     if (!href.includes('/model-manager/civitai/models')) {
         return { ok: true, json: async () => ({ success: true }) };
     }
@@ -53,10 +58,13 @@ const pageStrip = () => document.querySelectorAll('#cb_grid .mm-page-num').lengt
 
 // ------------------------------------------------------------------ the box
 const row = $('cb_save_search_btn').parentElement;
-check('the box sits in the buttons row, before Save Search',
-      Array.from(row.children).map((c) => c.id), ['cb_lucky_label', 'cb_save_search_btn', 'cb_search_btn']);
+check('the box sits in the buttons row, with Start over, before Save Search',
+      Array.from(row.children).map((c) => c.id),
+      ['cb_lucky_label', 'cb_start_over_btn', 'cb_save_search_btn', 'cb_search_btn']);
 check('saying what it is', $('cb_lucky_label').textContent.replace(/\s+/g, ' ').trim(), "I'm feeling lucky");
 check('unticked at first, Search a search', [$('cb_lucky').checked, $('cb_search_btn').textContent], [false, 'Search']);
+const startOver = () => $('cb_start_over_btn');
+check('Start over is not shown while the box is unticked', startOver()?.style.display, 'none');
 
 // Set up a search a draw has to leave alone.
 $('cb_search').value = 'cats';
@@ -73,6 +81,9 @@ check('the SFW banner shows while its box is in force', $('cb_sfw_only_banner').
 // ------------------------------------------------------------ ticked
 tick('civitaiBrowser.feelingLucky', true);
 check('Search becomes Draw', $('cb_search_btn').textContent, 'Draw');
+check('Start over shows beside it, disabled while nothing has been drawn, saying why',
+      [startOver()?.style.display, startOver()?.disabled, startOver()?.title],
+      ['', true, 'Nothing drawn yet: there is nothing to start over from.']);
 const setAside = ['cb_search', 'cb_sort', 'cb_min_size', 'cb_max_size', 'cb_require_prompt', 'cb_sfw_only'];
 check('what a draw cannot use is disabled', setAside.map((id) => $(id).disabled), setAside.map(() => true));
 const greyed = (el) => el.classList.contains('filter-disabled');
@@ -113,6 +124,28 @@ check('with no page strip: a draw is one page', pageStrip(), 0);
 check('the status line says what it cost', status(),
       'Drew 2 models at random from about 600,000 that match - 250 ids asked in 2 requests');
 
+// What a draw leaves out (#191): the models shown before, and the library's.
+drawn = { models: [model(6), model(7)],
+          draw: { asked: 250, requests: 2, listed: false, matches: 600000, rate_limited: false, stopped: false,
+                  shown_before: 40, in_library: 1060, shown_total: 42 } };
+$('cb_status').textContent = '';
+act('civitaiBrowser.search');
+await waitFor('the draw', () => status().startsWith('Drew'));
+check('the status line says what it left out', status(),
+      'Drew 2 models at random from about 600,000 that match - 250 ids asked in 2 requests. '
+      + 'Left out: 40 seen before, 1,060 in your library');
+check('Start over can be pressed now, saying what it forgets',
+      [startOver()?.disabled, startOver()?.title],
+      [false, 'Forget the 42 models drawn so far, so they can be drawn again.']);
+if (startOver()) {
+    act('civitaiBrowser.startOver');
+    await waitFor('Start over', () => forgotten.length === 1);
+    await waitFor('the status', () => status().startsWith('Forgot'));
+}
+check('it asks the server to forget them, by POST', forgotten, ['POST']);
+check('says so', status(), 'Forgot the 42 models drawn so far: they can be drawn again.');
+check('and has nothing left to forget', startOver()?.disabled, true);
+
 async function drawWith(draw, models = []) {
     drawn = { models, draw: { asked: 0, requests: 1, listed: false, matches: null, rate_limited: false,
                               stopped: false, ...draw } };
@@ -126,6 +159,10 @@ check('a small set, drawn from all of it',
 check('fewer than a page: all of them',
       await drawWith({ listed: true, matches: 2 }, [model(3), model(4)]), 'All 2 models these filters match, in random order');
 check('none', await drawWith({ listed: true, matches: 0 }), 'No models match these filters.');
+check('every match left out',
+      await drawWith({ listed: true, matches: 0, left_out_matches: 35, shown_before: 35, shown_total: 35 }),
+      'All 35 models these filters match are left out: seen before, or in your library. '
+      + 'Start over to draw them again.');
 check('Civitai limiting requests says to wait, and press Draw again',
       (await drawWith({ asked: 3500, requests: 3, rate_limited: true }, [model(5)])).endsWith(
           'Civitai is limiting requests, so the draw stopped early; wait a moment, then press Draw again.'), true);
@@ -140,6 +177,7 @@ const pending = asked[0].signal;
 // ------------------------------------------------------------ unticked
 tick('civitaiBrowser.feelingLucky', false);
 check('Draw is Search again', $('cb_search_btn').textContent, 'Search');
+check('and Start over goes', startOver()?.style.display, 'none');
 check('the text, the sort and the size come back',
       ['cb_search', 'cb_sort', 'cb_min_size', 'cb_max_size', 'cb_require_prompt'].map((id) => $(id).disabled),
       [false, false, false, false, false]);

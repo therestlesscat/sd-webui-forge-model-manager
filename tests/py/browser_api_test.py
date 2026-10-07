@@ -261,8 +261,10 @@ check('with the reason', lines[-1]['error'], 'stream broke')
 # The draw itself is random_draw_test.py's; here, what the endpoint hands it
 # and what it makes of the answer.
 drawn_with = []
-def fake_draw(civitai_client, filters, page_size):
+left_out = []
+def fake_draw(civitai_client, filters, page_size, leave_out=None):
     drawn_with.append((filters, page_size, civitai_client.wait_on_rate_limit))
+    left_out.append(set(leave_out or ()))
     yield 'progress', {'asked': 250, 'found': 0, 'requests': 1, 'listing': 0}
     yield 'done', {'models': [remote(90001, 90002), remote(OWNED_MODEL, OWNED_VERSION)],
                    'asked': 250, 'requests': 2, 'listed': False, 'matches': 600000,
@@ -289,7 +291,7 @@ check('the models drawn come marked up with local ownership',
 check('with what the draw cost', (lines[-1]['draw']['requests'], lines[-1]['draw']['matches']), (2, 600000))
 check('the client was closed', ('close',) in Stub.calls, True)
 
-def broken_draw(civitai_client, filters, page_size):
+def broken_draw(civitai_client, filters, page_size, leave_out=None):
     raise RuntimeError('draw broke')
     yield
 endpoints.iter_random_models = broken_draw
@@ -297,6 +299,41 @@ with client.stream('GET', '/model-manager/civitai/models/random') as response:
     lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
 check('a draw that fails says so in the stream', (lines[-1]['type'], lines[-1]['error']),
       ('error', 'draw broke'))
+
+# What a draw leaves out (#191): the models the draws before it showed, under
+# the same filters, and every model the library has a file of.
+import model_manager.civitai.random_draw as rd           # noqa: E402
+endpoints.iter_random_models = fake_draw
+held = getattr(db, 'held_model_ids', None)
+library = held() if held else set()
+check('the library\'s models: those with a file, no other',
+      (OWNED_MODEL in library, 90001 in library), (True, False))
+
+
+def draw_now(**params):
+    with client.stream('GET', '/model-manager/civitai/models/random', params=params) as response:
+        return [json.loads(line) for line in response.iter_lines() if line.strip()][-1]
+
+
+getattr(rd, 'forget_shown', lambda: None)()
+left_out.clear()
+first = draw_now(types='LORA')
+second = draw_now(types='LORA')
+check('the first draw leaves out the library\'s models', left_out[0], library)
+check('the next, also what the first showed', left_out[1] - library, {90001})
+check('and says how many of each it left out',
+      ({k: first['draw'].get(k) for k in ('shown_before', 'in_library', 'shown_total')},
+       {k: second['draw'].get(k) for k in ('shown_before', 'in_library', 'shown_total')}),
+      ({'shown_before': 0, 'in_library': len(library), 'shown_total': 1},
+       {'shown_before': 1, 'in_library': len(library), 'shown_total': 1}))
+draw_now(types='Checkpoint')
+check('other filters start afresh', left_out[2], library)
+draw_now(types='LORA')
+check('and going back finds nothing shown under the old ones', left_out[3], library)
+forgot = client.post('/model-manager/civitai/models/random/forget')
+check('Start over is answered', (forgot.status_code, forgot.json().get('success')), (200, True))
+draw_now(types='LORA')
+check('and forgets what was shown', left_out[-1], library)
 endpoints.iter_random_models = real_draw
 
 # ------------------------------------------------- searching by file size
