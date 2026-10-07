@@ -342,7 +342,7 @@ first under **Settings -> Model Manager** too.
 | Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
 | Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
 | Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
-| Queue: ask before Generate makes more images than this | 4 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
+| Queue: ask "Generate N images?" above this many images | 0 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
 | Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |

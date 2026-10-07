@@ -401,7 +401,7 @@ def on_ui_settings():
         "model_manager_queue_ask_above",
         shared.OptionInfo(
             default=DEFAULTS["model_manager_queue_ask_above"],
-            label="Queue: ask before Generate makes more images than this",
+            label="Queue: ask \"Generate N images?\" above this many images",
             component=gr.Slider,
             component_args={"minimum": 0, "maximum": 100, "step": 1},
             section=section,

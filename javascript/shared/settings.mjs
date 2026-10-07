@@ -112,7 +112,7 @@ const LABELS = {
     [K.mmEnabled]: 'Model Manager tab',
     [K.cbEnabled]: 'Civitai Browser tab',
     [K.queueInputs]: 'Folder for the images a task needs',
-    [K.queueAskAbove]: 'Ask before Generate makes more images than this',
+    [K.queueAskAbove]: 'Ask "Generate N images?" above this many images',
     [K.detection]: 'What finds explicit images Civitai rates PG or PG-13',
     [K.percent]: 'Trained model: share of PG/PG-13 prompts to treat as X (%)',
     [K.words]: 'Extra prompt words',

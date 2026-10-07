@@ -12,6 +12,7 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Downloads waiting in the queue are kept across a restart, as running and paused ones were. After a restart or a crash, every download not finished is back in the list, paused, in its place, to be resumed. One you have downloaded meanwhile - by hand, or in the other WebUI - is not brought back.
 
+- **0.52.1** (build 408) - Generate no longer asks "Generate N images?" unless you turn the question on: its setting now defaults to 0, and is named after the question - 'Ask "Generate N images?" above this many images', in the settings window's Queue section. A number you saved is kept.
 - **0.52.0** (build 407) - The download queue is kept in a table of its own, and a restart brings back the downloads still waiting too: only a download that had begun was kept, so a restart forgot the rest of the queue. Each comes back paused, with its size. One whose file the library already has is not brought back, and Resume checks again before downloading. If two WebUIs share one database, update both (#187).
 
 ## 0.51 - Turn off each tab

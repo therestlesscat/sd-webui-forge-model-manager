@@ -60,8 +60,10 @@ DEFAULTS = {
     # Where the queue keeps the images a task needs to run, empty for the
     # WebUI's own queue-inputs folder (#149).
     "model_manager_queue_inputs_dir": "",
-    # Generate asks whether to queue a run of more images than this; 0 never (#166).
-    "model_manager_queue_ask_above": 4,
+    # Generate asks whether to queue a run of more images than this; 0 never
+    # (#166). Never, unless asked for: the question stood in front of every
+    # batch of more than four.
+    "model_manager_queue_ask_above": 0,
     # The text encoders and VAE named for each preset (forge_modules.MODULE_PRESETS).
     "model_manager_modules_flux": "",
     "model_manager_modules_klein": "",
