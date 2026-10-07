@@ -13,6 +13,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
+const { refreshWebUiModelLists } = await shared('downloads.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -204,6 +205,9 @@ async function pollSyncProgress() {
                 if (p.synced > 0 || p.added > 0 || p.removed > 0 || p.moved > 0) {
                     setTimeout(loadModels, 500);
                 }
+                // Files found, forgotten or moved: Forge's lists too (#193). Only
+                // then - a sync that changed no file, whatever was ticked, does not.
+                if (p.added > 0 || p.removed > 0 || p.moved > 0) refreshWebUiModelLists();
             }
         }
     } catch (error) {

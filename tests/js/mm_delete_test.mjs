@@ -43,6 +43,16 @@ globalThis.fetch = async (url, init = {}) => {
 let confirmText = '';
 window.confirm = globalThis.confirm = (text) => { confirmText = text; return true; };
 
+// Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
+// lists', and the extra networks' hidden one - LoRAs, embeddings.
+const refreshed = [];
+for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.addEventListener('click', () => refreshed.push(name));
+    document.body.appendChild(button);
+}
+
 await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const open = async () => {
@@ -71,6 +81,7 @@ check('and nothing is left at the foot of the panel',
 await act('modelManager.selectPill', { index: 1 });
 await pressLabelled('Delete Current Model Version');
 check('"current" deletes the version on screen - not the grid card\'s', deleted, ['C:/models/v2.safetensors']);
+check('and Forge\'s lists are refreshed, once', refreshed, ['checkpoints', 'extra networks']);
 check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
 
 deleted.length = 0;
@@ -95,6 +106,11 @@ versions = [version(501, 'v1')];
 deleted.length = 0;
 await open();
 check('with one version, one button: Delete Model', buttons(), ['Delete Model']);
+refuse = 'C:/models/v1.safetensors';
+refreshed.length = 0;
+await pressLabelled('Delete Model');
+check('a delete that removed nothing refreshes nothing', [deleted, refreshed], [[], []]);
+refuse = null;
 await pressLabelled('Delete Model');
 check('deleting that version', deleted, ['C:/models/v1.safetensors']);
 

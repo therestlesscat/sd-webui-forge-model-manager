@@ -202,6 +202,26 @@ export function refreshWebUiModelList() {
     }
 }
 
+/**
+ * Tell the WebUI its model files changed - downloaded, moved, forgotten,
+ * deleted (#193): its checkpoint and VAE / text encoder lists, as above, and
+ * its extra networks - LoRAs, embeddings - through their hidden refresh,
+ * which rescans every page on the server, the LoRAs a prompt's <lora:...>
+ * loads included. A downloaded or moved LoRA was not loadable until then.
+ * The same buttons in both WebUIs. Nothing refreshes upscalers: Forge reads
+ * them once, at startup.
+ */
+export function refreshWebUiModelLists() {
+    refreshWebUiModelList();
+    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
+    const extraNetworks = root.querySelector('#txt2img_lora_extra_refresh_internal');
+    if (extraNetworks) {
+        extraNetworks.click();
+    } else {
+        console.warn('[ModelManager] Could not find the extra networks refresh; LoRAs may need a manual refresh');
+    }
+}
+
 /** Bytes a second as a person reads them: "12.4 MB", "800 KB" - one decimal, none when it is 0. */
 function formatSpeed(bytes) {
     const [unit, size] = [['GB', 1073741824], ['MB', 1048576], ['KB', 1024]].find(([, s]) => bytes >= s)
@@ -333,6 +353,9 @@ function createDownloads(scope) {
         if (!poll && scope.live) poll = setInterval(tick, TIMING.poll);
     };
     let landed = false;        // a download reached the library in this batch
+    // The list looked at once. At the first look every finished download
+    // counts as arrived; it was finished before this page (#193).
+    let looked = false;
     const finished = (dl) => ['complete', 'error', 'cancelled'].includes(dl.status);
 
     const running = (dl) => dl.status === 'downloading' || dl.status === 'pending'
@@ -418,12 +441,15 @@ function createDownloads(scope) {
                 // so there is no point doing it per file.
                 if (landed) {
                     landed = false;
-                    refreshWebUiModelList();
+                    // Not for what was finished before the page: each load
+                    // refreshed Forge's lists, while one stayed listed.
+                    if (looked) refreshWebUiModelLists();
                     for (const callback of batchDone) {
                         try { callback(); } catch (e) { console.error('[ModelManager] Download callback:', e); }
                     }
                 }
             }
+            looked = true;
         } catch (e) {
             console.error('[ModelManager] Download poll error:', e);
         }

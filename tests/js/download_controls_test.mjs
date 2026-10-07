@@ -53,6 +53,16 @@ const panelPlace = panelBox.parentNode;
 const panelNext = panelBox.nextSibling;
 panelBox.remove();
 
+// Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
+// lists', and the extra networks' hidden one - LoRAs, embeddings.
+const refreshed = [];
+for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.addEventListener('click', () => refreshed.push(name));
+    document.body.appendChild(button);
+}
+
 await startTab('modelManager');
 const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -73,6 +83,10 @@ const shown = (id) => document.getElementById(id)?.style.display !== 'none';
 await waitFor('the list, asked for at load', () => rows().length === 2);
 check('after a restart, the paused download is in the panel, though the panel came after the list',
       [rows().length, shown('mm_downloads'), shown('mm_downloads_resume_all')], [2, true, true]);
+// The finished one was finished before this page: Forge's lists already
+// had it, or a page that saw it arrive refreshed them. Every page load used
+// to refresh them again, while it stayed in the list.
+check('a download finished before the page loaded refreshes nothing', refreshed, []);
 
 // Then downloads running and waiting too, as the poll brings them.
 server = structuredClone(ALL);

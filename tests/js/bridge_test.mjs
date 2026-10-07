@@ -140,6 +140,15 @@ const searches = () => asked.filter((u) => /\/civitai\/models\?/.test(u));
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
                     scrollSettle: 20 };
+// Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
+// lists', and the extra networks' hidden one - LoRAs, embeddings.
+const refreshed = [];
+for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.addEventListener('click', () => refreshed.push(name));
+    document.body.appendChild(button);
+}
 await startTab('civitaiBrowser');
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 await settle();
@@ -383,6 +392,7 @@ Object.assign(downloads[0], { status: 'complete', synced: true });
 await poll();
 check('Complete, and the button by the server\'s answer, arrive together', [badge(), showInManager()],
       ['Complete', true]);
+check('the batch landed: Forge\'s lists refreshed, extra networks too, once', refreshed, ['checkpoints', 'extra networks']);
 
 console.log(fails.length
     ? fails.map((f) => 'FAIL ' + f).join('\n')

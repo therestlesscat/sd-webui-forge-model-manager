@@ -1115,7 +1115,9 @@ waits - are in `tests/README.md`.
 - **Search the page too before saying the extension does not do something.**
   "Nothing refreshes Forge's checkpoint list after a download" was said from
   a search of the Python alone; `downloads.mjs` presses Forge's own refresh
-  (`refreshWebUiModelList`) once a batch of downloads lands.
+  once a batch of downloads lands - since #193 its extra networks' hidden one
+  too, and after a delete or a sync that changed files
+  (`refreshWebUiModelLists`).
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show. It lists

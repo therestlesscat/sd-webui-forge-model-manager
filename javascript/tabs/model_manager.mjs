@@ -53,6 +53,7 @@ const {
 } = await shared('generations.mjs');
 const {
     paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
+    refreshWebUiModelLists,
 } = await shared('downloads.mjs');
 const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount, showSyncDialog } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
@@ -1863,6 +1864,9 @@ async function deleteModel(scope = 'version', file = null) {
             failed.push(`${name(version)}: ${error.message}`);
         }
     }
+
+    // A file gone: Forge's lists, which still offered it (#193).
+    if (failed.length < targets.length) refreshWebUiModelLists();
 
     const deletedName = versions > 1 && scope !== 'all' ? ` (${name(shown)})` : '';
     // One file of several: its row goes, and the rest stays as it is.

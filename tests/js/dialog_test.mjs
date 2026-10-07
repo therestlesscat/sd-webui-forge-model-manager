@@ -267,6 +267,16 @@ const syncEnd = () => [...statusSeen].reverse().find((text) => /^Sync (complete|
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
+// Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
+// lists', and the extra networks' hidden one - LoRAs, embeddings.
+const refreshed = [];
+for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.addEventListener('click', () => refreshed.push(name));
+    document.body.appendChild(button);
+}
+
 await startTab('modelManager');
 const { showSyncDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
 // linkedom has no readyState, so onReady() is waiting on the event rather
@@ -574,10 +584,13 @@ click('mm_sync_dialog_start');
 await settle();
 const walkBody = new URLSearchParams(posts[0]?.body || '');
 check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
+check('every sync so far changed no file, whatever was ticked: Forge\'s lists not refreshed', refreshed, []);
 WALKED.added = 2;
 WALKED.removed = 1;
 WALKED.moved = 1;
 await until('that sync to finish', () => $('mm_sync_btn').disabled === false);
+check('one that added, forgot or moved files refreshes Forge\'s lists, once', refreshed, ['checkpoints', 'extra networks']);
+refreshed.length = 0;
 check('the status says what the walk did to the library',
       syncEnd().includes(", 2 new on disk, 1 gone from disk, 1 moved into their type's folder, 0 errors"),
       true);
