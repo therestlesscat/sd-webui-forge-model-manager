@@ -28,7 +28,7 @@ const { ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath, uiOptions, asUploaded,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -468,6 +468,8 @@ async function loadModels(page = 1) {
         // first load reads it, and the saved search's filters.
         await ensureFilterDefaults();
         await savedFiltersReady;
+        // Cards draw with the settings' image size (#192): its answer first.
+        await uiOptions();
 
         // No page_size: the server uses the Models per page setting.
         const filters = getFilters();
@@ -586,7 +588,7 @@ function nsfwCardClass(level) {
  * was chosen by the server, by the card thumbnail setting.
  */
 function mmCard(model, index) {
-    const src = cardMediaUrl(model.preview_url, null, cardSize.width);
+    const src = cardMediaUrl(model.preview_url, null, cardSize.width, null, asUploaded().cards);
     const versions = model.local_version_count || 1;
     return renderModelCard({
         index,
@@ -2687,7 +2689,7 @@ function renderImageCard(img, index) {
     const model = currentModels[selectedModelIndex];
     const sendBlocked = cannotSend(img, model, model ? sentFile(shownVersion(model)) : null);
     return sharedImageCard(img, index, { width: galleryWidth, exclude: currentVersionId, actions: IMAGE_ACTIONS,
-                                         sendBlocked });
+                                         sendBlocked, asUploaded: asUploaded().gallery });
 }
 
 // Show All, the same window in both tabs.

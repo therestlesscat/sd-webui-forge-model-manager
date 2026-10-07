@@ -32,6 +32,20 @@ const API_KEY_BANNER_TRIES = 20;        // 5 seconds, at 250ms apart
 let apiKeyMissing = null;
 let apiKeyRequest = null;
 let uiOptionsRequest = null;
+// Whether Civitai's images load as uploaded, not resized (#192) - in
+// galleries, on the grids' cards - from the last answer: resized until one
+// is in. Read as a card or a tile is drawn, which cannot wait for it.
+let asUploadedNow = { gallery: false, cards: false };
+
+function learn(data) {
+    if (data) asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
+    return data;
+}
+
+/** How Civitai's images load, as the last answer said: {gallery, cards}. */
+export function asUploaded() {
+    return asUploadedNow;
+}
 
 /** The server's ui-options, as they are now. A failed call answers null. */
 export function fetchUiOptions() {
@@ -45,7 +59,7 @@ export function fetchUiOptions() {
  * judges NSFW.
  */
 export function uiOptions() {
-    uiOptionsRequest ||= fetchUiOptions();
+    uiOptionsRequest ||= fetchUiOptions().then(learn);
     return uiOptionsRequest;
 }
 

@@ -56,13 +56,19 @@ function screenPixels(cssWidth) {
  * under a .mp4 name, and original=true sent a 17 MB GIF that a card read as
  * video by its name, could not play, and left blank. A copy is a real MP4.
  *
+ * `asUploaded` - the settings' "load as uploaded, not resized" (#192) - asks
+ * for an image's upload whatever its width; a video stays a copy.
+ *
  * Anything that is not a Civitai image URL with such a segment is returned
  * as it is.
  */
-export function sizedMediaUrl(url, { cssWidth, pixels = null, originalWidth = null, type = null } = {}) {
+export function sizedMediaUrl(url, { cssWidth, pixels = null, originalWidth = null, type = null,
+                                     asUploaded = false } = {}) {
     if (!url || !url.includes('image.civitai.com')) return url || '';
+    const video = isVideoUrl({ url, type });
+    if (asUploaded && !video) return originalMediaUrl(url);
     const width = civitaiWidth(pixels ?? screenPixels(cssWidth));
-    if (!isVideoUrl({ url, type }) && originalWidth && width >= Number(originalWidth)) {
+    if (!video && originalWidth && width >= Number(originalWidth)) {
         return originalMediaUrl(url);
     }
     return url.replace(CIVITAI_OPTIONS, `/width=${width}/$1`);
@@ -145,9 +151,12 @@ export function galleryImageWidth(container) {
 /** How wide a model card is drawn when a tab has not said otherwise. */
 const DEFAULT_CARD_WIDTH = 200;
 
-/** The URL a model card loads its Civitai image or video from, at the card's width. */
-export function cardMediaUrl(url, type, cardWidth = DEFAULT_CARD_WIDTH, originalWidth = null) {
-    return sizedMediaUrl(url, { cssWidth: cardWidth, originalWidth, type });
+/**
+ * The URL a model card loads its Civitai image or video from, at the card's
+ * width - or, `asUploaded`, an image as uploaded (#192).
+ */
+export function cardMediaUrl(url, type, cardWidth = DEFAULT_CARD_WIDTH, originalWidth = null, asUploaded = false) {
+    return sizedMediaUrl(url, { cssWidth: cardWidth, originalWidth, type, asUploaded });
 }
 
 /** What a gallery image shows when it does not load. */

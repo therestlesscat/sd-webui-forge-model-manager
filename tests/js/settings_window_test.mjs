@@ -25,6 +25,8 @@ const SETTINGS = {
     model_manager_card_size: setting('text', '200x280'),
     model_manager_preview_least_nsfw: setting('bool', true),
     model_manager_gallery_hide_nsfw: setting('bool', true),
+    model_manager_gallery_originals: setting('bool', false),
+    model_manager_card_originals: setting('bool', false),
     model_manager_record_generations: setting('bool', true),
     model_manager_queue_enabled: setting('bool', true),
     model_manager_model_manager_enabled: setting('bool', true),
@@ -290,6 +292,15 @@ check('the Generations tab\'s setting is in Your generations, with its label',
        field(GEN_NSFW)?.querySelector('.mm-settings-label')?.textContent],
       ['generations', 'Generations tab: hide explicit images by default']);
 check('shown while generations are recorded', shown(GEN_NSFW), true);
+
+// Images as uploaded, not resized (#192): both in Image gallery, which both
+// tabs that show Civitai's images open.
+check('the two image-size settings are in Image gallery, with their labels',
+      ['model_manager_gallery_originals', 'model_manager_card_originals'].map((key) =>
+          [field(key)?.closest('.mm-settings-section')?.dataset.section,
+           field(key)?.querySelector('.mm-settings-label')?.textContent]),
+      [['gallery', 'Gallery images: load as uploaded, not resized'],
+       ['gallery', 'Model cards: load as uploaded, not resized']]);
 recording().checked = false;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 check('hidden when they are not', shown(GEN_NSFW), false);

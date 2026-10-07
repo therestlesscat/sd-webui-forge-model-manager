@@ -28,7 +28,7 @@ const { ready, call } = await shared('calls.mjs');
 const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
@@ -636,6 +636,9 @@ async function searchModels(page = 1) {
     if (isLoading) return;
     // A draw still coming would land over this search.
     if (activeStream) activeStream.abort();
+    // Cards draw with the settings' image size (#192): its answer first -
+    // for every search, the saved one a page opens with included.
+    await uiOptions();
 
     // A targeted lookup is not a search: it names the model outright, so the
     // filters, the cursors and the prompt filter all have nothing to say.
@@ -754,7 +757,7 @@ function renderGrid() {
 function renderCard(model, index) {
     const firstVersion = model.modelVersions?.[0];
     const image = cardImage(firstVersion);
-    const src = image?.url ? cardMediaUrl(image.url, image.type, cardSize.width, image.width) : '';
+    const src = image?.url ? cardMediaUrl(image.url, image.type, cardSize.width, image.width, asUploaded().cards) : '';
     return renderModelCard({
         index,
         action: 'civitaiBrowser.openModel',
@@ -1302,7 +1305,8 @@ let galleryWidth = null;
 // is of.
 const IMAGE_ACTIONS = { send: null, showAll: 'civitaiBrowser.showImageMeta', resources: 'civitaiBrowser.showResources' };
 function renderImageCard(img, index) {
-    return sharedImageCard(img, index, { width: galleryWidth, exclude: galleryVersionId(), actions: IMAGE_ACTIONS });
+    return sharedImageCard(img, index, { width: galleryWidth, exclude: galleryVersionId(), actions: IMAGE_ACTIONS,
+                                         asUploaded: asUploaded().gallery });
 }
 
 // Show All, the same window in both tabs.

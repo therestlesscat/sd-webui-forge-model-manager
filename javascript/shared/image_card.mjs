@@ -125,7 +125,7 @@ export function imageTextHtml(img) {
  * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
  * alone), `showAll`, `resources`; `sendBlocked`, why Send is disabled, if it is.
  */
-export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '' }) {
+export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '', asUploaded = false }) {
     const src = img.url || '';
 
     const meta = img.meta || {};
@@ -156,8 +156,9 @@ export function renderImageCard(img, index, { width, exclude, actions, sendBlock
 
     // Detect video
     const isVideo = isVideoUrl({ url: src, type: img.type });
-    // A copy the size the card draws it, not the upload; a click opens the upload.
-    const shown = sizedMediaUrl(src, { cssWidth: width, originalWidth: img.width, type: img.type });
+    // A copy the size the card draws it, not the upload - unless the settings
+    // say as uploaded (#192); a click opens the upload.
+    const shown = sizedMediaUrl(src, { cssWidth: width, originalWidth: img.width, type: img.type, asUploaded });
     // A click opens the viewer (shared/viewer.mjs) - on a video, its ⤢, as a
     // click on the video plays it.
     const mediaHtml = isVideo

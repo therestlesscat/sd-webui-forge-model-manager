@@ -99,5 +99,17 @@ for hide in (True, False):
     check('the Civitai Browser is told whether to hide images without a prompt (%s)' % hide,
           client.get('/model-manager/ui-options').json().get('hide_promptless_images'), hide)
 
+# Images as uploaded, not resized (#192): off by default, and told to the page.
+for name in ('model_manager_gallery_originals', 'model_manager_card_originals'):
+    if hasattr(opts, name):
+        delattr(opts, name)
+told = client.get('/model-manager/ui-options').json()
+check('images load resized by default, in galleries and on cards',
+      (told.get('gallery_originals'), told.get('card_originals')), (False, False))
+setattr(opts, 'model_manager_gallery_originals', True)
+check('Gallery images on: the page is told', client.get('/model-manager/ui-options').json().get('gallery_originals'), True)
+setattr(opts, 'model_manager_card_originals', True)
+check('Model cards on: the page is told', client.get('/model-manager/ui-options').json().get('card_originals'), True)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

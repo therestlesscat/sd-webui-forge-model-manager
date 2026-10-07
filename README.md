@@ -349,6 +349,8 @@ first under **Settings -> Model Manager** too.
 | Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
 | Queue: ask "Generate N images?" above this many images | 0 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
 | Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
+| Gallery images: load as uploaded, not resized | off | Gallery images load as the upload instead of a copy the size they are drawn: sharper on a large screen, and much larger - in one measurement 3.6 MB an image against 54 KB - but often quicker the first time a gallery is opened: Civitai seldom has a copy ready, and takes about half a second to make each. Videos stay copies, which always play. The image viewer shows the upload either way |
+| Model cards: load as uploaded, not resized | off | The same for the cards in both tabs' grids |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |
 | Sync: Hashing threads | 4 | Files hashed at once when identifying them (1-16). Raise for fast NVMe, lower for a spinning disk |

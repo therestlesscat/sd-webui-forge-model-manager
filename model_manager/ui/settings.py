@@ -182,6 +182,26 @@ def on_ui_settings():
                "from the panel above the images.")
     )
 
+    shared.opts.add_option(
+        "model_manager_gallery_originals",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_gallery_originals"],
+            label="Gallery images: load as uploaded, not resized",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. The image viewer shows the upload either way.")
+    )
+
+    shared.opts.add_option(
+        "model_manager_card_originals",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_card_originals"],
+            label="Model cards: load as uploaded, not resized",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. For the cards of both tabs' grids.")
+    )
+
 
     # The Generations tab followed the image gallery's setting; it starts from
     # what that said - once - and the two are independent after.

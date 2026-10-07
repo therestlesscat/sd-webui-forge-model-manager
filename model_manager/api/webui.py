@@ -229,6 +229,9 @@ def register(app: FastAPI):
         # settings.
         gallery_hide_nsfw = bool(setting('model_manager_gallery_hide_nsfw'))
         hide_promptless_images = bool(setting('model_manager_hide_promptless_images'))
+        # Images as uploaded, not resized (#192): galleries, and the grids' cards.
+        gallery_originals = bool(setting('model_manager_gallery_originals'))
+        card_originals = bool(setting('model_manager_card_originals'))
         generations_hide_nsfw = bool(setting(GENERATIONS_HIDE_NSFW))
         # "Your generations": off, nothing is recorded and every tab of them is
         # hidden (generations_enabled in generations.py).
@@ -263,6 +266,8 @@ def register(app: FastAPI):
                 "nsfw_detection": nsfw_detection,
                 "gallery_hide_nsfw": gallery_hide_nsfw,
                 "hide_promptless_images": hide_promptless_images,
+                "gallery_originals": gallery_originals,
+                "card_originals": card_originals,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
@@ -284,6 +289,7 @@ def register(app: FastAPI):
                  "nsfw_detection": nsfw_detection,
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images,
+                 "gallery_originals": gallery_originals, "card_originals": card_originals,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_enabled": generations_on,
                  "queue_enabled": queue_on,

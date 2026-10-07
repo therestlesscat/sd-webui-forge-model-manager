@@ -195,7 +195,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `jobs` | the long job, Sync with Civitai: its dialog, starting, following and cancelling one, and finding one still running; the Model Manager connects it to its status line and grid (`connectJobs`), a note's button opens its dialog by name (`sync.showDialog`, offered once the Model Manager starts it) |
 | `update_notice` | "vX available" beside each tab's version |
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
-| `media` | Civitai's images and videos: the copy for a width, the fallback, loading them as they come into view |
+| `media` | Civitai's images and videos: the copy for a width - or an image's upload, where the settings say so (`asUploaded`, #192; a video stays a copy) - the fallback, loading them as they come into view |
 | `grid` | cards, the grid and its page strip, its rows kept even, and the card size the server gave a tab (`createCardSize`) |
 | `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text |
 | `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
