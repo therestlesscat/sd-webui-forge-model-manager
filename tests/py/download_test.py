@@ -153,6 +153,52 @@ long_name = ds.apply_folder_template('{modelName}', {'name': 'x' * 300}, VERSION
 check('an absurd name is cut to something a filesystem will take',
       len(long_name), 100)
 
+# ------------------------------------------------- the folders a download made
+# What a delete may remove once they are empty (#196): the template's folders
+# for this model, and only while the file sits in them. A name-match against
+# the file's own name never matched a folder the template made.
+DEFAULT_TEMPLATE = '_{baseModel}/{modelName}'
+TYPE_DIR = os.path.join(WORK, 'Lora')
+STORED_MODEL = {'id': 42, 'name': 'A Model: Mk/2', 'creator_username': 'some one'}
+STORED_VERSION = {'model_id': 42, 'base_model': 'SDXL 1.0'}
+MADE = os.path.join(TYPE_DIR, '_SDXL_1.0', 'A_Model_Mk_2')
+
+
+def made_folders(path, root=TYPE_DIR, model=STORED_MODEL, version=STORED_VERSION,
+                 template=DEFAULT_TEMPLATE):
+    find = getattr(ds, 'template_folders', None)
+    return find(path, root, model, version, template) if find else 'no template_folders'
+
+
+check('a download by the template made both its folders, deepest first',
+      made_folders(os.path.join(MADE, 'x.safetensors')),
+      [MADE, os.path.join(TYPE_DIR, '_SDXL_1.0')])
+check('spelt another way on disk, they are still its own, as spelt there',
+      made_folders(os.path.join(TYPE_DIR, '_sdxl_1.0', 'a_model_mk_2', 'x.safetensors')),
+      [os.path.join(TYPE_DIR, '_sdxl_1.0', 'a_model_mk_2'), os.path.join(TYPE_DIR, '_sdxl_1.0')])
+check('another template would have put it elsewhere: none are ours',
+      made_folders(os.path.join(MADE, 'x.safetensors'), template='{creator}'), [])
+check('with no template, a download makes no folder',
+      made_folders(os.path.join(MADE, 'x.safetensors'), template=''), [])
+check('a file with no model cannot be matched',
+      made_folders(os.path.join(MADE, 'x.safetensors'), model=None), [])
+check('a file in the type\'s own folder has none',
+      made_folders(os.path.join(TYPE_DIR, 'x.safetensors')), [])
+check('the template\'s folders under another folder are not the template\'s',
+      made_folders(os.path.join(TYPE_DIR, 'mine', '_SDXL_1.0', 'A_Model_Mk_2', 'x.safetensors')), [])
+check('a file outside every type\'s folder has none',
+      made_folders(os.path.join(MADE, 'x.safetensors'), root=None), [])
+check('a model renamed since is no longer matched',
+      made_folders(os.path.join(MADE, 'x.safetensors'), model=dict(STORED_MODEL, name='Renamed')), [])
+check('the creator and the id fill in as a download fills them',
+      made_folders(os.path.join(TYPE_DIR, 'some_one', '42', 'x.safetensors'),
+                   template='{creator}/{modelId}'),
+      [os.path.join(TYPE_DIR, 'some_one', '42'), os.path.join(TYPE_DIR, 'some_one')])
+check('a base model never stored reads as a download without one did',
+      made_folders(os.path.join(TYPE_DIR, '_Unknown', 'A_Model_Mk_2', 'x.safetensors'),
+                   version={'model_id': 42, 'base_model': None}),
+      [os.path.join(TYPE_DIR, '_Unknown', 'A_Model_Mk_2'), os.path.join(TYPE_DIR, '_Unknown')])
+
 # ------------------------------------------------------------- where it lands
 check('a known type has a folder', service.get_base_path('LORA'), os.path.join(MODELS, 'Lora'))
 check('an unknown type goes to Other', service.get_base_path('Nonsense'), os.path.join(MODELS, 'Other'))

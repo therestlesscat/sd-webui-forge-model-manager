@@ -376,6 +376,52 @@ os.remove(ghost)
 code, body = post('/model-manager/models/delete', path=ghost)
 check('a known model whose file is gone still answers 404', code, 404)
 
+# The folders its download made go with the last file in them (#196): the
+# template's, for this model. The old rule wanted a folder named like the
+# file, which a download never makes.
+forge = sys.modules['modules'].shared
+forge.opts.model_manager_civitai_folder_template = '_{baseModel}/{modelName}'
+lora_root = os.path.join(WORK, 'lora_root')
+forge.cmd_opts.lora_dir = lora_root
+db.upsert_civitai_model(fixtures._model(9001, 'Great Lighting', 'LORA'), from_civitai=True)
+db.upsert_civitai_model(fixtures._model(9002, 'Other Model', 'LORA'), from_civitai=True)
+
+
+def downloaded(version_id, model_id, folder, name):
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name)
+    with open(path, 'wb') as f:
+        f.write(b'x' * 64)
+    db.upsert_version({'id': version_id, 'model_id': model_id, 'version_name': 'v1',
+                       'base_model': 'SDXL 1.0', 'file_path': path, 'file_name': name,
+                       'file_size': 64, 'file_extension': '.safetensors', 'has_civitai_data': True})
+    return path
+
+
+base_dir = os.path.join(lora_root, '_SDXL_1.0')
+own_dir = os.path.join(base_dir, 'Great_Lighting')
+first = downloaded(900101, 9001, own_dir, 'great_v1.safetensors')
+second = downloaded(900102, 9001, own_dir, 'great_v2.safetensors')
+neighbour = downloaded(900201, 9002, os.path.join(base_dir, 'Other_Model'), 'other.safetensors')
+
+post('/model-manager/models/delete', path=first)
+check('a folder still holding a file is kept', os.path.isdir(own_dir), True)
+code, body = post('/model-manager/models/delete', path=second)
+check('the last file out takes the folder its download made', os.path.isdir(own_dir), False)
+check('and says so', '[folder] Great_Lighting/' in body.get('deleted', []), True)
+check('the base model\'s folder stays while another model is in it', os.path.isdir(base_dir), True)
+post('/model-manager/models/delete', path=neighbour)
+check('and goes with the last model in it', os.path.isdir(base_dir), False)
+check('the type\'s own folder is never removed', os.path.isdir(lora_root), True)
+
+# A folder the current template would not have made is not ours to remove.
+hand_dir = os.path.join(lora_root, 'my folder')
+by_hand = downloaded(900103, 9001, hand_dir, 'great_v3.safetensors')
+post('/model-manager/models/delete', path=by_hand)
+check('a folder the template did not make is kept, empty or not', os.path.isdir(hand_dir), True)
+forge.opts.model_manager_civitai_folder_template = ''
+forge.cmd_opts.lora_dir = None
+
 # --- hiding images with no prompt -------------------------------------------
 # Filtered in SQL rather than in the browser, so the counts come from the same
 # place the images do. A prompt shorter than MIN_PROMPT_LENGTH is not one:

@@ -1843,7 +1843,7 @@ async function deleteModel(scope = 'version', file = null) {
         `This will delete, for ${all ? 'each' : 'it'}:\n` +
         `• The model file\n` +
         `• All metadata files (.civitai.info, .preview.png, etc.)\n` +
-        `• The containing folder if it's named after the model and becomes empty\n\n` +
+        `• The folder its download made, once empty\n\n` +
         `This action cannot be undone.`
     );
     if (!confirmed) return;

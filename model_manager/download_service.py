@@ -201,6 +201,44 @@ def apply_folder_template(
     return result
 
 
+def template_folders(
+    path: str,
+    root: Optional[str],
+    model: Optional[Dict[str, Any]],
+    version: Optional[Dict[str, Any]],
+    template: str
+) -> List[str]:
+    """
+    The folders a download of this file made under its type's folder `root`,
+    by the folder template as it is now, deepest first: what a delete may
+    remove once they are empty (#196). The model and version are the stored
+    rows, filled in as a download fills them from Civitai's. None when the
+    template is empty, the file has no model, or the file is not where the
+    template puts it - the template or the model's name changed since, or the
+    folders are someone else's: then they are not known to be ours.
+    """
+    if not (template and root and model):
+        return []
+    model_data: Dict[str, Any] = {"id": model.get("id") or 0}
+    if model.get("name"):
+        model_data["name"] = model["name"]
+    if model.get("creator_username"):
+        model_data["creator"] = {"username": model["creator_username"]}
+    base_model = (version or {}).get("base_model")
+    subfolder = apply_folder_template(template, model_data, {"baseModel": base_model} if base_model else {})
+    levels = subfolder.split(os.sep) if subfolder else []
+    if not levels or any(level in ("", ".", "..") for level in levels):
+        return []
+    folder = os.path.dirname(os.path.abspath(path))
+    if os.path.normcase(folder) != os.path.normcase(os.path.join(os.path.abspath(root), subfolder)):
+        return []
+    made = []
+    for _ in levels:
+        made.append(folder)
+        folder = os.path.dirname(folder)
+    return made
+
+
 def pick_file_index(
     files: List[Dict[str, Any]],
     file_index: Optional[int] = None,

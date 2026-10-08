@@ -83,6 +83,9 @@ await pressLabelled('Delete Current Model Version');
 check('"current" deletes the version on screen - not the grid card\'s', deleted, ['C:/models/v2.safetensors']);
 check('and Forge\'s lists are refreshed, once', refreshed, ['checkpoints', 'extra networks']);
 check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
+check('which says the folder its download made goes, once empty (#196)',
+      [confirmText.includes('The folder its download made, once empty'), confirmText.includes('named after')],
+      [true, false]);
 
 deleted.length = 0;
 await open();

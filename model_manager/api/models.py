@@ -19,7 +19,8 @@ from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
-from ..model_dirs import COMPANIONS, file_modified
+from ..model_dirs import COMPANIONS, file_modified, folder_of
+from ..download_service import template_folders
 from .. import resources
 from ..console import say
 
@@ -473,7 +474,7 @@ def register(app: FastAPI):
         Deletes:
         - The model file itself
         - Associated metadata files (.civitai.info, .preview.png, etc.)
-        - The containing folder if it's named after the model and becomes empty
+        - The folder its download made, once empty
 
         Args:
             path: Full path to the model file.
@@ -489,7 +490,9 @@ def register(app: FastAPI):
             # The UI only sends paths it read from the database, so it cannot
             # tell the difference. Checked before touching the disk, so this is
             # not a way to ask whether an arbitrary file exists either.
-            if not get_models_db().get_version(path):
+            db = get_models_db()
+            row = db.get_version(path)
+            if not row:
                 return JSONResponse(
                     {"success": False, "error": "Not a model in the library"},
                     status_code=403
@@ -502,8 +505,11 @@ def register(app: FastAPI):
                 )
 
             deleted_files = []
-            model_dir = os.path.dirname(path)
-            model_basename = os.path.splitext(os.path.basename(path))[0]
+            # The folders its download made (#196), read before the row goes:
+            # deleting it can take the model's row with it.
+            model = db.get_civitai_model(row["model_id"]) if row.get("model_id") else None
+            made = template_folders(path, folder_of(path)[1], model, row,
+                                    setting('model_manager_civitai_folder_template'))
 
             # Find all related files (same base name, different extensions)
             base_path = os.path.splitext(path)[0]
@@ -521,24 +527,21 @@ def register(app: FastAPI):
                     except Exception as e:
                         say(f"Failed to delete {file_path}: {e}")
 
-            # Check if folder should be deleted
-            # Only delete if folder name matches model name and is now empty
-            folder_name = os.path.basename(model_dir)
-            if folder_name.lower() == model_basename.lower():
-                # Check if folder is empty
-                remaining_files = os.listdir(model_dir)
-                if not remaining_files:
-                    try:
-                        os.rmdir(model_dir)
-                        deleted_files.append(f"[folder] {folder_name}/")
-                        say(f"Deleted empty folder: {model_dir}")
-                    except Exception as e:
-                        say(f"Failed to delete folder {model_dir}: {e}")
-                else:
-                    say(f"Folder not empty, keeping: {model_dir} ({len(remaining_files)} files remaining)")
+            # Only the folders we made, deepest first, and each only once
+            # empty: one still holding anything keeps every folder above it.
+            for folder in made:
+                remaining = os.listdir(folder)
+                if remaining:
+                    say(f"Folder not empty, keeping: {folder} ({len(remaining)} files remaining)")
+                    break
+                try:
+                    os.rmdir(folder)
+                except Exception as e:
+                    say(f"Failed to delete folder {folder}: {e}")
+                    break
+                deleted_files.append(f"[folder] {os.path.basename(folder)}/")
+                say(f"Deleted empty folder: {folder}")
 
-            # Remove from database
-            db = get_models_db()
             db.delete_version(path)
 
             return JSONResponse({
