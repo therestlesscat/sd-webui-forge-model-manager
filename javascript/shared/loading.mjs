@@ -29,7 +29,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
-const { provide, withdraw } = await shared('calls.mjs');
+const { call, provide, withdraw } = await shared('calls.mjs');
 const { panelButton, showTab, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
 
@@ -42,14 +42,16 @@ const { uiOptions } = await shared('ui_options.mjs');
  */
 export const TABS = {
     queue: { file: 'queue.mjs', server: 'queue', setting: 'model_manager_queue_enabled', markup: 'queue_active',
-             elsewhere: 'txt2img', also: ['txt2img_queue', 'img2img_queue'], event: 'mm-queue-enabled' },
+             root: 'queue_app', elsewhere: 'txt2img', also: ['txt2img_queue', 'img2img_queue'],
+             event: 'mm-queue-enabled' },
     generations: { file: 'generations.mjs', server: 'generations', setting: 'model_manager_record_generations',
-                   markup: 'gen_grid', elsewhere: 'modelManager', also: [], event: 'mm-generations-enabled' },
+                   markup: 'gen_grid', root: 'generations_app', elsewhere: 'modelManager', also: [],
+                   event: 'mm-generations-enabled' },
     modelManager: { file: 'model_manager.mjs', server: 'model_manager', setting: 'model_manager_model_manager_enabled',
-                    markup: 'mm_load_btn', elsewhere: 'txt2img', also: [], event: null },
+                    markup: 'mm_load_btn', root: 'model_manager_app', elsewhere: 'txt2img', also: [], event: null },
     civitaiBrowser: { file: 'civitai_browser.mjs', server: 'civitai_browser',
                       setting: 'model_manager_civitai_browser_enabled', markup: 'cb_search_btn',
-                      elsewhere: 'txt2img', also: [], event: null },
+                      root: 'civitai_browser_app', elsewhere: 'txt2img', also: [], event: null },
 };
 
 // What a disabled link says each tab is (tabs.py's NAMES).
@@ -393,12 +395,13 @@ function apply(name) {
     const on = now.on !== false;
     showElement(tabButton(name), on && !now.stopped);
     const app = typeof gradioApp === 'function' ? gradioApp() : document;
-    tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on));
+    tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on && !newerDatabase));
     if ((!on || now.stopped) && tabShowing(name)) showTab(fallbackFor(name));
 }
 
 function applyAll() {
     Object.keys(TABS).forEach(apply);
+    drawDatabaseNotices();
     applyLinks();
     if (returnTo) goBack();
 }
@@ -582,6 +585,61 @@ function takeSwitches(value) {
     }
 }
 
+// ------------------------------------------- a database newer than this copy
+
+// The server's word that the database is at a schema newer than this copy
+// knows (#136): {schema, known, path}, or null. Then no tab starts - each
+// would ask the database, which this copy refuses - and each tab that is on
+// and built is covered by a notice saying why, and what to do.
+let newerDatabase = null;
+
+function databaseNotice() {
+    const { schema, known, path } = newerDatabase;
+    return `<div class="newer-database">
+        <h3>This copy of the Model Manager is older than its database.</h3>
+        <p>The database is at schema v${escapeHtml(String(schema))}. This copy knows up to
+           v${escapeHtml(String(known))}. Another WebUI sharing it has been updated.</p>
+        <p>To use it here, update this copy: Extensions, Check for updates, then Apply and restart UI.</p>
+        <p>Or give this WebUI a database of its own: Settings, Model Manager, Database file.</p>
+        <p class="newer-database-path">Database: ${escapeHtml(path)}</p>
+        <div class="newer-database-actions">
+            <button type="button" class="mm-btn primary" data-action="database.openExtensions">Open Extensions</button>
+            <button type="button" class="mm-btn secondary" data-action="database.openSettings">Database settings</button>
+        </div>
+    </div>`;
+}
+
+/**
+ * The notice over each tab that would have started: drawn once its markup is
+ * there, and again when Gradio draws the tab anew - only where it is missing,
+ * as this runs after every update.
+ */
+function drawDatabaseNotices() {
+    if (!newerDatabase) return;
+    const app = typeof gradioApp === 'function' ? gradioApp() : document;
+    for (const [name, tab] of Object.entries(TABS)) {
+        const root = app.querySelector(`#${tab.root}`);
+        if (!root || !state[name].on || !state[name].built || root.querySelector(':scope > .newer-database')) continue;
+        root.classList.add('database-blocked');
+        root.insertAdjacentHTML('afterbegin', databaseNotice());
+    }
+}
+
+/**
+ * The notice's buttons: the WebUI's Extensions tab, and our settings window -
+ * started alone - at the file's path. The page's one listener for them is
+ * calls.mjs's, which a tab would have started.
+ */
+async function offerDatabaseActions() {
+    await useServices(['calls.mjs'], 'database');
+    provide('database.openExtensions', () => showTab('extensions'));
+    provide('database.openSettings', async () => {
+        if (await useServices(['settings.mjs'], 'database')) {
+            call('settings.open', { section: 'storage', focus: 'model_manager_database_path' });
+        }
+    });
+}
+
 /**
  * Start the page: the tabs that are on and built, once the page is ready -
  * every one when the server cannot say, as before - then follow their
@@ -601,13 +659,16 @@ export const boot = once(() => {
     onReady(async () => {
         const data = await uiOptions();
         restartable = data?.restartable === true;
+        newerDatabase = data?.database_newer || null;
+        if (newerDatabase) await offerDatabaseActions();
         for (const [name, tab] of Object.entries(TABS)) {
             const said = data?.tabs?.[tab.server];
             state[name].on = said ? said.on !== false : true;
             state[name].built = said ? said.built !== false : true;
             apply(name);
-            if (state[name].on && state[name].built) startTab(name);
+            if (state[name].on && state[name].built && !newerDatabase) startTab(name);
         }
+        drawDatabaseNotices();
         window.addEventListener('mm-settings-saved', (event) => {
             takeSwitches((setting) => event.detail?.settings?.[setting]?.value);
         });

@@ -43,7 +43,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .db import get_models_db
+from .db import database_state, get_models_db
 from .forge_host import (available, closest_checkpoint, forge_name, infotext_settings,
                          installed_modules, loaded_model, loaded_modules, main_infotext,
                          parse_generation_parameters)
@@ -164,6 +164,23 @@ def image_saved(params) -> None:
         _report("reading a saved image", e)
 
 
+_said_newer = False
+
+
+def _newer_database() -> bool:
+    """
+    Whether the database is newer than this copy knows (#136): nothing is
+    recorded, said once - not a failure with its trace, each generation.
+    """
+    global _said_newer
+    newer = database_state()
+    if newer and not _said_newer:
+        _said_newer = True
+        say(f"Generations not recorded: the database is at schema v{newer['schema']}, newer than this "
+            f"copy knows (v{newer['known']}). Update this copy.")
+    return bool(newer)
+
+
 def postprocess(p, processed) -> Optional[int]:
     """Write the generation to the database. Returns its id, if one was written."""
     generation = getattr(p, _ATTR, None)
@@ -180,6 +197,8 @@ def postprocess(p, processed) -> Optional[int]:
         if not generation.saved:
             say(f"Generation not recorded: none of its "
                   f"{len(generation.results)} results was saved to disk")
+            return None
+        if _newer_database():
             return None
         return _write(p, processed, generation)
     except Exception as e:

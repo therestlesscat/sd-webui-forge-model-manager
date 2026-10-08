@@ -247,6 +247,7 @@ def register(app: FastAPI):
         from ..civitai import api_key_from_settings
         from ..forge_host import restartable, samplers, schedulers, setting, short_name
         from ..model_dirs import shown_roots
+        from ..db import database_state
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         from ..scheduler import queue_enabled
         from ..tabs import TABS, built, on
@@ -305,6 +306,8 @@ def register(app: FastAPI):
                 "path_roots": shown_roots(),
                 # Who ignores a file in a folder an option replaced: "Ignored by Neo" (#195).
                 "webui_short_name": short_name(),
+                # A database newer than this copy knows: the tabs are covered, none starts (#136).
+                "database_newer": database_state(),
             })
 
         except Exception as e:

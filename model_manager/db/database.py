@@ -20,6 +20,7 @@ SQLite objects cannot cross between them.
 import os
 import sqlite3
 import threading
+from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Set, Tuple
 from contextlib import contextmanager
@@ -652,6 +653,46 @@ class ModelsDatabase:
 _db_instance: Optional[ModelsDatabase] = None
 _db_lock = threading.Lock()
 
+# up out of db/, then out of model_manager/, to the extension root
+_EXTENSION_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _custom_path() -> Optional[str]:
+    """The database file the settings name, if they name one."""
+    return str(setting('model_manager_database_path') or '').strip() or None
+
+
+def database_path() -> str:
+    """The database file this WebUI opens: the settings' one, else models.db in the extension's folder."""
+    return _custom_path() or os.path.join(_EXTENSION_DIR, ModelsDatabase.DB_NAME)
+
+
+def database_state() -> Optional[Dict[str, Any]]:
+    """
+    Whether the database this WebUI opens is at a schema newer than this copy
+    knows (#136): {"schema", "known", "path"}, or None - for one it knows,
+    one not made yet, or one it cannot read. Read with mode=ro, never through
+    ModelsDatabase: opening it there sets its journal mode, which writes the
+    file, before _init_db refuses it - and a migration is the last thing this
+    copy should run on a newer shape. For the page, before any tab asks it,
+    and for startup, which then leaves it alone.
+    """
+    path = database_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()
+        finally:
+            conn.close()
+        schema = int(row[0]) if row else 0
+    except (sqlite3.Error, ValueError):
+        return None
+    if schema <= SCHEMA_VERSION:
+        return None
+    return {"schema": schema, "known": SCHEMA_VERSION, "path": path}
+
 
 def get_models_db() -> ModelsDatabase:
     """Get the global models database instance."""
@@ -660,15 +701,18 @@ def get_models_db() -> ModelsDatabase:
     if _db_instance is None:
         with _db_lock:
             if _db_instance is None:
-                # up out of db/, then out of model_manager/, to the extension root
-                ext_dir = os.path.dirname(os.path.dirname(
-                    os.path.dirname(os.path.abspath(__file__))))
-
-                # Check for custom database path in settings
-                custom_db_path = str(setting('model_manager_database_path') or '').strip() or None
+                # Refused before it is opened (#136): opening it would set its
+                # journal mode, writing the file, before _init_db refuses it.
+                newer = database_state()
+                if newer:
+                    raise RuntimeError(
+                        f"[ModelManager] The database {newer['path']} is at schema v{newer['schema']}, "
+                        f"newer than this copy of the extension knows (v{newer['known']}). "
+                        "Update this copy - another WebUI sharing the database has been updated.")
+                custom_db_path = _custom_path()
                 if custom_db_path:
                     say(f"Using custom database path: {custom_db_path}")
 
-                _db_instance = ModelsDatabase(ext_dir, custom_db_path)
+                _db_instance = ModelsDatabase(_EXTENSION_DIR, custom_db_path)
 
     return _db_instance

@@ -26,6 +26,7 @@ from fastapi import FastAPI
 from . import civitai, generations, images, jobs, models, notes, scheduler, settings, webui
 from .. import prompt_levels, update_check
 from ..scheduler import runner
+from ..db import database_state
 from ..console import say
 
 
@@ -45,6 +46,14 @@ def setup_api(app: FastAPI):
 
 def on_app_started(demo, app):
     setup_api(app)
+    # A database newer than this copy knows is not touched (#136): the page
+    # says so, from ui-options. Whether a newer copy is out is still asked.
+    newer = database_state()
+    if newer:
+        say(f"The database {newer['path']} is at schema v{newer['schema']}, newer than this copy of the "
+            f"extension knows (v{newer['known']}): update this copy. Nothing reads or writes it until then.")
+        update_check.start_in_background()
+        return
     # Each of these is left out while the tabs it serves are off (tabs.py).
     # Stored image levels, redone if the NSFW prompt words changed.
     prompt_levels.start_in_background()

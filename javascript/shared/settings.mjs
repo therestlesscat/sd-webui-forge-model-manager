@@ -172,7 +172,7 @@ function parseCardSize(text) {
 
 function createSettings() {
     let meta = null;         // the server's answer: settings, order, extras
-    let openedFor = {};      // the tab, or the one section, open() was asked for
+    let openedFor = {};      // the tab, or the one section, open() was asked for, and a field to focus
     let draft = {};          // what the window holds, by key
     let secretTyped = null;  // a key typed into the window; null = unchanged
     let errors = {};
@@ -278,6 +278,13 @@ function createSettings() {
         refresh();
         loadWhatsNew();
         if (openedFor.section) body.querySelector(`[data-section="${openedFor.section}"]`)?.scrollIntoView?.({ block: 'start' });
+        if (openedFor.focus) {
+            const field = body.querySelector(['input', 'textarea', 'select']
+                .map((tag) => `${tag}[data-key="${openedFor.focus}"]`).join(', '));
+            field?.closest('details')?.setAttribute('open', '');
+            field?.scrollIntoView?.({ block: 'center' });
+            field?.focus?.();
+        }
     }
 
     // "What's new": every note to the user that applies here, dismissed or
@@ -894,14 +901,15 @@ function createSettings() {
     }
 
     /**
-     * @param {{tab?: string, section?: string}} [options] - tab: the tab
+     * @param {{tab?: string, section?: string, focus?: string}} [options] - tab: the tab
      *     whose gear it is ("model_manager", "civitai_browser",
      *     "generations"), whose sections are opened; section: one section's
      *     id, the only one opened, scrolled to - a note's button. Neither:
-     *     every section collapsed.
+     *     every section collapsed. focus: a setting's key, its field
+     *     focused - the database notice's button (#136).
      */
-    async function open({ tab = null, section = null } = {}) {
-        openedFor = { tab, section };
+    async function open({ tab = null, section = null, focus = null } = {}) {
+        openedFor = { tab, section, focus };
         if (!root) build();
         root.style.display = 'flex';
         holdPage('settings', true);

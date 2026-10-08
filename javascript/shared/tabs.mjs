@@ -28,6 +28,8 @@ const PANELS = {
     generations: 'tab_generations_tab',
     modelManager: 'tab_model_manager_tab',
     civitaiBrowser: 'tab_civitai_browser_tab',
+    // The WebUI's own, the same in both: the database notice opens it (#136).
+    extensions: 'tab_extensions',
 };
 
 function find(id) {

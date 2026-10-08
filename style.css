@@ -5014,3 +5014,50 @@ textarea.mm-settings-input {
     background: rgba(148, 163, 184, 0.15);
     color: #cbd5e1 !important;
 }
+
+/* A database newer than this copy knows (#136): the tab's own content
+   hidden, a notice in its place saying why and what to do. */
+.database-blocked > :not(.newer-database) {
+    display: none !important;
+}
+
+.newer-database {
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 20px 24px;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #78350f !important;
+}
+
+.newer-database h3 {
+    margin: 0 0 12px;
+    color: #92400e !important;
+}
+
+.newer-database p {
+    margin: 6px 0;
+    color: inherit !important;
+}
+
+.newer-database-path {
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.newer-database-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.dark .newer-database {
+    border-color: #b45309;
+    background: rgba(245, 158, 11, 0.10);
+    color: #fde68a !important;
+}
+
+.dark .newer-database h3 {
+    color: #fcd34d !important;
+}
