@@ -266,6 +266,15 @@ def fingerprint(path: str) -> Optional[str]:
     return f"{stat.st_size}:{stat.st_mtime_ns}"
 
 
+def changed_since_read(mark: Optional[str], path: str) -> bool:
+    """
+    Whether a file is no longer what its hashes were read from: it has a mark
+    (`hashes_checked`), and the file differs from it now. One without a mark
+    - a sidecar's hashes, or stored before they were marked - never is.
+    """
+    return bool(mark) and mark != fingerprint(path)
+
+
 # ---------------------------------------------------------------- reading stored hashes
 # Stored hashes arrive in either case - the hasher writes values upper case,
 # Civitai's lists and older rows lower - and every reader used to fold them

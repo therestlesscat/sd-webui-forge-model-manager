@@ -390,5 +390,66 @@ try:
 finally:
     ModelHasher._read = classmethod(real_read)
 
+# ------------------------------ a sync without force, a file changed since (#142)
+# Both of _sync_model's early skips - already synced, and not on Civitai -
+# skipped a file whose bytes were replaced since its hashes were read, and
+# kept what it had said of the old ones. A file changed since is identified
+# again, as every sync's list of files to identify already said.
+from model_manager.storage import get_metadata_paths   # noqa: E402
+
+
+def sha_of(path):
+    return SyncService(client=Client()).calculate_hashes(path).sha256
+
+
+def payloads(model_id, version_id, name, file_name):
+    model = model_payload(model_id, version_id, name, file_name)
+    return dict(model['modelVersions'][0], modelId=model_id), model
+
+
+SWAP = write('Lora', 'swap.safetensors', fill=b'a')
+db.insert_missing_versions([{'file_path': SWAP, 'file_name': 'swap.safetensors'}])
+was_version, was_model = payloads(5300, 5301, 'Was', 'swap.safetensors')
+service(by_hash={sha_of(SWAP): was_version}, models={5300: was_model}).sync_model(SWAP, force=True)
+check('a file identified, its sidecar written', (row(SWAP).get('id'), os.path.exists(get_metadata_paths(SWAP)[0])),
+      (5301, True))
+hashed.clear()
+result = service().sync_model(SWAP)
+check('unchanged, a sync without force skips it, reading nothing', (result.skipped, SWAP in hashed), (True, False))
+
+write('Lora', 'swap.safetensors', size=96, fill=b'b')
+check('its bytes replaced: every sync lists it as changed', files_to_identify([SWAP])[1], [SWAP])
+now_version, now_model = payloads(5400, 5401, 'Now', 'swap.safetensors')
+hashed.clear()
+result = service(by_hash={sha_of(SWAP): now_version}, models={5400: now_model}).sync_model(SWAP)
+check('and a sync without force reads it again - it skipped it', (result.skipped, SWAP in hashed), (False, True))
+check('and stores what the file is now, not what it was', row(SWAP).get('id'), 5401)
+
+NOBODY = write('Lora', 'nobody.safetensors', fill=b'n')
+db.insert_missing_versions([{'file_path': NOBODY, 'file_name': 'nobody.safetensors'}])
+service().sync_model(NOBODY, force=True)
+check('a file Civitai does not know is noted so', bool(row(NOBODY).get('civitai_lookup_failed_at')), True)
+hashed.clear()
+result = service().sync_model(NOBODY)
+check('unchanged, a sync without force does not ask again', (result.skipped, NOBODY in hashed), (True, False))
+write('Lora', 'nobody.safetensors', size=80, fill=b'c')
+found_version, found_model = payloads(5500, 5501, 'Found', 'nobody.safetensors')
+hashed.clear()
+result = service(by_hash={sha_of(NOBODY): found_version}, models={5500: found_model}).sync_model(NOBODY)
+check('replaced by one Civitai knows: asked again, and identified - it was skipped',
+      (result.skipped, row(NOBODY).get('id')), (False, 5501))
+
+UNMARKED = write('Lora', 'unmarked.safetensors', fill=b'm')
+db.insert_missing_versions([{'file_path': UNMARKED, 'file_name': 'unmarked.safetensors'}])
+um_version, um_model = payloads(5600, 5601, 'Unmarked', 'unmarked.safetensors')
+service(by_hash={sha_of(UNMARKED): um_version}, models={5600: um_model}).sync_model(UNMARKED, force=True)
+with sqlite3.connect(facts['db_path']) as c:
+    c.execute('UPDATE files SET hashes_checked = NULL WHERE file_path = ?', (UNMARKED,))
+write('Lora', 'unmarked.safetensors', size=72, fill=b'z')
+hashed.clear()
+result = service().sync_model(UNMARKED)
+check('hashes with no mark - a sidecar\'s, or older than v33 - never make a file look changed',
+      (result.skipped, UNMARKED in hashed), (True, False))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

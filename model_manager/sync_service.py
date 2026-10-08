@@ -19,7 +19,7 @@ from .civitai import (
     generation_ids_needing_lookup,
     keep_generation_data,
 )
-from .hashing import HashResult, ModelHasher, fingerprint
+from .hashing import HashResult, ModelHasher, changed_since_read, fingerprint
 from .model_dirs import (file_modified, find_model_files, forget_gone, library_dirs,
                          move_misplaced_files)
 from .payload_rows import file_row, model_row, version_row
@@ -288,6 +288,11 @@ class SyncService:
         if not force:
             db = get_models_db()
             existing = db.get_version(model_path)
+            # Neither skip holds for a file changed since its hashes were
+            # read: what is stored was said of other bytes (#142).
+            if existing and changed_since_read(existing.get("hashes_checked"), model_path):
+                say(f"{model_name} changed since it was read: identifying it again")
+                existing = None
             # Identified, and its sidecar there to say so. A sidecar that has
             # gone is written back by syncing the file again.
             if existing and existing.get("has_civitai_data") and os.path.exists(
@@ -1490,7 +1495,7 @@ def files_to_identify(found: List[str]) -> Tuple[List[str], List[str]]:
         key = os.path.normcase(path)
         if key in unasked:
             new.append(path)
-        elif key in checked and checked[key] != fingerprint(path):
+        elif changed_since_read(checked.get(key), path):
             changed.append(path)
     return new, changed
 
