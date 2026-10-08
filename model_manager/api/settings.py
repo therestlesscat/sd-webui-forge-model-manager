@@ -12,6 +12,7 @@ key typed into the window replaces it.
 """
 import html
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -115,6 +116,24 @@ def _describe() -> Dict[str, Any]:
     return answer
 
 
+def _database_path_reason(path: str) -> Optional[str]:
+    """
+    Why a database file may not be saved (#136): empty is the extension's
+    own; else a file's whole path, in a folder that is there. The window's
+    "In use: F:\\..." line, pasted with a path, was saved - and the next
+    start would have opened no database at all.
+    """
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        return "must be a file's whole path, such as F:\\models\\models.db"
+    if os.path.isdir(path):
+        return "must be a file, not a folder"
+    if not os.path.isdir(os.path.dirname(path)):
+        return "must be in a folder that is there"
+    return None
+
+
 def check_value(key: str, info, value: Any) -> Tuple[Optional[str], Any]:
     """
     Whether a value may be saved to a setting, as the Settings page would
@@ -149,6 +168,11 @@ def check_value(key: str, info, value: Any) -> Tuple[Optional[str], Any]:
         return "must be text", None
     if kind == "secret":
         value = value.strip()
+    if key == "model_manager_database_path":
+        value = value.strip()
+        reason = _database_path_reason(value)
+        if reason:
+            return reason, None
     rule = _FORMATS.get(key)
     if rule and value.strip() and not rule[0].match(value):
         return "must be %s" % rule[1], None

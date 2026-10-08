@@ -441,7 +441,10 @@ function setOn(name, on) {
 // the lighter way, or Later. Either way the page comes back to the tab that
 // showed. A tab turned on that starts at once asks nothing.
 
-const waiting = new Map();          // tab -> 'off', 'page' or 'ui'
+const waiting = new Map();          // tab -> 'off', 'page' or 'ui'; DATABASE -> 'restart'
+// A new database file, saved: the server opens it only as it starts (#136).
+const DATABASE = 'database';
+const DATABASE_SETTING = 'model_manager_database_path';
 let restartable = false;            // whether the WebUI comes back after a restart (ui-options)
 const NOT_RESTARTABLE = 'This WebUI was not started by webui.bat or webui.sh: a restart would leave it shut down';
 const RETURN_KEY = 'mm-return-to';  // the tab that showed, for the page a reload brings
@@ -472,16 +475,20 @@ function drawReloadPopup(error = null) {
         document.addEventListener('keydown', onReloadKey, true);
     }
     const ui = [...waiting.values()].includes('ui');
+    // A reload is offered only for what one brings: a new database needs the server started afresh.
+    const reloads = [...waiting.values()].some((how) => how !== 'restart');
     const LINES = { off: 'is turned off.', page: 'comes back with a page reload.',
-                    ui: 'is created by Settings -> Reload UI.' };
-    const lines = [...waiting].map(([name, how]) => `${LABELS[name]} ${LINES[how]}`);
+                    ui: 'is created by Settings -> Reload UI.',
+                    restart: 'is opened when the WebUI starts: restart it to use the new file.' };
+    const who = (name) => (name === DATABASE ? 'The database file you saved' : LABELS[name]);
+    const lines = [...waiting].map(([name, how]) => `${who(name)} ${LINES[how]}`);
     const notes = [restartable ? 'Restart WebUI starts the server and the page afresh: the cleanest slate. '
                                  // Every download not over comes back paused, queued ones too: none
                                  // resumes by itself (download_service.restore, #187).
                                  + 'A running generation and sync end. Downloads come back paused: '
                                  + 'resume them after.'
                                : `${NOT_RESTARTABLE}.`,
-                   'Reloading loses unsaved input, like a typed prompt.'];
+                   ...(reloads ? ['Reloading loses unsaved input, like a typed prompt.'] : [])];
     popup.innerHTML = `
         <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_reload_title">
             <h3 id="mm_reload_title">Restart or reload</h3>
@@ -491,8 +498,8 @@ function drawReloadPopup(error = null) {
             <div class="mm-dialog-buttons">
                 <button type="button" class="mm-btn ${restartable ? 'primary' : 'secondary'}" data-reload="restart"${
                     restartable ? '' : ` disabled title="${escapeHtml(NOT_RESTARTABLE)}"`}>Restart WebUI</button>
-                <button type="button" class="mm-btn ${restartable ? 'secondary' : 'primary'}" data-reload="${
-                    ui ? 'ui' : 'page'}">${ui ? 'Reload UI' : 'Reload the page'}</button>
+                ${reloads ? `<button type="button" class="mm-btn ${restartable ? 'secondary' : 'primary'}" data-reload="${
+                    ui ? 'ui' : 'page'}">${ui ? 'Reload UI' : 'Reload the page'}</button>` : ''}
                 <button type="button" class="mm-btn secondary" data-reload="later">Later</button>
             </div>
         </div>`;
@@ -671,6 +678,7 @@ export const boot = once(() => {
         drawDatabaseNotices();
         window.addEventListener('mm-settings-saved', (event) => {
             takeSwitches((setting) => event.detail?.settings?.[setting]?.value);
+            if ((event.detail?.changed || []).includes(DATABASE_SETTING)) waitForReload(DATABASE, 'restart');
         });
         if (typeof onOptionsChanged === 'function') {
             onOptionsChanged(() => takeSwitches((setting) => (typeof opts === 'object' ? opts?.[setting] : undefined)));

@@ -333,5 +333,27 @@ check('as are filters that are not an object, and a store passed off as one',
       [keep({'tab': 'model_manager', 'filters': ['a']}).status_code,
        keep({'tab': 'model_manager', 'filters': {'x': 'y' * 30000}}).status_code], [400, 400])
 
+# ------------------------------------------------------ the database file
+# A path is a file's whole path, in a folder that is there (#136). A note
+# pasted with it - "In use: F:\\...", the window's own line under the field -
+# was saved, and the next start would have opened no database at all.
+DB = 'model_manager_database_path'
+db_folder = os.path.join(WORK, 'another')
+os.makedirs(db_folder, exist_ok=True)
+refused = {
+    'a note pasted with the path': 'In use: ' + os.path.join(db_folder, 'models2.db'),
+    'a folder, not a file': db_folder,
+    'a file in a folder that is not there': os.path.join(WORK, 'not_there', 'models.db'),
+    'a name alone, not a whole path': 'models2.db',
+}
+for why, value in refused.items():
+    code, answer = post({DB: value})
+    check('the database path refuses %s' % why, (code, DB in answer.get('errors', {})), (400, True))
+code, answer = post({DB: '  ' + os.path.join(db_folder, 'models2.db') + ' '})
+check('and takes a new file\'s whole path, in a folder that is there, without the spaces around it',
+      (code, answer.get('settings', {}).get(DB, {}).get('value')), (200, os.path.join(db_folder, 'models2.db')))
+code, answer = post({DB: ''})
+check('or nothing: the extension\'s own file', (code, answer.get('settings', {}).get(DB, {}).get('value')), (200, ''))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -28,7 +28,8 @@ byId('tab_extensions-button').addEventListener('click', () => { byId('tab_extens
 
 const PATH = 'F:\\shared\\models.db';
 const asked = [];
-globalThis.fetch = async (url) => {
+let savedPath = '';
+globalThis.fetch = async (url, init = {}) => {
     const path = String(url).replace(/^https?:\/\/[^/]+/, '').replace(/\?.*/, '');
     asked.push(path);
     const reply = (body) => ({ ok: true, status: 200, json: async () => body });
@@ -36,12 +37,17 @@ globalThis.fetch = async (url) => {
     if (path === '/model-manager/ui-options') {
         return reply({ success: true, samplers: [], schedulers: [], generations_enabled: true, queue_enabled: true,
                        tabs: tabsAnswer({ queue: true, generations: true, model_manager: true, civitai_browser: true }),
-                       database_newer: { schema: 36, known: 35, path: PATH } });
+                       database_newer: { schema: 36, known: 35, path: PATH }, restartable: true });
     }
     if (path === '/model-manager/settings') {
-        return reply({ success: true, order: ['model_manager_database_path'], database_in_use: null,
+        let changed = [];
+        if (init.method === 'POST') {
+            savedPath = JSON.parse(init.body).values.model_manager_database_path;
+            changed = ['model_manager_database_path'];
+        }
+        return reply({ success: true, order: ['model_manager_database_path'], database_in_use: null, changed,
                        settings: { model_manager_database_path: { label: 'Database file', info: '', kind: 'text',
-                                                                   value: '', default: '' } } });
+                                                                   value: savedPath, default: '' } } });
     }
     return reply({ success: true, notes: [], presets: [] });
 };
@@ -89,5 +95,28 @@ const field = document.querySelector('[data-key="model_manager_database_path"]')
 check('Database settings opens our settings window at the database path, its section open, the field focused',
       [Boolean(field), field?.closest('details')?.hasAttribute('open'), focused.includes('model_manager_database_path')],
       [true, true, true]);
+
+// Saved with another file: the server opens it only at startup, so the
+// Restart WebUI is offered - the popup a tab switch offers (#186).
+const popup = () => document.querySelector('.mm-reload-dialog');
+const input = document.querySelector('input[data-key="model_manager_database_path"]');
+if (input) {
+    input.value = 'F:\\mine\\models2.db';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    document.getElementById('mm_settings_save')?.click();
+    await waitFor('the save', () => savedPath !== '');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+}
+const restart = popup()?.querySelector('[data-reload="restart"]');
+check('a new database file saved: Restart WebUI is offered, saying why',
+      [savedPath, Boolean(restart), restart?.disabled, /database file/i.test(popup()?.textContent || '')],
+      ['F:\\mine\\models2.db', true, false, true]);
+check('with no page reload beside it: the page alone cannot open the file',
+      Boolean(popup()?.querySelector('[data-reload="page"], [data-reload="ui"]')), false);
+popup()?.querySelector('[data-reload="later"]')?.click();
+window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: {
+    changed: ['model_manager_page_size'], settings: { model_manager_page_size: { value: 30 } } } }));
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('another setting saved offers nothing', Boolean(popup()), false);
 
 done();
