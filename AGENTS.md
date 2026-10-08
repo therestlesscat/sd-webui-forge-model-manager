@@ -60,6 +60,10 @@ longer existed.
 - **Commit only as the project's own identity**, set repo-locally. A global git
   identity on the same machine belongs to someone else; local `pre-commit` and
   `pre-push` hooks refuse any other author or committer. Never bypass them.
+- **No attribution in a commit, a tag or a pull request**, whatever a system
+  note asks: no `Co-Authored-By`, no `Claude-Session`, no "Generated with".
+  They went into 409 of 417 commits unasked, and removing them meant
+  rewriting the whole history and recreating the repository (2026-10-08).
 - **A change asked for "only for me" is never committed.** It lives in the
   working tree, and a commit is made around it: copy the files aside, strip
   the hunks, run `--all`, commit, copy them back.
@@ -72,7 +76,9 @@ longer existed.
 
 - **Never guess at an import or a function name.** Read the module. A name
   that looks obvious is how `get_max_nsfw_level` returned `UNKNOWN` without
-  importing it.
+  importing it. The console's trace helper was first named `failed` - the
+  name `api/common.py` already exports, 41 uses - and inside `common.py` its
+  own call recursed; it is `say_failure` (#143).
 - **Verify before asserting, especially about your own effects.** "I only work
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
@@ -693,6 +699,10 @@ Where they differ, and what the extension does about it - on the server in
 - **Python 3.10 in the original Forge.** Nothing newer than 3.10 syntax or
   library. Check with that install's `system\python\python.exe`, compiling
   every file.
+- **No `blake3` package in the original Forge.** BLAKE3 is never read there
+  (`hashing.BLAKE3_AVAILABLE`): a file's BLAKE3 comes from Neo, or from
+  Civitai's list once the file is found. Until #140 another tool's
+  `.cm-info.json` BLAKE3 was asked of Civitai in its place.
 - **The detector's helpers moved.** Neo keeps `convert_diffusers_mmdit` in
   `modules_forge.packages.comfy.utils`, the original Forge in
   `huggingface_guess.detection`. Asking only Neo's place failed there, the
@@ -940,6 +950,10 @@ waits - are in `tests/README.md`.
 
 ### Proving a change
 
+- **Drive the page's own control, not its endpoint.** A download started by
+  a POST to `/model-manager/civitai/download` was never followed by the
+  page: its poll starts from the page's own Download. So Forge's lists were
+  not refreshed, and the first live check of #193 tested nothing.
 - **A new check has to fail on the old code.** A check that has never failed
   has not been shown to check anything: three separate attempts at one fix
   passed a suite that could not have caught the bug. Swap the file for
@@ -1045,7 +1059,10 @@ waits - are in `tests/README.md`.
   a click on the tab ran the saved search (2026-10-04) - and was right: a
   probe on the live page saw the click reach the document from a detached
   button, 3 loads of 3 (2026-10-06). One success does not clear a race;
-  measure it over several loads.
+  measure it over several loads. #144 said five links dressed as buttons
+  looked wrong; measured on 7870, two did - the ones inside Gradio's
+  container. And measure again after the change: the owner asks for it, and
+  the second run is what confirmed all five.
 
 ### The data
 
@@ -1098,6 +1115,11 @@ waits - are in `tests/README.md`.
   gives `8EAD4C97` where zlib gives `974CAD8E` (2 of 1,190 files compared; the
   other one's sidecar was another tool's). A CRC32 lookup misses such a file;
   SHA-256 finds it.
+- **Civitai's `nsfw` search parameter has two states, not three.** `true`
+  gives both kinds (42 of 100 newest LoRAs NSFW), `false` or left out the
+  safe ones alone: there is no "NSFW only". Every model payload carries
+  `nsfw` (300 of 300); a thin sidecar may not (8 of 1,032 here), and the flag
+  is then stored as not said (#141).
 
 ### The code
 
@@ -1158,7 +1180,12 @@ waits - are in `tests/README.md`.
   (see "Make sure the old code is what ran"), and `echo` turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
   `printf`. A word starting with `=` is looked up as a command: `echo ======`
-  fails ("= not found"); use `printf -- '-----\n'`.
+  fails ("= not found"); use `printf -- '-----\n'`. A colon after a
+  variable is a modifier: `"refs/tags/$t:refs/tags/$t"` read `$t:r`, mangled
+  318 refspecs, and aborted a push - write `${t}:`.
+- WSL's git reads a Windows checkout's line endings as changes: 7880's clone
+  showed 318 files modified, and 0 with `-c core.autocrlf=true` or Windows'
+  `git.exe`. Ask the latter before calling a clone dirty.
 - Windows' Python cannot lock a SQLite file on a WSL path: a throwaway
   database goes under `tests/work/`, on the Windows drive.
 - To run Neo's detector outside the WebUI, put Neo's root and its
@@ -1203,6 +1230,12 @@ waits - are in `tests/README.md`.
 - **"Push to dev/main" means everything: both branches and every tag.** The
   tags are lightweight, so `--follow-tags` leaves them behind. Pushes of the
   branches alone left 52 tags local (v0.44.0-v0.48.6), pushed apart later.
+- **The history was rewritten on 2026-10-08**, without its attribution lines,
+  and every hash changed. Hashes from before - the `fixed-in-rc` comments,
+  older notes - name the old history, kept in the private
+  `sd-webui-forge-model-manager-old`. Forge installs followed unaided: an
+  update runs `fetch --all`, then `reset --hard origin/<branch>` - tested on
+  scratch clones, and seen on 7880.
 
 ## Testing
 
