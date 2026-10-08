@@ -41,6 +41,16 @@ longer existed.
   and edit sections. #136's Restart WebUI offer was added to its plan that
   way and approved; 0.54.1 was built from an older read without it, and
   0.54.2 followed (2026-10-08).
+- **A plan doc says what before it says where.** Technical, but not
+  overdone: what a part does in plain words first, its code name after - or
+  in a closing "Code:" line. More than a few
+  terms of the codebase get a "Words this plan uses" table at the top. An
+  action is named as the page shows it ("Sync from the dialog, scope
+  results"), not by the function it calls; a mechanism is told as a short
+  story - what happens, the moment it goes wrong, how likely; tests are
+  situations, each new or a guard. `file:line` stays only where it helps
+  look something up. The #195 plan, in chat, read as if steps were missing;
+  #200's doc, rewritten so, became the rule (2026-10-08).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
