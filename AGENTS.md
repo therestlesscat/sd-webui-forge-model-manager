@@ -865,8 +865,13 @@ is the commit's place in the history and is never written down; the rest is.
 - **A patch**: any other change a user can see - a fix, an improvement, an
   addition to the latest feature or to any other. Bump PATCH. A patch belongs
   to no feature; it only comes after the latest minor version.
-- **Neither**: tests, docs, refactoring - nothing a user sees. No bump; the
-  build moves on by itself, and the changelog does not list it.
+- **A bug fix is always a version**, whether a user can see it or not: a
+  patch by default, a minor when the owner calls it one, and a changelog
+  line saying what was wrong. #141 - a flag nothing reads, written wrong -
+  was proposed with no bump, as nothing visible changed (2026-10-07).
+- **Neither**: tests, docs, refactoring - nothing a user sees, and no bug
+  fixed. No bump; the build moves on by itself, and the changelog does not
+  list it.
 - **A major version** is the owner's call, when the extension is ready.
 
 Then, in the same commit:
