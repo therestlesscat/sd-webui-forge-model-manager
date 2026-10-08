@@ -51,11 +51,10 @@ import os
 import re
 import threading
 import time
-import traceback
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .. import forge_host
-from ..console import say
+from ..console import say, say_failure
 from ..db import get_models_db
 from ..install import INSTALL_KEY
 from ..jobs import jobs
@@ -234,7 +233,7 @@ class Queue(object):
         except replay.TaskError as e:
             status, error, seed = "failed", str(e), None
         except Exception as e:
-            traceback.print_exc()
+            say_failure(f"Queue: task {task_id} failed: {type(e).__name__}: {e}")
             status, error, seed = "failed", f"{type(e).__name__}: {e}", None
         finally:
             self.run_now = None

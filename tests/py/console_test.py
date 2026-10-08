@@ -64,6 +64,27 @@ lines, after = console.since(start)
 check('lines said at once from many threads are each counted once',
       (after - start, len({l['n'] for l in lines})), (800, 800))
 
+# ------------------------------------------------------------- a failure (#143)
+# What went wrong, and where: the trace went to stderr alone, which the sync's
+# log panel never sees. One kept line, so a trace is one entry of the KEPT.
+say_failure = getattr(console, 'say_failure', None)
+check('the console can say a failure', callable(say_failure), True)
+if callable(say_failure):
+    start = console.said()
+    out = io.StringIO()
+    with redirect_stdout(out):
+        try:
+            {}['missing']
+        except KeyError:
+            say_failure('Tags search error')
+    lines, after = console.since(start)
+    text = lines[0]['text'] if lines else ''
+    check('as one kept line', after - start, 1)
+    check('its message first, then the trace and the exception',
+          [text.startswith('Tags search error'), 'Traceback (most recent call last)' in text,
+           "KeyError: 'missing'" in text], [True, True, True])
+    check('and the same on the console', out.getvalue(), '[ModelManager] ' + text + '\n')
+
 # -------------------------------------------------- nothing prints on its own
 # The migrations are left as they shipped (AGENTS.md: never edited), and run
 # at startup, not during a sync.
@@ -79,6 +100,19 @@ for base in ('model_manager', 'scripts'):
             if OWN.search(io.open(path, encoding='utf-8').read()):
                 found.append(rel)
 check('every "[ModelManager]" line goes through console.say', found, [])
+
+# Nor a trace: console.say_failure says it. The migrations keep theirs.
+TRACE = re.compile(r'\bprint_exc\(')
+traced = []
+for base in ('model_manager', 'scripts'):
+    for folder, _, names in os.walk(os.path.join(ROOT, base)):
+        for name in names:
+            path = os.path.join(folder, name)
+            rel = os.path.relpath(path, ROOT).replace(os.sep, '/')
+            if not name.endswith('.py') or rel in ('model_manager/console.py', 'model_manager/db/migrations.py'):
+                continue
+            traced += [rel] * len(TRACE.findall(io.open(path, encoding='utf-8').read()))
+check('every trace goes through console.say_failure', sorted(traced), [])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

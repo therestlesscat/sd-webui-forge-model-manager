@@ -65,12 +65,20 @@ def explode_after(n):
         raise RuntimeError('exploded')
     return run
 
+from model_manager import console                        # noqa: E402
+said_before = console.said()
 jobs.start('sync', Service, explode_after(3))
 jobs.join(5)
+told = [line['text'] for line in console.since(said_before)[0]]
 p = jobs.progress('sync')
 check('a sync that raises is finished', p.is_complete, True)
 check('with its error counted and said', (p.errors, p.error_messages), (1, ['exploded']))
 check('and what it had done', p.processed, 3)
+# The sync's log panel shows what console.say kept: the trace went to stderr
+# alone, and the panel said only "sync failed: exploded" (#143).
+check("the log panel has the failure with its trace, as one line",
+      [('Traceback' in text, 'RuntimeError: exploded' in text, "raise RuntimeError('exploded')" in text)
+       for text in told if text.startswith('sync failed')], [(True, True, True)])
 
 # ------------------------------------------------ asked again while it runs
 # A restamp asked for while one runs must not be lost (#98): with `again`, the

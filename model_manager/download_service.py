@@ -32,7 +32,7 @@ from .hashing import HashResult
 from .install import INSTALL_KEY
 from .model_dirs import download_dir, filed_as, held_here, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
-from .console import say
+from .console import say, say_failure
 
 
 # What a download is written as until it is whole and verified: never a
@@ -1091,9 +1091,7 @@ class DownloadService:
             return progress
 
         except Exception as e:
-            import traceback
-            say(f"Download error: {e}")
-            traceback.print_exc()
+            say_failure(f"Download error: {e}")
             progress.status = "error"
             progress.error = str(e)
             # Only ever this download's own unfinished file.

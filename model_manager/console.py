@@ -3,9 +3,10 @@ What the extension writes to the console - every "[ModelManager]" line - and
 the last of those lines, kept for the page: the sync's log panel shows them as
 they come (/model-manager/sync/progress?since=). Everything the extension says
 goes through say(); a print of its own would reach the console and not the
-panel (console_test.py finds one).
+panel (console_test.py finds one). A failure's trace too, through say_failure().
 """
 import threading
+import traceback
 from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
@@ -26,6 +27,15 @@ def say(message: str) -> None:
     with _lock:
         _count += 1
         _lines.append((_count, datetime.now().strftime("%H:%M:%S"), str(message)))
+
+
+def say_failure(message: str) -> None:
+    """
+    Say what failed and where it failed, from inside an `except`: the message,
+    then the exception's trace, as one kept line. traceback.print_exc() wrote
+    the trace to stderr, which the sync's log panel never sees (#143).
+    """
+    say(f"{message}\n{traceback.format_exc().rstrip()}")
 
 
 def said() -> int:

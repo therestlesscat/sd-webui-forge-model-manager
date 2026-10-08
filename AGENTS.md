@@ -164,7 +164,7 @@ tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
 | `version.py` | the version this copy is (`VERSION`), and its build, counted from the history; see "Versions" |
-| `console.py` | what the extension writes to the console: every "[ModelManager]" line goes through `say()`, which prints it and keeps the last 2,000 for the sync's log panel (`/model-manager/sync/progress?since=`); `console_test.py` fails on a print of its own |
+| `console.py` | what the extension writes to the console: every "[ModelManager]" line goes through `say()` - a failure with its trace through `say_failure()` - which prints it and keeps the last 2,000 for the sync's log panel (`/model-manager/sync/progress?since=`); `console_test.py` fails on a print of its own |
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
 | `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, three helpers: `common` (what every endpoint module shares - the card-size parser, the answer to a failure, the gate every route passes), and for the Civitai endpoints `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
@@ -251,8 +251,10 @@ updating both copies.
 log panel shows the console's lines from where the sync began - every one, a
 gallery opened meanwhile included - so a `print` of its own would reach the
 console and never the panel. The migrations keep theirs: they shipped so, and
-run at startup. A traceback (`traceback.print_exc`) still reaches stderr
-alone, not the panel (#143).
+run at startup. So does a failure's trace: `say_failure` says the message
+and the trace as one line, from inside an `except` - `traceback.print_exc`
+wrote it to stderr alone, at eleven places, and the panel showed only their
+one-line errors (#143). `console_test.py` fails on a `print_exc` outside the migrations.
 
 ### The library: files, versions and rows
 

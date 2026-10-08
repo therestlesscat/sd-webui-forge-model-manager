@@ -15,7 +15,7 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask
-from ..console import say
+from ..console import say, say_failure
 from .common import gate
 
 # Why Restart WebUI is not offered (#186).
@@ -306,9 +306,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            say(f"UI options error: {e}")
-            traceback.print_exc()
+            say_failure(f"UI options error: {e}")
             # The key question is answerable even when the rest is not, and
             # the banner should not depend on samplers being readable.
             return JSONResponse(

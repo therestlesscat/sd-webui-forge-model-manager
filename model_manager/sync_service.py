@@ -30,7 +30,7 @@ from .nsfw import showcase_is_complete, version_covers
 from .db import get_models_db
 from .forge_host import DEFAULTS, setting
 from .gallery import fetch_gallery, refresh_size
-from .console import said, say
+from .console import said, say, say_failure
 
 
 
@@ -825,9 +825,7 @@ class SyncService:
             return None
 
         except Exception as e:
-            import traceback
-            say(f"Error updating database for {os.path.basename(model_path)}: {e}")
-            traceback.print_exc()
+            say_failure(f"Error updating database for {os.path.basename(model_path)}: {e}")
             return str(e)
 
     def _hashes_to_dict(self, hashes: HashResult) -> Dict[str, str]:

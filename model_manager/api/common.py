@@ -10,7 +10,6 @@ import inspect
 import json
 import queue
 import threading
-import traceback
 from typing import Any, Callable, Optional, Tuple
 
 from fastapi import Request
@@ -19,7 +18,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ..civitai.client import telling
 from ..forge_host import DEFAULTS, setting
 from ..tabs import check_area, on, why_off
-from ..console import say
+from ..console import say_failure
 
 
 def card_size(key: str) -> Tuple[int, int]:
@@ -47,9 +46,7 @@ def failed(e: Exception, doing: Optional[str] = None) -> JSONResponse:
     Log a failed request - what it was doing, and the traceback - and answer
     it as every endpoint does: success false, the error, 500.
     """
-    if doing:
-        say(f"{doing}: {e}")
-    traceback.print_exc()
+    say_failure(f"{doing}: {e}" if doing else f"Request failed: {e}")
     return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 

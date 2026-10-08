@@ -38,7 +38,7 @@ from .images import PAGE_FETCHES
 CIVITAI_IMAGES_PER_REQUEST = 100
 from .prompts import PROMPT_CHECK_WORKERS, inspect_models
 from .common import card_size, failed, gate, streams_status
-from ..console import say
+from ..console import say, say_failure
 
 # Cached Civitai enums (model types, base models). They change only when
 # Civitai ships a new base model, and the browser asks for them on every tab
@@ -321,9 +321,7 @@ def register(app: FastAPI):
                         }) + "\n"
 
             except Exception as e:
-                import traceback
-                say(f"Civitai stream error: {e}")
-                traceback.print_exc()
+                say_failure(f"Civitai stream error: {e}")
                 yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             finally:
                 client.close()
@@ -398,9 +396,7 @@ def register(app: FastAPI):
                         _annotate(models)
                         yield json.dumps({"type": "done", "models": models, "draw": payload}) + "\n"
             except Exception as e:
-                import traceback
-                say(f"Civitai random draw error: {e}")
-                traceback.print_exc()
+                say_failure(f"Civitai random draw error: {e}")
                 yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             finally:
                 client.close()
@@ -798,9 +794,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            say(f"Tags search error: {e}")
-            traceback.print_exc()
+            say_failure(f"Tags search error: {e}")
             return JSONResponse(
                 {"success": False, "error": str(e), "tags": []},
                 status_code=500
@@ -846,9 +840,7 @@ def register(app: FastAPI):
             })
 
         except Exception as e:
-            import traceback
-            say(f"Enums error: {e}")
-            traceback.print_exc()
+            say_failure(f"Enums error: {e}")
             return JSONResponse(
                 {"success": False, "error": str(e), "model_types": [], "base_models": []},
                 status_code=500

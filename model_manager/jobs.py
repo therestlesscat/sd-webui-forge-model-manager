@@ -12,9 +12,8 @@ error into a record of its own the progress endpoint never read, so the page
 showed the job running for ever.
 """
 import threading
-import traceback
 from typing import Any, Callable, Dict, Optional
-from .console import say
+from .console import say_failure
 
 
 class _Job(object):
@@ -61,8 +60,7 @@ class Jobs(object):
         try:
             run(service)
         except Exception as e:
-            say(f"{kind} failed: {e}")
-            traceback.print_exc()
+            say_failure(f"{kind} failed: {e}")
             service.progress.fail(str(e))
 
     def _running(self, kind: str) -> bool:

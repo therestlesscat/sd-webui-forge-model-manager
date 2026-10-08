@@ -27,12 +27,11 @@ are kept by values.py, in a folder of the task's own.
 """
 import os
 import shutil
-import traceback
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ..console import say
+from ..console import say, say_failure
 from ..db import get_models_db
 from ..forge_host import (forge_name, generate_names, script_runner, selected_models,
                           setting, webui_root)
@@ -120,8 +119,7 @@ def _handler(tab: str, own, others, inputs) -> Callable:
             _task_id, prompt = capture(tab, own, others, inputs, values,
                                        getattr(request, "username", None))
         except Exception as e:
-            say(f"Queue: could not queue {tab}: {e}")
-            traceback.print_exc()
+            say_failure(f"Queue: could not queue {tab}: {e}")
             gr.Warning(f"Could not queue: {e}")
             return
         prompt = " ".join(str(prompt or "").split())
