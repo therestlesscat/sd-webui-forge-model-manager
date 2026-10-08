@@ -33,6 +33,14 @@ longer existed.
   found later that changes it goes back as a plan. #187 was implemented
   straight from a survey and undone; its next plan, seven steps, was sent back
   for having no storage, no alternatives and no pros and cons (2026-10-06).
+- **A plan is a Claude Doc, and the doc is the plan.** It is written there
+  for the owner to read and comment on. Whenever the owner says they
+  responded in it - in any words, "yes to all" included - read the doc and
+  every comment thread since the last read before doing anything, and
+  compare it with what they said in chat. Other sessions answer comments
+  and edit sections. #136's Restart WebUI offer was added to its plan that
+  way and approved; 0.54.1 was built from an older read without it, and
+  0.54.2 followed (2026-10-08).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
