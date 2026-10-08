@@ -38,7 +38,7 @@ from .architecture import preset_for_base_model, read_shapes
 from .file_identity import LORA_FAMILY
 from .hashing import hash_key
 from .identity_store import record_architecture
-from .model_dirs import folder_of
+from .model_dirs import loads_here
 from .remembered import Remembered
 from .console import say
 
@@ -58,12 +58,12 @@ SENT_TYPES = frozenset(("Checkpoint", "TextualInversion", "VAE", "Text Encoder")
 
 
 def send_files(files: Iterable[Dict[str, Any]],
-               here: Callable[[str], bool] = lambda path: folder_of(path)[0] is not None) -> Set[str]:
+               here: Callable[[str], bool] = lambda path: loads_here(path)) -> Set[str]:
     """
     Of a model's local files, the one Send uses for each version, by path: of
-    a type it uses, in this WebUI's folders - a version's copy in another
-    WebUI's, sharing the database, is not one this Forge lists - the first
-    by path. None for a version with no such file (#133).
+    a type it uses, in a folder this WebUI loads (loads_here) - a version's
+    copy in another WebUI's, sharing the database, or in a folder an option
+    replaced (#195), is not one this Forge lists - the first by path. None for a version with no such file (#133).
     """
     chosen: Dict[Any, str] = {}
     for f in sorted(files, key=lambda f: f.get("file_path") or ""):
@@ -173,7 +173,7 @@ def _local_checkpoint(db, file_path: str, version_ids, hashes, here: Callable[[s
     this WebUI's folders before another's - a library shared with the other
     WebUI holds its copies too - else the first. {} for none.
     """
-    here = here or (lambda path: folder_of(path)[0] is not None)
+    here = here or loads_here
     found = []
     for row in db.versions_named_by(list(version_ids), list(hashes)):
         if row.get("file_path") == file_path:

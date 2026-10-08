@@ -8,7 +8,7 @@ answer both without a second request.
 from typing import Any, Dict, List, Set
 
 from ..civitai import paid_access_info
-from ..model_dirs import held_here
+from ..model_dirs import held_here, ignored_because
 from ..nsfw import stamp_levels
 
 
@@ -40,24 +40,33 @@ def annotate_image_levels(models: List[Dict[str, Any]]):
 def ownership(db, model_ids, version_ids) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     What the library holds of these models and versions, by the one meaning
-    of held (model_dirs.held_here, #188): {"models": {id: {"owned", "listed"}},
-    "versions": {id: {"owned", "files"}}}. Owned is a held file; listed, any
-    row - what the Model Manager lists, so what "Show in MM" can open.
-    A version's files are the Civitai ids of its held files (#189).
+    of held (model_dirs.held_here, #188): {"models": {id: {"owned", "listed",
+    "ignored"}}, "versions": {id: {"owned", "files", "ignored"}}}. Owned is a
+    held file; listed, any row - what the Model Manager lists, so what "Show
+    in MM" can open. A version's files are the Civitai ids of its held files
+    (#189). Ignored, for one not owned, is why this WebUI does not load the
+    copy it has - the option that replaced its folder (#195) - or None.
     """
-    models = {i: {"owned": False, "listed": False} for i in model_ids if i}
-    versions = {i: {"owned": False, "files": []} for i in version_ids if i}
+    models = {i: {"owned": False, "listed": False, "ignored": None} for i in model_ids if i}
+    versions = {i: {"owned": False, "files": [], "ignored": None} for i in version_ids if i}
     for row in db.library_files(list(models), list(versions)):
         held = held_here(row["file_path"])
+        ignored = None if held else ignored_because(row["file_path"])
         model = models.get(row["model_id"])
         if model is not None:
             model["listed"] = True
             model["owned"] = model["owned"] or held
+            model["ignored"] = model["ignored"] or ignored
         version = versions.get(row["version_id"])
+        if version is not None:
+            version["ignored"] = version["ignored"] or ignored
         if version is not None and held:
             version["owned"] = True
             if row["civitai_file_id"] is not None and row["civitai_file_id"] not in version["files"]:
                 version["files"].append(row["civitai_file_id"])
+    for entry in list(models.values()) + list(versions.values()):
+        if entry["owned"]:
+            entry["ignored"] = None
     for version in versions.values():
         version["files"].sort()
     return {"models": models, "versions": versions}
@@ -87,10 +96,12 @@ def annotate_local_ownership(db, models: List[Dict[str, Any]]):
         mine = held["models"].get(model.get("id"), {})
         model["owned_locally"] = bool(mine.get("owned"))
         model["listed_locally"] = bool(mine.get("listed"))
+        model["ignored_because"] = mine.get("ignored")
         model["owned_versions"] = []
         for version in (model.get("modelVersions") or []):
             theirs = held["versions"].get(version.get("id"), {})
             version["owned_locally"] = bool(theirs.get("owned"))
             version["owned_files"] = list(theirs.get("files") or [])
+            version["ignored_because"] = theirs.get("ignored")
             if version["owned_locally"]:
                 model["owned_versions"].append(version.get("id"))

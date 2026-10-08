@@ -8,7 +8,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, formatBytes, formatDay } = await shared('core.mjs');
-const { apiKeyIsMissing } = await shared('ui_options.mjs');
+const { apiKeyIsMissing, ignoredTag } = await shared('ui_options.mjs');
 
 // ------------------------------------------------------ a version to download
 // Both tabs show a version that is not in the library the same way: what it
@@ -105,7 +105,8 @@ function downloadButtonState(versionId) {
  * the version is downloading - from the click until it is in the library - the
  * button says so and takes no clicks: a second click started it again.
  */
-export function renderDownloadControls({ controls, modelId, version, fileIndex, owned, ownedOther = false }) {
+export function renderDownloadControls({ controls, modelId, version, fileIndex, owned, ownedOther = false,
+                                        ignoredBecause = null }) {
     const { prefix, download, selectFile } = controls;
     const files = version?.files || [];
     const file = files[fileIndex];
@@ -125,8 +126,10 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
         const state = downloadButtonState(version?.id);
-        // Another file of the version held is no reason not to fetch this one (#189).
+        // Another file of the version held is no reason not to fetch this one
+        // (#189), nor is a copy in a folder this WebUI does not load (#195).
         const title = ownedOther ? ' title="You have another file of this version."'
+            : ignoredBecause ? ` title="${escapeHtml(ignoredTag(ignoredBecause).download)}"`
             : paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${title} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `

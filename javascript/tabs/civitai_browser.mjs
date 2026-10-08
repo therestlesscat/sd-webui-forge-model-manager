@@ -29,6 +29,7 @@ const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded,
+    ignoredTag,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
@@ -767,6 +768,11 @@ function renderCard(model, index) {
         classes: [model.owned_locally ? 'owned' : ''],
         overlays: [
             ...(model.owned_locally ? [{ cls: 'cb-owned-badge', text: 'Owned' }] : []),
+            // Its only copy in a folder this WebUI does not load (#195).
+            ...(!model.owned_locally && model.ignored_because ? [{
+                cls: 'cb-ignored-badge', text: ignoredTag(model.ignored_because).label,
+                title: ignoredTag(model.ignored_because).why,
+            }] : []),
             // Buzz paywall on the version this card is previewing
             ...(isPaid(firstVersion) ? [{
                 cls: 'cb-paid-badge', title: paidAccessLabel(firstVersion),
@@ -864,10 +870,13 @@ function renderVersionSelector() {
         const ownedClass = version.owned_locally ? 'owned' : '';
         const paidClass = isPaid(version) ? 'paid' : '';
         const versionName = version.name || `v${index + 1}`;
-        const ownedIndicator = version.owned_locally ? ' ✓' : (isPaid(version) ? ' ⬥' : '');
+        const ignored = !version.owned_locally && version.ignored_because ? ignoredTag(version.ignored_because) : null;
+        const ownedIndicator = version.owned_locally ? ' ✓' : ignored ? ' \u2298' : (isPaid(version) ? ' ⬥' : '');
         const paidNote = paidAccessLabel(version);
         const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}`
-            + `${version.owned_locally ? '\n(Owned)' : ''}${paidNote ? '\n' + paidNote : ''}`;
+            + `${version.owned_locally ? '\n(Owned)' : ''}`
+            + `${ignored ? `\n(${ignored.label}: ${version.ignored_because} replaces its folder)` : ''}`
+            + `${paidNote ? '\n' + paidNote : ''}`;
 
         return `<button class="mm-version-pill ${activeClass} ${ownedClass} ${paidClass}"
                        data-action="civitaiBrowser.selectVersion" data-index="${index}"
@@ -892,7 +901,8 @@ function renderVersionSelector() {
 function fileHeld(version, file) {
     const files = version?.owned_files || [];
     if (files.includes(file?.id) || (version?.owned_locally && !files.length)) return { owned: true };
-    return { owned: false, ownedOther: Boolean(version?.owned_locally) };
+    return { owned: false, ownedOther: Boolean(version?.owned_locally),
+             ignoredBecause: version?.owned_locally ? null : version?.ignored_because || null };
 }
 
 /** View on Civitai and the Download controls, for the chosen file. */
@@ -1419,12 +1429,14 @@ async function refreshOwnership() {
         if (!mine) continue;
         set(model, 'owned_locally', mine.owned);
         set(model, 'listed_locally', mine.listed);
+        if ('ignored' in mine) set(model, 'ignored_because', mine.ignored);
         const ownedVersions = [];
         for (const version of model.modelVersions || []) {
             const theirs = answer.versions?.[version.id];
             if (!theirs) continue;
             set(version, 'owned_locally', theirs.owned);
             set(version, 'owned_files', theirs.files || []);
+            if ('ignored' in theirs) set(version, 'ignored_because', theirs.ignored);
             if (theirs.owned) ownedVersions.push(version.id);
         }
         set(model, 'owned_versions', ownedVersions);

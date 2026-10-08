@@ -2622,6 +2622,22 @@ body.mm-modal-open {
     z-index: 1;
 }
 
+/* A model whose only copy is in a folder this WebUI does not load (#195):
+   where Owned would be. A dark badge over the image, in both modes. */
+#civitai_browser_app .cb-ignored-badge,
+.mm-settings-card-row .cb-ignored-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #475569;
+    color: #ffffff !important;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    z-index: 1;
+}
+
 /* Versions Civitai charges Buzz for: early access, or permanently paid.
    Sits under the Owned badge so both can show at once. */
 #civitai_browser_app .cb-paid-badge,
@@ -4974,4 +4990,27 @@ textarea.mm-settings-input {
 
 .dark .queue-missing-names {
     color: #fbbf24 !important;
+}
+
+/* A file in a folder this WebUI does not load (#195): beside its name in a
+   version's Files, and its path in the File row. */
+.ignored-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    background: rgba(100, 116, 139, 0.08);
+    color: #475569 !important;
+    font-size: 0.8em;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.dark .ignored-tag {
+    border-color: #64748b;
+    background: rgba(148, 163, 184, 0.15);
+    color: #cbd5e1 !important;
 }

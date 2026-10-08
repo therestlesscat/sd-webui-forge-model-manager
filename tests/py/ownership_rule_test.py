@@ -138,16 +138,49 @@ for model_id, owned, versions, listed, files in CASES:
     check('%s: each version\'s held files' % name,
           {v['id']: v.get('owned_files') for v in card['modelVersions']}, files)
 
+# Model 4848: its one file is in Neo's own ESRGAN folder, which
+# --esrgan-models-path replaces in Neo (#195): not held, but ignored, saying why.
+import model_manager.model_dirs as model_dirs            # noqa: E402
+import modules.shared as forge_shared                    # noqa: E402
+model_dirs.is_neo = lambda: True
+forge_shared.cmd_opts.esrgan_models_path = os.path.join(WORK, 'shared_esrgan')
+os.makedirs(os.path.join(WORK, 'models', 'ESRGAN'), exist_ok=True)
+library_file(os.path.join(WORK, 'models', 'ESRGAN'), '4x_ignored.pth', 4848, 48481)
+PAYLOADS[4848] = {'id': 4848, 'name': 'Only an ignored copy', 'modelVersions': [{'id': 48481}]}
+card, details = searched(4848), detailed(4848)
+check('a model whose only copy Neo ignores is not owned', (card['owned_locally'], details['owned_locally']),
+      (False, False))
+check('its card says which option made Neo ignore it',
+      (card.get('ignored_because'), details.get('ignored_because')), ('--esrgan-models-path',) * 2)
+check('and so does its version', card['modelVersions'][0].get('ignored_because'), '--esrgan-models-path')
+check('an owned model is not ignored', searched(4343).get('ignored_because'), None)
+check('nor is the other WebUI\'s file', searched(4646).get('ignored_because'), None)
+grid = http.get('/model-manager/models', params={'search': 'model:4848', 'type': ''}).json()
+check('the Model Manager\'s grid row says why its file is ignored',
+      [m.get('ignored_because') for m in grid.get('models', [])], ['--esrgan-models-path'])
+files = http.get('/model-manager/models/versions', params={'model_id': 4848}).json()
+check('and so does the model\'s list of its files',
+      [v.get('ignored_because') for v in files.get('versions', [])], ['--esrgan-models-path'])
+check('the page is told which WebUI ignores it',
+      http.get('/model-manager/ui-options').json().get('webui_short_name') in ('Neo', 'Forge'), True)
+
 # Asked again by the page (#190): the same answer, by the same rule.
 answer = http.get('/model-manager/civitai/owned', params={'model_ids': '4343,4545,4747',
                                                           'version_ids': '43431,45451,47471'})
 got = answer.json() if answer.status_code == 200 else {}
 check('the page can ask again which models are held, and is answered by the rule',
       (got.get('models'), got.get('versions')),
-      ({'4343': {'owned': True, 'listed': True}, '4545': {'owned': False, 'listed': True},
-        '4747': {'owned': True, 'listed': True}},
-       {'43431': {'owned': True, 'files': [434311]}, '45451': {'owned': False, 'files': []},
-        '47471': {'owned': True, 'files': [474711]}}))
+      ({'4343': {'owned': True, 'listed': True, 'ignored': None},
+        '4545': {'owned': False, 'listed': True, 'ignored': None},
+        '4747': {'owned': True, 'listed': True, 'ignored': None}},
+       {'43431': {'owned': True, 'files': [434311], 'ignored': None},
+        '45451': {'owned': False, 'files': [], 'ignored': None},
+        '47471': {'owned': True, 'files': [474711], 'ignored': None}}))
+answer = http.get('/model-manager/civitai/owned', params={'model_ids': '4848', 'version_ids': '48481'})
+got = answer.json() if answer.status_code == 200 else {}
+check('and says why a copy is ignored (#195)',
+      (got.get('models', {}).get('4848', {}).get('ignored'), got.get('versions', {}).get('48481', {}).get('ignored')),
+      ('--esrgan-models-path', '--esrgan-models-path'))
 
 # No endpoint module reads the database itself.
 API = os.path.join(ROOT, 'model_manager', 'api')

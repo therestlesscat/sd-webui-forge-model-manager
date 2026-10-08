@@ -59,6 +59,13 @@ const MODELS = {
          owned_versions: [30],
          modelVersions: [{ id: 30, name: 'v1', images: [], paid_access: null, owned_locally: true, owned_files: [],
                            files: [file(31, 'c_fp16.safetensors', { primary: true }), file(32, 'c_fp32.safetensors')] }] },
+    // Its v1 only in a folder Neo ignores: --esrgan-models-path replaces it (#195).
+    4: { id: 4, name: 'Ignored copy', type: 'Upscaler', stats: {}, creator: {}, owned_locally: false,
+         listed_locally: true, owned_versions: [], ignored_because: '--esrgan-models-path',
+         modelVersions: [{ id: 40, name: 'v1', images: [], paid_access: null, owned_locally: false, owned_files: [],
+                           ignored_because: '--esrgan-models-path', files: [file(41, 'x.pth', { primary: true })] },
+                         { id: 42, name: 'v2', images: [], paid_access: null, owned_locally: false, owned_files: [],
+                           files: [file(43, 'y.pth', { primary: true })] }] },
 };
 
 const asked = [];
@@ -68,6 +75,7 @@ globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
     const answer = (body) => ({ ok: true, json: async () => body });
+    if (href.includes('/ui-options')) return answer({ success: true, webui_short_name: 'Neo' });
     if (href.includes('/civitai/owned')) return answer(owned || { success: true, models: {}, versions: {} });
     if (href.includes('/civitai/download/progress')) return answer({ success: true, downloads: progress });
     if (href.includes('/civitai/download')) {
@@ -169,5 +177,22 @@ await waitFor('the page to ask again once it is in the library', () => ownedAsks
 await waitFor('the answer to be drawn', () => alreadyOwned());
 check('a download done: the server says what is held, and the page shows it',
       [badges(), alreadyOwned(), showInManager()], [1, true, true]);
+
+// ---------------------- a copy in a folder this WebUI ignores (#195)
+owned = null;
+await show(4);
+const ignoredBadge = document.querySelector('#cb_grid .cb-ignored-badge');
+check('the card says Neo ignores its copy, and why, in place of Owned',
+      [badges(), ignoredBadge?.textContent.trim(), ignoredBadge?.title],
+      [0, 'Ignored by Neo', 'Neo does not load this folder: --esrgan-models-path replaces it']);
+const pills = Array.from(details()?.querySelectorAll('.mm-version-pill') || []);
+check('its version\'s pill is marked, and its tooltip says why',
+      [pills[0]?.textContent.includes('\u2298'), pills[0]?.title.includes('(Ignored by Neo: --esrgan-models-path replaces its folder)'),
+       pills[1]?.textContent.includes('\u2298')],
+      [true, true, false]);
+check('Download stays offered, saying the copy there is ignored',
+      [alreadyOwned(), downloadButton()?.disabled, downloadButton()?.title],
+      [false, false, 'You have a copy in a folder Neo ignores: --esrgan-models-path replaces it. '
+                     + 'This downloads one Neo loads.']);
 
 done();

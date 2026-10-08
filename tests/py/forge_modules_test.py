@@ -308,12 +308,12 @@ body = sent_from(lora_path, version_ids=str(flux_id))
 check('one Forge does not list, outside this WebUI\'s folders: where it is',
       (body.get('checkpoint'), body.get('checkpoint_problem')),
       (None, {'reason': 'elsewhere', 'name': os.path.basename(flux_path), 'path': flux_path}))
-here = dirs.folder_of
-dirs.folder_of = sp.folder_of = lambda path, *a, **k: ('Checkpoint', os.path.dirname(path))
+here = dirs.loads_here
+dirs.loads_here = sp.loads_here = lambda path, *a, **k: True
 body = sent_from(lora_path, version_ids=str(flux_id))
 check('one in this WebUI\'s folders that Forge does not list yet: said so',
       (body.get('checkpoint_problem') or {}).get('reason'), 'not_listed')
-dirs.folder_of = sp.folder_of = here
+dirs.loads_here = sp.loads_here = here
 body = sent_from(lora_path, model_name='a_checkpoint_i_lack', hashes='0123456789')
 check('one the library lacks: missing, by its name',
       body.get('checkpoint_problem'), {'reason': 'missing', 'name': 'a_checkpoint_i_lack'})

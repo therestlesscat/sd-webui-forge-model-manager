@@ -83,7 +83,7 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
     See forge_modules_for().
     """
     from ..forge_host import checkpoint_name
-    from ..model_dirs import folder_of
+    from ..model_dirs import loads_here
     from ..send_plan import image_checkpoint
     try:
         found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name)
@@ -95,7 +95,7 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
         name = checkpoint_name(path)
         if name:
             return {"checkpoint": name}
-        reason = "not_listed" if folder_of(path)[0] is not None else "elsewhere"
+        reason = "not_listed" if loads_here(path) else "elsewhere"
         return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path}}
     if found.get("missing"):
         return {"checkpoint_problem": {"reason": "missing", "name": found["missing"]}}
@@ -245,7 +245,7 @@ def register(app: FastAPI):
     def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
-        from ..forge_host import restartable, samplers, schedulers, setting
+        from ..forge_host import restartable, samplers, schedulers, setting, short_name
         from ..model_dirs import shown_roots
         from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
         from ..scheduler import queue_enabled
@@ -303,6 +303,8 @@ def register(app: FastAPI):
                 "restartable": can_restart,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
                 "path_roots": shown_roots(),
+                # Who ignores a file in a folder an option replaced: "Ignored by Neo" (#195).
+                "webui_short_name": short_name(),
             })
 
         except Exception as e:

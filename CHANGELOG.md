@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.54 - Files your WebUI ignores say so
+
+*8 October 2026*
+
+A file in a folder your WebUI does not load is no longer counted as yours. Some command-line options replace a model type's own folder instead of adding to it - --lora-dir, --controlnet-dir, and in Forge Neo --esrgan-models-path - and a file left in the replaced folder showed as Owned though the WebUI could not load it. It is now tagged "Ignored by Neo" or "Ignored by Forge", with the option that replaced its folder.
+
+- **0.54.0** (build 423) - A file in a folder this WebUI does not load is tagged "Ignored by Neo" or "Ignored by Forge", saying which option replaced the folder: on the Civitai Browser's card in place of Owned, as ⊘ on its version, and beside the file in the Model Manager's File row and Files list. Such a file no longer counts as held: the Civitai Browser offers its Download again, saying a copy sits where the WebUI does not look, a draw no longer leaves its model out, and Send takes a copy the WebUI loads. In Forge Neo, given --esrgan-models-path, the upscalers in its own models\ESRGAN were Owned; given --lora-dir or --controlnet-dir, so were the files in its own Lora or ControlNet folder, in either WebUI. The walk still lists them all (#195).
+
 ## 0.53 - I'm feeling lucky shows you something new
 
 *6 October 2026*

@@ -148,6 +148,24 @@ function keepApiKeyBanners() {
 
 let pathRoots = [];         // [label, folder]; none until the server says
 
+// Which WebUI this is, as the pages name it - the server's, once it has said.
+let webuiName = 'this WebUI';
+
+/**
+ * What a file in a folder this WebUI does not load is tagged (#195), given
+ * the option that replaced its folder, as the server names it
+ * (model_dirs.ignored_because): the tag, why, and what a Download of
+ * another copy says.
+ */
+export function ignoredTag(option) {
+    return {
+        label: `Ignored by ${webuiName}`,
+        why: `${webuiName} does not load this folder: ${option} replaces it`,
+        download: `You have a copy in a folder ${webuiName} ignores: ${option} replaces it. `
+            + `This downloads one ${webuiName} loads.`,
+    };
+}
+
 export function shownPath(path) {
     if (!path) return '';
     const lower = path.toLowerCase();
@@ -173,6 +191,7 @@ export function start(scope) {
     if (typeof window === 'undefined' || typeof fetch !== 'function') return;
     uiOptions().then((data) => {
         if (data && Array.isArray(data.path_roots)) pathRoots = data.path_roots;
+        if (data?.webui_short_name) webuiName = data.webui_short_name;
     });
 }
 

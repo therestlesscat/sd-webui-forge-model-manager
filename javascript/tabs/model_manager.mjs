@@ -29,6 +29,7 @@ const { showTab } = await shared('tabs.mjs');
 const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath, uiOptions, asUploaded,
+    ignoredTag,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -945,6 +946,18 @@ async function selectVersion(versionIndex) {
  * pick: the galleries are the version's, and which file Send uses is decided
  * by what each is and where it is (#133).
  */
+/** A file in a folder this WebUI does not load, tagged so, saying why (#195); nothing for one it loads. */
+function ignoredFileTag(file) {
+    if (!file?.ignored_because) return '';
+    const tag = ignoredTag(file.ignored_because);
+    return ` <span class="ignored-tag" title="${escapeHtml(tag.why)}">${escapeHtml(tag.label)}</span>`;
+}
+
+/** The File row's path, shortened, and its tag. */
+function filePathCell(file) {
+    return escapeHtml(shortenFilePath(file.file_path)) + ignoredFileTag(file);
+}
+
 function renderFilesSection(shown) {
     const files = versionFiles(shown);
     if (files.length < 2) return '';
@@ -953,7 +966,7 @@ function renderFilesSection(shown) {
         const folder = shortenFilePath((f.file_path || '').replace(/[\\/][^\\/]*$/, ''));
         return `<tr>
             <td>${escapeHtml(f.file_type || model.civitai_type || 'Unknown')}</td>
-            <td title="${escapeHtml(f.file_path)}">${escapeHtml(f.file_name)}</td>
+            <td title="${escapeHtml(f.file_path)}">${escapeHtml(f.file_name)}${ignoredFileTag(f)}</td>
             <td>${formatFileSize(f.file_size)}</td>
             <td>${formatDate(f.file_modified)}</td>
             <td title="${escapeHtml(f.file_path)}">${escapeHtml(folder)}</td>
@@ -975,7 +988,10 @@ function renderFilesSection(shown) {
 /** What the panel says of the shown version's files: its Files list, or the rows about its one file. */
 function updateFileFacts(version) {
     const pathCell = document.querySelector('#mm_details .file-path-cell');
-    if (pathCell) pathCell.textContent = shortenFilePath(version.file_path);
+    if (pathCell) {
+        const html = filePathCell(version);
+        if (pathCell.innerHTML !== html) pathCell.innerHTML = html;
+    }
     document.querySelectorAll('#mm_details .mm-file-fact').forEach((row) => {
         const label = row.querySelector('td:first-child')?.textContent;
         const value = row.querySelector('td:last-child');
@@ -1556,7 +1572,7 @@ function renderModelDetails(model, fullDetails = null) {
                     <tr><td>Derivatives: ${model.civitai_model.allow_derivatives ? 'Yes' : 'No'}</td></tr>
                     <tr><td>Different License: ${model.civitai_model.allow_different_license ? 'Yes' : 'No'}</td></tr>
                     ` : ''}
-                    <tr class="mm-file-fact"><td>File</td><td class="file-path-cell">${escapeHtml(shortenFilePath(model.file_path))}</td></tr>
+                    <tr class="mm-file-fact"><td>File</td><td class="file-path-cell">${filePathCell(model)}</td></tr>
                     <tr id="mm_images_count_row"><td>Images</td><td id="mm_images_count_cell">Loading...</td></tr>
                 </table>
             </div>

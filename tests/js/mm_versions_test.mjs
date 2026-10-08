@@ -47,7 +47,8 @@ globalThis.fetch = async (url, init = {}) => {
     const reply = (body) => ({ ok: true, json: async () => body });
     // Forge given C:/models/lora on the command line, its own folder C:/forge.
     if (href.includes('/model-manager/ui-options')) {
-        return reply({ success: true, path_roots: [['--lora-dir', 'C:/models/lora'], ['', 'C:/forge']] });
+        return reply({ success: true, path_roots: [['--lora-dir', 'C:/models/lora'], ['', 'C:/forge']],
+                       webui_short_name: 'Neo' });
     }
     if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: structuredClone(progress) });
     if (href.includes('/civitai/download')) {
@@ -298,5 +299,25 @@ await click(pill('v1'));
 await openTab('modelManager', 'showVersion', 501, 'C:/forge/models/Lora/v1_fp32.safetensors');
 check('14. a version shown from another tab opens the file it names', detailsAsked.at(-1),
       'C:/forge/models/Lora/v1_fp32.safetensors');
+
+// ------------------------------- a file in a folder this WebUI ignores (#195)
+// --lora-dir given: Forge's own models\Lora is not loaded. The file is still
+// listed; its File row and its row in a version's Files say so, and why.
+civitaiVersions = () => [];
+localVersions = [{ ...local(501, 'v1'), ignored_because: '--lora-dir' }];
+document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+await new Promise((r) => setTimeout(r, 50));
+await act('modelManager.selectModel', { index: 0 });
+const fileTag = details().querySelector('.file-path-cell .ignored-tag');
+check('15. a file Neo ignores: its File row says so, and why',
+      [fileTag?.textContent.trim(), fileTag?.title], ['Ignored by Neo', 'Neo does not load this folder: --lora-dir replaces it']);
+civitaiVersions = listed;
+localVersions = [{ ...local(501, 'v1'), file_type: 'LORA', send_uses: true, civitai_file_id: 9011 },
+                 { ...fp32, ignored_because: '--lora-dir' }];
+await act('modelManager.selectModel', { index: 0 });
+check('    and in a version\'s Files, beside its name',
+      Array.from(details().querySelectorAll('.mm-files-slot tbody tr'))
+          .map((tr) => tr.children[1].querySelector('.ignored-tag')?.textContent.trim() || ''),
+      ['', 'Ignored by Neo']);
 
 done();

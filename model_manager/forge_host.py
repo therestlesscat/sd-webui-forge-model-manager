@@ -432,13 +432,23 @@ def restart_webui() -> None:
 
 # ------------------------------------- which Forge, and where the two differ
 
-def forge_name() -> str:
-    """Which Forge made it, and its version."""
+def is_neo() -> bool:
+    """Whether this is Forge Neo, not the original Forge. False outside a WebUI."""
     try:
         # Neo keeps Forge's own packages there; the original Forge does not.
-        neo = importlib.util.find_spec("modules_forge.packages") is not None
+        return importlib.util.find_spec("modules_forge.packages") is not None
     except ImportError:
-        neo = False
+        return False
+
+
+def short_name() -> str:
+    """What the pages call this WebUI: "Neo" or "Forge" - "Ignored by Neo" (#195)."""
+    return "Neo" if is_neo() else "Forge"
+
+
+def forge_name() -> str:
+    """Which Forge made it, and its version."""
+    neo = is_neo()
     version = ""
     try:
         from modules import launch_utils

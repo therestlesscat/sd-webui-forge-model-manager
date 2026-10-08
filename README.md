@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.54 - Files your WebUI ignores say so.** Some command-line options replace a model type's
+own folder instead of adding to it - `--lora-dir`, `--controlnet-dir`, and in Forge Neo
+`--esrgan-models-path`. A file left in the replaced folder is now tagged "Ignored by Neo" or
+"Ignored by Forge", with the option that replaced its folder, and is no longer Owned: the
+Civitai Browser offers a download your WebUI will load.
+
 **0.53 - I'm feeling lucky shows you something new.** Each Draw leaves out the models the
 draws before it showed, under the same filters, and every model already in your library -
 so a draw brings models you have not seen. Start over, beside Draw, forgets what was shown;

@@ -19,7 +19,7 @@ from ..sync_service import SyncService
 from ..civitai import CivitaiClient, paid_access_info
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
-from ..model_dirs import COMPANIONS, file_modified, folder_of
+from ..model_dirs import COMPANIONS, file_modified, folder_of, ignored_because
 from ..download_service import template_folders
 from .. import resources
 from ..console import say
@@ -192,6 +192,9 @@ def register(app: FastAPI):
                     "models": total_count,
                 })
             query_ms = (time.perf_counter() - query_start) * 1000
+            # A file in a folder this WebUI does not load says why (#195).
+            for model in models:
+                model["ignored_because"] = ignored_because(model.get("file_path") or "")
 
             # Get the setting value for JS to initialize checkbox
             preview_least_nsfw_setting = setting('model_manager_preview_least_nsfw')
@@ -354,11 +357,13 @@ def register(app: FastAPI):
                     say(f"Could not ask Civitai for model {model_id}'s versions: {e}")
                 listed, synced_at = db.get_civitai_versions(model_id)
 
-            # Which of a version's files Send uses, shown in its Files list.
+            # Which of a version's files Send uses, shown in its Files list,
+            # and why one in a folder this WebUI does not load is ignored (#195).
             from ..send_plan import send_files
             sent = send_files(versions)
             for version in versions:
                 version["send_uses"] = version["file_path"] in sent
+                version["ignored_because"] = ignored_because(version["file_path"])
 
             local_ids = {v["id"] for v in versions if v.get("id")}
             civitai_versions = [

@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
-from .forge_host import model_folders, webui_root
+from .forge_host import is_neo, model_folders, webui_root
 from .hashing import read_hashes
 from .console import say
 
@@ -29,25 +29,37 @@ class Folder:
     holding one path (--ckpt-dir), and Forge Neo's repeatable plural, holding
     a list (--ckpt-dirs). `download` is False for a folder walked but never
     filed into.
+
+    `replaced_by` is the option that, given, replaces `default` in the
+    WebUI's own loader instead of adding to it - --lora-dir, where --lora-dirs
+    adds - in both WebUIs, or in Neo alone when `replaced_in` says "neo"
+    (#195). The walk still covers the default: its files are the library's.
     """
 
-    def __init__(self, default: Optional[str], options=(), download: bool = True):
+    def __init__(self, default: Optional[str], options=(), download: bool = True,
+                 replaced_by: Optional[str] = None, replaced_in: str = "both"):
         self.default = default
         self.options = tuple(options)
         self.download = download
+        self.replaced_by = replaced_by
+        self.replaced_in = replaced_in
 
 
+# Which options replace a default folder, read from each WebUI's loader:
+# networks.py (LoRA), lib_controlnet/global_state.py, shared_items.py
+# (hypernetworks, the original Forge's alone) and modelloader.load_upscalers -
+# Neo reads --esrgan-models-path alone, the original Forge it and ESRGAN.
 FOLDERS = {
     "Checkpoint": Folder("Stable-diffusion", ("ckpt_dir", "ckpt_dirs")),
-    "LORA": Folder("Lora", ("lora_dir", "lora_dirs")),
+    "LORA": Folder("Lora", ("lora_dir", "lora_dirs"), replaced_by="lora_dir"),
     "VAE": Folder("VAE", ("vae_dir", "vae_dirs")),
     # No Civitai type is a text encoder: a download lands here when the file,
     # read once it has arrived, says it is one (see proper_place).
     "TextEncoder": Folder("text_encoder", ("text_encoder_dir", "text_encoder_dirs")),
     "TextualInversion": Folder(None, ("embeddings_dir",)),
-    "Hypernetwork": Folder("hypernetworks", ("hypernetwork_dir",)),
-    "Controlnet": Folder("ControlNet", ("controlnet_dir", "controlnet_dirs")),
-    "Upscaler": Folder("ESRGAN", ("esrgan_models_path",)),
+    "Hypernetwork": Folder("hypernetworks", ("hypernetwork_dir",), replaced_by="hypernetwork_dir"),
+    "Controlnet": Folder("ControlNet", ("controlnet_dir", "controlnet_dirs"), replaced_by="controlnet_dir"),
+    "Upscaler": Folder("ESRGAN", ("esrgan_models_path",), replaced_by="esrgan_models_path", replaced_in="neo"),
     "MotionModule": Folder("MotionModule"),
     "Poses": Folder("Poses"),
     "Wildcards": Folder("Wildcards"),
@@ -173,12 +185,26 @@ def find_model_files(directories: List[str]) -> List[str]:
     return model_files
 
 
-def _roots(cmd_opts, models_path):
-    """Every folder of each kind, as (kind, absolute path), longest first."""
+def _replacing(folder: Folder, cmd_opts, neo: bool) -> Optional[str]:
+    """The option that replaces this kind's default folder in this WebUI, when it holds one."""
+    if not folder.replaced_by or (folder.replaced_in == "neo" and not neo):
+        return None
+    return folder.replaced_by if option_dirs(cmd_opts, folder.replaced_by) else None
+
+
+def _roots(cmd_opts, models_path, loaded_in_neo: Optional[bool] = None):
+    """
+    Every folder of each kind, as (kind, absolute path), longest first. With
+    `loaded_in_neo` given - whether this is Neo - only those the WebUI's own
+    loaders read: less each default an option replaced (#195). A singular
+    option holds its default when not given - --lora-dir is models\\Lora -
+    so that folder stays, by the option.
+    """
     roots = []
     for kind, folder in FOLDERS.items():
         named = option_dirs(cmd_opts, *folder.options)
-        if folder.default is not None and models_path:
+        replaced = loaded_in_neo is not None and _replacing(folder, cmd_opts, loaded_in_neo)
+        if folder.default is not None and models_path and not replaced:
             named.append(os.path.join(models_path, folder.default))
         roots.extend((kind, os.path.abspath(d)) for d in named if d)
     return sorted(roots, key=lambda r: -len(r[1]))
@@ -212,20 +238,55 @@ def shown_roots(cmd_opts=None, root: Optional[str] = None) -> List[Tuple[str, st
     return found + ([("", root)] if root else [])
 
 
+def _innermost(path: str, roots):
+    """The (kind, folder) of these that holds the path, the innermost; (None, None) for none."""
+    where = os.path.normcase(os.path.abspath(path))
+    for kind, root in roots:
+        if where.startswith(os.path.normcase(root).rstrip("\\/") + os.sep):
+            return kind, root
+    return None, None
+
+
 def folder_of(path: str, cmd_opts=None, models_path: Optional[str] = None):
     """
     The kind of folder a file is in, and that folder: ("VAE", "...\\VAE"), or
     (None, None) for a file outside them all. The innermost wins, so a
-    command-line folder inside models/ is its own kind.
+    command-line folder inside models/ is its own kind. Every folder the
+    walk covers, loaded or not: whether the WebUI loads it is loads_here's.
     """
     if cmd_opts is None and models_path is None:
         cmd_opts, models_path = model_folders()
-    where = os.path.normcase(os.path.abspath(path))
-    for kind, root in _roots(cmd_opts, models_path or ""):
-        base = os.path.normcase(root)
-        if where.startswith(base.rstrip("\\/") + os.sep):
-            return kind, root
-    return None, None
+    return _innermost(path, _roots(cmd_opts, models_path or ""))
+
+
+def loads_here(path: str, cmd_opts=None, models_path: Optional[str] = None) -> bool:
+    """
+    Whether the path is in a folder this WebUI's loaders read (#195): not a
+    kind's default folder an option replaced - Neo given --esrgan-models-path
+    reads no upscaler from its own models\\ESRGAN - nor the other WebUI's.
+    Not whether the file is there.
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = model_folders()
+    return _innermost(path, _roots(cmd_opts, models_path or "", is_neo()))[0] is not None
+
+
+def ignored_because(path: str, cmd_opts=None, models_path: Optional[str] = None) -> Optional[str]:
+    """
+    Why this WebUI does not load a file the library walks: the option that
+    replaced its folder - "--esrgan-models-path" - for the pages' "Ignored by
+    Neo" (#195). None for a file it loads, one gone from disk, and the other
+    WebUI's, in a folder this one was not given: not ignored, only not held.
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = model_folders()
+    kind, _ = folder_of(path, cmd_opts, models_path)
+    if kind is None or loads_here(path, cmd_opts, models_path):
+        return None
+    option = _replacing(FOLDERS[kind], cmd_opts, is_neo())
+    if not option or not os.path.isfile(path):
+        return None
+    return "--" + option.replace("_", "-")
 
 
 
@@ -238,7 +299,7 @@ def held_here(path: str, cmd_opts=None, models_path: Optional[str] = None) -> bo
     held is Owned in the Civitai Browser, left out of a draw, and not
     downloaded again.
     """
-    return bool(path) and os.path.isfile(path) and folder_of(path, cmd_opts, models_path)[0] is not None
+    return bool(path) and os.path.isfile(path) and loads_here(path, cmd_opts, models_path)
 
 def filed_as(file_type: Optional[str], model_class: Optional[str]) -> Optional[str]:
     """
