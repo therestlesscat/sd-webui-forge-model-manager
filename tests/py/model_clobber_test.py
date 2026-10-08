@@ -67,7 +67,7 @@ def row():
 WATCH = ['allow_no_credit', 'allow_commercial_use', 'allow_derivatives',
          'allow_different_license', 'supports_generation', 'stats_thumbs_up',
          'stats_thumbs_down', 'stats_rating', 'stats_download_count',
-         'description', 'nsfw_level', 'tags', 'creator_username']
+         'description', 'nsfw_level', 'tags', 'creator_username', 'nsfw']
 before = {k: row()[k] for k in WATCH}
 check('the rich row went in', before['stats_thumbs_up'], 51834)
 check('with its commercial terms', 'Rent' in (before['allow_commercial_use'] or ''))
@@ -120,6 +120,47 @@ check('the details panel reads unknown as allowed',
       db.get_civitai_model(MODEL_ID + 1)['allow_no_credit'], True)
 check('a recorded refusal still reads as refused',
       db.get_civitai_model(MODEL_ID)['allow_no_credit'], False)
+
+# ------------------------------------------------------ the NSFW flag (#141)
+# True, false, or not said - nothing assumed. Civitai's payload always says;
+# a sidecar, read for a model Civitai no longer has, may not, and every one
+# that did not wrote 0: over a stored 1, or as the flag of a new model.
+from model_manager.db.query import GridQuery                  # noqa: E402
+from model_manager.payload_rows import model_row              # noqa: E402
+
+db.upsert_civitai_model(model_row({"id": MODEL_ID, "name": "Subject", "type": "Checkpoint"}))
+check('a sidecar without the flag, through model_row, keeps the 1 Civitai gave', row()['nsfw'], 1)
+db.upsert_civitai_model({**RICH, "nsfw": False}, from_civitai=True)
+check("and Civitai's own false still replaces it", row()['nsfw'], 0)
+
+check('a new model with no flag stores none', fresh['nsfw'], None)
+check('and reads as not said, not as false', db.get_civitai_model(MODEL_ID + 1)['nsfw'], None)
+
+# Civitai never answered for this model: its sidecar is the only source, and
+# a silent one says nothing - not the 0 an earlier one may have assumed.
+SIDECAR_ONLY = MODEL_ID + 2
+db.upsert_civitai_model({"id": SIDECAR_ONLY, "name": "Gone from Civitai", "type": "LORA", "nsfw": False})
+db.upsert_civitai_model({"id": SIDECAR_ONLY, "name": "Gone from Civitai", "type": "LORA"})
+check("a model only sidecars describe takes a silent one's silence",
+      db.get_civitai_model(SIDECAR_ONLY)['nsfw'], None)
+db.upsert_civitai_model({"id": SIDECAR_ONLY, "name": "Gone from Civitai", "type": "LORA", "nsfw": True})
+check('and a sidecar that says, its word', db.get_civitai_model(SIDECAR_ONLY)['nsfw'], True)
+
+# The grid's rows say the same.
+LINKED = facts['linked_paths'][0]
+raw = sqlite3.connect(DB)
+linked_model = raw.execute('SELECT v.model_id FROM files f JOIN versions v ON v.id = f.version_id '
+                           'WHERE f.file_path = ?', (LINKED,)).fetchone()[0]
+raw.execute('UPDATE models SET nsfw = NULL WHERE id = ?', (linked_model,))
+raw.commit()
+raw.close()
+grid = db.query_models_grouped(GridQuery(limit=1000, offset=0))[0]
+shown = [m['civitai_model']['nsfw'] for m in grid
+         if m.get('civitai_model') and m['civitai_model']['id'] == linked_model]
+check("a grid row's flag, not said, reads as not said", shown[:1], [None])
+check('and the rest as true or false', {type(m['civitai_model']['nsfw']) for m in grid
+                                        if m.get('civitai_model') and m['civitai_model']['id'] != linked_model},
+      {bool})
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

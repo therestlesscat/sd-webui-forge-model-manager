@@ -28,7 +28,9 @@ def model_row(data: Dict[str, Any]) -> Dict[str, Any]:
         # Civitai's type, as Civitai gave it - None when it gave none. What
         # the file really is comes from the file itself (file_identity.py).
         "type": data.get("type"),
-        "nsfw": data.get("nsfw", False),
+        # None when the payload does not say: a thin sidecar's. Defaulted to
+        # False, it wrote "not NSFW" over a stored 1 (#141).
+        "nsfw": data.get("nsfw"),
         "nsfw_level": data.get("nsfwLevel", UNKNOWN),
         "tags": data.get("tags", []),
         "creator_username": creator.get("username") if creator else None,

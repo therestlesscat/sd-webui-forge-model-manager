@@ -556,7 +556,7 @@ def _grouped_row_to_dict(row) -> Dict[str, Any]:
             "name": row["cm_name"],
             "description": row["cm_description"],
             "type": row["cm_type"],
-            "nsfw": bool(row["cm_nsfw"]),
+            "nsfw": None if row["cm_nsfw"] is None else bool(row["cm_nsfw"]),
             "nsfw_level": row["cm_nsfw_level"],
             "tags": json.loads(row["cm_tags"] or "[]"),
             "creator_username": row["cm_creator_username"],

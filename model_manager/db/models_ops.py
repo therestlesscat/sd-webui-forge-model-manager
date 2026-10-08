@@ -84,6 +84,15 @@ def keep_unless(nothing: str) -> Callable[[str, str], str]:
     return rule
 
 
+def keep_once_civitai_said(table: str, column: str) -> str:
+    """The new value, unless it is NULL and Civitai has answered for the row.
+    A model only sidecars describe - one Civitai no longer has - has no word
+    but theirs, so a silent one's silence stands: an earlier one's value may
+    be no more than the default every sidecar was given until #141."""
+    return (f"CASE WHEN {table}.civitai_synced_at IS NULL THEN excluded.{column} "
+            f"ELSE COALESCE(excluded.{column}, {table}.{column}) END")
+
+
 def with_hashes(table: str, column: str) -> str:
     """Said by whoever writes the hashes, and kept when they are not
     written: hashes written without it - a sidecar's - are not trusted."""
@@ -103,7 +112,8 @@ MODEL_COLUMNS = (
     # A sidecar with no type is stored as 'Unknown', which must not replace a
     # type already known.
     Column("type", keep_unless("'Unknown'"), placeholder="COALESCE(?, 'Unknown')"),
-    Column("nsfw", keep),
+    # True, false or not said: nothing is assumed (#141).
+    Column("nsfw", keep_once_civitai_said),
     Column("nsfw_level", keep_unless(f"{UNKNOWN}")),
     Column("tags", keep_unless("'[]'")),
     Column("creator_username", keep),
@@ -294,7 +304,7 @@ class ModelsOps:
                 "name": model_data.get("name"),
                 "description": model_data.get("description"),
                 "type": model_data.get("type"),
-                "nsfw": 1 if model_data.get("nsfw") else 0,
+                "nsfw": _flag(model_data.get("nsfw")),
                 "nsfw_level": model_data.get("nsfw_level", UNKNOWN),
                 # json.dumps(None) is the string "null", which COALESCE
                 # would happily keep. Absent has to reach SQL as NULL.
@@ -1163,7 +1173,7 @@ class ModelsOps:
             "name": row["name"],
             "description": row["description"],
             "type": row["type"],
-            "nsfw": bool(row["nsfw"]),
+            "nsfw": None if row["nsfw"] is None else bool(row["nsfw"]),
             "nsfw_level": row["nsfw_level"],
             "tags": json.loads(row["tags"] or "[]"),
             "creator_username": row["creator_username"],

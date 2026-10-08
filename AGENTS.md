@@ -302,8 +302,10 @@ kept when the new value says nothing, or a rule of its own - and given its
 value by name. Adding a column means an entry there, or in the list of
 columns written elsewhere; `upsert_columns_test.py` fails on one in neither.
 It used to be four places by hand, and a column missed from the `SET` list
-was written once and never updated. A payload without `nsfw` still writes 0
-over a stored 1 (#141).
+was written once and never updated. Nor is a value assumed where nobody said
+one: a model's `nsfw` is true, false or NULL. A payload without it - a thin
+sidecar's - wrote 0, over a stored 1 too, until #141; a model only sidecars
+describe now takes a silent one's silence (`keep_once_civitai_said`).
 
 **Deleting rows needs evidence.** Two kinds, and they are not equally safe.
 *Direct*: this file was about to be refreshed and is not there, or another has
