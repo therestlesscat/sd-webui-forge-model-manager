@@ -13,6 +13,16 @@ import { browserGalleryAnswer, checker, choose, mountTab, openTab, press, startT
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
+
+// What a press opens, through the page's one click listener (#144).
+function opens(element) {
+    const opened = [];
+    const before = window.open;
+    window.open = (...args) => { opened.push(args); return null; };
+    element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    window.open = before;
+    return opened;
+}
 const afterUpdate = [];
 globalThis.onAfterUiUpdate = (callback) => afterUpdate.push(callback);
 const updated = () => afterUpdate.forEach((callback) => callback());
@@ -105,6 +115,11 @@ await show(2);
 check('a model only listed: no Owned badge, Download offered', [badges(), alreadyOwned(), Boolean(downloadButton())],
       [0, false, true]);
 check('and Show in Model Manager, which lists it', showInManager(), true);
+const viewOnCivitai = Array.from(details()?.querySelectorAll('.detail-actions > *') || [])
+    .find((e) => e.textContent.trim() === 'View on Civitai');
+check("the details' View on Civitai is a button, and opens this version's page (#144)",
+      [viewOnCivitai?.tagName, opens(viewOnCivitai)],
+      ['BUTTON', [['https://civitai.com/models/2?modelVersionId=20', '_blank', 'noopener']]]);
 
 // ------------------------------------------- a held file with no file id
 await show(3);

@@ -195,7 +195,7 @@ export function renderImageCard(img, index, { width, exclude, actions, sendBlock
                     <button class="mm-btn secondary" data-action="${escapeHtml(actions.showAll)}" data-index="${index}">
                         Show All
                     </button>
-                    ${img.id ? `<a class="mm-btn secondary" href="https://civitai.com/images/${safeId(img.id)}" target="_blank">View on Civitai</a>` : ''}
+                    ${img.id ? `<button type="button" class="mm-btn secondary" data-open-url="https://civitai.com/images/${safeId(img.id)}">View on Civitai</button>` : ''}
                     ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-index="${index}" data-action="${escapeHtml(actions.resources)}" data-index="${index}">${resourcesLabel}</button>` : ''}
                 </div>
             </div>

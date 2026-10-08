@@ -12,6 +12,16 @@ import { ROOT, act, checker, mountTab, startTab, tick, withGalleryPages } from '
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
 
+// What a press opens, through the page's one click listener (#144).
+function opens(element) {
+    const opened = [];
+    const before = window.open;
+    window.open = (...args) => { opened.push(args); return null; };
+    element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    window.open = before;
+    return opened;
+}
+
 const MODEL = {
     id: 5001, model_id: 4001, name: 'A Model', display_name: 'A Model',
     version_name: 'v1', base_model: 'SDXL 1.0', model_type: 'Checkpoint',
@@ -187,6 +197,11 @@ check('with its own Send, Resources and Delete, and its rating row, below it',
 // Its id, to name one image when reporting what it did.
 check('its details say the image\'s id',
       viewer().querySelector('.mm-viewer-info .mm-generation-when')?.textContent.trim().endsWith('Image ID 11'), true);
+const fullSize = Array.from(viewer().querySelectorAll('.mm-viewer-info .mm-dialog-buttons > *'))
+    .find((e) => e.textContent.trim() === 'Open full size');
+check('Open full size is a button, and opens the file (#144)',
+      [fullSize?.tagName, opens(fullSize)],
+      ['BUTTON', [['http://localhost:7860/model-manager/generations/images/11/file', '_blank', 'noopener']]]);
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'ArrowRight' }));
 check('→ the next card\'s images', viewer()?.querySelector('.mm-viewer-where')?.textContent, '1 of 6 in this generation');
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));

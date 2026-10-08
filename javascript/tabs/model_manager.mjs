@@ -2474,8 +2474,8 @@ const generationViewerSource = {
             <div class="mm-dialog-buttons">
                 ${image.infotext ? `<button type="button" class="mm-btn secondary mm-btn-small"
                     data-copy="${escapeHtml(image.infotext)}">Copy infotext</button>` : ''}
-                ${image.exists ? `<a class="mm-btn secondary mm-btn-small" href="${escapeHtml(url)}" target="_blank"
-                    rel="noopener">Open full size</a>` : ''}
+                ${image.exists ? `<button type="button" class="mm-btn secondary mm-btn-small"
+                    data-open-url="${escapeHtml(url)}">Open full size</button>` : ''}
             </div>`;
     },
     where: (index) => {

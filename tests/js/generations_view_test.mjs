@@ -16,6 +16,16 @@ const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { provide } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 const { check, waitFor, done } = checker();
 
+// What a press opens, through the page's one click listener (#144).
+function opens(element) {
+    const opened = [];
+    const before = window.open;
+    window.open = (...args) => { opened.push(args); return null; };
+    element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    window.open = before;
+    return opened;
+}
+
 // ------------------------------------------------------------- the server
 // As api/generations.browse_page() answers, which generations_test.py holds
 // it to: filtered first, then cut into parts - two tiles a part here.
@@ -322,8 +332,14 @@ check('the viewer steps through the images a batch\'s tile shows, saying where i
       [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent], ['31', '1 of 4 in this generation']);
 check('with its details beside it: its prompts and what was recorded, and a way to the file',
       [viewer()?.querySelector('.gen-info-prompt')?.textContent, viewer()?.textContent.includes('anima.safetensors'),
-       viewer()?.textContent.includes('Seed'), !!viewer()?.querySelector('a[href$="/images/31/file"]')],
+       viewer()?.textContent.includes('Seed'),
+       !!viewer()?.querySelector('[data-open-url$="/images/31/file"]')],
       ['prompt 31', true, true, true]);
+const fullSize = Array.from(viewer()?.querySelectorAll('.gen-info-buttons > *') || [])
+    .find((e) => e.textContent.trim() === 'Open full size');
+check('Open full size is a button, and opens the file (#144)',
+      [fullSize?.tagName, opens(fullSize).map(([url, ...rest]) => [url.endsWith('/images/31/file'), ...rest])],
+      ['BUTTON', [[true, '_blank', 'noopener']]]);
 check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.mm-viewer-actions > button'))
       .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
 click(viewer().querySelector('[data-gen-menu]'));

@@ -16,6 +16,16 @@ const { check, waitFor, done } = checker();
 const { cardMediaUrl, sizedMediaUrl } = await import(`file:///${ROOT}/javascript/shared/media.mjs`);
 const C = 'https://image.civitai.com/acct/1234-abcd';
 
+// What a press opens, through the page's one click listener (#144).
+function opens(element) {
+    const opened = [];
+    const before = window.open;
+    window.open = (...args) => { opened.push(args); return null; };
+    element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    window.open = before;
+    return opened;
+}
+
 // ------------------------------------------------------------------ the rule
 check('as uploaded: an image is asked for as the upload',
       sizedMediaUrl(`${C}/width=450/a.jpeg`, { cssWidth: 200, asUploaded: true }), `${C}/original=true/a.jpeg`);
@@ -82,6 +92,10 @@ await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-image-card'));
 check('Gallery images on: a tile loads the upload',
       document.querySelector('#mm_images .mm-image-card img')?.getAttribute('data-src'), `${C}/original=true/still.jpeg`);
+const viewOnCivitai = Array.from(document.querySelectorAll('#mm_images .mm-image-card .mm-image-actions > *'))
+    .find((e) => e.textContent.trim() === 'View on Civitai');
+check("an image card's View on Civitai is a button, and opens the image's page (#144)",
+      [viewOnCivitai?.tagName, opens(viewOnCivitai)], ['BUTTON', [['https://civitai.com/images/1', '_blank', 'noopener']]]);
 check('and a video tile, a copy still',
       document.querySelector('#mm_images .mm-image-card video')?.getAttribute('data-src'), `${C}/width=320/moving.mp4`);
 

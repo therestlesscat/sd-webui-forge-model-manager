@@ -291,7 +291,7 @@ function renderResourcesModal(resources, pending = 0) {
                 <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
                     ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
                 <td class="mm-res-actions">
-                    <a class="mm-btn secondary mm-btn-small" href="https://civitai.com/model-versions/${safeId(resource.versionId)}" target="_blank">View</a>
+                    <button type="button" class="mm-btn secondary mm-btn-small" data-open-url="https://civitai.com/model-versions/${safeId(resource.versionId)}">View</button>
                     <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
                 </td>
             </tr>

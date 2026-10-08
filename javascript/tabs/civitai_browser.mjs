@@ -898,7 +898,7 @@ function fileHeld(version, file) {
 /** View on Civitai and the Download controls, for the chosen file. */
 function detailActions(model, version, fileIndex) {
     const file = (version?.files || [])[fileIndex];
-    return `<a class="mm-btn secondary" href="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}" target="_blank">View on Civitai</a>
+    return `<button type="button" class="mm-btn secondary" data-open-url="https://civitai.com/models/${safeId(model.id)}?modelVersionId=${safeId(version?.id)}">View on Civitai</button>
                 ${renderDownloadControls({ controls: DOWNLOAD_CONTROLS, modelId: model.id, version, fileIndex,
                                            ...fileHeld(version, file) })}`;
 }

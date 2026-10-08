@@ -16,6 +16,16 @@ import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages } from 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
 
+// What a press opens, through the page's one click listener (#144).
+function opens(element) {
+    const opened = [];
+    const before = window.open;
+    window.open = (...args) => { opened.push(args); return null; };
+    element?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    window.open = before;
+    return opened;
+}
+
 // --- the server -------------------------------------------------------------
 const VERSION_ID = 5001;                  // the version whose gallery this is
 
@@ -188,9 +198,15 @@ check("where both lists name it, the Civitai name is the one kept",
 check('one the legacy list alone knew about is still offered',
       offered.includes('VAE ft MSE'), true);
 check('and every offer can be opened on Civitai, or downloaded here',
-      [panel().querySelectorAll('.mm-res-actions a').length,
+      [panel().querySelectorAll('.mm-res-actions button[data-open-url]').length,
        Array.from(panel().querySelectorAll('.mm-res-actions button'))
            .filter((b) => b.textContent.trim() === 'Download').length], [3, 3]);
+
+const viewButton = panel().querySelector('.mm-res-actions [data-open-url]');
+check("an offer's View is a button, and opens its version on Civitai (#144)",
+      [panel().querySelectorAll('.mm-res-actions a').length, viewButton?.tagName,
+       opens(viewButton).map(([url, ...rest]) => [/^https:\/\/civitai\.com\/model-versions\/\d+$/.test(url), ...rest])],
+      [0, 'BUTTON', [[true, '_blank', 'noopener']]]);
 
 const unresolved = names('.mm-res-unresolved').sort();
 check('what nothing could be found for is shown rather than dropped',

@@ -813,7 +813,11 @@ ticked checkboxes that looked empty.
 - **It resets a `<button>`'s font, and not a link's.** A link dressed as a
   button did not look like the buttons beside it, and two CSS fixes did not
   make it: a button that opens a page is a `<button data-open-url>`
-  (`core.mjs`), not an `<a>`. Five links still break it (#144).
+  (`core.mjs`), not an `<a>`. Five were links until #144: the two inside a
+  tab drew 12.6 px text at weight 500 beside buttons at 14 px and 400, and
+  the three in dialogs matched - outside Gradio's container, its reset does
+  not reach. `link_buttons_test.py` fails on any `<a>` with `mm-btn` or
+  `cb-btn`. A button opens on a click alone: no middle click, no "Copy link".
 - **It gives an input a bottom margin**
   (`.gradio-container-4-40-0 .prose input`, 4px), which only a last child
   escapes (`.prose :last-child`): Show hidden's box, its count in a `<span>`
