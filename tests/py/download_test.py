@@ -809,8 +809,10 @@ import model_manager.db as db_module                      # noqa: E402
 
 sync_module.SyncService = FakeSync
 stamped = []
+pruned = []
 db_module.get_models_db = lambda: types.SimpleNamespace(
-    set_downloaded_at=lambda path: stamped.append(path))
+    set_downloaded_at=lambda path: stamped.append(path),
+    prune_orphans=lambda: (pruned.append(True), (0, 0))[1])
 
 real = DownloadService()
 
@@ -827,6 +829,7 @@ check('a downloaded file is synced', FakeSync.asked, ('/models/x.safetensors', T
 check('with what the download knew', FakeSync.known, {'hashes': 'h', 'version': {}})
 check('with no complaint', done.sync_error, None)
 check('and the download is dated', stamped, ['/models/x.safetensors'])
+check('and what no file names any more is cleared, once (#200)', pruned, [True])
 
 FakeSync.result = Result(False, 'not on Civitai')
 done = sync_now('/models/y.safetensors')

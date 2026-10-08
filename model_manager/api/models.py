@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from ..db import GridQuery, get_models_db
 from ..forge_host import setting
 from ..nsfw import NAME_TO_LEVEL
-from ..sync_service import SyncService
+from ..sync_service import SyncService, forget_orphans
 from ..civitai import CivitaiClient, paid_access_info
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
@@ -459,6 +459,8 @@ def register(app: FastAPI):
                     synced_count += 1
                 elif result.error:
                     errors.append(f"{os.path.basename(file_path)}: {result.error}")
+            # Once, after every file: one identified again leaves what it was (#200).
+            forget_orphans(db)
 
             return JSONResponse({
                 "success": True,
@@ -548,6 +550,8 @@ def register(app: FastAPI):
                 say(f"Deleted empty folder: {folder}")
 
             db.delete_version(path)
+            # Its version, model and gallery, if no other file names them (#200).
+            forget_orphans(db)
 
             return JSONResponse({
                 "success": True,

@@ -557,8 +557,7 @@ class SyncService:
         cover_url, safe_cover_url = version_covers(
             showcase, complete=bool(showcase) and showcase_is_complete(showcase))
         db = get_models_db()
-        db.upsert_civitai_model(model_row(payload))
-        db.upsert_version({
+        db.upsert_identified(model_row(payload), {
             **version_row(version, model_id),
             **file_row(version, name, stored),
             "file_path": model_path,
@@ -655,10 +654,7 @@ class SyncService:
             say("Cancelled while reading your model folders: nothing is forgotten")
         if found and not self._cancel_requested:
             self._progress.removed = self._forget_missing_files(found)
-            models_gone, images_gone = db.prune_orphans()
-            if models_gone or images_gone:
-                say(f"Forgot {models_gone} models with no files left "
-                      f"and {images_gone} of their images")
+            forget_orphans(db)
         return found
 
     #: Files whose header is read at once: a header is small, and the walk
@@ -780,10 +776,9 @@ class SyncService:
 
             if model_id and versions:
                 civitai_model = model_row(civitai_data)
-                db.upsert_civitai_model(civitai_model, from_civitai=True)
 
                 # Find the matched version (first in list since we reordered it)
-                matched_version = versions[0] if versions else None
+                matched_version = versions[0]
 
                 if matched_version:
                     version_data = {
@@ -803,7 +798,8 @@ class SyncService:
                     version_data["cover_url"], version_data["safe_cover_url"] = \
                         version_covers(matched_version.get("images"), complete=True)
 
-                    db.upsert_version(version_data)
+                    # As one: a cleanup between the two took the new model (#200).
+                    db.upsert_identified(civitai_model, version_data, from_civitai=True)
 
             else:
                 # Version-only response (model fetch failed)
@@ -912,6 +908,9 @@ class SyncService:
 
         # A force sync reads every file again, whatever is stored.
         self._sync_files(model_paths, force, max_workers, rehash=force)
+        # A file identified again leaves what it was; cancelled too, as it
+        # only takes what no file names (#200).
+        forget_orphans(get_models_db())
 
         # Said before it is complete: the page's last poll reads the log with it.
         self._progress.cancelled = self._cancel_requested
@@ -1171,6 +1170,7 @@ class SyncService:
         if changed and not self._cancel_requested:
             say(f"Identifying {len(changed)} file(s) changed since they were read")
             self._sync_files(changed, force=True, max_workers=configured_hash_threads())
+        forget_orphans(get_models_db())
 
         self._progress.cancelled = self._cancel_requested
         say(f"Metadata sync {'cancelled' if self._cancel_requested else 'complete'}: "
@@ -1475,6 +1475,21 @@ class SyncService:
     def progress(self) -> SyncProgress:
         """Get current sync progress."""
         return self._progress
+
+
+def forget_orphans(db) -> Tuple[int, int]:
+    """
+    Clear what no file names any more (db.prune_orphans), and say so when
+    there was something: at the end of every sync, download and delete -
+    not only after the walk (#200). Once per action, not per file: it reads
+    every image row.
+
+    Returns (models forgotten, images forgotten).
+    """
+    models_gone, images_gone = db.prune_orphans()
+    if models_gone or images_gone:
+        say(f"Forgot {models_gone} models with no files left and {images_gone} of their images")
+    return models_gone, images_gone
 
 
 def files_to_identify(found: List[str]) -> Tuple[List[str], List[str]]:

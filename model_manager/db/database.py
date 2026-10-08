@@ -179,6 +179,11 @@ class ModelsDatabase:
         """Insert or update a model version record."""
         self._models.upsert_version(version_data)
 
+    def upsert_identified(self, model_data: Dict[str, Any], version_data: Dict[str, Any],
+                          from_civitai: bool = False):
+        """A file identified: its model and its version, in one transaction. See db/models_ops.py."""
+        self._models.upsert_identified(model_data, version_data, from_civitai)
+
     def files_with_types(self) -> List[Dict[str, Any]]:
         """Every file a header has been read for. See ModelsOps.files_with_types()."""
         return self._models.files_with_types()

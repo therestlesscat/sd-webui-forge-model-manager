@@ -1204,9 +1204,11 @@ class DownloadService:
         raised: the file is on disk either way.
         """
         try:
-            from .sync_service import SyncService
+            from .sync_service import SyncService, forget_orphans
             from .db import get_models_db
             result = SyncService().sync_model(file_path, force=True, known=known)
+            # A file landing where another was identifies it afresh (#200).
+            forget_orphans(get_models_db())
             if result.success:
                 say(f"Synced to database: {file_path}")
                 try:

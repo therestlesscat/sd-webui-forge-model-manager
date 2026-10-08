@@ -297,36 +297,40 @@ class ModelsOps:
                 Disk, which wrote every sidecar's, once made every model look
                 freshly synced, and the staleness windows all read zero.
         """
-        now = datetime.now().isoformat()
         with self._cursor() as cursor:
-            cursor.execute(_MODEL_UPSERT, _row(MODEL_COLUMNS, {
-                "id": model_data.get("id"),
-                "name": model_data.get("name"),
-                "description": model_data.get("description"),
-                "type": model_data.get("type"),
-                "nsfw": _flag(model_data.get("nsfw")),
-                "nsfw_level": model_data.get("nsfw_level", UNKNOWN),
-                # json.dumps(None) is the string "null", which COALESCE
-                # would happily keep. Absent has to reach SQL as NULL.
-                "tags": _json_or_none(model_data.get("tags")),
-                "creator_username": model_data.get("creator_username"),
-                "creator_image_url": model_data.get("creator_image_url"),
-                "stats_download_count": model_data.get("stats_download_count", 0),
-                "stats_thumbs_up": model_data.get("stats_thumbs_up", 0),
-                "stats_thumbs_down": model_data.get("stats_thumbs_down", 0),
-                "stats_rating": model_data.get("stats_rating", 0),
-                "allow_no_credit": _flag(model_data.get("allow_no_credit")),
-                "allow_commercial_use": self._format_commercial_use(model_data.get("allow_commercial_use")),
-                "allow_derivatives": _flag(model_data.get("allow_derivatives")),
-                "allow_different_license": _flag(model_data.get("allow_different_license")),
-                "supports_generation": _flag(model_data.get("supports_generation")),
-                "updated_at": now,
-                "civitai_synced_at": now if from_civitai else None,
-                "checkpoint_type": model_data.get("checkpoint_type"),
-            }))
-            if model_data.get("versions"):
-                self._store_versions(cursor, model_data.get("id"), model_data["versions"],
-                                     from_civitai, now)
+            self._write_model(cursor, model_data, from_civitai)
+
+    def _write_model(self, cursor, model_data: Dict[str, Any], from_civitai: bool) -> None:
+        """upsert_civitai_model's writes, in the caller's transaction."""
+        now = datetime.now().isoformat()
+        cursor.execute(_MODEL_UPSERT, _row(MODEL_COLUMNS, {
+            "id": model_data.get("id"),
+            "name": model_data.get("name"),
+            "description": model_data.get("description"),
+            "type": model_data.get("type"),
+            "nsfw": _flag(model_data.get("nsfw")),
+            "nsfw_level": model_data.get("nsfw_level", UNKNOWN),
+            # json.dumps(None) is the string "null", which COALESCE
+            # would happily keep. Absent has to reach SQL as NULL.
+            "tags": _json_or_none(model_data.get("tags")),
+            "creator_username": model_data.get("creator_username"),
+            "creator_image_url": model_data.get("creator_image_url"),
+            "stats_download_count": model_data.get("stats_download_count", 0),
+            "stats_thumbs_up": model_data.get("stats_thumbs_up", 0),
+            "stats_thumbs_down": model_data.get("stats_thumbs_down", 0),
+            "stats_rating": model_data.get("stats_rating", 0),
+            "allow_no_credit": _flag(model_data.get("allow_no_credit")),
+            "allow_commercial_use": self._format_commercial_use(model_data.get("allow_commercial_use")),
+            "allow_derivatives": _flag(model_data.get("allow_derivatives")),
+            "allow_different_license": _flag(model_data.get("allow_different_license")),
+            "supports_generation": _flag(model_data.get("supports_generation")),
+            "updated_at": now,
+            "civitai_synced_at": now if from_civitai else None,
+            "checkpoint_type": model_data.get("checkpoint_type"),
+        }))
+        if model_data.get("versions"):
+            self._store_versions(cursor, model_data.get("id"), model_data["versions"],
+                                 from_civitai, now)
 
     def store_civitai_versions(self, model_id: int, versions: List[Dict[str, Any]],
                                from_civitai: bool = False) -> bool:
@@ -457,56 +461,73 @@ class ModelsOps:
         for a model Civitai no longer has, whatever sidecar is on disk, and
         neither can tell an absent field from a cleared one.
         """
-        version_id = version_data.get("id")
         with self._cursor() as cursor:
-            # The row the library already has for this file, however it is spelt.
-            file_path = _stored_spelling(cursor, version_data.get("file_path"))
-            file_name = (os.path.basename(file_path) if file_path != version_data.get("file_path")
-                         else version_data.get("file_name"))
+            self._write_version(cursor, version_data)
 
-            # Handle file_hashes - can be dict or already JSON string
-            file_hashes = version_data.get("file_hashes")
-            if isinstance(file_hashes, dict):
-                file_hashes = json.dumps(file_hashes)
+    def upsert_identified(self, model_data: Dict[str, Any], version_data: Dict[str, Any],
+                          from_civitai: bool = False) -> None:
+        """
+        A file identified: its model, and its version with the file, in one
+        transaction (#200). Written apart, a cleanup between the two saw the
+        new model with no version yet - an orphan - and took it.
+        """
+        with self._cursor() as cursor:
+            self._write_model(cursor, model_data, from_civitai)
+            self._write_version(cursor, version_data)
 
-            if version_id is not None:
-                cursor.execute(_VERSION_UPSERT, _row(VERSION_COLUMNS, {
-                    "id": version_id,
-                    "model_id": version_data.get("model_id"),
-                    "version_name": version_data.get("version_name"),
-                    "base_model": version_data.get("base_model"),
-                    "published_at": version_data.get("published_at"),
-                    "created_at": version_data.get("created_at"),
-                    "nsfw_level": version_data.get("nsfw_level", UNKNOWN),
-                    "trained_words": json.dumps(version_data.get("trained_words", [])),
-                    "description": version_data.get("description"),
-                    "stats_download_count": version_data.get("stats_download_count", 0),
-                    "stats_thumbs_up": version_data.get("stats_thumbs_up", 0),
-                    "cover_url": version_data.get("cover_url"),
-                    "safe_cover_url": version_data.get("safe_cover_url"),
-                }))
-            cursor.execute(_FILE_UPSERT, _row(FILE_COLUMNS, {
-                "file_path": file_path,
-                "version_id": version_id,
-                "file_name": file_name,
-                "file_size": version_data.get("file_size"),
-                "file_hashes": file_hashes,
-                "hashes_checked": version_data.get("hashes_checked"),
-                "file_modified": version_data.get("file_modified"),
-                "file_extension": version_data.get("file_extension"),
-                "scanned_at": datetime.now().isoformat(),
-                "civitai_file_id": version_data.get("civitai_file_id"),
-                "civitai_file_type": version_data.get("civitai_file_type"),
-                "fp": version_data.get("fp"),
-                "size": version_data.get("size"),
-                "format": version_data.get("format"),
-                "civitai_primary": _flag(version_data.get("civitai_primary")),
+    def _write_version(self, cursor, version_data: Dict[str, Any]) -> None:
+        """upsert_version's writes, in the caller's transaction."""
+        version_id = version_data.get("id")
+        # The row the library already has for this file, however it is spelt.
+        file_path = _stored_spelling(cursor, version_data.get("file_path"))
+        file_name = (os.path.basename(file_path) if file_path != version_data.get("file_path")
+                     else version_data.get("file_name"))
+
+        # Handle file_hashes - can be dict or already JSON string
+        file_hashes = version_data.get("file_hashes")
+        if isinstance(file_hashes, dict):
+            file_hashes = json.dumps(file_hashes)
+
+        if version_id is not None:
+            cursor.execute(_VERSION_UPSERT, _row(VERSION_COLUMNS, {
+                "id": version_id,
+                "model_id": version_data.get("model_id"),
+                "version_name": version_data.get("version_name"),
+                "base_model": version_data.get("base_model"),
+                "published_at": version_data.get("published_at"),
+                "created_at": version_data.get("created_at"),
+                "nsfw_level": version_data.get("nsfw_level", UNKNOWN),
+                "trained_words": json.dumps(version_data.get("trained_words", [])),
+                "description": version_data.get("description"),
+                "stats_download_count": version_data.get("stats_download_count", 0),
+                "stats_thumbs_up": version_data.get("stats_thumbs_up", 0),
+                "cover_url": version_data.get("cover_url"),
+                "safe_cover_url": version_data.get("safe_cover_url"),
             }))
+        cursor.execute(_FILE_UPSERT, _row(FILE_COLUMNS, {
+            "file_path": file_path,
+            "version_id": version_id,
+            "file_name": file_name,
+            "file_size": version_data.get("file_size"),
+            "file_hashes": file_hashes,
+            "hashes_checked": version_data.get("hashes_checked"),
+            "file_modified": version_data.get("file_modified"),
+            "file_extension": version_data.get("file_extension"),
+            "scanned_at": datetime.now().isoformat(),
+            "civitai_file_id": version_data.get("civitai_file_id"),
+            "civitai_file_type": version_data.get("civitai_file_type"),
+            "fp": version_data.get("fp"),
+            "size": version_data.get("size"),
+            "format": version_data.get("format"),
+            "civitai_primary": _flag(version_data.get("civitai_primary")),
+        }))
 
     def prune_orphans(self) -> Tuple[int, int]:
         """
-        Forget what only files that are gone kept: versions no longer on
-        disk and their gallery images, and models none of whose files are.
+        Forget what no file names any more: versions no file points to and
+        their gallery images, and models with no version left - after every
+        sync, download and delete (#200), not only the walk, as a file
+        identified again or deleted leaves its old version behind.
 
         A bookmarked model is kept: the bookmark is the person's, not
         Civitai's, and comes back with the model if it is downloaded again.
