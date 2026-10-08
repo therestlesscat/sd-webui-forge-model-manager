@@ -460,7 +460,7 @@ paused or waiting - is kept in the `downloads` table, one row each in the
 list's order, under this install's key (`INSTALL_KEY`): a restart or a crash
 leaves it paused, and a WebUI sharing the database never takes it up. Each
 save replaces the install's rows whole (`_save`), so the table cannot miss a
-change: from 0.43.0 (48ad567) only a download with a `.partial` was kept, in
+change: from 0.43.0 (7a01e81) only a download with a `.partial` was kept, in
 `schema_info`, and a restart forgot every one still waiting (#187). A kept
 download whose file the library has by then - its Civitai file id, on disk,
 in this WebUI's folders (`_held`) - is not brought back, and a resumed one is
@@ -1023,8 +1023,8 @@ waits - are in `tests/README.md`.
   a 50-card page from 40 ms to 70; the same count from a narrow grouped CTE,
   joined, to 43.
 - **Compare a round of changes as a whole, after it.** Every refactor of the
-  0.44 round passed its suites. Comparing the code before the round (dc67df9)
-  with after it (cce6e8f), with seven reviewers in parallel, found nine
+  0.44 round passed its suites. Comparing the code before the round (57ae3c0)
+  with after it (b529f30), with seven reviewers in parallel, found nine
   regressions none had caught - a ControlNet filed as a checkpoint, a
   resource's Download refused as "already downloading", a reloaded page
   running two copies of its shared modules (#118-#126).
@@ -1186,9 +1186,9 @@ waits - are in `tests/README.md`.
   is done and waiting for a release, and closes when it reaches `main`.
   "Refs #N" names an issue without either, and each issue needs its own
   word - `Fixes #84, fixes #85`: four refactor issues said "Refs", and an
-  empty commit (7f9e228) had to name them for `main` to close them. A fix
-  for two issues names both: #129, fixed by f769b6f under "Fixes #11", needed
-  an empty commit too (581c84a).
+  empty commit (1c22c0b) had to name them for `main` to close them. A fix
+  for two issues names both: #129, fixed by 1ccc8e3 under "Fixes #11", needed
+  an empty commit too (217e29d).
 - **Whenever `main` is updated, `dev` is updated at the same time, to the
   same commit** - one push, never one without the other, and every tag with
   it: `git push origin dev dev:main --tags`. A release on `main` alone leaves

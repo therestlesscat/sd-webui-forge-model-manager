@@ -2,7 +2,7 @@
 //
 // Historical: it proves one change - both tabs' cards moved to
 // renderModelCard() - by drawing the same models through the code before it
-// (PARITY_COMMIT, default 0a9d4e0) and through the code now, and comparing
+// (PARITY_COMMIT, default 62f53b6) and through the code now, and comparing
 // the markup, whitespace aside. Run it by hand:
 //
 //     node tests/js/card_parity_test.mjs
@@ -94,7 +94,7 @@ if (mode === 'dump') {
 }
 
 // --------------------------------------------------------------- the comparison
-const COMMIT = process.env.PARITY_COMMIT || '0a9d4e0';
+const COMMIT = process.env.PARITY_COMMIT || '62f53b6';
 const OLD = resolve(REPO, 'tests', 'work', 'card_parity_old');
 rmSync(OLD, { recursive: true, force: true });
 mkdirSync(OLD, { recursive: true });

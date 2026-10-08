@@ -5,7 +5,7 @@ It imported the live nsfw.image_level, which has since learnt to read the
 person's prompt words, detection setting and trained model: what v14 wrote
 depended on today's rule and settings, during startup, and renaming that
 function would have stopped every pre-v14 database from opening. It carries
-a frozen copy now - Civitai's fields only, as at 7dad02f - and the prompt
+a frozen copy now - Civitai's fields only, as at 9120570 - and the prompt
 words are prompt_levels' to apply, after startup.
 """
 import json

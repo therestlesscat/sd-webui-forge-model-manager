@@ -735,7 +735,7 @@ def _create_v2_tables(cursor):
 def _v14_image_level(image) -> int:
     """
     How explicit one image is, as nsfw.image_level judged it when v14 was
-    written (7dad02f): Civitai's fields only - browsingLevel, then nsfwLevel
+    written (9120570): Civitai's fields only - browsingLevel, then nsfwLevel
     as a number or its legacy name, then the nsfw flag.
 
     A frozen copy. v14 used to import the live image_level, which has since
