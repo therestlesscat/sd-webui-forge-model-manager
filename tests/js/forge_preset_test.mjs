@@ -780,7 +780,7 @@ click(chip('Not Here'));
 await waitFor('the download', () => chipDownloads.length === 1);
 check('a click on a missing chip downloads the version the image names',
       [chipDownloads[0].version_id, chipDownloads[0].newer_if_gone], ['99', 'true']);
-await waitFor('progress', () => note('Not Here')?.includes('40%'), 4000);
+await waitFor('progress', () => note('Not Here')?.includes('40%'), 200);
 check('how it is going is said under the chips, and the chip takes no clicks meanwhile',
       [note('Not Here'), chip('Not Here').disabled], ['downloading, 40%', true]);
 check('the chip fills as it goes, keeping its mark, its name and nothing else',
@@ -788,7 +788,7 @@ check('the chip fills as it goes, keeping its mark, its name and nothing else',
       ['--mm-chip-progress: 40%', '↓', true]);
 library.versions[99] = { version_id: 99, file_stem: 'not_here', file_type: 'LORA' };
 chipProgress[99] = { version_id: 99, percent: 100, status: 'complete', synced: true };
-await waitFor('the chips to be looked up again', () => !!chip('not_here'), 5000);
+await waitFor('the chips to be looked up again', () => !!chip('not_here'), 200);
 check('once in the library it is a chip like any other, under the file\'s name',
       [chip('not_here')?.disabled, chip('not_here')?.classList.contains('missing'), !!chip('Not Here')],
       [false, false, false]);
@@ -876,7 +876,7 @@ library.hashes.eeee = library.versions[77];
 const promptLine = () => positiveBox.value.split('\n')[0];
 check('before, the prompt names it as the image did', promptLine(), 'a cat, <lora:uploader_name:0.7>');
 click(chip('future_file'));
-await waitFor('the download to land', () => chip('future_file') && !chip('future_file').classList.contains('missing'), 5000);
+await waitFor('the download to land', () => chip('future_file') && !chip('future_file').classList.contains('missing'), 200);
 check('once downloaded, the chip keeps its name and its place', names(), ['flux', 'add_detail', 'future_file', 'unknown_lora']);
 // Send renames a LoRA it finds to its file; one found after, the same - or
 // the prompt and its chip name one LoRA two ways.

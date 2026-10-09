@@ -140,8 +140,8 @@ that the WebUI does not - and ask a real browser ("Probes").
   only if told to: the suite's `key()` sends a keydown no page listener hears.
 - **A suite waits in seconds, never in thousands of tries.** `waitFor` looks
   every 50 ms: 4,000 tries is 200 s, and two such waits in one suite ran a
-  whole run past ten minutes, leaving the suite's process behind. Seven still
-  allow 4,000 or more (#145).
+  whole run past ten minutes, leaving the suite's process behind. The harness
+  refuses a limit over `MAX_WAIT_TRIES`, 400 tries - 20 s (#145).
 - **A shortened poll stays slower than `waitFor`'s look (50 ms).** With the
   restamp poll at 25 ms, a state went by between two looks, and a check that
   reads each state missed it.

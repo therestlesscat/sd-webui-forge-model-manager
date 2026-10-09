@@ -288,6 +288,11 @@ export function mountTab(tabFile) {
     return { window, document: window.document };
 }
 
+// The most tries a wait may ask for: 400 looks, 20 seconds. Seven waits
+// once asked for 4,000-6,000, up to 300 s each, and a broken one held a run
+// for minutes before it said anything (#145). A suite waits in seconds.
+export const MAX_WAIT_TRIES = 400;
+
 /** Collect failures without stopping at the first one. */
 export function checker(label = '') {
     const fails = [];
@@ -308,6 +313,11 @@ export function checker(label = '') {
          * wait on.
          */
         async waitFor(what, predicate, tries = 60) {
+            if (tries > MAX_WAIT_TRIES) {
+                fails.push(`${prefix}waits for ${what}: ${tries} tries is more than ${MAX_WAIT_TRIES}`
+                           + ' - a suite waits in seconds');
+                return;
+            }
             for (let n = 0; n < tries; n++) {
                 if (predicate()) return;
                 await new Promise((r) => setTimeout(r, 50));

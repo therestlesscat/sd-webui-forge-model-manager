@@ -53,7 +53,7 @@ const click = (element) => element?.dispatchEvent(new window.Event('click', { bu
 const count = () => panel().querySelector('.mm-note-count')?.textContent;
 const steps = () => Array.from(panel().querySelectorAll('[data-note-step]')).map((b) => b.disabled);
 const edges = () => panel().querySelectorAll('.mm-note-edge').length;
-await waitFor('the notes', () => notes().length > 0, 6000);
+await waitFor('the notes', () => notes().length > 0, 200);
 
 check('the tab asks for its own notes', asked, ['model_manager']);
 check('a pile: one note in full, the important one on top - headed so, whatever its kind or age',

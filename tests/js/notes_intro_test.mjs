@@ -34,7 +34,7 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 
 const top = () => document.querySelector('#mm_notes [data-note]');
 const click = (element) => element?.dispatchEvent(new window.Event('click', { bubbles: true }));
-await waitFor('the notes', () => top(), 6000);
+await waitFor('the notes', () => top(), 200);
 
 check('the introduction is on top, ahead of even an important note, marked as information',
       [top().dataset.note, top().className, top().querySelector('.mm-banner-icon')?.textContent,
