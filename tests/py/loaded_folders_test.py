@@ -148,6 +148,53 @@ check('and the walk still covers the ignored folder',
 gone = os.path.join(MODELS, 'ESRGAN', 'deleted_by_hand.pth')
 check('a file gone from disk is not ignored, only not held', ignored(gone, neo_esrgan), None)
 
+# ------------------------------------- the ControlNet setting's folder (#197)
+# Both WebUIs' ControlNet also loads from the folder Settings -> ControlNet
+# names (control_net_models_path), which the walk never knew of.
+SETTING_CN = os.path.join(WORK, 'cn_setting')
+setting_controlnet = model_file(SETTING_CN, 'from_setting.safetensors')
+settings = {}
+model_dirs.forge_setting = lambda key: settings.get(key)
+walk = lambda opts: [os.path.normcase(f) for f in model_dirs.find_model_files(model_dirs.library_dirs(opts, MODELS))]
+for name, webui, is_neo in (('Neo', neo, True), ('the original Forge', original, False)):
+    as_neo(is_neo)
+    settings['control_net_models_path'] = SETTING_CN
+    check('%s: the folder the ControlNet setting names is walked, its file held, of its kind' % name,
+          (os.path.normcase(setting_controlnet) in walk(webui()), held(setting_controlnet, webui()),
+           model_dirs.folder_of(setting_controlnet, webui(), MODELS)[0]), (True, True, 'Controlnet'))
+    check('%s: a ControlNet download goes where it went, never the setting\'s folder' % name,
+          os.path.normcase(model_dirs.download_dir('Controlnet', webui(), MODELS)),
+          os.path.normcase(os.path.join(MODELS, 'ControlNet')))
+    settings['control_net_models_path'] = ''
+    check('%s: the setting empty, nothing more is walked' % name,
+          os.path.normcase(setting_controlnet) in walk(webui()), False)
+    settings['control_net_models_path'] = os.path.join(WORK, 'no_such_folder')
+    check('%s: nor when its folder is not there' % name, held(setting_controlnet, webui()), False)
+settings.clear()
+
+# ------------------------------------- the original Forge's other upscalers (#198)
+# The original Forge loads every Upscaler subclass, each from its option and
+# its own folder under models; Neo loads ESRGAN alone.
+real_esrgan = model_file(MODELS, 'RealESRGAN', 'RealESRGAN_x4plus_anime_6B.pth')
+hat = model_file(MODELS, 'HAT', 'HAT_SRx4.pth')
+scunet = model_file(MODELS, 'ScuNET', 'ScuNET.pth')
+dat_given = model_file(SHARED, 'DAT', 'DAT_x4.pth')
+as_neo(False)
+dat_opts = original(dat_models_path=os.path.join(SHARED, 'DAT'))
+check('the original Forge walks models\\RealESRGAN and models\\HAT, and holds their files',
+      ([os.path.normcase(f) in walk(original()) for f in (real_esrgan, hat)],
+       held(real_esrgan, original()), held(hat, original())), ([True, True], True, True))
+check('given --dat-models-path, its folder too, beside models\\DAT',
+      (os.path.normcase(dat_given) in walk(dat_opts), held(dat_given, dat_opts)), (True, True))
+check('an upscaler in models\\ScuNET is in its kind\'s folder, never another type\'s',
+      model_dirs.folder_of(scunet, original(), MODELS)[0], 'Upscaler')
+check('an upscaler download still goes to ESRGAN',
+      os.path.normcase(model_dirs.download_dir('Upscaler', original(), MODELS)),
+      os.path.normcase(os.path.join(MODELS, 'ESRGAN')))
+as_neo(True)
+check('Neo, which loads ESRGAN alone, neither walks nor holds them',
+      (os.path.normcase(real_esrgan) in walk(neo()), held(real_esrgan, neo())), (False, False))
+
 # ---------------------------------------------------------------------- Send
 # A version with a copy in each LoRA folder: the one models\Lora sorts first,
 # and with --lora-dir given it is the copy Forge does not load.

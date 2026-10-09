@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
-from .forge_host import is_neo, model_folders, webui_root
+from .forge_host import forge_setting, is_neo, model_folders, webui_root
 from .hashing import read_hashes
 from .console import say
 
@@ -34,21 +34,34 @@ class Folder:
     WebUI's own loader instead of adding to it - --lora-dir, where --lora-dirs
     adds - in both WebUIs, or in Neo alone when `replaced_in` says "neo"
     (#195). The walk still covers the default: its files are the library's.
+
+    `settings` are the WebUI's own settings that name more folders of the
+    kind - ControlNet's control_net_models_path (#197) - and
+    `original_only`, (folder under models, option or None) pairs the
+    original Forge alone loads beside the kind's own - its other upscalers
+    (#198). Both are walked and loaded, and never filed into: a download
+    goes where it went.
     """
 
     def __init__(self, default: Optional[str], options=(), download: bool = True,
-                 replaced_by: Optional[str] = None, replaced_in: str = "both"):
+                 replaced_by: Optional[str] = None, replaced_in: str = "both",
+                 settings=(), original_only=()):
         self.default = default
         self.options = tuple(options)
         self.download = download
         self.replaced_by = replaced_by
         self.replaced_in = replaced_in
+        self.settings = tuple(settings)
+        self.original_only = tuple(original_only)
 
 
 # Which options replace a default folder, read from each WebUI's loader:
 # networks.py (LoRA), lib_controlnet/global_state.py, shared_items.py
 # (hypernetworks, the original Forge's alone) and modelloader.load_upscalers -
 # Neo reads --esrgan-models-path alone, the original Forge it and ESRGAN.
+# Both ControlNets also read the folder their setting names; the original
+# Forge loads every Upscaler subclass, each from its option and its own
+# folder under models (cmd_name = <name>_models_path) - HAT has no option.
 FOLDERS = {
     "Checkpoint": Folder("Stable-diffusion", ("ckpt_dir", "ckpt_dirs")),
     "LORA": Folder("Lora", ("lora_dir", "lora_dirs"), replaced_by="lora_dir"),
@@ -58,8 +71,12 @@ FOLDERS = {
     "TextEncoder": Folder("text_encoder", ("text_encoder_dir", "text_encoder_dirs")),
     "TextualInversion": Folder(None, ("embeddings_dir",)),
     "Hypernetwork": Folder("hypernetworks", ("hypernetwork_dir",), replaced_by="hypernetwork_dir"),
-    "Controlnet": Folder("ControlNet", ("controlnet_dir", "controlnet_dirs"), replaced_by="controlnet_dir"),
-    "Upscaler": Folder("ESRGAN", ("esrgan_models_path",), replaced_by="esrgan_models_path", replaced_in="neo"),
+    "Controlnet": Folder("ControlNet", ("controlnet_dir", "controlnet_dirs"), replaced_by="controlnet_dir",
+                         settings=("control_net_models_path",)),
+    "Upscaler": Folder("ESRGAN", ("esrgan_models_path",), replaced_by="esrgan_models_path", replaced_in="neo",
+                       original_only=(("RealESRGAN", "realesrgan_models_path"), ("DAT", "dat_models_path"),
+                                      ("HAT", None), ("SwinIR", "swinir_models_path"),
+                                      ("ScuNET", "scunet_models_path"))),
     "MotionModule": Folder("MotionModule"),
     "Poses": Folder("Poses"),
     "Wildcards": Folder("Wildcards"),
@@ -163,8 +180,10 @@ def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
         cmd_opts, models_path = model_folders()
 
     directories = []
+    neo = is_neo()
     for folder in FOLDERS.values():
         directories.extend(option_dirs(cmd_opts, *folder.options))
+        directories.extend(_more_folders(folder, cmd_opts, models_path, neo))
     if models_path:
         directories.extend(os.path.join(models_path, folder.default)
                            for folder in FOLDERS.values() if folder.default)
@@ -206,6 +225,25 @@ def _replacing(folder: Folder, cmd_opts, neo: bool) -> Optional[str]:
     return folder.replaced_by if option_dirs(cmd_opts, folder.replaced_by) else None
 
 
+def _more_folders(folder: Folder, cmd_opts, models_path: Optional[str], neo: bool) -> List[str]:
+    """
+    A kind's folders beyond its own and its options': those its settings
+    name (#197), and in the original Forge those it alone loads (#198).
+    """
+    found = []
+    for key in folder.settings:
+        value = forge_setting(key)
+        if value and str(value).strip():
+            found.append(str(value).strip())
+    if not neo:
+        for name, option in folder.original_only:
+            if option:
+                found.extend(option_dirs(cmd_opts, option))
+            if models_path:
+                found.append(os.path.join(models_path, name))
+    return found
+
+
 def _roots(cmd_opts, models_path, loaded_in_neo: Optional[bool] = None):
     """
     Every folder of each kind, as (kind, absolute path), longest first. With
@@ -220,6 +258,8 @@ def _roots(cmd_opts, models_path, loaded_in_neo: Optional[bool] = None):
         replaced = loaded_in_neo is not None and _replacing(folder, cmd_opts, loaded_in_neo)
         if folder.default is not None and models_path and not replaced:
             named.append(os.path.join(models_path, folder.default))
+        named.extend(_more_folders(folder, cmd_opts, models_path,
+                                   is_neo() if loaded_in_neo is None else loaded_in_neo))
         roots.extend((kind, os.path.abspath(d)) for d in named if d)
     return sorted(roots, key=lambda r: -len(r[1]))
 

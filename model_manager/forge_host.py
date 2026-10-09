@@ -108,6 +108,23 @@ def setting(key: str) -> Any:
 
 # ------------------------------------------------------- Forge's own settings
 
+def forge_setting(key: str) -> Any:
+    """
+    One of the WebUI's own settings, not the extension's - the ControlNet
+    folder its Settings page names (#197): what it holds, or None outside a
+    WebUI. The original Forge's ControlNet reads opts.data, Neo's the option.
+    """
+    try:
+        from modules import shared
+    except ImportError:
+        return None
+    opts = getattr(shared, "opts", None)
+    data = getattr(opts, "data", None)
+    if isinstance(data, dict) and key in data:
+        return data[key]
+    return getattr(opts, key, None)
+
+
 def registered_options() -> Dict[str, Any]:
     """Every setting registered with the WebUI, the extension's and everyone
     else's: key -> its OptionInfo, in the order they were registered."""
