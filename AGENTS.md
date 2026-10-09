@@ -57,8 +57,10 @@ longer existed.
   markdown - its headings, tables and code kept - never flattened to plain
   text. The repository is public:
   the comment holds no personal information - no one's name, email,
-  account or user name, nor a path through a user's folder - and is posted
-  only once the owner has seen its text and said yes.
+  account or user name - and a path in it starts inside a WebUI's folder
+  (`models\ESRGAN`), the WebUI named in words ("Neo's own"), never a drive
+  or the folder a WebUI is installed in. It is posted only once the owner
+  has seen its text and said yes.
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
