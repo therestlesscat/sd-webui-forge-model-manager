@@ -60,7 +60,10 @@ longer existed.
   account or user name - and a path in it starts inside a WebUI's folder
   (`models\ESRGAN`), the WebUI named in words ("Neo's own"), never a drive
   or the folder a WebUI is installed in. It is posted only once the owner
-  has seen its text and said yes.
+  has seen its text and said yes. A change to the plan found while
+  building goes in a second comment, saying what changed - never an edit
+  of the first (#179). Two issues folded into one plan get one comment, on
+  the first: #197's for #198, #105's for #107.
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
@@ -983,6 +986,17 @@ waits - are in `tests/README.md`.
   a POST to `/model-manager/civitai/download` was never followed by the
   page: its poll starts from the page's own Download. So Forge's lists were
   not refreshed, and the first live check of #193 tested nothing.
+- **A live check uses a case only the new code handles.** #179's first
+  LoRA check sent an image whose `<lora:>` tag named the gallery's own
+  LoRA: its chip merged into the gallery's, which the old code drew too, so
+  the check showed nothing new - "what was purpose of your last tests for
+  lora?", the owner asked. Pick the image, the file, the setting the old
+  code gets wrong, as a suite's check has to fail on the old code.
+- **An empty grid: read what it asked the server.** The Model Manager's
+  grid draws nothing until Load Models, and its filters are kept in the
+  browser. On 7880 a LoRA was missing because Type was saved as
+  Checkpoint; it was blamed on the NSFW maximum "Unknown", which hides
+  nothing - the server answered 391 models with it.
 - **A new check has to fail on the old code.** A check that has never failed
   has not been shown to check anything: three separate attempts at one fix
   passed a suite that could not have caught the bug. Swap the file for
@@ -1041,6 +1055,13 @@ waits - are in `tests/README.md`.
   before the page's scripts and watches what they cannot: #128's click
   reaching the document from a detached button, its markup drawn after
   `init()`. Run each side several times: a race shows in some loads only.
+  A fresh test browser already gets the working tree's scripts: Gradio's
+  file route reads the disk, and `asset-version` is their newest mtime. A
+  route is needed for HEAD's files, and for what the server's Python - the
+  old code until a restart - answers: 0.55.2's live check added its new
+  setting to ui-options in the test browser alone. Near a destructive
+  button, route its endpoint to abort as a net: each delete question was
+  opened and cancelled, 100 tiles before and after.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.

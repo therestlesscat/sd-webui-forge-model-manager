@@ -145,6 +145,9 @@ that the WebUI does not - and ask a real browser ("Probes").
 - **A shortened poll stays slower than `waitFor`'s look (50 ms).** With the
   restamp poll at 25 ms, a state went by between two looks, and a check that
   reads each state missed it.
+- **A save added mid-suite moves every wait after it.** `settings_window_test`
+  waits for each save by `saved.length`, and reads `posted` by index: #107's
+  save went at the end, after the last of the four, read as `posted.at(-1)`.
 - **A line the page rewrites later is recorded, not read.** The grid reloads
   500 ms after a sync and replaces the status line; a check that read it
   after a busy moment failed 3 runs in 10. `dialog_test` records every status
