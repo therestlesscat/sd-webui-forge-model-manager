@@ -45,6 +45,7 @@ DEFAULTS = {
     "model_manager_civitai_page_size": 20,
     "model_manager_hide_promptless_images": True,
     "model_manager_generations_hide_nsfw": True,
+    "model_manager_generations_delete_files": False,
     "model_manager_gallery_page_size": 100,
     # Civitai's images loaded as uploaded, not as copies the size they are
     # drawn (#192): a card's copy was 54 KB on average, the upload 66 times that.

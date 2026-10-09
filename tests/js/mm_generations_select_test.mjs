@@ -30,6 +30,8 @@ const deletes = [];
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
+    // Deleting takes the files too, to begin with (#107).
+    if (href.includes('/model-manager/ui-options')) return reply({ success: true, generations_delete_files: true });
     if (href.includes('/generations/delete-many')) {
         const body = Object.fromEntries(new URLSearchParams(String(init.body)));
         deletes.push(body);
@@ -95,9 +97,12 @@ await waitFor('the question', () => document.querySelector('.mm-delete-dialog h3
 check('Delete asks once, counting what the filter hides',
       document.querySelector('.mm-delete-dialog h3')?.textContent,
       'Delete 6 images of 3 generations? (1 of them hidden by the NSFW filter)');
+const filesBox = document.querySelector('.mm-delete-dialog [data-files]');
+check('the files box starts ticked, as the setting says (#107)', filesBox?.checked, true);
+if (filesBox) filesBox.checked = false;
 document.querySelector('.mm-delete-dialog [data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await deleting;
-check('in one request, the generations whole, the files kept - as not asked',
+check('in one request, the generations whole, the files kept - the box unticked',
       deletes, [{ generation_ids: '1,2,3', image_ids: '', delete_files: 'false' }]);
 check('and the cards go', cardEls().length, 0);
 

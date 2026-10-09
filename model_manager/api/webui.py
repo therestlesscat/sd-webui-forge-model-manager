@@ -251,7 +251,7 @@ def register(app: FastAPI):
         from ..forge_host import restartable, samplers, schedulers, setting, short_name
         from ..model_dirs import shown_roots
         from ..db import database_state
-        from ..generations import GENERATIONS_HIDE_NSFW, generations_enabled
+        from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
         from ..scheduler import queue_enabled
         from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
@@ -264,6 +264,8 @@ def register(app: FastAPI):
         gallery_originals = bool(setting('model_manager_gallery_originals'))
         card_originals = bool(setting('model_manager_card_originals'))
         generations_hide_nsfw = bool(setting(GENERATIONS_HIDE_NSFW))
+        # Whether the delete question's files box starts ticked (#107).
+        generations_delete_files = bool(setting(GENERATIONS_DELETE_FILES))
         # "Your generations": off, nothing is recorded and every tab of them is
         # hidden (generations_enabled in generations.py).
         generations_on = generations_enabled()
@@ -300,6 +302,7 @@ def register(app: FastAPI):
                 "gallery_originals": gallery_originals,
                 "card_originals": card_originals,
                 "generations_hide_nsfw": generations_hide_nsfw,
+                "generations_delete_files": generations_delete_files,
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
                 "queue_ask_above": queue_ask_above,
@@ -324,6 +327,7 @@ def register(app: FastAPI):
                  "hide_promptless_images": hide_promptless_images,
                  "gallery_originals": gallery_originals, "card_originals": card_originals,
                  "generations_hide_nsfw": generations_hide_nsfw,
+                 "generations_delete_files": generations_delete_files,
                  "generations_enabled": generations_on,
                  "queue_enabled": queue_on,
                  "tabs": tabs, "restartable": can_restart},

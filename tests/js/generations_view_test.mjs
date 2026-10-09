@@ -112,13 +112,18 @@ function browse(params) {
     };
 }
 
+// Whether a delete takes the files too, to begin with (#107); and the server not answering.
+let deleteFilesSetting = false;
+let uiOptionsDown = false;
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     const params = new URL(href, 'http://webui').searchParams;
     if (href.includes('/send-plan')) return reply({ success: false });
     if (href.includes('/model-manager/ui-options')) {
-        return reply({ success: true, gallery_hide_nsfw: true, hide_promptless_images: true });
+        if (uiOptionsDown) throw new Error('no answer');
+        return reply({ success: true, gallery_hide_nsfw: true, hide_promptless_images: true,
+                       generations_delete_files: deleteFilesSetting });
     }
     if (href.includes('/generations/browse')) {
         asked.push(params);
@@ -457,23 +462,40 @@ await act('generations.send', { tile: 1 });
 check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
 
 // ---------------------------------------------------------------- deleting
+check('an image\'s Delete is red, as every delete is (#105)',
+      tileEls()[1].querySelector('[data-action="generations.delete"]')?.classList.contains('danger'), true);
 const cancelled = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
+check('with the setting off, the files box starts unticked', dialog()?.querySelector('[data-files]')?.checked, false);
 click(dialog().querySelector('[data-close]'));
 await cancelled;
 check('cancelled, nothing is deleted', [posted.length, tileIds()], [1, ['3g', '2', '1g']]);
 
+uiOptionsDown = true;
+const unanswered = act('generations.delete', { tile: 1 });
+await waitFor('the question', () => dialog());
+check('the server not answering, the box starts unticked', dialog()?.querySelector('[data-files]')?.checked, false);
+click(dialog().querySelector('[data-close]'));
+await unanswered;
+uiOptionsDown = false;
+
+// The setting turned on since the last question: the next starts ticked (#107).
+deleteFilesSetting = true;
 const whole = act('generations.delete', { tile: 2 });
 await waitFor('the question', () => dialog());
 check('a batch is deleted whole, and says how many images',
       dialog().querySelector('h3')?.textContent, 'Delete this generation of 3 images?');
+check('with the setting on, the files box starts ticked', dialog()?.querySelector('[data-files]')?.checked, true);
+const box = dialog()?.querySelector('[data-files]');
+if (box) box.checked = false;
 click(dialog().querySelector('[data-confirm]'));
 await whole;
-check('its records only, unless asked', posted.at(-1), ['/generations/1/delete', 'delete_files=false']);
+check('unticked for this one, its records only', posted.at(-1), ['/generations/1/delete', 'delete_files=false']);
 check('and its tile goes', tileIds(), ['3g', '2']);
 
 // Delete from the viewer: that image, and the viewer moves on to the next.
 await call('generations.view', { tile: 0, image: 1 });
+check('the viewer\'s Delete is red too', viewer()?.querySelector('[data-gen-delete]')?.classList.contains('danger'), true);
 const viewDelete = (async () => { click(viewer().querySelector('[data-gen-delete]')); })();
 await waitFor('the question', () => dialog());
 click(dialog().querySelector('[data-confirm]'));
@@ -482,6 +504,8 @@ await waitFor('the next image', () => shownId() === '35');
 check('Delete in the viewer deletes the image shown, and shows the one after it',
       [posted.at(-1)[0], shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent],
       ['/generations/images/34/delete', '35', '2 of 2 in this generation']);
+check('the box left as the setting ticked it, the file goes too', posted.at(-1)[1], 'delete_files=true');
+deleteFilesSetting = false;
 key('Escape');
 
 // ---------------------------------------------------------------- grouping

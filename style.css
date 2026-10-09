@@ -1664,21 +1664,6 @@ body.mm-modal-open {
     cursor: pointer;
 }
 
-.mm-generation-delete {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.85em;
-    color: var(--body-text-color-subdued, #9ca3af);
-}
-
-.mm-generation-delete label {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-}
-
 /* What a page held, under its images: shown, and what each switch hid. */
 .mm-page-note {
     text-align: center;

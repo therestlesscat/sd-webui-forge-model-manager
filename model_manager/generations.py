@@ -58,6 +58,9 @@ RECORD_GENERATIONS = TABS["generations"]
 # How the Generations tab opens: its explicit images hidden or shown. Its own:
 # it used to follow the Model Manager's image gallery setting.
 GENERATIONS_HIDE_NSFW = "model_manager_generations_hide_nsfw"
+# Whether a delete of your own images ticks "Also delete the image files"
+# to begin with (#107): every gallery of them asks the same question.
+GENERATIONS_DELETE_FILES = "model_manager_generations_delete_files"
 
 # What a generation's state is kept under on p, for the hooks that follow.
 _ATTR = "_model_manager_generation"

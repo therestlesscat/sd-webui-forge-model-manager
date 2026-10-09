@@ -29,6 +29,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml, holdPage } = await shared('core.mjs');
+const { fetchUiOptions } = await shared('ui_options.mjs');
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -331,8 +332,12 @@ export function cardSource({ cards, more, loadMore, videoUrl }) {
 /**
  * Ask to delete, and whether the image files go too: resolves to
  * { withFiles }, or null for no. Every gallery of your own images asks it.
+ * The box starts as the settings say now (#107) - asked each time, so a
+ * change on the Settings page counts without a reload - and unticked when
+ * the server does not answer.
  */
-export function askToDelete(question, n = 1) {
+export async function askToDelete(question, n = 1) {
+    const filesToo = (await fetchUiOptions())?.generations_delete_files === true;
     return new Promise((resolve) => {
         let answer = null;
         const backdrop = document.createElement('div');
@@ -341,7 +346,7 @@ export function askToDelete(question, n = 1) {
             <div class="mm-dialog mm-delete-dialog">
                 <h3>${escapeHtml(question)}</h3>
                 <label class="mm-delete-files">
-                    <input type="checkbox" data-files>
+                    <input type="checkbox" data-files${filesToo ? ' checked' : ''}>
                     Also delete the image file${n === 1 ? '' : 's'} from disk
                 </label>
                 <p class="mm-delete-note">Otherwise only the record goes; the file${n === 1 ? ' stays' : 's stay'} where ${n === 1 ? 'it was' : 'they were'} saved.</p>

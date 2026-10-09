@@ -517,7 +517,7 @@ function tileHtml(tile, index) {
         : `<div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
                         data-action="generations.send" data-tile="${index}">${mode}</button>
-                <button type="button" class="mm-btn secondary mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
+                <button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
             </div>`;
     return `
         <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
@@ -1087,7 +1087,7 @@ const viewerSource = {
         const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
         return `${ratingRowHtml(image, 'generations.rateInViewer')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${mode}</button>
-            <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>
+            <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>
             ${menuFor(image).length
                 ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gen-menu title="More">⋯</button>' : ''}`;
     },

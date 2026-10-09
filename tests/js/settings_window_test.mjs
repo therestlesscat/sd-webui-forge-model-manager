@@ -32,6 +32,7 @@ const SETTINGS = {
     model_manager_model_manager_enabled: setting('bool', true),
     model_manager_civitai_browser_enabled: setting('bool', true),
     model_manager_generations_hide_nsfw: setting('bool', true),
+    model_manager_generations_delete_files: setting('bool', false),
     model_manager_nsfw_detection: setting('choice', 'words', { default: 'model', choices: [
         ['Trained model', 'model'], ['Word list', 'words']] }),
     model_manager_nsfw_prompt_model_percent: setting('number', 2, { minimum: 0, maximum: 20, step: 0.25 }),
@@ -292,6 +293,14 @@ check('the Generations tab\'s setting is in Your generations, with its label',
        field(GEN_NSFW)?.querySelector('.mm-settings-label')?.textContent],
       ['generations', 'Generations tab: hide explicit images by default']);
 check('shown while generations are recorded', shown(GEN_NSFW), true);
+// Whether a delete takes the files too, to begin with (#107): under it.
+const GEN_DELETE = 'model_manager_generations_delete_files';
+const sectionKeys = (id) => Array.from(document.querySelectorAll(
+    `.mm-settings-section[data-section="${id}"] .mm-settings-field`)).map((f) => f.dataset.key);
+check('the delete setting is in Your generations, under the explicit-images one, with its label',
+      [sectionKeys('generations').slice(-2), field(GEN_DELETE)?.querySelector('.mm-settings-label')?.textContent],
+      [[GEN_NSFW, GEN_DELETE], 'Delete: also delete the image files, by default']);
+check('shown while generations are recorded, too', shown(GEN_DELETE), true);
 
 // Images as uploaded, not resized (#192): both in Image gallery, which both
 // tabs that show Civitai's images open.
@@ -304,6 +313,7 @@ check('the two image-size settings are in Image gallery, with their labels',
 recording().checked = false;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 check('hidden when they are not', shown(GEN_NSFW), false);
+check('and the delete setting with it', shown(GEN_DELETE), false);
 recording().checked = true;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 
@@ -565,6 +575,18 @@ await waitFor('the save', () => saved.length === 4);
 await new Promise((r) => setTimeout(r, 250));          // two restamp polls: none would come
 check('a save that changes nothing about judging shows no notice',
       [noticeShown, notice()?.style.display], ['', 'none']);
+
+// The delete setting, ticked and saved like any other (#107).
+await call('settings.open');
+const deleteFiles = field(GEN_DELETE)?.querySelector('input[type="checkbox"]');
+if (deleteFiles) {
+    deleteFiles.checked = true;
+    deleteFiles.dispatchEvent(new window.Event('change', { bubbles: true }));
+}
+$('#mm_settings_save').click();
+await waitFor('the save', () => saved.length === 5);
+check('ticked and saved, the delete setting is sent by its key', posted.at(-1),
+      { model_manager_generations_delete_files: true });
 
 // ------------------------------------------- from the WebUI's Settings page
 // Apply there saves through the same opts.set(), so the same pass runs. Its

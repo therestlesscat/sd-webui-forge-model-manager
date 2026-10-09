@@ -2475,7 +2475,7 @@ const generationViewerSource = {
         return `${ratingRowHtml(image, 'modelManager.rateInViewer')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
-            <button type="button" class="mm-btn secondary mm-btn-small" data-gen-delete>Delete</button>`;
+            <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>`;
     },
     details: (index) => {
         const { card, image } = generationViewerImages()[index] || {};
@@ -2613,12 +2613,7 @@ function renderGenerationCard(card, index) {
                         data-action="modelManager.showGenerationResources" data-generation="${Number(card.id)}">${resourcesLabel}</button>` : ''}
                     ${moreThanShown || card.all ? `<button class="mm-btn secondary" data-action="modelManager.showAllGeneration" data-generation="${Number(card.id)}">
                         ${card.all ? 'Hide images' : 'Show images'} (${card.matching_count})</button>` : ''}
-                    <span class="mm-generation-delete">
-                        <button class="mm-btn secondary" data-action="modelManager.deleteGeneration" data-generation="${Number(card.id)}">Delete</button>
-                        <label title="Also delete the image files from disk; off, only the record goes">
-                            <input type="checkbox" id="mm_generation_delete_files_${card.id}"> also delete image files
-                        </label>
-                    </span>
+                    <button class="mm-btn danger" data-action="modelManager.deleteGeneration" data-generation="${Number(card.id)}">Delete</button>
                 </div>
                 ${card.all ? `<div class="mm-generation-all">${card.all.map((img) => rateGenerations
                     ? `<div class="mm-generation-rated">${generationImageHtml(img, { viewable: true })}${ratingRowHtml(img,
@@ -2672,19 +2667,17 @@ async function showAllGeneration(id) {
     }
 }
 
-/** Delete a generation's record, and its image files when the box beside Delete is ticked. */
+/**
+ * Delete a generation's record, asking first - and whether its image files go
+ * too - as every gallery of your own images asks (#107).
+ */
 async function deleteGeneration(id) {
     const { card } = drawnGeneration(id);
     if (!card) return;
-    const withFiles = !!document.getElementById(`mm_generation_delete_files_${card.id}`)?.checked;
     const n = card.image_count || 1;
-    const confirmed = confirm(withFiles
-        ? `Delete this generation and its ${n} image file${n === 1 ? '' : 's'}?\n\n`
-          + 'The image files are deleted from disk. This cannot be undone.'
-        : 'Delete this generation\'s record?\n\n'
-          + `Its ${n} image file${n === 1 ? ' stays' : 's stay'} on disk; only the record goes, `
-          + 'from this gallery and from those of the other models it used.');
-    if (!confirmed) return;
+    const answer = await askToDelete(`Delete this generation of ${n} image${n === 1 ? '' : 's'}?`, n);
+    if (!answer) return;
+    const { withFiles } = answer;
     const data = await requestGenerationDelete(card.id, withFiles, (message) => setStatus(message, true));
     if (!data) return;
     const failed = data.failed || [];

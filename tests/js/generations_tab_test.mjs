@@ -55,13 +55,15 @@ const STATE = { offset: 0, generation_count: 2, total: 7, filtered: 7, hidden_ns
 const asked = [];
 const ratings = [];
 let deleteBody = null;
+// Whether a delete takes the files too, to begin with (#107).
+let deleteFilesSetting = false;
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], has_api_key: true,
-                       image_browsing: 'continuous' });
+                       image_browsing: 'continuous', generations_delete_files: deleteFilesSetting });
     }
     if (href.includes('/model-manager/generations/page')) {
         const cards = CARDS.filter((c) => !c.deleted);
@@ -109,7 +111,11 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     }
     return reply({ success: true });
 });
-window.confirm = globalThis.confirm = () => true;
+let confirms = 0;
+window.confirm = globalThis.confirm = () => { confirms += 1; return true; };
+// The delete question every gallery of your own images asks (shared/viewer.mjs).
+const deleteDialog = () => document.querySelector('.mm-delete-dialog');
+const press = (el) => el?.dispatchEvent(new window.Event('click', { bubbles: true }));
 
 // Each generation tab's prompt and paste button, for Send.
 document.body.insertAdjacentHTML('beforeend', `
@@ -194,6 +200,15 @@ check('with its own Send, Resources and Delete, and its rating row, below it',
       [Array.from(viewer().querySelectorAll('.mm-viewer-actions > button')).map((b) => b.textContent.trim()),
        viewer().querySelectorAll('.mm-viewer-actions .mm-rate-chip').length],
       [['Send to txt2img', 'Resources (1)', 'Delete'], 5]);
+check('its Delete is red, as every delete is (#105)',
+      viewer().querySelector('[data-gen-delete]')?.classList.contains('danger'), true);
+deleteFilesSetting = true;
+press(viewer().querySelector('[data-gen-delete]'));
+await waitFor('the question', () => deleteDialog());
+check('with the setting on, its question starts with the files box ticked (#107)',
+      deleteDialog()?.querySelector('[data-files]')?.checked, true);
+press(deleteDialog()?.querySelector('[data-close]'));
+deleteFilesSetting = false;
 // Its id, to name one image when reporting what it did.
 check('its details say the image\'s id',
       viewer().querySelector('.mm-viewer-info .mm-generation-when')?.textContent.trim().endsWith('Image ID 11'), true);
@@ -258,9 +273,28 @@ check('and opening your generations again fetches them again',
       asked.slice(askedBefore).some((u) => u.includes('/generations/page')), true);
 await waitFor('the cards again', () => cards().length === 2);
 
-cards()[0].querySelector('input[type="checkbox"]').checked = true;
+check('a generation\'s card has a red Delete, and no box beside it (#105, #107)',
+      [cards()[0].querySelector('[data-action="modelManager.deleteGeneration"]')?.classList.contains('danger'),
+       cards()[0].querySelectorAll('input[type="checkbox"]').length], [true, 0]);
+const confirmsBefore = confirms;
+const cancelled = act('modelManager.deleteGeneration', { generation: 1 });
+await waitFor('the question', () => deleteDialog());
+check('its Delete asks the delete question, as every gallery of your own images does - not the browser\'s confirm',
+      [deleteDialog()?.querySelector('h3')?.textContent, confirms - confirmsBefore],
+      ['Delete this generation of 1 image?', 0]);
+press(deleteDialog()?.querySelector('[data-close]'));
+await cancelled;
+check('cancelled, nothing is asked of the server', deleteBody, null);
 const remaining = cards()[1];
-await act('modelManager.deleteGeneration', { generation: 1 });
+// (Before #107 the browser's confirm, answered yes, deleted it already.)
+if (deleteBody === null) {
+    const deleting = act('modelManager.deleteGeneration', { generation: 1 });
+    await waitFor('the question', () => deleteDialog());
+    const filesBox = deleteDialog()?.querySelector('[data-files]');
+    if (filesBox) filesBox.checked = true;
+    press(deleteDialog()?.querySelector('[data-confirm]'));
+    await deleting;
+}
 check('Delete, with the box ticked, asks for the files to go too', deleteBody, 'delete_files=true');
 await waitFor('the card gone', () => cards().length === 1);
 check('and its card goes where it was: the rest are not drawn again, and the tab counts one fewer',

@@ -44,7 +44,9 @@ globalThis.fetch = async (url, init = {}) => {
                                 stored_generations: 3 },
                        scope: { count: 8 } });
     }
-    if (href.includes('/model-manager/ui-options')) return reply({ success: true, gallery_hide_nsfw: true });
+    if (href.includes('/model-manager/ui-options')) {
+        return reply({ success: true, gallery_hide_nsfw: true, generations_delete_files: true });
+    }
     return reply({ success: true });
 };
 
@@ -124,7 +126,7 @@ await waitFor('the question', () => document.querySelector('.mm-dialog-backdrop'
 const dialog = document.querySelector('.mm-dialog-backdrop');
 check('Delete asks once: how many images, of how many generations, how many hidden',
       dialog.querySelector('h3')?.textContent, 'Delete 9 images of 3 generations? (1 of them hidden by the NSFW filter)');
-dialog.querySelector('[data-files]').checked = true;
+check('the files box starts ticked, as the setting says (#107)', dialog.querySelector('[data-files]')?.checked, true);
 dialog.querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await deleting;
 check('in one request: the batches whole, the image alone, the files as asked',

@@ -12,7 +12,7 @@ from modules import shared
 
 from ..forge_host import DEFAULTS
 from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
-from ..generations import GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
+from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from .. import prompt_levels
 from ..scheduler import QUEUE_ENABLED
 from ..tabs import TABS
@@ -219,6 +219,16 @@ def on_ui_settings():
     )
     if carried_generations is not None:
         shared.opts.data[GENERATIONS_HIDE_NSFW] = carried_generations
+
+    shared.opts.add_option(
+        GENERATIONS_DELETE_FILES,
+        shared.OptionInfo(
+            default=DEFAULTS[GENERATIONS_DELETE_FILES],
+            label="Your generations: deleting also deletes the image files, by default",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Ticks the box in the delete question. It can still be unticked for one delete.")
+    )
 
     shared.opts.add_option(
         PAGE_SIZE_SETTING,

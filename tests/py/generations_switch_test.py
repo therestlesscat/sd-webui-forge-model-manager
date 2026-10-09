@@ -84,6 +84,9 @@ check('and on', client.get('/model-manager/ui-options').json()['generations_enab
 shared.opts.model_manager_generations_hide_nsfw = False
 check('it tells the page how the Generations tab opens - its own setting',
       client.get('/model-manager/ui-options').json()['generations_hide_nsfw'], False)
+shared.opts.model_manager_generations_delete_files = True
+check('and whether a delete ticks "Also delete the image files" to begin with (#107)',
+      client.get('/model-manager/ui-options').json().get('generations_delete_files'), True)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

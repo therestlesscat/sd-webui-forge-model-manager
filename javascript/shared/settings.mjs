@@ -41,6 +41,7 @@ const K = {
     cardOriginals: 'model_manager_card_originals',
     recordGenerations: 'model_manager_record_generations',
     generationsNsfw: 'model_manager_generations_hide_nsfw',
+    generationsDeleteFiles: 'model_manager_generations_delete_files',
     queueEnabled: 'model_manager_queue_enabled',
     mmEnabled: 'model_manager_model_manager_enabled',
     cbEnabled: 'model_manager_civitai_browser_enabled',
@@ -76,7 +77,7 @@ const SECTIONS = [
     { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser'],
       shownWith: ['model_manager', 'civitai_browser'], keys: [K.galleryNsfw, K.promptless, K.pageSize, K.galleryOriginals, K.cardOriginals] },
     { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
-      shownWith: ['generations'], keys: [K.generationsNsfw] },
+      shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles] },
     { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
     { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations'],
       shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.detection, K.percent, K.words] },
@@ -112,6 +113,7 @@ const LABELS = {
     [K.cardOriginals]: 'Model cards: load as uploaded, not resized',
     [K.recordGenerations]: 'Your generations: record the images you generate, and show them',
     [K.generationsNsfw]: 'Generations tab: hide explicit images by default',
+    [K.generationsDeleteFiles]: 'Delete: also delete the image files, by default',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
     [K.mmEnabled]: 'Model Manager tab',
     [K.cbEnabled]: 'Civitai Browser tab',
@@ -136,6 +138,7 @@ const SHOWN_WHEN = {
     [K.percent]: (s) => s.value(K.detection) === 'model',
     // No Generations tab while nothing is recorded.
     [K.generationsNsfw]: (s) => s.value(K.recordGenerations) !== false,
+    [K.generationsDeleteFiles]: (s) => s.value(K.recordGenerations) !== false,
     // Nothing is queued while the queue is off.
     [K.queueInputs]: (s) => s.value(K.queueEnabled) !== false,
     [K.queueAskAbove]: (s) => s.value(K.queueEnabled) !== false,
