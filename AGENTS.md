@@ -151,6 +151,10 @@ longer existed.
 - **Leave nothing running.** Kill any server, watcher or background job you
   start, in the turn you use it. Two test servers were once left running for
   twenty-three hours.
+- **Ask before every Playwright test.** No exceptions - a read-only one,
+  and the side-by-side checks under "Proving a change", included - unless
+  the owner asked for that test first, and a yes covers only the test it
+  answered. 0.55.2's live check ran on 7870 unasked (2026-10-09).
 
 ## Layout
 
