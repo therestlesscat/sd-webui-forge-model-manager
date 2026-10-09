@@ -754,15 +754,19 @@ def register(app: FastAPI):
             hashes: Comma-separated hashes (the infotext's resources).
             names: A JSON list of {name, hash}: the resources the infotext
                 names, for any that neither an id nor a hash finds - a file
-                Civitai does not know. `hash`, if the
+                Civitai does not know - and the LoRAs its prompts name in
+                a <lora:...> tag alone, with no hash (#179). `hash`, if the
                 image gives one, has to be the file's.
 
         Returns:
             versions: version id -> file; hashes: hash (lower case) -> file;
-            names: name (lower case) -> file, found by its file name.
-            A file is {version_id, file_stem, file_type}: file_stem is the
-            name Forge knows it by in a prompt, file_type what the file itself
-            is (file_identity.py), or null before a sync has read it.
+            names: name (lower case) -> file, found by its file name;
+            embeddings: every embedding this WebUI loads, for the page to
+            find a prompt naming one no resource lists (#179).
+            A file is {version_id, file_stem, file_type, architecture}:
+            file_stem is the name Forge knows it by in a prompt, file_type
+            what the file itself is (file_identity.py), or null before a sync
+            has read it, architecture the model it is for ("sd", "xl").
         """
         def split(values):
             return [v.strip() for v in (values or "").split(",") if v.strip()]

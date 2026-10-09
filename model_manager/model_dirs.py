@@ -139,6 +139,20 @@ def lora_folders(cmd_opts=None) -> Optional[List[str]]:
     return [os.path.abspath(f) for f in folders] or None
 
 
+def embedding_folders(cmd_opts=None) -> Optional[List[str]]:
+    """
+    The folder the running WebUI loads embeddings from, and walks whole:
+    --embeddings-dir, which defaults to its own embeddings folder (both
+    WebUIs' ui_extra_networks_textual_inversion.py). An embedding anywhere
+    else - the LoRA folder, the other WebUI's - it never loads (#179). None
+    outside a WebUI, where it is not known.
+    """
+    if cmd_opts is None:
+        cmd_opts, _ = model_folders()
+    folders = option_dirs(cmd_opts, *FOLDERS["TextualInversion"].options)
+    return [os.path.abspath(f) for f in folders] or None
+
+
 def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
     """
     Every folder the library walks, as absolute paths: each one an option

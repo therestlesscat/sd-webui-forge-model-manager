@@ -350,6 +350,10 @@ class ModelsDatabase:
         """The local files named each of these. See ModelsOps.local_versions_by_name()."""
         return self._models.local_versions_by_name(names)
 
+    def local_embeddings(self) -> List[Dict[str, Any]]:
+        """Every file a sync read as an embedding. See ModelsOps.local_embeddings()."""
+        return self._models.local_embeddings()
+
     def local_versions_by_alias(self, aliases: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """The local files with each of these LoRA aliases. See ModelsOps.local_versions_by_alias()."""
         return self._models.local_versions_by_alias(aliases)

@@ -273,13 +273,15 @@ def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
         preset (None if unknown), checkpoint (the name Forge lists it under,
         None if it does not), checkpoint_missing (its file name, then),
         target (the module labels to hold), modules_missing (the recorded
-        modules Forge does not offer).
+        modules Forge does not offer), embeddings (the kind of embedding the
+        checkpoint loads: forge_host.embedding_kind).
     """
     from ..file_identity import identify
-    from ..forge_host import checkpoint_name, installed_modules
+    from ..forge_host import checkpoint_name, embedding_kind, installed_modules
     from ..identity_store import record_architecture
 
     preset = None
+    model_class = None
     if path:
         # Read as any checkpoint is, once, and stored; a file the library
         # does not hold is read without storing.
@@ -288,9 +290,11 @@ def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
             record_architecture(db, spelled)
         except Exception as e:
             say(f"Could not read {os.path.basename(path)}: {e}")
-        preset = (db.get_version(spelled) or {}).get("architecture")
+        row = db.get_version(spelled) or {}
+        preset, model_class = row.get("architecture"), row.get("architecture_class")
         if not preset and os.path.isfile(path):
-            preset = identify(path).preset
+            found = identify(path)
+            preset, model_class = found.preset, found.model_class
 
     checkpoint = checkpoint_name(path)
     installed = installed_modules()
@@ -301,6 +305,7 @@ def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
         "checkpoint_missing": os.path.basename(path) if path and not checkpoint else None,
         "target": [m for m in recorded if m in installed],
         "modules_missing": [m for m in recorded if m not in installed],
+        "embeddings": embedding_kind(model_class, preset),
     }
 
 

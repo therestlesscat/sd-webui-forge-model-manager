@@ -67,6 +67,27 @@ export function toggleChip(prompt, chip) {
         .replace(new RegExp(`${tag}\\s*,?\\s*`, 'gi'), '');
 }
 
+// A <lora:...> tag as Forge reads one (modules/extra_networks.py): `lora` in
+// lower case - <LORA:...> is no tag - its name to the first : or >, then its
+// weight, 1 where it gives none (extra_networks_lora.py).
+const LORA_TAG = /<lora:([^:>]+)(?::([^:>]*))?[^>]*>/g;
+
+/**
+ * The LoRAs an image's prompts name in a <lora:...> tag: [{ name, weight }],
+ * once each. A chip is made for one no resource lists (#179).
+ */
+export function promptLoras(meta) {
+    const found = new Map();
+    for (const text of [meta && meta.prompt, meta && meta.negativePrompt]) {
+        for (const tag of String(text || '').matchAll(LORA_TAG)) {
+            const name = tag[1];
+            const weight = Number.parseFloat(tag[2]);
+            if (!found.has(name.toLowerCase())) found.set(name.toLowerCase(), { name, weight: Number.isFinite(weight) ? weight : 1 });
+        }
+    }
+    return [...found.values()];
+}
+
 /** A prompt with <lora:from...> tags naming the same file as <lora:to...>. */
 export function renameLoraTags(prompt, from, to) {
     if (!prompt || !from || !to || from === to) return prompt;
@@ -137,6 +158,7 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
         const known = chips.get(key);
         if (known) {
             if (file && !known.installed) Object.assign(known, { installed: true, name, byName: named });
+            if (file && !known.architecture) known.architecture = file.architecture || null;
             if (file && !named) known.byName = false;
             if (known.weight === null && weight !== undefined && weight !== null) known.weight = weight;
             known.versionId = known.versionId || versionId || (file && file.version_id) || null;
@@ -148,7 +170,7 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
                              aliases: new Set(), title: label || name,
                              versionId: versionId || (file && file.version_id) || null,
                              modelId: modelId || null, hash: hash || null, byName: !!file && named,
-                             notOnCivitai });
+                             notOnCivitai, architecture: (file && file.architecture) || null });
         }
         if (file && alias && alias !== name) {
             chips.get(key).aliases.add(alias);
@@ -171,6 +193,32 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
         const named = !found && r.name ? byName[String(r.name).toLowerCase()] : null;
         add({ file: found || named, type: r.type, label: r.name, named: !!named,
               weight: r.weight, alias: r.name, hash: hash || null });
+    }
+
+    // A LoRA a prompt names in a tag alone (#179): by the hash Forge wrote
+    // for it, if any, else by its name as Forge finds the file, at the tag's
+    // weight. A tag naming what a resource lists - by its name, or a chip's
+    // file or alias - is that resource, which has its chip already.
+    const listed = new Set([
+        ...((meta && meta.resources) || []).map((r) => String(r.name || '').toLowerCase()),
+        ...[...chips.values()].flatMap((c) => [c.name, ...c.aliases]).map((n) => String(n).toLowerCase())]);
+    for (const tag of promptLoras(meta)) {
+        if (listed.has(tag.name.toLowerCase())) continue;
+        const hash = String(resourceHash(meta, { type: 'lora', name: tag.name }) || '').toLowerCase();
+        const found = hash ? byHash[hash] : null;
+        const named = !found ? byName[tag.name.toLowerCase()] : null;
+        add({ file: found || named, type: 'lora', label: tag.name, named: !!named,
+              weight: tag.weight, alias: tag.name, hash: hash || null });
+    }
+    // An embedding a prompt names as a word, which no resource lists (#179):
+    // of those this WebUI loads, each whose name a prompt holds, as Forge
+    // finds one - the whole name, ignoring case. One the library lacks
+    // cannot be told from a word, and has no chip.
+    const prompts = `${(meta && meta.prompt) || ''}\n${(meta && meta.negativePrompt) || ''}`;
+    for (const file of (files && files.embeddings) || []) {
+        if (promptHasChip(prompts, { kind: 'embedding', name: file.file_stem })) {
+            add({ file, type: file.file_type, label: file.file_stem });
+        }
     }
 
     // A chip the infotext names by name alone - no hash, no version, no file -
@@ -222,9 +270,17 @@ function resourceHash(meta, resource) {
  * each with the hash the image gives for it, which the file has to match.
  */
 export function resourceNames(meta) {
-    return ((meta && meta.resources) || [])
+    const named = ((meta && meta.resources) || [])
         .filter((r) => r.name && resourceKind(r.type))
         .map((r) => ({ name: r.name, hash: String(r.hash || resourceHash(meta, r) || '') }));
+    // And the LoRAs the prompts name in a tag alone (#179).
+    const listed = new Set(named.map((n) => n.name.toLowerCase()));
+    for (const tag of promptLoras(meta)) {
+        if (!listed.has(tag.name.toLowerCase())) {
+            named.push({ name: tag.name, hash: String(resourceHash(meta, { type: 'lora', name: tag.name }) || '') });
+        }
+    }
+    return named;
 }
 
 export function renderResource(resource) {
@@ -289,8 +345,9 @@ const resourceChipsPending = {};
 function missingChipState(chip) {
     const what = chip.kind === 'lora' ? 'LoRA' : 'embedding';
     if (!chip.versionId && !chip.hash) {
-        return { busy: true, unavailable: true, note: 'no hash recorded',
-                 title: `${chip.title}: the image names it without a hash or a version, so it cannot be found` };
+        return { busy: true, unavailable: true, note: 'not in the library',
+                 title: `${chip.title} is not in the library. It is named without a hash or a version, `
+                     + 'so Civitai cannot be asked which it is' };
     }
     const job = chip.versionId ? resourceDownloads[chip.versionId] : chip.lookup;
     // Downloads run with the Model Manager or the Civitai Browser (#182).
@@ -332,6 +389,34 @@ function missingChipState(chip) {
     }
     return { busy: false, quiet: true, note: `missing ${what}, click to download`,
              title: `${chip.title} is not in the library: click to download it` };
+}
+
+// An embedding's kind, as file_identity names it, and as a person reads it.
+const EMBEDDING_KINDS = { sd: 'SD 1.x', sd2: 'SD 2.x', xl: 'SDXL' };
+
+/**
+ * An embedding the library has that Forge will not use with the send's
+ * model, said as a missing chip's state is - or null for one it will, or
+ * where the send's model is not known (`loads` undefined). Forge loads only
+ * the embeddings made for its model's kind, and skips the rest without a
+ * word (#179): `loads` is the plan's answer, forge_host.embedding_kind -
+ * "sd", "sd2", "xl", "none", or null for not known.
+ */
+function skippedState(chip, loads) {
+    if (chip.kind !== 'embedding' || loads === undefined) return null;
+    if (loads === 'none') {
+        return { unavailable: true, note: 'not used with this model',
+                 title: `${chip.title}: Forge loads no embeddings with this model` };
+    }
+    const made = EMBEDDING_KINDS[chip.architecture];
+    if (!loads || !made) {
+        return { unavailable: true, mark: '?', note: 'not known if this model uses it',
+                 title: `${chip.title}: whether Forge loads it with this model is not known` };
+    }
+    if (chip.architecture === loads) return null;
+    const model = EMBEDDING_KINDS[loads] || loads;
+    return { unavailable: true, note: `made for ${made}, skipped with this ${model} model`,
+             title: `${chip.title} is made for ${made}: Forge skips it with this ${model} model` };
 }
 
 /** Redraw every tab's chips, to show a download's progress. */
@@ -504,7 +589,9 @@ export async function fetchImageFiles(img) {
     // The resources' own hashes, and those the image keeps apart from them.
     const hashes = [...new Set([...imageResourceHashes(img),
                                 ...named.map((n) => n.hash.toLowerCase()).filter(Boolean)])];
-    if (!ids.length && !hashes.length && !named.length) return none;
+    // A prompt alone may name a library embedding: asked whenever it says anything (#179).
+    const meta = img.meta || {};
+    if (!ids.length && !hashes.length && !named.length && !meta.prompt && !meta.negativePrompt) return none;
     try {
         const data = await apiCall({ endpoint: '/model-manager/image-resources',
                                      params: { version_ids: ids.join(','), hashes: hashes.join(','),
@@ -541,16 +628,21 @@ export function showResourceChips(tab, chips) {
     element.id = `mm_resource_chips_${tab}`;
     element.className = 'mm-resource-chips';
     const pending = !!resourceChipsPending[tab];
+    // The kind of embedding the send's model loads, from its plan.
+    const loads = resourceChipSources[tab]?.embeddings;
+    const stateOf = (chip) => (chip.installed ? skippedState(chip, loads) : missingChipState(chip));
     const chipsHtml = resourceChips[tab].map((chip, index) => {
         if (pending && !chip.installed) return '';
         const notes = [chip.kind === 'lora' ? `weight ${chip.weight}` : 'embedding',
                        chip.where === 'negative' ? 'negative prompt' : ''].filter(Boolean);
-        const missing = chip.installed ? null : missingChipState(chip);
+        const missing = stateOf(chip);
         const title = missing ? missing.title : `${chip.title} (${notes.join(', ')})`;
         // Whether it can be used is said by colour and a mark; whether a
         // prompt holds it, by filled or outlined (updateResourceChipStates).
+        // One the library has that the model skips still goes in and out of
+        // the prompt: it is no missing chip.
         const state = !missing ? 'have' : missing.unavailable ? 'unavailable' : 'download';
-        const classes = missing ? (missing.unavailable ? ' missing unavailable' : ' missing') : '';
+        const classes = !missing || chip.installed ? '' : missing.unavailable ? ' missing unavailable' : ' missing';
         // A download's progress fills the chip, rather than widening it.
         const progress = missing && missing.progress !== undefined
             ? ` data-progress style="--mm-chip-progress: ${Math.max(0, Math.min(100, Number(missing.progress)))}%"` : '';
@@ -564,7 +656,7 @@ export function showResourceChips(tab, chips) {
     // What each missing chip is doing, in words, on a line of its own under
     // the chips: it can grow and shrink without moving one of them.
     const statuses = pending ? '' : resourceChips[tab].map((chip, index) => {
-        const missing = chip.installed ? null : missingChipState(chip);
+        const missing = stateOf(chip);
         if (!missing || missing.quiet) return '';
         return `<span class="mm-resource-chip-status" data-status-chip="${index}"
                       data-state="${missing.unavailable ? 'unavailable' : 'download'}"><b>${escapeHtml(chip.name)}</b>: `

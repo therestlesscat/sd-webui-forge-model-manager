@@ -1118,6 +1118,19 @@ class ModelsOps:
             rows = self._whole_rows(cursor, [p for paths in named.values() for p in paths])
         return {stem: [rows[p] for p in paths] for stem, paths in named.items()}
 
+    def local_embeddings(self) -> List[Dict[str, Any]]:
+        """
+        Every file the library holds that a sync read as an embedding, in
+        any folder - which of them a WebUI loads is the caller's to say. For
+        the chips, which look for each one's name in a prompt (#179).
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path FROM files WHERE file_type = 'TextualInversion' "
+                           "AND file_path IS NOT NULL ORDER BY rowid")
+            paths = [row["file_path"] for row in cursor.fetchall()]
+            rows = self._whole_rows(cursor, paths)
+        return [rows[p] for p in paths if p in rows]
+
     def local_versions_by_alias(self, aliases: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """
         The local files whose LoRA alias is each of these: {alias: [row, ...]}.

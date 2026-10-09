@@ -150,5 +150,24 @@ for path, tree in sorted(trees.items()):
 check('every setting the extension asks for by name is in the table', unknown, [])
 check('and it asks for them that way (a count that cannot be zero)', asked > 20, True)
 
+# ---------------------------------------- which embeddings a model loads
+# Forge loads an embedding only if it is made for the model's kind, and skips
+# the rest without a word (#179): each engine's embedding_expected_shape. The
+# two WebUIs run different engines, read from their own code.
+real_is_neo = host.is_neo
+# Asked by name, so code without it fails these checks rather than the suite.
+embedding_kind = getattr(host, 'embedding_kind', lambda *a: 'missing')
+kinds = {}
+for neo in (True, False):
+    host.is_neo = lambda neo=neo: neo
+    kinds[neo] = [embedding_kind(c) for c in ('SD15', 'SDXL', 'Flux', 'Chroma', 'QwenImage', 'Mugen', 'SD20', 'SD3')]
+host.is_neo = real_is_neo
+check('Neo: SD 1.5 and Flux load SD 1.x embeddings, SDXL and Mugen SDXL ones, the rest none',
+      kinds[True], ['sd', 'xl', 'sd', 'none', 'none', 'xl', 'none', 'none'])
+check('the original Forge: SD 2.x its own kind, SD 3 SD 1.x ones, and no Mugen',
+      kinds[False], ['sd', 'xl', 'sd', 'none', 'none', 'none', 'sd2', 'sd'])
+check('with no model class, the UI preset says it for SD and SDXL alone, else not known',
+      [embedding_kind(None, p) for p in ('sd', 'xl', 'flux', None)], ['sd', 'xl', None, None])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

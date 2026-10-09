@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.55 - Chips for what a prompt names alone.** After a Send, a LoRA named only in a
+`<lora:...>` tag, and a library embedding written only as a word, get a chip under the prompt
+too, found as Forge would find them. An embedding Forge would skip with the model being sent -
+an SD 1.x one under an SDXL checkpoint - says so, instead of showing as ready.
+
 **0.54 - Files your WebUI ignores say so.** Some command-line options replace a model type's
 own folder instead of adding to it - `--lora-dir`, `--controlnet-dir`, and in Forge Neo
 `--esrgan-models-path`. A file left in the replaced folder is now tagged "Ignored by Neo" or

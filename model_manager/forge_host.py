@@ -446,6 +446,31 @@ def short_name() -> str:
     return "Neo" if is_neo() else "Forge"
 
 
+# The embeddings each of Forge's model classes loads, by the kind
+# file_identity gives an embedding: an engine loads only those whose width is
+# its `embedding_expected_shape` (backend/diffusion_engine/*.py) - 768 an SD
+# 1.x one ("sd"), 1024 SD 2.x ("sd2"), 2048 SDXL's two together ("xl") - and
+# skips the rest without a word. A class missing here has no text encoder
+# that takes embeddings: it loads none.
+_EMBEDDINGS_NEO = {"SD15": "sd", "SDXL": "xl", "SDXLRefiner": "xl", "Mugen": "xl",
+                   "Flux": "sd", "FluxSchnell": "sd"}
+_EMBEDDINGS_FORGE = {"SD15": "sd", "SD20": "sd2", "SDXL": "xl", "SDXLRefiner": "xl",
+                     "Flux": "sd", "FluxSchnell": "sd", "SD3": "sd"}
+
+
+def embedding_kind(model_class: Optional[str], preset: Optional[str] = None) -> Optional[str]:
+    """
+    The kind of embedding this WebUI loads with a checkpoint: "sd", "sd2",
+    "xl", or "none" when it loads none - or None, not known: no model class,
+    and a UI preset that does not say (#179). The two WebUIs run different
+    engines: SD 2.x and SD 3 only the original Forge, Mugen only Neo.
+    """
+    table = _EMBEDDINGS_NEO if is_neo() else _EMBEDDINGS_FORGE
+    if model_class:
+        return table.get(model_class, "none")
+    return preset if preset in ("sd", "xl") else None
+
+
 def forge_name() -> str:
     """Which Forge made it, and its version."""
     neo = is_neo()

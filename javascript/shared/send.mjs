@@ -86,8 +86,10 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // prompt names otherwise than its file - by its alias, as Forge writes it
     // with "Alias from file" - is pasted under the file's name, as there: its
     // chip names the file, and is lit only by a tag with that name.
-    const files = meta.resources?.length ? await fetchImageFiles(image) : null;
-    const resources = files ? collectResourceChips(meta, files, null) : null;
+    // Asked whenever the prompt says anything: it may name a LoRA or an
+    // embedding no resource lists (#179).
+    const files = await fetchImageFiles(image);
+    const resources = collectResourceChips(meta, files, null);
     if (resources) {
         infotext = resources.renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), infotext);
     }
@@ -95,7 +97,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste })) return false;
     showGenerationTab(tab);
     if (resources) {
-        resourceChipSources[tab] = { img: image, gallery: null, files };
+        resourceChipSources[tab] = { img: image, gallery: null, files, embeddings: plan?.embeddings };
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
     }
@@ -1369,7 +1371,9 @@ export async function sendGalleryImage({ img, model, version }) {
         if (!pasted) return;
 
         showGenerationTab(tab);
-        resourceChipSources[tab] = { img, gallery: galleryFile(model, version), files };
+        // With the kind of embedding the model loads: a chip says which it skips (#179).
+        resourceChipSources[tab] = { img, gallery: galleryFile(model, version), files,
+                                     embeddings: plan?.embeddings };
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
 

@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.55 - Chips for what a prompt names alone
+
+*9 October 2026*
+
+After a Send, the chips under the prompt now also cover the LoRAs and embeddings an image names only in its prompt - a `<lora:...>` tag, an embedding written as a word - which its resource lists leave out. Each says whether your library has it, found as Forge would find it. An embedding Forge would skip with the model being sent - one made for SD 1.x under an SDXL checkpoint - says so, instead of showing as ready to use.
+
+- **0.55.0** (build 436) - A LoRA or embedding named only in an image's prompt gets a chip after a Send: a `<lora:name:weight>` tag is looked up by the hash Forge wrote for it in the image details where there is one - so a missing one can be downloaded - else as Forge loads it by name, at the tag's weight (1 where it gives none), and a library embedding the prompt names as a whole word is found too; one the library lacks says it is not in the library. On the stored images here, 8,901 gain LoRA chips and 25,581 embedding chips. An embedding chip counts only a file in this WebUI's embeddings folder, where any folder counted - the other WebUI's embedding showed as in the library. And an embedding Forge skips for the Send's model, made for another kind, says "made for SD 1.x, skipped with this SDXL model" (or not used, or not known) instead of a green tick, from each engine's own rule in both WebUIs. A chip with neither hash nor version says "not in the library" (#179).
+
 ## 0.54 - Files your WebUI ignores say so
 
 *8 October 2026*

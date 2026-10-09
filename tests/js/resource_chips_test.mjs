@@ -9,7 +9,7 @@ import { ROOT, checker } from './harness.mjs';
 
 const { check, done } = checker();
 const { collectResourceChips, toggleChip, promptHasChip, renameLoraTags, chipTag,
-        DEFAULT_LORA_WEIGHT, resourceNames } = await import(`file:///${ROOT}/javascript/shared/chips.mjs`);
+        DEFAULT_LORA_WEIGHT, resourceNames, promptLoras } = await import(`file:///${ROOT}/javascript/shared/chips.mjs`);
 
 const lora = { kind: 'lora', name: 'add_detail', weight: 0.5 };
 const embedding = { kind: 'embedding', name: 'easynegative' };
@@ -172,5 +172,35 @@ check('a name shared by a LoRA and an embedding is two things, and two chips', c
 check('and a chip the image names by hash is never merged by name', collectResourceChips(
       { ...NO_HASH, resources: [{ type: 'lora', name: 'MesoamericaOutfit_IXL', hash: 'ffff0000aa' }] },
       { versions: {}, hashes: {} }, null, missingAnswer).chips.filter((c) => c.kind === 'lora').length, 2);
+
+// ------------------------------------------------ named only in the prompt (#179)
+check('a prompt\'s LoRA tags as Forge reads them: lower-case tags, the name, the weight or 1, once each',
+      promptLoras && promptLoras({ prompt: 'a, <lora:one:0.6>, <lora:two>, <LORA:three:1>, <lora:one:0.2>',
+                    negativePrompt: '<lora:four:-1:0.5>' }),
+      [{ name: 'one', weight: 0.6 }, { name: 'two', weight: 1 }, { name: 'four', weight: -1 }]);
+check('asked of the library by name, after what the resources name, with none named twice',
+      resourceNames({ prompt: '<lora:Listed:1>, <lora:tagged:0.5>',
+                      resources: [{ type: 'lora', name: 'listed', hash: 'abcd' }] }),
+      [{ name: 'listed', hash: 'abcd' }, { name: 'tagged', hash: '' }]);
+check('with the hash Forge wrote for it, where it wrote one',
+      resourceNames({ prompt: '<lora:tagged:0.5>', hashes: { 'lora:tagged': 'ffff00' } }),
+      [{ name: 'tagged', hash: 'ffff00' }]);
+const HASHED = { prompt: 'a, <lora:tagged:0.5>', hashes: { 'lora:tagged': 'FFFF00' } };
+check('a tag with a hash in the image details: found by that hash, as a resource is',
+      collectResourceChips(HASHED, { versions: {}, hashes: { ffff00: { version_id: 7, file_stem: 'local_name', file_type: 'LORA' } } })
+          .chips.map((c) => [c.name, c.installed, c.weight]), [['local_name', true, 0.5]]);
+check('and missing, it keeps the hash, for Civitai to say which it is and a download',
+      collectResourceChips(HASHED, { versions: {}, hashes: {} }).chips.map((c) => [c.name, c.installed, c.hash]),
+      [['tagged', false, 'ffff00']]);
+const EMBEDDINGS = { versions: {}, hashes: {}, names: {},
+                     embeddings: [{ version_id: 5, file_stem: 'easynegative', file_type: 'TextualInversion' }] };
+check('a library embedding named only in the prompt, as a word: a chip, where the image had it',
+      collectResourceChips({ negativePrompt: 'blurry, EasyNegative' }, EMBEDDINGS).chips
+          .map((c) => [c.name, c.installed, c.where]), [['easynegative', true, 'negative']]);
+check('inside a longer word it is no embedding to Forge, and no chip',
+      collectResourceChips({ negativePrompt: 'easynegatives' }, EMBEDDINGS).chips, []);
+check('a tag naming the LoRA a resource lists is that resource: one chip',
+      collectResourceChips(META, FILES).chips.filter((c) => c.kind === 'lora').map((c) => c.name),
+      ['add_detail', 'style_locon', 'Not Here - v1']);
 
 done();

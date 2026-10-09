@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from .file_identity import LORA_FAMILY, NAMED_IN_PROMPTS
 from .hashing import names_this_file
-from .model_dirs import folder_of, lora_folders
+from .model_dirs import embedding_folders, folder_of, lora_folders
 from .remembered import Remembered
 from .console import say
 
@@ -112,27 +112,37 @@ def files_by_name(db, named, by_hash, loadable=None) -> dict:
 
 def _as_file(row: Dict[str, Any]) -> Dict[str, Any]:
     """A local file as a chip knows it: its version, the name Forge knows it by
-    in a prompt, and what the file itself is (null before a sync has read it)."""
+    in a prompt, what the file itself is (null before a sync has read it), and
+    which model it is for - an embedding's "sd" or "xl", which decides whether
+    Forge loads it with the send's checkpoint (#179)."""
     name = os.path.basename(row.get("file_path") or "")
     return {"version_id": row.get("id"),
             "file_stem": os.path.splitext(name)[0],
-            "file_type": row.get("file_type")}
+            "file_type": row.get("file_type"),
+            "architecture": row.get("architecture")}
 
 
-def _loadable_here(folders: Optional[List[str]]) -> Callable[[str, Optional[str]], bool]:
+def _loadable_here(folders: Optional[List[str]],
+                   embeddings: Optional[List[str]] = None) -> Callable[[str, Optional[str]], bool]:
     """
-    Whether the running WebUI would load a file as a LoRA, by its path and
-    what it is: a chip says "in library" only for one it would (#11). A LoRA
-    - or a file no scan has read, unless it sits with the embeddings - only
-    in the folders Forge walks for <lora:name>; anything else, as before.
-    With the folders not known, every file.
+    Whether the running WebUI would load a file a prompt names, by its path
+    and what it is: a chip says "in library" only for one it would (#11). A
+    LoRA - or a file no scan has read, unless it sits with the embeddings -
+    only in the folders Forge walks for <lora:name>; an embedding only in its
+    embeddings folder, where any folder counted, the other WebUI's too
+    (#179); anything else, as before. With a kind's folders not known, every
+    file of it.
     """
-    roots = [os.path.normcase(f).rstrip("\\/") + os.sep for f in folders or ()]
+    def as_roots(found):
+        return [os.path.normcase(f).rstrip("\\/") + os.sep for f in found or ()]
+    roots, embedding_roots = as_roots(folders), as_roots(embeddings)
 
     def loadable(path: str, file_type: Optional[str] = None) -> bool:
+        where = os.path.normcase(os.path.abspath(path or ""))
+        if file_type == "TextualInversion":
+            return not embedding_roots or any(where.startswith(root) for root in embedding_roots)
         if not roots or (file_type is not None and file_type not in LORA_FAMILY):
             return True
-        where = os.path.normcase(os.path.abspath(path or ""))
         if any(where.startswith(root) for root in roots):
             return True
         return file_type is None and folder_of(path)[0] == "TextualInversion"
@@ -144,10 +154,12 @@ def image_files(db, version_ids: List[int], hashes: List[str],
     """
     Which local file each of an image's resources is, from the library alone:
     {versions: version id -> file, hashes: hash (lower case) -> file,
-    names: name (lower case) -> file, found by its file name or its alias}.
-    Only files the running WebUI would load (_loadable_here).
+    names: name (lower case) -> file, found by its file name or its alias,
+    embeddings: [file]}. Only files the running WebUI would load
+    (_loadable_here). `embeddings` is every embedding it loads: a prompt can
+    name one no resource lists, as a word, and the page looks for each (#179).
     """
-    loadable = _loadable_here(lora_folders())
+    loadable = _loadable_here(lora_folders(), embedding_folders())
     types = {}
 
     def usable(path: str) -> bool:
@@ -157,9 +169,11 @@ def image_files(db, version_ids: List[int], hashes: List[str],
         return loadable(path, types[path])
     by_id, by_hash = db.local_versions_by_key(version_ids, hashes, usable)
     by_name = files_by_name(db, named, by_hash, loadable)
+    embeddings = [row for row in db.local_embeddings() if loadable(row.get("file_path"), "TextualInversion")]
     return {"versions": {str(k): _as_file(v) for k, v in by_id.items()},
             "hashes": {k: _as_file(v) for k, v in by_hash.items()},
-            "names": {k: _as_file(v) for k, v in by_name.items()}}
+            "names": {k: _as_file(v) for k, v in by_name.items()},
+            "embeddings": [_as_file(row) for row in embeddings]}
 
 
 @contextlib.contextmanager

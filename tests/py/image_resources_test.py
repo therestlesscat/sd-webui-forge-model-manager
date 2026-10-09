@@ -139,5 +139,40 @@ check('    and a part of one matches nothing', found('noise'), None)
 lora_file(os.path.join('zz later', 'noiseoffset.safetensors'), 77004)
 check('12. across folders, the one in the folder Forge reaches last', found('noiseoffset'), 77004)
 
+# ------------------------------------------------- embeddings (#179)
+# A prompt can name an embedding no resource lists, as a word: the answer
+# lists every embedding this WebUI loads, for the page to look for each. Forge
+# loads them from its embeddings folder alone; any folder counted, so the
+# other WebUI's embedding read as in the library.
+from modules import shared                                  # noqa: E402  (webui_stub's)
+emb_dir = os.path.join(WORK, 'embeddings')
+os.makedirs(emb_dir, exist_ok=True)
+
+
+def embedding_file(path, version_id, kind):
+    with open(path, 'wb') as f:
+        f.write(b'emb')
+    db.upsert_version({'id': version_id, 'model_id': 78000 + version_id, 'file_path': path,
+                       'file_name': os.path.basename(path), 'file_size': 3,
+                       'file_extension': os.path.splitext(path)[1],
+                       'has_civitai_data': True, 'nsfw_level': 1})
+    db.set_architecture(path, kind, None, False, False, '1', file_type='TextualInversion')
+    return path
+
+
+here = embedding_file(os.path.join(emb_dir, 'easynegative.pt'), 79001, 'sd')
+there = embedding_file(os.path.join(lora_dir, 'stray_embedding.pt'), 79002, 'xl')
+shared.cmd_opts.embeddings_dir = emb_dir
+listed = {e['file_stem']: e for e in ask()[1].get('embeddings', [])}
+check('13. the answer lists the embeddings in this WebUI\'s embeddings folder, each with its kind',
+      (listed.get('easynegative', {}).get('architecture'), listed.get('easynegative', {}).get('version_id')),
+      ('sd', 79001))
+check('14. not one in another folder, which Forge never loads', 'stray_embedding' in listed, False)
+check('15. nor is one there found for a resource by its version: the chip says it is missing',
+      (sorted(ask(version_ids='79001,79002')[1]['versions'])), ['79001'])
+shared.cmd_opts.embeddings_dir = None
+check('16. with the embeddings folder not known - outside a WebUI - every one counts',
+      sorted(e['file_stem'] for e in ask()[1].get('embeddings', [])), ['easynegative', 'stray_embedding'])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

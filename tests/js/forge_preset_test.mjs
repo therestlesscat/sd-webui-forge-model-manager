@@ -749,8 +749,9 @@ check('and a key says what the colours and filling mean',
       ['✓ in library', '↓ click to download', '⊘ not available', 'filled: in the prompt']);
 check('one whose hash Civitai has never heard of says so, and offers nothing',
       [note('private_merge'), chip('private_merge').disabled], ['not on Civitai', true]);
-check('nor one the image names with no hash or version at all',
-      [note('no_hash'), chip('no_hash').disabled], ['no hash recorded', true]);
+check('nor one the image names with no hash or version at all: not in the library, it says, and why in its tooltip',
+      [note('no_hash'), chip('no_hash').disabled, /without a hash or a version/.test(chip('no_hash').title)],
+      ['not in the library', true, true]);
 
 click(chip('flux'));
 check('a click puts a LoRA in at the image\'s weight, else 0.5',
@@ -1042,6 +1043,59 @@ check('a preset the original Forge does not have is left alone',
 check('and the send goes on without it', events.includes('paste'), true);
 
 // ------------------------------------------------ a prompt wrapped in quotes
+// ------------------------------------------- named only in the prompt (#179)
+// A LoRA in a <lora:...> tag and an embedding as a word, that no resource
+// lists, got no chip: whether Forge would find them, nothing said. Found as
+// Forge finds them now - and an embedding Forge skips for the send's model,
+// made for another kind, says so: green only for what Forge loads.
+library.names = { prompt_only: { version_id: 31, file_stem: 'prompt_only', file_type: 'LORA' },
+                  no_weight: { version_id: 35, file_stem: 'no_weight', file_type: 'LORA' } };
+library.embeddings = [
+    { version_id: 32, file_stem: 'easynegative', file_type: 'TextualInversion', architecture: 'sd' },
+    { version_id: 33, file_stem: 'negativeXL_D', file_type: 'TextualInversion', architecture: 'xl' },
+    { version_id: 34, file_stem: 'unread_kind', file_type: 'TextualInversion', architecture: null }];
+const promptOnly = async (embeddings) => {
+    plan = { success: true, preset: 'xl', model_class: 'SDXL', embeddings, manage_modules: false,
+             select: [], missing: [] };
+    resourcesAsked.length = 0;
+    IMAGE.meta = { prompt: 'a cat, <lora:prompt_only:0.6>, <lora:no_weight>, <lora:not_here:1>, <LORA:shouted:1>',
+                   negativePrompt: 'easynegative, negativeXL_D, unread_kind', steps: 20 };
+    await send();
+    await waitFor('the chips', () => row() && !row().querySelector('.mm-resource-chips-loading'));
+};
+await promptOnly('xl');
+const asked = resourcesAsked[0];
+check('an image listing no resource still asks, with the LoRAs its prompt names alone',
+      JSON.parse(asked?.get('names') || '[]').map((n) => n.name), ['prompt_only', 'no_weight', 'not_here']);
+check('a tagged LoRA the library has: a chip, at the tag\'s weight',
+      [look('prompt_only').slice(0, 2), /weight 0\.6/.test(chip('prompt_only')?.title || '')], [['have', '✓'], true]);
+check('a tag with no weight is at 1, as Forge takes it', /weight 1\b/.test(chip('no_weight')?.title || ''), true);
+check('one the library lacks: not in the library, and nothing to download',
+      [look('not_here').slice(0, 2), note('not_here')], [['unavailable', '⊘'], 'not in the library']);
+check('<LORA:...> is no tag to Forge, and no chip', !!chip('shouted'), false);
+check('a library embedding the negative prompt names as a word: a chip, in the negative',
+      [!!chip('negativeXL_D'), /negative prompt/.test(chip('negativeXL_D')?.title || '')], [true, true]);
+check('with an SDXL model, an SDXL embedding is in the library, and Forge uses it',
+      look('negativeXL_D').slice(0, 2), ['have', '✓']);
+check('an SD 1.x one is skipped, and says so - still in and out of the prompt by a click',
+      [look('easynegative').slice(0, 2), note('easynegative'), chip('easynegative')?.disabled],
+      [['unavailable', '⊘'], 'made for SD 1.x, skipped with this SDXL model', false]);
+check('one whose kind no sync has read: not known', [look('unread_kind').slice(0, 2), note('unread_kind')],
+      [['unavailable', '?'], 'not known if this model uses it']);
+resourcesAsked.length = 0;
+IMAGE.meta = { prompt: 'a cat', negativePrompt: 'negativeXL_D', steps: 20 };
+await send();
+await waitFor('the chips', () => row() && !row().querySelector('.mm-resource-chips-loading'));
+check('a prompt naming nothing but an embedding\'s word is asked about too, and has its chip',
+      [resourcesAsked.length, !!chip('negativeXL_D')], [1, true]);
+await promptOnly('sd');
+check('with a model that loads SD 1.x embeddings - Flux, by Forge\'s code - the other way round',
+      [look('easynegative').slice(0, 2), look('negativeXL_D').slice(0, 2)], [['have', '✓'], ['unavailable', '⊘']]);
+await promptOnly('none');
+check('with one that loads none, each says it is not used', note('negativeXL_D'), 'not used with this model');
+delete library.names;
+delete library.embeddings;
+
 // Some tools give Civitai the prompt as a quoted string. Pasted as it is, a
 // model reading prompts as instructions took the whole as one quotation and
 // drew noise; the quotes around the whole go, and only those.

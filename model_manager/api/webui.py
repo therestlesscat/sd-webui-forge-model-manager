@@ -147,7 +147,9 @@ def register(app: FastAPI):
 
         Returns:
             preset: Forge's UI preset, or null if unknown. source: how it was
-            decided (send_plan.py). manage_modules: whether modules are this
+            decided (send_plan.py). embeddings: the kind of embedding the
+            model loads (forge_host.embedding_kind), for the chips to say
+            which Forge skips (#179). manage_modules: whether modules are this
             call's business at all - SD and SDXL checkpoints bring their own,
             and keep the image's VAE as before. select: labels to select;
             missing: kinds nothing installed is; not_found: file names the
@@ -173,7 +175,7 @@ def register(app: FastAPI):
         """
         from ..db import get_models_db
         from ..file_identity import classify_file
-        from ..forge_host import installed_modules, saved_modules
+        from ..forge_host import embedding_kind, installed_modules, saved_modules
         from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_vae, pick, preferred_modules
         from ..send_plan import SendModel, plan_model
 
@@ -190,6 +192,7 @@ def register(app: FastAPI):
         answer = {"success": True, "preset": preset, "model_class": model_class,
                   "source": source, "video": found.video,
                   "manage_modules": preset not in (None, "sd", "xl"),
+                  "embeddings": embedding_kind(model_class, preset),
                   "select": [], "missing": [], "needed": [], "not_found": [],
                   "target": [], "vae_not_found": None, "bundled": [],
                   "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
