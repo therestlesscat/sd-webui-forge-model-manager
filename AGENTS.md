@@ -51,6 +51,14 @@ longer existed.
   situations, each new or a guard. `file:line` stays only where it helps
   look something up. The #195 plan, in chat, read as if steps were missing;
   #200's doc, rewritten so, became the rule (2026-10-08).
+- **An approved plan goes on its issue.** Once a plan is approved to be
+  built, it is posted as a comment on the related GitHub issue, so the
+  issue keeps the record of what was decided. It is the doc as written, in
+  markdown - its headings, tables and code kept - never flattened to plain
+  text. The repository is public:
+  the comment holds no personal information - no one's name, email,
+  account or user name, nor a path through a user's folder - and is posted
+  only once the owner has seen its text and said yes.
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
