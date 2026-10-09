@@ -239,17 +239,17 @@ check('with Show images, Retry, Delete and Load to UI',
       ['Show images (7)', 'Retry...', 'Delete...', 'Load to UI']);
 
 // ------------------------------------------------------------ Load to UI
-// The Queue tab's hidden button for txt2img: it answers the nonce it is asked with.
+// txt2img's hidden button for Send and Load to UI: it answers the nonce it is asked with.
 document.body.insertAdjacentHTML('beforeend', `
-    <div id="queue_load_txt2img_task"><textarea></textarea></div>
-    <div id="queue_load_txt2img_answer"><textarea></textarea></div>
-    <button id="queue_load_txt2img"></button>`);
+    <div id="mm_load_txt2img_asked"><textarea></textarea></div>
+    <div id="mm_load_txt2img_answer"><textarea></textarea></div>
+    <button id="mm_load_txt2img"></button>`);
 const loads = [];
-document.getElementById('queue_load_txt2img').addEventListener('click', () => {
-    const request = JSON.parse(document.querySelector('#queue_load_txt2img_task textarea').value);
+document.getElementById('mm_load_txt2img').addEventListener('click', () => {
+    const request = JSON.parse(document.querySelector('#mm_load_txt2img_asked textarea').value);
     loads.push(request.task);
     setTimeout(() => {
-        document.querySelector('#queue_load_txt2img_answer textarea').value = JSON.stringify(
+        document.querySelector('#mm_load_txt2img_answer textarea').value = JSON.stringify(
             { nonce: request.nonce, task: request.task, skipped: ['ControlNet: 0'], notes: [] });
     }, 30);
 });

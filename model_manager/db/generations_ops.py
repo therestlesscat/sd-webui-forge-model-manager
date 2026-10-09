@@ -19,7 +19,7 @@ _GENERATION_COLUMNS = (
     "hr_prompt", "hr_negative_prompt", "n_iter", "batch_size", "width", "height",
     "checkpoint_path", "checkpoint_hash", "modules", "hr_checkpoint_path",
     "hr_modules", "refiner_path", "params", "extra_params", "script_args",
-    "settings", "infotext", "image_count", "prompt_nsfw_level",
+    "settings", "infotext", "image_count", "prompt_nsfw_level", "inputs",
 )
 _IMAGE_COLUMNS = (
     "position", "iteration", "path", "infotext", "meta", "prompt",
@@ -28,7 +28,7 @@ _IMAGE_COLUMNS = (
 )
 # Stored as JSON text: lists and dicts.
 _JSON_COLUMNS = {"styles", "modules", "hr_modules", "params", "extra_params",
-                 "script_args", "settings", "meta", "loras"}
+                 "script_args", "settings", "meta", "loras", "inputs"}
 
 
 def _stored(column: str, value: Any) -> Any:

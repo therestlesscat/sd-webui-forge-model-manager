@@ -41,6 +41,11 @@ class Remembered(object):
             while self.most is not None and len(self._entries) > self.most:
                 self._entries.popitem(last=False)
 
+    def pop(self, key: Hashable, default: Any = None) -> Any:
+        """The entry, taken out: an answer that is used once."""
+        with self._lock:
+            return self._entries.pop(key, default)
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._entries)

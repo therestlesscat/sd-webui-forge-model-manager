@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.56 - Send sets your generation back as it was made.** Send on an image you generated
+sets every control back as it was when you pressed Generate - the hires fix's own checkpoint
+and VAE, the refiner and its CFG scale, hidden controls included - with that image's own seed
+and prompts. A Civitai image's Send gets the hires and refiner checkpoints right too.
+
 **0.55 - Chips for what a prompt names alone.** After a Send, a LoRA named only in a
 `<lora:...>` tag, and a library embedding written only as a word, get a chip under the prompt
 too, found as Forge would find them. An embedding Forge would skip with the model being sent -

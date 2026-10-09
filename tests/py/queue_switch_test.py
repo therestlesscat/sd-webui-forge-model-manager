@@ -67,7 +67,10 @@ generate = types.SimpleNamespace(elem_id='txt2img_generate')
 capture._found.clear()
 switch(False)
 capture.on_component(generate, elem_id='txt2img_generate')
-check('off: no Queue button beside Generate', list(capture._found), [])
+check('off: no Queue button beside Generate - its place kept for Send and recording (#7)',
+      (list(capture._found), capture._found['txt2img']['queue'], capture._found['txt2img']['generate'] is generate),
+      (['txt2img'], None, True))
+capture._found.clear()
 switch(True)
 capture.on_component(generate, elem_id='txt2img_generate')
 check('on: one', (list(capture._found), getattr(capture._found.get('txt2img', {}).get('queue'), 'elem_id', None)),

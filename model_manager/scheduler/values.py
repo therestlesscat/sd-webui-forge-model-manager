@@ -144,6 +144,26 @@ class Keeper:
         return {"__missing__": type(value).__name__}
 
 
+class NoFiles(Keeper):
+    """
+    Keeps a recorded generation's values (#7): as a task's, but no file is
+    written. An image, an array or an upload is kept as what it was, and its
+    control takes its default when the generation is sent back - the source
+    images of a generation are left to #34.
+    """
+
+    def __init__(self):
+        super().__init__("")
+
+    def keep_file(self, path: str) -> Dict[str, str]:
+        return {"__missing__": "file"}
+
+    def keep(self, value: Any, name: str = "value") -> Any:
+        if _is_image(value) or _is_array(value):
+            return {"__missing__": type(value).__name__}
+        return super().keep(value, name)
+
+
 def restore(stored: Any) -> Any:
     """The value a task kept, rebuilt; MISSING if any part of it cannot be."""
     try:

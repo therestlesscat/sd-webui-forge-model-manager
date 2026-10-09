@@ -288,6 +288,48 @@ export function mountTab(tabFile) {
     return { window, document: window.document };
 }
 
+/**
+ * Send's hidden buttons (scheduler/load.py), one per tab, standing in for
+ * the server: each request - a task, a generation's image, an infotext to
+ * paste - is kept in the list returned, `onAsk(tab, request)` runs, and the
+ * answer carries the request's nonce with what `answer(tab, request)` adds.
+ * A paste leaves the prompts as Forge's paste does: the prompt and the
+ * negative prompt alone, the settings line read into their controls. `delay`,
+ * a number or a function of the request, holds the answer back that long.
+ */
+export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = null,
+                                        answer = () => ({ pasted: true }), delay = 0 } = {}) {
+    const asked = [];
+    for (const tab of tabs) {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="mm_load_${tab}_asked"><textarea></textarea></div>
+            <div id="mm_load_${tab}_answer"><textarea></textarea></div>
+            <button id="mm_load_${tab}"></button>`);
+        document.getElementById(`mm_load_${tab}`).addEventListener('click', () => {
+            const request = JSON.parse(document.querySelector(`#mm_load_${tab}_asked textarea`).value);
+            asked.push({ tab, ...request });
+            if (request.paste !== undefined) {
+                const lines = String(request.paste).split('\n');
+                if (lines.length > 1 && /^Steps: /.test(lines[lines.length - 1])) lines.pop();
+                const at = lines.findIndex((line) => line.startsWith('Negative prompt: '));
+                const prompt = document.querySelector(`#${tab}_prompt textarea`);
+                const negative = document.querySelector(`#${tab}_neg_prompt textarea`);
+                if (prompt) prompt.value = (at < 0 ? lines : lines.slice(0, at)).join('\n');
+                if (negative) {
+                    negative.value = at < 0 ? '' : [lines[at].slice('Negative prompt: '.length),
+                                                     ...lines.slice(at + 1)].join('\n');
+                }
+            }
+            onAsk?.(tab, request);
+            const reply = { nonce: request.nonce, ...(answer(tab, request) || {}) };
+            setTimeout(() => {
+                document.querySelector(`#mm_load_${tab}_answer textarea`).value = JSON.stringify(reply);
+            }, typeof delay === 'function' ? delay(tab, request) : delay);
+        });
+    }
+    return asked;
+}
+
 // The most tries a wait may ask for: 400 looks, 20 seconds. Seven waits
 // once asked for 4,000-6,000, up to 300 s each, and a broken one held a run
 // for minutes before it said anything (#145). A suite waits in seconds.

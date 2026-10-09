@@ -9,14 +9,14 @@
 // goes in, since a preset change resets the sampler, steps and modules, and
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
-import { ROOT, act, checker, mountTab, sharedModule, startTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, sendLoaders, sharedModule, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
                     modulesCheck: 20, modulesCheckMax: 200, sendRecheck: 20, sendRecheckMax: 200,
-                    pasteSettle: 10, frame: 5, presetFrame: 10 };
+                    loadTask: 1000, pasteMax: 1000, frame: 5, presetFrame: 10 };
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ a stand-in for Forge's page
@@ -93,6 +93,10 @@ const paste = document.createElement('button');
 paste.id = 'paste';
 paste.addEventListener('click', () => events.push('paste'));
 document.body.append(promptBox, paste);
+// Send pastes through each tab's hidden button, which runs Forge's paste.
+const loaderAsked = sendLoaders(document, { onAsk: (tab, request) => {
+    if (request.paste !== undefined) events.push(tab === 'txt2img' ? 'paste' : 'paste:img2img');
+} });
 window.selectCheckpoint = globalThis.selectCheckpoint = (name) => events.push(`checkpoint:${name}`);
 Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });   // the send saves it
 Object.defineProperty(document.documentElement, 'scrollTop', { value: 0, configurable: true });
@@ -434,7 +438,8 @@ await sendButton();
 // its list never opened, and the field was left blank (#138). Without
 // "Denoising strength" the paste leaves Hires fix off; it stays as the image
 // had it.
-const pasted = () => promptBox.querySelector('textarea').value;
+// The infotext the last Send handed Forge's paste.
+const pasted = () => [...loaderAsked].reverse().find((r) => r.paste !== undefined)?.paste || '';
 const hires = dropdown('txt2img_hr_upscaler', ['Latent', 'Lanczos', '4x-UltraSharp'], false,
                        (label) => { commits.txt2img_hr_upscaler = label; });
 hires.querySelector('input').value = 'Latent';
@@ -551,7 +556,7 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
     }
     return fetchServer(url, ...rest);
 });
-const infotext = () => i2iPrompt.querySelector('textarea').value;
+const infotext = () => [...loaderAsked].reverse().find((r) => r.tab === 'img2img' && r.paste !== undefined)?.paste || '';
 const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 const C = 'https://image.civitai.com/acct/8c0dc66f';
@@ -1099,16 +1104,12 @@ delete library.embeddings;
 // Some tools give Civitai the prompt as a quoted string. Pasted as it is, a
 // model reading prompts as instructions took the whole as one quotation and
 // drew noise; the quotes around the whole go, and only those.
-// (This DOM's textarea gives back only the first line; the infotext the
-// paste writes - the one with a Steps line - is kept.)
-let written = '';
-Object.defineProperty(document.querySelector('#txt2img_prompt textarea'), 'value', {
-    set: (text) => { if (String(text).includes('\nSteps:')) written = text; },
-    get: () => written, configurable: true });
+// (Read from what the Send handed Forge's paste.)
 const sendPrompts = async (prompt, negativePrompt) => {
     IMAGE.meta = { prompt, negativePrompt, steps: 20 };
-    written = '';
+    const before = loaderAsked.length;
     await send();
+    const written = loaderAsked.slice(before).find((r) => r.paste !== undefined)?.paste || '';
     return written.split('\n').filter((line) => !line.startsWith('Steps:'));
 };
 check('a prompt and a negative prompt quoted whole are sent without the quotes',

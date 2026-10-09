@@ -7,6 +7,7 @@ are rendered into by javascript/tabs/model_manager.mjs.
 """
 import gradio as gr
 
+from ..scheduler.load import wire_send_buttons
 from .header import downloads_panel, header_actions
 
 
@@ -373,5 +374,7 @@ def create_ui():
             </div>
         """.replace("<!-- actions -->", header_actions("model_manager"))
           .replace("<!-- downloads -->", downloads_panel("mm")), elem_id="model_manager_container")
+        # Send's hidden buttons, if this is the first of our tabs built (#7).
+        wire_send_buttons()
 
     return [(model_manager_tab, "Model Manager", "model_manager_tab")]

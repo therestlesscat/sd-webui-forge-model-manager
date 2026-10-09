@@ -24,6 +24,12 @@ A control that sends an index - the Script dropdown, X/Y/Z's axis types,
 img2img's radios - is kept as its label ({"__label__": ...}): a list that
 grows shifts an index, never a label. Images, arrays, objects and uploads
 are kept by values.py, in a folder of the task's own.
+
+The same names are kept for each generation you make (#7): a listener of
+ours beside Generate's own names its inputs at the click, as Queue would,
+and keeps them under Forge's id for the run until the recorder writes them
+with the generation (generations.py). Its Send sets them back as Load to UI
+sets a task's.
 """
 import os
 import shutil
@@ -33,33 +39,66 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..console import say, say_failure
 from ..db import get_models_db
-from ..forge_host import (forge_name, generate_names, script_runner, selected_models,
-                          setting, webui_root)
+from ..forge_host import (forge_name, generate_names, page_blocks, script_runner,
+                          selected_models, setting, webui_root)
 from ..install import INSTALL_KEY
+from ..remembered import Remembered
 from . import queue_enabled
-from .values import Keeper
+from .values import Keeper, NoFiles
 
 TABS = ("txt2img", "img2img")
 LABEL = "__label__"
 INPUTS_SETTING = "model_manager_queue_inputs_dir"
 
-# Per tab, as the UI is built: the Blocks it is built in, Generate, Queue.
+# Per tab, as the UI is built: the Blocks it is built in, Generate, and the
+# Queue button while the queue is on.
 _found: Dict[str, Dict[str, Any]] = {}
+
+# Each press of Generate's named inputs, by Forge's id for its run, until
+# the recorder takes them. A run that saves nothing leaves its own here,
+# until newer presses push them out.
+_pressed = Remembered(most=32)
+
+# The page side of our listener on Generate. Forge's own submit() makes the
+# run's id and hands it to Generate's listener alone; ours is sent an empty
+# value in its place. submit() also writes the id to local storage, but
+# after this code has started, on the same click: read at once, it was
+# never there (0 of 8 on Neo). So this waits until the stored id changes -
+# it holds the last run's, or nothing, when the click comes - and sends the
+# new one. The time limit only says it never came: then no id goes, and
+# the generation is recorded without its inputs (10 of 10 read their own).
+_READ_RUN_ID = """async (...args) => {
+    const key = '%s_task_id';
+    const read = () => { try { return localStorage.getItem(key); } catch (e) { return null; } };
+    const before = read();
+    const until = Date.now() + 2000;
+    while (read() === before && Date.now() < until) {
+        await new Promise((done) => setTimeout(done, 5));
+    }
+    const id = read();
+    args[0] = id !== before && id ? id : '';
+    return args;
+}"""
 
 
 # ------------------------------------------------------------- the buttons
 
 def on_component(component, **kwargs) -> None:
-    """Forge's after-component callback: a Queue button beside each Generate,
-    while the queue is on."""
+    """
+    Forge's after-component callback: where each Generate is - recording
+    and Send's loader need it too - and a Queue button beside it, while the
+    queue is on.
+    """
     elem_id = kwargs.get("elem_id") or getattr(component, "elem_id", None)
-    if elem_id not in (f"{tab}_generate" for tab in TABS) or not queue_enabled():
+    if elem_id not in (f"{tab}_generate" for tab in TABS):
         return
     for tab in TABS:
         if elem_id == f"{tab}_generate":
             import gradio as gr
             from gradio.context import Context
-            queue = gr.Button("Queue", elem_id=f"{tab}_queue", variant="secondary")
+            queue = None
+            if queue_enabled():
+                queue = gr.Button("Queue", elem_id=f"{tab}_queue", variant="secondary")
             _found[tab] = {"root": Context.root_block, "generate": component, "queue": queue}
 
 
@@ -100,7 +139,7 @@ def wire_queue_buttons() -> None:
     tabs build, which renders into the page with them.
     """
     for tab, found in _found.items():
-        if found.get("root") is None:
+        if found.get("root") is None or found.get("queue") is None:
             continue
         own, others = generate_listeners(found["root"], found["generate"])
         if own is None:
@@ -126,6 +165,68 @@ def _handler(tab: str, own, others, inputs) -> Callable:
         gr.Info(f"Queued: {prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'}")
 
     return queue
+
+
+def paste_click(tab: str):
+    """
+    Forge's own paste on this tab's ↙ button, as the UI was last built:
+    the listener whose function is its paste_func, reading the tab's
+    prompt. Forge wires it after the extensions' tabs are built, in the
+    page's whole Blocks, not the tab's - so it is looked for there, when
+    asked, never at wiring. None if not found.
+    """
+    found = _found.get(tab)
+    roots = [found.get("root") if found else None]
+    try:
+        roots.insert(0, page_blocks())
+    except Exception:
+        pass
+    for root in roots:
+        for dep in (getattr(root, "fns", None) or {}).values():
+            inputs = list(getattr(dep, "inputs", None) or [])
+            if (getattr(getattr(dep, "fn", None), "__name__", None) == "paste_func" and inputs
+                    and getattr(inputs[0], "elem_id", None) == f"{tab}_prompt"):
+                return dep
+    return None
+
+
+# ----------------------------------------------------- recording a press
+
+def wire_generate_record() -> None:
+    """
+    Our listener on each Generate's click, while generations are recorded
+    (#7): it names what Generate is sent and keeps it under the run's id.
+    It runs outside Gradio's queue and shows nothing; Generate's own work
+    does not wait for it. Called inside a Blocks our tabs build.
+    """
+    for tab, found in _found.items():
+        if found.get("root") is None:
+            continue
+        own = generate_click(tab)
+        if own is None:
+            say(f"Generations: {tab}'s Generate was not found; its records keep no inputs")
+            continue
+        found["generate"].click(fn=_recorder(tab, own), inputs=list(own.inputs), outputs=[],
+                                js=_READ_RUN_ID % tab, queue=False, show_progress="hidden")
+
+
+def _recorder(tab: str, own) -> Callable:
+    def record(*values):
+        job = values[0] if values else None
+        if not job:
+            return
+        try:
+            _pressed[job] = name_inputs(tab, own.inputs, list(values), NoFiles())
+        except Exception as e:
+            say(f"Generations: could not name {tab}'s inputs for its record: {e}")
+
+    return record
+
+
+def pressed_inputs(job: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The named inputs of the press that started this run, taken: None if
+    none was kept for it."""
+    return _pressed.pop(job) if job else None
 
 
 # ------------------------------------------------------------ the capture

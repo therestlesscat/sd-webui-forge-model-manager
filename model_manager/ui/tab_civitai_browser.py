@@ -3,10 +3,12 @@ The Civitai Browser tab's markup.
 
 Static HTML only: every row, card and panel is filled in by
 javascript/tabs/civitai_browser.mjs against the API. Gradio is used for the shell
-so the tab appears in the right place, and for nothing else.
+so the tab appears in the right place - and, when it is the first of our tabs
+built, for Send's hidden buttons (scheduler/load.py).
 """
 import gradio as gr
 
+from ..scheduler.load import wire_send_buttons
 from .header import downloads_panel, header_actions
 
 
@@ -222,5 +224,7 @@ def create_civitai_browser_ui():
             </div>
         """.replace("<!-- actions -->", header_actions("civitai_browser"))
           .replace("<!-- downloads -->", downloads_panel("cb")), elem_id="civitai_browser_container")
+        # Send's hidden buttons, if this is the first of our tabs built (#7).
+        wire_send_buttons()
 
     return civitai_browser_tab

@@ -16,7 +16,7 @@ Reload UI, which stamps them again.
 from modules import script_callbacks
 
 from model_manager import api
-from model_manager.scheduler import capture
+from model_manager.scheduler import capture, load
 from model_manager.tabs import mark_built, on
 from model_manager.ui import (
     create_civitai_browser_ui,
@@ -42,6 +42,7 @@ def create_all_tabs():
         ("civitai_browser", lambda: [(create_civitai_browser_ui(), "Civitai Browser", "civitai_browser_tab")]),
     )
     tabs, built = [], []
+    load.new_build()
     for name, build in builds:
         if on(name):
             tabs += build()

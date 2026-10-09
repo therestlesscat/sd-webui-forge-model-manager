@@ -7,14 +7,15 @@ controls, then the Active list, in the order the tasks will run, and History,
 newest first.
 
 Building it also wires the Queue buttons beside each Generate
-(scheduler/capture.py), and the hidden buttons that load a task back into
-its tab (scheduler/load.py): a click must be wired inside a Blocks the page
-renders, and this tab is ours, built after Forge has wired Generate.
+(scheduler/capture.py), and - built first of our tabs - Send's hidden buttons
+that set a tab back from a task, a generation or an infotext
+(scheduler/load.py): a click must be wired inside a Blocks the page renders,
+and this tab is ours, built after Forge has wired Generate.
 """
 import gradio as gr
 
 from ..scheduler.capture import wire_queue_buttons
-from ..scheduler.load import wire_load_buttons
+from ..scheduler.load import wire_send_buttons
 from .header import header_actions
 
 
@@ -86,5 +87,5 @@ def create_queue_ui():
             </div>
         """.replace("<!-- actions -->", header_actions("queue")), elem_id="queue_container")
         wire_queue_buttons()
-        wire_load_buttons()
+        wire_send_buttons()
     return queue_tab

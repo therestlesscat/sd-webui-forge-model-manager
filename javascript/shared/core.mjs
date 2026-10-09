@@ -21,7 +21,7 @@ export const TIMING = Object.freeze({
     tabShown: 2000,       // a tab asked to show, at most: Gradio shows it in a moment
     sendRecheck: 1000,    // between asks whether a stopped send's checkpoint can be loaded now
     sendRecheckMax: 10000, // and for how long: Forge lists a download once its refresh is done
-    pasteSettle: 100,     // after Forge's paste, before what it does not set: scheduler, modules, hires
+    pasteMax: 20000,      // Forge's own paste button rewriting the prompt, at most: past it a send stops, saying so
     frame: 60,            // a frame of Gradio's: a dropdown opened, an option pressed
     presetFrame: 100,     // between looks at Forge's UI preset while it switches
     scrollSettle: 500,    // a smooth scroll to a gallery's top, at most

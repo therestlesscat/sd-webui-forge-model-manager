@@ -43,20 +43,26 @@ export function sendTab(card) {
 }
 
 /**
- * Send one of your own generations' infotexts back to the tab it was made
- * in - `mode`, txt2img or img2img - as the Generations tab and this one's
- * generation cards both do.
+ * Send one image of your own generations - `imageId` - back to the tab it
+ * was made in, `mode`, txt2img or img2img, as the Generations tab and this
+ * one's generation cards both do.
  *
  * Forge is first set up as the generation was made with, from its record
  * (api/generations.send_plan): its checkpoint's UI preset, the checkpoint,
- * and after the paste exactly the modules it loaded - the same for every kind
- * of model. The paste alone did none of it: Forge Neo ignores the checkpoint
- * and modules an infotext names by default, and an SD 1.5 image, naming no
- * modules, left an Anima model's in place.
+ * and once the controls are set exactly the modules it loaded - the same for
+ * every kind of model. The infotext alone did none of it: Forge Neo ignores
+ * the checkpoint and modules an infotext names by default, and an SD 1.5
+ * image, naming no modules, left an Anima model's in place.
  *
- * @returns {Promise<boolean>} whether it could be pasted
+ * A generation whose press was kept (#7) is then set back as Load to UI sets
+ * a task: every control Generate takes, hidden ones too - the hires
+ * checkpoint, the refiner - with the image's own seed and prompts. One
+ * recorded before, or whose load fails, is pasted, corrected from the paths
+ * its record kept (pasteInfotext).
+ *
+ * @returns {Promise<boolean>} whether it could be sent
  */
-export async function sendInfotext({ infotext, mode, meta = {}, generationId = null }) {
+export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null }) {
     if (!infotext) return false;
     meta = meta || {};
     let plan = null;
@@ -84,28 +90,68 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
     // the server gives your images a Civitai image's `resources`. A LoRA the
     // prompt names otherwise than its file - by its alias, as Forge writes it
-    // with "Alias from file" - is pasted under the file's name, as there: its
+    // with "Alias from file" - is renamed to the file's name, as there: its
     // chip names the file, and is lit only by a tag with that name.
     // Asked whenever the prompt says anything: it may name a LoRA or an
     // embedding no resource lists (#179).
     const files = await fetchImageFiles(image);
     const resources = collectResourceChips(meta, files, null);
+    const showChips = () => {
+        if (!resources) return;
+        resourceChipSources[tab] = { img: image, gallery: null, files, embeddings: plan?.embeddings };
+        showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
+        lookUpMissingChips(tab);
+    };
+    const sourceNotice = () => {
+        if (tab === 'img2img') {
+            showNotice('The settings are in img2img. The image this generation started from '
+                       + 'is not kept: drop an image in before generating.');
+        }
+    };
+
+    if (plan?.inputs) {
+        const answer = await pressLoader(tab, { generation: Number(generationId),
+                                                image: imageId === null || imageId === undefined ? null : Number(imageId) });
+        if (!answer.error) {
+            renamePromptLoras(tab, resources?.renames);
+            await applyRecordedModules(plan);
+            showGenerationTab(tab);
+            showChips();
+            sourceNotice();
+            const kept = [...(answer.skipped || []), ...(answer.notes || [])];
+            if (kept.length) {
+                showNotice(`These keep what was on screen, or their defaults: ${kept.join('; ')}.`, { info: true });
+            }
+            return true;
+        }
+        console.warn('[ModelManager] The generation could not be set back as it was; pasting:', answer.error);
+    }
+
     if (resources) {
         infotext = resources.renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), infotext);
     }
     const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
-    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste })) return false;
+    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId })) return false;
     showGenerationTab(tab);
-    if (resources) {
-        resourceChipSources[tab] = { img: image, gallery: null, files, embeddings: plan?.embeddings };
-        showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
-        lookUpMissingChips(tab);
-    }
-    if (tab === 'img2img') {
-        showNotice('The settings are in img2img. The image this generation started from '
-                   + 'is not kept: drop an image in before generating.');
-    }
+    showChips();
+    sourceNotice();
     return true;
+}
+
+/**
+ * The prompt's LoRA tags renamed to the files they load, once a generation
+ * is set back: as its paste would have had them (sendInfotext). Written only
+ * when something changes, with the input event Gradio listens for.
+ */
+function renamePromptLoras(tab, renames) {
+    if (!renames?.length) return;
+    const textarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
+    if (!textarea) return;
+    const renamed = renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), textarea.value);
+    if (renamed !== textarea.value) {
+        textarea.value = renamed;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
 }
 
 // Convert full file path to dropdown-compatible path
@@ -770,7 +816,7 @@ async function applyRecordedModules(plan, what = 'This generation was made with'
 /**
  * Load a queued task into its tab (#160), set up as Send sets Forge up: its
  * UI preset and checkpoint first, then every control Generate takes - by
- * the Queue tab's hidden button (scheduler/load.py), whose outputs they are,
+ * the tab's hidden button (scheduler/load.py), whose outputs they are,
  * as Forge's own selectCheckpoint asks through a hidden textbox and button -
  * then its VAE / text encoders. Not an infotext: Forge ticks Hires fix when
  * a text holds its keys, and a task with it off still holds them. What
@@ -793,7 +839,7 @@ export async function loadTask(taskId) {
     if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint);
     // An earlier send's chips would stay; a task has none.
     showResourceChips(tab, []);
-    const answer = await pressLoader(tab, taskId);
+    const answer = await pressLoader(tab, { task: Number(taskId) });
     if (answer.error) {
         showNotice(`Could not load task #${Number(taskId)}: ${answer.error}`);
         return answer;
@@ -808,15 +854,21 @@ export async function loadTask(taskId) {
     return answer;
 }
 
-/** Ask the Queue tab's hidden button to load a task into `tab`: its answer, once it has come. */
-async function pressLoader(tab, taskId) {
+/**
+ * Ask `tab`'s hidden button (scheduler/load.py) to set the tab back - from a
+ * task, `{task}`; a generation's image, `{generation, image}`; or an
+ * infotext, `{paste, generation}` - and wait for its answer: the one that
+ * carries this request's nonce, which Gradio writes in the same event as
+ * every control. The time limit only says no answer came.
+ */
+async function pressLoader(tab, request) {
     const app = gradioApp();
-    const asked = app.querySelector(`#queue_load_${tab}_task textarea`);
-    const answered = app.querySelector(`#queue_load_${tab}_answer textarea`);
-    const button = app.querySelector(`#queue_load_${tab}`);
-    if (!asked || !answered || !button) return { error: 'the Queue tab is not built' };
+    const asked = app.querySelector(`#mm_load_${tab}_asked textarea`);
+    const answered = app.querySelector(`#mm_load_${tab}_answer textarea`);
+    const button = app.querySelector(`#mm_load_${tab}`);
+    if (!asked || !answered || !button) return { error: 'its hidden button is not built', no_loader: true };
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    asked.value = JSON.stringify({ task: Number(taskId), nonce });
+    asked.value = JSON.stringify({ ...request, nonce });
     asked.dispatchEvent(new Event('input', { bubbles: true }));
     button.click();
     const until = Date.now() + TIMING.loadTask;
@@ -1168,19 +1220,6 @@ export function whenSendSettled() {
 }
 
 /**
- * Put an infotext into a generation tab and press the tab's paste button, as
- * Forge's own "Send to txt2img" from PNG Info does; then, once the paste has
- * redrawn the page, what the paste leaves undone: the scheduler, which Forge
- * does not set from it, and hires fix, turned off when the infotext has none.
- * afterPaste runs at that point too, and may return a promise to wait for.
- * sendSettled waits for all of it.
- *
- * Used by both Sends: a Civitai image's, whose infotext is built from its
- * generation data, and one of your own generations', whose is its own.
- *
- * @returns {boolean} whether the paste could be made at all
- */
-/**
  * An infotext without its Lora hashes. Forge's paste renames each LoRA they
  * list to its own choice of name for the file - its alias, with "Alias from
  * file" - over the file names Send has given them, which the chips name
@@ -1197,30 +1236,54 @@ function withoutLoraHashes(infotext) {
     return lines.join('\n');
 }
 
-function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {}) {
-    // Both tabs' paste buttons are id="paste"; each sits in its own tab's
-    // tools row.
+/**
+ * Put an infotext into a generation tab as Forge's own paste reads it - run
+ * by the tab's hidden button (scheduler/load.py), in one event with what
+ * Neo's paste gets wrong set right: the hires checkpoint and VAE / text
+ * encoders, the refiner, from `generationId`'s own record when there is one
+ * (#7). Then what the paste leaves undone: the scheduler, which Forge does
+ * not set from it, and hires fix, turned off when the infotext has none.
+ * afterPaste runs at that point too, and may return a promise to wait for.
+ * sendSettled waits for all of it.
+ *
+ * Each step waits for the one before to answer, never for a time: a fixed
+ * 100 ms was shorter than every paste measured, 58 of 58 on Neo, so the
+ * scheduler and modules were set before the paste had landed. Without the
+ * hidden button, or Forge's paste function, the tab's own paste button is
+ * pressed, and the page waits until the paste has rewritten the prompt -
+ * the whole infotext there becomes its prompt alone. A time limit only says
+ * nothing answered: the steps after it do not run.
+ *
+ * Used by both Sends: a Civitai image's, whose infotext is built from its
+ * generation data, and one of your own generations', whose is its own.
+ *
+ * @returns {boolean} whether the paste could be made at all
+ */
+function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null } = {}) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
-    let pasteButton = gradioApp().querySelector(`#${tab}_tools #paste`);
-    if (!pasteButton && tab === 'txt2img') {
-        pasteButton = gradioApp().querySelector('#paste')
-            || gradioApp().querySelector('#txt2img_paste');   // SD.Next and others
-    }
-
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
         return false;
     }
-    if (!pasteButton) {
-        console.error('[ModelManager] Could not find paste button');
-        return false;
-    }
+    const text = withoutLoraHashes(infotext);
 
-    promptTextarea.value = withoutLoraHashes(infotext);
-    promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-    pasteButton.click();
-
-    sendSettled = new Promise((settled) => setTimeout(async () => {
+    sendSettled = (async () => {
+        const answer = await pressLoader(tab, { paste: text,
+                                                generation: generationId === null ? null : Number(generationId) });
+        if (answer.no_paste || answer.no_loader) {
+            if (!await pasteWithButton(tab, promptTextarea, text)) return;
+        } else if (answer.error) {
+            showNotice(`Could not send: ${answer.error}.`);
+            return;
+        } else {
+            // What the paste button's own click does after it: the prompts' token counts.
+            const recount = window[`recalculate_prompts_${tab}`];
+            if (typeof recount === 'function') recount();
+            if (answer.missing?.length) {
+                showNotice(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
+                           + 'this WebUI: the current choice is kept for it.', { info: true });
+            }
+        }
         await chooseInDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
         const pending = afterPaste ? afterPaste() : null;
 
@@ -1240,9 +1303,36 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste } = {
             }
         }
         await Promise.resolve(pending).catch(() => {});
-        settled();
-    }, TIMING.pasteSettle));
+    })().catch((error) => console.error('[ModelManager] Send failed after the paste:', error));
     return true;
+}
+
+/**
+ * Forge's own paste, by its button, where the hidden one cannot run it:
+ * whether it rewrote the prompt before the time limit. Both tabs' paste
+ * buttons are id="paste"; each sits in its own tab's tools row.
+ */
+async function pasteWithButton(tab, promptTextarea, text) {
+    let pasteButton = gradioApp().querySelector(`#${tab}_tools #paste`);
+    if (!pasteButton && tab === 'txt2img') {
+        pasteButton = gradioApp().querySelector('#paste')
+            || gradioApp().querySelector('#txt2img_paste');   // SD.Next and others
+    }
+    if (!pasteButton) {
+        console.error('[ModelManager] Could not find paste button');
+        showNotice('Could not send: this tab has no paste button.');
+        return false;
+    }
+    promptTextarea.value = text;
+    promptTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    pasteButton.click();
+    const until = Date.now() + TIMING.pasteMax;
+    while (Date.now() < until) {
+        if (promptTextarea.value !== text) return true;
+        await nextFrame();
+    }
+    showNotice('Forge did not paste the settings in time: the scheduler and the rest were not set.');
+    return false;
 }
 
 /**

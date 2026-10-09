@@ -2512,7 +2512,8 @@ const generationViewerSource = {
         if (event.target.closest?.('[data-gen-send]')) {
             rememberScrollPosition(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
             closeViewer();
-            sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id });
+            sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id,
+                           imageId: image.id });
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
@@ -2639,7 +2640,8 @@ async function sendGeneration(id) {
         return;
     }
     rememberScrollPosition(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
-    if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id })) {
+    if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id,
+                             imageId: first?.id })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
 }

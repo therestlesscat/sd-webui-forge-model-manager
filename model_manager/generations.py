@@ -26,7 +26,10 @@ What the hooks can see, and when - the same in Forge Neo and the original:
                       the "before" copies. A save is a result's when its image
                       is the one a kept object holds; its path and the
                       infotext written into it are taken then.
-  postprocess         the end: what was saved is written to the database.
+  postprocess         the end: what was saved is written to the database,
+                      with the named inputs of the press that made it (#7):
+                      Generate's, kept by our listener under Forge's id for
+                      the run (scheduler/capture.py), or the queued task's.
 
 Nothing is recorded when the setting is off, when Forge saved nothing ("Always
 save all generated images" off), or for a video - Forge Neo's Wan writes one
@@ -44,11 +47,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .db import database_state, get_models_db
-from .forge_host import (available, closest_checkpoint, forge_name, infotext_settings,
-                         installed_modules, loaded_model, loaded_modules, main_infotext,
-                         parse_generation_parameters)
+from .forge_host import (available, closest_checkpoint, current_job, forge_name,
+                         infotext_settings, installed_modules, loaded_model, loaded_modules,
+                         main_infotext, parse_generation_parameters)
 from .nsfw import generated_level
 from .console import say
+from .scheduler.capture import pressed_inputs
 from .scheduler.runner import queued_task
 from .tabs import TABS, on
 
@@ -90,6 +94,7 @@ class _Generation(object):
 
     def __init__(self):
         self.created_at = datetime.now().isoformat(timespec="seconds")
+        self.job: Optional[str] = None               # Forge's id for the run
         self.typed: Dict[str, Any] = {}
         self.loaded: Dict[str, Any] = {}
         self.loras: Dict[int, List[Dict[str, Any]]] = {}
@@ -105,6 +110,7 @@ def before_process(p) -> None:
     if not _recording():
         return
     generation = _Generation()
+    generation.job = current_job()
     generation.typed = {
         "prompt": _text(getattr(p, "prompt", None)),
         "negative_prompt": _text(getattr(p, "negative_prompt", None)),
@@ -489,6 +495,7 @@ def _write(p, processed, generation: _Generation) -> int:
         "extra_params": _extra_params(p),
         "script_args": _script_args(p),
         "settings": {key: _jsonable(value) for key, value in infotext_settings().items()},
+        "inputs": _named_inputs(db, generation.job),
         "infotext": main_infotext(p, images[0]["infotext"]),
         "image_count": len(images),
         "prompt_nsfw_level": max(image["prompt_nsfw_level"] for image in images),
@@ -503,6 +510,19 @@ def _write(p, processed, generation: _Generation) -> int:
           f"{generation.other_saves} other images saved and not recorded, "
           f"{len(files)} model files, {len(spelled)} of them in the library")
     return generation_id
+
+
+def _named_inputs(db, job: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    What the press that made this run was sent, named as a task keeps it
+    (#7): the queued task's, copied - clearing the queue's history must not
+    take it - or the Generate press our listener kept. None for a run that
+    came another way, Forge's API say: its Send uses the paste.
+    """
+    task_id = queued_task(job)
+    if task_id is not None:
+        return (db.get_task(task_id) or {}).get("inputs")
+    return pressed_inputs(job)
 
 
 def _link_to_task(db, generation_id: int) -> None:

@@ -4,9 +4,11 @@
 // through that tab: without its script loaded, nothing could be sent.
 //
 // Here the Generations tab is loaded alone. Its Send pastes the generation's
-// infotext into the tab it was made in and presses paste, shows that tab,
-// and leaves Forge's scheduler set; the Model Manager's script never loads.
-import { ROOT, act, checker, mountTab, startTab } from './harness.mjs';
+// infotext into the tab it was made in - through the tab's hidden button,
+// which runs Forge's paste - shows that tab, and leaves Forge's scheduler
+// set; the Model Manager's script never loads. A generation whose press was
+// kept is set back by that button instead, as Load to UI sets a task (#7).
+import { ROOT, act, checker, mountTab, sendLoaders, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -22,11 +24,26 @@ document.body.insertAdjacentHTML('afterbegin', `
     <div id="txt2img_tools"><button id="paste"></button></div>
     <div id="txt2img_scheduler"><input></div>
     <div id="img2img_prompt"><textarea></textarea></div>
-    <div id="img2img_tools"><button id="paste"></button></div>`);
+    <div id="img2img_tools"><button id="paste"></button></div>
+    <div id="txt2img_hr-checkbox"><input type="checkbox" checked></div>`);
 const pasted = { txt2img: 0, img2img: 0 };
+const buttonPastes = { txt2img: 0, img2img: 0 };
 for (const tab of ['txt2img', 'img2img']) {
-    document.querySelector(`#${tab}_tools #paste`).addEventListener('click', () => { pasted[tab] += 1; });
+    document.querySelector(`#${tab}_tools #paste`).addEventListener('click', () => { buttonPastes[tab] += 1; });
 }
+// What the server's button answers: a paste, unless a test says otherwise.
+let loaderAnswer = () => ({ pasted: true });
+let loaderDelay = 0;
+const loaderAsked = [];
+const timeline = [];
+sendLoaders(document, { onAsk: (tab, request) => {
+    loaderAsked.push({ tab, ...request });
+    if (request.paste !== undefined) pasted[tab] += 1;
+    timeline.push(['answered', performance.now() + loaderDelay]);
+}, answer: (tab, request) => loaderAnswer(tab, request), delay: () => loaderDelay });
+document.querySelector('#txt2img_hr-checkbox input').addEventListener('change',
+    () => timeline.push(['hires off', performance.now()]));
+const lastPaste = () => [...loaderAsked].reverse().find((r) => r.paste !== undefined)?.paste;
 const shown = [];
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => shown.push(b.id)));
 
@@ -40,6 +57,7 @@ const image = {
 };
 const generation = { id: 1, mode: 'txt2img', created_at: '2026-10-02T10:00:00', image_count: 1 };
 const asked = [];
+let planAnswer = { success: false };
 globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
@@ -56,7 +74,7 @@ globalThis.fetch = async (url) => {
                                 stored_generations: 1 },
                        scope: { count: 1 } });
     }
-    if (href.includes('/send-plan')) return reply({ success: false });
+    if (href.includes('/send-plan')) return reply(planAnswer);
     return reply({ success: true });
 };
 
@@ -69,9 +87,9 @@ await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile')
 await act('generations.send', { tile: 0 });
 await waitFor('the paste', () => pasted.txt2img > 0);
 check('the Model Manager\'s script is not loaded', ready('modelManager.sendImage'), false);
-check('Send pastes the generation\'s infotext into the tab it was made in',
-      document.querySelector('#txt2img_prompt textarea').value, INFOTEXT);
-check('and presses that tab\'s paste, once', [pasted.txt2img, pasted.img2img], [1, 0]);
+check('Send pastes the generation\'s infotext into the tab it was made in', lastPaste(), INFOTEXT);
+check('through that tab\'s hidden button, once, naming the generation for its corrections',
+      [pasted.txt2img, pasted.img2img, loaderAsked[0]?.generation, buttonPastes.txt2img], [1, 0, 1, 0]);
 check('and shows the tab', shown, ['tab_txt2img-button']);
 check('having asked how the generation was made', asked.some((href) => href.includes('/generations/1/send-plan')), true);
 
@@ -96,8 +114,60 @@ globalThis.fetch = async (url, ...rest) => (String(url).includes('/model-manager
 await act('generations.send', { tile: 0 });
 await waitFor('the second paste', () => pasted.txt2img > 1);
 check('a LoRA its prompt names by alias is pasted under its file\'s name, weight kept, and no Lora hashes',
-      document.querySelector('#txt2img_prompt textarea').value,
-      'a flower, <lora:Anime_Girl-Flower_ill_epoch_10:1>\nSteps: 20, Seed: 7, Version: neo');
+      lastPaste(), 'a flower, <lora:Anime_Girl-Flower_ill_epoch_10:1>\nSteps: 20, Seed: 7, Version: neo');
 globalThis.fetch = fetchBefore;
+
+// ------------------------------------------ what follows the paste waits for it
+// The scheduler, the modules and Hires fix are set once the paste has
+// answered, never after a fixed wait: 100 ms was shorter than every paste
+// measured on Neo (58 of 58), so they were set before it had landed.
+Object.assign(image, { infotext: INFOTEXT, meta: { prompt: 'a lighthouse at dusk', steps: 20 } });
+const { whenSendSettled } = await sharedModule('send.mjs');
+await whenSendSettled();                      // the last send's own steps done
+loaderDelay = 400;
+timeline.length = 0;
+document.querySelector('#txt2img_hr-checkbox input').checked = true;
+await act('generations.send', { tile: 0 });
+await waitFor('Hires fix turned off', () => timeline.some(([what]) => what === 'hires off'));
+const at = Object.fromEntries(timeline);
+check('Hires fix is turned off only once the paste has answered, 400 ms on',
+      at['hires off'] >= at.answered - 5, true);
+loaderDelay = 0;
+await whenSendSettled();
+
+// ---------------------------------------------- a press that was kept (#7)
+// A generation recorded with what its press was sent is set back by the
+// hidden button as Load to UI sets a task: the generation and the image -
+// for its own seed and prompts - and nothing pasted.
+planAnswer = { success: true, inputs: true, preset: null, checkpoint: null, target: [], modules_missing: [] };
+let before = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the load', () => loaderAsked.length > before);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('a generation whose press was kept is loaded for its image, not pasted',
+      loaderAsked.slice(before).map(({ tab, generation, image: id, paste }) => [tab, generation, id, paste]),
+      [['txt2img', 1, 11, undefined]]);
+check('and its tab is shown', shown[shown.length - 1], 'tab_txt2img-button');
+
+// A load the server refuses - a script gone whose choice it kept - falls
+// back to the paste, corrected from the generation's record.
+loaderAnswer = (tab, request) => (request.paste === undefined ? { error: 'Script "X" is gone' } : { pasted: true });
+before = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the paste after the failed load', () => loaderAsked.slice(before).some((r) => r.paste !== undefined));
+check('a load that fails is followed by the paste, naming the generation',
+      loaderAsked.slice(before).map((r) => [r.paste === undefined ? 'load' : 'paste', r.generation]),
+      [['load', 1], ['paste', 1]]);
+loaderAnswer = () => ({ pasted: true });
+
+// Files this WebUI lacks - the hires checkpoint an infotext names - are said.
+planAnswer = { success: false };
+loaderAnswer = () => ({ pasted: true, missing: ['gone_model [abc123]'] });
+await act('generations.send', { tile: 0 });
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('a file the paste names that this WebUI lacks is said',
+      document.querySelector('.mm-notice')?.textContent,
+      'gone_model [abc123] is not in this WebUI: the current choice is kept for it.');
+loaderAnswer = () => ({ pasted: true });
 
 done();

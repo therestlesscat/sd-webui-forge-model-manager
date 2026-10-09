@@ -9,6 +9,7 @@ prompts hold its words, or that a task of the Queue made.
 """
 import gradio as gr
 
+from ..scheduler.load import wire_send_buttons
 from .header import header_actions
 
 
@@ -73,5 +74,7 @@ def create_generations_ui():
                 <div id="gen_sentinel" class="gen-sentinel"></div>
             </div>
         """.replace("<!-- actions -->", header_actions("generations")), elem_id="generations_container")
+        # Send's hidden buttons, if this is the first of our tabs built (#7).
+        wire_send_buttons()
 
     return generations_tab

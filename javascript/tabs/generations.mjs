@@ -692,7 +692,7 @@ async function sendTile(index) {
 
 async function sendImage(tile, image) {
     if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
-                              generationId: tile.generation.id })) {
+                              generationId: tile.generation.id, imageId: image.id })) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
 }

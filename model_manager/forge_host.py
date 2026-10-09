@@ -221,6 +221,69 @@ def upscaler_name(path: str) -> Optional[str]:
     return None
 
 
+def checkpoint_choice(choices: List[Any], name: Optional[str] = None,
+                      path: Optional[str] = None) -> Optional[str]:
+    """
+    How a checkpoint control lists a checkpoint - known by its file, or by a
+    name as an infotext writes one - or None if Forge has no such file.
+
+    Neo's hires and refiner controls list a checkpoint by its folder and file
+    name; the original Forge's by `name [hash]`; an infotext says the second
+    (#7). The spelling the control's choices use is taken: a file listed
+    since they were made, by the spelling the others use. A name the other
+    WebUI spelt by its own folders is found by the file's name alone, which
+    both register as an alias.
+    """
+    from modules import sd_models
+    info = None
+    if path:
+        wanted = os.path.normcase(os.path.abspath(path))
+        info = next((i for i in sd_models.checkpoints_list.values()
+                     if os.path.normcase(os.path.abspath(i.filename)) == wanted), None)
+    elif name:
+        info = sd_models.get_closet_checkpoint_match(name)
+        if info is None:
+            stem = os.path.splitext(os.path.basename(name.replace("\\", "/")))[0]
+            info = sd_models.checkpoint_aliases.get(stem) if stem and stem != name else None
+    if info is None:
+        return None
+    listed = {c[1] if isinstance(c, (tuple, list)) else c for c in (choices or [])}
+    spellings = ("name", "short_title", "title")
+    for attr in spellings:
+        if getattr(info, attr, None) in listed:
+            return getattr(info, attr)
+    for attr in spellings:
+        if any(getattr(other, attr, None) in listed for other in sd_models.checkpoints_list.values()):
+            return getattr(info, attr, None)
+    return info.name
+
+
+def page_blocks():
+    """
+    The WebUI's whole page, as Gradio built it - every listener of every tab,
+    and those Forge wires once the tabs are built - or None before it is.
+    """
+    from modules import shared
+    return getattr(shared, "demo", None)
+
+
+def paste_outputs(tab: str) -> List[Any]:
+    """
+    The controls Forge's paste sets on a tab, in its order: its paste fields,
+    then the override-settings control. Registered as each tab is built,
+    before the extensions' tabs; the paste itself is wired after them.
+    """
+    try:
+        from modules.infotext_utils import paste_fields
+    except ImportError:
+        from modules.generation_parameters_copypaste import paste_fields
+    entry = paste_fields.get(tab) or {}
+    outputs = [field[0] for field in entry.get("fields") or []]
+    if entry.get("override_settings_component") is not None:
+        outputs.append(entry["override_settings_component"])
+    return outputs
+
+
 def closest_checkpoint(name: str):
     """The checkpoint Forge means by a name as its UI writes one - with a
     hash, or without its folder - or None."""

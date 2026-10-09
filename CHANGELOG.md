@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.56 - Send sets your generation back as it was made
+
+*9 October 2026*
+
+Send on an image you generated now sets every control back as it was when you pressed Generate - the hires fix's own checkpoint and VAE, the refiner and its CFG scale included, hidden controls too - with that image's own seed and prompts. A Civitai image's Send, and one of a generation recorded before this version, now gets the hires and refiner checkpoints right as well.
+
+- **0.56.0** (build 443) - Send lost the Hires checkpoint, the Hires VAE / Text Encoder, the refiner's checkpoint and its CFG scale. It pasted the image's infotext, and Forge Neo's paste reads a checkpoint by the `name [hash]` its infotext writes where those controls list paths, so both came out blank and were then read as "use the same"; it drops every "Hires Module" key; and no infotext carries the refiner's CFG. Each generation now keeps what its press of Generate was sent, named as a queued task keeps it - a listener beside Generate reads it under Forge's own id for the run - and Send sets each control back from that, as Load to UI sets a task, with the image's own seed, subseed and prompts and a batch of one. A Civitai image's Send, and one of a generation recorded before, runs Forge's own paste on the server and corrects those three fields in the same step, from a generation's stored paths where it has them: about 360 of 106,142 stored Civitai images here name one. A file the WebUI lacks keeps what was on screen, and is named. A generation the other WebUI made, through a shared database, has its hires and refiner checkpoints set as this WebUI lists them: Neo spells a checkpoint by its folder and file, the original Forge by `name [hash]`, and the other's spelling left the control blank. And no step after a paste waits a fixed time for it any more: 100 ms was shorter than every paste measured on Neo, 58 of 58, so the scheduler and the VAE were set before the paste had landed; each now waits for the paste to answer. The database moves to v36: if two WebUIs share it, update the other copy before starting it (#7).
+
 ## 0.55 - Chips for what a prompt names alone
 
 *9 October 2026*

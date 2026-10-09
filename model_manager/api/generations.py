@@ -260,7 +260,11 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
     generation = db.get_generation(generation_id)
     if not generation:
         return None
-    return plan_for(db, generation.get("checkpoint_path") or "", generation.get("modules") or [])
+    plan = plan_for(db, generation.get("checkpoint_path") or "", generation.get("modules") or [])
+    # Whether its Send sets back what the press was sent (#7); a generation
+    # recorded without them has Forge's paste, corrected.
+    plan["inputs"] = bool(generation.get("inputs"))
+    return plan
 
 
 def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:

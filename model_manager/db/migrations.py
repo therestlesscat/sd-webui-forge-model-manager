@@ -1639,6 +1639,22 @@ def _migrate_to_v35(cursor):
     print("[ModelManager] Migration to v35 complete")
 
 
+def _migrate_to_v36(cursor):
+    """
+    A generation keeps the named inputs of the press that made it (#7) - what
+    Generate was sent, as a queued task keeps it - so its Send sets each
+    control back as Load to UI does, not through Forge's paste, which loses
+    the hires checkpoint and modules and the refiner's. One column, empty for
+    every generation recorded before: their Send corrects the paste from
+    the paths they kept.
+    """
+    print("[ModelManager] Migrating to v36: what each generation was sent...")
+    cursor.execute("PRAGMA table_info(generations)")
+    if "inputs" not in {row[1] for row in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE generations ADD COLUMN inputs TEXT")
+    print("[ModelManager] Migration to v36 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -1658,7 +1674,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         26: _migrate_to_v26, 27: _migrate_to_v27, 28: _migrate_to_v28, 29: _migrate_to_v29,
         30: _migrate_to_v30, 31: _migrate_to_v31,
         32: lambda c: _migrate_to_v32(c, db_path),
-        33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35,
+        33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:
