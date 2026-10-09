@@ -28,6 +28,10 @@ function lift(name) {
 
 sb.isVaeFileName = lift('isVaeFileName');
 const vaeFromMeta = lift('vaeFromMeta');
+sb.vaeFromMeta = vaeFromMeta;
+// Lifted where it is there: on code without it, each of its checks fails.
+let modulesFromMeta;
+try { modulesFromMeta = lift('modulesFromMeta'); } catch (e) { modulesFromMeta = () => 'not there'; }
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -77,4 +81,17 @@ check('surrounding whitespace is trimmed',
       vaeFromMeta({ VAE: '  c.safetensors  ' }), 'c.safetensors');
 
 console.log(failures === 0 ? 'All checks passed.' : failures + ' check(s) failed.');
+
+// --- every module an image names (#204) -----------------------------------
+// Forge writes its VAE / Text Encoder selection as Module 1, Module 2, ...:
+// 4,277 stored images name their modules only so.
+const names = (meta) => JSON.stringify(modulesFromMeta(meta));
+check('an image naming its VAE only as Module 1 gives it',
+      names({ 'Module 1': 'sdxl_vae' }), '["sdxl_vae"]');
+check('every Module N, in order of its number, after the VAE key',
+      names({ VAE: 'ae', 'Module 2': 'qwen_3_06b_base', 'Module 10': 'x', 'Module 1': 'qwen_image_vae' }),
+      '["ae","qwen_image_vae","qwen_3_06b_base","x"]');
+check('each once, whatever its case', names({ VAE: 'sdxl_vae', 'Module 1': 'SDXL_VAE' }), '["sdxl_vae"]');
+check('a placeholder is no module', names({ 'Module 1': 'Automatic' }), '[]');
+check('an image naming none gives none', names({ prompt: 'x' }), '[]');
 process.exit(failures ? 1 : 0);

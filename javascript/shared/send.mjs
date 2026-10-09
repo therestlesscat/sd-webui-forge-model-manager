@@ -539,6 +539,27 @@ function vaeFromMeta(meta) {
     return null;
 }
 
+/**
+ * Every module an image names, for the server to set up (#204): its VAE as
+ * above, then each `Module N` - how Forge writes the VAE / Text Encoder
+ * selection into an image's data, the only place many images name them -
+ * in order, each once. Read for every kind of model: an SDXL image's VAE,
+ * an Anima image's VAE and text encoder.
+ */
+function modulesFromMeta(meta) {
+    if (!meta) return [];
+    const numbered = Object.keys(meta)
+        .map((key) => [key, /^Module (\d+)$/.exec(key)])
+        .filter(([, found]) => found)
+        .sort(([, a], [, b]) => Number(a[1]) - Number(b[1]))
+        .map(([key]) => meta[key]);
+    const names = [vaeFromMeta(meta), ...numbered]
+        .filter((name) => typeof name === 'string' && isVaeFileName(name))
+        .map((name) => name.trim());
+    const seen = new Set();
+    return names.filter((name) => !seen.has(name.toLowerCase()) && seen.add(name.toLowerCase()));
+}
+
 // ------------------------------------------------ Forge Neo UI preset + modules
 // An image's generation data never names a Flux model's CLIP-L and T5-XXL, or
 // a Qwen-Image model's Qwen2.5-VL - whoever made it had them loaded. So
@@ -606,7 +627,7 @@ function imageCheckpoint(img) {
  * own, a LoRA's, Civitai's say - the server works out (send_plan.py).
  * null if the server cannot say.
  */
-async function fetchForgePlan(model, version, img, vae) {
+async function fetchForgePlan(model, version, img, modules = []) {
     if (!model) return null;
     const checkpoint = imageCheckpoint(img);
     const params = new URLSearchParams();
@@ -616,7 +637,7 @@ async function fetchForgePlan(model, version, img, vae) {
     if (checkpoint.versionIds.length) params.set('version_ids', checkpoint.versionIds.join(','));
     if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
     if (checkpoint.name) params.set('model_name', checkpoint.name);
-    if (vae) params.set('vae', vae);
+    for (const name of modules || []) params.append('module', name);
     try {
         const response = await fetch('/model-manager/forge-modules?' + params.toString());
         const plan = await response.json();
@@ -777,8 +798,10 @@ async function applyPlannedModules(plan, vaeName) {
         problems.push(`Forge does not list ${plan.own_not_listed} in "VAE / Text Encoder", so it is not selected: `
                       + 'it is in a folder this WebUI does not load, or was added since Forge started.');
     }
-    if (plan.vae_not_found) {
-        console.warn(`[ModelManager] VAE "${plan.vae_not_found}" is not installed; none selected`);
+    if (plan.modules_not_found?.length) {
+        const missing = plan.modules_not_found;
+        problems.push(`This image was made with ${listNames(missing)}, which Forge does not list, `
+                      + `so ${missing.length === 1 ? 'it is' : 'they are'} not selected.`);
     }
     // A checkpoint that carries its own text encoders or VAE gets none of
     // those selected - Forge uses the checkpoint's - and says so: an empty
@@ -915,7 +938,7 @@ async function stopForCheckpoint(img, model, version, problem) {
     const send = {
         why: CHECKPOINT_WAITS[problem.reason],
         check: problem.reason === 'not_checkpoint' ? null
-            : async () => waits(await fetchForgePlan(model, version, img, vaeFromMeta(img.meta))
+            : async () => waits(await fetchForgePlan(model, version, img, modulesFromMeta(img.meta))
                                  || { checkpoint_problem: problem }),
         run: () => sendGalleryImage({ img, model, version }),
     };
@@ -1373,7 +1396,7 @@ export async function sendGalleryImage({ img, model, version }) {
             return;
         }
         const filesAsked = fetchImageFiles(img);
-        const plan = await fetchForgePlan(model, version, img, vaeFromMeta(meta));
+        const plan = await fetchForgePlan(model, version, img, modulesFromMeta(meta));
 
         // The gallery's own file is loaded when it is a checkpoint. Any other
         // gallery's image needs its own checkpoint, the one thing a send

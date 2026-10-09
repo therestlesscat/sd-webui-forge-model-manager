@@ -11,8 +11,9 @@ And what version of the page's own shared scripts the WebUI is serving,
 which it does not say itself.
 """
 import os
+from typing import List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask
 from ..console import say, say_failure
@@ -127,7 +128,7 @@ def register(app: FastAPI):
     @gate("send")
     def forge_modules_for(file_path: str = "", base_model: str = "",
                           version_ids: str = "", hashes: str = "", model_name: str = "",
-                          vae: str = ""):
+                          vae: str = "", module: List[str] = Query(default=[])):
         """
         What Send to txt2img should set up in Forge before sending an image.
 
@@ -144,6 +145,8 @@ def register(app: FastAPI):
             hashes: Comma-separated hashes the image names its checkpoint by.
             model_name: The checkpoint's name in the image's generation data.
             vae: The VAE the image's generation data names, if any.
+            module: Every module it names - its VAE, then each `Module N`
+                Forge wrote (#204) - once per name.
 
         Returns:
             preset: Forge's UI preset, or null if unknown. source: how it was
@@ -156,8 +159,10 @@ def register(app: FastAPI):
             settings give that are not installed. target: exactly what the
             VAE / Text Encoder control should hold once the image is sent -
             `select` for a model whose modules are managed, else the image's
-            own VAE as Forge lists it, or nothing; vae_not_found: the image's
-            VAE, when it names one this install does not have. bundled: the
+            modules as Forge lists them, or nothing - of a managed model, the
+            image's own file of each kind before the plan's pick;
+            modules_not_found: the names the image gives that this install
+            does not have. bundled: the
             kinds the model needs that the checkpoint carries itself, and so
             are not selected - for the page to say so, as an empty control
             otherwise reads as a send that failed.
@@ -176,7 +181,7 @@ def register(app: FastAPI):
         from ..db import get_models_db
         from ..file_identity import classify_file
         from ..forge_host import embedding_kind, installed_modules, saved_modules
-        from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_vae, pick, preferred_modules
+        from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_module, pick, preferred_modules
         from ..send_plan import SendModel, plan_model
 
         db = get_models_db()
@@ -194,7 +199,7 @@ def register(app: FastAPI):
                   "manage_modules": preset not in (None, "sd", "xl"),
                   "embeddings": embedding_kind(model_class, preset),
                   "select": [], "missing": [], "needed": [], "not_found": [],
-                  "target": [], "vae_not_found": None, "bundled": [],
+                  "target": [], "modules_not_found": [], "bundled": [],
                   "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
                   "upscaler": None, "upscaler_not_listed": None}
         gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
@@ -213,11 +218,24 @@ def register(app: FastAPI):
             answer["own_not_listed"] = None if own else os.path.basename(file_path)
         own_vae = gallery_type == "VAE"
 
+        # The modules the image names, as Forge lists them (#204): its VAE,
+        # and each `Module N` - Forge's own record of what was selected.
+        named, unlisted = [], []
+        for name in dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()):
+            label = match_module(name, installed)
+            if label is None:
+                unlisted.append(name)
+            elif label not in named:
+                named.append(label)
+
         if not answer["manage_modules"]:
-            # SD and SDXL bring their own: the image's VAE, if it names one
-            named = None if own and own_vae else match_vae(vae.strip(), installed)
-            answer["target"] = [label for label in (named, own) if label]
-            answer["vae_not_found"] = vae.strip() if vae.strip() and not named and not (own and own_vae) else None
+            # SD and SDXL bring their own: what the image names, if anything;
+            # a VAE's gallery takes the VAE's place.
+            if own and own_vae:
+                named = [label for label in named
+                         if not str(classify_file(installed[label])[0] or "").startswith("vae")]
+            answer["target"] = list(dict.fromkeys(label for label in (*named, own) if label))
+            answer["modules_not_found"] = unlisted
             return JSONResponse(answer)
 
         # What the checkpoint brings itself, of what its model needs: seen to
@@ -228,7 +246,12 @@ def register(app: FastAPI):
                              + ([vae_kind] if vae_kind and bundled_vae else []))
         modules = {label: classify_file(path) for label, path in installed.items()}
         answer.update(pick(model_class, preset, bundled_te, bundled_vae,
-                           modules, saved_modules(preset), preferred_modules(preset), own, own_vae))
+                           modules, saved_modules(preset), preferred_modules(preset), own, own_vae,
+                           named))
+        if answer["named_unused"]:
+            say(f"Send: the image names {', '.join(answer['named_unused'])}, which a {preset} model "
+                "does not use; left out")
+        answer["modules_not_found"] = unlisted
         answer["target"] = list(answer["select"])
         return JSONResponse(answer)
 

@@ -22,7 +22,7 @@ What Forge offers, holds and remembers is asked through forge_host.py; the
 rest is worked out here, so the tests can hand it any of those.
 """
 import os
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from .architecture import PRESET_BY_CLASS
 from .forge_host import DEFAULTS, saved_modules, setting
@@ -169,9 +169,10 @@ NAME_HINTS = {
 }
 
 
-def match_vae(name: str, labels) -> Optional[str]:
+def match_module(name: str, labels) -> Optional[str]:
     """
-    The installed module an image's VAE name means, as Forge lists it.
+    The installed module an image names means, as Forge lists it - its VAE,
+    or any module its generation data names as `Module N` (#204).
 
     Generation data usually carries the bare name while Forge lists the file,
     so "vae-ft-mse-840000" has to find "vae-ft-mse-840000-ema-pruned.safetensors":
@@ -230,7 +231,8 @@ def pick(model_class: Optional[str], preset: Optional[str],
          bundled_text_encoder: bool, bundled_vae: bool,
          modules: Dict[str, Tuple[Optional[str], int]],
          saved: List[str], preferred: List[str] = (),
-         own: Optional[str] = None, own_vae: bool = False) -> Dict[str, object]:
+         own: Optional[str] = None, own_vae: bool = False,
+         named: Sequence[str] = ()) -> Dict[str, object]:
     """
     The modules to select for a model, and what could not be found.
 
@@ -252,11 +254,16 @@ def pick(model_class: Optional[str], preset: Optional[str],
             would - a VAE (own_vae) the VAE's, of whatever kind, since it is
             the one asked for; a text encoder its kind's - and is selected
             beside the rest where it has no place.
+        named: the labels of the modules the image names, as Forge lists
+            them (#204): each takes its kind's place before anything the
+            settings or Forge would pick - the image was made with it. One
+            of a kind the model does not need is left out.
 
     Returns:
         needed: the kinds looked for; select: the labels to select, one per
         kind found; missing: the kinds nothing installed is; not_found: the
-        preferred names no installed module has.
+        preferred names no installed module has; named_unused: the image's
+        modules left out, of a kind not needed here or none known.
     """
     model_class = model_class or CLASS_FOR_PRESET.get(preset or "")
     encoders, vae = NEEDS.get(model_class or "", ((), None))
@@ -279,6 +286,11 @@ def pick(model_class: Optional[str], preset: Optional[str],
         if own and own not in select and (kind == own_kind or (own_vae and kind.startswith("vae"))):
             select.append(own)
             continue
+        mine = next((label for label in named
+                     if label not in select and modules.get(label, (None, 0))[0] == kind), None)
+        if mine:
+            select.append(mine)
+            continue
         candidates = [label for label, (k, _) in modules.items() if k == kind]
         if not candidates:
             missing.append(kind)
@@ -296,7 +308,8 @@ def pick(model_class: Optional[str], preset: Optional[str],
         missing = []
     if own and own not in select:
         select.append(own)
-    return {"needed": needed, "select": select, "missing": missing, "not_found": not_found}
+    return {"needed": needed, "select": select, "missing": missing, "not_found": not_found,
+            "named_unused": [label for label in named if label not in select]}
 
 
 # ------------------------------------------------------------------ settings

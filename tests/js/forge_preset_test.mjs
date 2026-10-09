@@ -250,11 +250,29 @@ const changes = () => events.filter((e) => e.startsWith('module'));
 IMAGE.meta.VAE = 'sdxl_vae';
 plan = { ...plan, target: ['sdxl_vae.safetensors'] };
 await send();
-check('the image\'s VAE is sent for the server to find', planAsked[0]?.get('vae'), 'sdxl_vae');
+check('the image\'s VAE is sent for the server to find', planAsked[0]?.getAll('module'), ['sdxl_vae']);
 check('and the file it found is selected, in one change', [selected(), changes()],
       [['sdxl_vae.safetensors'], ['module+:sdxl_vae.safetensors']]);
 await send();
 check('a second image needing the same leaves the control untouched', changes(), []);
+
+// Forge writes the modules it had selected as Module 1, Module 2 (#204); an
+// image naming its VAE only so - 4,277 stored ones - is sent with it too,
+// every one in order.
+delete IMAGE.meta.VAE;
+Object.assign(IMAGE.meta, { 'Module 2': 'clipG_ill', 'Module 1': 'sdxl_vae' });
+await send();
+check('every module an image names as Module N is sent, in order',
+      planAsked[0]?.getAll('module'), ['sdxl_vae', 'clipG_ill']);
+plan = { ...plan, modules_not_found: ['clipG_ill'] };
+await send();
+check('one Forge does not list is said', notices_().map((n) => n.textContent).pop(),
+      'This image was made with clipG_ill, which Forge does not list, so it is not selected.');
+notices_().forEach((n) => n.remove());
+delete IMAGE.meta['Module 1'];
+delete IMAGE.meta['Module 2'];
+plan = { ...plan, modules_not_found: [] };
+IMAGE.meta.VAE = 'sdxl_vae';
 
 plan = { success: true, preset: 'flux', manage_modules: true, source: 'file',
          select: ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'],

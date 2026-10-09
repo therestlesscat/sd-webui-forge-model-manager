@@ -222,13 +222,50 @@ check('a managed model\'s target is what is picked for it', body['target'], body
 body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
                                                           'vae': 'sdxl_vae'}).json()
 check('an SDXL image\'s is its own VAE, found by its bare name',
-      (body['target'], body['vae_not_found']), (['sdxl_vae.safetensors'], None))
+      (body['target'], body.get('modules_not_found')), (['sdxl_vae.safetensors'], []))
 body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
                                                           'vae': 'vae_i_do_not_have'}).json()
 check('a VAE not installed is said, and nothing is its target',
-      (body['target'], body['vae_not_found']), ([], 'vae_i_do_not_have'))
+      (body['target'], body.get('modules_not_found')), ([], ['vae_i_do_not_have']))
 body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
 check('and an image that names none has nothing to hold', body['target'], [])
+
+# What Forge wrote as `Module 1`, `Module 2` (#204): the only place 4,277
+# stored images name their modules. Each is set up, by its kind.
+def plan(**params):
+    return client.get('/model-manager/forge-modules', params=params).json()
+
+
+body = plan(base_model='Illustrious', module=['sdxl_vae'])
+check('an SDXL image naming `Module 1: sdxl_vae` has it as its target',
+      (body.get('target'), body.get('modules_not_found')), (['sdxl_vae.safetensors'], []))
+extra = {**MODULES, 'clipG_ill.safetensors': ('clip_g', 2), 'qwen_3_06b_base.safetensors': ('qwen3_06b', 2),
+         'qwen_3_06b_other.safetensors': ('qwen3_06b', 2)}
+host.installed_modules = lambda: {label: label for label in extra}
+fi.classify_file = lambda path: extra[path]
+body = plan(base_model='Illustrious', module=['sdxl_vae', 'clipG_ill'])
+check('one naming a VAE and a CLIP-G has both', body.get('target'), ['sdxl_vae.safetensors', 'clipG_ill.safetensors'])
+alone = plan(base_model='Anima')['target']
+body = plan(base_model='Anima', module=['wan_2.1_vae', 'qwen_3_06b_other'])
+check('an Anima image\'s own VAE and text encoder take their kinds\' places, over the plan\'s pick',
+      (alone, body.get('target')),
+      (['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'],
+       ['qwen_3_06b_other.safetensors', 'wan_2.1_vae.safetensors']))
+settings['anima'] = 'qwen_image_vae.safetensors'
+body = plan(base_model='Anima', module=['wan_2.1_vae'])
+check('and over the file the settings prefer, which still fills a kind the image does not name',
+      body.get('target'), ['qwen_3_06b_base.safetensors', 'wan_2.1_vae.safetensors'])
+settings.clear()
+body = plan(base_model='Anima', module=['clip_l', 'qwen_image_vae'])
+check('a module of a kind the model does not use is left out',
+      (body.get('target'), body.get('named_unused')),
+      (['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'], ['clip_l.safetensors']))
+body = plan(base_model='Anima', module=['gone_vae', 'qwen_image_vae'])
+check('one Forge does not list is said, and its kind is picked as ever',
+      (body.get('target'), body.get('modules_not_found')),
+      (['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'], ['gone_vae']))
+host.installed_modules = lambda: {label: label for label in MODULES}
+fi.classify_file = lambda path: MODULES[path]
 
 # A checkpoint that carries its own text encoders and VAE - an all-in-one
 # Flux.1 or Krea 2 - gets none of them selected, and the page is told which
@@ -283,7 +320,7 @@ check('a text encoder\'s gallery: that encoder, in its kind\'s place',
       body['target'], ['clip_l.safetensors', 't5_own.safetensors', 'ae.safetensors'])
 body = sent_from(own_sd_vae, base_model='Illustrious', vae='sdxl_vae')
 check('an SDXL image from a VAE\'s gallery: that VAE, not the one the image names',
-      (body['preset'], body['target'], body['vae_not_found']), ('xl', ['sd_own.safetensors'], None))
+      (body['preset'], body['target'], body.get('modules_not_found')), ('xl', ['sd_own.safetensors'], []))
 del listed['ae_own.safetensors']
 body = sent_from(own_vae, version_ids=str(flux_id))
 check('a gallery\'s file Forge does not list is said, and the rest picked as ever',
@@ -390,7 +427,7 @@ fi.classify_file = lambda path: MODULES[path]
 
 labels = ['sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', 'ae.safetensors']
 check('a VAE name is matched as the file, the file less its extension, or the start of one',
-      [fm.match_vae(n, labels) for n in ('ae.safetensors', 'SDXL_VAE', 'vae-ft-mse-840000', 'nope', '')],
+      [getattr(fm, 'match_module', getattr(fm, 'match_vae', None))(n, labels) for n in ('ae.safetensors', 'SDXL_VAE', 'vae-ft-mse-840000', 'nope', '')],
       ['ae.safetensors', 'sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', None, None])
 
 # What Forge holds, to check a change took: its setting, as the labels it shows.
