@@ -266,9 +266,10 @@ switches hide), `payload_rows.py` (a Civitai payload as rows),
 `hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
 setting's default), `tabs.py` (whether a tab is on), `model_dirs.held_here` (whether the library holds a file - with `library_files`, the one read behind it: three rules had grown, by row, by model and by file, #188). Each found a second copy that had already begun to
 disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
-to the SQL (`switch_counts_test`, `prompt_rules_test`) and registration to the
+to the SQL (`switch_counts_test`, `prompt_rules_test`, `model_level_test` -
+every combination of a model's three ratings, #146) and registration to the
 table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
-facade. No test yet holds `model_level_sql` to `model_level()` (#146). What
+facade. What
 the page must have before any answer could come, it keeps a copy of: the NSFW
 levels, once (`nsfw.mjs`); the setting keys, where each is read.
 `page_constants_test.py` holds both to the server's (#86).
