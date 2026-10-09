@@ -9,13 +9,17 @@ mistakes that survive a move or a rename, so they get their own pass.
 """
 import ast
 import importlib
+import importlib.util
 import io
 import inspect
 import os
 import sys
 
-# tests/tools/<this file> -> three levels up is the extension
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# tests/tools/<this file> -> three levels up is the extension; or a copy of
+# it, which a suite names to show the check failing (MM_PY_ROOT, as MM_ROOT for
+# check_js_references.mjs).
+ROOT = os.environ.get('MM_PY_ROOT') \
+    or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)      # the checks read files by repo-relative path
 
@@ -51,10 +55,17 @@ for path in py_files():
     for node in ast.walk(tree):
         if not isinstance(node, ast.ImportFrom) or not node.level:
             continue
-        base = package
-        for _ in range(node.level - 1):
-            base = base.rsplit('.', 1)[0]
-        target = '%s.%s' % (base, node.module) if node.module else base
+        # Python's own rule for the dots. Dropping a part of the name per dot
+        # stopped at model_manager, and an import climbing above it passed:
+        # resources.py's `from ..hashing`, left from api/, failed only when a
+        # suite called its function (#110).
+        dots = '.' * node.level + (node.module or '')
+        try:
+            target = importlib.util.resolve_name(dots, package)
+        except ImportError:
+            fail('%s:%d: from %s climbs above %s - Python refuses it'
+                 % (path, node.lineno, dots, package.split('.')[0]))
+            continue
         try:
             mod = importlib.import_module(target)
         except Exception as e:

@@ -175,7 +175,7 @@ that the WebUI does not - and ask a real browser ("Probes").
 
 | | |
 |---|---|
-| `check_python_references.py` | relative imports name real attributes; facade methods exist with matching arity; call sites fit the signatures they call |
+| `check_python_references.py` | relative imports name real attributes, the dots read by Python's own rule, so one climbing above the package fails (`check_python_references_test.py` puts one back in a copy); facade methods exist with matching arity; call sites fit the signatures they call |
 | `check_js_references.mjs` | every imported and destructured name is exported; every name read or called is created where it is used - its function, a block around it, or the file - imported, or a known global, the modules parsed with acorn (`check_references_test.mjs` runs it on made-up modules); no `window.*` read but never assigned; no file reads a `window.*` another file defines, and every name called through `shared/calls.mjs` is provided; a tab's `SHARED_MODULES` is what it awaits; markup holds no inline handler, and every action it names - in the modules and the tabs' Python - is provided, its area too (only an object's key, a label, is let through); no file defines a `window.*` global but the shared modules' version |
 | `check_api_contract.py` | the Sync dialog's requests are what its endpoints declare, and its reads what the estimate returns |
 | `check_forge_imports.py` | nothing in the package but `forge_host.py` (and `ui/settings.py`) imports Forge, or reaches it by name |
@@ -212,7 +212,8 @@ not been shown to check anything — `MM_ROOT` on the JavaScript suites exists
 for exactly this, so they can be pointed at a worktree. From WSL, running
 Windows' `node.exe`, set `WSLENV=MM_ROOT` as well: WSL passes a Windows program
 only the variables named there, and without it the suite quietly runs against
-the current code and passes.
+the current code and passes. `check_python_references.py` takes `MM_PY_ROOT`
+the same way: a folder holding a copy of `model_manager`.
 
 ## Probes
 
