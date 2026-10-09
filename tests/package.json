@@ -3,6 +3,8 @@
   "private": true,
   "description": "Dependencies for the JavaScript suites. Run `npm install` here; nothing the extension ships needs them.",
   "devDependencies": {
+    "acorn": "8.14.0",
+    "acorn-walk": "8.3.4",
     "linkedom": "^0.18.0"
   }
 }

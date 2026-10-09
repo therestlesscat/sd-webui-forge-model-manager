@@ -5,8 +5,8 @@
 // in Python because pyflakes existed; this is the equivalent for the modules.
 //
 //   1. every imported name must actually be exported by the file named
-//   2. every bare identifier that gets called must be declared, imported,
-//      or a known global
+//   2. every name read or called must be created where it is used - in its
+//      function, a block around it, or the file - imported, or a known global
 //   3. no file reads a window global another file defines; calls between
 //      files name something shared/calls.mjs was given
 //   4. markup holds no JavaScript, and every action it names is provided -
@@ -156,23 +156,31 @@ for (const f of files) {
     }
 }
 
-// --- 2. every called name is known -----------------------------------------
+// --- 2. every name used is known --------------------------------------------
+// Searching the text for "word(" saw calls alone, so a name only read passed:
+// [...currentImages] outlived its rename and failed only when that line ran
+// (#115). The code is parsed instead (acorn, one of the tests' own packages),
+// and every name read or called has to be created where it is used - in that
+// function, a block around it, or the file - imported, or a global. A name
+// another function creates does not count, nor a loop's `let` after the loop
+// (#116).
 const GLOBALS = new Set(['window', 'document', 'console', 'fetch', 'setTimeout', 'clearTimeout',
-    'setInterval', 'clearInterval', 'localStorage', 'navigator', 'URL', 'URLSearchParams',
-    'FormData', 'Event', 'MouseEvent', 'IntersectionObserver', 'AbortController', 'Promise',
-    'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'Set', 'Map',
-    'RegExp', 'Error', 'TypeError', 'parseInt', 'parseFloat', 'isNaN', 'encodeURIComponent',
-    'decodeURIComponent', 'atob', 'btoa', 'alert', 'confirm', 'requestAnimationFrame',
+    'setInterval', 'clearInterval', 'localStorage', 'sessionStorage', 'navigator', 'URL', 'URLSearchParams',
+    'FormData', 'Event', 'CustomEvent', 'MouseEvent', 'IntersectionObserver', 'ResizeObserver',
+    'MutationObserver', 'DOMParser', 'File', 'DataTransfer', 'AbortController', 'alert', 'confirm',
+    'requestAnimationFrame', 'atob', 'btoa', 'TextEncoder', 'TextDecoder', 'structuredClone', 'queueMicrotask',
+    // the language's own
+    'globalThis', 'undefined', 'arguments', 'NaN', 'Infinity', 'Promise', 'Math', 'JSON', 'Object', 'Array',
+    'String', 'Number', 'Boolean', 'Symbol', 'BigInt', 'Date', 'Set', 'Map', 'WeakMap', 'WeakSet', 'RegExp',
+    'Error', 'TypeError', 'RangeError', 'SyntaxError', 'Proxy', 'Reflect', 'Intl', 'Uint8Array', 'ArrayBuffer',
+    'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI',
+    'decodeURI',
     // provided by the WebUI's own classic scripts
     'gradioApp', 'onUiLoaded', 'onAfterUiUpdate', 'onUiUpdate', 'onOptionsChanged', 'opts',
     'updateInput', 'selectCheckpoint', 'selectVAE', 'inputAccordionChecked', 'switch_to_txt2img',
-    'globalThis', 'structuredClone', 'queueMicrotask']);
+    'restart_reload']);
 
-const KEYWORDS = /^(if|for|while|switch|catch|return|typeof|await|async|new|delete|void|in|of|do|else|function|throw|yield|super|case|import)$/;
-
-// Comments are prose, and prose contains words followed by "(" — "card sizing
-// (default values)" would otherwise look like a call to `sizing`. Template
-// literals hold markup, not code, for the same reason.
+// Comments are prose; the window.<Name> check below reads the text alone.
 function stripProse(text) {
     return text
         .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -182,42 +190,100 @@ function stripProse(text) {
         .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
 }
 
-for (const f of files) {
-    const src = stripProse(readFileSync(f, 'utf8'));
-    const known = new Set(GLOBALS);
-    for (const m of src.matchAll(/(?:function|const|let|var|class)\s+(\w+)/g)) known.add(m[1]);
-    for (const m of src.matchAll(/import\s*\{([^}]*)\}/gs))
-        for (const p of m[1].split(',')) known.add(p.trim().split(/\s+as\s+/).pop().trim());
-    // const { a, b: c } = await import(...)
-    for (const m of src.matchAll(/const \{([^}]*)\}\s*=\s*await (?:import|shared)\(/gs))
-        for (const p of m[1].split(',')) known.add(p.trim().split(':').pop().trim());
-    // parameters and destructured bindings
-    for (const m of src.matchAll(/\(([^)]*)\)\s*(?:=>|\{)/g))
-        for (const p of m[1].split(','))
-            for (const n of p.matchAll(/[A-Za-z_$][\w$]*/g)) known.add(n[0]);
+let acorn = null;
+let acornWalk = null;
+try {
+    acorn = await import('acorn');
+    acornWalk = await import('acorn-walk');
+} catch {
+    // Without the parser nothing here is checked: say so, never pass.
+    console.log('FAIL acorn is not installed - run `npm install` in tests/');
+    failures++;
+}
 
-    const missing = new Set();
-    // A member call - after one dot: a.b(), a?.b(), a chain's next line - is
-    // skipped; a spread's three are not one: ...fetchFiles(img) once went
-    // unchecked for the dot before it.
-    for (const m of src.matchAll(/(?<![\w$'"`])(?<!(?<!\.)\.)([a-z_$][\w$]*)\s*\(/g)) {
-        const n = m[1];
-        if (!known.has(n) && !KEYWORDS.test(n)) missing.add(n);
+const isFunction = (node) => /Function/.test(node.type);
+const isBlock = (node) => isFunction(node)
+    || /^(Program|BlockStatement|StaticBlock|ForStatement|ForInStatement|ForOfStatement|SwitchStatement|CatchClause|ClassBody)$/.test(node.type);
+
+// The names a pattern binds: x, { a, b: c = 1 }, [d, ...e].
+function bound(pattern, out = []) {
+    if (!pattern) return out;
+    if (pattern.type === 'Identifier') out.push(pattern.name);
+    else if (pattern.type === 'ObjectPattern')
+        pattern.properties.forEach((p) => bound(p.type === 'RestElement' ? p.argument : p.value, out));
+    else if (pattern.type === 'ArrayPattern') pattern.elements.forEach((e) => bound(e, out));
+    else if (pattern.type === 'AssignmentPattern') bound(pattern.left, out);
+    else if (pattern.type === 'RestElement') bound(pattern.argument, out);
+    return out;
+}
+
+// Each part of the code that holds names, and the names it holds: a `var`, a
+// parameter and a function's own name its function; a `let`, a `const`, a
+// class or a function declaration its block; an import the file.
+function scopesOf(ast) {
+    const scopes = new Map();
+    const hold = (scope, pattern) => {
+        if (!scopes.has(scope)) scopes.set(scope, new Set());
+        for (const name of bound(pattern)) scopes.get(scope).add(name);
+    };
+    acornWalk.fullAncestor(ast, (node, _state, ancestors) => {
+        const around = ancestors.slice(0, -1).reverse();
+        const block = around.find(isBlock) || ast;
+        if (node.type === 'VariableDeclaration') {
+            const owner = node.kind === 'var' ? (around.find(isFunction) || ast) : block;
+            for (const d of node.declarations) hold(owner, d.id);
+        }
+        if ((node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') && node.id) hold(block, node.id);
+        if ((node.type === 'FunctionExpression' || node.type === 'ClassExpression') && node.id) hold(node, node.id);
+        if (isFunction(node)) node.params.forEach((p) => hold(node, p));
+        if (node.type === 'CatchClause' && node.param) hold(node, node.param);
+        if (/^Import(Default|Namespace)?Specifier$/.test(node.type)) hold(ast, node.local);
+    });
+    return scopes;
+}
+
+for (const f of files) {
+    const text = readFileSync(f, 'utf8');
+    const missing = [];
+    if (acorn) {
+        let ast = null;
+        try {
+            ast = acorn.parse(text, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
+        } catch (e) {
+            missing.push(`does not parse (${e.message})`);
+        }
+        if (ast) {
+            const scopes = scopesOf(ast);
+            const unknown = new Map();          // "reads x" -> its lines
+            // The walker reaches a name in use alone: never a property after
+            // a dot, an object's key or a method's name, nor a name as it is
+            // made - a shorthand { images } it reaches as its value, a read.
+            acornWalk.fullAncestor(ast, (node, _state, ancestors) => {
+                if (node.type !== 'Identifier' || GLOBALS.has(node.name)) return;
+                const parent = ancestors[ancestors.length - 2];
+                if (ancestors.some((a) => scopes.get(a)?.has(node.name))) return;
+                const called = /^(Call|New)Expression$/.test(parent.type) && parent.callee === node;
+                const key = `${called ? 'calls' : 'reads'} ${node.name}`;
+                unknown.set(key, [...(unknown.get(key) || []), node.loc.start.line]);
+            });
+            for (const [key, lines] of unknown) missing.push(`${key} (line ${lines.join(', ')})`);
+        }
     }
-    // Member calls are skipped above, which once let window.MMCommon.x() pass
-    // as "a property access, not my problem" - while the global it reached for
-    // had been replaced by imports. Any window.<name> that is not a browser
-    // global, or is assigned nowhere, is a leftover.
+    // Member calls once let window.MMCommon.x() pass as "a property access,
+    // not my problem" - while the global it reached for had been replaced by
+    // imports. Any window.<Name> that is not a browser global, or is assigned
+    // nowhere, is a leftover.
+    const src = stripProse(text);
     for (const m of src.matchAll(/window\.([A-Z]\w+)/g)) {
         const name = m[1];
         if (!new RegExp(`window\.${name}\s*=`).test(src)) {
-            missing.add(`window.${name} (read, never assigned)`);
+            missing.push(`window.${name} (read, never assigned)`);
         }
     }
 
-    if (missing.size) {
-        console.log(`FAIL ${f.replace(ROOT, '')}: calls ${[...missing].join(', ')} — not declared or imported`);
-        failures += missing.size;
+    if (missing.length) {
+        console.log(`FAIL ${f.replace(ROOT, '')}: ${[...new Set(missing)].join(', ')} — not declared or imported`);
+        failures += new Set(missing).size;
     }
 }
 

@@ -1174,9 +1174,13 @@ waits - are in `tests/README.md`.
   branch for booleans never ran. Test for `bool` first.
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
-- **`check_js_references.mjs` reads a regex literal as code**: in
-  `/\b(error)/` it saw a call to `b`. Build such a pattern from a string,
-  `new RegExp('\\b(error)', 'i')`.
+- **A text search for names sees only what it was written for.**
+  `check_js_references.mjs` looked for "word(": it took `/\b(error)/` for a
+  call to `b`, and passed a name only read - #115's `[...currentImages]`,
+  caught only because a browser suite ran that line. It parses the modules
+  now (acorn, #116), and a name has to be created where it is used: its
+  function, a block around it, or the file. Its other checks still read the
+  text.
 - **Search the page too before saying the extension does not do something.**
   "Nothing refreshes Forge's checkpoint list after a download" was said from
   a search of the Python alone; `downloads.mjs` presses Forge's own refresh
