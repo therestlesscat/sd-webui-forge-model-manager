@@ -366,9 +366,12 @@ for (const [f, src] of sources) {
 // - a window global named in a string, in the modules' templates and in the
 // tabs' Python, that no check followed across (#95). It says it in
 // data-action now, a name provided in shared/calls.mjs. So no markup has an
-// inline handler, and every name of the form <area>.<what>, for an area some
-// file provides under, is provided: data-action="downloads.control" in the
-// Python, and the names a tab hands a renderer, action: 'modelManager.selectModel'.
+// inline handler, and every name of the form <area>.<what> is provided:
+// data-action="downloads.control" in the Python, and the names a tab hands a
+// renderer, action: 'modelManager.selectModel'. Its area too: one nothing
+// provides under was skipped, and modelManger.showModel would have passed,
+// its button doing nothing (#147). A label is no action - an object's key,
+// 'img.width': img.width - and only a key is let through.
 const UI = resolve(ROOT, '..', 'model_manager', 'ui').replace(/\\/g, '/');
 const shown = (f) => (f.startsWith(UI) ? f.replace(UI, 'model_manager/ui') : f.replace(ROOT, ''));
 const markup = new Map([...sources,
@@ -382,13 +385,21 @@ for (const [f, src] of markup) {
         failures += inline.length;
     }
     const unknown = new Set();
-    for (const m of src.matchAll(/(['"`])([a-zA-Z]+)\.(\w+)\1/g)) {
+    const noArea = new Set();
+    for (const m of src.matchAll(/(['"`])([a-zA-Z]+)\.(\w+)\1(:)?/g)) {
         if (/^(mjs|js|py|css|json)$/.test(m[3])) continue;       // a file: shared('downloads.mjs')
-        if (areas.has(m[2]) && !provided.has(`${m[2]}.${m[3]}`)) unknown.add(`${m[2]}.${m[3]}`);
+        if (m[4]) continue;                                       // a key, a label
+        if (!areas.has(m[2])) noArea.add(`${m[2]}.${m[3]}`);
+        else if (!provided.has(`${m[2]}.${m[3]}`)) unknown.add(`${m[2]}.${m[3]}`);
     }
     if (unknown.size) {
         console.log(`FAIL ${shown(f)}: names ${[...unknown].join(', ')}, which no file provides`);
         failures += unknown.size;
+    }
+    for (const name of noArea) {
+        console.log(`FAIL ${shown(f)}: names ${name} - no file provides its area, ${name.split('.')[0]}`
+                    + ` (areas: ${[...areas].sort().join(', ')})`);
+        failures += 1;
     }
 }
 

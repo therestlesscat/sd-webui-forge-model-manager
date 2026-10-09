@@ -10,12 +10,14 @@ const { check, done } = checker();
 const CHECKER = `${ROOT}/tests/tools/check_js_references.mjs`;
 const WORK = `${ROOT}/tests/work/check_references`;
 
-// One module, checked alone: what the checker says of it, and whether it failed.
-function verdict(code) {
+// One module, checked alone - with a tab's Python beside it, when given: what
+// the checker says of them, and whether it failed.
+function verdict(code, python = null) {
     rmSync(WORK, { recursive: true, force: true });
     mkdirSync(`${WORK}/javascript`, { recursive: true });
     mkdirSync(`${WORK}/model_manager/ui`, { recursive: true });
     writeFileSync(`${WORK}/javascript/made_up.mjs`, code);
+    if (python !== null) writeFileSync(`${WORK}/model_manager/ui/made_up_tab.py`, python);
     const env = { ...process.env, MM_ROOT: `${WORK}/javascript` };
     try {
         return { failed: false, said: execFileSync(process.execPath, [CHECKER], { env, encoding: 'utf8' }) };
@@ -23,11 +25,11 @@ function verdict(code) {
         return { failed: true, said: String(e.stdout) };
     }
 }
-const fails = (code, words) => {
-    const { failed, said } = verdict(code);
+const fails = (code, words, python = null) => {
+    const { failed, said } = verdict(code, python);
     return failed && said.includes(words);
 };
-const passes = (code) => !verdict(code).failed;
+const passes = (code, python = null) => !verdict(code, python).failed;
 
 check('a name read and created nowhere fails, named: the #115 miss',
       fails('export function refresh(images = [...currentImages, 1]) { return images; }\n',
@@ -61,6 +63,25 @@ check('the eight globals the checker did not know pass',
       passes('export const g = [DOMParser, ResizeObserver, MutationObserver, CustomEvent, File, DataTransfer, '
              + 'sessionStorage, restart_reload];\n'),
       true);
+
+// An action's area is checked too: one nothing provides under was skipped,
+// and a button whose area was misspelt did nothing (#147).
+const PROVIDES = "function provide() {}\nprovide('modelManager.showModel', () => {});\n";
+const NO_AREA = 'names modelManger.showModel - no file provides its area, modelManger (areas: modelManager)';
+check('a misspelt area fails, in markup, in a handed name and in a tab\'s Python, naming the areas',
+      [fails(`${PROVIDES}export const html = '<button data-action="modelManger.showModel">';\n`, NO_AREA),
+       fails(`${PROVIDES}export const card = { action: 'modelManger.showModel' };\n`, NO_AREA),
+       fails(PROVIDES, `model_manager/ui/made_up_tab.py: ${NO_AREA}`,
+             'html = \'<button data-action="modelManger.showModel">\'\n')],
+      [true, true, true]);
+check('a real area with a misspelt second part fails',
+      fails(`${PROVIDES}export const card = { action: 'modelManager.showModle' };\n`,
+            'names modelManager.showModle, which no file provides'),
+      true);
+check('a label as an object\'s key, and a file name, pass',
+      [passes(`${PROVIDES}export const sizes = { 'img.width': 1, 'meta.Size': 2 };\n`),
+       passes(`${PROVIDES}export const file = 'downloads.mjs';\n`)],
+      [true, true]);
 
 rmSync(WORK, { recursive: true, force: true });
 done();
