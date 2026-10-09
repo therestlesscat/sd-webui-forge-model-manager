@@ -46,8 +46,16 @@ check('a file read, not run, counts - the markup, whatever the case git gives it
       [['gallery_test.mjs'], ['sync_test.py']])
 check('a changed suite runs itself', pick('tests/py/hash_test.py')[0], ['hash_test.py'])
 check('a file every suite of a kind needs runs every one of them',
-      [pick('tests/harness.mjs')[0], pick('tests/fixtures.py')[0]],
-      [['dialog_test.mjs', 'gallery_test.mjs'], ['hash_test.py', 'sync_test.py']])
+      pick('tests/fixtures.py')[0], ['hash_test.py', 'sync_test.py'])
+# The harness sits beside the browser suites, and was taken for a changed
+# suite: none ran, and the runner named it by a path it does not have (#137).
+check('a change to the harness runs every browser suite',
+      pick('tests/js/harness.mjs')[0], ['dialog_test.mjs', 'gallery_test.mjs'])
+check('a helper beside the suites runs the suites the map has using it',
+      pick('tests/js/shared_script.cjs',
+           known=dict(MAP, **{'gallery_test.mjs': MAP['gallery_test.mjs'] + ['tests/js/shared_script.cjs']}))[0],
+      ['gallery_test.mjs'])
+check('the harness is no suite', 'harness.mjs' in [name for _, _, name in run.discover()], False)
 check('code no suite was seen using runs everything that could use it',
       pick('model_manager/new_module.py')[0], ['dialog_test.mjs', 'gallery_test.mjs', 'hash_test.py', 'sync_test.py'])
 check('a file no suite uses and that is not code runs none', pick('README.md')[0], [])

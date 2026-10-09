@@ -26,7 +26,8 @@ coverage), and the files either read - the tab markup, the stylesheet, the
 changelog. Importing is not using: nearly every suite imports the whole
 package. Code no recorded run used runs every suite that could use it, and a
 change to `harness.mjs`, `fixtures.py` or `webui_stub.py` runs every suite of
-that kind - not yet for `harness.mjs`, whose path the runner has wrong (#137).
+that kind. Another helper beside the suites - `shared_script.cjs` - runs the
+suites the map has using it.
 `runner_test.py` covers the rules.
 
 A page setting that waits or polls reads `TIMING` in `core.mjs`; a browser
@@ -204,7 +205,8 @@ Three groups are skipped by default and the runner says so:
 Put it in `py/` or `js/`, have it exit non-zero on failure, and build any data
 it needs with `fixtures.build(directory)`. The runner will find it: every
 `.py`, `.js` and `.mjs` there is run as a suite, so a helper goes in `tests/`
-itself, or is a `.cjs` - `harness.mjs` is run as one today (#137).
+itself, or is a `.cjs`, or is named in the runner's `SHARED`, as `harness.mjs`
+is.
 
 One habit worth keeping: after writing a check, run it against the code as it
 was **before** your fix and watch it fail. A check that has never failed has

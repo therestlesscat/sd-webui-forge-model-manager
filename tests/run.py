@@ -56,7 +56,9 @@ def discover():
         if not os.path.isdir(directory):
             continue
         for name in sorted(os.listdir(directory)):
-            if name.endswith(('.py', '.js', '.mjs')):
+            # A helper every suite of a kind uses is no suite: harness.mjs ran
+            # as one, testing nothing (#137).
+            if name.endswith(('.py', '.js', '.mjs')) and 'tests/%s/%s' % (folder, name) not in SHARED:
                 out.append((folder, os.path.join(directory, name), name))
     return out
 
@@ -90,7 +92,7 @@ TRACE = os.path.join(HERE, 'work', 'trace')
 
 # Files every suite of a kind depends on: a change to one needs them all.
 SHARED = {
-    'tests/harness.mjs': 'js',
+    'tests/js/harness.mjs': 'js',
     'tests/fixtures.py': 'py',
     'tests/webui_stub.py': 'py',
     'tests/package.json': 'js',
@@ -184,9 +186,11 @@ def choose(suites, known):
                 chosen.setdefault(name, 'a tool\'s suite: %s changed' % f)
     for f in changed:
         base = os.path.basename(f)
-        if f.startswith(('tests/py/', 'tests/js/')):
-            if any(name == base for _, _, name in suites):
-                chosen[base] = 'the suite itself changed'
+        # Only a suite is "the suite itself": a helper beside the suites goes
+        # on to the shared list and the map. Taken for a suite, a change to
+        # harness.mjs ran no browser suite, nor shared_script.cjs its users (#137).
+        if f.startswith(('tests/py/', 'tests/js/')) and any(name == base for _, _, name in suites):
+            chosen[base] = 'the suite itself changed'
         elif f in SHARED:
             for kind, _, name in suites:
                 if kind == SHARED[f]:
