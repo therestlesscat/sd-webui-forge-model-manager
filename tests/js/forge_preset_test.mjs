@@ -1160,9 +1160,11 @@ check('with an SDXL model, an SDXL embedding is in the library, and Forge uses i
       look('negativeXL_D').slice(0, 2), ['have', '✓']);
 check('an SD 1.x one is skipped, and says so - still in and out of the prompt by a click',
       [look('easynegative').slice(0, 2), note('easynegative'), chip('easynegative')?.disabled],
-      [['unavailable', '⊘'], 'made for SD 1.x, skipped with this SDXL model', false]);
-check('one whose kind no sync has read: not known', [look('unread_kind').slice(0, 2), note('unread_kind')],
-      [['unavailable', '?'], 'not known if this model uses it']);
+      [['unavailable', '⊘'], 'made for SD 1.x; this checkpoint takes SDXL embeddings', false]);
+// Which is not known is said: "not known if this model uses it" was both,
+// and "this model" read as the embedding's own (#208).
+check('one whose kind no sync has read: made for an unknown model', [look('unread_kind').slice(0, 2), note('unread_kind')],
+      [['unavailable', '?'], 'made for an unknown model, may be skipped']);
 resourcesAsked.length = 0;
 IMAGE.meta = { prompt: 'a cat', negativePrompt: 'negativeXL_D', steps: 20 };
 await send();
@@ -1172,6 +1174,12 @@ check('a prompt naming nothing but an embedding\'s word is asked about too, and 
 await promptOnly('sd');
 check('with a model that loads SD 1.x embeddings - Flux, by Forge\'s code - the other way round',
       [look('easynegative').slice(0, 2), look('negativeXL_D').slice(0, 2)], [['have', '✓'], ['unavailable', '⊘']]);
+check('and says so by the embeddings the checkpoint takes, not "this SD 1.x model" of a Flux one',
+      note('negativeXL_D'), 'made for SDXL; this checkpoint takes SD 1.x embeddings');
+await promptOnly(null);
+check('a checkpoint whose embeddings are not known: the embedding\'s kind, and that it may be skipped',
+      [look('easynegative').slice(0, 2), note('easynegative'), note('unread_kind')],
+      [['unavailable', '?'], 'made for SD 1.x, may be skipped with this checkpoint', 'made for an unknown model, may be skipped']);
 await promptOnly('none');
 check('with one that loads none, each says it is not used', note('negativeXL_D'), 'not used with this model');
 delete library.names;

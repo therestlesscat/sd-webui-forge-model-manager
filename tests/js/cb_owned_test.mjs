@@ -50,7 +50,9 @@ const MODELS = {
          modelVersions: [{ id: 10, name: 'v1', images: [], paid_access: null, owned_locally: true, owned_files: [11],
                            files: [file(11, 'a_fp16.safetensors', { primary: true }), file(12, 'a_fp32.safetensors')] }] },
     // In the other WebUI's folders: listed, not held.
-    2: { id: 2, name: 'Theirs', type: 'LORA', stats: {}, creator: {}, owned_locally: false, listed_locally: true,
+    // Its stats as Civitai sends a model's now: no rating, no favourites.
+    2: { id: 2, name: 'Theirs', type: 'LORA', creator: {}, owned_locally: false, listed_locally: true,
+         stats: { downloadCount: 2869, thumbsUpCount: 310, thumbsDownCount: 0, commentCount: 2 },
          owned_versions: [],
          modelVersions: [{ id: 20, name: 'v1', images: [], paid_access: null, owned_locally: false, owned_files: [],
                            files: [file(21, 'b.safetensors', { primary: true })] }] },
@@ -123,6 +125,13 @@ await show(2);
 check('a model only listed: no Owned badge, Download offered', [badges(), alreadyOwned(), Boolean(downloadButton())],
       [0, false, true]);
 check('and Show in Model Manager, which lists it', showInManager(), true);
+// Civitai sends no rating and no favourites now: they read "★ 0.0 (0 ratings)"
+// and "0" on every model. Its votes have a row instead (#208).
+const statRow = (label) => Array.from(details()?.querySelectorAll('tr') || [])
+    .find((tr) => tr.querySelector('td')?.textContent.trim() === label)?.querySelectorAll('td')[1]?.textContent.trim();
+check('its votes and downloads, and no rating or favourites Civitai did not send',
+      [statRow('Rating'), statRow('Votes'), statRow('Downloads'), statRow('Favorites'), statRow('Comments')],
+      [undefined, '▲ 310▼ 0', '2.9K', undefined, '2']);
 const viewOnCivitai = Array.from(details()?.querySelectorAll('.detail-actions > *') || [])
     .find((e) => e.textContent.trim() === 'View on Civitai');
 check("the details' View on Civitai is a button, and opens this version's page (#144)",

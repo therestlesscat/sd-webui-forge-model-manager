@@ -106,6 +106,10 @@ await act('modelManager.selectModel', { index: 0 });
 check('1. one version on disk, three on Civitai: all three, in Civitai\'s order, the local one marked',
       pillNames(), ['v3', 'v2 ⬥', 'v1 ✓']);
 check('   the one on disk is the one shown', active(), ['v1 ✓']);
+// Rating, Votes and Downloads, each in its row: the rating had the downloads
+// in brackets, read as how many had rated it (#208).
+check('   its rating, votes and downloads, each in a row of its own',
+      [row('Rating'), row('Votes'), row('Downloads')], ['★ 4.5', '▲ 90▼ 10', '1.2K']);
 check('   the heading counts both', details().querySelector('.mm-version-selector h4')?.textContent.trim(),
       'Versions (3, 1 downloaded)');
 const note = details().querySelector('.mm-versions-note')?.textContent || '';
@@ -118,10 +122,11 @@ check('2. a note says the list may be old, and how to bring it up to date',
 // ------------------------------------------------ a version not downloaded
 document.getElementById('mm_images').style.display = 'block';
 await click(pill('v3'));
+// The thumbs have a row of their own: they were the rating's "(100 ratings)" (#208).
 check('3. a version not downloaded: the Civitai Browser\'s information',
       [row('Version ID'), row('Version Name'), row('Base Model'), row('Creator'), row('Published'),
-       row('Rating'), row('Downloads')],
-      ['503', 'v3', 'SDXL 1.0', 'someone', 'Mar 1, 2026', '★ 4.5 (100 ratings)', '1.2K']);
+       row('Rating'), row('Votes'), row('Downloads')],
+      ['503', 'v3', 'SDXL 1.0', 'someone', 'Mar 1, 2026', '★ 4.5', '▲ 90▼ 10', '1.2K']);
 check('   its own trigger words, and the model\'s description',
       [details().querySelector('.trigger-word')?.textContent, !!details().textContent.includes('About it')],
       ['third', true]);

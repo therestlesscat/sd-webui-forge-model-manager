@@ -9,7 +9,8 @@
 //
 // Two differences are meant, and are left out of the models here: the
 // Browser's type badge is now escaped, and a name is cut before it is
-// escaped. The Browser's Prev and Next are now shown disabled at the ends
+// escaped. A third came later: several versions on disk read "×3", not
+// "v3" (#208), which the second model here shows. The Browser's Prev and Next are now shown disabled at the ends
 // rather than left out; its page strip is compared with that allowed for.
 import { execFileSync } from 'child_process';
 import { mkdirSync, rmSync } from 'fs';

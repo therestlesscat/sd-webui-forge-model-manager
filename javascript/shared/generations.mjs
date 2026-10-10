@@ -43,10 +43,14 @@ export function selectBarHtml(count, actions, { noun = 'image', all = 'Select al
                 ${none}>Delete...</button>`;
 }
 
-/** What the one Delete asks: "Delete 37 images of 12 generations? (3 of them hidden by the NSFW filter)". */
+/**
+ * What the one Delete asks: "Delete 37 images of 12 generations? (3 of them
+ * hidden by the filters)". The Model Manager's count holds what the prompt
+ * filter hides too, which "the NSFW filter" left out (#208).
+ */
 export function bulkDeleteQuestion(images, generations, hidden = 0) {
     return `Delete ${plural(images, 'image')} of ${plural(generations, 'generation')}?`
-        + (hidden ? ` (${hidden} of them hidden by the NSFW filter)` : '');
+        + (hidden ? ` (${hidden} of them hidden by the filters)` : '');
 }
 
 /**

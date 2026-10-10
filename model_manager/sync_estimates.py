@@ -149,7 +149,9 @@ def gallery_refresh_options(db, version_ids: List[int], include_prompts: bool = 
         options[name] = {"requests": sum(max(1, math.ceil(size / IMAGES_PER_REQUEST)) for size in sizes),
                          "prompts": prompts, "images": sum(fetched)}
     over = [counts.get(v, 0) - page for v in version_ids if counts.get(v, 0) > page]
-    options["deletes"] = {"images": sum(over), "models": len(over)}
+    # Per version: the cut is a version's first page. Said as models, the
+    # count before a delete was in the wrong unit (#208).
+    options["deletes"] = {"images": sum(over), "versions": len(over)}
     options["page"] = page
     return options
 

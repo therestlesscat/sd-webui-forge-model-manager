@@ -62,10 +62,13 @@ def _civitai_says(response) -> str:
 
 
 class CivitaiRateLimitError(CivitaiAPIError):
-    """Rate limit exceeded."""
-    def __init__(self, retry_after: int = 60):
-        self.retry_after = retry_after
-        super().__init__(f"Rate limited. Retry after {retry_after}s")
+    """
+    Civitai not asked, or not answering, for the rate: the message says which.
+    One text served both - "Rate limited. Retry after 60s" - and blamed
+    Civitai for the extension's own queue, with a wait nobody gave (#208).
+    """
+    def __init__(self, message: str = "Civitai is limiting requests."):
+        super().__init__(message)
 
 
 class CivitaiNotFoundError(CivitaiAPIError):
@@ -337,7 +340,9 @@ class CivitaiClient:
                 tell(f"Waiting for a turn: Civitai is asked at most "
                      f"{self.rate_limiter.tokens_per_second:g} times a second", turn)
             if not self.rate_limiter.acquire(timeout=120.0):
-                raise CivitaiRateLimitError(60)
+                raise CivitaiRateLimitError(
+                    "Civitai was not asked: this request waited 2 minutes for a turn. Civitai is asked at most "
+                    f"{self.rate_limiter.tokens_per_second:g} times a second here.")
 
             try:
                 response = self.session.request(
@@ -355,16 +360,23 @@ class CivitaiClient:
                     raise CivitaiAuthError(response.status_code)
 
                 if response.status_code == 429:
-                    # Rate limited - get retry-after if available
-                    retry_after = int(response.headers.get("Retry-After", 60))
+                    # Rate limited: the wait Civitai asks for, if it gives one
+                    # in seconds, else 60 s - which is ours, and not said as its.
+                    given = (response.headers.get("Retry-After") or "").strip()
+                    asked = int(given) if given.isdigit() else None
+                    retry_after = asked if asked is not None else 60
+                    said = _civitai_says(response)
                     if self.wait_on_rate_limit and attempt < retries:
                         say(f"Rate limited, waiting {retry_after}s...")
-                        said = _civitai_says(response)
                         again(f"Civitai is limiting requests{': ' + said if said else '.'}",
                               retry_after, attempt)
                         time.sleep(retry_after)
                         continue
-                    raise CivitaiRateLimitError(retry_after)
+                    tries = attempt + 1
+                    quoted = f': "{said}"' if said else ''
+                    waited = f"It asked to wait {asked} s" if asked is not None else "Civitai gave no wait time"
+                    raise CivitaiRateLimitError(f"Civitai is limiting requests{quoted}. {waited}; "
+                                                f"tried {tries} time{'s' if tries > 1 else ''}.")
 
                 if response.status_code >= 500:
                     # Server error - retry with backoff. Civitai says why in

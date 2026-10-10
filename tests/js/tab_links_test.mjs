@@ -76,7 +76,7 @@ check('Generations off: Show images is disabled, saying why',
 document.body.insertAdjacentHTML('beforeend', `<button id="a_link"${loading.linkTo?.('modelManager', 'Open it') ?? ''}>x</button>`);
 check('a link to a tab not built at this start: disabled, saying why',
       [byId('a_link').disabled, byId('a_link').title],
-      [true, 'The Model Manager tab was turned on after the WebUI started: it comes with a restart']);
+      [true, 'The Model Manager tab was turned on after the WebUI started. Settings -> Reload UI adds it.']);
 
 // A note's Sync opens the Model Manager's sync dialog: not drawn without it.
 await waitFor('the Queue\'s notes', () => document.querySelector('#queue_notes [data-note]'));

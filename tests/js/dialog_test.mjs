@@ -120,12 +120,12 @@ const ESTIMATE = {
         // as many as each has - and what the first would delete.
         image_options: { page: 100, first: { requests: 745, prompts: 2245, images: 67230 },
                          kept: { requests: 1187, prompts: 2539, images: 76050 },
-                         deletes: { images: 8820, models: 40 } },
+                         deletes: { images: 8820, versions: 40 } },
     },
     // A force sync's, over the files it would read.
     force_images: { page: 100, first: { requests: 1193, prompts: 0, images: 0 },
                     kept: { requests: 1635, prompts: 0, images: 0 },
-                    deletes: { images: 8820, models: 40 } },
+                    deletes: { images: 8820, versions: 40 } },
     windows: [
         { label: '1 day', days: 1, versions: 0 },
         { label: '2 days', days: 2, versions: 0 },
@@ -432,7 +432,7 @@ change(countChoice('first'));
 await settle();
 check('the first page says what it deletes, and that they can still be seen',
     [notice().textContent.includes('This deletes 8,820 stored images from your library'),
-     notice().textContent.includes('40 models hold more than 100'),
+     notice().textContent.includes('40 versions have more than 100 each'),
      notice().textContent.includes('Load More fetches them from Civitai again'),
      notice().textContent.includes('won\'t necessarily be the ones you have now')],
     [true, true, true, true]);

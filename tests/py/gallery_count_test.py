@@ -132,8 +132,10 @@ estimate = estimate_metadata_sync(model_paths=[LINKED], include_images=True, inc
 options = estimate.get('image_options') or {}
 check('the estimate costs both: the first page one request, as many as it has four',
       ((options.get('first') or {}).get('requests'), (options.get('kept') or {}).get('requests')), (1, 4))
-check('and says how many stored images the first page would delete, from how many models',
-      options.get('deletes'), {'images': 250, 'models': 1})
+# Versions, not models: the cut is per version, and said as models the
+# count before a delete was in the wrong unit (#208).
+check('and says how many stored images the first page would delete, from how many versions',
+      options.get('deletes'), {'images': 250, 'versions': 1})
 # The dialog names the first page by its size: "First 100 images per model".
 # Sent by nobody, it read "First undefined images per model".
 check('and the size of a page, which the first option is named by', options.get('page'), 100)

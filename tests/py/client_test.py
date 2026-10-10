@@ -282,6 +282,54 @@ for body, want in (({'error': OVERLOADED}, 'Civitai: %s (503)' % OVERLOADED),
     check('after the retries, as before (%s)' % (body or 'nothing'), len(asked),
           client.MAX_RETRIES + 1)
 
+# ------------------------------------------------------------- rate limited
+# One text served two cases - "Rate limited. Retry after 60s" - blaming
+# Civitai for the extension's own queue, with a wait nobody gave (#208).
+def limited(headers, body):
+    answer = Answer(429, body)
+    answer.headers = headers
+    return answer
+
+
+for headers, body, want in (
+        ({'Retry-After': '30'}, {'error': 'Too many requests'},
+         'Civitai is limiting requests: "Too many requests". It asked to wait 30 s; tried 1 time.'),
+        ({}, None, 'Civitai is limiting requests. Civitai gave no wait time; tried 1 time.')):
+    client = CivitaiClient()
+    client.wait_on_rate_limit = False
+    client.rate_limiter = TokenBucketRateLimiter(1000.0, 100)
+    client.session.request = lambda method, url, **kw: limited(headers, body)
+    try:
+        client.get_model_images(1, limit=1)
+        said = None
+    except CivitaiRateLimitError as e:
+        said = str(e)
+    check('a 429 says what Civitai said and asked (%s)' % (headers or 'no wait'), said, want)
+
+
+class NoTurn(object):
+    """A queue whose turn never comes: the two minutes are up at once."""
+    tokens_per_second = 6.0
+
+    def wait_time(self):
+        return 0.0
+
+    def acquire(self, timeout=None):
+        return False
+
+
+client = CivitaiClient()
+client.rate_limiter = NoTurn()
+client.session.request = lambda method, url, **kw: Answer(200, {})
+try:
+    client.get_model_images(1, limit=1)
+    said = None
+except CivitaiRateLimitError as e:
+    said = str(e)
+check('no turn in the queue: Civitai was not asked, and the rate is said', said,
+      'Civitai was not asked: this request waited 2 minutes for a turn. '
+      'Civitai is asked at most 6 times a second here.')
+
 # ------------------------------------------------------------- tried patiently
 # A sync tries again, at its end, what Civitai failed on: six retries, waiting
 # 2, 4, 8, 8, 8 and 8 seconds - here in thousandths, the same steps.

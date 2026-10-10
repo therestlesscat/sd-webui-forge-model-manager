@@ -497,12 +497,12 @@ function showImageOptions(options, keep) {
  */
 export function imageCountNotice(options, keep, { one = false } = {}) {
     const said = [];
-    const { images = 0, models = 0 } = options?.deletes || {};
+    const { images = 0, versions = 0 } = options?.deletes || {};
     if (!keep && images) {
         said.push(one
             ? `This deletes ${images.toLocaleString()} of this model's stored images, past the first ${options.page} of each version.`
             : `This deletes ${images.toLocaleString()} stored images from your library: `
-              + `${models.toLocaleString()} ${models === 1 ? 'model holds' : 'models hold'} more than ${options.page}.`);
+              + `${versions.toLocaleString()} ${versions === 1 ? 'version has' : 'versions have'} more than ${options.page} each.`);
         said.push('You can still see them as usual - Load More fetches them from Civitai again; only the stored copies go.');
     }
     said.push("The images synced won't necessarily be the ones you have now: Civitai's order changes as new images arrive.");

@@ -96,7 +96,7 @@ const deleting = act('modelManager.deletePickedGenerations');
 await waitFor('the question', () => document.querySelector('.mm-delete-dialog h3'));
 check('Delete asks once, counting what the filter hides',
       document.querySelector('.mm-delete-dialog h3')?.textContent,
-      'Delete 6 images of 3 generations? (1 of them hidden by the NSFW filter)');
+      'Delete 6 images of 3 generations? (1 of them hidden by the filters)');
 const filesBox = document.querySelector('.mm-delete-dialog [data-files]');
 check('the files box starts ticked, as the setting says (#107)', filesBox?.checked, true);
 if (filesBox) filesBox.checked = false;

@@ -35,6 +35,21 @@ export function renderThumbs(up, down) {
 }
 
 /**
+ * A model's Rating, Votes and Downloads, as rows of a details table - the
+ * same in both tabs (#208). Each is shown only when there is one; `downloads`
+ * null when not known. The rating had the downloads in brackets in the Model
+ * Manager, read as how many had rated it, and the thumbs as its count of
+ * ratings for a version not downloaded.
+ */
+export function statsRows({ rating, up, down, downloads }) {
+    const votes = renderThumbs(up, down);
+    return (Number(rating) > 0 ? `<tr><td>Rating</td><td>★ ${Number(rating).toFixed(1)}</td></tr>` : '')
+        + (votes ? `<tr><td>Votes</td><td>${votes}</td></tr>` : '')
+        + (downloads !== null && downloads !== undefined
+            ? `<tr><td>Downloads</td><td>${formatNumber(downloads)}</td></tr>` : '');
+}
+
+/**
  * How many columns to lay a page of cards out in, so its rows come out even.
  *
  * Use the fewest rows the width allows, then spread the cards across them:

@@ -418,15 +418,23 @@ function skippedState(chip, loads) {
         return { unavailable: true, note: 'not used with this model',
                  title: `${chip.title}: Forge loads no embeddings with this model` };
     }
+    // Which of the two is not known is said: "not known if this model uses
+    // it" was both, and "this model" read as the embedding's own (#208).
     const made = EMBEDDING_KINDS[chip.architecture];
-    if (!loads || !made) {
-        return { unavailable: true, mark: '?', note: 'not known if this model uses it',
-                 title: `${chip.title}: whether Forge loads it with this model is not known` };
+    if (!made) {
+        return { unavailable: true, mark: '?', note: 'made for an unknown model, may be skipped',
+                 title: `${chip.title}: what it was made for is not known, so Forge may skip it with this checkpoint` };
+    }
+    if (!loads) {
+        return { unavailable: true, mark: '?', note: `made for ${made}, may be skipped with this checkpoint`,
+                 title: `${chip.title} is made for ${made}: which embeddings this checkpoint loads is not known` };
     }
     if (chip.architecture === loads) return null;
-    const model = EMBEDDING_KINDS[loads] || loads;
-    return { unavailable: true, note: `made for ${made}, skipped with this ${model} model`,
-             title: `${chip.title} is made for ${made}: Forge skips it with this ${model} model` };
+    // By the embeddings it takes, not its family: Forge gives Flux and SD 3
+    // SD 1.x ones, and they were called "this SD 1.x model".
+    const takes = EMBEDDING_KINDS[loads] || loads;
+    return { unavailable: true, note: `made for ${made}; this checkpoint takes ${takes} embeddings`,
+             title: `${chip.title} is made for ${made}: Forge skips it, this checkpoint takes ${takes} embeddings` };
 }
 
 /** Redraw every tab's chips, to show a download's progress. */

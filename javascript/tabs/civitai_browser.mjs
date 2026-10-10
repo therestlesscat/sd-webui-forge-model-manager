@@ -41,7 +41,7 @@ const {
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
-    createCardSize,
+    createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
     isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, galleryImageWidth, setupLazyMedia,
@@ -999,9 +999,9 @@ function renderModelDetails() {
                     ${paidLabel ? `<tr><td>Access</td><td class="cb-paid-cell">${escapeHtml(paidLabel)}</td></tr>` : ''}
                     <tr><td>Published</td><td>${version?.publishedAt ? formatDate(version.publishedAt) : 'Unknown'}</td></tr>
                     <tr><td>Updated</td><td>${version?.updatedAt ? formatDate(version.updatedAt) : 'Unknown'}</td></tr>
-                    <tr><td>Rating</td><td>★ ${(stats.rating || 0).toFixed(1)} (${formatNumber(stats.ratingCount || 0)} ratings)</td></tr>
-                    <tr><td>Downloads</td><td>${formatNumber(stats.downloadCount || 0)}</td></tr>
-                    <tr><td>Favorites</td><td>${formatNumber(stats.favoriteCount || 0)}</td></tr>
+                    ${statsRows({ rating: stats.rating, up: stats.thumbsUpCount, down: stats.thumbsDownCount,
+                                  downloads: stats.downloadCount || 0 })}
+                    ${stats.favoriteCount !== undefined ? `<tr><td>Favorites</td><td>${formatNumber(stats.favoriteCount)}</td></tr>` : ''}
                     <tr><td>Comments</td><td>${formatNumber(stats.commentCount || 0)}</td></tr>
                     <tr><td>File</td><td id="cb_file_name">${escapeHtml(fileName)}</td></tr>
                     <tr><td>File Size</td><td id="cb_file_size">${fileSize}</td></tr>

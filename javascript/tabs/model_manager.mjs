@@ -42,7 +42,7 @@ const {
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
-    createCardSize,
+    createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
     isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, IMAGE_PLACEHOLDER_SVG, galleryImageWidth,
@@ -608,7 +608,9 @@ function mmCard(model, index) {
             { cls: 'type-badge', text: model.model_type || 'Unknown' },
             ...(model.base_model ? [{ cls: 'base-model', text: model.base_model }] : []),
             // Only when several versions are on disk.
-            ...(versions > 1 ? [{ cls: 'versions-badge', text: `v${versions}`, title: `${versions} local versions` }] : []),
+            // "×3", not "v3", which read as version 3 (#208).
+            ...(versions > 1 ? [{ cls: 'versions-badge', text: `×${versions}`,
+                                  title: `${versions} versions of this model are on disk` }] : []),
         ],
         stats: [
             { text: formatFileSize(model.file_size) },
@@ -1354,7 +1356,6 @@ function renderRemoteVersion() {
         ? remoteFileIndex : primaryFileIndex(version);
     const file = files[fileIndex];
     const paidLabel = paidAccessLabel(version);
-    const votes = (model.thumbs_up || 0) + (model.thumbs_down || 0);
 
     const trainedWords = version.trainedWords && version.trainedWords.length > 0
         ? `<div class="detail-section">
@@ -1398,8 +1399,8 @@ function renderRemoteVersion() {
                     ${paidLabel ? `<tr><td>Access</td><td class="mm-paid-cell">${escapeHtml(paidLabel)}</td></tr>` : ''}
                     <tr><td>Published</td><td>${formatDay(version.publishedAt)}</td></tr>
                     <tr><td>Updated</td><td>${formatDay(version.updatedAt)}</td></tr>
-                    <tr><td>Rating</td><td>★ ${(model.rating || 0).toFixed(1)} (${formatNumber(votes)} ratings)</td></tr>
-                    <tr><td>Downloads</td><td>${formatNumber(model.download_count || 0)}</td></tr>
+                    ${statsRows({ rating: model.rating, up: model.thumbs_up, down: model.thumbs_down,
+                                  downloads: model.download_count || 0 })}
                     <tr><td>File</td><td id="mm_file_name">${escapeHtml(file?.name || 'Unknown')}</td></tr>
                     <tr><td>File Size</td><td id="mm_file_size">${file?.sizeKB ? formatBytes(file.sizeKB * 1024) : 'Unknown'}</td></tr>
                 </table>
@@ -1566,7 +1567,8 @@ function renderModelDetails(model, fullDetails = null) {
                     <tr class="mm-file-fact"><td>Modified</td><td>${formatDate(model.file_modified)}</td></tr>
                     ${model.published_at ? `<tr><td>Published</td><td>${formatDate(model.published_at)}</td></tr>` : ''}
                     ${model.creator ? `<tr><td>Creator</td><td>${escapeHtml(model.creator)}</td></tr>` : ''}
-                    ${model.rating > 0 ? `<tr><td>Rating</td><td>★ ${model.rating.toFixed(1)} (${formatNumber(model.download_count)} downloads)</td></tr>` : ''}
+                    ${statsRows({ rating: model.rating, up: model.thumbs_up, down: model.thumbs_down,
+                                  downloads: model.download_count > 0 ? model.download_count : null })}
                     ${model.civitai_model ? `
                     <tr><td rowspan="3" class="license-label-cell">License</td><td>Commercial: ${formatCommercialUse(model.civitai_model.allow_commercial_use)}</td></tr>
                     <tr><td>Derivatives: ${model.civitai_model.allow_derivatives ? 'Yes' : 'No'}</td></tr>
@@ -1710,7 +1712,11 @@ async function forceSyncModel() {
         if (data.success) {
             const synced = data.synced_count || 0;
             const total = data.total_versions || 0;
-            setStatus(`Synced ${synced}/${total} files successfully`);
+            // Which failed, and why: it said "successfully" whatever the count (#208).
+            const failed = total - synced;
+            const why = (data.errors || []).join('; ');
+            setStatus(`Synced ${synced} of ${total} files from Civitai`
+                + (failed > 0 ? `; ${failed} failed${why ? `: ${why}` : ''}` : ''));
             // Reload the current model to show updated data
             if (selectedModelIndex >= 0) {
                 selectModel(selectedModelIndex);

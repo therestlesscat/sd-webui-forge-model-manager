@@ -1201,7 +1201,9 @@ class SyncService:
         try:
             fetched = self.client.get_models_by_ids(model_ids)
         except Exception as e:
-            self._progress.error_messages.append(f"Could not fetch models: {e}")
+            # Counted, so the page says so: it ended "0 errors", the reason
+            # unseen, and nothing refreshed (#208).
+            self._progress.fail(f"Could not get the models' details from Civitai: {e}. Nothing was refreshed.")
             return False
 
         say(f"Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")

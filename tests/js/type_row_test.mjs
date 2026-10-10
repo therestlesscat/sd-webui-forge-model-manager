@@ -49,6 +49,10 @@ await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card'
 
 check('the card\'s badge is the file\'s type',
       document.querySelector('#mm_grid .type-badge')?.textContent, 'VAE');
+// Two versions on disk: "×2", not "v2", which read as version 2 (#208).
+const versionsBadge = document.querySelector('#mm_grid .versions-badge');
+check('several versions on disk: a count, saying what it counts',
+      [versionsBadge?.textContent, versionsBadge?.getAttribute('title')], ['×2', '2 versions of this model are on disk']);
 
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the details', () => document.querySelector('.mm-type-cell'));

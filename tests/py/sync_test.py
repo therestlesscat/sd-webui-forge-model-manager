@@ -559,7 +559,11 @@ check('rather than an error', progress.errors, 0)
 sync, client = service(models_raises=RuntimeError('Civitai is down'))
 progress = sync.sync_metadata(model_paths=[ONE_PATH])
 check('a fetch that fails ends the sync', progress.is_complete, True)
-check('saying why', progress.error_messages, ['Could not fetch models: Civitai is down'])
+check('saying why', progress.error_messages,
+      ["Could not get the models' details from Civitai: Civitai is down. Nothing was refreshed."])
+# Counted, so the page shows the reason: it ended "0 errors", the message
+# unseen, and nothing refreshed (#208).
+check('and counted as an error, which the page shows', progress.errors, 1)
 
 sync, client = service()
 progress = sync.sync_metadata(model_paths=['/nothing/here.safetensors'])

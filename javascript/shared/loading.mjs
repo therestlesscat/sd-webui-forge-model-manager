@@ -92,7 +92,8 @@ export function unavailableReason(name) {
     const now = state[name];
     const label = LABELS[name] || name;
     if (now?.on === false) return `${label} is turned off in the settings`;
-    if (now?.built === false) return `${label} was turned on after the WebUI started: it comes with a restart`;
+    // Settings -> Reload UI builds it, as the popup says: this said a restart (#208).
+    if (now?.built === false) return `${label} was turned on after the WebUI started. Settings -> Reload UI adds it.`;
     if (now?.stopped) return `${label} was turned off in this page: it comes back with a reload`;
     return `${label} has not started yet`;
 }

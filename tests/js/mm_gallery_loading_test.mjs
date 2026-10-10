@@ -35,19 +35,20 @@ const syncs = [];          // the model's Sync, as posted
 const estimates = [];      // what was asked of the estimate
 let release = null;
 let failNext = false;
+let syncAnswer = { success: true, synced_count: 1, total_versions: 1 };
 globalThis.fetch = async (url, init) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/models/force-sync')) {
         syncs.push(new URLSearchParams(String(init?.body || '')));
-        return reply({ success: true, synced_count: 1, total_versions: 1 });
+        return reply(syncAnswer);
     }
     if (href.includes('/sync/estimate')) {
         estimates.push(new URL(href).searchParams);
         // This model's gallery, refetched either way (#103).
         return reply({ success: true, estimate: { versions: 1, image_options: {
             page: 100, first: { requests: 1, prompts: 4, images: 100 },
-            kept: { requests: 4, prompts: 12, images: 350 }, deletes: { images: 250, models: 1 } } } });
+            kept: { requests: 4, prompts: 12, images: 350 }, deletes: { images: 250, versions: 1 } } } });
     }
     if (streamNext && href.includes('/images/gallery-page')) {
         const gate = streamNext;
@@ -176,5 +177,22 @@ check('Sync syncs the model, as many images as each has',
 await waitFor('the page after it', () => release !== null);
 release();
 await syncing;
+const statusLine = () => document.getElementById('mm_status')?.textContent.trim();
+check('and says how many of its files it synced', statusLine(), 'Synced 1 of 1 files from Civitai');
+
+// One of two failing is said, with which and why: it said "Synced 1/2 files
+// successfully" (#208).
+syncAnswer = { success: true, synced_count: 1, total_versions: 2,
+               errors: ['b.safetensors: Civitai could not be asked: Server error: 503'] };
+release = null;
+const again = act('modelManager.syncModel');
+await waitFor('the question', () => !!question());
+question().querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the second sync', () => syncs.length === 2);
+await waitFor('the page after it', () => release !== null);
+release();
+await again;
+check('one of two failed: it says so, which, and why', statusLine(),
+      'Synced 1 of 2 files from Civitai; 1 failed: b.safetensors: Civitai could not be asked: Server error: 503');
 
 done();

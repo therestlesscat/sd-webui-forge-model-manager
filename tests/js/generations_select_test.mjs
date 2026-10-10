@@ -125,7 +125,7 @@ const deleting = act('generations.deleteSelected');
 await waitFor('the question', () => document.querySelector('.mm-dialog-backdrop'));
 const dialog = document.querySelector('.mm-dialog-backdrop');
 check('Delete asks once: how many images, of how many generations, how many hidden',
-      dialog.querySelector('h3')?.textContent, 'Delete 9 images of 3 generations? (1 of them hidden by the NSFW filter)');
+      dialog.querySelector('h3')?.textContent, 'Delete 9 images of 3 generations? (1 of them hidden by the filters)');
 check('the files box starts ticked, as the setting says (#107)', dialog.querySelector('[data-files]')?.checked, true);
 dialog.querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await deleting;
