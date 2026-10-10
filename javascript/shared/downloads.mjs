@@ -85,9 +85,27 @@ export function onItsWay(versionId) {
     return ON_ITS_WAY.has(downloads()?.status(versionId));
 }
 
+/**
+ * Where a version's download stands, as the downloads list says: its status
+ * ('starting' once asked for, then the server's), percent and error - or
+ * null when the list has none. The one answer a Download button, a chip and
+ * the Resources dialog all draw from (#111): the chips kept a copy of their
+ * own, which at "complete" dropped the list's word and drew a chip yellow
+ * while the library was asked about it. Complete is in the library: the
+ * server says it only once the file is synced.
+ */
+export function downloadState(versionId) {
+    const list = downloads();
+    const status = list?.status(versionId);
+    if (!status) return null;
+    const item = list.progress(versionId) || {};
+    return { status: status === 'complete' && !item.synced ? 'finishing' : status,
+             percent: Math.floor(item.percent || 0), error: item.error || null };
+}
+
 /** A Download button's label and whether it is disabled, from its version's download. */
 function downloadButtonState(versionId) {
-    const busy = DOWNLOAD_BUTTON_BUSY[downloads()?.status(versionId)];
+    const busy = DOWNLOAD_BUTTON_BUSY[downloadState(versionId)?.status];
     return { disabled: !!busy, label: busy || 'Download' };
 }
 

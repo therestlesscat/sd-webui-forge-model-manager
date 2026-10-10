@@ -849,12 +849,35 @@ check('and progress is for that one', body['progress']['version_id'], 90172)
 status, body = post('/model-manager/civitai/download', version_id=90175, model_id=90170)
 check('only when asked: the Civitai Browser still gets a 404', status, 404)
 
+# The image's own version is never asked about: the page offers its Download
+# only when the library lookup found no file of it here, and the download
+# service adds a file already in place without fetching it. Asked about any
+# file anywhere, one only the other WebUI held was never downloaded, and its
+# chip asked again for ever (#111).
 before = len(downloads.queued)
 civitai(model=remote(OWNED_MODEL, OWNED_VERSION))
 status, body = post('/model-manager/civitai/download', version_id=OWNED_VERSION,
                     model_id=OWNED_MODEL, newer_if_gone='true')
-check('a version this library has is not downloaded again',
-      (body['success'], body.get('already_installed'), len(downloads.queued)), (True, True, before))
+check('the image\'s own version is queued, whatever the library holds',
+      (body['success'], body.get('already_installed'), len(downloads.queued)), (True, None, before + 1))
+
+# A substitute is: nothing else asks whether the newest version is here.
+before = len(downloads.queued)
+status, body = post('/model-manager/civitai/download', version_id=90199,
+                    model_id=OWNED_MODEL, newer_if_gone='true')
+check('a substitute this WebUI holds is not downloaded again',
+      (body['success'], body.get('already_installed'), body['substituted'], len(downloads.queued)),
+      (True, True, True, before))
+
+# Held only in a folder this WebUI does not load - the other WebUI's, sharing
+# the database - it is downloaded here (#188's held).
+sys.modules['modules'].paths.models_path = os.path.join(WORK, 'another_webui')
+status, body = post('/model-manager/civitai/download', version_id=90199,
+                    model_id=OWNED_MODEL, newer_if_gone='true')
+sys.modules['modules'].paths.models_path = facts['models_dir']
+check('a substitute only the other WebUI holds is downloaded here',
+      (body['success'], body.get('already_installed'), downloads.queued[-1][:2]),
+      (True, None, (OWNED_VERSION, OWNED_VERSION)))
 
 # ---------------------------------------------------------------------- tags
 civitai(tags={'items': [{'name': 'anime'}, {'name': 'realistic'}, {'no': 'name'}]})

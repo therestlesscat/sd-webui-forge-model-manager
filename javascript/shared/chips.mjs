@@ -14,7 +14,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, escapeHtml } = await shared('core.mjs');
 const {
-    resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownloads, downloadResource,
+    resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownload, downloadResource,
 } = await shared('resources.mjs');
 const { downloads } = await shared('downloads.mjs');
 
@@ -349,7 +349,9 @@ function missingChipState(chip) {
                  title: `${chip.title} is not in the library. It is named without a hash or a version, `
                      + 'so Civitai cannot be asked which it is' };
     }
-    const job = chip.versionId ? resourceDownloads[chip.versionId] : chip.lookup;
+    // Its download as the downloads list says, as a Download button reads
+    // it (#111) - or, before a version is known, what asking Civitai found.
+    const job = chip.versionId ? resourceDownload(chip.versionId) : chip.lookup;
     // Downloads run with the Model Manager or the Civitai Browser (#182).
     if (!downloads() && !job) {
         return { busy: true, unavailable: true, note: 'not in the library',
@@ -359,30 +361,38 @@ function missingChipState(chip) {
         return { busy: true, unavailable: true, note: 'not on Civitai',
                  title: `${chip.title}: Civitai does not have it` };
     }
-    if (job && job.state === 'checking') {
+    if (job && job.status === 'checking') {
         return { busy: true, mark: CHIP_MARKS.busy, note: 'checking Civitai...',
                  title: `Asking Civitai what ${chip.title} is` };
     }
-    if (job && job.state === 'unavailable') {
+    if (job && job.status === 'unavailable') {
         return { busy: true, unavailable: true, note: 'not on Civitai',
                  title: `${chip.title}: ${job.error || 'Civitai does not have it'}` };
     }
-    if (job && job.state === 'downloading') {
-        const percent = job.finishing ? 100 : Number(job.percent) || 0;
-        return { busy: true, mark: job.finishing || !percent ? CHIP_MARKS.busy : CHIP_MARKS.download,
+    if (job && ['starting', 'pending', 'downloading', 'paused', 'finishing'].includes(job.status)) {
+        const finishing = job.status === 'finishing';
+        const percent = finishing ? 100 : Number(job.percent) || 0;
+        return { busy: true, mark: finishing || !percent ? CHIP_MARKS.busy : CHIP_MARKS.download,
                  progress: percent,
-                 note: job.finishing ? 'adding to library...' : job.paused ? `paused, ${percent}%`
-                     : percent ? `downloading, ${job.percent}%` : 'queued',
+                 note: finishing ? 'adding to library...' : job.status === 'paused' ? `paused, ${percent}%`
+                     : job.status === 'starting' ? 'starting' : job.status === 'pending' ? 'queued'
+                     : percent ? `downloading, ${percent}%` : 'downloading',
                  title: `Downloading the missing ${what} ${chip.title}` };
     }
-    if (job && job.state === 'installed' && job.substituted) {
+    // In the library, and the library not yet asked for its file - or not
+    // answering: the chip waits as the Download button does, saying so.
+    if (job && job.status === 'complete' && job.substituted) {
         return { busy: true, mark: CHIP_MARKS.have, note: `got ${job.versionName || 'a newer version'} instead`,
                  title: `The image's version of ${chip.title} is gone from Civitai; the newest was downloaded` };
     }
-    if (job && job.state === 'error') {
+    if (job && job.status === 'complete') {
+        return { busy: true, mark: CHIP_MARKS.have, progress: 100, note: 'downloaded',
+                 title: `${chip.title} is downloaded into the library` };
+    }
+    if (job && (job.status === 'error' || job.status === 'cancelled')) {
         // Why, in words - it was only in the tooltip - cut short; the
         // tooltip keeps all of it.
-        const why = String(job.error || '');
+        const why = String(job.error || job.status);
         const short = why.length > CHIP_REASON_LENGTH ? `${why.slice(0, CHIP_REASON_LENGTH)}...` : why;
         return { busy: false, mark: CHIP_MARKS.failed, note: `download failed${short ? `: ${short}` : ''}, click to retry`,
                  title: `${chip.title}: ${why || 'the download failed'}` };
@@ -432,17 +442,17 @@ export function redrawResourceChips() {
  */
 async function downloadChip(chip) {
     if (!chip.versionId && chip.hash) {
-        chip.lookup = { state: 'downloading', percent: 0 };
+        chip.lookup = { status: 'starting', percent: 0 };
         redrawResourceChips();
         const answer = (await resolveResourceHashes([chip.hash]))[chip.hash];
         chip.versionId = (answer && answer.version_id) || null;
         chip.modelId = chip.modelId || (answer && answer.model_id) || null;
         chip.lookup = chip.versionId ? null
-            : answer ? { state: 'unavailable', error: 'Civitai does not know this file' }
-            : { state: 'error', error: 'Civitai could not be asked' };
+            : answer ? { status: 'unavailable', error: 'Civitai does not know this file' }
+            : { status: 'error', error: 'Civitai could not be asked' };
     }
     if (!chip.versionId) {
-        chip.lookup = chip.lookup || { state: 'error', error: 'the image does not say which version it is' };
+        chip.lookup = chip.lookup || { status: 'error', error: 'the image does not say which version it is' };
         redrawResourceChips();
         return;
     }
@@ -467,21 +477,21 @@ async function checkMissingChips(tab) {
             chip.versionId = (answer && answer.version_id) || null;
             chip.modelId = chip.modelId || (answer && answer.model_id) || null;
             chip.lookup = chip.versionId ? null
-                : { state: 'unavailable', error: 'Civitai does not know this file' };
+                : { status: 'unavailable', error: 'Civitai does not know this file' };
         }
         redrawResourceChips();
     };
-    for (const chip of waiting) chip.lookup = { state: 'checking' };
+    for (const chip of waiting) chip.lookup = { status: 'checking' };
     settle(knownHashes);
-    const unasked = waiting.filter((c) => c.lookup && c.lookup.state === 'checking').map((c) => c.hash);
+    const unasked = waiting.filter((c) => c.lookup && c.lookup.status === 'checking').map((c) => c.hash);
     if (!unasked.length) return;
     redrawResourceChips();
     const resolved = await resolveResourceHashes([...new Set(unasked)], (partial) => settle(partial));
     Object.assign(knownHashes, resolved);
     settle(resolved);
     for (const chip of waiting) {
-        if (chip.lookup && chip.lookup.state === 'checking') {
-            chip.lookup = { state: 'error', error: 'Civitai could not be asked' };
+        if (chip.lookup && chip.lookup.status === 'checking') {
+            chip.lookup = { status: 'error', error: 'Civitai could not be asked' };
         }
     }
     redrawResourceChips();

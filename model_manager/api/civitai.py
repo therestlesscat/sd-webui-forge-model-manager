@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..db import get_models_db
 from ..forge_host import setting
+from ..model_dirs import held_here
 from ..civitai import random_draw
 from ..civitai import (
     CivitaiClient,
@@ -563,14 +564,19 @@ def register(app: FastAPI):
 
         newer_if_gone is for a version an image names: uploaders delete
         versions, and the image's is then gone for good. The model's newest
-        version is downloaded instead, and the answer says so. With it, a
-        version this library already has is not downloaded again.
+        version is downloaded instead, and the answer says so - unless this
+        WebUI holds it already (model_dirs.held_here, #188). The image's own
+        version is not asked about: the page offers its Download only when
+        the library lookup found no file of it here, and a file already
+        where the download goes is added without fetching it. Asked about
+        any file anywhere, a version only the other WebUI holds was never
+        downloaded, and its chip asked again for ever (#111).
 
         Returns:
             progress, and version_id / version_name - the version being
             downloaded, which with newer_if_gone may not be the one asked
             for; substituted says it is not. already_installed instead of
-            progress when the library has it.
+            progress when that substitute is held here.
         """
         try:
             from ..download_service import get_download_service
@@ -621,8 +627,8 @@ def register(app: FastAPI):
             chosen = {"version_id": version_data.get("id"),
                       "version_name": version_data.get("name"),
                       "substituted": substituted}
-            local = get_models_db().get_version_by_id(version_data.get("id")) if newer_if_gone else None
-            if local and local.get("file_path"):
+            if substituted and any(held_here(row["file_path"]) for row
+                                   in get_models_db().library_files(version_ids=[version_data.get("id")])):
                 return JSONResponse({"success": True, "already_installed": True, **chosen})
 
             # Queue download

@@ -669,9 +669,19 @@ const library = {
     hashes: { aaaa: { version_id: 11, file_stem: 'add_detail', file_type: 'LORA' },
               bbbb: { version_id: 14, file_stem: 'easynegative', file_type: 'TextualInversion' } },
 };
+// A library lookup can be held back, as on a busy server, or fail (#111).
+let lookupHold = null;
+let releaseLookup = null;
+let lookupFails = 0;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 globalThis.fetch = withGalleryPages(async (url, ...rest) => {
     if (String(url).includes('/model-manager/image-resources')) {
         resourcesAsked.push(new URL(String(url), 'http://webui').searchParams);
+        if (lookupHold) await lookupHold;
+        if (lookupFails > 0) {
+            lookupFails -= 1;
+            return { ok: false, status: 500, json: async () => ({ success: false, error: 'server busy' }) };
+        }
         return { ok: true, json: async () => ({ success: true, ...structuredClone(library) }) };
     }
     const href = String(url);
@@ -809,8 +819,56 @@ check('how it is going is said under the chips, and the chip takes no clicks mea
 check('the chip fills as it goes, keeping its mark, its name and nothing else',
       [chip('Not Here').getAttribute('style'), look_('Not Here'), onlyMarkAndName('Not Here')],
       ['--mm-chip-progress: 40%', '↓', true]);
+
+// The chip reads the downloads list as a Download button does (#111): a
+// Download button for the same version, drawn by the list, says the same.
+const button99 = document.createElement('button');
+button99.setAttribute('data-download-version', '99');
+document.body.append(button99);
+await waitFor('the button to be drawn', () => button99.textContent !== '', 200);
+check('downloading: the chip and a Download button say the same',
+      [note('Not Here'), button99.textContent], ['downloading, 40%', 'Downloading...']);
+// Started, before its first percent: the button says Downloading..., and the
+// chip said "queued", the word for one waiting its turn - seen live, beside
+// the Resources dialog's Downloading....
+chipProgress[99] = { version_id: 99, percent: 0, status: 'downloading', synced: false };
+await waitFor('no percent yet', () => note('Not Here') === 'downloading' || note('Not Here') === 'queued', 200);
+check('downloading, no percent yet: the chip and the button say the same',
+      [note('Not Here'), button99.textContent], ['downloading', 'Downloading...']);
+chipProgress[99] = { version_id: 99, percent: 100, status: 'finishing', synced: false };
+await waitFor('finishing', () => note('Not Here') === 'adding to library...', 200);
+check('adding to the library: the chip and the button say the same',
+      [note('Not Here'), chip('Not Here').disabled, button99.textContent],
+      ['adding to library...', true, 'Adding to library...']);
+
+// In the library, and the library asked which file it is: until it answers,
+// the chip says "downloaded", as the button, and takes no click. It was
+// drawn yellow - "click to download it" - for as long as the lookup took,
+// and a click asked for the download again.
+lookupHold = new Promise((resolve) => { releaseLookup = resolve; });
+const lookupsBefore = resourcesAsked.length;
 library.versions[99] = { version_id: 99, file_stem: 'not_here', file_type: 'LORA' };
 chipProgress[99] = { version_id: 99, percent: 100, status: 'complete', synced: true };
+await waitFor('the library to be asked', () => resourcesAsked.length > lookupsBefore, 200);
+await pause(400);
+check('in the library, the library not yet answering: the chip says downloaded, busy, as the button',
+      [note('Not Here'), chip('Not Here')?.disabled, look_('Not Here'), button99.textContent],
+      ['downloaded', true, '✓', 'Downloaded']);
+click(chip('Not Here'));
+await pause(50);
+check('and a click on it asks for nothing', chipDownloads.length, 1);
+
+// The lookup fails, after the last download: the list has stopped asking,
+// and the chip waits as the button does - never yellow - until a lookup
+// answers: here, the one another download landing brings.
+lookupFails = 1;
+releaseLookup();
+lookupHold = null;
+await pause(400);
+check('a lookup that fails leaves it downloaded, not yellow',
+      [note('Not Here'), chip('Not Here')?.disabled, lookupFails], ['downloaded', true, 0]);
+window.dispatchEvent(new window.CustomEvent('mm-resource-downloads', { detail: { installed: true } }));
+button99.remove();
 await waitFor('the chips to be looked up again', () => !!chip('not_here'), 200);
 check('once in the library it is a chip like any other, under the file\'s name',
       [chip('not_here')?.disabled, chip('not_here')?.classList.contains('missing'), !!chip('Not Here')],

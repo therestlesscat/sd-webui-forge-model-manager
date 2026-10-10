@@ -14,7 +14,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
-const { downloads, onItsWay, whenDownloading } = await shared('downloads.mjs');
+const { downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 
 // ------------------------------------------- an image's resources, looked up
@@ -74,9 +74,30 @@ export function imageResourceHashes(img) {
     return [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
 }
 
-// Version id (as the image names it) -> { state, percent, target, versionName,
-// substituted, error }: state is downloading, installed or error.
+// Version id (as the image names it) -> what the downloads list cannot say
+// of its download: { modelId, asking, target, versionName, substituted,
+// refused, held, announced, warned }. `target` is the version downloaded - another,
+// when the image's is gone - `refused` the server's no ({ status, error })
+// before the list had it, `held` its answer that the library has a
+// substitute already. How it is going is the list's (resourceDownload).
 export const resourceDownloads = {};
+
+/**
+ * Where a resource's download stands, for its chip and its row in the
+ * dialog: the record's own word where the list has none, else the list's,
+ * as a Download button reads it (downloadState) - with the record's
+ * versionName and substituted. Null when nothing was asked, or the list has
+ * forgotten the download: a Download again, as the button.
+ */
+export function resourceDownload(versionId) {
+    const job = resourceDownloads[versionId];
+    if (!job) return null;
+    if (job.refused) return { ...job, ...job.refused };
+    if (job.asking) return { ...job, status: 'starting', percent: 0 };
+    if (job.held) return { ...job, status: 'complete', percent: 100 };
+    const state = downloadState(job.target || versionId);
+    return state && { ...job, ...state };
+}
 
 // What the tabs and the chips are told, as page events: they import this
 // module, so it cannot call them. New hash answers relabel each tab's
@@ -407,29 +428,36 @@ function sendAgain() {
 // Version ids of the dialog's resources that are in the library.
 const installedResourceVersions = new Set();
 
+// What a row says while its download is on its way: the words a Download
+// button says (downloads.mjs), with the percent where there is room.
+function onItsWayText({ status, percent }) {
+    if (status === 'starting') return 'Starting...';
+    if (status === 'pending') return 'Queued';
+    if (status === 'paused') return `Paused, ${percent}%`;
+    if (status === 'finishing') return 'Adding to library...';
+    return percent ? `${percent}%` : 'Downloading...';
+}
+
 function resourceDownloadCell(resource) {
     const id = resource.versionId;
-    const job = resourceDownloads[id];
-    if (installedResourceVersions.has(id) && !job) {
+    const job = resourceDownload(id);
+    if (!job && installedResourceVersions.has(id)) {
         return '<span class="mm-res-state installed">Installed</span>';
     }
-    if (job && job.state === 'installed') {
+    if (job && job.status === 'complete') {
         const which = job.substituted ? ` ${escapeHtml(job.versionName || '')} (the image's is gone)` : '';
-        return `<span class="mm-res-state installed">Installed${which}</span>`;
+        return `<span class="mm-res-state installed">Downloaded${which}</span>`;
     }
-    if (job && job.state === 'downloading') {
-        const shown = job.finishing ? 'Adding to library...' : job.paused ? `Paused, ${job.percent}%`
-            : job.percent ? `${job.percent}%` : 'Queued';
-        return `<span class="mm-res-state">${shown}</span>`;
-    }
-    if (job && job.state === 'unavailable') {
+    if (job && job.status === 'unavailable') {
         return `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Not on Civitai</span>`;
     }
+    const failed = job && (job.status === 'error' || job.status === 'cancelled');
+    if (job && !failed) return `<span class="mm-res-state">${onItsWayText(job)}</span>`;
     // Downloads run with the Model Manager or the Civitai Browser (#182).
     if (!downloads()) return '<span class="mm-res-state">Not in the library</span>';
-    const retry = job && job.state === 'error'
-        ? `<span class="mm-res-state error" title="${escapeHtml(job.error || '')}">Failed</span> ` : '';
-    const modelId = resource.modelId || (job && job.modelId);
+    const retry = failed
+        ? `<span class="mm-res-state error" title="${escapeHtml(job.error || job.status)}">Failed</span> ` : '';
+    const modelId = resource.modelId || resourceDownloads[id]?.modelId;
     return `${retry}<button type="button" class="mm-btn primary mm-btn-small" data-action="resources.download"`
         + `${dataAttributes({ versionId: safeId(id), modelId: modelId ? safeId(modelId) : null })}>Download</button>`;
 }
@@ -461,13 +489,13 @@ export async function downloadResource(versionId, modelId) {
         // Coming already - started in the Civitai Browser, say: followed as
         // it is, not asked for again. It was refused, marked failed and never
         // followed, and stayed failed once it had landed (#119).
-        resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId, target: versionId };
+        resourceDownloads[versionId] = { modelId, target: versionId };
         followResourceDownloads();
         redrawResourceDownload(versionId, { versionId, modelId });
         announceDownloads();
         return;
     }
-    resourceDownloads[versionId] = { state: 'downloading', percent: 0, modelId };
+    resourceDownloads[versionId] = { modelId, asking: true };
     redrawResourceDownload(versionId, { versionId, modelId });
     announceDownloads();
     // As every other download is: the downloads list asks for it and follows
@@ -480,23 +508,29 @@ export async function downloadResource(versionId, modelId) {
     }
     const status = data && data.status;
     const job = resourceDownloads[versionId];
+    job.asking = false;
     if (!data || !data.success) {
         // Not found is for good - the version and its model are gone - and
         // is said as such, with nothing to retry; anything else can be.
-        Object.assign(job, { state: status === 404 ? 'unavailable' : 'error',
-                             error: (data && data.error) || 'Download failed' });
-        console.warn(`[ModelManager] Download of version ${versionId} refused: ${job.error}`);
+        job.refused = { status: status === 404 ? 'unavailable' : 'error',
+                        error: (data && data.error) || 'Download failed' };
+        console.warn(`[ModelManager] Download of version ${versionId} refused: ${job.refused.error}`);
     } else {
         Object.assign(job, { target: data.version_id, versionName: data.version_name,
                              substituted: !!data.substituted });
-        if (data.already_installed) finishResourceDownload(versionId);
+        // A substitute the library has already: nothing is downloaded.
+        if (data.already_installed) {
+            job.held = true;
+            finishResourceDownload(versionId);
+        }
     }
     redrawResourceDownload(versionId, { versionId, modelId });
     announceDownloads();
 }
 
+// In the library: the chips look it up, and a stopped send asks again.
 function finishResourceDownload(versionId) {
-    resourceDownloads[versionId].state = 'installed';
+    resourceDownloads[versionId].announced = true;
     installedResourceVersions.add(versionId);
     announceDownloads({ installed: true });
     recheckSend();
@@ -504,23 +538,19 @@ function finishResourceDownload(versionId) {
 
 /**
  * Follow the dialog's downloads in the downloads list, which polls every
- * download at once: it used to poll each of these as well, for the same jobs.
+ * download at once: each row and chip is redrawn from it, and one that has
+ * reached the library is announced, once.
  */
 function followResourceDownloads() {
-    const active = Object.entries(resourceDownloads).filter(([, job]) => job.state === 'downloading' && job.target);
-    if (!active.length) return;
-    for (const [id, job] of active) {
-        const progress = downloads().progress(job.target);
-        if (!progress) continue;
-        job.percent = Math.floor(progress.percent || 0);
-        job.finishing = progress.status === 'finishing';
-        job.paused = progress.status === 'paused';
-        // Complete is on disk; synced is in the library, which is what a
-        // chip or a send looks at.
-        if (progress.status === 'complete' && progress.synced) finishResourceDownload(Number(id));
-        else if (progress.status === 'error' || progress.status === 'cancelled') {
-            Object.assign(job, { state: 'error', error: progress.error || progress.status });
-            console.warn(`[ModelManager] Download of ${progress.file_name || `version ${id}`} failed: ${job.error}`);
+    const followed = Object.entries(resourceDownloads).filter(([, job]) => job.target && !job.refused);
+    if (!followed.length) return;
+    for (const [id, job] of followed) {
+        const state = resourceDownload(id);
+        if (state && state.status === 'complete' && !job.announced) finishResourceDownload(Number(id));
+        else if (state && (state.status === 'error' || state.status === 'cancelled') && !job.warned) {
+            job.warned = true;
+            const name = downloads().progress(job.target)?.file_name || `version ${id}`;
+            console.warn(`[ModelManager] Download of ${name} failed: ${state.error || state.status}`);
         }
         redrawResourceDownload(Number(id));
     }

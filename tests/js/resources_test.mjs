@@ -333,16 +333,17 @@ check('it asks the server for that very version, a newer one only if it is gone'
 await waitFor('progress', () => cell(6001)?.textContent.includes('40%'));
 check('and shows how far it has got', cell(6001).textContent.trim(), '40%');
 server.progress[6001] = { version_id: 6001, percent: 100, status: 'complete', synced: true };
-await waitFor('the finish', () => cell(6001)?.textContent.includes('Installed'), 200);
-check('in the library, it says Installed', cell(6001).textContent.trim(), 'Installed');
+await waitFor('the finish', () => cell(6001)?.textContent.includes('Downloaded'), 200);
+// The Download button's word, from the same downloads list (#111).
+check('in the library, it says Downloaded, as a Download button does', cell(6001).textContent.trim(), 'Downloaded');
 
 server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true,
                           progress: { version_id: 7009, percent: 0, status: 'pending' } };
 server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
 download(7001);
-await waitFor('the newer version', () => cell(7001)?.textContent.includes('Installed'), 200);
+await waitFor('the newer version', () => cell(7001)?.textContent.includes('Downloaded'), 200);
 check('and the row says which it got, and why',
-      cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Installed v3 (the image's is gone)");
+      cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Downloaded v3 (the image's is gone)");
 
 // One poller: the dialog follows its downloads in the downloads list, which
 // asks after every download at once. It used to ask after each of its own
