@@ -23,7 +23,7 @@ runs it - not here, at import, which happens once a process.
 """
 from fastapi import FastAPI
 
-from . import civitai, generations, images, jobs, models, notes, scheduler, settings, webui
+from . import civitai, gallery, generations, images, jobs, models, notes, scheduler, settings, webui
 from .. import prompt_levels, update_check
 from ..scheduler import runner
 from ..db import database_state
@@ -35,6 +35,7 @@ def setup_api(app: FastAPI):
     models.register(app)
     images.register(app)
     generations.register(app)
+    gallery.register(app)
     jobs.register(app)
     civitai.register(app)
     webui.register(app)

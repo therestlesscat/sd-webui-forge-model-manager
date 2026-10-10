@@ -26,6 +26,7 @@ const PANELS = {
     img2imgMode: 'img2img_img2img_tab',
     queue: 'tab_queue_tab',
     generations: 'tab_generations_tab',
+    gallery: 'tab_gallery_tab',
     modelManager: 'tab_model_manager_tab',
     civitaiBrowser: 'tab_civitai_browser_tab',
     // The WebUI's own, the same in both: the database notice opens it (#136).

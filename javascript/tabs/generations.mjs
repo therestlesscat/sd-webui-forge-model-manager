@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -43,6 +43,11 @@ const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
+// The grid both this tab and the Gallery draw (#209).
+const {
+    wide, aspect, spanFor, applySpans: spanTiles, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd,
+    currentScroll, topOf,
+} = await shared('tiles.mjs');
 const {
     ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
     generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
@@ -73,10 +78,6 @@ let tabScope = null;        // this tab's, from start()
 // "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';
 const GROUP_BY_KEY = 'mm_generations_group_by';
-// How near the end of the grid the next part is asked for.
-const LOAD_AHEAD_PX = 800;
-// The most columns a wide image's tile takes.
-const MAX_SPAN = 4;
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
 const GROUP_NAMES = {
     prompt_written: 'Prompt, as written', prompt: 'Prompt, as generated', base_model: 'Base model',
@@ -314,19 +315,11 @@ function setStatus(text) {
  * where everything reads as in view.
  */
 function loadIfNearEnd() {
-    const sentinel = byId('gen_sentinel');
-    if (!more || loading || !sentinel || sentinel.offsetParent === null) return;
-    const top = sentinel.getBoundingClientRect?.().top;
-    if (typeof top === 'number' && top < (window.innerHeight || 0) + LOAD_AHEAD_PX) loadNext();
+    if (more && !loading && endIsNear(byId('gen_sentinel'))) loadNext();
 }
 
 function watchEnd() {
-    const sentinel = byId('gen_sentinel');
-    if (!sentinel || !('IntersectionObserver' in window)) return;
-    tabScope.observe(new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadIfNearEnd();
-    }, { rootMargin: `${LOAD_AHEAD_PX}px 0px` })).observe(sentinel);
-    tabScope.listen(window, 'scroll', loadIfNearEnd, { passive: true });
+    watchGridEnd(tabScope, byId('gen_sentinel'), loadIfNearEnd);
 }
 
 // ------------------------------------------------------------- levels
@@ -391,15 +384,9 @@ function markAboveChanged() {
     for (const level of levels) level.dirty = true;
 }
 
-function currentScroll() {
-    return window.scrollY || document.documentElement?.scrollTop || 0;
-}
-
 /** Where the tab starts on the page, to show a new level from its top. */
 function topOfTab() {
-    const app = byId('generations_app');
-    const top = app?.getBoundingClientRect?.().top;
-    return typeof top === 'number' ? Math.max(0, top + currentScroll()) : 0;
+    return topOf(byId('generations_app'));
 }
 
 /** "Model: xyz" - `by`, what the group's images share; the first grouping if not said. */
@@ -437,15 +424,7 @@ function renderPath() {
             if (checkpoint) facts.push(checkpoint);
         }
     }
-    path.innerHTML = `
-        <div class="gen-path">
-            <button type="button" class="mm-btn secondary mm-btn-small" data-action="generations.back"
-                    title="Back to where you were (Esc)">← Back</button>
-            <div class="gen-path-text">
-                <div class="gen-path-trail">${trail.map((t) => `<span>${escapeHtml(t)}</span>`).join(' <span class="gen-path-sep">›</span> ')}</div>
-                ${facts.length ? `<div class="gen-path-facts">${escapeHtml(facts.join(' · '))}</div>` : ''}
-            </div>
-        </div>`;
+    path.innerHTML = pathHtml({ trail, facts, back: 'generations.back' });
 }
 
 // ------------------------------------------------------------- drawing
@@ -528,66 +507,18 @@ function tileHtml(tile, index) {
 }
 
 /**
- * Whether an image gets a horizontal card - two columns or more, as tall as
- * the rest - rather than a vertical one: wider than it is tall. A folded
- * batch goes by its first image.
- */
-function wide(image) {
-    return Number(image?.width) > Number(image?.height);
-}
-
-/** An image's width over its height, or 1 when it is not known. */
-function aspect(image) {
-    const ratio = Number(image?.width) / Number(image?.height);
-    return Number.isFinite(ratio) && ratio > 0 ? Math.round(ratio * 1000) / 1000 : 1;
-}
-
-/**
- * How many columns a tile takes: as many as come nearest the width its image
- * would have at the tiles' height, so it is cropped least - a vertical one
- * one, a wide one from 2 up to MAX_SPAN, and never more than there are.
- *
- * spanFor(1.46, 200, 12, 300, 6) is 2 - 438px wide, near two columns and
- * the gap (412) - 16:9 is 3, 3:1 is 4.
- */
-function spanFor(ratio, columnWidth, gap, imageHeight, columns) {
-    if (!(ratio > 1) || !(columnWidth > 0)) return 1;
-    const ideal = Math.round((imageHeight * ratio + gap) / (columnWidth + gap));
-    return Math.min(Math.max(2, Math.min(ideal, MAX_SPAN)), Math.max(columns, 1));
-}
-
-/**
- * Give every wide tile its columns, as the grid now is: its column width,
- * gap, tile height and how many columns fit. Again on every resize - a
- * narrower window has fewer. Nothing while the tab is hidden, where every
- * width reads 0; the stylesheet's two columns stand until then.
- *
- * With "Preserve order", every tile is one column: the grid fills a gap a
- * wide tile leaves with a later tile, so the order is only roughly newest
- * first, and fitting wide tiles to their rows instead still left gaps, and
- * drew images of one size at different sizes.
+ * Every wide tile's columns, as the grid now is; with "Preserve order", every
+ * tile one column: the grid fills a gap a wide tile leaves with a later tile,
+ * so the order is only roughly newest first, and fitting wide tiles to their
+ * rows instead still left gaps, and drew images of one size at different sizes.
  */
 function applySpans() {
-    const grid = byId('gen_grid');
-    const width = grid?.getBoundingClientRect?.().width || 0;
-    const style = grid && window.getComputedStyle?.(grid);
-    const px = (name) => parseFloat(style?.getPropertyValue(name)) || 0;
-    const column = px('--gen-column-width');
-    const gap = px('--gen-gap');
-    const height = px('--gen-image-height');
-    if (!width || !column || !height) return;
-    const columns = Math.floor((width + gap) / (column + gap));
-    for (const tile of grid.querySelectorAll('.gen-tile.gen-wide')) {
-        const span = preserveOrder ? 1
-            : spanFor(Number(tile.getAttribute('data-aspect')), column, gap, height, columns);
-        tile.style.gridColumn = `span ${span}`;
-    }
+    spanTiles(byId('gen_grid'), { oneColumn: preserveOrder });
 }
 
 /** Columns wide enough for the buttons, then each tile's span over them. */
 function layout() {
-    fitColumns();
-    applySpans();
+    layoutTiles(byId('generations_app'), byId('gen_grid'), { oneColumn: preserveOrder });
 }
 
 /**
@@ -619,26 +550,6 @@ function appendTiles(from) {
     grid.insertAdjacentHTML('beforeend', tiles.slice(from).map((_, i) => setHtml(from + i)).join(''));
     setupLazyMedia(grid);
     layout();
-}
-
-/**
- * Make a column as wide as a tile's buttons need, in one row, if that is more
- * than the gallery's image width: however the fonts and buttons come out, the
- * row stays one row. Measured, since it cannot be known from here; nothing is
- * measured while the tab is hidden, where every width reads 0.
- */
-function fitColumns() {
-    const app = byId('generations_app');
-    const tile = document.querySelector('#gen_grid .gen-tile:not(.gen-wide)')
-        || document.querySelector('#gen_grid .gen-tile');
-    const actions = tile?.querySelector('.gen-actions');
-    if (!app || !actions || !actions.scrollWidth) return;
-    const style = window.getComputedStyle?.(tile);
-    const frame = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth']
-        .reduce((sum, key) => sum + (parseFloat(style?.[key]) || 0), 0);
-    const needed = Math.ceil(actions.scrollWidth + frame);
-    const current = parseFloat(window.getComputedStyle?.(app)?.getPropertyValue('--gen-column-width')) || 0;
-    if (needed > current) app.style.setProperty('--gen-column-width', `${needed}px`);
 }
 
 function redrawTile(index) {

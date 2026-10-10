@@ -14,6 +14,8 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.57 - A Gallery of your library's images.** A new tab shows the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks - the same seed, the same order; a new one, a new shuffle. Group them by model, base model, type or size. The tab is off until you turn it on in Settings -> Tabs.
+
 **0.56 - Send sets your generation back as it was made.** Send on an image you generated
 sets every control back as it was when you pressed Generate - the hires fix's own checkpoint
 and VAE, the refiner and its CFG scale, hidden controls included - with that image's own seed

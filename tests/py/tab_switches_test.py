@@ -83,6 +83,13 @@ switch(CB, False)
 check('the Civitai Browser off: its search refused', client.get('/model-manager/civitai/enums').status_code, 403)
 switch(CB, True)
 
+# The Gallery is off until asked for (#209).
+GALLERY = 'model_manager_gallery_tab'
+check('the Gallery, never switched on: its page refused', client.get('/model-manager/gallery/browse').status_code, 403)
+switch(GALLERY, True)
+check('on: answered', client.get('/model-manager/gallery/browse').status_code, 200)
+switch(GALLERY, False)
+
 # ------------------------------------------------------------- the startup
 # Queued tasks a restart left running are stopped at startup: seen where it
 # reaches the database. The rest of the startup is checked further down.
@@ -127,6 +134,8 @@ SPEC = {
     ('POST', '/model-manager/generations/rate'): 'generations',
     ('POST', '/model-manager/generations/delete-many'): 'generations',
     ('POST', '/model-manager/generations/{generation_id}/delete'): 'generations',
+    ('GET', '/model-manager/gallery/browse'): 'gallery',
+    ('POST', '/model-manager/gallery/seed'): 'gallery',
     ('GET', '/model-manager/images/gallery-page'): 'model_manager',
     ('POST', '/model-manager/sync'): 'model_manager',
     ('POST', '/model-manager/sync/metadata'): 'model_manager',
@@ -179,7 +188,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 74 routes', len(SPEC), 74)
+check('the spec holds 76 routes', len(SPEC), 76)
 
 app = FastAPI()
 api.setup_api(app)
@@ -191,7 +200,7 @@ check('each route\'s area is the spec\'s', areas, SPEC)
 
 # ------------------------------------------------------ the shared areas
 import model_manager.tabs as tabs                         # noqa: E402
-KEYS = {'queue': QUEUE, 'generations': GENERATIONS, 'model_manager': MM, 'civitai_browser': CB}
+KEYS = {'queue': QUEUE, 'generations': GENERATIONS, 'gallery': GALLERY, 'model_manager': MM, 'civitai_browser': CB}
 check('each tab\'s switch, in one table', tabs.TABS, KEYS)
 
 
@@ -202,12 +211,12 @@ def only(*on):
 
 
 def areas_on():
-    return sorted(area for area in ('queue', 'generations', 'model_manager', 'civitai_browser',
+    return sorted(area for area in ('queue', 'generations', 'gallery', 'model_manager', 'civitai_browser',
                                     *tabs.SERVICES, tabs.ALWAYS) if tabs.on(area))
 
 
-only('model_manager', 'civitai_browser', 'generations', 'queue')
-check('all on: every area', areas_on(), sorted(['queue', 'generations', 'model_manager', 'civitai_browser',
+only('model_manager', 'civitai_browser', 'generations', 'queue', 'gallery')
+check('all on: every area', areas_on(), sorted(['queue', 'generations', 'gallery', 'model_manager', 'civitai_browser',
                                                  'downloads', 'saved_search', 'send', 'restamp', 'any', 'always']))
 only('civitai_browser')
 check('the Civitai Browser alone: downloads, saved searches, Send - no restamp',
@@ -217,10 +226,15 @@ check('Generations alone: Send and the restamp - no downloads, no saved searches
       areas_on(), ['always', 'any', 'generations', 'restamp', 'send'])
 only('queue')
 check('the Queue alone: Send', areas_on(), ['always', 'any', 'queue', 'send'])
+only('gallery')
+check('the Gallery alone: Send, for its images, and the restamp, for their levels',
+      areas_on(), ['always', 'any', 'gallery', 'restamp', 'send'])
 only()
 check('all off: what the loader asks alone', areas_on(), ['always'])
 delattr(shared.opts, QUEUE)
 check('a switch never set is on, as by default', tabs.on('queue'), True)
+delattr(shared.opts, GALLERY)
+check('but the Gallery\'s, never set, is off: its default', tabs.on('gallery'), False)
 
 
 def raises(fn):
@@ -288,7 +302,7 @@ check('the version still answers', (answer.status_code, 'version' in answer.json
 answer = client.get('/model-manager/ui-options')
 check('ui-options still answers, and says each tab is off',
       (answer.status_code, {tab: state['on'] for tab, state in answer.json().get('tabs', {}).items()}),
-      (200, {'queue': False, 'generations': False, 'model_manager': False, 'civitai_browser': False}))
+      (200, {'queue': False, 'generations': False, 'gallery': False, 'model_manager': False, 'civitai_browser': False}))
 check('through the app, in words', client.get('/model-manager/queue/status').json(),
       {'success': False, 'error': 'The Queue is turned off in the settings', 'off': 'queue'})
 check('a shared one', client.get('/model-manager/civitai/download/progress').json().get('error'),
@@ -329,6 +343,7 @@ script_callbacks.on_ui_tabs = lambda fn: tabs_callbacks.append(fn)
 fake_ui = types.ModuleType('model_manager.ui')
 fake_ui.create_queue_ui = lambda: 'queue markup'
 fake_ui.create_generations_ui = lambda: 'generations markup'
+fake_ui.create_gallery_ui = lambda: 'gallery markup'
 fake_ui.create_ui = lambda: [('model manager markup', 'Model Manager', 'model_manager_tab')]
 fake_ui.create_civitai_browser_ui = lambda: 'browser markup'
 fake_ui.on_ui_settings = lambda *a, **k: None
@@ -351,6 +366,7 @@ only('queue', 'generations', 'model_manager', 'civitai_browser')
 check('the page told: on now, and whether this start created it',
       client.get('/model-manager/ui-options').json().get('tabs'),
       {'queue': {'on': True, 'built': True}, 'generations': {'on': True, 'built': False},
+       'gallery': {'on': False, 'built': False},
        'model_manager': {'on': True, 'built': True}, 'civitai_browser': {'on': True, 'built': True}})
 only('generations')
 tabs_callbacks[0]()

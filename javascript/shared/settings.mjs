@@ -40,6 +40,7 @@ const K = {
     galleryOriginals: 'model_manager_gallery_originals',
     cardOriginals: 'model_manager_card_originals',
     recordGenerations: 'model_manager_record_generations',
+    galleryTab: 'model_manager_gallery_tab',
     generationsNsfw: 'model_manager_generations_hide_nsfw',
     generationsDeleteFiles: 'model_manager_generations_delete_files',
     queueEnabled: 'model_manager_queue_enabled',
@@ -67,20 +68,20 @@ const MODULES_PREFIX = 'model_manager_modules_';
 // its `tabs`: the connection serves Generations' Send too, and storage holds
 // the database every tab uses.
 const SECTIONS = [
-    { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.mmEnabled, K.cbEnabled] },
+    { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
     { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
       shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.apiKey, K.rate] },
     { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
       keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
     { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
       keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
-    { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser'],
-      shownWith: ['model_manager', 'civitai_browser'], keys: [K.galleryNsfw, K.promptless, K.pageSize, K.galleryOriginals, K.cardOriginals] },
+    { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser', 'gallery'],
+      shownWith: ['model_manager', 'civitai_browser', 'gallery'], keys: [K.galleryNsfw, K.promptless, K.pageSize, K.galleryOriginals, K.cardOriginals] },
     { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
       shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles] },
     { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
-    { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.detection, K.percent, K.words] },
+    { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations', 'gallery'],
+      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.detection, K.percent, K.words] },
     { id: 'storage', title: 'Sync and storage', tabs: ['model_manager'], keys: [K.threads, K.database] },
     { id: 'modules', title: 'Send to txt2img: text encoders and VAE', tabs: [], prefix: MODULES_PREFIX,
       intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
@@ -91,8 +92,8 @@ const SECTIONS = [
 ];
 
 // Each tab's switch, by the name the sections give it.
-const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, model_manager: K.mmEnabled,
-                       civitai_browser: K.cbEnabled };
+const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, gallery: K.galleryTab,
+                       model_manager: K.mmEnabled, civitai_browser: K.cbEnabled };
 
 /** Shorter labels than the Settings page's, which have to say which tab. */
 const LABELS = {
@@ -115,6 +116,7 @@ const LABELS = {
     [K.generationsNsfw]: 'Generations tab: hide explicit images by default',
     [K.generationsDeleteFiles]: 'Delete: also delete the image files, by default',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
+    [K.galleryTab]: 'Gallery tab',
     [K.mmEnabled]: 'Model Manager tab',
     [K.cbEnabled]: 'Civitai Browser tab',
     [K.queueInputs]: 'Folder for the images a task needs',

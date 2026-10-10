@@ -1,5 +1,21 @@
 [
   {
+    "id": "gallery-tab",
+    "version": "0.57.0",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "model_manager"
+    ],
+    "title": "New: a Gallery of your library's images",
+    "text": "A Gallery tab can show the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks: the same seed always gives the same order, and a new seed shuffles them. Group them by model, base model, type or size. It is off until you turn it on, in the settings, under Tabs.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "tabs"
+    }
+  },
+  {
     "id": "shared-database-0-56",
     "version": "0.56.0",
     "kind": "warning",

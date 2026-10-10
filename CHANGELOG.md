@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.57 - A Gallery of your library's images
+
+*10 October 2026*
+
+A new tab, Gallery, shows the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks: the same seed always gives the same order, and a new one shuffles them. Group them by model, base model, type or size, and open a group onto its images. The tab is off until you turn it on, in Settings -> Tabs.
+
+- **0.57.0** (build 447) - The Gallery tab (#209): every image a sync stored for a model in the library, shown once even where it is stored under two versions, in the order of a seed kept in the database - made the first time, changed from the toolbar, typed or with New seed - which both WebUIs sharing a database see. Grouped, each group has a place of its own from the seed, so a model of hundreds of images does not come first whatever the seed, and its images follow the seed inside it. Each image's tile says what kind of model it is from, which, and its size - "LORA · Detail Tweaker XL · 832×1216", the kinds named as the Type menus name them - and asks Civitai for a copy as wide as the tile draws it, a wide image's spanning columns. A click on an image opens the viewer: Send to txt2img, Resources, Show model. The NSFW switch starts as the galleries' setting says. A page is picked by its keys and then only its rows are read: about 50 ms over 109,606 images here. The Generations tab now draws its grid - columns, wide images, the Back header, scrolling for more - through the same shared code.
+
 ## 0.56 - Send sets your generation back as it was made
 
 *9 October 2026*

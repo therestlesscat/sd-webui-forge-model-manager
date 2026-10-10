@@ -19,6 +19,7 @@ body.mm-modal-open {
 #model_manager_app [type="checkbox"]:checked,
 #civitai_browser_app [type="checkbox"]:checked,
 #generations_app [type="checkbox"]:checked,
+#gallery_app [type="checkbox"]:checked,
 #queue_app [type="checkbox"]:checked {
     background-color: var(--checkbox-background-color-selected, #2563eb);
     border-color: var(--checkbox-background-color-selected, #2563eb);
@@ -167,7 +168,8 @@ body.mm-modal-open {
 .filter-group input[type="text"],
 .filter-group input[type="number"],
 .filter-group input[type="search"],
-.gen-toolbar input[type="search"] {
+.gen-toolbar input[type="search"],
+.gen-toolbar input[type="number"] {
     background: var(--input-background-fill, #fff) !important;
     color: var(--body-text-color, #111827) !important;
 }
@@ -175,7 +177,8 @@ body.mm-modal-open {
 .dark .filter-group input[type="text"],
 .dark .filter-group input[type="number"],
 .dark .filter-group input[type="search"],
-.dark .gen-toolbar input[type="search"] {
+.dark .gen-toolbar input[type="search"],
+.dark .gen-toolbar input[type="number"] {
     background: #111827 !important;
     color: #fff !important;
 }
@@ -1368,7 +1371,8 @@ body.mm-modal-open {
    image of a generation's "Show images", and every tile of the Generations
    tab, which are all drawn the same size. */
 .mm-image-card,
-#generations_app {
+#generations_app,
+#gallery_app {
     --mm-card-image-width: 200px;
 }
 
@@ -3246,7 +3250,9 @@ body.mm-modal-open {
 /* The Generations tab's toolbar sits right under its notes, and the grid
    under its banner. */
 #gen_notes,
-#gen_banner {
+#gen_banner,
+#gal_notes,
+#gal_banner {
     margin-bottom: 15px;
 }
 
@@ -3766,7 +3772,9 @@ textarea.mm-settings-input {
    (fitColumns() measures it) - and a horizontal one, for a wide image, two
    columns and the gap between, so the two kinds line up in rows. */
 
-#generations_app {
+/* The Gallery tab (#209) draws the same grid, of your library's Civitai images. */
+#generations_app,
+#gallery_app {
     padding: 10px;
     --gen-column-width: var(--mm-card-image-width);
     --gen-image-height: 300px;
@@ -3792,6 +3800,18 @@ textarea.mm-settings-input {
 .gen-search {
     flex: 0 1 280px;
     min-width: 140px;
+}
+
+/* The Gallery's seed: room for its ten digits, as tall as the buttons beside
+   it - left to itself it measured 42px against their 36 - and no bottom
+   margin from Gradio's form reset. */
+.gen-search.gal-seed {
+    flex: 0 0 9em;
+    width: 9em;
+    min-width: 0;
+    height: var(--mm-btn-height, 36px);
+    box-sizing: border-box;
+    margin: 0;
 }
 
 .gen-view-switch,

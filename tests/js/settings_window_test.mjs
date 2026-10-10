@@ -28,6 +28,7 @@ const SETTINGS = {
     model_manager_gallery_originals: setting('bool', false),
     model_manager_card_originals: setting('bool', false),
     model_manager_record_generations: setting('bool', true),
+    model_manager_gallery_tab: setting('bool', false),
     model_manager_queue_enabled: setting('bool', true),
     model_manager_model_manager_enabled: setting('bool', true),
     model_manager_civitai_browser_enabled: setting('bool', true),
@@ -234,9 +235,9 @@ check('the text encoders collapsed', $('.mm-settings-section[data-section="modul
 
 // ------------------------------------------------------------- the tabs
 // Each tab's switch, in one section, first, in the WebUI's tab order (#185).
-const TAB_KEYS = ['model_manager_queue_enabled', 'model_manager_record_generations',
+const TAB_KEYS = ['model_manager_queue_enabled', 'model_manager_record_generations', 'model_manager_gallery_tab',
                   'model_manager_model_manager_enabled', 'model_manager_civitai_browser_enabled'];
-check('Tabs holds the four switches, in the order of the tabs',
+check('Tabs holds the five switches, in the order of the tabs',
       Array.from(document.querySelectorAll('.mm-settings-section[data-section="tabs"] .mm-settings-field'))
           .map((f) => f.dataset.key), TAB_KEYS);
 // A section shows while a tab that uses it is on: switched off in the
@@ -258,6 +259,8 @@ check('Generations off too: the connection and the NSFW detection go with it',
       SECTION_IDS.filter(sectionShown), ['tabs', 'modules', 'other']);
 TAB_KEYS.forEach((key) => tickTab(key, true));
 check('all on again: every section', SECTION_IDS.filter(sectionShown), SECTION_IDS);
+// The Gallery's switch back to off, as it was: the counts below are of other changes.
+tickTab('model_manager_gallery_tab', false);
 
 // "What's new": every note that applies, dismissed ones too, by version -
 // where a note dismissed in a tab can be read again. Collapsed.

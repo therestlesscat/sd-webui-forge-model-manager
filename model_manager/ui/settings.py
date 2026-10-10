@@ -21,6 +21,7 @@ from ..forge_modules import (CLASS_FILES, CLASS_LABELS, FILES, HF, MODULE_PRESET
                              SETTING_PREFIX, preset_classes, preset_files)
 
 EXTENSION_NAME = "Model Manager"
+GALLERY_ENABLED = TABS["gallery"]
 MODEL_MANAGER_ENABLED = TABS["model_manager"]
 CIVITAI_BROWSER_ENABLED = TABS["civitai_browser"]
 
@@ -57,6 +58,18 @@ def on_ui_settings():
                "used. Off: nothing is recorded, and the Generations tab and each model's Your "
                "generations are hidden at once; from the next start the Generations tab is not "
                "created at all. What was recorded is kept, and comes back when this is on again.")
+    )
+
+    shared.opts.add_option(
+        GALLERY_ENABLED,
+        shared.OptionInfo(
+            default=DEFAULTS[GALLERY_ENABLED],
+            label="Gallery tab",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: the Gallery tab - the Civitai images stored for the models in your library, "
+               "in an order its seed picks. Off: the tab is hidden at once and stops, and from "
+               "the next start it is not created at all.")
     )
 
     shared.opts.add_option(

@@ -100,6 +100,7 @@ script_callbacks.on_ui_tabs = lambda fn: tabs_callbacks.append(fn)
 fake_ui = types.ModuleType('model_manager.ui')
 fake_ui.create_queue_ui = lambda: 'queue markup'
 fake_ui.create_generations_ui = lambda: 'generations markup'
+fake_ui.create_gallery_ui = lambda: 'gallery markup'
 fake_ui.create_ui = lambda: [('model manager markup', 'Model Manager', 'model_manager_tab')]
 fake_ui.create_civitai_browser_ui = lambda: 'browser markup'
 fake_ui.on_ui_settings = lambda *a, **k: None

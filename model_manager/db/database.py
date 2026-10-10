@@ -32,6 +32,7 @@ from .images_ops import ImagesOps
 from .generations_ops import GenerationsOps
 from .tasks_ops import TasksOps
 from .downloads_ops import DownloadsOps
+from .gallery_ops import GalleryOps
 from ..forge_host import setting
 from ..model_dirs import file_modified
 from ..console import say
@@ -73,6 +74,7 @@ class ModelsDatabase:
         self._generations = GenerationsOps(self._cursor)
         self._tasks = TasksOps(self._cursor)
         self._downloads = DownloadsOps(self._cursor)
+        self._gallery = GalleryOps(self._cursor)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -146,6 +148,29 @@ class ModelsDatabase:
                 cursor.execute("DELETE FROM schema_info WHERE key = ?", (key,))
             else:
                 cursor.execute("INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)", (key, value))
+
+    # ==================== The Gallery tab (#209) ====================
+
+    def gallery_counts(self) -> Dict[str, int]:
+        """Every image the Gallery has, and how many are explicit. See GalleryOps."""
+        return self._gallery.counts()
+
+    def gallery_image_keys(self, seed: int, hide_nsfw: bool, offset: int, limit: int,
+                           group: Optional[str] = None, key: Any = None) -> List[Tuple[int, int]]:
+        """A page of the Gallery's images by score, as (image id, version id). See GalleryOps."""
+        return self._gallery.image_keys(seed, hide_nsfw, offset, limit, group, key)
+
+    def gallery_groups(self, seed: int, group: str, hide_nsfw: bool) -> List[Dict[str, Any]]:
+        """Every group of a grouping, with its counts and first images. See GalleryOps."""
+        return self._gallery.groups(seed, group, hide_nsfw)
+
+    def gallery_images(self, keys) -> List[Dict[str, Any]]:
+        """The Gallery's images by (image id, version id), in order. See GalleryOps."""
+        return self._gallery.images(keys)
+
+    def gallery_signature(self) -> Tuple[Any, ...]:
+        """What changes when the Gallery's images might. See GalleryOps."""
+        return self._gallery.signature()
 
     # ==================== Models & versions ====================
 

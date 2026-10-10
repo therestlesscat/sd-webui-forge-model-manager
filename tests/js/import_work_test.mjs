@@ -108,10 +108,10 @@ check('and no other module has one',
       names.filter((name) => !STARTED[name] && typeof modules[name].start === 'function'), []);
 
 // ------------------------------------------------ the tabs, imported
-const TAB_FILES = ['civitai_browser.mjs', 'generations.mjs', 'model_manager.mjs', 'queue.mjs'];
+const TAB_FILES = ['civitai_browser.mjs', 'gallery.mjs', 'generations.mjs', 'model_manager.mjs', 'queue.mjs'];
 const tabsFolder = `${ROOT}/javascript/tabs`;
 const tabFiles = existsSync(tabsFolder) ? readdirSync(tabsFolder).filter((f) => f.endsWith('.mjs')).sort() : [];
-check('the four tabs\' scripts are in javascript/tabs', tabFiles, TAB_FILES);
+check('the five tabs\' scripts are in javascript/tabs', tabFiles, TAB_FILES);
 const tabImport = {};
 const tabModules = {};
 for (const name of tabFiles) {

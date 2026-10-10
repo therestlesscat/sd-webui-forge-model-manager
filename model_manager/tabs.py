@@ -21,6 +21,7 @@ from .forge_host import setting
 TABS: Dict[str, str] = {
     "queue": "model_manager_queue_enabled",
     "generations": "model_manager_record_generations",
+    "gallery": "model_manager_gallery_tab",
     "model_manager": "model_manager_model_manager_enabled",
     "civitai_browser": "model_manager_civitai_browser_enabled",
 }
@@ -29,6 +30,7 @@ TABS: Dict[str, str] = {
 NAMES = {
     "queue": "The Queue",
     "generations": "Your generations",
+    "gallery": "The Gallery tab",
     "model_manager": "The Model Manager tab",
     "civitai_browser": "The Civitai Browser tab",
 }
@@ -43,11 +45,12 @@ SERVICES: Dict[str, Tuple[str, ...]] = {
     "downloads": ("model_manager", "civitai_browser"),
     "saved_search": ("model_manager", "civitai_browser"),
     # Send to txt2img and its lookups: Forge's modules, an image's resources,
-    # the chips. The Civitai Browser opens Resources, the Queue loads a task.
-    "send": ("model_manager", "civitai_browser", "generations", "queue"),
+    # the chips. The Civitai Browser opens Resources, the Queue loads a task,
+    # the Gallery sends its images (#209).
+    "send": ("model_manager", "civitai_browser", "generations", "queue", "gallery"),
     # Stored image levels judged again (prompt_levels.py): the Model Manager's
-    # galleries and your generations.
-    "restamp": ("model_manager", "generations"),
+    # galleries, your generations, and the Gallery's images.
+    "restamp": ("model_manager", "generations", "gallery"),
     ANY: tuple(TABS),
 }
 

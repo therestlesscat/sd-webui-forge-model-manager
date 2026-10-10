@@ -47,6 +47,10 @@ export const TABS = {
     generations: { file: 'generations.mjs', server: 'generations', setting: 'model_manager_record_generations',
                    markup: 'gen_grid', root: 'generations_app', elsewhere: 'modelManager', also: [],
                    event: 'mm-generations-enabled' },
+    // The library's Civitai images, in a seed's order (#209): off until asked
+    // for - and so off where the server does not say (unsaid).
+    gallery: { file: 'gallery.mjs', server: 'gallery', setting: 'model_manager_gallery_tab', markup: 'gal_grid',
+               root: 'gallery_app', elsewhere: 'txt2img', also: [], event: null, unsaid: false },
     modelManager: { file: 'model_manager.mjs', server: 'model_manager', setting: 'model_manager_model_manager_enabled',
                     markup: 'mm_load_btn', root: 'model_manager_app', elsewhere: 'txt2img', also: [], event: null },
     civitaiBrowser: { file: 'civitai_browser.mjs', server: 'civitai_browser',
@@ -55,8 +59,8 @@ export const TABS = {
 };
 
 // What a disabled link says each tab is (tabs.py's NAMES).
-const LABELS = { queue: 'The Queue', generations: 'Your generations', modelManager: 'The Model Manager tab',
-                 civitaiBrowser: 'The Civitai Browser tab' };
+const LABELS = { queue: 'The Queue', generations: 'Your generations', gallery: 'The Gallery tab',
+                 modelManager: 'The Model Manager tab', civitaiBrowser: 'The Civitai Browser tab' };
 
 // Each tab: whether it is on and built, as the server last said - undefined
 // until it has - its running scope and script, whether its start() has been
@@ -670,9 +674,10 @@ export const boot = once(() => {
         newerDatabase = data?.database_newer || null;
         if (newerDatabase) await offerDatabaseActions();
         for (const [name, tab] of Object.entries(TABS)) {
+            // Unsaid - ui-options not answering - a tab is as its switch is by default.
             const said = data?.tabs?.[tab.server];
-            state[name].on = said ? said.on !== false : true;
-            state[name].built = said ? said.built !== false : true;
+            state[name].on = said ? said.on !== false : tab.unsaid !== false;
+            state[name].built = said ? said.built !== false : tab.unsaid !== false;
             apply(name);
             if (state[name].on && state[name].built && !newerDatabase) startTab(name);
         }

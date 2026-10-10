@@ -20,6 +20,7 @@ from model_manager.scheduler import capture, load
 from model_manager.tabs import mark_built, on
 from model_manager.ui import (
     create_civitai_browser_ui,
+    create_gallery_ui,
     create_generations_ui,
     create_queue_ui,
     create_ui,
@@ -31,13 +32,14 @@ from model_manager.console import say
 
 def create_all_tabs():
     """
-    Create all Model Manager tabs: the Queue first, then Generations, before
-    the Model Manager - each unless its switch is off (model_manager/tabs.py),
+    Create all Model Manager tabs: the Queue first, then Generations and the
+    Gallery, before the Model Manager - each unless its switch is off (model_manager/tabs.py),
     when it is not created at all. What was created is kept, for the page.
     """
     builds = (
         ("queue", lambda: [(create_queue_ui(), "Queue", "queue_tab")]),
         ("generations", lambda: [(create_generations_ui(), "Generations", "generations_tab")]),
+        ("gallery", lambda: [(create_gallery_ui(), "Gallery", "gallery_tab")]),
         ("model_manager", create_ui),
         ("civitai_browser", lambda: [(create_civitai_browser_ui(), "Civitai Browser", "civitai_browser_tab")]),
     )

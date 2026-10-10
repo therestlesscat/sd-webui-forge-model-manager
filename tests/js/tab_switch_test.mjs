@@ -119,8 +119,8 @@ const registered = ['scripts/model_manager_ui.py', 'model_manager/ui/tab_model_m
     .flatMap((file) => [...readFileSync(`${ROOT}/${file}`, 'utf8').matchAll(/,\s*"(\w+_tab)"\)/g)].map((m) => `tab_${m[1]}`));
 let tabsSource = '';
 try { tabsSource = readFileSync(`${ROOT}/javascript/shared/tabs.mjs`, 'utf8'); } catch { /* not there */ }
-check('the extension\'s four tabs register', registered.sort(),
-      ['tab_civitai_browser_tab', 'tab_generations_tab', 'tab_model_manager_tab', 'tab_queue_tab']);
+check('the extension\'s five tabs register', registered.sort(),
+      ['tab_civitai_browser_tab', 'tab_gallery_tab', 'tab_generations_tab', 'tab_model_manager_tab', 'tab_queue_tab']);
 check('and the page finds each by that id', registered.filter((id) => !tabsSource.includes(`'${id}'`)), []);
 
 done();
