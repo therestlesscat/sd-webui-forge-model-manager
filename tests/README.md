@@ -138,6 +138,18 @@ that the WebUI does not - and ask a real browser ("Probes").
   last round's, and pressed Esc before the answer came - the fix looked
   broken. Wait on what says shown (`.show`). And a synthetic event bubbles
   only if told to: the suite's `key()` sends a keydown no page listener hears.
+  linkedom hands one to a listener on the document, capture phase included,
+  only if it bubbles: `media_queue_test` sends `load` and `error` with
+  `bubbles: true`, which a browser's never have.
+- **No lazy image loads in a suite.** `harness.mjs`'s `IntersectionObserver`
+  stand-in never calls back, so no gallery image gets its address (#213). A
+  suite that needs images loaded puts in its own before the tab starts
+  (`mm_gallery_queue_test`, `cb_gallery_queue_test`). To test a page with no
+  watcher, delete `globalThis.IntersectionObserver`: linkedom's window reads
+  globalThis, so `'IntersectionObserver' in window` stays true.
+- **`three_js_test` runs the modules as one script**, their top-level names in
+  one scope. `media.mjs`'s `waiting` clashed with `downloads.mjs`'s, and its
+  sets became `mediaLoading` and `mediaWaiting`.
 - **A suite waits in seconds, never in thousands of tries.** `waitFor` looks
   every 50 ms: 4,000 tries is 200 s, and two such waits in one suite ran a
   whole run past ten minutes, leaving the suite's process behind. The harness

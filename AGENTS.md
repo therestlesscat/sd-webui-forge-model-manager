@@ -995,7 +995,16 @@ waits - are in `tests/README.md`.
   LoRA: its chip merged into the gallery's, which the old code drew too, so
   the check showed nothing new - "what was purpose of your last tests for
   lora?", the owner asked. Pick the image, the file, the setting the old
-  code gets wrong, as a suite's check has to fail on the old code.
+  code gets wrong, as a suite's check has to fail on the old code. And a
+  live check that does not reproduce the failure shows the change runs, not
+  that it fixes: #213's uncapped run loaded 763 images of 763. Say so in
+  the commit, and ask for the observation that would settle it.
+- **A guard is a claim too.** #213's plan named "every gallery's suite" as
+  the guard that images still load. In those suites the harness's watcher
+  never says an image came into view, so no image had ever loaded there; a
+  side agent's review found it. Two suites now load a gallery through each
+  tab (`mm_gallery_queue_test`, `cb_gallery_queue_test`). A guard row names
+  its check, and the check is seen to fail on a break.
 - **An empty grid: read what it asked the server.** The Model Manager's
   grid draws nothing until Load Models, and its filters are kept in the
   browser. On 7880 a LoRA was missing because Type was saved as
