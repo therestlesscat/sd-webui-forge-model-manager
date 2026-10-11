@@ -72,7 +72,11 @@ longer existed.
   strikes, and a line under the byline lists every tab. #214 part 5's
   changes were first written into the plan, highlighted and tagged by
   round; the owner found it "still hard to understand and catch quickly"
-  (2026-10-11).
+  (2026-10-11). The plan always ends with its questions, numbered, each
+  with its recommendation - a revision tab's too, linked to the tab that
+  argues it, and added in the same turn - so every open decision is in one
+  place. In that doc the questions sat before "What else", and three the
+  revision tabs raised were in no list.
 - **An approved plan goes on its issue.** Once a plan is approved to be
   built, it is posted as a comment on the related GitHub issue, so the
   issue keeps the record of what was decided. It is the doc as written, in
