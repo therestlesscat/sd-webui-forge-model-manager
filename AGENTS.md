@@ -51,6 +51,17 @@ longer existed.
   situations, each new or a guard. `file:line` stays only where it helps
   look something up. The #195 plan, in chat, read as if steps were missing;
   #200's doc, rewritten so, became the rule (2026-10-08).
+- **A suggestion argues both sides, and says how big a change it is.**
+  Every suggestion in a doc - an option recommended, an idea for scope, a
+  question's recommendation - gets a table of its own: the points for it in
+  one column, the points against it in the other. And, wherever it can be
+  judged, how complex the change is. Lines of code are one measure, not the
+  measure: the files and shared modules it touches, new state or storage (a
+  setting, a column, a migration), new moving parts (a thread, a stream, a
+  queue), what else runs through the code it changes, the tests it needs,
+  both WebUIs. #214's on-site-only plan recommended remembering Civitai's
+  answer for five minutes with neither, and the owner had to ask how
+  complex it was (2026-10-10).
 - **An approved plan goes on its issue.** Once a plan is approved to be
   built, it is posted as a comment on the related GitHub issue, so the
   issue keeps the record of what was decided. It is the doc as written, in
