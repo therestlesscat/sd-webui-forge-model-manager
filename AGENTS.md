@@ -76,12 +76,19 @@ longer existed.
   with its recommendation - a revision tab's too, linked to the tab that
   argues it, and added in the same turn - so every open decision is in one
   place. In that doc the questions sat before "What else", and three the
-  revision tabs raised were in no list.
+  revision tabs raised were in no list. A revision that changes a decision
+  strikes or rewords, in the same turn, every question and draft line it
+  makes stale: part 6's R4 replaced watched folders with a Sync button,
+  and left "watched folders" in two questions and "Add a folder" in the
+  draft's steps until the owner asked.
 - **An approved plan goes on its issue.** Once a plan is approved to be
   built, it is posted as a comment on the related GitHub issue, so the
-  issue keeps the record of what was decided. It is the doc as written, in
-  markdown - its headings, tables and code kept - never flattened to plain
-  text. The repository is public:
+  issue keeps the record of what was decided. It is the doc's Final tab -
+  the first draft and every revision tab merged, every answer applied,
+  nothing struck - in markdown, its headings, tables and code kept, never
+  flattened to plain text. Issues it depends on are created first and
+  named at its top; follow-ups go under "Not in this issue" (#233, with
+  #231 before it and #232 after, 2026-10-11). The repository is public:
   the comment holds no personal information - no one's name, email,
   account or user name - and a path in it starts inside a WebUI's folder
   (`models\ESRGAN`), the WebUI named in words ("Neo's own"), never a drive
@@ -1209,6 +1216,14 @@ waits - are in `tests/README.md`.
   safe ones alone: there is no "NSFW only". Every model payload carries
   `nsfw` (300 of 300); a thin sidecar may not (8 of 1,032 here), and the flag
   is then stored as not said (#141).
+- **A version Civitai allows only for generating on its site says so in
+  one place.** Its `usageControl` comes with `/model-versions/{id}` and the
+  by-hash lookup, not with a search or `/models/{id}`; any value but
+  `Download` makes its download answer 401, "The creator of this asset has
+  disabled downloads on this file". Our 401 branch
+  (`download_service.py`, since 2220995) blamed a missing API key whatever
+  Civitai said (#224). A sample of about 2,000 versions found none to test
+  with (#226).
 
 ### The code
 
