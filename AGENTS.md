@@ -62,6 +62,17 @@ longer existed.
   both WebUIs. #214's on-site-only plan recommended remembering Civitai's
   answer for five minutes with neither, and the owner had to ask how
   complex it was (2026-10-10).
+- **A plan doc keeps its first draft; each round of changes is a tab.**
+  Nothing in a plan doc is deleted: what a decision removes is crossed
+  out where it stands (2026-10-10). What a round of discussion adds - one
+  batch of comments answered, one side note acted on - goes in a tab of
+  its own under the plan (R2, R3, ...), holding only that round: what
+  prompted it, quoted; where it changes the plan; the new material. The
+  plan links its tab at each place a change applies, beside the words it
+  strikes, and a line under the byline lists every tab. #214 part 5's
+  changes were first written into the plan, highlighted and tagged by
+  round; the owner found it "still hard to understand and catch quickly"
+  (2026-10-11).
 - **An approved plan goes on its issue.** Once a plan is approved to be
   built, it is posted as a comment on the related GitHub issue, so the
   issue keeps the record of what was decided. It is the doc as written, in
