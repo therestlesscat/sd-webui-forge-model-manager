@@ -283,6 +283,21 @@ def on_ui_settings():
         ).info("How fast to call the Civitai API when an API key is set. Higher is faster but more likely to be rate limited. Applies to the next search, download or sync; one already running keeps its rate.")
     )
 
+    # A box with no maximum, so the settings window draws no slider (#213).
+    shared.opts.add_option(
+        "model_manager_civitai_images_at_once",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_civitai_images_at_once"],
+            label="Civitai: images loading at once, at most",
+            component=gr.Number,
+            component_args={"minimum": 1, "step": 1, "precision": 0},
+            section=section,
+        ).info("How many of Civitai's images the galleries load at once; the rest wait "
+               "until one has loaded, nearest the screen first. Civitai makes resized copies at about "
+               "10 to 16 a second and queues the rest, and images asked for hundreds at once failed "
+               "to load. Not a page size: a page still holds as many images as its tab's setting says.")
+    )
+
     shared.opts.add_option(
         "model_manager_hash_threads",
         shared.OptionInfo(

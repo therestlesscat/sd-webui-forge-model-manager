@@ -184,6 +184,11 @@ check('a radio is a choice, with each choice\'s value',
        [c[1] for c in s['model_manager_nsfw_detection']['choices']]],
       ['choice', ['model', 'words']])
 check('a checkbox is on or off', s['model_manager_gallery_hide_nsfw']['kind'], 'bool')
+# How many of Civitai's images load at once (#213): a box, at least 1 and no
+# maximum - so the settings window draws no slider beside it.
+check('a box is a number with no maximum',
+      {k: s.get('model_manager_civitai_images_at_once', {}).get(k) for k in ('kind', 'minimum', 'maximum', 'step', 'value')},
+      {'kind': 'number', 'minimum': 1, 'maximum': None, 'step': 1, 'value': 64})
 check('the help text is the Settings page\'s, without its markup',
       s['model_manager_hash_threads']['info'].startswith('How many model files to hash at once'), True)
 check('and no help text keeps a tag', any('<' in e['info'] for e in s.values()), False)

@@ -55,6 +55,10 @@ DEFAULTS = {
     "model_manager_card_originals": False,
     "model_manager_civitai_folder_template": "_{baseModel}/{modelName}",
     "model_manager_civitai_requests_per_second": 6,
+    # How many of Civitai's images a page loads at once; the rest wait their
+    # turn (#213). Civitai queues past 10 to 16 a second, and hundreds asked
+    # at once failed to load.
+    "model_manager_civitai_images_at_once": 64,
     "model_manager_hash_threads": 4,
     "model_manager_civitai_min_prompt_images": 1,
     "model_manager_civitai_sfw_fill_page": False,

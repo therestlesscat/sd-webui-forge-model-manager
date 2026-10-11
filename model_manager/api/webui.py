@@ -271,7 +271,7 @@ def register(app: FastAPI):
     def get_ui_options():
         """Get samplers, schedulers, and whether Civitai can be asked properly."""
         from ..civitai import api_key_from_settings
-        from ..forge_host import restartable, samplers, schedulers, setting, short_name
+        from ..forge_host import DEFAULTS, restartable, samplers, schedulers, setting, short_name
         from ..model_dirs import shown_roots
         from ..db import database_state
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
@@ -286,6 +286,14 @@ def register(app: FastAPI):
         # Images as uploaded, not resized (#192): galleries, and the grids' cards.
         gallery_originals = bool(setting('model_manager_gallery_originals'))
         card_originals = bool(setting('model_manager_card_originals'))
+        # How many of Civitai's images a page loads at once (#213): a whole
+        # number of at least 1, else the default.
+        try:
+            images_at_once = int(setting('model_manager_civitai_images_at_once'))
+        except (TypeError, ValueError):
+            images_at_once = 0
+        if images_at_once < 1:
+            images_at_once = DEFAULTS['model_manager_civitai_images_at_once']
         generations_hide_nsfw = bool(setting(GENERATIONS_HIDE_NSFW))
         # Whether the delete question's files box starts ticked (#107).
         generations_delete_files = bool(setting(GENERATIONS_DELETE_FILES))
@@ -324,6 +332,7 @@ def register(app: FastAPI):
                 "hide_promptless_images": hide_promptless_images,
                 "gallery_originals": gallery_originals,
                 "card_originals": card_originals,
+                "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
                 "generations_enabled": generations_on,
@@ -349,6 +358,7 @@ def register(app: FastAPI):
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images,
                  "gallery_originals": gallery_originals, "card_originals": card_originals,
+                 "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,
                  "generations_enabled": generations_on,

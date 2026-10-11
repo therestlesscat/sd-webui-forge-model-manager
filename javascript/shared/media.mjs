@@ -9,9 +9,20 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml } = await shared('core.mjs');
+const { imagesAtOnce } = await shared('ui_options.mjs');
 
 // Shared across both tabs - only one tab renders images at a time
 export let lazyMediaObserver = null;
+
+// Civitai's images loading now, and those in view waiting for a place (#213).
+// Civitai makes copies at 10 to 16 a second whatever is asked, and queues the
+// rest: 100 asked at once took 5.2 s each, and a part grouped by model asks
+// for up to 400 - where the Gallery's images failed to load. Past the
+// setting's number they wait here instead, in the order they came into view,
+// and leave the line when they leave the view. One count for the page, as
+// the watcher is one.
+const mediaLoading = new Set();
+const mediaWaiting = new Set();
 
 /**
  * The widths Civitai's image server makes copies at. Asked for a width in
@@ -187,27 +198,40 @@ export function mediaShape(img) {
  * the page, on the way down, as a load's error does not bubble. It was an
  * inline onerror calling a window global (#95). The placeholder is the last:
  * one that fails too is left.
+ *
+ * True when it asked again - for the upload - so the image keeps its place.
  */
 export function fallBack(node) {
-    if (!node?.hasAttribute?.('data-original') || node.dataset.fellBack) return;
+    if (!node?.hasAttribute?.('data-original') || node.dataset.fellBack) return false;
     const original = node.getAttribute('data-original');
     if (original && node.getAttribute('src') !== original) {
         node.setAttribute('src', original);
         if (node.tagName === 'VIDEO') node.load();
-        return;
+        return true;
     }
     node.dataset.fellBack = 'true';
     const placeholder = node.getAttribute('data-placeholder');
     if (placeholder && node.tagName === 'IMG') node.setAttribute('src', placeholder);
+    return false;
 }
 
-/** The page's one fallback listener, started by the first tab that shows media (#182), until the last stops (#186). */
+/**
+ * The page's one fallback listener, and one that frees a loaded image's
+ * place, started by the first tab that shows media (#182), until the last
+ * stops (#186). A load's and an error's events do not bubble: heard on the
+ * way down.
+ */
 export function start(scope) {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
             || globalThis.__mmMediaFallback) return;
     globalThis.__mmMediaFallback = true;
-    scope.onStop(() => { globalThis.__mmMediaFallback = false; });
-    scope.listen(document, 'error', (event) => fallBack(event.target), true);
+    scope.onStop(() => {
+        globalThis.__mmMediaFallback = false;
+        mediaLoading.clear();
+        mediaWaiting.clear();
+    });
+    scope.listen(document, 'error', (event) => { if (!fallBack(event.target)) settle(event.target); }, true);
+    scope.listen(document, 'load', (event) => settle(event.target), true);
 }
 
 /**
@@ -229,42 +253,102 @@ export function isVideoUrl({ url, type }) {
            lowerUrl.includes('.webm?');
 }
 
+/**
+ * Whether an image or video asks Civitai: an image by its address, a video by
+ * its still - all it loads before it is played - which the server redirects
+ * there. Your generations are the WebUI's own files, and load as they come.
+ */
+function fromCivitai(node) {
+    if (node.tagName === 'VIDEO') return (node.getAttribute('data-poster') || '').startsWith('/model-manager/video-still');
+    return (node.getAttribute('data-src') || '').includes('image.civitai.com');
+}
+
+/** An image in view: loaded now if it is not Civitai's or a place is free, else in the line. */
+function wait(node) {
+    if (!node.hasAttribute('data-src') || mediaLoading.has(node)) return;
+    if (!fromCivitai(node)) {
+        begin(node, false);
+        return;
+    }
+    mediaWaiting.add(node);
+    handOut();
+}
+
+/** An image out of view: out of the line, never asked for. Watched still. */
+function leave(node) {
+    mediaWaiting.delete(node);
+}
+
+/** Its place freed - loaded, or failed for good - and handed on. */
+function settle(node) {
+    if (mediaLoading.delete(node)) handOut();
+}
+
+/**
+ * The places free, to the first in line. An image the grid took away - a new
+ * part, Back, a new seed - frees its place here: its load's event never
+ * reaches the page.
+ */
+function handOut() {
+    mediaLoading.forEach((node) => { if (!node.isConnected) mediaLoading.delete(node); });
+    for (const node of mediaWaiting) {
+        if (!node.isConnected) {
+            mediaWaiting.delete(node);
+            continue;
+        }
+        if (mediaLoading.size >= imagesAtOnce()) break;
+        mediaWaiting.delete(node);
+        begin(node, true);
+    }
+}
+
+function begin(node, takesPlace) {
+    const src = node.getAttribute('data-src');
+    lazyMediaObserver?.unobserve(node);
+    if (!src) return;
+    // A video's still, lazily as well: every video's at once was one
+    // request per card before any came into view.
+    const poster = node.getAttribute('data-poster');
+    if (poster) {
+        node.setAttribute('poster', poster);
+        node.removeAttribute('data-poster');
+    }
+    if (takesPlace) {
+        mediaLoading.add(node);
+        // Asked for now: the browser's own lazy loading waits for an image
+        // in a hidden tab to show, and its place would wait with it.
+        node.removeAttribute('loading');
+    }
+    node.setAttribute('src', src);
+    node.removeAttribute('data-src');
+    node.classList.remove('mm-lazy-media');
+    if (node.tagName === 'VIDEO') {
+        node.load();
+        // A video says nothing when its still has loaded: an image that is
+        // never shown reads it, from the cache the still then comes from.
+        if (takesPlace) {
+            const still = document.createElement('img');
+            still.addEventListener('load', () => settle(node));
+            still.addEventListener('error', () => settle(node));
+            still.setAttribute('src', poster);
+        }
+    }
+}
+
 export function setupLazyMedia(container) {
     if (!container) return;
 
     const lazyNodes = container.querySelectorAll('.mm-lazy-media[data-src]');
     if (lazyNodes.length === 0) return;
 
-    const loadNode = (node) => {
-        const src = node.getAttribute('data-src');
-        if (!src) return;
-        // A video's still, lazily as well: every video's at once was one
-        // request per card before any came into view.
-        const poster = node.getAttribute('data-poster');
-        if (poster) {
-            node.setAttribute('poster', poster);
-            node.removeAttribute('data-poster');
-        }
-        node.setAttribute('src', src);
-        node.removeAttribute('data-src');
-        node.classList.remove('mm-lazy-media');
-        if (node.tagName === 'VIDEO') {
-            node.load();
-        }
-    };
-
     if (!('IntersectionObserver' in window)) {
-        lazyNodes.forEach(loadNode);
+        lazyNodes.forEach(wait);
         return;
     }
 
     if (!lazyMediaObserver) {
         lazyMediaObserver = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (!entry.isIntersecting) return;
-                loadNode(entry.target);
-                lazyMediaObserver.unobserve(entry.target);
-            });
+            entries.forEach((entry) => (entry.isIntersecting ? wait : leave)(entry.target));
         }, {
             root: null,
             rootMargin: '350px 0px',

@@ -66,7 +66,7 @@ check('no shared module does anything as it is imported',
 const STARTED = {
     'core.mjs': ['document listener: click'],
     'calls.mjs': ['document listener: change', 'document listener: click'],
-    'media.mjs': ['document listener: error'],
+    'media.mjs': ['document listener: error', 'document listener: load'],
     // The tabs' switches are the loading module's (#183): it follows them.
     'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate'],
     'jobs.mjs': ['document listener: visibilitychange'],

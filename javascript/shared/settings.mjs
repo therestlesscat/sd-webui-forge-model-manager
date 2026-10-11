@@ -26,6 +26,7 @@ const { ready, call } = await shared('calls.mjs');
 const K = {
     apiKey: 'model_manager_civitai_api_key',
     rate: 'model_manager_civitai_requests_per_second',
+    imagesAtOnce: 'model_manager_civitai_images_at_once',
     mmPageSize: 'model_manager_page_size',
     mmCardSize: 'model_manager_card_size',
     thumbnail: 'model_manager_preview_least_nsfw',
@@ -65,12 +66,13 @@ const MODULES_PREFIX = 'model_manager_modules_';
 // uses are open (`tabs`), and a note's button opens the one it is about, by
 // its id (`section` in model_manager/data/release_notes.json). A section is
 // shown while a tab it serves is on (`shownWith`; none: always, #185) - not
-// its `tabs`: the connection serves Generations' Send too, and storage holds
-// the database every tab uses.
+// its `tabs`: the connection serves Generations' Send too, and how many of
+// the Gallery tab's images load at once (#213); storage holds the database
+// every tab uses.
 const SECTIONS = [
     { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
     { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations'], keys: [K.apiKey, K.rate] },
+      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.imagesAtOnce] },
     { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
       keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
     { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
@@ -99,6 +101,7 @@ const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, 
 const LABELS = {
     [K.apiKey]: 'API key',
     [K.rate]: 'Requests per second',
+    [K.imagesAtOnce]: 'Civitai images loading at once, at most',
     [K.mmPageSize]: 'Models per page',
     [K.mmCardSize]: 'Card size',
     [K.thumbnail]: 'Card thumbnail',

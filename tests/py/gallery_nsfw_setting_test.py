@@ -111,5 +111,19 @@ check('Gallery images on: the page is told', client.get('/model-manager/ui-optio
 setattr(opts, 'model_manager_card_originals', True)
 check('Model cards on: the page is told', client.get('/model-manager/ui-options').json().get('card_originals'), True)
 
+# How many of Civitai's images a page loads at once (#213): a whole number of
+# at least 1, else the default - a box left blank, 0, or a word.
+told = lambda: client.get('/model-manager/ui-options').json().get('images_at_once')
+if hasattr(opts, 'model_manager_civitai_images_at_once'):
+    delattr(opts, 'model_manager_civitai_images_at_once')
+check('Civitai images at once: 64 by default', told(), 64)
+setattr(opts, 'model_manager_civitai_images_at_once', 12)
+check('a number saved: the page is told it', told(), 12)
+said = []
+for value in (None, 0, -3, 'many'):
+    setattr(opts, 'model_manager_civitai_images_at_once', value)
+    said.append(told())
+check('blank, 0, below 0 or a word: 64', said, [64, 64, 64, 64])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -36,15 +36,28 @@ let uiOptionsRequest = null;
 // galleries, on the grids' cards - from the last answer: resized until one
 // is in. Read as a card or a tile is drawn, which cannot wait for it.
 let asUploadedNow = { gallery: false, cards: false };
+// How many of Civitai's images load at once (#213), from the last answer:
+// the setting's default until one is in, or from a server too old to say.
+const IMAGES_AT_ONCE = 64;
+let imagesAtOnceNow = IMAGES_AT_ONCE;
 
 function learn(data) {
-    if (data) asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
+    if (data) {
+        asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
+        const atOnce = Number(data.images_at_once);
+        imagesAtOnceNow = Number.isInteger(atOnce) && atOnce >= 1 ? atOnce : IMAGES_AT_ONCE;
+    }
     return data;
 }
 
 /** How Civitai's images load, as the last answer said: {gallery, cards}. */
 export function asUploaded() {
     return asUploadedNow;
+}
+
+/** How many of Civitai's images may load at once, as the last answer said. */
+export function imagesAtOnce() {
+    return imagesAtOnceNow;
 }
 
 /** The server's ui-options, as they are now. A failed call answers null. */

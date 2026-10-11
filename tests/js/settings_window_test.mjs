@@ -20,6 +20,7 @@ const SETTINGS = {
     model_manager_civitai_api_key: { label: 'Civitai API Key', info: '', kind: 'secret',
                                      default: '', has_value: false },
     model_manager_civitai_requests_per_second: setting('number', 6, { minimum: 1, maximum: 10, step: 1 }),
+    model_manager_civitai_images_at_once: setting('number', 64, { minimum: 1, step: 1 }),
     model_manager_page_size: setting('number', 20, { minimum: 5, maximum: 50, step: 5,
                                                      label: 'Model Manager: Models per page' }),
     model_manager_card_size: setting('text', '200x280'),
@@ -257,6 +258,9 @@ check('the Model Manager and the Civitai Browser off: theirs go - the connection
 tickTab('model_manager_record_generations', false);
 check('Generations off too: the connection and the NSFW detection go with it',
       SECTION_IDS.filter(sectionShown), ['tabs', 'modules', 'other']);
+tickTab('model_manager_gallery_tab', true);
+check('the Gallery tab alone: the connection is shown, for how many of its images load at once',
+      SECTION_IDS.filter(sectionShown).includes('connection'), true);
 TAB_KEYS.forEach((key) => tickTab(key, true));
 check('all on again: every section', SECTION_IDS.filter(sectionShown), SECTION_IDS);
 // The Gallery's switch back to off, as it was: the counts below are of other changes.
@@ -273,6 +277,16 @@ check('What\'s new lists the notes by version, newest first, dismissed ones too,
       [false, ['0.40.13', '0.40.11'], ['Pin the models you come back to', 'Run Scan Disk once']]);
 check('with a short label', field('model_manager_page_size').querySelector('.mm-settings-label').textContent,
       'Models per page');
+
+// How many of Civitai's images load at once (#213): in the connection,
+// shown with or without a key, a box with no slider.
+const AT_ONCE = 'model_manager_civitai_images_at_once';
+check('Civitai images at once: in the connection, with its label, shown without a key',
+      [field(AT_ONCE)?.closest('.mm-settings-section')?.dataset.section,
+       field(AT_ONCE)?.querySelector('.mm-settings-label')?.textContent, shown(AT_ONCE)],
+      ['connection', 'Civitai images loading at once, at most', true]);
+check('a number box, no slider', [!!field(AT_ONCE)?.querySelector('input[type="number"]'),
+                                  !!field(AT_ONCE)?.querySelector('input[type="range"]')], [true, false]);
 
 // -------------------------------------------------------- what is shown
 check('requests per second is hidden without an API key',
