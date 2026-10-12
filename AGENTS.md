@@ -223,7 +223,7 @@ tests/v36_generations.py, generation_fixture.py
 | `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `tasks_ops` (the generation queue), `downloads_ops` (the download queue, across a restart), `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `ownership` (which paid versions the key's account bought), `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow, leaving out the models earlier draws showed under the same filters and those the library has - #191) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
-| `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 73 to a table; startup work and the recorder ask it too |
+| `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 82 to a table; startup work and the recorder ask it too |
 | `sync_service.py` | identifying files and refreshing their metadata, after the walk of the library every sync from the dialog starts with (`walk_library`): new files given a row and their header read, sizes brought up to date, files gone forgotten with what only they kept, files in another type's folder moved when asked |
 | `sync_estimates.py` | what a sync would cost and cover, before it starts: the sync dialog's request estimate, its staleness-window counts, and the files every sync will hash (`files_to_hash`) |
 | `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`); and what "held" means (`held_here`): a library file on disk, in a folder this WebUI loads from - Owned in the Civitai Browser, left out of a draw, not downloaded again (#188) |
@@ -237,6 +237,8 @@ tests/v36_generations.py, generation_fixture.py
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
+| `image_sync.py` | Sync images (#233): the images already in Forge's result folders added as generations - the walk and what it skips, the presses rebuilt from the text, the images with no text grouped by their names and a gap learnt from the library, and the job |
+| `image_text.py` | what an image file says: its generation text, read with PIL, the text's last line by Forge's own pattern, and its name read back by Forge's naming settings (`NamePattern`) |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, Controlnet, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
 | `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
@@ -679,6 +681,16 @@ the sync moves a file - never the source. A read picks its part in SQL
 (`Scope` in `db/generations_ops.py`) and only then reads its tiles. Rows of
 33 KB a generation and 4 KB an image, as v36 had, cost a page each to read
 whatever column a list wanted.
+
+**A synced image is the recorder's second witness** (#233, v38). Sync images
+reads what Forge wrote into the file, so a synced generation has a
+`source_id` and lacks what only the recorder sees - the script arguments,
+the inputs. The recorder wins: saving a file a sync holds replaces the
+synced row. The presses are rebuilt by settings alike, seed +1 and running
+number +1: 630 of 630 recorded generations came out exactly. A delete that
+keeps the file puts it on `removed_images`, with its size and time, or the
+next sync brings it back. A checkpoint the library lacks is kept by its
+name, a resource row with no path: Send stops on it and opens Resources.
 
 ## The WebUI's rules, which are not obvious
 
