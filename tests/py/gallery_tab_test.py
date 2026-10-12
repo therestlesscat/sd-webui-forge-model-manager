@@ -184,7 +184,7 @@ check('a group\'s tile shows its first four images, and counts them all',
 # ------------------------------------------------------------ what a page reads
 # Picked by its keys, then only its rows read: the reading of a page's rows
 # does not grow with the library. SQLite's steps counted, as the grid's
-# query was (AGENTS.md).
+# query was (tests/AGENTS.md, "A new check has to fail on the old code").
 def steps(fn):
     with db._cursor() as cursor:
         connection = cursor.connection

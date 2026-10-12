@@ -1,6 +1,6 @@
 """
 A button that opens a page is a <button data-open-url>, never an <a> dressed
-as one (AGENTS.md, "What the WebUI does to our markup").
+as one (the root AGENTS.md, "What the WebUI does to our markup").
 
 Gradio resets a <button>'s font inside its container, and not a link's: View
 on Civitai on an image card and in the Civitai Browser's details drew its text

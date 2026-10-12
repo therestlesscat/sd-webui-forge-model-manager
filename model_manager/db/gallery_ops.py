@@ -11,7 +11,8 @@ every seed gave the same cycle, started at another place.
 
 A page is picked by its keys first, then only its rows are read: reading every
 row's address and size to pick 100 took 314 ms of 119,731 images; the keys
-alone, 8 ms (AGENTS.md, "Choose the page, then look up its details").
+alone, 8 ms (model_manager/db/AGENTS.md, "Choose the page, then look up its
+details").
 """
 import json
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -24,7 +25,8 @@ _SPAN = 4294967296
 
 # What a grouping groups by: its key, and what a group is called. The type is
 # what the version's file is (file_identity), Civitai's for a file no sync has
-# read: Civitai's labels are the uploader's (AGENTS.md).
+# read: Civitai's labels are the uploader's (model_manager/AGENTS.md, "Civitai's
+# labels are the uploader's").
 _FILE_TYPE = ("(SELECT f.file_type FROM files f WHERE f.version_id = v.id AND f.file_type IS NOT NULL"
               " ORDER BY f.file_path LIMIT 1)")
 GROUPINGS: Dict[str, Tuple[str, str]] = {

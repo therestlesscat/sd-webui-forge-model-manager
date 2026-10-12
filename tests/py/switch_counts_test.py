@@ -4,9 +4,10 @@ whoever counts them (#74).
 
 A page counts its images in Python (gallery.switch_counts, through
 filter_images for Civitai images); the banner counts every stored image in
-SQL (ImagesOps.get_image_counts). AGENTS.md: a switch's number holds when it
-is flipped - which needs the two to agree, for every combination of the
-switches. They were written apart, and nothing held them to each other.
+SQL (ImagesOps.get_image_counts). A switch's number holds when it is flipped
+(model_manager/AGENTS.md, "A gallery switch's number holds") - which needs
+the two to agree, for every combination of the switches. They were written
+apart, and nothing held them to each other.
 
 Prompts padded with tabs and newlines are among them: Python's strip() and
 SQL's TRIM disagreed on those (#61) - "\t\tab\n" was unreadable to one and

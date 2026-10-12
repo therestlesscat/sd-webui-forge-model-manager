@@ -58,10 +58,10 @@ def _flag(value):
 # the SET list was written once and never updated again.
 #
 # A source that says nothing about a field must not erase what is recorded
-# (AGENTS.md, "Absent is not empty"). A scan reading a thin .civitai.info
-# cannot tell "no trigger words" from "not mentioned", and used to write the
-# second over the first - and a zero over vote counts, a permissive default
-# over licence flags.
+# (model_manager/db/AGENTS.md, "Absent is not empty"). A scan reading a thin
+# .civitai.info cannot tell "no trigger words" from "not mentioned", and used
+# to write the second over the first - and a zero over vote counts, a
+# permissive default over licence flags.
 
 KEY = None       # the row is found by it: written on insert, never updated
 

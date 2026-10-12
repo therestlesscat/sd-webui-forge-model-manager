@@ -6,7 +6,7 @@ a patch is any other change a user can see, up to the next minor version; the
 build is the commit's place in the repository's history - `git rev-list
 --count HEAD` - so a commit that changes nothing a user sees (tests, docs,
 refactoring) keeps MAJOR.MINOR.PATCH and moves the build on. See CHANGELOG.md,
-and AGENTS.md for when to bump which.
+and the root AGENTS.md, "Versions", for when to bump which.
 
 Only MAJOR.MINOR.PATCH is written down, here and as the tag vMAJOR.MINOR.PATCH
 on the commit that made it. The build is asked of git, once: a copy without

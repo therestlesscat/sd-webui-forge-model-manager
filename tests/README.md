@@ -240,7 +240,8 @@ git-ignored: a probe is local, and written again when needed.
 - **Headless Edge** for a real browser: `msedge --headless
   --allow-file-access-from-files --virtual-time-budget=5000 --dump-dom
   file:///...` on a page under `tests/work/`, with its own `--user-data-dir`.
-  For styles, load what the WebUI loads (AGENTS.md, "Seen in both modes").
+  For styles, load what the WebUI loads (the root AGENTS.md, "Seen in both
+  modes").
 - **A whole tab module over HTTP.** From `file://`, `queue.mjs` never finished
   loading: `shared/send.mjs` stayed pending, even alone, though each of its
   imports loaded. Served by Windows' `python -m http.server 8765 --bind

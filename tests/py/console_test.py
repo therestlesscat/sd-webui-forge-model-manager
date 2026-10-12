@@ -86,8 +86,9 @@ if callable(say_failure):
     check('and the same on the console', out.getvalue(), '[ModelManager] ' + text + '\n')
 
 # -------------------------------------------------- nothing prints on its own
-# The migrations are left as they shipped (AGENTS.md: never edited), and run
-# at startup, not during a sync.
+# The migrations are left as they shipped, never edited, and run at startup,
+# not during a sync (model_manager/AGENTS.md, "Everything the extension
+# says").
 OWN = re.compile(r'''print\(\s*f?["']\[ModelManager\]''')
 found = []
 for base in ('model_manager', 'scripts'):

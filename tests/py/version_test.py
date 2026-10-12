@@ -4,7 +4,8 @@ The version, the changelog, version.json and the tags agree.
 VERSION in model_manager/version.py is written by hand, a line in
 CHANGELOG.md with it, the same in version.json - which installs read to learn
 a newer version is out - and a tag after the commit: four places, so each
-check here is one that a forgotten step fails. See "Versions" in AGENTS.md.
+check here is one that a forgotten step fails. See the root AGENTS.md,
+"Versions".
 """
 import json
 import os
