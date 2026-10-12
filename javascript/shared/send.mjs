@@ -62,17 +62,48 @@ export function sendTab(card) {
  *
  * @returns {Promise<boolean>} whether it could be sent
  */
-export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null }) {
+export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null }) {
     if (!infotext) return false;
     meta = meta || {};
     let plan = null;
     if (generationId !== null && generationId !== undefined) {
         try {
-            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan` });
+            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan`,
+                                           params: { use_version: useVersion } });
             plan = answer && answer.success ? answer : null;
         } catch (error) {
             console.warn('[ModelManager] Could not ask how the generation was made:', error);
         }
+    }
+    // Its checkpoint is not in the library - gone since, or a sync found none
+    // (#233): sent with whatever Forge has loaded, the image cannot come out
+    // as it was. So Send stops, and opens Resources to download it, as a
+    // Civitai image's does (#134); the dialog's Send works once it is there.
+    const problem = plan?.checkpoint_problem
+        || (plan?.checkpoint_missing ? { reason: 'missing', name: plan.checkpoint_missing } : null);
+    if (problem) {
+        // Why, as a Civitai image's send says it (stopForCheckpoint): not in
+        // the library, in a folder only the other WebUI loads, or not listed yet.
+        const note = checkpointNote(problem) || checkpointNote({ ...problem, reason: 'missing' });
+        const check = async () => {
+            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan` })
+                .catch(() => null);
+            if (answer?.success && !answer.checkpoint_missing) return '';
+            return CHECKPOINT_WAITS[answer?.checkpoint_problem?.reason] || CHECKPOINT_WAITS.missing;
+        };
+        const listing = problem.reason === 'not_listed';
+        if (listing) refreshWebUiModelList();
+        const send = { why: CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing, check,
+                       run: () => sendInfotext({ infotext, mode, meta, generationId, imageId }),
+                       useInstalled: (versionId) => sendInfotext({ infotext, mode, meta, generationId, imageId,
+                                                                   useVersion: versionId }) };
+        console.log('[ModelManager] Not sent:', note);
+        if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
+        return false;
+    }
+    if (plan?.instead) {
+        showNotice(`Sent with ${plan.instead}, another file of the version this image was made with: `
+                   + 'it may not come out exactly the same.', { info: true });
     }
     if (plan?.preset) await switchForgePreset(plan.preset);
     if (plan?.checkpoint && typeof selectCheckpoint === 'function') {
@@ -826,8 +857,8 @@ async function applyPlannedModules(plan, vaeName) {
 async function applyRecordedModules(plan, what = 'This generation was made with') {
     const target = plan.target || [];
     if (await patchForgeModules(target)) await checkForgeModules(target);
+    // A missing checkpoint stopped the send before it came here (sendInfotext).
     const gone = [];
-    if (plan.checkpoint_missing) gone.push(`its checkpoint ${plan.checkpoint_missing}`);
     if (plan.modules_missing?.length) gone.push(plan.modules_missing.join(', '));
     if (gone.length) {
         showNotice(`${what} ${gone.join(' and ')}, which Forge does not list any more: `
@@ -920,9 +951,10 @@ const CHECKPOINT_WAITS = {
  * the server says the checkpoint can be loaded. Nothing is moved or
  * downloaded by itself; one Forge does not list yet gets Forge's refresh.
  */
-async function stopForCheckpoint(img, model, version, problem) {
+/** Why a send stopped for its checkpoint, as the person reads it - any image's, a Civitai one's or yours. */
+function checkpointNote(problem) {
     const made = `The checkpoint this image was made with, ${problem.name}`;
-    const note = {
+    return {
         missing: `${made}, is not in your library. Download it here, then press Send.`,
         elsewhere: `${made}, is in your library at ${problem.path}, a folder this WebUI does not load. `
                    + 'Move it into this WebUI\'s models folder, or download it here; then press Send.',
@@ -931,6 +963,10 @@ async function stopForCheckpoint(img, model, version, problem) {
         not_checkpoint: 'This image does not say which checkpoint it was made with: what it names as one is '
                         + 'not a checkpoint, in your library or on Civitai.',
     }[problem.reason];
+}
+
+async function stopForCheckpoint(img, model, version, problem) {
+    const note = checkpointNote(problem);
     if (!note) return;
     console.log('[ModelManager] Not sent:', note);
     const waits = (answer) => (answer?.checkpoint_problem

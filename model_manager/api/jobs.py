@@ -21,7 +21,7 @@ from .. import console
 from ..console import say
 
 #: What progress and cancel answer before a job of the kind has run.
-NOT_STARTED = {"sync": "No sync in progress"}
+NOT_STARTED = {"sync": "No sync in progress", "images": "No image sync in progress"}
 
 
 def _start(kind: str, make, run, started: str) -> JSONResponse:

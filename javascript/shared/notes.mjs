@@ -24,6 +24,7 @@ const NOTE_ACTIONS = {
     settings: { needs: 'settings.open', run: (action) => call('settings.open', { section: action.section || null }) },
     sync: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog') },
     sync_unidentified: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog', { force: 'unidentified' }) },
+    sync_images: { tab: 'generations', run: () => open('generations', 'syncImages') },
 };
 const noteAction = (id) => {
     const action = NOTE_ACTIONS[id];

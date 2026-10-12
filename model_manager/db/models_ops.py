@@ -1045,6 +1045,35 @@ class ModelsOps:
             rows = self._whole_rows(cursor, by_hash + [p for paths in by_id.values() for p in paths])
         return [rows[p] for p in by_hash] + [rows[p] for i in ids for p in by_id.get(i, [])]
 
+    def hash_index(self) -> Dict[str, Tuple[str, Optional[str]]]:
+        """
+        Every stored hash of every file, once: {hash: (file path, what the
+        file is)}, the first file in table order. A sync of thousands of
+        images asks this once (#233), where a lookup per image read every
+        file's hashes each time.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path, file_type FROM files WHERE file_path IS NOT NULL")
+            types = {row[0]: row[1] for row in cursor.fetchall()}
+            index: Dict[str, Tuple[str, Optional[str]]] = {}
+            for path, _, stored in self._hashed_files(cursor):
+                for value in stored.values():
+                    if value:
+                        index.setdefault(value, (path, types.get(path)))
+        return index
+
+    def checkpoints_by_stem(self) -> Dict[str, List[str]]:
+        """The library's checkpoints by file name without the extension, lower
+        case: what a file name's [model_name] can be matched to (#233)."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT file_path FROM files WHERE file_path IS NOT NULL "
+                           "AND file_type = 'Checkpoint' ORDER BY rowid")
+            found: Dict[str, List[str]] = {}
+            for (path,) in cursor.fetchall():
+                stem = os.path.splitext(os.path.basename(path))[0].lower()
+                found.setdefault(stem, []).append(path)
+        return found
+
     def local_versions_by_key(self, version_ids: List[int], hashes: List[str],
                               usable: Optional[Callable[[str], bool]] = None
                               ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Dict[str, Any]]]:

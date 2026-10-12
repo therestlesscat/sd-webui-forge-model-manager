@@ -735,5 +735,21 @@ try:
 finally:
     db.record_generation = real
 
+# --------------------------------------- a file Sync images brought in, recorded
+# Sync images (#233) may have read a file from its folder before the recorder
+# writes it - a result saved while a sync runs. The full record wins: the
+# sync's row for that file goes, and only the recorder's remains.
+synced = os.path.join(OUT, 'synced-0.png')
+db.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                      'source_id': db.image_source_id(OUT)},
+                     [{'position': 0, 'path': synced, 'meta': {'Steps': '30'}}], [[]])
+generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False, names=['synced-0.png', 'synced-1.png'])
+check('the recorder replaces the row a sync wrote for its file',
+      [tuple(r) for r in db._get_connection().execute(
+          "SELECT g.source_id IS NULL, d.infotext IS NOT NULL FROM generation_images gi "
+          "JOIN generations g ON g.id = gi.generation_id JOIN image_details d ON d.image_id = gi.id "
+          "WHERE gi.path = ?", (synced,)).fetchall()],
+      [(1, 1)])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -27,7 +27,7 @@ webui_stub.install()
 import generation_fixture                                # noqa: E402
 import v36_generations as v36                            # noqa: E402
 from model_manager.db import migrations                  # noqa: E402
-from model_manager.db.database import ModelsDatabase     # noqa: E402
+from model_manager.db.database import SCHEMA_VERSION, ModelsDatabase  # noqa: E402
 from model_manager.db.generations_ops import tidy        # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'migration_v37')
@@ -110,8 +110,9 @@ def differences(old, new, columns):
 path, facts, before = library('every_kind')
 db = ModelsDatabase(extension_dir=ROOT, custom_db_path=path)
 raw = sqlite3.connect(path)
-check('the database is at v37', raw.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone(),
-      ('37',))
+# Migrated to today's schema, through v37: later migrations only add (v38).
+check('the database is at today\'s schema, past v37',
+      raw.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone(), (str(SCHEMA_VERSION),))
 check('the old tables are gone, and nothing temporary is left',
       sorted(r[0] for r in raw.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND "
                                        "(name LIKE 'generation%' OR name LIKE '%v37' OR name = 'prompts' "
@@ -151,7 +152,9 @@ check('each file has its role: the library\'s file type names a VAE and a text e
                                          'hr_module', 'refiner'}, True)
 
 # 7: each generation reads back whole, as before.
+# source_id came with v38, and is empty for every generation the recorder wrote.
 whole = {g: db.get_generation(g) for g in before['whole']}
+check('v38\'s source_id is empty for each', {w.pop('source_id', 'absent') for w in whole.values()}, {None})
 check('each generation reads back whole, as v36 read it', {g: w == before['whole'][g] for g, w in whole.items()},
       {g: True for g in before['whole']})
 

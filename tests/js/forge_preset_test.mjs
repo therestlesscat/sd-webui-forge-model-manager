@@ -1041,13 +1041,36 @@ check('and one that loaded no modules takes out the ones left from before', [sel
       [[], 2]);
 check('Forge holding what was sent, nothing is said', document.querySelector('.mm-notice'), null);
 
-generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'gone.safetensors',
+// Its checkpoint not in the library - deleted since, or one Sync images found
+// in the text alone (#233): sent with whatever Forge has loaded, the image
+// could not come out as it was. Send stops and opens Resources, to download
+// it, as a Civitai image's does (#134).
+generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'gone_model',
+                   target: [], modules_missing: [] };
+await sendGeneration(300, { resources: [{ type: 'Checkpoint', name: 'gone_model', weight: null, hash: '1ce84e0c8c' }] });
+const stopped = document.querySelector('.mm-resources-modal');
+check('a generation whose checkpoint is not in the library is not sent: Resources opens, saying why',
+      [Boolean(stopped), (stopped?.querySelector('.mm-banner')?.textContent || '').includes('gone_model'),
+       stopped?.querySelector('[data-action="resources.sendAgain"]')?.disabled, events.includes('paste'),
+       events.some((e) => e.startsWith('checkpoint'))],
+      [true, true, true, false, false]);
+document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+// In the library, but in a folder only the other WebUI loads: said so, as a
+// Civitai image's send says it - not "download it".
+generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'theirs.safetensors',
+                   checkpoint_problem: { reason: 'elsewhere', name: 'theirs.safetensors', path: 'D:/other/theirs.safetensors' },
+                   target: [], modules_missing: [] };
+await sendGeneration(300, { resources: [{ type: 'Checkpoint', name: 'theirs', weight: null, hash: '1ce84e0c8c' }] });
+check('a generation whose checkpoint is in a folder this WebUI does not load: not sent, and said where',
+      [(document.querySelector('.mm-resources-modal .mm-banner')?.textContent || '').includes('a folder this WebUI does not load'),
+       events.includes('paste')], [true, false]);
+document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: null,
                    target: [], modules_missing: ['qwen_image_vae.safetensors'] };
 await sendGeneration(300);
 const missingNote = document.querySelector('.mm-notice')?.textContent || '';
-check('what was made with and is gone is said, by name, and the rest still sent',
-      [missingNote.includes('gone.safetensors'), missingNote.includes('qwen_image_vae.safetensors'),
-       events.includes('paste'), events.some((e) => e.startsWith('checkpoint'))], [true, true, true, false]);
+check('a module that is gone is said, by name, and the rest still sent',
+      [missingNote.includes('qwen_image_vae.safetensors'), events.includes('paste')], [true, true]);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:

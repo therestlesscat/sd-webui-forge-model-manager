@@ -122,8 +122,11 @@ act('generations.selectAll');
 check('Select all loaded ticks every tile', [ticks().every((b) => b.checked), count()], [true, '9 images selected']);
 
 const deleting = act('generations.deleteSelected');
-await waitFor('the question', () => document.querySelector('.mm-dialog-backdrop'));
-const dialog = document.querySelector('.mm-dialog-backdrop');
+// The one shown: Sync images keeps its dialog in the tab's markup, hidden (#233).
+const shownDialog = () => Array.from(document.querySelectorAll('.mm-dialog-backdrop'))
+    .find((d) => d.style.display !== 'none' && !d.hidden);
+await waitFor('the question', shownDialog);
+const dialog = shownDialog();
 check('Delete asks once: how many images, of how many generations, how many hidden',
       dialog.querySelector('h3')?.textContent, 'Delete 9 images of 3 generations? (1 of them hidden by the filters)');
 check('the files box starts ticked, as the setting says (#107)', dialog.querySelector('[data-files]')?.checked, true);

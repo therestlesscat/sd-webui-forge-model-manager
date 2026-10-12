@@ -75,7 +75,7 @@ const STARTED = {
                      'provide settings.open'],
     'update_notice.mjs': ['fetch /model-manager/update', 'onAfterUiUpdate', 'setInterval 3600000',
                           'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
-    'image_card.mjs': ['provide resources.download', 'provide resources.sendAgain'],
+    'image_card.mjs': ['provide resources.download', 'provide resources.sendAgain', 'provide resources.useInstalledTick'],
     'send.mjs': ['onAfterUiUpdate', 'window listener: mm-resource-downloads'],
     'downloads.mjs': ['fetch /model-manager/civitai/download/progress', 'onAfterUiUpdate',
                       'provide downloads.cancel', 'provide downloads.control', 'provide downloads.dismiss',

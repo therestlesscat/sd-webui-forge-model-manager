@@ -52,7 +52,7 @@ NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "r
 KINDS = ("feature", "action", "warning", "intro")
 AUDIENCES = ("everyone", "update", "new")
 TABS = ("model_manager", "civitai_browser", "generations", "gallery", "queue")
-ACTIONS = ("reread_headers", "settings", "sync", "sync_unidentified")
+ACTIONS = ("reread_headers", "settings", "sync", "sync_images", "sync_unidentified")
 
 
 def _custom_database() -> bool:

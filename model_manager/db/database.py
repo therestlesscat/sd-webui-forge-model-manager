@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 
 
 class ModelsDatabase:
@@ -363,6 +363,14 @@ class ModelsDatabase:
         """The local file each resource names: ({version id: row}, {hash: row})."""
         return self._models.local_versions_by_key(version_ids, hashes, usable)
 
+    def hash_index(self) -> Dict[str, Tuple[str, Optional[str]]]:
+        """Every stored hash once: {hash: (file path, file type)}. See ModelsOps.hash_index()."""
+        return self._models.hash_index()
+
+    def checkpoints_by_stem(self) -> Dict[str, List[str]]:
+        """The library's checkpoints by file name, lower case, without the extension."""
+        return self._models.checkpoints_by_stem()
+
     def normalize_version_paths(self) -> int:
         """Store each file's path as a walk finds it. See ModelsOps.normalize_version_paths()."""
         return self._models.normalize_version_paths()
@@ -509,6 +517,38 @@ class ModelsDatabase:
     def restamp_generation_levels(self, level) -> Tuple[int, int]:
         """Judge every generated image's prompt again. See GenerationsOps.restamp_levels()."""
         return self._generations.restamp_levels(level)
+
+    def record_generations(self, generations) -> List[int]:
+        """Several generations in one transaction; see GenerationsOps.record_generations()."""
+        return self._generations.record_generations(generations)
+
+    def held_image_paths(self) -> set:
+        """Every path an image of yours is kept at, lower case."""
+        return self._generations.held_paths()
+
+    def image_source_id(self, folder: str) -> int:
+        """The number a synced folder is known by; see GenerationsOps.source_id()."""
+        return self._generations.source_id(folder)
+
+    def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
+        """The removed list; see GenerationsOps.removed_images()."""
+        return self._generations.removed_images()
+
+    def remember_removed_images(self, entries) -> None:
+        """Put files on the removed list; see GenerationsOps.remember_removed()."""
+        self._generations.remember_removed(entries)
+
+    def forget_removed_images(self, paths) -> None:
+        """Take files off the removed list."""
+        self._generations.forget_removed(paths)
+
+    def unheld_checkpoint(self, generation_id: int) -> Optional[str]:
+        """The checkpoint a generation names by name alone; see GenerationsOps.unheld_checkpoint()."""
+        return self._generations.unheld_checkpoint(generation_id)
+
+    def replace_imported_images(self, paths) -> int:
+        """Remove a sync's rows for these files; see GenerationsOps.replace_imported()."""
+        return self._generations.replace_imported(paths)
 
     # ==================== The download queue (delegated) ====================
 

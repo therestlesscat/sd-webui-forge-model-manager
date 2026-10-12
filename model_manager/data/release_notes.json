@@ -1,5 +1,43 @@
 [
   {
+    "id": "sync-images",
+    "version": "0.58.1",
+    "kind": "feature",
+    "audience": "everyone",
+    "tabs": [
+      "generations"
+    ],
+    "title": "Add the images already on your disk",
+    "text": "Sync images, beside Refresh, adds the images already in Forge's result folders to this tab - the ones from before the extension recorded them. Each image's generation text tells its prompt, seed and model; images of one press become one batch again. The files stay where they are. Images with no text are added too, grouped by what their file names say, with the NSFW level you pick in the dialog.",
+    "action": {
+      "id": "sync_images",
+      "label": "Sync images"
+    }
+  },
+  {
+    "id": "shared-database-0-58-1",
+    "version": "0.58.1",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager",
+      "civitai_browser",
+      "generations"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version adds what Sync images keeps to the database; an older copy cannot open it any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database-0-58"
+    ]
+  },
+  {
     "id": "shared-database-0-58",
     "version": "0.58.0",
     "kind": "warning",

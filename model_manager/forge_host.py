@@ -86,6 +86,14 @@ DEFAULTS = {
     "model_manager_modules_krea": "",
     "model_manager_modules_ernie": "",
     "model_manager_modules_pid": "",
+    # Sync images (#233): the folders a person added, one per line; Forge's
+    # result folders left unticked, by their setting's key, one per line;
+    # the level the dialog starts from for an image with no text; and
+    # whether images with no text are grouped.
+    "model_manager_image_folders": "",
+    "model_manager_image_folders_off": "",
+    "model_manager_image_sync_level": "Unknown",
+    "model_manager_group_no_text": True,
 }
 
 
@@ -571,6 +579,68 @@ def forge_name() -> str:
     if neo and version.lower().startswith("neo"):
         version = version[3:].strip()
     return ("Forge Neo" if neo else "Forge") + (f" {version}" if version else "")
+
+
+# Forge's result folders, by the setting that names each, in the order a sync
+# lists them (#233). Every result, when set, in place of the next three;
+# Hires fix's when set, Neo only.
+RESULT_FOLDERS = ("outdir_samples", "outdir_txt2img_samples", "outdir_img2img_samples",
+                  "outdir_hires_samples")
+
+
+def result_folders() -> List[Dict[str, str]]:
+    """
+    The folders Forge saves results into, as its settings say now: [{key,
+    path}], each path whole. `outdir_samples`, when set, takes every result,
+    in place of the txt2img and img2img folders. A relative path is the
+    WebUI's folder's, as Forge resolves it. Empty outside a WebUI.
+    """
+    if not available():
+        return []
+    root = webui_root()
+    values = {key: forge_setting(key) for key in RESULT_FOLDERS}
+    keys = (["outdir_samples"] if values.get("outdir_samples")
+            else ["outdir_txt2img_samples", "outdir_img2img_samples"])
+    keys.append("outdir_hires_samples")
+    found, seen = [], set()
+    for key in keys:
+        value = values.get(key)
+        if not value or not isinstance(value, str):
+            continue
+        path = os.path.normpath(value if os.path.isabs(value) else os.path.join(root, value))
+        if path.lower() not in seen:
+            seen.add(path.lower())
+            found.append({"key": key, "path": path})
+    return found
+
+
+def naming_patterns() -> Dict[str, Any]:
+    """How Forge names what it saves, as its settings say now (#233): the file
+    and folder patterns, and whether it numbers files and saves into folders."""
+    return {"file": forge_setting("samples_filename_pattern") or "",
+            "folder": forge_setting("directories_filename_pattern") or "",
+            "numbered": forge_setting("save_images_add_number") is not False,
+            "in_folders": forge_setting("save_to_dirs") is not False}
+
+
+# The pattern of an infotext's last line, as the original Forge writes it:
+# where the WebUI's own cannot be asked.
+_PARAM_LINE = r'\s*(\w[\w \-/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)'
+
+
+def infotext_line_pattern():
+    """Forge's own pattern for an infotext's last line, `Key: value, ...` -
+    the one its parser reads that line with."""
+    try:
+        from modules.infotext_utils import re_param
+        return re_param
+    except Exception:
+        try:
+            from modules.generation_parameters_copypaste import re_param
+            return re_param
+        except Exception:
+            import re
+            return re.compile(_PARAM_LINE)
 
 
 def parse_generation_parameters(infotext: str) -> Dict[str, Any]:

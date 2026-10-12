@@ -2019,7 +2019,7 @@ body.mm-modal-open {
 
 /* Resources Modal */
 .mm-resources-modal {
-    max-width: 600px;
+    max-width: min(80%, 800px);
 }
 
 .mm-resources-table {
@@ -2119,6 +2119,21 @@ body.mm-modal-open {
 .mm-res-version {
     color: var(--body-text-color-subdued, #9ca3af);
     font-size: 0.85em;
+}
+
+/* The file of the version the library holds, where the image used another (#233). */
+.mm-res-held {
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 0.85em;
+}
+
+/* A stopped send's tick that unlocks its Send with that file: beside the button. */
+.mm-res-use-installed {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+    font-size: 0.9em;
 }
 
 /* ==================== Version Grouping ==================== */
@@ -3790,6 +3805,24 @@ textarea.mm-settings-input {
     gap: 12px;
     margin-bottom: 12px;
     padding-top: 8px;
+}
+
+/* Sync images' panel (#233): its text, then Cancel or Close, on one line. A
+   button's own display would otherwise outweigh [hidden]. */
+.gen-sync-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.gen-sync-line .sync-progress-text {
+    flex: 1;
+    margin-top: 0;
+}
+
+.gen-sync-line [hidden] {
+    display: none;
 }
 
 .gen-toolbar-fill {

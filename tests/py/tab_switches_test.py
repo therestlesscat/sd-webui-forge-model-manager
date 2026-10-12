@@ -123,6 +123,7 @@ SPEC = {
     ('POST', '/model-manager/civitai/download'): 'downloads',
     ('GET', '/model-manager/civitai/download/progress'): 'downloads',
     ('POST', '/model-manager/civitai/download/cancel'): 'downloads',
+    ('GET', '/model-manager/civitai/file-by-hash'): 'downloads',
     ('POST', '/model-manager/civitai/download/control'): 'downloads',
     ('POST', '/model-manager/civitai/download/dismiss'): 'downloads',
     ('GET', '/model-manager/generations/browse'): 'generations',
@@ -134,6 +135,11 @@ SPEC = {
     ('POST', '/model-manager/generations/rate'): 'generations',
     ('POST', '/model-manager/generations/delete-many'): 'generations',
     ('POST', '/model-manager/generations/{generation_id}/delete'): 'generations',
+    ('GET', '/model-manager/generations/sync/folders'): 'generations',
+    ('GET', '/model-manager/generations/sync/estimate'): 'generations',
+    ('POST', '/model-manager/generations/sync'): 'generations',
+    ('GET', '/model-manager/generations/sync/progress'): 'generations',
+    ('POST', '/model-manager/generations/sync/cancel'): 'generations',
     ('GET', '/model-manager/gallery/browse'): 'gallery',
     ('POST', '/model-manager/gallery/seed'): 'gallery',
     ('GET', '/model-manager/images/gallery-page'): 'model_manager',
@@ -188,7 +194,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 76 routes', len(SPEC), 76)
+check('the spec holds 82 routes', len(SPEC), 82)
 
 app = FastAPI()
 api.setup_api(app)

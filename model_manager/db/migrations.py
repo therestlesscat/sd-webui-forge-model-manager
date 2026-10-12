@@ -2029,6 +2029,43 @@ def _v37_check(cursor):
                                f"{old}. Nothing was changed.")
 
 
+def _migrate_to_v38(cursor):
+    """
+    Images already on disk, synced into the Generations tab (#233). Nothing is
+    changed or dropped; v38 only adds:
+
+    - image_sources: each folder a sync brought images from, once, and
+      generations.source_id naming it - empty for a generation the recorder
+      wrote. Remove folder takes back what its folder brought; a number keeps
+      the narrow table narrow, where a path would add about 80 bytes a row;
+    - removed_images: files whose rows were deleted with the file kept, as it
+      was then, so a sync does not bring them back;
+    - an index on each image's path, ignoring case: the recorder replaces an
+      imported row for the file it saves, and a sync skips what is held.
+    """
+    print("[ModelManager] Migrating to v38: images synced from folders...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS image_sources (
+            id   INTEGER PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE COLLATE NOCASE
+        )
+    """)
+    cursor.execute("PRAGMA table_info(generations)")
+    if "source_id" not in {row[1] for row in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE generations ADD COLUMN source_id INTEGER")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS removed_images (
+            path     TEXT PRIMARY KEY COLLATE NOCASE,
+            size     INTEGER,
+            mtime_ns INTEGER
+        ) WITHOUT ROWID
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_path ON generation_images(path COLLATE NOCASE)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generations_source ON generations(source_id) "
+                   "WHERE source_id IS NOT NULL")
+    print("[ModelManager] Migration to v38 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -2050,6 +2087,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         32: lambda c: _migrate_to_v32(c, db_path),
         33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
         37: lambda c: _migrate_to_v37(c, db_path),
+        38: _migrate_to_v38,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

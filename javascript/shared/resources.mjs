@@ -13,7 +13,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, safeId } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, formatBytes, safeId } = await shared('core.mjs');
 const { downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
 
@@ -169,6 +169,9 @@ export function mergeImageResources(img, resolved, finished, exclude) {
                 type: match.model_type || resource.type || 'Unknown',
                 name: match.name || resource.name || 'Unknown',
                 versionName: match.version_name || '',
+                // The file it names, not only its version: a version can hold
+                // an fp16 and an fp32 file, and only one made the image (#233).
+                hash,
             });
             continue;
         }
@@ -261,7 +264,8 @@ let resourcesSend = null;
 /**
  * The Resources dialog for an image - a Civitai image, or one of your own.
  * `note`, if given, is said at the top: a send stopped for a checkpoint the
- * library lacks opens it, to download it there (#134). `send` adds a Send
+ * library lacks opens it, to download it there (#134) - or, with another
+ * file of its version held, to send with that (`send.useInstalled`). `send` adds a Send
  * at the bottom, disabled until the checkpoint can be loaded - asked again
  * once downloads land, or at once with `recheck`.
  *
@@ -309,8 +313,7 @@ function renderResourcesModal(resources, pending = 0) {
     const rows = resources.known.map(resource => `
             <tr>
                 <td class="mm-res-type">${escapeHtml(resource.type)}</td>
-                <td class="mm-res-name">${escapeHtml(resource.name)}${resource.versionName
-                    ? ` <span class="mm-res-version">${escapeHtml(resource.versionName)}</span>` : ''}</td>
+                <td class="mm-res-name" data-res-name="${safeId(resource.versionId)}">${resourceNameHtml(resource)}</td>
                 <td class="mm-res-actions">
                     <button type="button" class="mm-btn secondary mm-btn-small" data-open-url="https://civitai.com/model-versions/${safeId(resource.versionId)}">View</button>
                     <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
@@ -347,7 +350,7 @@ function renderResourcesModal(resources, pending = 0) {
                 </div>
                 <div class="mm-modal-body">
                     ${resourcesNote ? `<div class="mm-banner"><span class="mm-banner-icon">!</span>`
-                        + `<span>${escapeHtml(resourcesNote)}</span></div>` : ''}
+                        + `<span data-res-note>${escapeHtml(noteText())}</span></div>` : ''}
                     <table class="mm-resources-table">
                         <thead>
                             <tr>
@@ -369,13 +372,23 @@ function renderResourcesModal(resources, pending = 0) {
     openMetaModal(modalHtml);
 }
 
-/** The dialog's Send, for a send it stopped: disabled, saying why, until ready. */
+/**
+ * The dialog's Send, for a send it stopped: disabled, saying why, until ready
+ * - or, with another file of the checkpoint's version held, until the person
+ * ticks that they want that one (#233). One Send, whichever it sends with.
+ */
 function sendAgainButton() {
     if (!resourcesSend) return '';
-    const { ready, why } = resourcesSend;
-    return `<div class="mm-dialog-buttons mm-resources-send">
+    const { ready, why, alternative, useChecked } = resourcesSend;
+    const offered = !ready && alternative && resourcesSend.useInstalled;
+    const enabled = ready || (offered && useChecked);
+    const tick = offered
+        ? `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
+            useChecked ? ' checked' : ''}> Use the ${escapeHtml(alternative.label)} file I have instead: `
+          + 'the image may not come out exactly the same</label>' : '';
+    return `<div class="mm-dialog-buttons mm-resources-send">${tick}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
-                    ready ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
+                    enabled ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
             </div>`;
 }
 
@@ -400,8 +413,7 @@ async function recheckSend() {
             }
             if (resourcesSend !== wanted) return;
             Object.assign(wanted, { why, ready: !why });
-            const box = document.querySelector('.mm-resources-modal .mm-resources-send');
-            if (box) box.outerHTML = sendAgainButton();
+            redrawSendBar();
             if (!why || Date.now() >= until) return;
             await new Promise((resolve) => setTimeout(resolve, TIMING.sendRecheck));
         }
@@ -409,9 +421,21 @@ async function recheckSend() {
         wanted.checking = false;
     }
 }
-// The dialog's Send: closed, and the image sent again, through every check.
+// The dialog's other way out of a stopped send: closed, and sent with the
+// library's file of the image's version, though not the image's own (#233).
+function useInstalled(versionId) {
+    const send = resourcesSend;
+    if (!send?.useInstalled) return undefined;
+    closeMetaModal();
+    resourcesSend = null;
+    return send.useInstalled(versionId);
+}
+
+// The dialog's Send: closed, and the image sent again, through every check -
+// with the library's other file of its version, when that is what is ticked.
 function sendAgain() {
     const send = resourcesSend;
+    if (!send?.ready && send?.alternative && send.useChecked) return useInstalled(send.alternative.versionId);
     if (!send?.ready) return undefined;
     closeMetaModal();
     resourcesSend = null;
@@ -427,6 +451,28 @@ function sendAgain() {
 
 // Version ids of the dialog's resources that are in the library.
 const installedResourceVersions = new Set();
+// The hashes of the files the library holds, of the dialog's resources named by one;
+// of those it holds another file of the version of, provably, that file (#233);
+// and the image's own file by its hash, as Civitai lists it.
+const installedResourceHashes = new Set();
+const otherFileHashes = new Map();
+const imageFiles = new Map();
+
+/** A file as a person tells it apart from its version's others: "fp32 full, 5.5 GB". */
+function fileLabel(file, bytes) {
+    const kind = [file?.fp, file?.size].filter(Boolean).join(' ');
+    return [kind, bytes ? formatBytes(bytes) : ''].filter(Boolean).join(', ');
+}
+
+/** A row's name: the model, its version - and the image's file, with the one the library has instead. */
+function resourceNameHtml(resource) {
+    const held = resource.hash && !installedResourceHashes.has(resource.hash) && otherFileHashes.get(resource.hash);
+    const made = held && imageFiles.get(resource.hash);
+    const madeLabel = made ? fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0) : '';
+    const version = [resource.versionName, madeLabel].filter(Boolean).join(' · ');
+    return `${escapeHtml(resource.name)}${version ? ` <span class="mm-res-version">${escapeHtml(version)}</span>` : ''}`
+        + (held ? `<div class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</div>` : '');
+}
 
 // What a row says while its download is on its way: the words a Download
 // button says (downloads.mjs), with the percent where there is room.
@@ -441,7 +487,14 @@ function onItsWayText({ status, percent }) {
 function resourceDownloadCell(resource) {
     const id = resource.versionId;
     const job = resourceDownload(id);
-    if (!job && installedResourceVersions.has(id)) {
+    const hash = resource.hash || resourceDownloads[id]?.hash || '';
+    // Named by a hash, it is not installed while the library provably holds
+    // another file of its version - fp16 for the image's fp32 - which would
+    // not make the image again. Where that cannot be told, the version is.
+    const other = Boolean(hash) && otherFileHashes.has(hash) && !installedResourceHashes.has(hash);
+    // Its Download is the image's own file (downloadResource), the row's name says which.
+    const held = !other && ((hash && installedResourceHashes.has(hash)) || installedResourceVersions.has(id));
+    if (!job && held) {
         return '<span class="mm-res-state installed">Installed</span>';
     }
     if (job && job.status === 'complete') {
@@ -459,7 +512,8 @@ function resourceDownloadCell(resource) {
         ? `<span class="mm-res-state error" title="${escapeHtml(job.error || job.status)}">Failed</span> ` : '';
     const modelId = resource.modelId || resourceDownloads[id]?.modelId;
     return `${retry}<button type="button" class="mm-btn primary mm-btn-small" data-action="resources.download"`
-        + `${dataAttributes({ versionId: safeId(id), modelId: modelId ? safeId(modelId) : null })}>Download</button>`;
+        + `${dataAttributes({ versionId: safeId(id), modelId: modelId ? safeId(modelId) : null, hash: hash || null })}`
+        + `${other ? ' title="Download the file this image was made with"' : ''}>Download</button>`;
 }
 
 /** Redraw one row's download cell, if the dialog is showing it. */
@@ -472,39 +526,109 @@ function redrawResourceDownload(versionId, resource) {
 async function checkInstalledResources(resources) {
     const ids = resources.map((r) => r.versionId).filter(Boolean);
     if (!ids.length) return;
+    const hashes = resources.map((r) => r.hash).filter(Boolean);
     try {
         const data = await apiCall({ endpoint: '/model-manager/image-resources',
-                                     params: { version_ids: ids.join(',') } });
+                                     params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
         for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
+        for (const hash of Object.keys((data && data.hashes) || {})) installedResourceHashes.add(hash.toLowerCase());
+        for (const [hash, held] of Object.entries((data && data.other_files) || {})) {
+            otherFileHashes.set(hash.toLowerCase(), held);
+        }
     } catch (error) {
         console.warn('[ModelManager] Could not check which resources are installed:', error);
     }
     for (const resource of resources) redrawResourceDownload(resource.versionId, resource);
+    offerInstalledFile(resources);
+    await labelImageFiles(resources);
+}
+
+/**
+ * A send stopped for its checkpoint, the library holding another file of its
+ * version (#233): the dialog's Send can go with that one, once the person
+ * ticks that they want it - the image may not come out exactly the same.
+ */
+function offerInstalledFile(resources) {
+    if (!resourcesSend?.useInstalled) return;
+    const resource = resources.find((r) => r.hash && /checkpoint/i.test(r.type || '')
+                                           && otherFileHashes.has(r.hash) && !installedResourceHashes.has(r.hash));
+    if (!resource) return;
+    const held = otherFileHashes.get(resource.hash);
+    resourcesSend.alternative = { versionId: resource.versionId, resource,
+                                  label: fileLabel(held, held.file_size) || held.name };
+    redrawSendBar();
+    redrawNote();
+}
+
+/** What Civitai says each image file named by a hash is, where the library holds another file of it. */
+async function labelImageFiles(resources) {
+    for (const resource of resources) {
+        if (!resource.hash || !otherFileHashes.has(resource.hash) || imageFiles.has(resource.hash)) continue;
+        try {
+            const found = await apiCall({ endpoint: '/model-manager/civitai/file-by-hash', params: { hash: resource.hash } });
+            if (found?.file?.file_id) imageFiles.set(resource.hash, found.file);
+        } catch (error) {
+            console.warn('[ModelManager] Could not ask Civitai which file this image used:', error);
+        }
+        const cell = document.querySelector(`.mm-resources-modal [data-res-name="${safeId(resource.versionId)}"]`);
+        if (cell) cell.innerHTML = resourceNameHtml(resource);
+        redrawNote();
+    }
+}
+
+/** The dialog's note: a stopped send's, naming the image's file where another of its version is held. */
+function noteText() {
+    const alternative = resourcesSend?.alternative;
+    const made = alternative && imageFiles.get(alternative.resource.hash);
+    if (!made) return resourcesNote;
+    const which = [alternative.resource.name, alternative.resource.versionName].filter(Boolean).join(' ');
+    return `The checkpoint this image was made with, the ${fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0)} `
+           + `file of ${which}, is not in your library. Download it here, or send with the file of it you have.`;
+}
+
+function redrawNote() {
+    const note = document.querySelector('.mm-resources-modal [data-res-note]');
+    if (note && note.textContent !== noteText()) note.textContent = noteText();
+}
+
+function redrawSendBar() {
+    const box = document.querySelector('.mm-resources-modal .mm-resources-send');
+    if (box) box.outerHTML = sendAgainButton();
 }
 
 /** Download a resource into the library: the version the image names, or its model's newest if it is gone. */
-export async function downloadResource(versionId, modelId) {
+export async function downloadResource(versionId, modelId, hash = '') {
     if (!downloads()) return;
     if (onItsWay(versionId)) {
         // Coming already - started in the Civitai Browser, say: followed as
         // it is, not asked for again. It was refused, marked failed and never
         // followed, and stayed failed once it had landed (#119).
-        resourceDownloads[versionId] = { modelId, target: versionId };
+        resourceDownloads[versionId] = { modelId, hash, target: versionId };
         followResourceDownloads();
         redrawResourceDownload(versionId, { versionId, modelId });
         announceDownloads();
         return;
     }
-    resourceDownloads[versionId] = { modelId, asking: true };
-    redrawResourceDownload(versionId, { versionId, modelId });
+    resourceDownloads[versionId] = { modelId, hash, asking: true };
+    redrawResourceDownload(versionId, { versionId, modelId, hash });
     announceDownloads();
     // As every other download is: the downloads list asks for it and follows
-    // it, and this follows the list (followResourceDownloads).
+    // it, and this follows the list (followResourceDownloads). Named by a
+    // hash, the file Civitai lists with that hash is asked for, not the
+    // version's primary: another file of the version did not make the image.
     let data;
     try {
-        data = await downloads().start(modelId, versionId, undefined, { newerIfGone: true });
+        let fileId;
+        if (hash) {
+            const found = await apiCall({ endpoint: '/model-manager/civitai/file-by-hash', params: { hash } })
+                .catch(() => null);
+            fileId = found?.file?.file_id || undefined;
+        }
+        // No file Civitai lists by the hash - the version deleted, say - is
+        // downloaded as before: the version's primary, or the model's newest.
+        data = await downloads().start(modelId, versionId, fileId, { newerIfGone: !fileId });
     } catch (error) {
-        data = { success: false, error: String(error) };
+        data = { success: false, error: String(error.message || error) };
     }
     const status = data && data.status;
     const job = resourceDownloads[versionId];
@@ -532,6 +656,7 @@ export async function downloadResource(versionId, modelId) {
 function finishResourceDownload(versionId) {
     resourceDownloads[versionId].announced = true;
     installedResourceVersions.add(versionId);
+    if (resourceDownloads[versionId].hash) installedResourceHashes.add(resourceDownloads[versionId].hash);
     announceDownloads({ installed: true });
     recheckSend();
 }
@@ -564,7 +689,13 @@ function followResourceDownloads() {
  */
 export function start(scope) {
     scope.provide('resources.sendAgain', () => sendAgain());
-    scope.provide('resources.download', ({ versionId, modelId }) => downloadResource(safeId(versionId), safeId(modelId)));
+    scope.provide('resources.download', ({ versionId, modelId, hash }) =>
+        downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase()));
+    scope.provide('resources.useInstalledTick', (data, box) => {
+        if (!resourcesSend) return;
+        resourcesSend.useChecked = Boolean(box?.checked);
+        redrawSendBar();
+    });
     whenDownloading((list) => {
         // Downloads landed, and Forge's list refreshed (downloads.mjs): the
         // checkpoint may be one of them.

@@ -502,13 +502,17 @@ def _write(p, processed, generation: _Generation) -> int:
     })
 
     with _lock:
+        # A sync may have brought these files in from their folder (#233):
+        # the full record replaces what it read from the file.
+        replaced = db.replace_imported_images([image["path"] for image in images])
         generation_id = db.record_generation(row, images, used)
         _link_to_task(db, generation_id)
     files = {f for files in used for f in files}
     say(f"Recorded generation {generation_id} ({row['mode']}): "
           f"{len(images)} of {len(generation.results)} results saved, "
           f"{generation.other_saves} other images saved and not recorded, "
-          f"{len(files)} model files, {len(spelled)} of them in the library")
+          f"{len(files)} model files, {len(spelled)} of them in the library"
+          + (f", replacing {replaced} image(s) a sync had added" if replaced else ""))
     return generation_id
 
 

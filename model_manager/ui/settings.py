@@ -13,6 +13,8 @@ from modules import shared
 from ..forge_host import DEFAULTS
 from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
+from ..image_sync import FOLDERS_OFF_SETTING, FOLDERS_SETTING, GROUP_SETTING, LEVEL_SETTING
+from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
 from .. import prompt_levels
 from ..scheduler import QUEUE_ENABLED
 from ..tabs import TABS
@@ -242,6 +244,36 @@ def on_ui_settings():
             section=section,
         ).info("Ticks the box in the delete question. It can still be unticked for one delete.")
     )
+
+    # Sync images (#233): what its dialog starts from. The two folder lists
+    # are the dialog's to change - a folder typed here as text breaks too
+    # easily - so they are kept out of every settings page: Forge skips a
+    # setting whose section starts with None.
+    shared.opts.add_option(
+        LEVEL_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[LEVEL_SETTING],
+            label="Sync images: NSFW level of an image with no generation text",
+            component=gr.Dropdown,
+            component_args={"choices": [LEVEL_TO_NAME[level] for level in (*USER_LEVELS, UNKNOWN)]},
+            section=section,
+        ).info("What the Sync images dialog starts from. The level picked there is given to "
+               "the images with no text that sync brings, and kept with them. A rating you "
+               "give an image wins.")
+    )
+    shared.opts.add_option(
+        GROUP_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[GROUP_SETTING],
+            label="Sync images: group images with no generation text",
+            component=gr.Checkbox,
+            section=section,
+        ).info("What the Sync images dialog starts from. Images in one folder whose file names "
+               "say the same settings, saved close together, become one generation.")
+    )
+    hidden = (None, "Model Manager")
+    for key in (FOLDERS_SETTING, FOLDERS_OFF_SETTING):
+        shared.opts.add_option(key, shared.OptionInfo(default=DEFAULTS[key], label=key, section=hidden))
 
     shared.opts.add_option(
         PAGE_SIZE_SETTING,

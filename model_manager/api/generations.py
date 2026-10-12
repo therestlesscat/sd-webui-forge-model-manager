@@ -70,6 +70,13 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     meta = row.get("meta") or {}
     loras = row.get("loras") or []
+    # Its checkpoint too, by the infotext's own last line - Forge's parser
+    # drops `Model` when it names the checkpoint loaded at the time - so the
+    # Resources dialog a send stopped for it opens can offer it (#233).
+    from ..image_text import line_params
+    line = line_params(row.get("infotext"))
+    checkpoint = [{"type": "Checkpoint", "name": line.get("Model") or "", "weight": None,
+                   "hash": line.get("Model hash") or ""}] if (line.get("Model") or line.get("Model hash")) else []
     if isinstance(loras, str):
         try:
             loras = json.loads(loras)
@@ -89,7 +96,7 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
             resources.append({"type": "lora", "name": name, "weight": None, "hash": hash_})
     for name, hash_ in _hash_list(meta.get("TI hashes")).items():
         resources.append({"type": "embedding", "name": name, "weight": None, "hash": hash_})
-    return resources
+    return checkpoint + resources
 
 
 def file_ref(path: Optional[str], known: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -239,7 +246,40 @@ def _delete_files(paths: List[str]) -> Tuple[List[str], List[Dict[str, str]]]:
     return deleted, failed
 
 
-def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
+def _checkpoints_by_hash(db, generation: Dict[str, Any]) -> List[str]:
+    """The library's checkpoint files whose hash is the one the generation
+    names - recorded, or its infotext's `Model hash` - in the library's order."""
+    from ..image_text import line_params
+    hashes = [h for h in (generation.get("checkpoint_hash"),
+                          line_params(generation.get("infotext")).get("Model hash")) if h]
+    if not hashes:
+        return []
+    return [row["file_path"] for row in db.versions_named_by([], hashes)
+            if row.get("file_path") and row.get("file_type") in (None, "Checkpoint")]
+
+
+def remember_kept(db, paths: List[str]) -> int:
+    """
+    Put each file a delete handed back and left on disk on the removed list -
+    asked to keep it, or it could not be deleted - so Sync images does not
+    bring its row back (#233). A file deleted needs no entry.
+
+    Returns:
+        How many went on the list.
+    """
+    entries = []
+    for path in dict.fromkeys(paths):
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        entries.append((path, stat.st_size, stat.st_mtime_ns))
+    if entries:
+        db.remember_removed_images(entries)
+    return len(entries)
+
+
+def send_plan(db, generation_id: int, use_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     What Forge is set up with before a generation of your own is sent back to
     it: the same as it was made with, from what was recorded - its checkpoint's
@@ -258,7 +298,45 @@ def send_plan(db, generation_id: int) -> Optional[Dict[str, Any]]:
     generation = db.get_generation(generation_id)
     if not generation:
         return None
-    plan = plan_for(db, generation.get("checkpoint_path") or "", generation.get("modules") or [])
+    path = generation.get("checkpoint_path") or ""
+    modules = generation.get("modules") or []
+    if use_version:
+        # The person chose, in the Resources dialog Send opened, to send with
+        # the file of the image's version the library holds - not the file the
+        # image was made with (#233): the first of them Forge lists.
+        from ..forge_host import checkpoint_name
+        held = next((r["file_path"] for r in db.library_files(version_ids=[int(use_version)])
+                     if checkpoint_name(r["file_path"])), None)
+        if held:
+            plan = plan_for(db, held, modules)
+            plan["instead"] = os.path.basename(held)
+            plan["inputs"] = bool(generation.get("inputs"))
+            return plan
+    plan = plan_for(db, path, modules)
+    if not plan["checkpoint"]:
+        # Forge does not list the file it was made with (#233). The library's
+        # file with the hash the image names - a download from the Resources
+        # dialog Send opened, say - is the one, if Forge lists it. Else Send
+        # stops and says why, as a Civitai image's does (api/webui.py): the
+        # file is in a folder this WebUI does not load - the other WebUI's -
+        # or Forge has not listed it yet, or the library lacks it.
+        from ..forge_host import checkpoint_name
+        from ..model_dirs import loads_here
+        candidates = [p for p in dict.fromkeys(([path] if path else []) + _checkpoints_by_hash(db, generation))
+                      if os.path.isfile(p)]
+        listed = next((p for p in candidates if checkpoint_name(p)), None)
+        if listed:
+            plan = plan_for(db, listed, modules)
+        elif candidates:
+            found = candidates[0]
+            plan["checkpoint_missing"] = os.path.basename(found)
+            plan["checkpoint_problem"] = {"reason": "not_listed" if loads_here(found) else "elsewhere",
+                                          "name": os.path.basename(found), "path": found}
+        else:
+            # Synced from a folder, its text may name a checkpoint by name alone.
+            name = (None if path else db.unheld_checkpoint(generation_id)) or plan["checkpoint_missing"]
+            plan["checkpoint_missing"] = name
+            plan["checkpoint_problem"] = {"reason": "missing", "name": name} if name else None
     # Whether its Send sets back what the press was sent (#7); a generation
     # recorded without them has Forge's paste, corrected.
     plan["inputs"] = bool(generation.get("inputs"))
@@ -520,6 +598,93 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
 
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
+    _register_sync(app)
+    _register(app)
+
+
+def _register_sync(app: FastAPI):
+    """Sync images (#233): the folders, what is new in them, and the long job."""
+    from ..forge_host import store_settings
+    from ..image_sync import (FOLDERS_OFF_SETTING, GROUP_SETTING, KIND, LEVEL_SETTING, ImageSync, counts,
+                              level_of)
+    from ..image_sync import folders as image_folders
+    from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
+    from .jobs import _cancel, _progress, _start, _yes
+
+    @app.get("/model-manager/generations/sync/folders")
+    @gate("generations")
+    def sync_folders():
+        """
+        The folders Sync images can read - Forge's result folders, read from
+        its settings now, and the ones added - with whether each is ticked;
+        the level an image with no text gets to begin with, the levels to
+        choose from, and whether images with no text are grouped.
+        """
+        try:
+            return JSONResponse({
+                "success": True,
+                "folders": image_folders(),
+                "level": setting(LEVEL_SETTING),
+                "levels": [LEVEL_TO_NAME[level] for level in (*USER_LEVELS, UNKNOWN)],
+                "group": bool(setting(GROUP_SETTING)),
+            })
+        except Exception as e:
+            return failed(e)
+
+    @app.get("/model-manager/generations/sync/estimate")
+    @gate("generations")
+    def sync_estimate():
+        """How many new images each folder holds, by path: a walk, nothing read."""
+        try:
+            return JSONResponse({"success": True,
+                                 "counts": counts(get_models_db(), image_folders())})
+        except Exception as e:
+            return failed(e)
+
+    @app.post("/model-manager/generations/sync")
+    @gate("generations")
+    def start_sync(folders: str = Form(default="[]"), level: str = Form(default=""),
+                   group: str = Form(default="true")):
+        """
+        Start Sync images over the ticked folders, by path - JSON. Forge's
+        folders left unticked are remembered, as is the level the dialog had
+        and whether it grouped images with no text: the next dialog starts
+        from them.
+        """
+        try:
+            ticked = {str(p).lower() for p in json.loads(folders or "[]")}
+        except ValueError:
+            return JSONResponse({"success": False, "error": "Folders not understood"}, status_code=400)
+        entries = [f for f in image_folders() if f["path"].lower() in ticked]
+        unticked = [f["key"] for f in image_folders() if f["forge"] and f["path"].lower() not in ticked]
+        grouped = _yes(group)
+        try:
+            store_settings({FOLDERS_OFF_SETTING: "\n".join(unticked),
+                            LEVEL_SETTING: level or setting(LEVEL_SETTING),
+                            GROUP_SETTING: grouped})
+        except Exception as e:
+            say(f"Sync images: could not keep the dialog's choices: {e}")
+        if not entries:
+            return JSONResponse({"success": False, "error": "No folder ticked"}, status_code=400)
+        return _start(KIND,
+                      lambda: ImageSync(entries, level_of(level), grouped),
+                      lambda sync: sync.run(), "Sync images started")
+
+    @app.get("/model-manager/generations/sync/progress")
+    @gate("generations")
+    def sync_progress():
+        """How far Sync images has got; null before one has run."""
+        return _progress(KIND)
+
+    @app.post("/model-manager/generations/sync/cancel")
+    @gate("generations")
+    def cancel_sync():
+        """Stop Sync images: what it has written stays."""
+        return _cancel(KIND)
+
+
+def _register(app: FastAPI):
+    """Your generations' galleries, the Generations tab, and what changes them."""
 
     @app.get("/model-manager/generations/browse")
     @gate("generations")
@@ -594,13 +759,14 @@ def register(app: FastAPI):
 
     @app.get("/model-manager/generations/{generation_id}/send-plan")
     @gate("generations")
-    def get_send_plan(generation_id: int):
+    def get_send_plan(generation_id: int, use_version: Optional[int] = None):
         """
         How to set Forge up before sending a generation back: see send_plan().
-        A plain `def`: it may read the checkpoint's header.
+        `use_version`: send with the library's file of this version instead of
+        the image's own (#233). A plain `def`: it may read the checkpoint's header.
         """
         try:
-            plan = send_plan(get_models_db(), generation_id)
+            plan = send_plan(get_models_db(), generation_id, use_version)
             if plan is None:
                 return JSONResponse({"success": False, "error": "No such generation"}, status_code=404)
             return JSONResponse({"success": True, **plan})
@@ -630,8 +796,10 @@ def register(app: FastAPI):
             generation_deleted: the generation's id when it went with it.
         """
         try:
-            paths, gone = get_models_db().delete_generation_image(image_id)
+            db = get_models_db()
+            paths, gone = db.delete_generation_image(image_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
+            remember_kept(db, paths)
             say(f"Deleted generated image {image_id}"
                   + (" and its file" if deleted else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted), "failed": failed,
@@ -733,6 +901,7 @@ def register(app: FastAPI):
                 except Exception as e:
                     missing.append({"generation": generation_id, "error": str(e)})
             deleted, failed = _delete_files(list(dict.fromkeys(paths))) if delete_files else ([], [])
+            remember_kept(db, paths)
             say(f"Deleted {images} generated image record(s)"
                   + (f" and {len(deleted)} file(s)" if delete_files else ""))
             return JSONResponse({"success": True, "images": images, "deleted_files": len(deleted),
@@ -755,8 +924,10 @@ def register(app: FastAPI):
             with why.
         """
         try:
-            paths = get_models_db().delete_generation(generation_id)
+            db = get_models_db()
+            paths = db.delete_generation(generation_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
+            remember_kept(db, paths)
             say(f"Deleted generation {generation_id}"
                   + (f" and {len(deleted)} of its image files" if delete_files else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted),

@@ -38,7 +38,7 @@ from .library import LIBRARY
 
 # A generation's columns as the recorder hands them, by the table keeping them.
 _GENERATION_COLUMNS = ("created_at", "mode", "forge", "image_count", "prompt_nsfw_level",
-                       "user_nsfw_level")
+                       "user_nsfw_level", "source_id")
 _GENERATION_DETAILS = ("checkpoint_path", "modules", "hr_checkpoint_path", "hr_modules",
                        "refiner_path", "infotext", "styles", "hr_prompt", "hr_negative_prompt",
                        "n_iter", "batch_size", "width", "height", "checkpoint_hash", "params",
@@ -166,6 +166,10 @@ def resource_rows(generation: Dict[str, Any], image: Dict[str, Any], files: Sequ
     entries: List[List[Any]] = []
     if generation.get("checkpoint_path"):
         entries.append(["checkpoint", 0, generation["checkpoint_path"], None])
+    elif generation.get("checkpoint_name"):
+        # An image synced from a folder names a checkpoint the library does
+        # not hold (#233): the name is kept, for grouping by model, and no path.
+        entries.append(["checkpoint", 0, None, {"name": generation["checkpoint_name"]}])
     for position, path in enumerate(_as_list(generation.get("modules"))):
         if isinstance(path, str) and path:
             entries.append(["module", position, path, None])
@@ -208,6 +212,8 @@ def resource_rows(generation: Dict[str, Any], image: Dict[str, Any], files: Sequ
                 weight = None
             name = lora.get("name")
             rows.append(("lora", position, str(name) if name else "", found, weight))
+        elif path is None:
+            rows.append((role, position, str(lora["name"]), None, None))
         else:
             if role == "module":
                 role = module_roles.get((found or "").lower(), "module")
@@ -325,40 +331,52 @@ class GenerationsOps:
             The generation's id.
         """
         with self._cursor() as cursor:
-            columns = [c for c in _GENERATION_COLUMNS if c in generation]
+            return self._record(cursor, generation, images, files)
+
+    def record_generations(self, generations: Sequence[Tuple[Dict[str, Any], List[Dict[str, Any]],
+                                                            List[List[str]]]]) -> List[int]:
+        """Several generations, each as record_generation() takes one, in one
+        transaction: a sync writes hundreds at a time (#233)."""
+        with self._cursor() as cursor:
+            return [self._record(cursor, *generation) for generation in generations]
+
+    def _record(self, cursor, generation: Dict[str, Any], images: List[Dict[str, Any]],
+                files: List[List[str]]) -> int:
+        """record_generation() inside a caller's transaction."""
+        columns = [c for c in _GENERATION_COLUMNS if c in generation]
+        cursor.execute(
+            f"INSERT INTO generations ({', '.join(columns)}, prompt_id, negative_id) "
+            f"VALUES ({', '.join('?' * (len(columns) + 2))})",
+            [generation[c] for c in columns]
+            + [self._prompt_id(cursor, generation.get("prompt")),
+               self._prompt_id(cursor, generation.get("negative_prompt"))])
+        generation_id = cursor.lastrowid
+        details = [c for c in _GENERATION_DETAILS if c in generation]
+        cursor.execute(
+            f"INSERT INTO generation_details (generation_id{''.join(', ' + c for c in details)}) "
+            f"VALUES ({', '.join('?' * (len(details) + 1))})",
+            [generation_id] + [_stored(c, generation[c]) for c in details])
+        module_roles = self._module_roles(cursor, [f for used in files for f in used])
+        for image, used in zip(images, files):
+            columns = [c for c in _IMAGE_COLUMNS if c in image]
             cursor.execute(
-                f"INSERT INTO generations ({', '.join(columns)}, prompt_id, negative_id) "
-                f"VALUES ({', '.join('?' * (len(columns) + 2))})",
-                [generation[c] for c in columns]
-                + [self._prompt_id(cursor, generation.get("prompt")),
-                   self._prompt_id(cursor, generation.get("negative_prompt"))])
-            generation_id = cursor.lastrowid
-            details = [c for c in _GENERATION_DETAILS if c in generation]
+                f"INSERT INTO generation_images (generation_id, {', '.join(columns)}, prompt_id, negative_id) "
+                f"VALUES ({', '.join('?' * (len(columns) + 3))})",
+                [generation_id] + [image[c] for c in columns]
+                + [self._prompt_id(cursor, image.get("prompt")),
+                   self._prompt_id(cursor, image.get("negative_prompt"))])
+            image_id = cursor.lastrowid
+            details = [c for c in _IMAGE_DETAILS if c in image]
             cursor.execute(
-                f"INSERT INTO generation_details (generation_id{''.join(', ' + c for c in details)}) "
+                f"INSERT INTO image_details (image_id{''.join(', ' + c for c in details)}) "
                 f"VALUES ({', '.join('?' * (len(details) + 1))})",
-                [generation_id] + [_stored(c, generation[c]) for c in details])
-            module_roles = self._module_roles(cursor, [f for used in files for f in used])
-            for image, used in zip(images, files):
-                columns = [c for c in _IMAGE_COLUMNS if c in image]
-                cursor.execute(
-                    f"INSERT INTO generation_images (generation_id, {', '.join(columns)}, prompt_id, negative_id) "
-                    f"VALUES ({', '.join('?' * (len(columns) + 3))})",
-                    [generation_id] + [image[c] for c in columns]
-                    + [self._prompt_id(cursor, image.get("prompt")),
-                       self._prompt_id(cursor, image.get("negative_prompt"))])
-                image_id = cursor.lastrowid
-                details = [c for c in _IMAGE_DETAILS if c in image]
-                cursor.execute(
-                    f"INSERT INTO image_details (image_id{''.join(', ' + c for c in details)}) "
-                    f"VALUES ({', '.join('?' * (len(details) + 1))})",
-                    [image_id] + [_stored(c, image[c]) for c in details])
-                cursor.executemany(
-                    "INSERT INTO generation_resources (image_id, generation_id, role, position, name, "
-                    "file_path, weight) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [(image_id, generation_id, *row)
-                     for row in resource_rows(generation, image, list(dict.fromkeys(used)), module_roles)])
-            return generation_id
+                [image_id] + [_stored(c, image[c]) for c in details])
+            cursor.executemany(
+                "INSERT INTO generation_resources (image_id, generation_id, role, position, name, "
+                "file_path, weight) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(image_id, generation_id, *row)
+                 for row in resource_rows(generation, image, list(dict.fromkeys(used)), module_roles)])
+        return generation_id
 
     def _module_roles(self, cursor, paths: Iterable[str]) -> Dict[str, str]:
         """What the library read each of these files to be, for a module's role."""
@@ -867,29 +885,99 @@ class GenerationsOps:
             says why - and the id of the generation removed with it, or None).
         """
         with self._cursor() as cursor:
-            cursor.execute("SELECT generation_id, path FROM generation_images WHERE id = ?", (image_id,))
+            return self._delete_image(cursor, image_id)
+
+    def _delete_image(self, cursor, image_id: int) -> Tuple[List[str], Optional[int]]:
+        """delete_image() inside a caller's transaction."""
+        cursor.execute("SELECT generation_id, path FROM generation_images WHERE id = ?", (image_id,))
+        row = cursor.fetchone()
+        if not row:
+            return [], None
+        generation_id, path = row[0], row[1]
+        cursor.execute("DELETE FROM generation_resources WHERE image_id = ?", (image_id,))
+        cursor.execute("DELETE FROM image_details WHERE image_id = ?", (image_id,))
+        cursor.execute("DELETE FROM generation_images WHERE id = ?", (image_id,))
+        cursor.execute("SELECT COUNT(*) FROM generation_images WHERE generation_id = ?",
+                       (generation_id,))
+        left = cursor.fetchone()[0]
+        gone = None
+        if left:
+            cursor.execute("UPDATE generations SET image_count = ? WHERE id = ?",
+                           (left, generation_id))
+        else:
+            cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
+            cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
+            cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
+            gone = generation_id
+        cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
+                       (path,))
+        return ([] if cursor.fetchone() or not path else [path]), gone
+
+    # ------------------------------------------------- synced from folders
+
+    def held_paths(self) -> set:
+        """Every path an image of yours is kept at, lower case: what a sync
+        does not bring in again (#233)."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT path FROM generation_images")
+            return {row[0].lower() for row in cursor.fetchall() if row[0]}
+
+    def source_id(self, folder: str) -> int:
+        """The number a synced folder is known by, made the first time."""
+        with self._cursor() as cursor:
+            cursor.execute("INSERT OR IGNORE INTO image_sources (path) VALUES (?)", (folder,))
+            cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
+            return cursor.fetchone()[0]
+
+    def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
+        """The removed list: each file whose row was deleted with the file
+        kept, lower case -> (size, modified time in ns) as it was then."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT path, size, mtime_ns FROM removed_images")
+            return {row[0].lower(): (row[1], row[2]) for row in cursor.fetchall()}
+
+    def remember_removed(self, entries: Iterable[Tuple[str, int, int]]) -> None:
+        """Put files on the removed list, each (path, size, modified time in ns)."""
+        with self._cursor() as cursor:
+            cursor.executemany("INSERT OR REPLACE INTO removed_images (path, size, mtime_ns) "
+                               "VALUES (?, ?, ?)", list(entries))
+
+    def forget_removed(self, paths: Iterable[str]) -> None:
+        """Take files off the removed list: they are gone from disk."""
+        with self._cursor() as cursor:
+            cursor.executemany("DELETE FROM removed_images WHERE path = ? COLLATE NOCASE",
+                               [(p,) for p in paths])
+
+    def unheld_checkpoint(self, generation_id: int) -> Optional[str]:
+        """The checkpoint a generation names by name alone - one Sync images
+        found in the text and the library lacks - or None."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT MIN(name) FROM generation_resources WHERE generation_id = ? "
+                           "AND role = 'checkpoint' AND file_path IS NULL AND name <> ''", (generation_id,))
             row = cursor.fetchone()
-            if not row:
-                return [], None
-            generation_id, path = row[0], row[1]
-            cursor.execute("DELETE FROM generation_resources WHERE image_id = ?", (image_id,))
-            cursor.execute("DELETE FROM image_details WHERE image_id = ?", (image_id,))
-            cursor.execute("DELETE FROM generation_images WHERE id = ?", (image_id,))
-            cursor.execute("SELECT COUNT(*) FROM generation_images WHERE generation_id = ?",
-                           (generation_id,))
-            left = cursor.fetchone()[0]
-            gone = None
-            if left:
-                cursor.execute("UPDATE generations SET image_count = ? WHERE id = ?",
-                               (left, generation_id))
-            else:
-                cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
-                cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
-                cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
-                gone = generation_id
-            cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1",
-                           (path,))
-            return ([] if cursor.fetchone() or not path else [path]), gone
+            return row[0] if row else None
+
+    def replace_imported(self, paths: Iterable[str]) -> int:
+        """
+        Remove the rows a sync wrote for these files, ahead of the recorder
+        writing its own: the full record wins (#233). A recorded image's rows
+        are left alone.
+
+        Returns:
+            How many images were removed.
+        """
+        paths = [p for p in paths if p]
+        if not paths:
+            return 0
+        with self._cursor() as cursor:
+            cursor.execute(
+                "SELECT gi.id FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
+                f"WHERE g.source_id IS NOT NULL AND gi.path COLLATE NOCASE IN ({', '.join('?' * len(paths))})",
+                paths)
+            ids = [row[0] for row in cursor.fetchall()]
+            for image_id in ids:
+                self._delete_image(cursor, image_id)
+            return len(ids)
 
     def restamp_levels(self, level: Callable[[Optional[Dict[str, Any]]], int]) -> Tuple[int, int]:
         """
@@ -900,8 +988,12 @@ class GenerationsOps:
             (images changed, images read)
         """
         with self._cursor() as cursor:
+            # An image synced with no text keeps the level its sync's dialog
+            # gave it (#233): there is no prompt to judge.
             cursor.execute("SELECT gi.id, d.meta, gi.prompt_nsfw_level FROM generation_images gi "
-                           "LEFT JOIN image_details d ON d.image_id = gi.id")
+                           "JOIN generations g ON g.id = gi.generation_id "
+                           "LEFT JOIN image_details d ON d.image_id = gi.id "
+                           "WHERE NOT (g.source_id IS NOT NULL AND d.infotext IS NULL)")
             rows = cursor.fetchall()
         changed = []
         for image_id, meta, stored in rows:

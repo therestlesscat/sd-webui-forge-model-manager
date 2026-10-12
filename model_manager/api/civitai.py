@@ -542,6 +542,27 @@ def register(app: FastAPI):
         except Exception as e:
             return failed(e, "Civitai images error")
 
+    @app.get("/model-manager/civitai/file-by-hash")
+    @gate("downloads")
+    def civitai_file_by_hash(hash: str = ""):
+        """
+        Which of a version's files on Civitai has this hash - what the
+        Resources dialog downloads for an image whose own file the library
+        lacks, though it may hold another file of that version (#233).
+
+        Returns:
+            file: resources.file_for_hash()'s answer; 404 when Civitai knows
+            no version by the hash.
+        """
+        from ..resources import file_for_hash
+        try:
+            found = file_for_hash(CivitaiClient.from_settings(), hash)
+        except Exception as e:
+            return failed(e)
+        if found is None:
+            return JSONResponse({"success": False, "error": "Civitai knows no file by this hash"}, status_code=404)
+        return JSONResponse({"success": True, "file": found})
+
     @app.post("/model-manager/civitai/download")
     @gate("downloads")
     def civitai_download_model(

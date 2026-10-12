@@ -34,12 +34,12 @@ const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_
     'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
-const { apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext } = await shared('send.mjs');
-const { nsfwModelNote, galleryDefaults } = await shared('ui_options.mjs');
+const { nsfwModelNote, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
@@ -1298,9 +1298,215 @@ work.provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
 work.provide('generations.groupBy', (value) => setGroupBy(value));
 work.provide('generations.loadMore', () => loadNext());
 work.provide('generations.spanFor', spanFor);
+work.provide('generations.syncImages', () => openSyncDialog());
+work.provide('generations.syncTick', ({ path }, box) => tickSyncFolder(path, box.checked));
+work.provide('generations.startSync', () => startSync());
+work.provide('generations.closeSyncDialog', () => closeSyncDialog());
+work.provide('generations.syncDialogBackdrop', (data, element, event) => {
+    if (event?.target === element) closeSyncDialog();
+});
+work.provide('generations.cancelSync', () => cancelSync());
+work.provide('generations.closeSyncPanel', () => { const panel = byId('gen_sync_panel'); if (panel) panel.hidden = true; });
+
+// ---------------------------------------------------------- Sync images (#233)
+// The images already on disk, added to this tab as generations: from the
+// folders Forge saves results into and folders added, a long job on the
+// server (model_manager/image_sync.py), followed here until it ends.
+const SYNC = '/model-manager/generations/sync';
+// Reading one file's text took 0.7 ms in one library: 53 s for 76,148 files.
+const SYNC_READ_SECONDS = 0.0007;
+let syncFolders = [];           // as the server listed them, each with its tick and its count
+let syncFollowing = null;       // the interval following a sync
+
+function syncCount(n) {
+    return Number(n || 0).toLocaleString();
+}
+
+function syncDuration(seconds) {
+    if (seconds < 45) return 'under a minute';
+    const minutes = Math.round(seconds / 60);
+    return minutes === 1 ? 'about a minute' : `about ${minutes} minutes`;
+}
+
+async function syncPost(path, fields) {
+    try {
+        const response = await fetch(path, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(fields) });
+        return await response.json();
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+async function openSyncDialog() {
+    const dialog = byId('gen_sync_dialog');
+    if (!dialog) return;
+    dialog.style.display = 'flex';
+    byId('gen_sync_start').disabled = true;
+    setText(byId('gen_sync_estimate'), 'Looking at the folders...');
+    const data = await apiCall({ endpoint: `${SYNC}/folders` }).catch((e) => ({ success: false, error: e.message }));
+    if (!data.success) {
+        setText(byId('gen_sync_estimate'), `Could not list the folders: ${data.error}`);
+        return;
+    }
+    syncFolders = data.folders.map((folder) => ({ ...folder, count: null }));
+    byId('gen_sync_level').innerHTML = data.levels.map((name) =>
+        `<option value="${escapeHtml(name)}"${name === data.level ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+    byId('gen_sync_group').checked = Boolean(data.group);
+    drawSyncFolders();
+    showSyncEstimate();
+    const counted = await apiCall({ endpoint: `${SYNC}/estimate` }).catch((e) => ({ success: false, error: e.message }));
+    if (!counted.success) {
+        setText(byId('gen_sync_estimate'), `Could not count the new images: ${counted.error}`);
+        return;
+    }
+    syncFolders.forEach((folder) => { folder.count = counted.counts[folder.path] ?? 0; });
+    drawSyncFolders();
+    showSyncEstimate();
+}
+
+function drawSyncFolders() {
+    const list = byId('gen_sync_folders');
+    if (!list) return;
+    if (!syncFolders.length) {
+        list.innerHTML = '<div class="mm-dialog-note">Forge names no result folder in its settings.</div>';
+        return;
+    }
+    list.innerHTML = syncFolders.map((folder) => {
+        const title = folder.forge ? `Forge saves results here (its setting ${folder.key})` : 'A folder you added';
+        const count = folder.count === null ? 'counting...' : `${syncCount(folder.count)} new`;
+        return `<label class="mm-dialog-option" title="${escapeHtml(title)}">
+                    <input type="checkbox" data-action="generations.syncTick" data-path="${escapeHtml(folder.path)}"${folder.ticked ? ' checked' : ''}>
+                    <span>${escapeHtml(shownPath(folder.path))}</span>
+                    <span class="mm-dialog-count">${escapeHtml(count)}</span>
+                </label>`;
+    }).join('');
+}
+
+function tickSyncFolder(path, ticked) {
+    const folder = syncFolders.find((f) => f.path === path);
+    if (folder) folder.ticked = ticked;
+    showSyncEstimate();
+}
+
+function showSyncEstimate() {
+    const ticked = syncFolders.filter((f) => f.ticked);
+    const counting = ticked.some((f) => f.count === null);
+    const total = ticked.reduce((sum, f) => sum + (f.count || 0), 0);
+    let text;
+    if (!ticked.length) text = 'Tick a folder to sync.';
+    else if (counting) text = 'Counting the new images...';
+    else if (!total) text = 'No new images in the ticked folders.';
+    else text = `${syncCount(total)} new images. Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; `
+                + 'writing them comes after.';
+    setText(byId('gen_sync_estimate'), text);
+    // Start would do nothing until there is something new to add.
+    const start = byId('gen_sync_start');
+    if (start) start.disabled = counting || !total;
+}
+
+function closeSyncDialog() {
+    const dialog = byId('gen_sync_dialog');
+    if (dialog) dialog.style.display = 'none';
+}
+
+async function startSync() {
+    const start = byId('gen_sync_start');
+    if (start) start.disabled = true;
+    const answer = await syncPost(SYNC, {
+        folders: JSON.stringify(syncFolders.filter((f) => f.ticked).map((f) => f.path)),
+        level: byId('gen_sync_level')?.value || '',
+        group: String(Boolean(byId('gen_sync_group')?.checked)),
+    });
+    if (!answer.success) {
+        setText(byId('gen_sync_estimate'), `Could not start: ${answer.error}`);
+        if (start) start.disabled = false;
+        return;
+    }
+    closeSyncDialog();
+    followSync();
+}
+
+async function cancelSync() {
+    const cancel = byId('gen_sync_cancel');
+    if (cancel) cancel.disabled = true;
+    setText(byId('gen_sync_text'), 'Cancelling: finishing the step under way...');
+    await syncPost(`${SYNC}/cancel`, {});
+}
+
+function followSync() {
+    if (syncFollowing === null) syncFollowing = tabScope.every(pollSync, TIMING.poll);
+    pollSync();
+}
+
+async function pollSync() {
+    const data = await apiCall({ endpoint: `${SYNC}/progress` }).catch(() => null);
+    const progress = data?.progress;
+    if (!progress) return;
+    drawSyncPanel(progress);
+    if (progress.is_complete && syncFollowing !== null) {
+        clearInterval(syncFollowing);
+        syncFollowing = null;
+        if (progress.generations) refresh();
+    }
+}
+
+function syncStatus(p) {
+    const where = p.folder ? ` in ${shownPath(p.folder)}` : '';
+    if (p.state === 'done') {
+        return `Added ${syncCount(p.images)} images as ${syncCount(p.generations)} generations.`;
+    }
+    if (p.state === 'cancelled') {
+        return `Cancelled. ${syncCount(p.images)} images were added as ${syncCount(p.generations)} generations `
+               + 'before it stopped; the next sync adds the rest.';
+    }
+    if (p.state === 'failed') return `Sync images failed: ${p.error}`;
+    if (p.cancelling) return 'Cancelling: finishing the step under way...';
+    if (p.stage === 'walking') return `Looking for new images${where}...`;
+    if (p.stage === 'reading') return `Reading ${syncCount(p.read)} of ${syncCount(p.total)} images${where}`;
+    return `Writing: ${syncCount(p.images)} of ${syncCount(p.total)} images so far, as ${syncCount(p.generations)} generations`;
+}
+
+function drawSyncPanel(p) {
+    const panel = byId('gen_sync_panel');
+    if (!panel) return;
+    panel.hidden = false;
+    setText(byId('gen_sync_text'), syncStatus(p));
+    const done = p.stage === 'reading' ? p.read : p.stage === 'writing' ? p.images : 0;
+    const fill = byId('gen_sync_fill');
+    if (fill) fill.style.width = p.is_complete ? '100%' : `${p.total ? Math.round(100 * done / p.total) : 0}%`;
+    const cancel = byId('gen_sync_cancel');
+    if (cancel) {
+        cancel.hidden = p.is_complete;
+        cancel.disabled = Boolean(p.cancelling);
+    }
+    const close = byId('gen_sync_close');
+    if (close) close.hidden = !p.is_complete;
+    const button = byId('gen_sync_btn');
+    if (button) {
+        button.disabled = !p.is_complete;
+        button.title = p.is_complete ? "Add the images already in Forge's result folders, and folders you add, to this tab. The files stay where they are."
+                                     : 'Sync images is running';
+    }
+    const errors = byId('gen_sync_errors');
+    if (errors) {
+        errors.hidden = !p.error_count;
+        setText(byId('gen_sync_errors_summary'), `${syncCount(p.error_count)} could not be read`);
+        const list = byId('gen_sync_errors_list');
+        if (list) list.innerHTML = (p.errors || []).map((e) => `<li>${escapeHtml(e)}</li>`).join('')
+            + (p.error_count > (p.errors || []).length ? `<li>... and ${syncCount(p.error_count - p.errors.length)} more</li>` : '');
+    }
+}
+
+/** A sync still running when the page loads is followed from where it is. */
+async function pickUpSync() {
+    const data = await apiCall({ endpoint: `${SYNC}/progress` }).catch(() => null);
+    if (data?.progress && !data.progress.is_complete) followSync();
+}
 // What the other tabs may open this one at, through the loading module
 // (open, #184): the Queue's Show images, a task's images, here.
-export const entries = { showTask };
+export const entries = { showTask, syncImages: () => openSyncDialog() };
 
 /**
  * Started by the loading module once Gradio has drawn the tab (#183) - which
@@ -1339,5 +1545,10 @@ export async function start(scope) {
     tabScope.listen(window, 'resize', layout);
     tabScope.afterUpdate(layout);
     tabScope.afterUpdate(showGroupChoice);
+    tabScope.onStop(() => { syncFollowing = null; });
+    tabScope.listen(document, 'keydown', (event) => {
+        if (event.key === 'Escape' && byId('gen_sync_dialog')?.style.display === 'flex') closeSyncDialog();
+    });
+    pickUpSync();
     await reload();
 }

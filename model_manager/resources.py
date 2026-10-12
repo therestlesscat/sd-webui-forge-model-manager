@@ -173,7 +173,70 @@ def image_files(db, version_ids: List[int], hashes: List[str],
     return {"versions": {str(k): _as_file(v) for k, v in by_id.items()},
             "hashes": {k: _as_file(v) for k, v in by_hash.items()},
             "names": {k: _as_file(v) for k, v in by_name.items()},
-            "embeddings": [_as_file(row) for row in embeddings]}
+            "embeddings": [_as_file(row) for row in embeddings],
+            "other_files": other_files(db, hashes, by_hash)}
+
+
+def other_files(db, hashes: List[str], by_hash: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    The hashes, of those no library file has, whose version the library holds
+    as another file - provably (#233) - each with the file it holds: {hash:
+    {name, fp, size, file_size}}, as Civitai's list described it. A version
+    can hold an fp16 pruned and an fp32 full file; an image made with one
+    names its hash.
+
+    Proven only for an AutoV2 - the first ten digits of a file's SHA256, as an
+    infotext's `Model hash` is - and only where every library file of the
+    version has its SHA256 stored, none starting so. Any other hash a library
+    file may simply not have had read - an AutoV3, which images name LoRAs by -
+    and the version's file is taken for the image's, as before.
+    """
+    from .hashing import hash_key, read_hashes
+    unheld = [h for h in dict.fromkeys(hash_key(h) for h in hashes) if len(h) == 10 and h not in by_hash]
+    if not unheld:
+        return {}
+    known = db.resolved_hashes(unheld)
+    found = {}
+    for digest in unheld:
+        version_id = (known.get(digest) or {}).get("version_id")
+        files = [db.get_version(r["file_path"]) or {}
+                 for r in (db.library_files(version_ids=[version_id]) if version_id else [])]
+        stored = [read_hashes(f.get("file_hashes")).get("sha256", "") for f in files]
+        if stored and all(stored) and not any(s.startswith(digest) for s in stored):
+            held = files[0]
+            found[digest] = {"name": os.path.basename(held.get("file_path") or ""), "fp": held.get("fp"),
+                             "size": held.get("size"), "file_size": held.get("file_size")}
+    return found
+
+
+def file_for_hash(client, file_hash: str) -> Optional[Dict[str, Any]]:
+    """
+    The file on Civitai whose hash an image names - not only its version: a
+    version can hold several files, an fp16 pruned and an fp32 full, each its
+    own hash, and an image made with one cannot be made again with the other
+    (#233). Found among the version's files by any hash Civitai lists for
+    one, or as the start of its SHA256 - an AutoV2 is its first ten digits.
+
+    Returns:
+        {file_id, name, size_kb, fp, size, version_id, model_id} - file_id
+        None if no file of the version lists the hash - or None if Civitai
+        knows no version by it.
+    """
+    from .hashing import hash_key, read_hashes
+    wanted = hash_key(file_hash)
+    version = client.get_model_by_hash(file_hash) if wanted else None
+    if not version:
+        return None
+    found = {"file_id": None, "name": None, "size_kb": None, "fp": None, "size": None,
+             "version_id": version.get("id"), "model_id": version.get("modelId")}
+    for listed in version.get("files") or []:
+        hashes = read_hashes(listed.get("hashes"))
+        if wanted in hashes.values() or (len(wanted) >= 10 and hashes.get("sha256", "").startswith(wanted)):
+            meta = listed.get("metadata") or {}
+            found.update(file_id=listed.get("id"), name=listed.get("name"), size_kb=listed.get("sizeKB"),
+                         fp=meta.get("fp"), size=meta.get("size"))
+            break
+    return found
 
 
 @contextlib.contextmanager

@@ -59,8 +59,27 @@ def create_generations_ui():
                     </label>
                     <span id="gen_select_bar" class="mm-select-bar" hidden></span>
                     <span class="gen-toolbar-fill"></span>
+                    <button type="button" class="mm-btn secondary" id="gen_sync_btn"
+                            data-action="generations.syncImages"
+                            title="Add the images already in Forge's result folders, and folders you add, to this tab. The files stay where they are.">Sync images</button>
                     <button type="button" class="mm-btn secondary" id="gen_refresh_btn"
                             data-action="generations.refresh">Refresh</button>
+                </div>
+
+                <!-- Sync images, while it runs and once it has ended: filled by generations.mjs -->
+                <div id="gen_sync_panel" class="model-manager-sync-progress gen-sync-panel" hidden>
+                    <div class="sync-progress-bar"><div class="sync-progress-fill" id="gen_sync_fill"></div></div>
+                    <div class="gen-sync-line">
+                        <span class="sync-progress-text" id="gen_sync_text"></span>
+                        <button type="button" class="mm-btn mm-btn-small secondary" id="gen_sync_cancel"
+                                data-action="generations.cancelSync">Cancel</button>
+                        <button type="button" class="mm-btn mm-btn-small secondary" id="gen_sync_close"
+                                data-action="generations.closeSyncPanel" hidden>Close</button>
+                    </div>
+                    <details id="gen_sync_errors" class="mm-misplaced" hidden>
+                        <summary id="gen_sync_errors_summary"></summary>
+                        <ul id="gen_sync_errors_list"></ul>
+                    </details>
                 </div>
 
                 <!-- Inside a group or a batch: Back, and where it is -->
@@ -69,6 +88,36 @@ def create_generations_ui():
                 <div id="gen_banner"></div>
                 </div>
                 <div id="gen_grid" class="gen-grid"></div>
+                <!-- Sync images' dialog: the folders, what is new in each, and how -->
+                <div id="gen_sync_dialog" class="mm-dialog-backdrop" style="display: none;"
+                     data-action="generations.syncDialogBackdrop">
+                    <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="gen_sync_dialog_title">
+                        <h3 id="gen_sync_dialog_title">Sync images</h3>
+                        <div class="mm-dialog-note">Adds the images already in these folders to this tab, as
+                            generations. The files stay where they are. Images already here are left as they are.</div>
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Folders</div>
+                            <div id="gen_sync_folders"></div>
+                        </div>
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Images with no generation text</div>
+                            <label class="mm-dialog-option" title="Images in one folder whose file names say the same settings, saved close together, become one generation.">
+                                <input type="checkbox" id="gen_sync_group">
+                                <span>Group them by their file names</span>
+                            </label>
+                            <label class="mm-dialog-option" title="Given to the images with no text this sync brings, and kept with them. A rating you give an image wins.">
+                                <span>NSFW level</span>
+                                <select id="gen_sync_level" class="mm-dialog-select"></select>
+                            </label>
+                        </div>
+                        <div class="mm-dialog-estimate" id="gen_sync_estimate"></div>
+                        <div class="mm-dialog-actions">
+                            <button type="button" class="mm-btn secondary" data-action="generations.closeSyncDialog">Cancel</button>
+                            <button type="button" class="mm-btn primary" id="gen_sync_start"
+                                    data-action="generations.startSync">Start</button>
+                        </div>
+                    </div>
+                </div>
                 <div id="gen_status" class="gen-status"></div>
                 <!-- Scrolled near, it loads the next part -->
                 <div id="gen_sentinel" class="gen-sentinel"></div>
