@@ -10,7 +10,6 @@ recorded, and how, is model_manager/generations.py's.
 An image file is served by its record's id, never by a path the page sends:
 only what was recorded can be opened.
 """
-import hashlib
 import json
 import os
 import re
@@ -21,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from ..db import get_models_db
+from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, tidy
 from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
@@ -92,15 +92,6 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return resources
 
 
-def _lora_paths(row: Dict[str, Any]) -> List[str]:
-    """The files of the LoRAs an image used, as its row records them."""
-    try:
-        loras = json.loads(row.get("loras") or "[]")
-    except (TypeError, ValueError):
-        return []
-    return [l["path"] for l in loras if isinstance(l, dict) and l.get("path")]
-
-
 def file_ref(path: Optional[str], known: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
     A model file as the page's menus name it: by version and model where
@@ -153,7 +144,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     files at places (page - 1) * size + 1 to page * size, newest first,
     before the switches - which only decide which of their images are drawn.
     A generation with none left to draw has no card, and is still counted in
-    its page's note.
+    its page's note. The page is picked in SQL, and only its images read.
 
     Returns:
         generations: the page's cards, each with its first images;
@@ -165,17 +156,15 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     size = gallery_page_size()
     page = max(1, int(page or 1))
     files = db.generation_gallery_files(path)
-    rows = db.generation_gallery_images(files)
-    order = list(dict.fromkeys(r["generation_id"] for r in rows))
-    on_page = set(order[(page - 1) * size:page * size])
-    page_rows = [r for r in rows if r["generation_id"] in on_page]
+    on_page, total = db.generation_scope_generations(Scope(files=files), (page - 1) * size, size)
+    page_rows = db.generation_scope_rows(Scope(files=files, generations=on_page)) if on_page else []
     shown, page_counts = _filtered(page_rows, hide_nsfw, hide_promptless)
-    _, counts = _filtered(rows, hide_nsfw, hide_promptless)
+    counts = _switches(db.generation_scope_counts(Scope(files=files), hide_nsfw, hide_promptless))
 
     by_generation: Dict[int, List[Dict[str, Any]]] = {}
     for row in shown:
         by_generation.setdefault(row["generation_id"], []).append(row)
-    drawn = [g for g in order if g in by_generation]
+    drawn = [g for g in on_page if g in by_generation]
 
     generations = db.get_generations(drawn)
     previews = [r["id"] for g in drawn for r in by_generation[g][:PREVIEW_IMAGES]]
@@ -200,11 +189,11 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             "hidden_nsfw": page_counts["hidden_nsfw"],
             "hidden_promptless": page_counts["hidden_promptless"],
             "hidden_both": page_counts["hidden_both"],
-            "more": len(order) > page * size,
+            "more": total > page * size,
             "error": None,
         },
         "state": {
-            "generation_count": len(order),
+            "generation_count": total,
             # Every generation filed here, filtered or not: the tab's label.
             "stored_generations": db.count_generations(files),
             "hide_nsfw_images": hide_nsfw,
@@ -212,6 +201,15 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             **counts,
         },
     }
+
+
+# The counts gallery.switch_counts() gives, of a scope's counts.
+_SWITCH_COUNTS = ("total", "filtered", "hidden_nsfw", "hidden_both", "hidden_promptless", "hidden",
+                  "nsfw_count", "promptless_count", "promptless_total")
+
+
+def _switches(counts: Dict[str, Any]) -> Dict[str, int]:
+    return {k: counts[k] for k in _SWITCH_COUNTS}
 
 
 def shared_levels(rows: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
@@ -317,31 +315,18 @@ def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
 TILE_FIELDS = ("id", "created_at", "mode", "image_count", "width", "height", "checkpoint_path")
 
 
-def _one_line(text: Any) -> str:
-    """A prompt as a group's key: its spacing tidied, nothing else changed."""
-    return " ".join(str(text or "").split())
-
-
-def _lora_names(loras: Any) -> List[str]:
-    if isinstance(loras, str):
-        try:
-            loras = json.loads(loras)
-        except ValueError:
-            return []
-    return sorted({str(l.get("name")) for l in loras or [] if isinstance(l, dict) and l.get("name")})
-
-
-# What the Generations tab can group images by: name -> (what it is called,
-# an image row's value). An image is in exactly one group of each.
+# What the Generations tab can group images by, and what each is called; what
+# each groups on is GROUP_KEYS' (db/generations_ops.py). An image is in
+# exactly one group of each.
 GROUPINGS = {
-    "prompt_written": ("Prompt, as written", lambda r: _one_line(r.get("typed_prompt"))),
-    "prompt": ("Prompt, as generated", lambda r: _one_line(r.get("image_prompt"))),
+    "prompt_written": "Prompt, as written",
+    "prompt": "Prompt, as generated",
     # The checkpoint's, as the library holds it - the Model Manager's Base Model filter's.
-    "base_model": ("Base model", lambda r: r.get("base_model") or ""),
-    "model": ("Model", lambda r: os.path.splitext(os.path.basename(r.get("checkpoint_path") or ""))[0]),
-    "loras": ("LoRA combination", lambda r: ", ".join(_lora_names(r.get("loras")))),
-    "size": ("Size", lambda r: f"{r.get('width')}×{r.get('height')}" if r.get("width") else ""),
-    "day": ("Day", lambda r: str(r.get("created_at") or "")[:10]),
+    "base_model": "Base model",
+    "model": "Model",
+    "loras": "LoRA combination",
+    "size": "Size",
+    "day": "Day",
 }
 
 
@@ -353,11 +338,6 @@ def grouping_chain(group: str) -> List[str]:
     """
     keys = [k for k in str(group or "").split(">")]
     return keys if 1 <= len(keys) <= 2 and all(k in GROUPINGS for k in keys) else []
-
-
-def group_id(value: str) -> str:
-    """A group's id in a request: its value can be a prompt of any length."""
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
 
 
 def search_terms(text: str) -> Tuple[List[str], Optional[int]]:
@@ -378,28 +358,26 @@ def search_terms(text: str) -> Tuple[List[str], Optional[int]]:
     return words, task
 
 
-def _scoped(db, hide_nsfw: bool, group: str = "", in_group: str = "",
-            generation: Optional[int] = None, in_subgroup: str = "",
-            search: str = "") -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+def _scope(group: str = "", in_group: str = "", generation: Optional[int] = None,
+           in_subgroup: str = "", search: str = "") -> Scope:
     """
     The images a level of the Generations tab holds - inside a group, one of
     its groups when grouped twice, a generation, or these together - that the
-    search finds and the NSFW switch lets through, and the counts over them
-    all.
+    search finds.
     """
     chain = grouping_chain(group)
-    rows = db.generation_gallery_images(None)
     words, task = search_terms(search)
-    if words or task is not None:
-        found = db.search_generation_images(words, task)
-        rows = [r for r in rows if r["id"] in found]
-    for key, opened in zip(chain, (in_group, in_subgroup)):
-        if opened:
-            value_of = GROUPINGS[key][1]
-            rows = [r for r in rows if group_id(value_of(r)) == opened]
-    if generation is not None:
-        rows = [r for r in rows if r["generation_id"] == generation]
-    return _filtered(rows, hide_nsfw, False)
+    return Scope(generation=generation, words=words, task=task,
+                 opened=[(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g])
+
+
+def _group_values(db, grouping: str, keys) -> Dict[Any, str]:
+    """What each group of a grouping is called: a prompt group's tidied text,
+    or the value itself."""
+    if grouping in PROMPT_GROUPINGS:
+        texts = db.prompt_texts(k for k in keys if k)
+        return {k: tidy(texts.get(k, "")) if k else "" for k in keys}
+    return {k: str(k) for k in keys}
 
 
 def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
@@ -409,7 +387,7 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     Part `page` of a level of the Generations tab, newest first. The top level
     is a tile per generation - its first images and how many it has - or, with
     `group`, a tile per group of images (GROUPINGS), whatever generations they
-    are of. A level inside one, `in_group` (a group_id) or `generation`, is
+    are of. A level inside one, `in_group` (a group's id) or `generation`, is
     what that holds: a group's generations, and a generation's images, each a
     tile - so a group opens onto its batches, and a batch onto its images.
     Grouped twice ("model>prompt_written", grouping_chain()), the top level
@@ -421,7 +399,8 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     The tab scrolls rather than pages, so there is no page note to count what
     the NSFW switch hid on each: images are filtered first and the parts cut
     from what is left, and no part comes back emptied. The prompt switch is
-    not offered here; nothing is hidden for a prompt.
+    not offered here; nothing is hidden for a prompt. The part is picked in
+    SQL, and only its tiles' images read (#231).
 
     Returns:
         tiles: each {"kind": "group" | "generation" | "image", "group",
@@ -433,7 +412,7 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     size = gallery_page_size()
     page = max(1, int(page or 1))
     chain = grouping_chain(group)
-    shown, counts = _scoped(db, hide_nsfw, group, in_group, generation, in_subgroup, search)
+    scope = _scope(group, in_group, generation, in_subgroup, search)
 
     # The grouping this level's groups are by, if it is a level of groups:
     # the first at the top - or, grouped twice, the second, in sections of the
@@ -447,99 +426,95 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
             by = chain[0]
         elif len(chain) == 2 and in_group and not in_subgroup:
             by = chain[1]
-
-    units: Dict[Any, List[Dict[str, Any]]] = {}
-    sections: Dict[str, List[Dict[str, Any]]] = {}
     if generation is not None:
-        kind = "image"
-        for row in shown:
-            units[row["id"]] = [row]
-    elif sectioned:
-        # Sections newest first, and in each its groups newest first: a
-        # section's groups are one run of tiles, whatever part they fall in.
-        kind = "group"
-        for row in shown:
-            sections.setdefault(GROUPINGS[chain[0]][1](row), []).append(row)
-        for section, rows in sections.items():
-            for row in rows:
-                units.setdefault((section, GROUPINGS[by][1](row)), []).append(row)
+        kind, unit = "image", "image"
     elif by:
-        kind = "group"
-        for row in shown:
-            units.setdefault(GROUPINGS[by][1](row), []).append(row)
+        kind, unit = "group", by
     else:
-        kind = "generation"
-        for row in shown:
-            units.setdefault(row["generation_id"], []).append(row)
-    order = list(units)
-    part = order[(page - 1) * size:page * size]
+        kind, unit = "generation", "generation"
+    section = chain[0] if sectioned else None
 
-    previews = {key: units[key][:PREVIEW_IMAGES] for key in part}
+    units = db.generation_scope_units(scope, unit, section, hide_nsfw, (page - 1) * size, size + 1)
+    more = len(units) > size
+    units = units[:size]
+    part = [((u["s"],) if section else ()) + (u["u"],) for u in units]
+    previews: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {key: [] for key in part}
+    for row in db.generation_scope_previews(scope, unit, section, hide_nsfw, part, PREVIEW_IMAGES):
+        previews[((row["s"],) if section else ()) + (row["u"],)].append(row)
+    unit_loras = db.generation_scope_unit_loras(scope, unit, section, hide_nsfw, part)
+    unit_checkpoints = db.generation_scope_unit_checkpoints(scope, unit, section, hide_nsfw, part)
+    preview_ids = [r["id"] for rows in previews.values() for r in rows]
+    images = db.get_generation_images(preview_ids)
+    image_loras = db.generation_image_loras(preview_ids)
     # The files the menus name - each checkpoint and LoRA these tiles used -
     # looked up in the library once each.
     known = db.generation_library_files(
-        {r.get("checkpoint_path") for key in part for r in units[key]}
-        | {p for key in part for r in units[key] for p in _lora_paths(r)})
+        set(unit_checkpoints.values()) | {r["checkpoint_path"] for rows in previews.values() for r in rows}
+        | {p for paths in unit_loras.values() for p in paths})
+    generations = db.get_generations(list(dict.fromkeys(rows[0]["generation_id"]
+                                                        for rows in previews.values() if rows)))
+    values = _group_values(db, by, [u["u"] for u in units]) if by else {}
+    sections = _group_values(db, section, [u["s"] for u in units]) if section else {}
 
-    def loras_of(rows):
-        return [file_ref(p, known) for p in dict.fromkeys(p for r in rows for p in _lora_paths(r))]
-    images = db.get_generation_images([r["id"] for rs in previews.values() for r in rs])
-    generations = db.get_generations(list(dict.fromkeys(r["generation_id"] for rs in previews.values()
-                                                        for r in rs)))
     tiles = []
-    for key in part:
-        first = previews[key][0]
+    for key, entry in zip(part, units):
+        rows = previews.get(key) or []
+        if not rows:
+            continue
+        first = rows[0]
         generation_row = generations.get(first["generation_id"]) or {"id": first["generation_id"]}
-        # The checkpoint its images were made with, if one: a group can span several.
-        checkpoints = {r.get("checkpoint_path") for r in units[key]}
         tile = {
             "kind": kind,
             "generation": {k: generation_row.get(k) for k in TILE_FIELDS},
-            "images": [{**_image(images[r["id"]]), "checkpoint_path": r.get("checkpoint_path"),
-                        "checkpoint": file_ref(r.get("checkpoint_path"), known), "loras": loras_of([r])}
-                       for r in previews[key] if r["id"] in images],
-            "matching_count": len(units[key]),
-            "checkpoint_path": next(iter(checkpoints)) if len(checkpoints) == 1 else None,
+            "images": [{**_image(images[r["id"]]), "checkpoint_path": r["checkpoint_path"],
+                        "checkpoint": file_ref(r["checkpoint_path"], known),
+                        "loras": [file_ref(p, known) for p in image_loras.get(r["id"], [])]}
+                       for r in rows if r["id"] in images],
+            "matching_count": entry["n"],
+            # The checkpoint its images were made with, if one: a group can span several.
+            "checkpoint_path": unit_checkpoints.get(key),
             # For its ⋯ menu: the checkpoint, if its images share one, and every LoRA they used.
-            "checkpoint": file_ref(next(iter(checkpoints)), known) if len(checkpoints) == 1 else None,
-            "loras": loras_of(units[key]),
-            **shared_levels(units[key]),
+            "checkpoint": file_ref(unit_checkpoints.get(key), known),
+            "loras": [file_ref(p, known) for p in unit_loras.get(key, [])],
+            "level": entry["level"],
+            "user_level": entry["user_level"],
         }
         if kind == "group":
-            value = key[1] if sectioned else key
-            tile["group"] = {"id": group_id(value), "value": value, "by": by, "latest": first.get("created_at"),
-                             "generations": len({r["generation_id"] for r in units[key]})}
-            if sectioned:
-                rows = sections[key[0]]
-                tile["section"] = {"id": group_id(key[0]), "value": key[0], "by": chain[0], "count": len(rows),
-                                   "groups": len({GROUPINGS[by][1](r) for r in rows})}
+            tile["group"] = {"id": group_id(by, entry["u"]), "value": values.get(entry["u"], ""), "by": by,
+                             "latest": entry["latest"], "generations": entry["generations"]}
+            if section:
+                tile["section"] = {"id": group_id(section, entry["s"]), "value": sections.get(entry["s"], ""),
+                                   "by": section, "count": entry["section_count"],
+                                   "groups": entry["section_groups"]}
         tiles.append(tile)
 
-    scope = {"count": len(shown),
-             "first": shown[-1]["created_at"] if shown else None,
-             "last": shown[0]["created_at"] if shown else None}
+    counts = db.generation_scope_counts(scope, hide_nsfw, False)
+    scope_info: Dict[str, Any] = {"count": counts["filtered"], "first": counts["oldest"],
+                                  "last": counts["newest"]}
     if chain:
-        scope["grouping"] = " › ".join(GROUPINGS[k][0] for k in chain)
+        scope_info["grouping"] = " › ".join(GROUPINGS[k] for k in chain)
         # What each group opened is: [{"by", "name", "value"}], outermost first.
-        opened = [(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g]
-        if opened and shown:
-            scope["values"] = [{"by": k, "name": GROUPINGS[k][0], "value": GROUPINGS[k][1](shown[0])}
-                               for k, _ in opened]
-            scope["value"] = scope["values"][-1]["value"]
+        if scope.opened and counts["filtered"]:
+            scope_info["values"] = []
+            for k, opened in scope.opened:
+                key = group_key(k, opened)
+                scope_info["values"].append({"by": k, "name": GROUPINGS[k],
+                                             "value": _group_values(db, k, [key]).get(key, "")})
+            scope_info["value"] = scope_info["values"][-1]["value"]
     if generation is not None:
         generation_row = db.get_generations([generation]).get(generation) or {}
-        scope["generation"] = {k: generation_row.get(k) for k in TILE_FIELDS}
+        scope_info["generation"] = {k: generation_row.get(k) for k in TILE_FIELDS}
 
     return {
         "tiles": tiles,
-        "more": len(order) > page * size,
+        "more": more,
         "state": {
-            "generation_count": len({r["generation_id"] for r in shown}),
+            "generation_count": counts["generation_count"],
             "stored_generations": db.count_generations(None),
             "hide_nsfw_images": hide_nsfw,
-            **counts,
+            **_switches(counts),
         },
-        "scope": scope,
+        "scope": scope_info,
     }
 
 
@@ -607,8 +582,7 @@ def register(app: FastAPI):
             hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
                                                           hide_promptless_images)
             files = db.generation_gallery_files(path) if path else None
-            rows = [r for r in db.generation_gallery_images(files)
-                    if r["generation_id"] == generation_id]
+            rows = db.generation_scope_rows(Scope(files=files, generation=generation_id))
             shown, _ = _filtered(rows, hide_nsfw, hide_promptless)
             images = db.get_generation_images([r["id"] for r in shown])
             return JSONResponse({"success": True,
@@ -703,12 +677,12 @@ def register(app: FastAPI):
             if image_id is not None:
                 ids = [image_id]
             elif path and generation is not None:
-                rows = [r for r in db.generation_gallery_images(db.generation_gallery_files(path))
-                        if r["generation_id"] == generation]
+                rows = db.generation_scope_rows(Scope(files=db.generation_gallery_files(path),
+                                                      generation=generation))
                 ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, hide_promptless_images)[0]]
             elif generation is not None:
-                ids = [r["id"] for r in _scoped(db, hide_nsfw_images, group, in_group, generation,
-                                                in_subgroup, search)[0]]
+                rows = db.generation_scope_rows(_scope(group, in_group, generation, in_subgroup, search))
+                ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, False)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
             rated = db.set_generation_image_levels(ids, chosen)

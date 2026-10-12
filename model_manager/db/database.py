@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 
 
 class ModelsDatabase:
@@ -432,13 +432,45 @@ class ModelsDatabase:
         """The model files whose generations one gallery shows."""
         return self._generations.gallery_files(path)
 
-    def generation_gallery_images(self, files: Optional[List[str]]) -> List[Dict[str, Any]]:
-        """Every generated image filed under these files, newest first, briefly."""
-        return self._generations.gallery_images(files)
+    def generation_scope_counts(self, scope, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
+        """A scope's counts through the switches; see GenerationsOps.scope_counts()."""
+        return self._generations.scope_counts(scope, hide_nsfw, hide_promptless)
 
-    def search_generation_images(self, words: List[str], task_id: Optional[int] = None) -> Set[int]:
-        """The images a Generations search finds; see GenerationsOps.matching_images()."""
-        return self._generations.matching_images(words, task_id)
+    def generation_scope_rows(self, scope) -> List[Dict[str, Any]]:
+        """A small scope's images, newest first; see GenerationsOps.scope_rows()."""
+        return self._generations.scope_rows(scope)
+
+    def generation_scope_generations(self, scope, offset: int, limit: int) -> Tuple[List[int], int]:
+        """A part of a scope's generations, and how many; see GenerationsOps.scope_generations()."""
+        return self._generations.scope_generations(scope, offset, limit)
+
+    def generation_scope_units(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                               offset: int, limit: int) -> List[Dict[str, Any]]:
+        """A part of a level of the Generations tab; see GenerationsOps.scope_units()."""
+        return self._generations.scope_units(scope, unit, section, hide_nsfw, offset, limit)
+
+    def generation_scope_previews(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                                  part, count: int) -> List[Dict[str, Any]]:
+        """The first images of each unit of a part; see GenerationsOps.scope_previews()."""
+        return self._generations.scope_previews(scope, unit, section, hide_nsfw, part, count)
+
+    def generation_scope_unit_checkpoints(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                                          part) -> Dict[Any, Optional[str]]:
+        """The checkpoint each unit of a part shares; see GenerationsOps.scope_unit_checkpoints()."""
+        return self._generations.scope_unit_checkpoints(scope, unit, section, hide_nsfw, part)
+
+    def generation_scope_unit_loras(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                                    part) -> Dict[Any, List[str]]:
+        """Every LoRA each unit of a part used; see GenerationsOps.scope_unit_loras()."""
+        return self._generations.scope_unit_loras(scope, unit, section, hide_nsfw, part)
+
+    def generation_image_loras(self, image_ids: List[int]) -> Dict[int, List[str]]:
+        """Each generated image's LoRA files; see GenerationsOps.image_loras()."""
+        return self._generations.image_loras(image_ids)
+
+    def prompt_texts(self, prompt_ids) -> Dict[int, str]:
+        """These prompts' texts, by id."""
+        return self._generations.prompt_texts(prompt_ids)
 
     def count_generations(self, files: Optional[List[str]]) -> int:
         """How many generations used any of these files - or at all, for None."""

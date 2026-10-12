@@ -257,9 +257,10 @@ class TasksOps:
             cursor.execute(f"""
                 SELECT tg.task_id, gi.id, gi.generation_id, gi.position,
                        COALESCE(gi.user_nsfw_level, gi.prompt_nsfw_level) AS level,
-                       LENGTH({trimmed_sql('gi.prompt')}) AS prompt_length
+                       LENGTH({trimmed_sql('p.text')}) AS prompt_length
                 FROM task_generations tg
                 JOIN generation_images gi ON gi.generation_id = tg.generation_id
+                LEFT JOIN prompts p ON p.id = gi.prompt_id
                 WHERE tg.task_id IN ({_marks(task_ids)})
                 ORDER BY tg.task_id, gi.generation_id, gi.position
             """, list(task_ids))

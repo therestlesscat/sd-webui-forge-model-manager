@@ -615,7 +615,7 @@ class ModelsOps:
             for path in dict.fromkeys((old_path, there)):
                 if path == new_path:
                     continue
-                for table in ("pins", "generation_files"):
+                for table in ("pins", "generation_resources"):
                     cursor.execute(f"UPDATE OR IGNORE {table} SET file_path = ? WHERE file_path = ?",
                                    (new_path, path))
                     cursor.execute(f"DELETE FROM {table} WHERE file_path = ?", (path,))

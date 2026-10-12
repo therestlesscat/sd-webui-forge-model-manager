@@ -10,6 +10,7 @@ script's postprocess_image_after_composite is handed, because the image in it
 can be replaced after ours sees it - forge-helpers' hires cap does.
 """
 import dataclasses
+import json
 import os
 import sys
 import types
@@ -41,10 +42,10 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
-check('the database has the three tables',
+check('the database has the generation tables',
       sorted(r[0] for r in db._get_connection().execute(
           "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'")),
-      ['generation_files', 'generation_images', 'generations'])
+      ['generation_details', 'generation_images', 'generation_resources', 'generations'])
 
 # ------------------------------------------------------------ Forge, stood in
 CHECKPOINT = facts['linked_paths'][0]
@@ -231,9 +232,13 @@ check('a file the library does not hold is filed as Forge named it',
 check('and an iteration\'s LoRA only under its own images',
       [db.get_version(LORA_A)['file_path'] in i['files'] for i in g['images']],
       [True, True, False, False])
-check('the checkpoint and modules are kept too', (g['checkpoint_path'], g['modules']),
+check('the checkpoint and modules are kept as Forge recorded them',
+      db._get_connection().execute('SELECT checkpoint_path, modules FROM generation_details '
+                                   'WHERE generation_id = ?', (g['id'],)).fetchone()[:],
       (os.path.normpath(os.path.abspath(shared.sd_model.sd_checkpoint_info.filename)),
-       [os.path.normpath(VAE)]))
+       json.dumps([os.path.normpath(VAE)])))
+check('and read where they are: the checkpoint as the library spells it', (g['checkpoint_path'], g['modules']),
+      (in_library, [os.path.normpath(VAE)]))
 check('every field of p, by Forge\'s names', (g['params']['steps'], g['params']['prompt']),
       (30, 'a {fox|cat}, cinematic'))
 check('but not the loaded model', 'sd_model' in g['params'], False)

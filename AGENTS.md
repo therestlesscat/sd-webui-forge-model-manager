@@ -352,7 +352,7 @@ is and where it is (`send_plan.send_files`), and the list says which.
 
 **A file is known by its path; Civitai's id for it is a fact about it.**
 `files` is keyed by `file_path`: what Forge loads, what a sync walks, and what
-`pins` and `generation_files` name - on purpose, so a pin or a generation's
+`pins` and `generation_resources` name - on purpose, so a pin or a generation's
 link outlives the file going and coming back. `civitai_file_id` (with
 Civitai's type for the file, fp, size, format, primary) is matched by hash,
 else by name (`payload_rows.file_row`), by every sync and a download.

@@ -1655,12 +1655,386 @@ def _migrate_to_v36(cursor):
     print("[ModelManager] Migration to v36 complete")
 
 
+# v37's tables, as they were made. The indexes are made after the old tables
+# are dropped: two of their names were the old tables' too.
+_V37_TABLES = """
+    CREATE TABLE prompts_v37 (
+        id         INTEGER PRIMARY KEY,
+        text       TEXT NOT NULL UNIQUE,
+        grouped_as INTEGER NOT NULL,
+        length     INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE generations_v37 (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at        TEXT NOT NULL,
+        mode              TEXT NOT NULL,
+        forge             TEXT,
+        prompt_id         INTEGER,
+        negative_id       INTEGER,
+        image_count       INTEGER NOT NULL DEFAULT 0,
+        prompt_nsfw_level INTEGER,
+        user_nsfw_level   INTEGER
+    );
+    CREATE TABLE generation_details_v37 (
+        generation_id      INTEGER PRIMARY KEY,
+        checkpoint_path    TEXT,
+        modules            TEXT,
+        hr_checkpoint_path TEXT,
+        hr_modules         TEXT,
+        refiner_path       TEXT,
+        infotext           TEXT,
+        styles             TEXT,
+        hr_prompt          TEXT,
+        hr_negative_prompt TEXT,
+        n_iter             INTEGER,
+        batch_size         INTEGER,
+        width              INTEGER,
+        height             INTEGER,
+        checkpoint_hash    TEXT,
+        params             TEXT,
+        extra_params       TEXT,
+        script_args        TEXT,
+        settings           TEXT,
+        inputs             TEXT
+    );
+    CREATE TABLE generation_images_v37 (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        generation_id     INTEGER NOT NULL,
+        position          INTEGER NOT NULL,
+        iteration         INTEGER,
+        path              TEXT NOT NULL,
+        prompt_id         INTEGER,
+        negative_id       INTEGER,
+        seed              INTEGER,
+        subseed           INTEGER,
+        width             INTEGER,
+        height            INTEGER,
+        prompt_nsfw_level INTEGER,
+        user_nsfw_level   INTEGER
+    );
+    CREATE TABLE image_details_v37 (
+        image_id           INTEGER PRIMARY KEY,
+        infotext           TEXT,
+        meta               TEXT,
+        loras              TEXT,
+        hr_prompt          TEXT,
+        hr_negative_prompt TEXT
+    );
+    CREATE TABLE generation_resources_v37 (
+        image_id      INTEGER NOT NULL,
+        generation_id INTEGER NOT NULL,
+        role          TEXT NOT NULL,
+        position      INTEGER NOT NULL,
+        name          TEXT NOT NULL,
+        file_path     TEXT,
+        weight        REAL,
+        PRIMARY KEY (image_id, role, position)
+    ) WITHOUT ROWID;
+"""
+_V37_INDEXES = """
+    CREATE INDEX IF NOT EXISTS idx_prompts_grouped ON prompts(grouped_as);
+    CREATE INDEX IF NOT EXISTS idx_prompts_lookup ON prompts(id, grouped_as, length);
+    CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(created_at, id);
+    CREATE INDEX IF NOT EXISTS idx_images_generation
+        ON generation_images(generation_id, position, prompt_nsfw_level, user_nsfw_level);
+    CREATE INDEX IF NOT EXISTS idx_images_prompt ON generation_images(prompt_id);
+    CREATE INDEX IF NOT EXISTS idx_resources_path ON generation_resources(file_path, generation_id);
+    CREATE INDEX IF NOT EXISTS idx_resources_role ON generation_resources(role, name, image_id);
+    CREATE INDEX IF NOT EXISTS idx_resources_role_generation
+        ON generation_resources(role, generation_id, name, file_path);
+"""
+# Columns kept as they are, by the table that keeps them.
+_V37_GENERATION = ("id", "created_at", "mode", "forge", "image_count",
+                   "prompt_nsfw_level", "user_nsfw_level")
+_V37_GENERATION_DETAILS = ("checkpoint_path", "modules", "hr_checkpoint_path", "hr_modules",
+                           "refiner_path", "infotext", "styles", "hr_prompt", "hr_negative_prompt",
+                           "n_iter", "batch_size", "width", "height", "checkpoint_hash", "params",
+                           "extra_params", "script_args", "settings", "inputs")
+_V37_IMAGE = ("id", "generation_id", "position", "iteration", "path", "seed", "subseed",
+              "width", "height", "prompt_nsfw_level", "user_nsfw_level")
+_V37_IMAGE_DETAILS = ("infotext", "meta", "loras", "hr_prompt", "hr_negative_prompt")
+
+
+def _v37_tidy(text):
+    """A prompt with its spacing tidied, as v37 found the Generations tab grouping
+    prompts (_one_line in api/generations.py): frozen here, as migrations must be."""
+    return " ".join(str(text if text is not None else "").split())
+
+
+def _v37_list(value):
+    try:
+        found = json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+    return found if isinstance(found, list) else []
+
+
+def _v37_row(cursor, row):
+    return dict(row) if hasattr(row, "keys") else dict(zip([d[0] for d in cursor.description], row))
+
+
+def _v37_stem(path):
+    return os.path.splitext(os.path.basename(path or ""))[0]
+
+
+def _v37_resources(generation, image, files, module_roles):
+    """
+    The files one image used, each as (role, position, name, path, weight):
+    named by the lists the generation and the image recorded, and spelled as
+    generation_files spells them - the library's spelling, which followed a
+    file that was moved. A recorded path is matched to its generation_files
+    row ignoring case; what is left, by its file name, which a move keeps -
+    after every exact match, so a name never takes another file's row. A
+    generation_files row no list names is kept as `other`.
+    """
+    entries = []
+    if generation["checkpoint_path"]:
+        entries.append(["checkpoint", 0, generation["checkpoint_path"], None])
+    for position, path in enumerate(_v37_list(generation["modules"])):
+        if isinstance(path, str) and path:
+            entries.append(["module", position, path, None])
+    if generation["hr_checkpoint_path"]:
+        entries.append(["hr_checkpoint", 0, generation["hr_checkpoint_path"], None])
+    for position, path in enumerate(_v37_list(generation["hr_modules"])):
+        if isinstance(path, str) and path:
+            entries.append(["hr_module", position, path, None])
+    if generation["refiner_path"]:
+        entries.append(["refiner", 0, generation["refiner_path"], None])
+    for position, lora in enumerate(_v37_list(image["loras"])):
+        if isinstance(lora, dict):
+            entries.append(["lora", position, lora.get("path") if isinstance(lora.get("path"), str) else None,
+                            lora])
+
+    unclaimed = list(files)
+    spelled = [None] * len(entries)
+    for test in (lambda f, p: f.lower() == p.lower(),
+                 lambda f, p: os.path.basename(f).lower() == os.path.basename(p).lower()):
+        for index, (_, _, path, _) in enumerate(entries):
+            if spelled[index] is None and path:
+                found = next((f for f in unclaimed if test(f, path)), None)
+                if found is not None:
+                    unclaimed.remove(found)
+                    spelled[index] = found
+    for index, (_, _, path, _) in enumerate(entries):
+        # The same file named twice - a LoRA loaded twice, a hires checkpoint
+        # that is the checkpoint - shares its one generation_files row.
+        if spelled[index] is None and path:
+            spelled[index] = next((f for f in files if f.lower() == path.lower()), None) or \
+                next((f for f in files if os.path.basename(f).lower() == os.path.basename(path).lower()), path)
+
+    rows = []
+    for (role, position, path, lora), found in zip(entries, spelled):
+        if role == "lora":
+            weight = lora.get("te_multiplier")
+            if weight is None:
+                weight = lora.get("weight")
+            if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+                weight = None
+            name = lora.get("name")
+            rows.append(("lora", position, str(name) if name else "", found, weight))
+        else:
+            if role == "module":
+                role = module_roles.get((found or "").lower(), "module")
+            rows.append((role, position, _v37_stem(path), found, None))
+    for position, path in enumerate(unclaimed):
+        rows.append(("other", position, _v37_stem(path), path, None))
+    return rows
+
+
+def _migrate_to_v37(cursor, db_path: str):
+    """
+    The generation tables, redesigned to hold tens of thousands of images
+    (#231). Lists, groups and filters read narrow tables; what one tile or one
+    Send reads is kept apart, in a details table for each; each prompt text
+    once; and every file an image used one row of generation_resources, with
+    its role and its place in the list it came from. generation_files goes.
+
+    Lossless: every value of every row is kept, the same value and type -
+    the lists and paths as Forge recorded them in the details tables, the
+    resources an index made from them. Before anything is dropped, every old
+    row is rebuilt from the new tables and compared, and the resources'
+    files must be the same set as generation_files; any difference raises,
+    and the caller's transaction leaves the old tables as they were. The
+    database is backed up first, beside it, as v25 and v32 did.
+
+    Prompts group by `grouped_as`: the row holding the text with its spacing
+    tidied, made where no prompt had it, so recording a prompt finds its
+    group by one lookup - 0 for a prompt that tidies to nothing, as a
+    missing one does.
+    """
+    print("[ModelManager] Migrating to v37: the generation tables, for tens of thousands of images...")
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "generation_files" not in tables and "generation_resources" in tables:
+        print("[ModelManager] Migration to v37 already done")
+        return
+    connection = cursor.connection
+    if connection.in_transaction:
+        connection.commit()
+    if cursor.execute("SELECT EXISTS (SELECT 1 FROM generations)").fetchone()[0]:
+        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup = sqlite3.connect(backup_path)
+        try:
+            connection.backup(backup)
+        finally:
+            backup.close()
+        print(f"[ModelManager] Backed up the database to {backup_path}")
+
+    # One transaction for every step: the caller's commit ends it, a raise
+    # rolls it back.
+    cursor.execute("BEGIN")
+    for name in ("prompts", "generations", "generation_details", "generation_images",
+                 "image_details", "generation_resources"):
+        cursor.execute(f"DROP TABLE IF EXISTS {name}_v37")
+    for statement in _V37_TABLES.split(";"):
+        if statement.strip():
+            cursor.execute(statement)
+
+    sequences = {name: seq for name, seq in cursor.execute(
+        "SELECT name, seq FROM sqlite_sequence WHERE name IN ('generations', 'generation_images')")}
+
+    # Prompts: each text once, in the order first met. A prompt groups by the
+    # row holding its tidied text - made if no prompt had it - so recording
+    # one finds its group by one lookup.
+    prompt_ids = {}
+
+    def prompt_id(text):
+        if text is None:
+            return None
+        if text not in prompt_ids:
+            tidied = _v37_tidy(text)
+            grouped = 0 if tidied == "" else None if tidied == text else prompt_id(tidied)
+            new_id = len(prompt_ids) + 1
+            prompt_ids[text] = new_id
+            cursor.execute("INSERT INTO prompts_v37 (id, text, grouped_as) VALUES (?, ?, ?)",
+                           (new_id, text, new_id if grouped is None else grouped))
+        return prompt_ids[text]
+
+    generations = {}
+    for row in cursor.execute("SELECT * FROM generations ORDER BY id").fetchall():
+        row = _v37_row(cursor, row)
+        generations[row["id"]] = row
+        cursor.execute(
+            f"INSERT INTO generations_v37 ({', '.join(_V37_GENERATION)}, prompt_id, negative_id) "
+            f"VALUES ({', '.join('?' * (len(_V37_GENERATION) + 2))})",
+            [row[c] for c in _V37_GENERATION] + [prompt_id(row["prompt"]), prompt_id(row["negative_prompt"])])
+        cursor.execute(
+            f"INSERT INTO generation_details_v37 (generation_id, {', '.join(_V37_GENERATION_DETAILS)}) "
+            f"VALUES ({', '.join('?' * (len(_V37_GENERATION_DETAILS) + 1))})",
+            [row["id"]] + [row[c] for c in _V37_GENERATION_DETAILS])
+
+    files_of = {}
+    for path, image_id in cursor.execute("SELECT file_path, image_id FROM generation_files "
+                                         "ORDER BY image_id, file_path").fetchall():
+        files_of.setdefault(image_id, []).append(path)
+    # A module's role, from what the library read the file to be; a file the
+    # library does not hold is a module, nothing more.
+    module_roles = {}
+    for path, file_type in cursor.execute("SELECT file_path, file_type FROM files "
+                                          "WHERE file_type IN ('VAE', 'Text Encoder')").fetchall():
+        module_roles[path.lower()] = "vae" if file_type == "VAE" else "text_encoder"
+
+    for row in cursor.execute("SELECT * FROM generation_images ORDER BY id").fetchall():
+        row = _v37_row(cursor, row)
+        cursor.execute(
+            f"INSERT INTO generation_images_v37 ({', '.join(_V37_IMAGE)}, prompt_id, negative_id) "
+            f"VALUES ({', '.join('?' * (len(_V37_IMAGE) + 2))})",
+            [row[c] for c in _V37_IMAGE] + [prompt_id(row["prompt"]), prompt_id(row["negative_prompt"])])
+        cursor.execute(
+            f"INSERT INTO image_details_v37 (image_id, {', '.join(_V37_IMAGE_DETAILS)}) "
+            f"VALUES ({', '.join('?' * (len(_V37_IMAGE_DETAILS) + 1))})",
+            [row["id"]] + [row[c] for c in _V37_IMAGE_DETAILS])
+        generation = generations.get(row["generation_id"]) or {
+            "checkpoint_path": None, "modules": None, "hr_checkpoint_path": None,
+            "hr_modules": None, "refiner_path": None}
+        cursor.executemany(
+            "INSERT INTO generation_resources_v37 (image_id, generation_id, role, position, name, "
+            "file_path, weight) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(row["id"], row["generation_id"], *resource)
+             for resource in _v37_resources(generation, row, files_of.get(row["id"], []), module_roles)])
+
+    # How long each prompt is, trimmed as a prompt worth reading is
+    # (prompt_rules.readable): read for every image the prompt switch counts,
+    # it is kept beside the group, where an index holds both.
+    cursor.execute("UPDATE prompts_v37 SET length = LENGTH(TRIM(text, char(32) || char(9) || char(13) || char(10)))")
+
+    _v37_check(cursor)
+
+    for name in ("generation_files", "generation_images", "generations"):
+        cursor.execute(f"DROP TABLE {name}")
+    for name in ("prompts", "generations", "generation_details", "generation_images",
+                 "image_details", "generation_resources"):
+        cursor.execute(f"ALTER TABLE {name}_v37 RENAME TO {name}")
+    for statement in _V37_INDEXES.split(";"):
+        if statement.strip():
+            cursor.execute(statement)
+    # A deleted id is never given again: each table keeps the highest ever given.
+    for name, seq in sequences.items():
+        cursor.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (seq, name))
+        if not cursor.rowcount:
+            cursor.execute("INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", (name, seq))
+    print(f"[ModelManager] Migration to v37 complete: {len(generations)} generations, "
+          f"{len(prompt_ids)} distinct prompts")
+
+
+def _v37_check(cursor):
+    """
+    Every old row, rebuilt from v37's tables, equal in every column - value
+    and SQLite type - and the resources' files the same set as
+    generation_files. Raises on any difference, naming the first.
+    """
+    def same(old, new):
+        return f"({old} IS {new} AND typeof({old}) = typeof({new}))"
+
+    checks = {
+        "generations": (
+            "SELECT o.id FROM generations o LEFT JOIN generations_v37 n ON n.id = o.id "
+            "LEFT JOIN generation_details_v37 d ON d.generation_id = o.id "
+            "LEFT JOIN prompts_v37 p ON p.id = n.prompt_id LEFT JOIN prompts_v37 q ON q.id = n.negative_id "
+            "WHERE n.id IS NULL OR d.generation_id IS NULL OR NOT ("
+            + " AND ".join([same(f"o.{c}", f"n.{c}") for c in _V37_GENERATION]
+                           + [same(f"o.{c}", f"d.{c}") for c in _V37_GENERATION_DETAILS]
+                           + [same("o.prompt", "p.text"), same("o.negative_prompt", "q.text")])
+            + ") LIMIT 1"),
+        "generation_images": (
+            "SELECT o.id FROM generation_images o LEFT JOIN generation_images_v37 n ON n.id = o.id "
+            "LEFT JOIN image_details_v37 d ON d.image_id = o.id "
+            "LEFT JOIN prompts_v37 p ON p.id = n.prompt_id LEFT JOIN prompts_v37 q ON q.id = n.negative_id "
+            "WHERE n.id IS NULL OR d.image_id IS NULL OR NOT ("
+            + " AND ".join([same(f"o.{c}", f"n.{c}") for c in _V37_IMAGE]
+                           + [same(f"o.{c}", f"d.{c}") for c in _V37_IMAGE_DETAILS]
+                           + [same("o.prompt", "p.text"), same("o.negative_prompt", "q.text")])
+            + ") LIMIT 1"),
+        # The two sets equal: each generation_files row among the resources,
+        # and each resource's file one generation_files named for its image.
+        "generation_files": (
+            "SELECT o.image_id FROM generation_files o WHERE NOT EXISTS (SELECT 1 FROM "
+            "generation_resources_v37 r WHERE r.image_id = o.image_id AND r.generation_id = o.generation_id "
+            "AND r.file_path IS o.file_path) LIMIT 1"),
+        "generation_resources": (
+            "SELECT r.image_id FROM generation_resources_v37 r WHERE r.file_path IS NOT NULL AND NOT EXISTS "
+            "(SELECT 1 FROM generation_files o WHERE o.image_id = r.image_id "
+            "AND o.generation_id = r.generation_id AND o.file_path IS r.file_path) LIMIT 1"),
+    }
+    for table, sql in checks.items():
+        row = cursor.execute(sql).fetchone()
+        if row is not None:
+            raise RuntimeError(f"[ModelManager] v37 would lose data: {table} row {row[0]} does not "
+                               "come back the same. Nothing was changed.")
+    for old, new in (("generations", "generations_v37"), ("generation_images", "generation_images_v37"),
+                     ("generations", "generation_details_v37"),
+                     ("generation_images", "image_details_v37")):
+        if cursor.execute(f"SELECT COUNT(*) FROM {old}").fetchone()[0] != \
+                cursor.execute(f"SELECT COUNT(*) FROM {new}").fetchone()[0]:
+            raise RuntimeError(f"[ModelManager] v37 would lose data: {new} has not as many rows as "
+                               f"{old}. Nothing was changed.")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
-    # Only v4, v25 and v32 take the path; v4 the directory too. Each makes a
+    # Only v4, v25, v32 and v37 take the path; v4 the directory too. Each makes a
     # backup first.
     steps = {
         2: _migrate_to_v2, 3: _migrate_to_v3,
@@ -1675,6 +2049,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         30: _migrate_to_v30, 31: _migrate_to_v31,
         32: lambda c: _migrate_to_v32(c, db_path),
         33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
+        37: lambda c: _migrate_to_v37(c, db_path),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

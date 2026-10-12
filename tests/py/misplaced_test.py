@@ -75,7 +75,8 @@ unknown = place('Lora', 'mystery.safetensors', 'Unknown')
 db.set_downloaded_at(vae)
 db.set_pin(None, vae, True)
 raw = sqlite3.connect(facts['db_path'])
-raw.execute('INSERT INTO generation_files (file_path, image_id, generation_id) VALUES (?, 1, 1)', (vae,))
+raw.execute("INSERT INTO generation_resources (image_id, generation_id, role, position, name, file_path) "
+            "VALUES (1, 1, 'vae', 0, 'ae', ?)", (vae,))
 raw.commit()
 raw.close()
 
@@ -110,7 +111,7 @@ raw = sqlite3.connect(facts['db_path'])
 check('its pin goes with it', raw.execute('SELECT file_path FROM pins WHERE file_path IS NOT NULL').fetchall(),
       [(belongs,)])
 check('and the generations that used it',
-      raw.execute('SELECT file_path FROM generation_files').fetchall(), [(belongs,)])
+      raw.execute('SELECT file_path FROM generation_resources').fetchall(), [(belongs,)])
 raw.close()
 check('a file of unknown type stays where it is', os.path.exists(unknown), True)
 check('and once moved, nothing is left to move', misplaced_files(db), [])
@@ -136,10 +137,13 @@ check('the count reaches the page', progress.to_dict()['not_moved'], 3)
 # runs after the move. Moving onto its path is no clash, as nothing is there;
 # its row once stopped the moved file's row following it, the file moved and
 # its row, pin and generations left under the old path.
+linked = iter(range(1, 1000))
+
+
 def link(path, *images):
     raw = sqlite3.connect(facts['db_path'])
-    raw.executemany('INSERT INTO generation_files (file_path, image_id, generation_id) VALUES (?, ?, 1)',
-                    [(path, image) for image in images])
+    raw.executemany("INSERT INTO generation_resources (image_id, generation_id, role, position, name, file_path) "
+                    "VALUES (?, 1, 'other', ?, 'x', ?)", [(image, next(linked), path) for image in images])
     raw.commit()
     raw.close()
 
@@ -147,10 +151,10 @@ def link(path, *images):
 def under(path):
     """What names `path`, in any case: rows, pins, generations' images."""
     raw = sqlite3.connect(facts['db_path'])
-    found = [[r[0] for r in raw.execute(f'SELECT {column} FROM {table} WHERE file_path = ? COLLATE NOCASE '
-                                        f'ORDER BY 1', (path,))]
+    found = [[r[0] for r in raw.execute(f'SELECT DISTINCT {column} FROM {table} WHERE file_path = ? '
+                                        f'COLLATE NOCASE ORDER BY 1', (path,))]
              for table, column in (('files', 'file_path'), ('pins', 'file_path'),
-                                   ('generation_files', 'image_id'))]
+                                   ('generation_resources', 'image_id'))]
     raw.close()
     return found
 

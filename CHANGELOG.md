@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.58 - Your generations, ready for tens of thousands
+
+*11 October 2026*
+
+The tables behind the Generations tab and each model's Your generations are rebuilt for libraries of tens of thousands of images. The tab now asks the database for one scroll's worth at a time, where it read every image you ever recorded on each scroll. Nothing you recorded is lost in the move: every value is checked before the old tables go.
+
+- **0.58.0** (build 454) - The generation tables, redesigned to hold tens of thousands of images (#231). Every request of the Generations tab read every image row - its prompt, LoRAs, size and level - into Python, then filtered, grouped and paged there: at 76,000 images, 317 to 897 ms a request. Now the part is picked in SQL, and only its tiles' images are read. The images and generations lists keep narrow rows; what one tile or one Send reads - the infotext, the settings, what Generate was sent - is kept apart; each prompt text is stored once; and every file an image used is a row with its role, which a file moved by the sync follows: its generations once kept naming the old path for their checkpoint and LoRAs (#234). Measured on synthetic libraries (`tools/measure_generations.py`): on 1,354 images the tab's requests take 0 to 42 ms, against 1 to 44; on 10,000, 0 to 123 ms against 104 to 233 - except grouping by model, 309 ms against 172, and by base model, 186 against 144, slower until #238. A model's Your generations takes 11 ms against 5 there. The database moves to v37, with a backup beside it first: every value of every row is rebuilt from the new tables and compared, in value and type, and any difference leaves the old tables as they were. If two WebUIs share the database, update the other copy before starting it.
+
 ## 0.57 - A Gallery of your library's images
 
 *10 October 2026*

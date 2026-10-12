@@ -26,7 +26,7 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 from model_manager.db import ModelsDatabase              # noqa: E402
-from model_manager.gallery import filter_images, switch_counts   # noqa: E402
+from model_manager.gallery import filter_images, switch_counts, switch_counts_sql   # noqa: E402
 from model_manager.nsfw import SFW_MAX                   # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'switch_counts')
@@ -77,6 +77,23 @@ readable = [bool(img['meta'] and len((img['meta'].get('prompt') or '').strip(' \
             for img in IMAGES]
 check('switch_counts, given the verdicts, counts as filter_images does',
       switch_counts(IMAGES, safe, readable, True, True)[1], both)
+
+# The same counts in SQL, for a read that counts in the database (#231): every
+# mix of verdicts, through every combination of the switches.
+import itertools                                         # noqa: E402
+import sqlite3                                           # noqa: E402
+verdicts = list(itertools.product((0, 1), repeat=2)) * 2 + [(1, 0), (0, 0), (0, 1)]
+memory = sqlite3.connect(':memory:')
+memory.execute('CREATE TABLE rows (safe INTEGER, readable INTEGER)')
+memory.executemany('INSERT INTO rows VALUES (?, ?)', verdicts)
+memory.row_factory = sqlite3.Row
+for hide_nsfw, hide_promptless in itertools.product((False, True), repeat=2):
+    sql = dict(memory.execute(f'SELECT {switch_counts_sql(hide_nsfw, hide_promptless)} FROM rows').fetchone())
+    python = switch_counts(verdicts, [bool(v[0]) for v in verdicts], [bool(v[1]) for v in verdicts],
+                           hide_nsfw, hide_promptless)[1]
+    check(f'switch_counts_sql counts as switch_counts, switches {hide_nsfw}/{hide_promptless}',
+          {k: int(v) for k, v in sql.items()}, python)
+memory.close()
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

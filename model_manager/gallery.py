@@ -108,6 +108,30 @@ def switch_counts(items: Sequence[Any], safe: Sequence[bool], readable: Sequence
     }
 
 
+def switch_counts_sql(hide_nsfw: bool, hide_promptless: bool,
+                      safe: str = "safe", readable: str = "readable") -> str:
+    """
+    switch_counts()'s counts as SQL aggregates, each named as it names them,
+    over rows whose `safe` and `readable` columns are 1 or 0 - for a read
+    that counts in SQL, rather than handing every row to Python (#231).
+    switch_counts_test holds the two to the same answers.
+    """
+    kept = f"({safe} OR NOT {int(bool(hide_nsfw))})"
+    shown = f"({kept} AND ({readable} OR NOT {int(bool(hide_promptless))}))"
+    both = f"({int(bool(hide_nsfw and hide_promptless))} AND NOT {safe} AND NOT {readable})"
+    return ", ".join([
+        "COUNT(*) AS total",
+        f"TOTAL({shown}) AS filtered",
+        f"COUNT(*) - TOTAL({kept}) - TOTAL({both}) AS hidden_nsfw",
+        f"TOTAL({both}) AS hidden_both",
+        f"TOTAL({kept}) - TOTAL({shown}) AS hidden_promptless",
+        f"COUNT(*) - TOTAL({shown}) AS hidden",
+        f"TOTAL(NOT {safe} AND ({readable} OR NOT {int(bool(hide_promptless))})) AS nsfw_count",
+        f"TOTAL({kept} AND NOT {readable}) AS promptless_count",
+        f"TOTAL(NOT {readable}) AS promptless_total",
+    ])
+
+
 def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
                   hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """Civitai images through the switches: judged by nsfw.py, read by prompt_rules."""

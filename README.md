@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.58 - Your generations, ready for tens of thousands.** The tables behind the Generations
+tab and each model's Your generations are rebuilt for libraries of tens of thousands of images:
+the tab asks for one scroll's worth at a time instead of reading every image you ever recorded.
+Nothing is lost in the move - every value is checked before the old tables go.
+
 **0.57 - A Gallery of your library's images.** A new tab shows the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks - the same seed, the same order; a new one, a new shuffle. Group them by model, base model, type or size. The tab is off until you turn it on in Settings -> Tabs.
 
 **0.56 - Send sets your generation back as it was made.** Send on an image you generated

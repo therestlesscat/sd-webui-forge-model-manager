@@ -33,6 +33,7 @@ except ImportError:
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.api import generations as api         # noqa: E402
+from model_manager.db.generations_ops import Scope       # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG                        # noqa: E402
 
@@ -75,8 +76,8 @@ def found(search, **params):
 
 
 def images_of(*generations):
-    rows = db.generation_gallery_images(None)
-    return sorted(r['id'] for r in rows if r['generation_id'] in generations)
+    rows = db.generation_scope_rows(Scope(generations=list(generations)))
+    return sorted(r['id'] for r in rows)
 
 
 everything = images_of(lighthouse, fox, cat)
@@ -113,7 +114,7 @@ check('and counted as narrowed', grouped['state']['total'], 3)
 answer = client.post('/model-manager/generations/rate', data={
     'level': '4', 'generation': str(lighthouse), 'search': 'storm', 'hide_nsfw_images': 'false'}).json()
 check('rating a batch rates only what the search shows', answer['rated'], 1)
-levels = {r['id']: r['user_level'] for r in db.generation_gallery_images(None) if r['generation_id'] == lighthouse}
+levels = {r['id']: r['user_level'] for r in db.generation_scope_rows(Scope(generation=lighthouse))}
 check('the image the search found', [levels[i] for i in images_of(lighthouse)], [None, 4])
 
 db.close()
