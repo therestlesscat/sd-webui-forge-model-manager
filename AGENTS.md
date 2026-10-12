@@ -96,7 +96,10 @@ longer existed.
   has seen its text and said yes. A change to the plan found while
   building goes in a second comment, saying what changed - never an edit
   of the first (#179). Two issues folded into one plan get one comment, on
-  the first: #197's for #198, #105's for #107.
+  the first: #197's for #198, #105's for #107. Work with no issue - a fix a
+  check turned up - gets one before its plan is posted: 0.58.3's build began
+  before #246 existed, and the owner asked "where's issue and plan in it?"
+  (2026-10-12).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
@@ -691,6 +694,16 @@ number +1: 630 of 630 recorded generations came out exactly. A delete that
 keeps the file puts it on `removed_images`, with its size and time, or the
 next sync brings it back. A checkpoint the library lacks is kept by its
 name, a resource row with no path: Send stops on it and opens Resources.
+A sync skips every image it holds, so a fix to reading or matching reaches
+old images only through Force sync ("Read every image again", #246): each
+chunk's synced rows are rebuilt in one transaction, and what the person
+added is carried over by path - a rating, and the level an image without
+infotext got at its first sync - while what came from the image is
+replaced. A file name is read back by *this* WebUI's naming settings: a
+folder named by another WebUI's joined none of its 12,871 images without
+infotext, where the WebUI that saved them joined them into 639 (#247). An
+image without infotext has nothing for Send to paste: its Send is disabled,
+saying why - it was enabled, and did nothing.
 
 ## The WebUI's rules, which are not obvious
 
@@ -949,6 +962,12 @@ ticked checkboxes that looked empty.
   escapes (`.prose :last-child`): Show hidden's box, its count in a `<span>`
   after it, sat 2px above Select's on 7870. A switch's box says `margin: 0`
   (`.queue-select-switch > input[type="checkbox"]`).
+- **It sizes a text input itself** (`.gradio-container-4-40-0 [type="text"]`):
+  16px text, 8px 12px padding, a white box - Sync images' path box stood
+  42px tall beside a 28px Add on 7880, its one class beaten. Its type and
+  element name under a parent class win
+  (`.gen-sync-add > input.mm-settings-input[type="text"]`). A `<select>`
+  inside a tab loses the same way (#243).
 
 **Seen in both modes, in a real browser, before it is done.** linkedom has
 no layout and no cascade worth the name: headless Edge (`tests/README.md`,
@@ -1111,6 +1130,11 @@ waits - are in `tests/README.md`.
   assumed raised a `ValueError`: both "failed" without showing which check the
   break reached. Compare whole values, and break with a valid alternative -
   `(1 = 1)` for the order.
+- **A break that fails nothing is a finding.** Of 0.58.3's breaks, two failed
+  nothing: one removed a line that turned out redundant - the line went -
+  and one hit a guard a second layer covers (the walk never hands a recorded
+  file to the write); breaking that layer failed the check. Find out which
+  before calling a check proven.
 - **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
   source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
   is the same size, a swap reproduced the timestamp, and the stale bytecode
@@ -1336,7 +1360,20 @@ waits - are in `tests/README.md`.
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show. It lists
   VAEs and text encoders by file name (`refresh_models`,
-  `modules_forge/main_entry.py`): a name in two folders shows once.
+  `modules_forge/main_entry.py`): a name in two folders shows once. It writes
+  `Module N` as the file's stem, untrimmed, and its parser strips the value:
+  `sdxl-vae-fp16-fix .safetensors` became `sdxl-vae-fp16-fix`, which matched
+  nothing - Neo's own paste misses it too - and 9 synced generations lost
+  their VAE until names were compared trimmed (#246).
+- **A check in one route and an act in another race.** Sync images' Start
+  read the folder list, then registered its job; a Remove landing between
+  the two passed its "running" check and took the folder off the list, and
+  the sync wrote 54 generations under it that no Remove could reach. Found
+  live on 7880, not by a suite; one lock now spans both routes, and a check
+  sends the Remove from inside Start.
+- **`api/settings._kind` read a Radio as a choice and a Dropdown as text**,
+  so the settings window drew Sync images' level as a box taking any word.
+  It reads both.
 
 ### The environment
 
