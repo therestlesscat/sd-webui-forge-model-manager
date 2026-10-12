@@ -1312,6 +1312,7 @@ work.provide('generations.spanFor', spanFor);
 work.provide('generations.syncImages', () => openSyncDialog());
 work.provide('generations.syncTick', ({ path }, box) => tickSyncFolder(path, box.checked));
 work.provide('generations.startSync', () => startSync());
+work.provide('generations.syncForce', () => { drawSyncFolders(); showSyncEstimate(); });
 work.provide('generations.closeSyncDialog', () => closeSyncDialog());
 work.provide('generations.syncDialogBackdrop', (data, element, event) => {
     if (event?.target === element) closeSyncDialog();
@@ -1360,6 +1361,9 @@ async function openSyncDialog() {
     dialog.style.display = 'flex';
     const box = byId('gen_sync_add_path');
     if (box) box.value = '';
+    // Force sync is asked for each time, never kept (#246).
+    const force = byId('gen_sync_force');
+    if (force) force.checked = false;
     showAddNote('');
     showAddButton();
     await loadSyncFolders(null);
@@ -1393,7 +1397,10 @@ async function loadSyncFolders(ticks) {
         setText(byId('gen_sync_estimate'), `Could not count the new images: ${counted.error}`);
         return;
     }
-    syncFolders.forEach((folder) => { folder.count = counted.counts[folder.path] ?? 0; });
+    syncFolders.forEach((folder) => {
+        folder.count = counted.counts[folder.path] ?? 0;
+        folder.again = counted.again?.[folder.path] ?? 0;
+    });
     drawSyncFolders();
     showSyncEstimate();
 }
@@ -1419,7 +1426,8 @@ function drawSyncFolders() {
                     </div>`;
         }
         const title = folder.forge ? `Forge saves results here (its setting ${folder.key})` : 'A folder you added';
-        const count = folder.count === null ? 'counting...' : `${syncCount(folder.count)} new`;
+        const count = folder.count === null ? 'counting...'
+            : `${syncCount(folder.count)} new` + (forcing() && folder.again ? ` · ${syncCount(folder.again)} again` : '');
         const line = `<label class="mm-dialog-option" title="${escapeHtml(title)}">
                     <input type="checkbox" data-action="generations.syncTick" data-path="${path}"${folder.ticked ? ' checked' : ''}>
                     <span>${escapeHtml(shownPath(folder.path))}</span>
@@ -1440,18 +1448,24 @@ function tickSyncFolder(path, ticked) {
     showSyncEstimate();
 }
 
+function forcing() {
+    return Boolean(byId('gen_sync_force')?.checked);
+}
+
 function showSyncEstimate() {
     const ticked = syncFolders.filter((f) => f.ticked);
     const counting = ticked.some((f) => f.count === null);
-    const total = ticked.reduce((sum, f) => sum + (f.count || 0), 0);
+    const fresh = ticked.reduce((sum, f) => sum + (f.count || 0), 0);
+    const again = forcing() ? ticked.reduce((sum, f) => sum + (f.again || 0), 0) : 0;
+    const total = fresh + again;
     let text;
     if (!ticked.length) text = 'Tick a folder to sync.';
     else if (counting) text = 'Counting the new images...';
-    else if (!total) text = 'No new images in the ticked folders.';
-    else text = `${syncCount(total)} new images. Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; `
-                + 'writing them comes after.';
+    else if (!total) text = forcing() ? 'No images in the ticked folders.' : 'No new images in the ticked folders.';
+    else text = (again ? `${syncCount(fresh)} new, ${syncCount(again)} to read again.` : `${syncCount(total)} new images.`)
+                + ` Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; writing them comes after.`;
     setText(byId('gen_sync_estimate'), text);
-    // Start would do nothing until there is something new to add.
+    // Start would do nothing until there is something to add, or to read again.
     const start = byId('gen_sync_start');
     if (start) start.disabled = counting || !total;
 }
@@ -1520,6 +1534,7 @@ async function startSync() {
         folders: JSON.stringify(syncFolders.filter((f) => f.ticked).map((f) => f.path)),
         level: byId('gen_sync_level')?.value || '',
         group: String(Boolean(byId('gen_sync_group')?.checked)),
+        force: String(forcing()),
     });
     if (!answer.success) {
         setText(byId('gen_sync_estimate'), `Could not start: ${answer.error}`);
@@ -1557,7 +1572,8 @@ async function pollSync() {
 function syncStatus(p) {
     const where = p.folder ? ` in ${shownPath(p.folder)}` : '';
     if (p.state === 'done') {
-        return `Added ${syncCount(p.images)} images as ${syncCount(p.generations)} generations.`;
+        return `Added ${syncCount(p.images)} images as ${syncCount(p.generations)} generations`
+            + (p.again ? `, ${syncCount(p.again)} of them read again.` : '.');
     }
     if (p.state === 'cancelled') {
         return `Cancelled. ${syncCount(p.images)} images were added as ${syncCount(p.generations)} generations `

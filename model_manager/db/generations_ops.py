@@ -922,6 +922,59 @@ class GenerationsOps:
             cursor.execute("SELECT path FROM generation_images")
             return {row[0].lower() for row in cursor.fetchall() if row[0]}
 
+    def synced_paths(self) -> set:
+        """Every path a synced image is kept at, lower case: what a Force sync
+        reads again."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT gi.path FROM generation_images gi JOIN generations g "
+                           "ON g.id = gi.generation_id WHERE g.source_id IS NOT NULL")
+            return {row[0].lower() for row in cursor.fetchall() if row[0]}
+
+    def replace_synced(self, generations: Sequence[Tuple[Dict[str, Any], List[Dict[str, Any]],
+                                                        List[List[str]]]]) -> List[int]:
+        """
+        record_generations() for a Force sync (#233): the synced rows of these
+        files go, and the generations are written anew, in one transaction -
+        a cancel or a crash leaves either the old rows or the new. What the
+        person added is carried over by path: an image's rating, and the level
+        a sync's dialog gave an image without infotext. A recorded image's
+        rows are never touched.
+        """
+        paths = list({image["path"].lower(): image["path"] for _, images, _ in generations for image in images}.values())
+        with self._cursor() as cursor:
+            rated: Dict[str, int] = {}
+            bare: Dict[str, int] = {}
+            old: List[int] = []
+            for start in range(0, len(paths), 500):
+                part = paths[start:start + 500]
+                cursor.execute(
+                    "SELECT gi.id, gi.path, gi.user_nsfw_level, gi.prompt_nsfw_level, d.infotext IS NULL "
+                    "FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
+                    "LEFT JOIN image_details d ON d.image_id = gi.id "
+                    f"WHERE g.source_id IS NOT NULL AND gi.path COLLATE NOCASE IN ({', '.join('?' * len(part))})", part)
+                for image_id, path, user_level, prompt_level, no_text in cursor.fetchall():
+                    old.append(image_id)
+                    if user_level is not None:
+                        rated[path.lower()] = user_level
+                    if no_text and prompt_level is not None:
+                        bare[path.lower()] = prompt_level
+            for image_id in old:
+                self._delete_image(cursor, image_id)
+            written = []
+            for generation, images, files in generations:
+                for image in images:
+                    if image.get("infotext") is None and image["path"].lower() in bare:
+                        image["prompt_nsfw_level"] = bare[image["path"].lower()]
+                if images:
+                    generation["prompt_nsfw_level"] = max(image["prompt_nsfw_level"] for image in images)
+                generation_id = self._record(cursor, generation, images, files)
+                written.append(generation_id)
+                cursor.executemany("UPDATE generation_images SET user_nsfw_level = ? "
+                                   "WHERE generation_id = ? AND path = ?",
+                                   [(rated[image["path"].lower()], generation_id, image["path"])
+                                    for image in images if image["path"].lower() in rated])
+            return written
+
     def source_id(self, folder: str) -> int:
         """The number a synced folder is known by, made the first time."""
         with self._cursor() as cursor:

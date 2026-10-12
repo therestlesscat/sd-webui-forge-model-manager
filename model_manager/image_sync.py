@@ -200,12 +200,21 @@ def is_new(path: str, size: int, mtime_ns: int, held: set,
     return gone is None or gone != (size, mtime_ns)
 
 
-def counts(db, entries: Iterable[Dict[str, Any]]) -> Dict[str, int]:
-    """How many new images each folder holds, by path: a walk, nothing read."""
-    held, removed = db.held_image_paths(), db.removed_images()
-    return {entry["path"]: sum(1 for path, size, mtime in walk(entry["path"])
-                               if is_new(path, size, mtime, held, removed))
-            for entry in entries}
+def counts(db, entries: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
+    """
+    How many new images each folder holds, and how many synced ones a Force
+    sync would read again, each by path: a walk, nothing read.
+    """
+    held, removed, synced = db.held_image_paths(), db.removed_images(), db.synced_image_paths()
+    new, again = {}, {}
+    for entry in entries:
+        new[entry["path"]] = again[entry["path"]] = 0
+        for path, size, mtime in walk(entry["path"]):
+            if path.lower() in synced:
+                again[entry["path"]] += 1
+            elif is_new(path, size, mtime, held, removed):
+                new[entry["path"]] += 1
+    return new, again
 
 
 # ----------------------------------------------------------------- progress
@@ -224,6 +233,7 @@ class ImageSyncProgress:
     read: int = 0
     generations: int = 0
     images: int = 0
+    again: int = 0
     errors: List[str] = field(default_factory=list)
     error_count: int = 0
     gap: Optional[float] = None
@@ -253,7 +263,8 @@ class ImageSyncProgress:
     def to_dict(self) -> Dict[str, Any]:
         return {"state": self.state, "stage": self.stage, "folder": self.folder,
                 "total": self.total, "read": self.read, "generations": self.generations,
-                "images": self.images, "errors": list(self.errors), "error_count": self.error_count,
+                "images": self.images, "again": self.again, "errors": list(self.errors),
+                "error_count": self.error_count,
                 "gap": self.gap, "gap_from": self.gap_from, "cancelling": self.cancelling,
                 "started": self.started, "finished": self.finished, "error": self.error,
                 "is_complete": self.is_complete}
@@ -427,10 +438,15 @@ def _modules(params: Dict[str, str]) -> List[str]:
     """
     The VAE and text encoders an infotext's `Module N` names, as files, by
     Forge's own list of them. Neo writes each by its file name without the
-    extension - `Module 1: sdxl_vae` - where the list is keyed with it.
+    extension - `Module 1: sdxl_vae` - where the list is keyed with it; names
+    are compared with spaces at their ends trimmed.
     """
     known = forge_host.installed_modules()
-    by_stem = {os.path.splitext(name)[0].lower(): path for name, path in known.items()}
+    # Trimmed: a file named `sdxl-vae-fp16-fix .safetensors` is written as
+    # `Module 1: sdxl-vae-fp16-fix`, and the parser strips the value (#246).
+    by_stem = {}
+    for name, path in known.items():
+        by_stem.setdefault(os.path.splitext(name)[0].strip().lower(), path)
     paths = []
     for key in sorted(params, key=lambda k: (len(k), k)):
         if not re.fullmatch(r"Module \d+", key):
@@ -439,8 +455,8 @@ def _modules(params: Dict[str, str]) -> List[str]:
         if value in ("Use same choices", "Built-in", ""):
             continue
         name = os.path.basename(value)
-        path = known.get(value) or known.get(name) or by_stem.get(os.path.splitext(name)[0].lower()) \
-            or by_stem.get(name.lower())
+        path = known.get(value) or known.get(name) or by_stem.get(os.path.splitext(name)[0].strip().lower()) \
+            or by_stem.get(name.strip().lower())
         if path:
             paths.append(os.path.normpath(os.path.abspath(path)))
     return paths
@@ -451,10 +467,14 @@ def _modules(params: Dict[str, str]) -> List[str]:
 class ImageSync(object):
     """One sync of the given folders. Never two at once (jobs.py)."""
 
-    def __init__(self, entries: List[Dict[str, Any]], level: int = UNKNOWN, group_no_text: bool = True):
+    def __init__(self, entries: List[Dict[str, Any]], level: int = UNKNOWN, group_no_text: bool = True,
+                 force: bool = False):
         self.entries = [e for e in entries if e.get("path")]
         self.level = level
         self.group_no_text = group_no_text
+        # Force sync (#246): the synced images are read again as well, and
+        # their rows rebuilt; what the person added is carried over.
+        self.force = force
         self.progress = ImageSyncProgress()
         self._cancel = threading.Event()
 
@@ -476,6 +496,7 @@ class ImageSync(object):
         say(f"Sync images: {len(self.entries)} folder(s)")
 
         held, removed = db.held_image_paths(), db.removed_images()
+        synced = db.synced_image_paths() if self.force else set()
         gone = [path for path in removed if not os.path.exists(path)]
         if gone:
             db.forget_removed_images(gone)
@@ -492,15 +513,20 @@ class ImageSync(object):
             for path, size, mtime in walk(entry["path"]):
                 if self._cancel.is_set():
                     break
-                if is_new(path, size, mtime, held, removed):
+                again = path.lower() in synced
+                if again or is_new(path, size, mtime, held, removed):
+                    # Once: a folder inside another is walked twice.
                     held.add(path.lower())
+                    synced.discard(path.lower())
+                    progress.again += int(again)
                     number = _NUMBER.match(os.path.basename(path))
                     images.append(_Image(path, entry["path"], source, mode, size, mtime,
                                          int(number.group(1)) if number else None))
         if self._cancelled():
             return
         progress.total = len(images)
-        say(f"Sync images: {len(images)} new image(s) to read")
+        say(f"Sync images: {len(images) - progress.again} new image(s) to read"
+            + (f", and {progress.again} synced before to read again" if self.force else ""))
 
         progress.stage = "reading"
         naming = forge_host.naming_patterns()
@@ -562,12 +588,14 @@ class ImageSync(object):
             chunk = [self._generation(matcher, g) for g in generations[start:start + CHUNK]]
             spelled = db.library_spelling({f for _, _, files in chunk for used in files for f in used})
             chunk = [(g, i, [[spelled.get(f, f) for f in used] for used in files]) for g, i, files in chunk]
-            db.record_generations(chunk)
+            # A forced chunk replaces its files' synced rows in the same transaction.
+            (db.replace_synced_generations if self.force else db.record_generations)(chunk)
             progress.generations += len(chunk)
             progress.images += sum(len(i) for _, i, _ in chunk)
             progress.folder = generations[start][0].root
         progress.end("done")
-        say(f"Sync images: added {progress.images} image(s) as {progress.generations} generation(s)"
+        say(f"Sync images: wrote {progress.images} image(s) as {progress.generations} generation(s)"
+            + (f", {progress.again} of them read again" if self.force else "")
             + (f", {progress.error_count} could not be read" if progress.error_count else ""))
 
     def _generation(self, matcher: _Matcher, images: List[_Image]):

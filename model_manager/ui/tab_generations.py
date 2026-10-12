@@ -106,6 +106,10 @@ def create_generations_ui():
                                         title="Type a folder's full path first">Add</button>
                             </div>
                             <div class="mm-dialog-note" id="gen_sync_add_note" hidden></div>
+                            <label class="mm-dialog-option" title="The images synced before are read again with today's reading and matching, and their generations rebuilt. Ratings, deleted images and recorded generations are kept.">
+                                <input type="checkbox" id="gen_sync_force" data-action="generations.syncForce">
+                                <span>Read every image again</span>
+                            </label>
                         </div>
                         <div class="mm-dialog-section">
                             <div class="mm-dialog-heading">Images without infotext</div>

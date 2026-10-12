@@ -510,6 +510,7 @@ if has_fastapi:
 
     class HeldSync(real_sync):
         def run(self):
+            race['force'] = self.force
             let_go.wait(5)
             return super().run()
 
@@ -535,7 +536,8 @@ if has_fastapi:
     check('the folder is added through its route',
           client.post('/model-manager/generations/sync/folders/add', data={'path': RACE}).json().get('success'))
     race['armed'] = True
-    started = client.post('/model-manager/generations/sync', data={'folders': json.dumps([RACE])}).json()
+    started = client.post('/model-manager/generations/sync', data={'folders': json.dumps([RACE]),
+                                                                   'force': 'true'}).json()
     let_go.set()
     race['remover'].join(5)
     for _ in range(100):
@@ -544,9 +546,89 @@ if has_fastapi:
         time.sleep(0.05)
     check('a Remove sent while Start is starting waits, then is refused: the sync is running',
           (started.get('success'), answers), (True, [409]))
+    check('Start passes Force sync on to the sync (#246)', race.get('force'), True)
     check('so the folder stays listed, holding what its sync wrote',
           (RACE in [f['path'] for f in image_sync.folders()], db.synced_counts().get(RACE.lower())), (True, 1))
     image_sync.ImageSync = real_sync
+
+# ------------------------------------- a module named with a space (#246)
+# Neo writes a module by its stem; a file `x .safetensors` has the stem "x ",
+# and the parser strips the text's value to "x".
+SPACED = os.path.join(facts['models_dir'], 'VAE', 'spaced .safetensors')
+TRIM = os.path.join(OUT, 'trim')
+trimmed_image = save(TRIM, '00980-t.png', infotext('a spaced vae', 9800, extra=', Module 1: spaced'))
+forge_host.installed_modules = lambda: {'spaced .safetensors': SPACED}
+run([TRIM])
+check('a module whose file name ends in a space is matched',
+      [r[2] for r in resources(trimmed_image) if r[0] == 'module'], [os.path.normpath(SPACED)])
+
+# ------------------------------------------------------- Force sync (#246)
+FORCE = os.path.join(OUT, 'force')
+lost = save(FORCE, '01000-f.png', infotext('force a', 10000, extra=', Module 1: spaced'))
+split_a = save(FORCE, '01001-f.png', infotext('force b', 20000, steps=20), at=10)
+split_b = save(FORCE, '01002-f.png', infotext('force c', 20001, steps=30), at=11)
+bare = save(FORCE, '01003-n.png', None, at=500)
+dropped = save(FORCE, '01004-d.png', infotext('force d', 30000), at=1000)
+kept_record = save(FORCE, '01005-r.png', infotext('force e', 40000), at=2000)
+db.record_generation({'created_at': '2026-01-03T00:00:00', 'mode': 'txt2img', 'image_count': 1},
+                     [{'position': 0, 'path': kept_record, 'infotext': 'the full record'}], [[]])
+# Written as 0.58.2 wrote it: the module not found.
+forge_host.installed_modules = lambda: {}
+run([FORCE], level=PG)
+id_of = lambda path: rows("SELECT id FROM generation_images WHERE path = ?", (path,))[0][0]   # noqa: E731
+gen_of = lambda path: rows("SELECT generation_id FROM generation_images WHERE path = ?", (path,))[0][0]   # noqa: E731
+db.set_generation_image_levels([id_of(lost)], 4)
+remember_kept(db, db.delete_generation_image(id_of(dropped))[0])
+# Two presses an older rule had joined: one generation holding both.
+raw.execute("UPDATE generation_images SET generation_id = ?, position = 1 WHERE path = ?", (gen_of(split_a), split_b))
+raw.commit()
+recorded_before = rows("SELECT gi.id, gi.generation_id, d.infotext FROM generation_images gi "
+                       "JOIN image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,))
+forge_host.installed_modules = lambda: {'spaced .safetensors': SPACED}
+run([FORCE], level=UNKNOWN)
+check('a plain sync leaves a held image as it was written: no module',
+      [r[2] for r in resources(lost) if r[0] == 'module'], [])
+new_counts, again_counts = image_sync.counts(db, [{'path': FORCE}])
+check('the estimate counts what a Force sync would read again', (new_counts[FORCE], again_counts[FORCE]), (0, 4))
+forced = image_sync.ImageSync([{'path': FORCE}], UNKNOWN, True, force=True)
+forced.run()
+check('Force sync reads the synced images again, and says how many',
+      (forced.progress.state, forced.progress.again, forced.progress.images), ('done', 4, 4))
+check('Force sync gives the image the module it missed',
+      [r[2] for r in resources(lost) if r[0] == 'module'], [os.path.normpath(SPACED)])
+check('and keeps its rating', level_of(lost)[1], 4)
+check('an image without infotext keeps the level of its first sync, whatever this one picked',
+      level_of(bare), (PG, None))
+check('two presses an older rule joined come out two', gen_of(split_a) != gen_of(split_b), True)
+check('a deleted image is not brought back', rows("SELECT COUNT(*) FROM generation_images WHERE path = ?",
+                                                  (dropped,))[0][0], 0)
+check('a recorded image is untouched: same row, same record',
+      rows("SELECT gi.id, gi.generation_id, d.infotext FROM generation_images gi "
+           "JOIN image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,)), recorded_before)
+check('no image is held twice',
+      rows("SELECT COUNT(*) FROM (SELECT LOWER(path) FROM generation_images GROUP BY LOWER(path) HAVING COUNT(*) > 1)")[0][0], 0)
+
+# Cancel between chunks: what was written is new, the rest keeps its old rows.
+before_ids = {p: id_of(p) for p in (lost, split_a, split_b, bare)}
+image_sync.CHUNK = 1
+forced = image_sync.ImageSync([{'path': FORCE}], UNKNOWN, True, force=True)
+real_replace = db.replace_synced_generations
+
+
+def replace_then_cancel(chunk):
+    out = real_replace(chunk)
+    forced.cancel()
+    return out
+
+
+db.replace_synced_generations = replace_then_cancel
+forced.run()
+db.replace_synced_generations = real_replace
+image_sync.CHUNK = 200
+after_ids = {p: id_of(p) for p in before_ids}
+check('a Force sync cancelled after one chunk: one file rewritten, the rest as they were, none lost',
+      (forced.progress.state, sum(before_ids[p] != after_ids[p] for p in before_ids), len(after_ids)),
+      ('cancelled', 1, 4))
 
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:

@@ -646,22 +646,24 @@ def _register_sync(app: FastAPI):
     @app.get("/model-manager/generations/sync/estimate")
     @gate("generations")
     def sync_estimate():
-        """How many new images each folder holds, by path: a walk, nothing read."""
+        """How many new images each folder holds, and how many synced ones a
+        Force sync would read again, by path: a walk, nothing read."""
         try:
-            return JSONResponse({"success": True,
-                                 "counts": counts(get_models_db(), image_folders())})
+            new, again = counts(get_models_db(), image_folders())
+            return JSONResponse({"success": True, "counts": new, "again": again})
         except Exception as e:
             return failed(e)
 
     @app.post("/model-manager/generations/sync")
     @gate("generations")
     def start_sync(folders: str = Form(default="[]"), level: str = Form(default=""),
-                   group: str = Form(default="true")):
+                   group: str = Form(default="true"), force: str = Form(default="false")):
         """
         Start Sync images over the ticked folders, by path - JSON. Forge's
         folders left unticked are remembered, as is the level the dialog had
         and whether it grouped images with no text: the next dialog starts
-        from them.
+        from them. With `force`, the folders' synced images are read again
+        too (#246); the box itself is not remembered.
         """
         try:
             ticked = {str(p).lower() for p in json.loads(folders or "[]")}
@@ -680,7 +682,7 @@ def _register_sync(app: FastAPI):
             if not entries:
                 return JSONResponse({"success": False, "error": "No folder ticked"}, status_code=400)
             return _start(KIND,
-                          lambda: ImageSync(entries, level_of(level), grouped),
+                          lambda: ImageSync(entries, level_of(level), grouped, _yes(force)),
                           lambda sync: sync.run(), "Sync images started")
 
     @app.post("/model-manager/generations/sync/folders/add")

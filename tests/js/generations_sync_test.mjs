@@ -51,7 +51,8 @@ globalThis.fetch = async (url, init = {}) => {
                        folders });
     }
     if (href.includes('/generations/sync/estimate')) {
-        return reply({ success: true, counts: { [FORGE]: 1200, [IMG2IMG]: 30, [ADDED]: 0 } });
+        return reply({ success: true, counts: { [FORGE]: 1200, [IMG2IMG]: 30, [ADDED]: 0 },
+                       again: { [FORGE]: 0, [IMG2IMG]: 0, [ADDED]: 40, 'E:/more': 0 } });
     }
     if (href.includes('/generations/sync/progress')) return reply({ success: true, progress });
     if (href.includes('/model-manager/generations/browse')) {
@@ -185,5 +186,39 @@ check('Remove sends the folder, and the line goes', [posted.at(-1), rows().map((
 await waitFor('the tab reloaded', () => browses > shown);
 check('it says what went, and the tab reloads', [text('gen_sync_add_note'), browses > shown],
       ['Removed the folder, and 7 generations.', true]);
+
+// ------------------------------------------------------- Force sync (#246)
+// A box reads the synced images again. It is asked for each time: a dialog
+// opened anew starts with it off.
+folders = [...folders, { path: ADDED, key: null, forge: false, ticked: true, synced: 7 }];
+act('generations.closeSyncDialog');
+act('generations.syncImages');
+await waitFor('the dialog once more', () => text('gen_sync_estimate').includes('new'));
+const force = document.getElementById('gen_sync_force') || document.createElement('input');
+tick('generations.syncTick', false, { path: FORGE });
+tick('generations.syncTick', false, { path: IMG2IMG });
+check('the box starts off, and a folder with nothing new leaves Start waiting',
+      [force.checked, document.getElementById('gen_sync_start').disabled], [false, true]);
+force.checked = true;
+act('generations.syncForce');
+const added = () => rows().find((r) => r[1] === ADDED);
+check('ticked, the estimate and the folder\'s line count what is read again, and Start is offered',
+      [text('gen_sync_estimate').startsWith('0 new, 40 to read again.'), added()?.[2],
+       document.getElementById('gen_sync_start').disabled],
+      [true, '0 new · 40 again', false]);
+const sent = posted.length;
+act('generations.startSync');
+await waitFor('the forced start', () => posted.length > sent);
+check('Start asks for a Force sync', [posted.at(-1)[0], posted.at(-1)[1].force],
+      ['/model-manager/generations/sync', 'true']);
+progress = { state: 'done', stage: 'writing', folder: ADDED, total: 40, read: 40, generations: 12, images: 40, again: 40,
+             errors: [], error_count: 0, cancelling: false, is_complete: true };
+await waitFor('the forced end', () => text('gen_sync_text').includes('read again'));
+check('its end says how many were read again', text('gen_sync_text'),
+      'Added 40 images as 12 generations, 40 of them read again.');
+act('generations.closeSyncPanel');
+act('generations.syncImages');
+await waitFor('the dialog reopened', () => text('gen_sync_estimate').length > 0);
+check('opened again, the box is off', document.getElementById('gen_sync_force')?.checked, false);
 
 done();

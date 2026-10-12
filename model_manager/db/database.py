@@ -526,6 +526,14 @@ class ModelsDatabase:
         """Every path an image of yours is kept at, lower case."""
         return self._generations.held_paths()
 
+    def synced_image_paths(self) -> set:
+        """Every path a synced image is kept at, lower case."""
+        return self._generations.synced_paths()
+
+    def replace_synced_generations(self, generations) -> List[int]:
+        """A Force sync's write; see GenerationsOps.replace_synced()."""
+        return self._generations.replace_synced(generations)
+
     def image_source_id(self, folder: str) -> int:
         """The number a synced folder is known by; see GenerationsOps.source_id()."""
         return self._generations.source_id(folder)
