@@ -152,6 +152,12 @@ longer existed.
   turn had done - the test browser closed, a memory note written, the change
   staged, the issue opened. Write what a turn did from its results, read
   before the summary.
+- **An approved check is never weakened in code.** v37's plan said the
+  files each image used must come out of the migration the same set as
+  `generation_files`; it was written as a subset - every old row found,
+  extra ones let through - without asking, and a side agent caught it. It was
+  put back to equality on the owner's yes. A check in an approved plan is
+  changed only by going back with a question, like any other part of it.
 
 ### The live data, and the WebUI running
 
@@ -204,6 +210,10 @@ tests/                        see tests/README.md
 tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
 tools/train_nsfw_from_civitai.py, run_nsfw_training.sh
                               the same, from a pull of Civitai itself, paced at 5 req/s
+tools/measure_generations.py  times the Generations tab's requests at scale, v36 against
+                              today's, on a throwaway synthetic library - by hand
+tests/v36_generations.py, generation_fixture.py
+                              the v36 reads, frozen, and v36 libraries to migrate, for #231's suites
 ```
 
 ### `model_manager/`
@@ -321,6 +331,18 @@ function would have broken every older database. It carries a frozen copy.
 An index is a migration too (v30), versioned like any other. Since v32 an
 older copy refuses a newer database ("Two WebUIs"), so any migration means
 updating both copies.
+
+**A migration that reshapes tables keeps every value, and proves it.** "It
+has to be lossless", the owner said of v37 (#231). Its first draft turned
+each image's files into rows keyed by name, and lost a LoRA loaded twice in
+one image (20 images in one library), the order of a generation's modules
+(333 generations), and the difference between hires modules `NULL` ("Use
+same") and `[]`. v37 keeps every list and path as Forge recorded them, makes
+its index rows from them, and before dropping anything rebuilds every old
+row from the new tables and compares each column, value and `typeof()`;
+any difference raises, and the transaction leaves the old tables as they
+were (`migration_v37_test`, a migration dropping a LoRA's `pass` among its
+breaks).
 
 **Everything the extension says, it says through `console.say`.** The sync's
 log panel shows the console's lines from where the sync began - every one, a
@@ -644,6 +666,19 @@ merged and Dynamic Prompts overwrites `p.prompt`; the LoRAs per iteration,
 since Forge loads only the first prompt's for a whole batch. Nothing is
 recorded when Forge saved nothing ("Always save all generated images" off),
 or for a video (#8). See `model_manager/generations.py`.
+
+**Your images are narrow rows; their details are kept apart** (#231, v37).
+Lists, groups and filters read `generations` and `generation_images`, about
+45 bytes a row; `generation_details` and `image_details` hold what one tile
+or one Send reads, the lists and paths exactly as recorded; `prompts` holds
+each text once, with `grouped_as` - the row holding its text with its
+spacing tidied, 0 when nothing is left - and its trimmed `length`.
+`generation_resources` is an index made from the recorded lists - each file
+an image used, by role and place, in the library's spelling, followed when
+the sync moves a file - never the source. A read picks its part in SQL
+(`Scope` in `db/generations_ops.py`) and only then reads its tiles. Rows of
+33 KB a generation and 4 KB an image, as v36 had, cost a page each to read
+whatever column a list wanted.
 
 ## The WebUI's rules, which are not obvious
 
@@ -1074,6 +1109,19 @@ waits - are in `tests/README.md`.
   was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
   by timing each part of the query, not by reading it. And check what a timed
   call returned, not only how long it took.
+- **Measure on a database file, not in memory.** For #231, reading today's
+  columns with indexes measured 37 to 153 ms on an in-memory copy and was
+  recommended; on a file the same queries took 158 to 747 ms. A side agent
+  caught it.
+- **A prototype times the whole answer.** #231's prototype timed the query
+  that picks a part, 7 to 82 ms - the plan said the tiles came on top. They
+  were most of it: a group's tile reads every image of the group for its
+  previews, its shared checkpoint and its LoRAs, and the real requests took
+  0.4 to 2.8 s at 76,000 images. `tools/measure_generations.py` found it
+  before the commit.
+- **Synthetic data takes the real data's shape: read it first, read-only.**
+  #231's made-up library had one distinct prompt per 13 images, the live one
+  one per 3; with the real mix, search went from 43 ms to 164.
 - **A trace settles a delay.** #112's viewer "closed late": the owner's
   DevTools trace (Performance, Save profile: a `.json.gz`) showed our click
   handler at 3.0 ms and the frame on screen 8.2 ms after the release - the
@@ -1138,6 +1186,9 @@ waits - are in `tests/README.md`.
   with every column: numbering a version's files in the grid's wide rows took
   a 50-card page from 40 ms to 70; the same count from a narrow grouped CTE,
   joined, to 43.
+  A subquery per row inside a `GROUP BY` runs again for each use: the
+  Generations tab's LoRA combination took 4.5 s at 10,000 images, and 55 ms
+  as a CTE joined once (#231).
 - **Compare a round of changes as a whole, after it.** Every refactor of the
   0.44 round passed its suites. Comparing the code before the round (57ae3c0)
   with after it (b529f30), with seven reviewers in parallel, found nine
@@ -1236,6 +1287,12 @@ waits - are in `tests/README.md`.
   a page of images; across the grid's queries it was 2.7 s against 4 ms.
 - **Choose the page, then look up its details.** Filter, group, sort and limit
   first; per-row lookups after. With an index in the order the lookups read.
+- **SQLite reads a row's whole page, whatever column is asked for.** Every
+  image's level, from v36's 3 KB rows: 262 to 375 ms; with the small columns
+  first in the row, 286; through an index holding it, 2.6; from a narrow
+  table, 7. And it may pass over a covering index for a lookup by row id:
+  each image's prompt looked up by id read the prompt's text row, 130 ms at
+  76,000 images, and 26 with `INDEXED BY idx_prompts_lookup` (#231).
 - **A table holding another source's facts is built from that source's
   fields, not from the old table's columns.** v32 split `model_versions` into
   what it held, and Civitai's own id for each file - which a sync, a download
@@ -1360,6 +1417,8 @@ Test what a change needs, not everything.
   git-ignored) refuses the runner with no `--changed`, `--all` or suite name
   after it - `--online` or `--tools` alone included - so a full run is always
   one asked for with `--all`.
+- Every `.py` in `tests/tools/` runs as a check in `--all`. A tool run by
+  hand - a measurement, a trainer - lives in `tools/`.
 
 `--all` runs every suite, four at a time, in about 35 s; `tests/README.md`
 says why no wider, what each suite covers, how the choice is made, and how to
