@@ -494,8 +494,7 @@ function tileHtml(tile, index) {
         ? `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}`
           + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
         : `<div class="gen-actions">
-                <button type="button" class="mm-btn primary mm-btn-small" title="Send to ${mode}"
-                        data-action="generations.send" data-tile="${index}">${mode}</button>
+                ${sendHtml(image, mode, `data-action="generations.send" data-tile="${index}"`)}${mode}</button>
                 <button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
             </div>`;
     return `
@@ -592,6 +591,17 @@ function renderBanner() {
 /** Ask the server to rate: the switch this tab counts under goes with it (shared/generations.mjs). */
 function postRating(fields) {
     return requestRating({ hide_nsfw_images: hideNsfw, ...fields }, setStatus);
+}
+
+// An image a sync brought with no generation text (#233) has nothing for
+// Send to paste: its button is disabled, saying so, where it once did
+// nothing at all - seen on 7880.
+const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
+
+function sendHtml(image, mode, attributes) {
+    const why = image?.infotext ? '' : NO_TEXT;
+    return `<button type="button" class="mm-btn primary mm-btn-small" ${attributes}`
+        + ` title="${escapeHtml(why || `Send to ${mode}`)}"${why ? ' disabled' : ''}>`;
 }
 
 /** Send a tile's image - a batch's first - back to the tab it was made in. Not a group's. */
@@ -997,7 +1007,7 @@ const viewerSource = {
         if (!image) return '';
         const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
         return `${ratingRowHtml(image, 'generations.rateInViewer')}
-            <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${mode}</button>
+            ${sendHtml(image, mode, 'data-gen-send')}Send to ${mode}</button>
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>
             ${menuFor(image).length
                 ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gen-menu title="More">⋯</button>' : ''}`;
@@ -1024,6 +1034,7 @@ const viewerSource = {
         const { tile, image } = viewerAt(index);
         if (!image) return false;
         if (event.target.closest?.('[data-gen-send]')) {
+            if (!image.infotext) return true;
             closeViewer();
             sendImage(tile, image);
             return true;
@@ -1306,6 +1317,10 @@ work.provide('generations.syncDialogBackdrop', (data, element, event) => {
     if (event?.target === element) closeSyncDialog();
 });
 work.provide('generations.cancelSync', () => cancelSync());
+work.provide('generations.addSyncFolder', () => addSyncFolder());
+work.provide('generations.askRemoveSyncFolder', ({ path }) => askRemoveSyncFolder(path, true));
+work.provide('generations.keepSyncFolder', ({ path }) => askRemoveSyncFolder(path, false));
+work.provide('generations.removeSyncFolder', ({ path }) => removeSyncFolder(path));
 work.provide('generations.closeSyncPanel', () => { const panel = byId('gen_sync_panel'); if (panel) panel.hidden = true; });
 
 // ---------------------------------------------------------- Sync images (#233)
@@ -1343,6 +1358,19 @@ async function openSyncDialog() {
     const dialog = byId('gen_sync_dialog');
     if (!dialog) return;
     dialog.style.display = 'flex';
+    const box = byId('gen_sync_add_path');
+    if (box) box.value = '';
+    showAddNote('');
+    showAddButton();
+    await loadSyncFolders(null);
+}
+
+/**
+ * List the folders and count what is new in each. After an Add or a Remove
+ * the ticks given meanwhile are kept (`ticks`, by path); the level and the
+ * grouping box are left as they are.
+ */
+async function loadSyncFolders(ticks) {
     byId('gen_sync_start').disabled = true;
     setText(byId('gen_sync_estimate'), 'Looking at the folders...');
     const data = await apiCall({ endpoint: `${SYNC}/folders` }).catch((e) => ({ success: false, error: e.message }));
@@ -1350,10 +1378,14 @@ async function openSyncDialog() {
         setText(byId('gen_sync_estimate'), `Could not list the folders: ${data.error}`);
         return;
     }
-    syncFolders = data.folders.map((folder) => ({ ...folder, count: null }));
-    byId('gen_sync_level').innerHTML = data.levels.map((name) =>
-        `<option value="${escapeHtml(name)}"${name === data.level ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
-    byId('gen_sync_group').checked = Boolean(data.group);
+    syncFolders = data.folders.map((folder) => ({
+        ...folder, count: null, asking: false,
+        ticked: ticks?.has(folder.path.toLowerCase()) ? ticks.get(folder.path.toLowerCase()) : folder.ticked }));
+    if (!ticks) {
+        byId('gen_sync_level').innerHTML = data.levels.map((name) =>
+            `<option value="${escapeHtml(name)}"${name === data.level ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+        byId('gen_sync_group').checked = Boolean(data.group);
+    }
     drawSyncFolders();
     showSyncEstimate();
     const counted = await apiCall({ endpoint: `${SYNC}/estimate` }).catch((e) => ({ success: false, error: e.message }));
@@ -1374,13 +1406,31 @@ function drawSyncFolders() {
         return;
     }
     list.innerHTML = syncFolders.map((folder) => {
+        const path = escapeHtml(folder.path);
+        if (folder.asking) {
+            const n = folder.synced || 0;
+            const question = n
+                ? `Remove ${shownPath(folder.path)}, and the ${syncCount(n)} generation${n === 1 ? '' : 's'} synced from it? The image files stay.`
+                : `Remove ${shownPath(folder.path)} from the list?`;
+            return `<div class="gen-sync-remove">
+                        <span>${escapeHtml(question)}</span>
+                        <button type="button" class="mm-btn mm-btn-small secondary" data-action="generations.keepSyncFolder" data-path="${path}">Keep</button>
+                        <button type="button" class="mm-btn mm-btn-small danger" data-action="generations.removeSyncFolder" data-path="${path}">Remove</button>
+                    </div>`;
+        }
         const title = folder.forge ? `Forge saves results here (its setting ${folder.key})` : 'A folder you added';
         const count = folder.count === null ? 'counting...' : `${syncCount(folder.count)} new`;
-        return `<label class="mm-dialog-option" title="${escapeHtml(title)}">
-                    <input type="checkbox" data-action="generations.syncTick" data-path="${escapeHtml(folder.path)}"${folder.ticked ? ' checked' : ''}>
+        const line = `<label class="mm-dialog-option" title="${escapeHtml(title)}">
+                    <input type="checkbox" data-action="generations.syncTick" data-path="${path}"${folder.ticked ? ' checked' : ''}>
                     <span>${escapeHtml(shownPath(folder.path))}</span>
                     <span class="mm-dialog-count">${escapeHtml(count)}</span>
                 </label>`;
+        // Forge's own folders are unticked, never removed: Forge saves there.
+        if (folder.forge) return line;
+        return `<div class="gen-sync-folder">${line}
+                    <button type="button" class="mm-btn mm-btn-small secondary" data-action="generations.askRemoveSyncFolder" data-path="${path}"
+                            title="Take it off the list, and remove the generations synced from it. The image files stay.">Remove</button>
+                </div>`;
     }).join('');
 }
 
@@ -1404,6 +1454,58 @@ function showSyncEstimate() {
     // Start would do nothing until there is something new to add.
     const start = byId('gen_sync_start');
     if (start) start.disabled = counting || !total;
+}
+
+function showAddNote(text) {
+    const note = byId('gen_sync_add_note');
+    if (!note) return;
+    note.hidden = !text;
+    setText(note, text);
+}
+
+/** Add waits for a path: pressed on an empty box it would do nothing. */
+function showAddButton() {
+    const button = byId('gen_sync_add');
+    if (button) button.disabled = !(byId('gen_sync_add_path')?.value || '').trim();
+}
+
+function currentTicks() {
+    return new Map(syncFolders.map((f) => [f.path.toLowerCase(), f.ticked]));
+}
+
+async function addSyncFolder() {
+    const box = byId('gen_sync_add_path');
+    const path = (box?.value || '').trim();
+    if (!path) return;
+    const button = byId('gen_sync_add');
+    if (button) button.disabled = true;
+    const answer = await syncPost(`${SYNC}/folders/add`, { path });
+    if (!answer.success) {
+        showAddNote(`Not added: ${answer.error}`);
+        showAddButton();
+        return;
+    }
+    if (box) box.value = '';
+    showAddNote('');
+    showAddButton();
+    await loadSyncFolders(currentTicks());
+}
+
+function askRemoveSyncFolder(path, asking) {
+    syncFolders.forEach((f) => { f.asking = asking && f.path === path; });
+    drawSyncFolders();
+}
+
+async function removeSyncFolder(path) {
+    const answer = await syncPost(`${SYNC}/folders/remove`, { path });
+    if (!answer.success) {
+        askRemoveSyncFolder(path, false);
+        showAddNote(`Not removed: ${answer.error}`);
+        return;
+    }
+    showAddNote(answer.removed ? `Removed the folder, and ${syncCount(answer.removed)} generations.` : 'Removed the folder.');
+    await loadSyncFolders(currentTicks());
+    if (answer.removed) refresh();
 }
 
 function closeSyncDialog() {
@@ -1548,6 +1650,13 @@ export async function start(scope) {
     tabScope.onStop(() => { syncFollowing = null; });
     tabScope.listen(document, 'keydown', (event) => {
         if (event.key === 'Escape' && byId('gen_sync_dialog')?.style.display === 'flex') closeSyncDialog();
+        if (event.key === 'Enter' && event.target?.id === 'gen_sync_add_path') addSyncFolder();
+    });
+    tabScope.listen(document, 'input', (event) => {
+        if (event.target?.id !== 'gen_sync_add_path') return;
+        // What a refusal said was about the text before.
+        showAddNote('');
+        showAddButton();
     });
     pickUpSync();
     await reload();

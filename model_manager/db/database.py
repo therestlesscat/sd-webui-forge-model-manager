@@ -530,6 +530,14 @@ class ModelsDatabase:
         """The number a synced folder is known by; see GenerationsOps.source_id()."""
         return self._generations.source_id(folder)
 
+    def synced_counts(self) -> Dict[str, int]:
+        """How many generations each synced folder brought; see GenerationsOps.synced_counts()."""
+        return self._generations.synced_counts()
+
+    def delete_synced_from(self, folder: str) -> int:
+        """Remove every generation a folder's syncs brought; see GenerationsOps.delete_synced_from()."""
+        return self._generations.delete_synced_from(folder)
+
     def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
         """The removed list; see GenerationsOps.removed_images()."""
         return self._generations.removed_images()

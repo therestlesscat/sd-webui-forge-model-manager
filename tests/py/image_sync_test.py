@@ -427,6 +427,127 @@ check('one gone from disk: not in the library',
       'missing')
 paths_module.models_path = ''
 
+# ------------------------------------------- folders added, and removed (0.58.2)
+def store(values):
+    """Forge's settings writer: here, the stub's options."""
+    for key, value in values.items():
+        setattr(opts, key, value)
+    return list(values)
+
+
+image_sync.forge_host.store_settings = store
+FORGE_DIR = os.path.join(OUT, 'forge_results')
+os.makedirs(FORGE_DIR, exist_ok=True)
+image_sync.forge_host.result_folders = lambda: [{'key': 'outdir_txt2img_samples', 'path': FORGE_DIR}]
+ADDED = os.path.join(OUT, 'added')
+OTHER = os.path.join(OUT, 'other_added')
+added_files = [save(ADDED, '%05d-a.png' % (800 + n), infotext('added %d' % n, 8000 + n * 10), at=n * 1000)
+               for n in range(3)]
+save(OTHER, '00900-o.png', infotext('other', 9000))
+
+check('a path not from its drive is refused', image_sync.add_folder(os.path.join('outputs', 'added'))[0], None)
+check('a folder that is not there is refused', image_sync.add_folder(os.path.join(OUT, 'nowhere'))[0], None)
+check('a folder already listed - Forge\'s - is refused',
+      image_sync.add_folder(FORGE_DIR), (None, 'That folder is in the list already.'))
+check('a folder is added, its quotes and spaces trimmed',
+      image_sync.add_folder('  "%s"  ' % ADDED), (os.path.normpath(ADDED), None))
+image_sync.add_folder(OTHER)
+check('added folders are listed after Forge\'s, ticked',
+      [(f['path'], f['forge'], f['ticked']) for f in image_sync.folders()],
+      [(FORGE_DIR, True, True), (ADDED, False, True), (OTHER, False, True)])
+off = image_sync.unticked(image_sync.folders(), [ADDED])
+check('unticked: Forge\'s folder kept by its key, an added one by its path', off,
+      ['outdir_txt2img_samples', OTHER])
+opts.model_manager_image_folders_off = '\n'.join(off)
+check('an added folder unticked stays unticked', [f['ticked'] for f in image_sync.folders()], [False, True, False])
+
+run([ADDED])
+run([OTHER])
+synced = db.synced_counts()
+check('each folder counts the generations it brought', (synced.get(ADDED.lower()), synced.get(OTHER.lower())), (3, 1))
+check('one of Forge\'s folders is not removed: it is unticked',
+      image_sync.remove_folder(db, FORGE_DIR), (None, "Forge saves results there: untick it instead."))
+check('a folder not in the list is not removed', image_sync.remove_folder(db, os.path.join(OUT, 'nowhere'))[0], None)
+removed, why = image_sync.remove_folder(db, ADDED.upper())
+check('Remove takes the folder\'s generations, spelt in any case', (removed, why, images_at(ADDED)), (3, None, []))
+check('and leaves the other folder\'s', len(images_at(OTHER)), 1)
+check('no image file is touched, and none goes on the removed list',
+      ([os.path.exists(p) for p in added_files], [p.lower() in db.removed_images() for p in added_files]),
+      ([True] * 3, [False] * 3))
+check('nothing of them is left in any table',
+      rows("SELECT (SELECT COUNT(*) FROM generation_resources WHERE image_id NOT IN (SELECT id FROM generation_images)),"
+           " (SELECT COUNT(*) FROM image_details WHERE image_id NOT IN (SELECT id FROM generation_images)),"
+           " (SELECT COUNT(*) FROM generation_details WHERE generation_id NOT IN (SELECT id FROM generations)),"
+           " (SELECT COUNT(*) FROM image_sources WHERE path = ? COLLATE NOCASE)", (ADDED,)),
+      [(0, 0, 0, 0)])
+check('it is off the list', [f['path'] for f in image_sync.folders()], [FORGE_DIR, OTHER])
+image_sync.remove_folder(db, OTHER)
+check('an unticked folder removed leaves the off setting too', opts.model_manager_image_folders_off,
+      'outdir_txt2img_samples')
+image_sync.add_folder(ADDED)
+run([ADDED])
+check('added again, its images come back', len(images_at(ADDED)), 3)
+
+# ------------------------------------- Remove arriving while Start is starting
+# Start reads the folder list, then registers its job as running. On 7880 a
+# Remove landing between the two passed the "running" check and took the
+# folder off the list; the sync wrote 54 generations under it anyway, which
+# no Remove could reach again. Here Remove is sent from inside Start, after
+# the list is read and before the job runs, and the sync waits to be let go.
+try:
+    import threading
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from model_manager.jobs import jobs as image_sync_jobs
+    has_fastapi = True
+except ImportError:
+    has_fastapi = False
+if has_fastapi:
+    RACE = os.path.join(OUT, 'race')
+    save(RACE, '00950-r.png', infotext('race', 9500))
+    let_go = threading.Event()
+    real_sync = image_sync.ImageSync
+
+    class HeldSync(real_sync):
+        def run(self):
+            let_go.wait(5)
+            return super().run()
+
+    image_sync.ImageSync = HeldSync
+    race = {'armed': False}
+    answers = []
+
+    def store_racing(values):
+        store(values)
+        if race['armed'] and image_sync.LEVEL_SETTING in values:
+            race['armed'] = False
+            remover = threading.Thread(target=lambda: answers.append(client.post(
+                '/model-manager/generations/sync/folders/remove', data={'path': RACE}).status_code))
+            remover.start()
+            remover.join(1.0)
+            race['remover'] = remover
+
+    image_sync.forge_host.store_settings = store_racing
+    from model_manager.api import setup_api                   # noqa: E402
+    app = FastAPI()
+    setup_api(app)
+    client = TestClient(app)
+    check('the folder is added through its route',
+          client.post('/model-manager/generations/sync/folders/add', data={'path': RACE}).json().get('success'))
+    race['armed'] = True
+    started = client.post('/model-manager/generations/sync', data={'folders': json.dumps([RACE])}).json()
+    let_go.set()
+    race['remover'].join(5)
+    for _ in range(100):
+        if not image_sync_jobs.running(image_sync.KIND):
+            break
+        time.sleep(0.05)
+    check('a Remove sent while Start is starting waits, then is refused: the sync is running',
+          (started.get('success'), answers), (True, [409]))
+    check('so the folder stays listed, holding what its sync wrote',
+          (RACE in [f['path'] for f in image_sync.folders()], db.synced_counts().get(RACE.lower())), (True, 1))
+    image_sync.ImageSync = real_sync
+
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:
     print('FAIL ' + f)

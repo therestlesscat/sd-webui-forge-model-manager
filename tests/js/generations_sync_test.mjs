@@ -6,7 +6,9 @@
 // text, whether to group them, and what the ticked folders hold. Start
 // waits for something new to add. Started, a panel follows the job - what it
 // is reading, how far, what could not be read - with Cancel while it runs and
-// Close once it ends, and the tab reloads to show what came in.
+// Close once it ends, and the tab reloads to show what came in. A folder is
+// added by its path, and an added one removed - asked first, in its line,
+// naming the generations it takes; Forge's own are only unticked.
 import { act, checker, mountTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
@@ -20,11 +22,25 @@ let progress = { state: 'running', stage: 'reading', folder: FORGE, total: 10, r
                  errors: [], error_count: 0, cancelling: false, is_complete: false };
 const posted = [];
 let browses = 0;
+let folders = [{ path: FORGE, key: 'outdir_txt2img_samples', forge: true, ticked: true, synced: 0 },
+               { path: IMG2IMG, key: 'outdir_img2img_samples', forge: true, ticked: false, synced: 0 },
+               { path: ADDED, key: null, forge: false, ticked: true, synced: 7 }];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => structuredClone(body) });
     if (init.method === 'POST') {
-        posted.push([new URL(href, 'http://x').pathname, Object.fromEntries(new URLSearchParams(String(init.body)))]);
+        const path = new URL(href, 'http://x').pathname;
+        const fields = Object.fromEntries(new URLSearchParams(String(init.body)));
+        posted.push([path, fields]);
+        if (path.endsWith('/folders/add')) {
+            if (fields.path === 'pictures') return reply({ success: false, error: "Give the folder's full path, from its drive." });
+            folders = [...folders, { path: fields.path, key: null, forge: false, ticked: true, synced: 0 }];
+            return reply({ success: true, path: fields.path });
+        }
+        if (path.endsWith('/folders/remove')) {
+            folders = folders.filter((f) => f.path !== fields.path);
+            return reply({ success: true, removed: 7 });
+        }
         return reply({ success: true });
     }
     if (href.includes('/model-manager/ui-options')) {
@@ -32,9 +48,7 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/generations/sync/folders')) {
         return reply({ success: true, level: 'Unknown', group: true, levels: ['PG', 'PG-13', 'R', 'X', 'XXX', 'Unknown'],
-                       folders: [{ path: FORGE, key: 'outdir_txt2img_samples', forge: true, ticked: true },
-                                 { path: IMG2IMG, key: 'outdir_img2img_samples', forge: true, ticked: false },
-                                 { path: ADDED, key: null, forge: false, ticked: true }] });
+                       folders });
     }
     if (href.includes('/generations/sync/estimate')) {
         return reply({ success: true, counts: { [FORGE]: 1200, [IMG2IMG]: 30, [ADDED]: 0 } });
@@ -49,7 +63,7 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 const panel = () => document.getElementById('gen_sync_panel');
-const text = (id) => document.getElementById(id).textContent.trim();
+const text = (id) => (document.getElementById(id)?.textContent || '').trim();
 
 await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -125,5 +139,51 @@ progress = { ...progress, state: 'cancelled', stage: 'writing', images: 400, gen
 await waitFor('the cancelled end', () => text('gen_sync_text').startsWith('Cancelled'));
 check('a cancelled sync says what it added before it stopped', text('gen_sync_text'),
       'Cancelled. 400 images were added as 120 generations before it stopped; the next sync adds the rest.');
+
+
+// ------------------------------------------------- adding and removing folders
+act('generations.syncImages');
+await waitFor('the dialog again', () => text('gen_sync_estimate').includes('new images'));
+// Missing, as before 0.58.2, they stand in empty: the checks fail, not the suite.
+const box = document.getElementById('gen_sync_add_path') || document.createElement('input');
+const add = document.getElementById('gen_sync_add') || document.createElement('button');
+const removes = () => Array.from(dialog.querySelectorAll('[data-action="generations.askRemoveSyncFolder"]'))
+    .map((b) => b.dataset.path);
+check('the box starts empty, and Add waits for a path', [box.value, add.disabled], ['', true]);
+check('only an added folder offers Remove: Forge\'s are unticked', removes(), [ADDED]);
+tick('generations.syncTick', false, { path: FORGE });
+box.value = 'pictures';
+box.dispatchEvent(new window.Event('input', { bubbles: true }));
+check('typing a path offers Add', add.disabled, false);
+act('generations.addSyncFolder');
+await waitFor('the refusal', () => document.getElementById('gen_sync_add_note')?.hidden === false);
+check('a path the server refuses says why, and keeps what was typed',
+      [text('gen_sync_add_note'), box.value], ["Not added: Give the folder's full path, from its drive.", 'pictures']);
+const NEW = 'E:/more';
+box.value = NEW;
+box.dispatchEvent(new window.Event('input', { bubbles: true }));
+act('generations.addSyncFolder');
+await waitFor('the new line', () => rows().length === 4 && !rows().some((r) => r[2] === 'counting...'));
+check('an added folder is sent, listed, and counted; the ticks given meanwhile are kept',
+      [posted.at(-1), rows().map((r) => [r[0], r[1]]), box.value, document.getElementById('gen_sync_add_note')?.hidden],
+      [['/model-manager/generations/sync/folders/add', { path: NEW }],
+       [[false, FORGE], [false, IMG2IMG], [true, ADDED], [true, NEW]], '', true]);
+
+act('generations.askRemoveSyncFolder', { path: ADDED });
+const asking = () => dialog.querySelector('.gen-sync-remove');
+check('Remove asks first, in the folder\'s line, naming what it takes',
+      asking()?.querySelector('span')?.textContent, `Remove ${ADDED}, and the 7 generations synced from it? The image files stay.`);
+act('generations.keepSyncFolder', { path: ADDED });
+check('Keep puts the line back, and nothing is sent',
+      [asking(), posted.at(-1)[0]], [null, '/model-manager/generations/sync/folders/add']);
+const shown = browses;
+act('generations.askRemoveSyncFolder', { path: ADDED });
+act('generations.removeSyncFolder', { path: ADDED });
+await waitFor('the removal', () => rows().length === 3 && !rows().some((r) => r[2] === 'counting...'));
+check('Remove sends the folder, and the line goes', [posted.at(-1), rows().map((r) => r[1])],
+      [['/model-manager/generations/sync/folders/remove', { path: ADDED }], [FORGE, IMG2IMG, NEW]]);
+await waitFor('the tab reloaded', () => browses > shown);
+check('it says what went, and the tab reloads', [text('gen_sync_add_note'), browses > shown],
+      ['Removed the folder, and 7 generations.', true]);
 
 done();

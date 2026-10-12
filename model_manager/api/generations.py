@@ -13,6 +13,7 @@ only what was recorded can be opened.
 import json
 import os
 import re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, Form
@@ -605,11 +606,19 @@ def register(app: FastAPI):
 def _register_sync(app: FastAPI):
     """Sync images (#233): the folders, what is new in them, and the long job."""
     from ..forge_host import store_settings
-    from ..image_sync import (FOLDERS_OFF_SETTING, GROUP_SETTING, KIND, LEVEL_SETTING, ImageSync, counts,
-                              level_of)
+    from ..image_sync import (FOLDERS_OFF_SETTING, GROUP_SETTING, KIND, LEVEL_SETTING, ImageSync, add_folder,
+                              counts, level_of, remove_folder, unticked)
     from ..image_sync import folders as image_folders
+    from ..jobs import jobs
     from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
     from .jobs import _cancel, _progress, _start, _yes
+
+    # Start reads the folder list, then registers its job as running; Remove
+    # checks for a running job, then deletes. Each holds this throughout, or
+    # a Remove landing between Start's two steps takes off the list a folder
+    # the sync is about to write - seen on 7880: 54 generations left under
+    # no listed folder, which no Remove could reach again.
+    folders_lock = threading.Lock()
 
     @app.get("/model-manager/generations/sync/folders")
     @gate("generations")
@@ -618,12 +627,15 @@ def _register_sync(app: FastAPI):
         The folders Sync images can read - Forge's result folders, read from
         its settings now, and the ones added - with whether each is ticked;
         the level an image with no text gets to begin with, the levels to
-        choose from, and whether images with no text are grouped.
+        choose from, and whether images with no text are grouped. Each
+        folder says how many generations its syncs brought (`synced`), which
+        Remove would take.
         """
         try:
+            synced = get_models_db().synced_counts()
             return JSONResponse({
                 "success": True,
-                "folders": image_folders(),
+                "folders": [{**f, "synced": synced.get(f["path"].lower(), 0)} for f in image_folders()],
                 "level": setting(LEVEL_SETTING),
                 "levels": [LEVEL_TO_NAME[level] for level in (*USER_LEVELS, UNKNOWN)],
                 "group": bool(setting(GROUP_SETTING)),
@@ -655,20 +667,54 @@ def _register_sync(app: FastAPI):
             ticked = {str(p).lower() for p in json.loads(folders or "[]")}
         except ValueError:
             return JSONResponse({"success": False, "error": "Folders not understood"}, status_code=400)
-        entries = [f for f in image_folders() if f["path"].lower() in ticked]
-        unticked = [f["key"] for f in image_folders() if f["forge"] and f["path"].lower() not in ticked]
         grouped = _yes(group)
+        with folders_lock:
+            listed = image_folders()
+            entries = [f for f in listed if f["path"].lower() in ticked]
+            try:
+                store_settings({FOLDERS_OFF_SETTING: "\n".join(unticked(listed, ticked)),
+                                LEVEL_SETTING: level or setting(LEVEL_SETTING),
+                                GROUP_SETTING: grouped})
+            except Exception as e:
+                say(f"Sync images: could not keep the dialog's choices: {e}")
+            if not entries:
+                return JSONResponse({"success": False, "error": "No folder ticked"}, status_code=400)
+            return _start(KIND,
+                          lambda: ImageSync(entries, level_of(level), grouped),
+                          lambda sync: sync.run(), "Sync images started")
+
+    @app.post("/model-manager/generations/sync/folders/add")
+    @gate("generations")
+    def add_sync_folder(path: str = Form(default="")):
+        """Add a folder for Sync images to read, kept in this WebUI's settings."""
         try:
-            store_settings({FOLDERS_OFF_SETTING: "\n".join(unticked),
-                            LEVEL_SETTING: level or setting(LEVEL_SETTING),
-                            GROUP_SETTING: grouped})
+            added, why = add_folder(path)
+            if why:
+                return JSONResponse({"success": False, "error": why}, status_code=400)
+            return JSONResponse({"success": True, "path": added})
         except Exception as e:
-            say(f"Sync images: could not keep the dialog's choices: {e}")
-        if not entries:
-            return JSONResponse({"success": False, "error": "No folder ticked"}, status_code=400)
-        return _start(KIND,
-                      lambda: ImageSync(entries, level_of(level), grouped),
-                      lambda sync: sync.run(), "Sync images started")
+            return failed(e)
+
+    @app.post("/model-manager/generations/sync/folders/remove")
+    @gate("generations")
+    def remove_sync_folder(path: str = Form(default="")):
+        """
+        Take an added folder off the list, and remove the generations its
+        syncs brought - never a file. Refused while Sync images runs: it
+        could be writing that folder's generations.
+        """
+        try:
+            with folders_lock:
+                if jobs.running(KIND):
+                    return JSONResponse({"success": False, "error": "Sync images is running: remove the folder "
+                                         "once it has finished."}, status_code=409)
+                removed, why = remove_folder(get_models_db(), path)
+            if why:
+                return JSONResponse({"success": False, "error": why}, status_code=400)
+            say(f"Sync images: removed a folder, and the {removed} generation(s) it brought")
+            return JSONResponse({"success": True, "removed": removed})
+        except Exception as e:
+            return failed(e)
 
     @app.get("/model-manager/generations/sync/progress")
     @gate("generations")

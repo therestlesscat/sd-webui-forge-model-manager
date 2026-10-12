@@ -98,15 +98,23 @@ def create_generations_ui():
                         <div class="mm-dialog-section">
                             <div class="mm-dialog-heading">Folders</div>
                             <div id="gen_sync_folders"></div>
+                            <div class="gen-sync-add">
+                                <input type="text" id="gen_sync_add_path" class="mm-settings-input"
+                                       placeholder="Another folder: its full path" autocomplete="off">
+                                <button type="button" class="mm-btn mm-btn-small secondary" id="gen_sync_add"
+                                        data-action="generations.addSyncFolder" disabled
+                                        title="Type a folder's full path first">Add</button>
+                            </div>
+                            <div class="mm-dialog-note" id="gen_sync_add_note" hidden></div>
                         </div>
                         <div class="mm-dialog-section">
-                            <div class="mm-dialog-heading">Images with no generation text</div>
-                            <label class="mm-dialog-option" title="Images in one folder whose file names say the same settings, saved close together, become one generation.">
+                            <div class="mm-dialog-heading">Images without infotext</div>
+                            <label class="mm-dialog-option" title="Images in one folder whose file names say the same settings, saved close together, become one batch, as one press of Generate made them.">
                                 <input type="checkbox" id="gen_sync_group">
-                                <span>Group them by their file names</span>
+                                <span>Group images with similar file names into one batch</span>
                             </label>
-                            <label class="mm-dialog-option" title="Given to the images with no text this sync brings, and kept with them. A rating you give an image wins.">
-                                <span>NSFW level</span>
+                            <label class="mm-dialog-option" title="Given to the images without infotext this sync brings, and kept with them. A rating you give an image wins.">
+                                <span>Default NSFW level for images without infotext</span>
                                 <select id="gen_sync_level" class="mm-dialog-select"></select>
                             </label>
                         </div>

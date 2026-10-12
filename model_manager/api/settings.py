@@ -56,7 +56,9 @@ def _kind(info) -> Tuple[str, Dict[str, Any]]:
 
     if name == "Checkbox" or (not name and isinstance(info.default, bool)):
         return "bool", {}
-    if name == "Radio":
+    # A dropdown is drawn as the radios are: Sync images' level was a text
+    # box in the settings window, taking any word (#233).
+    if name in ("Radio", "Dropdown"):
         choices = [list(c) if isinstance(c, (tuple, list)) else [str(c), c]
                    for c in args.get("choices", [])]
         return "choice", {"choices": choices}

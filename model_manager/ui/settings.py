@@ -253,23 +253,24 @@ def on_ui_settings():
         LEVEL_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[LEVEL_SETTING],
-            label="Sync images: NSFW level of an image with no generation text",
+            label="Sync images: default NSFW level for images without infotext",
             component=gr.Dropdown,
             component_args={"choices": [LEVEL_TO_NAME[level] for level in (*USER_LEVELS, UNKNOWN)]},
             section=section,
         ).info("What the Sync images dialog starts from. The level picked there is given to "
-               "the images with no text that sync brings, and kept with them. A rating you "
+               "the images without infotext that sync brings, and kept with them. A rating you "
                "give an image wins.")
     )
     shared.opts.add_option(
         GROUP_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[GROUP_SETTING],
-            label="Sync images: group images with no generation text",
+            label="Sync images: group images without infotext with similar file names into one batch",
             component=gr.Checkbox,
             section=section,
         ).info("What the Sync images dialog starts from. Images in one folder whose file names "
-               "say the same settings, saved close together, become one generation.")
+               "say the same settings, saved close together, become one batch, as one press of "
+               "Generate made them.")
     )
     hidden = (None, "Model Manager")
     for key in (FOLDERS_SETTING, FOLDERS_OFF_SETTING):

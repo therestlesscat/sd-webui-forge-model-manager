@@ -3809,6 +3809,67 @@ textarea.mm-settings-input {
 
 /* Sync images' panel (#233): its text, then Cancel or Close, on one line. A
    button's own display would otherwise outweigh [hidden]. */
+/* Sync images' dialog: an added folder's line carries Remove beside its tick,
+   and asks there before removing. */
+.gen-sync-folder {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.gen-sync-folder > .mm-dialog-option {
+    flex: 1;
+    min-width: 0;
+}
+
+.gen-sync-remove {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 5px 6px;
+    font-size: 13px;
+}
+
+.gen-sync-remove > span {
+    flex: 1;
+    min-width: 12em;
+}
+
+.gen-sync-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+/* Inside the tab, Gradio's rules for a text input - 16px text, 8px 12px
+   padding, a white box, an orange focus ring, a bottom margin - outweigh one
+   class: on 7880 the box stood 42px beside a 28px Add. Its type and an
+   element name outweigh them. */
+.gen-sync-add > input.mm-settings-input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 4px 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    box-shadow: none;
+}
+
+.dark .gen-sync-add > input.mm-settings-input[type="text"] {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.gen-sync-add > input.mm-settings-input[type="text"]:focus {
+    border-color: var(--primary-500, #3b82f6);
+    box-shadow: none;
+    outline: none;
+}
+
 .gen-sync-line {
     display: flex;
     align-items: center;

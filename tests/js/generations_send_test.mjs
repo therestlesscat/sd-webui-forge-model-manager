@@ -58,6 +58,7 @@ const image = {
 const generation = { id: 1, mode: 'txt2img', created_at: '2026-10-02T10:00:00', image_count: 1 };
 const asked = [];
 let planAnswer = { success: false };
+let tiles = [{ kind: 'generation', generation, matching_count: 1, images: [image], loras: [], level: 1, user_level: null }];
 globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
@@ -68,8 +69,7 @@ globalThis.fetch = async (url) => {
     }
     if (href.includes('/generations/browse')) {
         return reply({ success: true, more: false,
-                       tiles: [{ kind: 'generation', generation, matching_count: 1, images: [image], loras: [],
-                                 level: 1, user_level: null }],
+                       tiles,
                        state: { total: 1, filtered: 1, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: true,
                                 stored_generations: 1 },
                        scope: { count: 1 } });
@@ -169,5 +169,21 @@ check('a file the paste names that this WebUI lacks is said',
       document.querySelector('.mm-notice')?.textContent,
       'gone_model [abc123] is not in this WebUI: the current choice is kept for it.');
 loaderAnswer = () => ({ pasted: true });
+
+// An image Sync images brought with no generation text (#233): Send has
+// nothing to paste. It did nothing at all, the button enabled; it is
+// disabled now, saying why, on the tile and in the viewer.
+const bare = { ...image, id: 12, infotext: null, meta: {}, url: '/model-manager/generations/images/12/file' };
+tiles = [...tiles, { kind: 'generation', generation: { ...generation, id: 2 }, matching_count: 1, images: [bare],
+                     loras: [], level: 1, user_level: null }];
+await act('generations.refresh');
+await waitFor('the second tile', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
+const sendOf = (n) => document.querySelector(`#gen_grid [data-action="generations.send"][data-tile="${n}"]`);
+check('an image with no text: its Send is disabled, saying why; one with text is not',
+      [sendOf(1)?.disabled, (sendOf(1)?.title || '').includes('no infotext'), sendOf(0)?.disabled],
+      [true, true, false]);
+await act('generations.view', { tile: 1 });
+await waitFor('the viewer', () => document.querySelector('[data-gen-send]'));
+check('and in the viewer', document.querySelector('[data-gen-send]')?.disabled, true);
 
 done();

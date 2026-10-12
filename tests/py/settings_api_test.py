@@ -183,6 +183,12 @@ check('a radio is a choice, with each choice\'s value',
       [s['model_manager_nsfw_detection']['kind'],
        [c[1] for c in s['model_manager_nsfw_detection']['choices']]],
       ['choice', ['model', 'words']])
+# Sync images' level for images without infotext (#233) is a dropdown on the
+# Settings page; the window drew it as a text box, taking any word.
+check('a dropdown is a choice too, with each choice\'s value',
+      [s['model_manager_image_sync_level']['kind'],
+       [c[1] for c in s['model_manager_image_sync_level'].get('choices', [])]],
+      ['choice', ['PG', 'PG-13', 'R', 'X', 'XXX', 'Unknown']])
 check('a checkbox is on or off', s['model_manager_gallery_hide_nsfw']['kind'], 'bool')
 # How many of Civitai's images load at once (#213): a box, at least 1 and no
 # maximum - so the settings window draws no slider beside it.
@@ -218,13 +224,15 @@ code, answer = post({
     'model_manager_civitai_page_size': 55,                # over the slider's maximum
     'model_manager_card_size': 'big',                     # not a size
     'model_manager_nsfw_detection': 'guess',              # not a choice
+    'model_manager_image_sync_level': 'Purple',           # not one of the dropdown's
     'model_manager_gallery_hide_nsfw': 'yes',             # not on or off
     'sd_model_checkpoint': 'y',                           # not ours
 })
 check('a save with a bad value is refused', (code, answer.get('success')), (400, False))
 check('naming each bad value', sorted(answer.get('errors', {})), sorted([
     'model_manager_civitai_page_size', 'model_manager_card_size',
-    'model_manager_nsfw_detection', 'model_manager_gallery_hide_nsfw', 'sd_model_checkpoint']))
+    'model_manager_nsfw_detection', 'model_manager_gallery_hide_nsfw', 'sd_model_checkpoint',
+    'model_manager_image_sync_level']))
 check('and nothing is saved - not even the good one', (opts.data, opts.saves), (before, saves))
 
 # --------------------------------------------------------------------- saving

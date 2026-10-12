@@ -136,6 +136,8 @@ SPEC = {
     ('POST', '/model-manager/generations/delete-many'): 'generations',
     ('POST', '/model-manager/generations/{generation_id}/delete'): 'generations',
     ('GET', '/model-manager/generations/sync/folders'): 'generations',
+    ('POST', '/model-manager/generations/sync/folders/add'): 'generations',
+    ('POST', '/model-manager/generations/sync/folders/remove'): 'generations',
     ('GET', '/model-manager/generations/sync/estimate'): 'generations',
     ('POST', '/model-manager/generations/sync'): 'generations',
     ('GET', '/model-manager/generations/sync/progress'): 'generations',
@@ -194,7 +196,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 82 routes', len(SPEC), 82)
+check('the spec holds 84 routes', len(SPEC), 84)
 
 app = FastAPI()
 api.setup_api(app)

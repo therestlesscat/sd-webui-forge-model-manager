@@ -90,18 +90,72 @@ def folders() -> List[Dict[str, Any]]:
     settings now, then the ones the person added - each {path, key (Forge's
     setting, or None), ticked, forge (whether it is Forge's)}.
     """
-    off = set(_lines(FOLDERS_OFF_SETTING))
+    # Forge's folders are kept off by their setting's key, as their paths
+    # come from Forge's settings each time; an added folder by its path.
+    off = {line.lower() for line in _lines(FOLDERS_OFF_SETTING)}
     found, seen = [], set()
     for entry in forge_host.result_folders():
         seen.add(entry["path"].lower())
         found.append({"path": entry["path"], "key": entry["key"], "forge": True,
-                      "ticked": entry["key"] not in off})
+                      "ticked": entry["key"].lower() not in off})
     for path in _lines(FOLDERS_SETTING):
         path = os.path.normpath(path)
         if path.lower() not in seen:
             seen.add(path.lower())
-            found.append({"path": path, "key": None, "forge": False, "ticked": True})
+            found.append({"path": path, "key": None, "forge": False, "ticked": path.lower() not in off})
     return found
+
+
+def unticked(listed: List[Dict[str, Any]], ticked: Iterable[str]) -> List[str]:
+    """What the off setting keeps for the folders not ticked: a Forge
+    folder's key, an added folder's path."""
+    ticked = {str(p).lower() for p in ticked}
+    return [f["key"] if f["forge"] else f["path"] for f in listed if f["path"].lower() not in ticked]
+
+
+def add_folder(path: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Add a folder to the list a sync reads, kept in this WebUI's settings.
+
+    Returns:
+        (the folder as kept, None), or (None, why it was not added).
+    """
+    path = (path or "").strip().strip('"').strip()
+    if not path:
+        return None, "Give the folder's full path."
+    if not os.path.isabs(path):
+        return None, "Give the folder's full path, from its drive."
+    path = os.path.normpath(path)
+    if not os.path.isdir(path):
+        return None, "No such folder."
+    if any(f["path"].lower() == path.lower() for f in folders()):
+        return None, "That folder is in the list already."
+    forge_host.store_settings({FOLDERS_SETTING: "\n".join(_lines(FOLDERS_SETTING) + [path])})
+    return path, None
+
+
+def remove_folder(db, path: str) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Take an added folder off the list, and remove every generation its syncs
+    brought. No file is touched. One of Forge's folders cannot be removed:
+    it is unticked instead.
+
+    Returns:
+        (how many generations were removed, None), or (None, why not).
+    """
+    target = os.path.normpath((path or "").strip()).lower()
+    listed = next((f for f in folders() if f["path"].lower() == target), None)
+    if listed is None:
+        return None, "That folder is not in the list."
+    if listed["forge"]:
+        return None, "Forge saves results there: untick it instead."
+    removed = db.delete_synced_from(listed["path"])
+    forge_host.store_settings({
+        FOLDERS_SETTING: "\n".join(p for p in _lines(FOLDERS_SETTING) if os.path.normpath(p).lower() != target),
+        FOLDERS_OFF_SETTING: "\n".join(p for p in _lines(FOLDERS_OFF_SETTING)
+                                       if os.path.normpath(p).lower() != target),
+    })
+    return removed, None
 
 
 def _maps_folder() -> str:

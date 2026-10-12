@@ -929,6 +929,42 @@ class GenerationsOps:
             cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
             return cursor.fetchone()[0]
 
+    def synced_counts(self) -> Dict[str, int]:
+        """How many generations each synced folder brought, by its path in
+        lower case."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT s.path, COUNT(g.id) FROM image_sources s "
+                           "JOIN generations g ON g.source_id = s.id GROUP BY s.id")
+            return {row[0].lower(): row[1] for row in cursor.fetchall()}
+
+    def delete_synced_from(self, folder: str) -> int:
+        """
+        Remove every generation a folder's syncs brought, and the folder's
+        number - Remove folder (#233). Files are not touched, and nothing goes
+        on the removed list: the folder is no longer synced.
+
+        Returns:
+            How many generations were removed.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
+            row = cursor.fetchone()
+            if not row:
+                return 0
+            source = row[0]
+            images = ("SELECT gi.id FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
+                      "WHERE g.source_id = ?")
+            cursor.execute(f"DELETE FROM generation_resources WHERE image_id IN ({images})", (source,))
+            cursor.execute(f"DELETE FROM image_details WHERE image_id IN ({images})", (source,))
+            made = "SELECT id FROM generations WHERE source_id = ?"
+            cursor.execute(f"DELETE FROM generation_images WHERE generation_id IN ({made})", (source,))
+            cursor.execute(f"DELETE FROM generation_details WHERE generation_id IN ({made})", (source,))
+            cursor.execute(f"DELETE FROM task_generations WHERE generation_id IN ({made})", (source,))
+            cursor.execute("DELETE FROM generations WHERE source_id = ?", (source,))
+            removed = cursor.rowcount
+            cursor.execute("DELETE FROM image_sources WHERE id = ?", (source,))
+            return removed
+
     def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
         """The removed list: each file whose row was deleted with the file
         kept, lower case -> (size, modified time in ns) as it was then."""
