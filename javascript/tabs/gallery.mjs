@@ -39,7 +39,7 @@ const { imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { sendGalleryImage, cannotSend } = await shared('send.mjs');
 const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
-    placedGrid } = await shared('tiles.mjs');
+    placedGrid, showTile } = await shared('tiles.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -552,7 +552,7 @@ const viewerSource = {
         const place = viewerImages()[index];
         if (!place) return;
         if (fast && placed) placed.scrollTo(place.t);
-        else document.querySelector(`#gal_grid .gen-set[data-tile="${place.t}"]`)?.scrollIntoView?.({ block: 'nearest' });
+        else showTile(byId('gal_grid'), place.t);
     },
 };
 

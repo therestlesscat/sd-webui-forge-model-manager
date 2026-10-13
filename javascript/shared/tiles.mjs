@@ -138,6 +138,16 @@ export function watchEnd(scope, sentinel, near) {
     scope.listen(window, 'scroll', near, { passive: true });
 }
 
+/**
+ * Bring tile `index` of `grid` into view, as little as it takes: the tile
+ * itself, not its set. The set is `display: contents` and has no box, so the
+ * browser scrolled to nothing for it, and closing the viewer left the grid
+ * where it was (#253). Nothing if the tile is not on the page.
+ */
+export function showTile(grid, index) {
+    grid?.querySelector?.(`.gen-set[data-tile="${Number(index)}"] .gen-tile`)?.scrollIntoView?.({ block: 'nearest' });
+}
+
 /** How far the page is scrolled. */
 export function currentScroll() {
     return window.scrollY || document.documentElement?.scrollTop || 0;

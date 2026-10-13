@@ -46,7 +46,7 @@ const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
 // The grid both this tab and the Civitai Images tab draw (#209).
 const {
     wide, aspect, spanFor, applySpans: spanTiles, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd,
-    currentScroll, topOf, placedGrid,
+    currentScroll, topOf, placedGrid, showTile,
 } = await shared('tiles.mjs');
 const {
     ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
@@ -1102,7 +1102,7 @@ const viewerSource = {
         const { t } = viewerAt(index);
         if (t === undefined) return;
         if (fast && placed) placed.scrollTo(t);
-        else document.querySelector(`#gen_grid .gen-set[data-tile="${t}"]`)?.scrollIntoView?.({ block: 'nearest' });
+        else showTile(byId('gen_grid'), t);
     },
 };
 

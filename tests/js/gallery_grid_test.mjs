@@ -3,7 +3,7 @@
 //
 // The tab opens as ui-options says, follows the setting as it is saved, and
 // draws the same tiles, in the same order, either way.
-import { checker, gridLayout, mountTab, startTab } from './harness.mjs';
+import { call, checker, gridLayout, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
 const { check, waitFor, done } = checker();
@@ -67,5 +67,21 @@ await saved('Classic');
 check('Classic again: every tile on the page, no height of the tab\'s',
       [gridEl().classList.contains('gen-placed'), gridEl().style.height, gridEl().querySelectorAll('.gen-set').length],
       [false, '', 200]);
+
+// The viewer closed, Classic: the tile it showed last into view - the tile
+// itself, not its set, which has no box (#253).
+const intoView = [];
+window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { intoView.push(this); };
+const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+await call('gallery.view', { tile: 0 });
+await settle();
+for (let i = 0; i < 4; i++) {
+    key('ArrowRight');
+    await settle();
+}
+key('Escape');
+await settle();
+check('Classic: closing the viewer scrolls the tile it showed last into view - the tile itself, not its set',
+      [intoView.at(-1)?.classList.contains('gen-tile'), intoView.at(-1)?.closest('.gen-set')?.dataset.tile], [true, '4']);
 
 done();

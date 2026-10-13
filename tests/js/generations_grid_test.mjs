@@ -10,7 +10,7 @@ import { checker, gridLayout, mountTab, sharedModule, startTab, call, act, tick 
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
-const { newPlacement, placeTiles } = await sharedModule('tiles.mjs');
+const { newPlacement, placeTiles, showTile } = await sharedModule('tiles.mjs');
 // A tile's height, as a browser would measure it: its image and buttons, and
 // the rating row under them once Rate is on - the one thing that changes it.
 Object.defineProperty(Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div'))), 'offsetHeight', {
@@ -234,5 +234,27 @@ for (const [label, on, off] of [
     await off();
     await settle();
 }
+
+// ------------------------------------------- the viewer closed, Classic
+// It brings the tile it showed last into view: the tile's own box. Its set is
+// `display: contents`, with no box, and the browser scrolled to nothing (#253).
+await saved('Classic');
+const intoView = [];
+window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { intoView.push(this); };
+const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+await call('generations.view', { tile: 0 });
+await settle();
+for (let i = 0; i < 5; i++) {
+    key('ArrowRight');
+    await settle();
+}
+key('Escape');
+await settle();
+const shownLast = intoView.at(-1);
+check('Classic: closing the viewer scrolls the tile it showed last into view - the tile itself, not its set',
+      [shownLast?.classList.contains('gen-tile'), shownLast?.closest('.gen-set')?.dataset.tile], [true, '5']);
+intoView.length = 0;
+showTile?.(gridEl(), 9999);
+check('a tile not on the page: nothing is scrolled, and nothing fails', [typeof showTile, intoView.length], ['function', 0]);
 
 done();
