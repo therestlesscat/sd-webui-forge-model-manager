@@ -23,6 +23,8 @@ export let lazyMediaObserver = null;
 // the watcher is one.
 const mediaLoading = new Set();
 const mediaWaiting = new Set();
+// How long one image holds its place at most, should its download never end.
+const PLACE_LIMIT_MS = 30000;
 
 /**
  * The widths Civitai's image server makes copies at. Asked for a width in
@@ -285,12 +287,13 @@ function settle(node) {
 }
 
 /**
- * The places free, to the first in line. An image the grid took away - a new
- * part, Back, a new seed - frees its place here: its load's event never
- * reaches the page.
+ * The places free, to the first in line. An image the grid took away while
+ * loading keeps its place until its download ends (`begin`): the browser
+ * does not stop a download for an image taken off the page, and Fast takes
+ * rows off as it scrolls - freed at once, 214 were in flight against 64
+ * (#240).
  */
 function handOut() {
-    mediaLoading.forEach((node) => { if (!node.isConnected) mediaLoading.delete(node); });
     for (const node of mediaWaiting) {
         if (!node.isConnected) {
             mediaWaiting.delete(node);
@@ -318,6 +321,16 @@ function begin(node, takesPlace) {
         // Asked for now: the browser's own lazy loading waits for an image
         // in a hidden tab to show, and its place would wait with it.
         node.removeAttribute('loading');
+        if (node.tagName === 'IMG') {
+            // Taken off the page, its load's event never reaches the page's
+            // listener: the image tells of it itself. No fallback for an
+            // image no longer shown.
+            const ended = () => { if (!node.isConnected) settle(node); };
+            node.addEventListener('load', ended);
+            node.addEventListener('error', ended);
+        }
+        // A download that never says it ended frees its place all the same.
+        setTimeout(() => settle(node), PLACE_LIMIT_MS);
     }
     node.setAttribute('src', src);
     node.removeAttribute('data-src');

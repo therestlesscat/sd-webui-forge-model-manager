@@ -46,7 +46,7 @@ const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
 // The grid both this tab and the Civitai Images tab draw (#209).
 const {
     wide, aspect, spanFor, applySpans: spanTiles, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd,
-    currentScroll, topOf,
+    currentScroll, topOf, placedGrid,
 } = await shared('tiles.mjs');
 const {
     ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
@@ -78,6 +78,8 @@ let tabScope = null;        // this tab's, from start()
 // "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';
 // "Expand generations" (#252): a tile per image where a level lists generations.
+// How the grid is placed (#240), as Settings -> Model Manager says.
+const GRID_SETTING = 'model_manager_generations_grid';
 const EXPAND_KEY = 'mm_generations_expand';
 const GROUP_BY_KEY = 'mm_generations_group_by';
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
@@ -205,6 +207,10 @@ function emptyGroupValue(by) {
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
 let expand = readFlag(EXPAND_KEY);
 let rating = false;      // "Rate": a row of levels under every image - not remembered
+// How the grid is placed, as the settings say (#240): Fast, by the tab - its
+// placement, from start() - or Classic, by the browser.
+let fast = true;
+let placed = null;
 // "Select": a tick on every batch and image, and one Delete for all. The
 // ticks, by what they pick (tileKey) - places move as tiles go - and the
 // last one ticked, for shift-click. Not remembered, and cleared on any
@@ -261,6 +267,7 @@ async function reload() {
     request += 1;
     const grid = byId('gen_grid');
     if (grid) grid.innerHTML = '';
+    placed?.reset();
     renderPath();
     setStatus('Loading...');
     await loadNext();
@@ -439,7 +446,7 @@ function tileHtml(tile, index) {
     const generation = tile.generation || {};
     const folded = tile.kind === 'group' || (tile.kind === 'generation' && tile.matching_count > 1);
     const mode = generation.mode === 'img2img' ? 'img2img' : 'txt2img';
-    const image = tile.images?.[0] || {};
+    const image = tileImage(tile);
     // Selecting, a click on a batch or an image ticks it (the listener beside
     // Select): it says so, and no zoom-in cursor says it opens the viewer (#114).
     const key = tileKey(tile);
@@ -515,12 +522,25 @@ function tileHtml(tile, index) {
  * rows instead still left gaps, and drew images of one size at different sizes.
  */
 function applySpans() {
-    spanTiles(byId('gen_grid'), { oneColumn: preserveOrder });
+    if (fast) placed?.replace();
+    else spanTiles(byId('gen_grid'), { oneColumn: preserveOrder });
 }
 
 /** Columns wide enough for the buttons, then each tile's span over them. */
 function layout() {
-    layoutTiles(byId('generations_app'), byId('gen_grid'), { oneColumn: preserveOrder });
+    if (fast) placed?.relayout();
+    else layoutTiles(byId('generations_app'), byId('gen_grid'), { oneColumn: preserveOrder });
+}
+
+/** The image a tile shows first, which its width goes by. */
+function tileImage(tile) {
+    return tile?.images?.[0] || {};
+}
+
+/** Whether a tile starts its section, grouped twice: its header comes before it. */
+function startsSection(index) {
+    const section = tiles[index]?.section;
+    return Boolean(section) && (index === 0 || tiles[index - 1].section?.id !== section.id);
 }
 
 /**
@@ -530,9 +550,7 @@ function layout() {
  */
 function setHtml(index) {
     const tile = tiles[index];
-    const section = tile.section;
-    const head = section && (index === 0 || tiles[index - 1].section?.id !== section.id)
-        ? sectionHeadHtml(section, tile.group?.by) : '';
+    const head = startsSection(index) ? sectionHeadHtml(tile.section, tile.group?.by) : '';
     return `<div class="gen-set" data-tile="${index}">${head}${tileHtml(tile, index)}</div>`;
 }
 
@@ -549,12 +567,20 @@ function appendTiles(from) {
     if (!grid) return;
     // In sections, no tile is packed into a hole above its section's header.
     grid.classList.toggle('gen-sectioned', tiles.some((t) => t.section));
+    if (fast && placed) {
+        placed.add();
+        return;
+    }
     grid.insertAdjacentHTML('beforeend', tiles.slice(from).map((_, i) => setHtml(from + i)).join(''));
     setupLazyMedia(grid);
     layout();
 }
 
 function redrawTile(index) {
+    if (fast && placed) {
+        placed.redraw(index);
+        return;
+    }
     const set = document.querySelector(`#gen_grid .gen-set[data-tile="${index}"]`);
     if (!set) return;
     set.outerHTML = setHtml(index);
@@ -567,6 +593,7 @@ function redrawAll() {
     const grid = byId('gen_grid');
     if (!grid) return;
     grid.innerHTML = '';
+    placed?.reset({ keepHeight: true });
     appendTiles(0);
 }
 
@@ -694,6 +721,7 @@ async function reloadKeepingPlace() {
     more = true;
     const grid = byId('gen_grid');
     if (grid) grid.innerHTML = '';
+    placed?.reset();
     while (part < parts && more) {
         const before = part;
         await loadNext();
@@ -701,6 +729,22 @@ async function reloadKeepingPlace() {
     }
     setStatus(tiles.length ? '' : emptyText());
     window.scrollTo?.(0, y);
+}
+
+/**
+ * Fast or Classic, as the setting now says: the tiles held drawn again the
+ * new way, the page where it was.
+ */
+function switchGrid(on) {
+    if (on === fast) return;
+    fast = on;
+    const grid = byId('gen_grid');
+    if (!grid) return;
+    const y = currentScroll();
+    placed?.off();
+    redrawAll();
+    window.scrollTo?.(0, y);
+    if (fast) placed?.relayout();
 }
 
 function switchRating(checked) {
@@ -1056,7 +1100,9 @@ const viewerSource = {
     onClose: (index) => {
         closeMenu();
         const { t } = viewerAt(index);
-        if (t !== undefined) document.querySelector(`#gen_grid .gen-set[data-tile="${t}"]`)?.scrollIntoView?.({ block: 'nearest' });
+        if (t === undefined) return;
+        if (fast && placed) placed.scrollTo(t);
+        else document.querySelector(`#gen_grid .gen-set[data-tile="${t}"]`)?.scrollIntoView?.({ block: 'nearest' });
     },
 };
 
@@ -1739,9 +1785,31 @@ export async function start(scope) {
     }
     showGroupChoice();
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
+    placed = placedGrid({
+        scope: tabScope,
+        grid: () => byId('gen_grid'),
+        app: () => byId('generations_app'),
+        count: () => tiles.length,
+        html: setHtml,
+        imageOf: (index) => tileImage(tiles[index]),
+        head: startsSection,
+        oneColumn: () => preserveOrder,
+        // As the browser's grid: nothing packed back with Preserve order, or above a section's header.
+        dense: () => !preserveOrder && !tiles.some((t) => t.section),
+        drawn: (grid) => setupLazyMedia(grid),
+    });
     try {
-        hideNsfw = (await galleryDefaults()).generationsHideNsfw;
-    } catch (e) { /* the gallery's default: hidden */ }
+        const defaults = await galleryDefaults();
+        hideNsfw = defaults.generationsHideNsfw;
+        fast = defaults.generationsFast;
+    } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
+    // The grid setting saved, in the settings window or on the Settings page.
+    const followGrid = (changed) => {
+        if (!changed.includes(GRID_SETTING)) return;
+        galleryDefaults().then((defaults) => switchGrid(defaults.generationsFast)).catch(() => {});
+    };
+    tabScope.listen(window, 'mm-settings-saved', (event) => followGrid(event.detail?.changed || []));
+    tabScope.listen(window, 'mm-settings-page-applied', (event) => followGrid(event.detail?.changed || []));
     watchEnd();
     tabScope.listen(document, 'keydown', onKey);
     // Hidden, nothing could be measured: measure again once it is shown.

@@ -7,9 +7,10 @@
 // says, and the rest wait in the order they came into view. An image frees
 // its place once it has loaded or failed for good - a copy that fails asks
 // for its upload on the same place. One that leaves the view while waiting is
-// never asked for; one the grid takes away frees its place. A video holds a
-// place until its still has loaded. Your generations are the WebUI's own
-// files, and load as they come.
+// never asked for; one the grid takes away while it loads keeps its place
+// until its download ends - the browser goes on with it - or 30 s (#240). A
+// video holds a place until its still has loaded. Your generations are the
+// WebUI's own files, and load as they come.
 import { checker, mountTab, sharedModule, startServices } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
@@ -35,6 +36,16 @@ document.createElement = (tag, ...rest) => {
 const ui = await sharedModule('ui_options.mjs');
 await ui.uiOptions();
 const { setupLazyMedia } = await sharedModule('media.mjs');
+// The limit on a place, run by the suite: what media.mjs leaves for 30 s.
+const limits = [];
+const setTimer = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms === 30000) {
+        limits.push(fn);
+        return 0;
+    }
+    return setTimer(fn, ms, ...rest);
+};
 await startServices('media.mjs');
 
 const C = 'https://image.civitai.com/acct';
@@ -93,8 +104,10 @@ const box = grid(100);
 setupLazyMedia(box);
 check('nothing asked for before it comes into view', asked(box), []);
 watcher.show(images(box));
-check('100 in view: 64 asked for, the first 64 - the grid taken away before them freed its places',
-      asked(box), range(1, 64));
+check('100 in view while the 64 taken away still download: none asked for - those go on, off the page',
+      asked(box), []);
+range(2, 65).forEach((n) => loaded(nth(plain, n)));
+check('as those end, their places go to the new ones: the first 64', asked(box), range(1, 64));
 loaded(nth(box, 1));
 check('one loads: the 65th is asked for', asked(box).includes(65), true);
 check('and no more', asked(box).length, 65);
@@ -139,9 +152,24 @@ late.remove();
 const next = grid(10);
 setupLazyMedia(next);
 watcher.show(images(next));
-check('the grid drawn again while 64 load: their places freed, the new grid\'s images start',
-      asked(next), range(1, 10));
+check('the grid drawn again while 64 load: the new grid\'s images wait - the old downloads go on',
+      asked(next), []);
+// 38 to 43 were asked for, and have not ended.
+range(38, 43).forEach((n) => loaded(nth(box, n)));
+check('as six of them end, six of the new grid start', asked(next), range(1, 6));
+const waiting = limits.length;
+limits.splice(0).forEach((limit) => limit());
+check('a download that never ends frees its place after 30 s: the rest start', [waiting > 0, asked(next)], [true, range(1, 10)]);
+images(next).forEach(loaded);
 next.remove();
+// Taken away, then its copy fails: no upload is asked for an image no longer shown.
+const gone = grid(1);
+setupLazyMedia(gone);
+watcher.show(images(gone));
+const goneImage = nth(gone, 1);
+gone.remove();
+goneImage.dispatchEvent(new window.Event('error'));
+check('an image taken away whose copy fails: its upload is not asked for', goneImage.getAttribute('src'), `${C}/width=450/1.jpeg`);
 
 // ------------------------------------------------------------ a video
 // Its still is all it loads before it is played; the server sends it on to Civitai.
@@ -159,6 +187,9 @@ check('a video holds a place until its still loads: the setting says 1, the seco
 const still = stills.find((img) => img.getAttribute('src') === '/model-manager/video-still?url=1');
 if (still) loaded(still);
 check('its still loaded: the next starts', nth(videos, 2).getAttribute('poster'), '/model-manager/video-still?url=2');
+// Each part below starts with nothing loading: what this one asked for ends first.
+const second = stills.find((img) => img.getAttribute('src') === '/model-manager/video-still?url=2');
+if (second) loaded(second);
 videos.remove();
 
 // ------------------------------------------------------------ the setting
@@ -168,6 +199,7 @@ const two = grid(5);
 setupLazyMedia(two);
 watcher.show(images(two));
 check('the setting says 2: 2 asked for at once', asked(two), [1, 2]);
+images(two).forEach(loaded);
 two.remove();
 
 atOnce = 5;

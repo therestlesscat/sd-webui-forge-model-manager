@@ -275,6 +275,7 @@ def register(app: FastAPI):
         from ..model_dirs import shown_roots
         from ..db import database_state
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
+        from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
         from ..scheduler import queue_enabled
         from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
@@ -295,6 +296,9 @@ def register(app: FastAPI):
         if images_at_once < 1:
             images_at_once = DEFAULTS['model_manager_civitai_images_at_once']
         generations_hide_nsfw = bool(setting(GENERATIONS_HIDE_NSFW))
+        # How each tab places its grid (#240): Fast or Classic.
+        generations_grid = grid(GENERATIONS_GRID)
+        gallery_grid = grid(GALLERY_GRID)
         # Whether the delete question's files box starts ticked (#107).
         generations_delete_files = bool(setting(GENERATIONS_DELETE_FILES))
         # "Your generations": off, nothing is recorded and every tab of them is
@@ -335,6 +339,8 @@ def register(app: FastAPI):
                 "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
+                "generations_grid": generations_grid,
+                "gallery_grid": gallery_grid,
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
                 "queue_ask_above": queue_ask_above,
@@ -361,6 +367,7 @@ def register(app: FastAPI):
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,
+                 "generations_grid": generations_grid, "gallery_grid": gallery_grid,
                  "generations_enabled": generations_on,
                  "queue_enabled": queue_on,
                  "tabs": tabs, "restartable": can_restart},

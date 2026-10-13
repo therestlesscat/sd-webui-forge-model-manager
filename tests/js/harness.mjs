@@ -213,6 +213,81 @@ export function tabMarkup(tabFile) {
     return html;
 }
 
+// A grid's layout as the stylesheet sets it (#240), which linkedom has none of.
+export const GRID_LAYOUT = { width: 1000, column: 200, gap: 4, image: 300, sectionGap: 6 };
+
+/**
+ * The grids' layout, which linkedom has none of (#240). Fast places a tile
+ * by the grid's width and its variables, and draws the rows near the view:
+ * here a grid GRID_LAYOUT wide - 4 columns - at the top of a window tall
+ * enough that every row is near. A suite moves the view with `view`, as
+ * scrolling would: `{top}`, where the grid's top is on the screen, and
+ * `{height}`, the window's.
+ *
+ * MM_TEST_GRID=Classic in the environment runs a suite on the browser's
+ * grid instead: ui-options says so, whatever the suite's stand-in answers.
+ */
+export function gridLayout(window, view = {}) {
+    const state = { top: 0, height: 100000, ...view };
+    window.innerHeight = state.height;
+    const isGrid = (element) => element?.classList?.contains?.('gen-grid');
+    const proto = Object.getPrototypeOf(Object.getPrototypeOf(window.document.createElement('div')));
+    const rect = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function getBoundingClientRect() {
+        if (!isGrid(this)) return rect.call(this);
+        const height = parseFloat(this.style?.height) || 0;
+        // A page as tall as its grid: measured shorter than the scroll, the
+        // browser pulls the scroll back, as it does when a grid collapses.
+        const most = Math.max(0, height - state.height);
+        if (this.classList.contains('gen-placed') && -state.top > most) {
+            state.top = -most;
+            window.scrollY = most;
+        }
+        return { x: 0, y: state.top, left: 0, top: state.top, width: GRID_LAYOUT.width, height,
+                 right: GRID_LAYOUT.width, bottom: state.top + height };
+    };
+    const vars = { '--gen-column-width': `${GRID_LAYOUT.column}px`, '--gen-gap': `${GRID_LAYOUT.gap}px`,
+                   '--gen-image-height': `${GRID_LAYOUT.image}px`, '--gen-section-gap': `${GRID_LAYOUT.sectionGap}px` };
+    const computed = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = (element) => (isGrid(element)
+        ? { getPropertyValue: (name) => vars[name] || '' } : computed(element));
+    window.getComputedStyle = globalThis.getComputedStyle;
+    if (process.env.MM_TEST_GRID === 'Classic') classicGrid();
+    return (next) => {
+        Object.assign(state, next);
+        window.innerHeight = state.height;
+    };
+}
+
+// Every fetch a suite sets answers ui-options with Classic for both grids.
+// Each is wrapped as it is set: a suite that keeps the one before and calls
+// it from the next gets that one's wrapper, never the newest again.
+function classicGrid() {
+    const classic = (fetch) => async (url, ...rest) => {
+        const answer = await fetch(url, ...rest);
+        if (!String(url?.url ?? url).includes('/model-manager/ui-options')) return answer;
+        const data = { ...(await answer.json()), generations_grid: 'Classic', gallery_grid: 'Classic' };
+        return { ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) };
+    };
+    // A suite that never asked ui-options, or whose ask failed, ran on Fast:
+    // it fails here rather than pass again unseen.
+    if (!classicGrid.watching) {
+        classicGrid.watching = true;
+        process.on('exit', () => {
+            if (globalThis.document?.querySelector?.('.gen-grid.gen-placed')) {
+                console.log('FAIL MM_TEST_GRID=Classic, but a grid was placed by the tab (Fast)');
+                process.exitCode = 1;
+            }
+        });
+    }
+    let current = globalThis.fetch && classic(globalThis.fetch);
+    Object.defineProperty(globalThis, 'fetch', {
+        configurable: true,
+        get: () => current,
+        set: (fetch) => { current = fetch && classic(fetch); },
+    });
+}
+
 /**
  * Put a tab's markup and the globals it needs in place.
  *
@@ -233,6 +308,7 @@ export function mountTab(tabFile) {
     // A browser global; descriptions are sanitized by parsing them with it.
     globalThis.DOMParser = window.DOMParser;
     globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
+    gridLayout(window);
     globalThis.gradioApp = () => window.document;
     globalThis.onUiLoaded = (cb) => cb();
     globalThis.onAfterUiUpdate = () => {};

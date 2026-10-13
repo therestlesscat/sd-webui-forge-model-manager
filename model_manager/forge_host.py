@@ -48,7 +48,10 @@ DEFAULTS = {
     "model_manager_hide_promptless_images": True,
     "model_manager_generations_hide_nsfw": True,
     "model_manager_generations_delete_files": False,
+    # How each tab places its grid (grids.py, #240): Fast, the tab's own.
+    "model_manager_generations_grid": "Fast",
     "model_manager_gallery_page_size": 100,
+    "model_manager_gallery_grid": "Fast",
     # Civitai's images loaded as uploaded, not as copies the size they are
     # drawn (#192): a card's copy was 54 KB on average, the upload 66 times that.
     "model_manager_gallery_originals": False,

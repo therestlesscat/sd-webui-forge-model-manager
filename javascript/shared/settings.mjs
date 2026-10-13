@@ -44,6 +44,8 @@ const K = {
     galleryTab: 'model_manager_gallery_tab',
     generationsNsfw: 'model_manager_generations_hide_nsfw',
     generationsDeleteFiles: 'model_manager_generations_delete_files',
+    generationsGrid: 'model_manager_generations_grid',
+    galleryGrid: 'model_manager_gallery_grid',
     syncLevel: 'model_manager_image_sync_level',
     groupNoText: 'model_manager_group_no_text',
     thumbnails: 'model_manager_thumbnails',
@@ -85,8 +87,9 @@ const SECTIONS = [
       keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
     { id: 'gallery', title: 'Shared (Model Manager, Civitai Browser and Civitai Images)', tabs: ['model_manager', 'civitai_browser', 'gallery'],
       shownWith: ['model_manager', 'civitai_browser', 'gallery'], keys: [K.galleryNsfw, K.promptless, K.pageSize, K.galleryOriginals, K.cardOriginals] },
+    { id: 'civitai_images', title: 'Civitai Images', tabs: ['gallery'], shownWith: ['gallery'], keys: [K.galleryGrid] },
     { id: 'generations', title: 'Generations', tabs: ['model_manager', 'generations'],
-      shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles, K.syncLevel, K.groupNoText,
+      shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles, K.generationsGrid, K.syncLevel, K.groupNoText,
                                       K.thumbnails, K.thumbnailsPlace, K.thumbnailsFolder, K.thumbnailThreads] },
     { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
     { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations', 'gallery'],
@@ -125,6 +128,8 @@ const LABELS = {
     [K.recordGenerations]: 'Generations: record the images you generate, and show them',
     [K.generationsNsfw]: 'Generations: hide explicit images by default',
     [K.generationsDeleteFiles]: 'Delete: also delete the image files, by default',
+    [K.generationsGrid]: 'Generations: grid',
+    [K.galleryGrid]: 'Civitai Images: grid',
     [K.syncLevel]: 'Sync images: default NSFW level for images without infotext',
     [K.groupNoText]: 'Sync images: group images without infotext with similar file names into one batch',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
@@ -153,6 +158,9 @@ const SHOWN_WHEN = {
     // No Generations tab while nothing is recorded.
     [K.generationsNsfw]: (s) => s.value(K.recordGenerations) !== false,
     [K.generationsDeleteFiles]: (s) => s.value(K.recordGenerations) !== false,
+    [K.generationsGrid]: (s) => s.value(K.recordGenerations) !== false,
+    // Nor a Civitai Images tab while it is off.
+    [K.galleryGrid]: (s) => s.value(K.galleryTab) !== false,
     [K.syncLevel]: (s) => s.value(K.recordGenerations) !== false,
     [K.groupNoText]: (s) => s.value(K.recordGenerations) !== false,
     // Where and how many thumbnails are made, only while they are; a folder

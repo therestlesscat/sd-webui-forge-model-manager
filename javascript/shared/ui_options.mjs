@@ -241,7 +241,10 @@ export async function galleryDefaults() {
     return { hideNsfw: data?.gallery_hide_nsfw !== false,
              hidePromptless: data?.hide_promptless_images !== false,
              // The Generations tab's own; a model's Your generations follows hideNsfw.
-             generationsHideNsfw: data?.generations_hide_nsfw !== false };
+             generationsHideNsfw: data?.generations_hide_nsfw !== false,
+             // How each tab places its grid (#240): Fast unless Classic is chosen.
+             generationsFast: data?.generations_grid !== 'Classic',
+             galleryFast: data?.gallery_grid !== 'Classic' };
 }
 
 /** The note, while the trained model is in force; '' otherwise, or before the answer. */

@@ -38,8 +38,8 @@ const { nsfwBadge } = await shared('nsfw.mjs');
 const { imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { sendGalleryImage, cannotSend } = await shared('send.mjs');
-const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN } =
-    await shared('tiles.mjs');
+const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
+    placedGrid } = await shared('tiles.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -61,6 +61,8 @@ let tabScope = null;
 
 // "Group by", remembered in this browser.
 const GROUP_BY_KEY = 'mm_gallery_group_by';
+// How the grid is placed (#240), as Settings -> Model Manager says.
+const GRID_SETTING = 'model_manager_gallery_grid';
 // What this tab shows, above it until closed - closed, remembered in this browser.
 const ABOUT_CLOSED_KEY = 'mm_gallery_about_closed';
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
@@ -76,6 +78,10 @@ const TYPE_NAMES = { TextualInversion: 'Embedding', Controlnet: 'ControlNet' };
 
 let groupBy = GROUP_NAMES[readSetting(GROUP_BY_KEY, '')] ? readSetting(GROUP_BY_KEY, '') : '';
 let hideNsfw = true;
+// How the grid is placed, as the settings say (#240): Fast, by the tab - its
+// placement, from start() - or Classic, by the browser.
+let fast = true;
+let placed = null;
 let seed = null;            // as the server last said
 // The level shown: its tiles, as loaded, and where it is. The level above,
 // when a group is open, is kept whole for Back.
@@ -181,6 +187,7 @@ async function reload() {
     request += 1;
     const grid = byId('gal_grid');
     if (grid) grid.innerHTML = '';
+    placed?.reset();
     renderPath();
     setStatus('Loading...');
     await loadNext();
@@ -305,6 +312,7 @@ function goBack() {
     ({ tiles, state, scope, part, more, inGroup } = above);
     const grid = byId('gal_grid');
     if (grid) grid.innerHTML = '';
+    placed?.reset();
     appendTiles(0);
     renderBanner();
     renderPath();
@@ -360,7 +368,7 @@ function imageHtml(image) {
  * or one image, which a click shows in the viewer, with Send and Show model.
  */
 function tileHtml(tile, index) {
-    const image = tile.images?.[0] || tile.image || {};
+    const image = tileImage(tile);
     let media;
     let actions;
     if (tile.kind === 'group') {
@@ -398,17 +406,47 @@ function tileHtml(tile, index) {
         </div>`;
 }
 
+/** The image a tile shows first, which its width goes by. */
+function tileImage(tile) {
+    return tile?.images?.[0] || tile?.image || {};
+}
+
+function setHtml(index) {
+    return `<div class="gen-set" data-tile="${index}">${tileHtml(tiles[index], index)}</div>`;
+}
+
 function layout() {
-    layoutTiles(byId('gallery_app'), byId('gal_grid'));
+    if (fast) placed?.relayout();
+    else layoutTiles(byId('gallery_app'), byId('gal_grid'));
 }
 
 function appendTiles(from) {
     const grid = byId('gal_grid');
     if (!grid) return;
-    grid.insertAdjacentHTML('beforeend', tiles.slice(from)
-        .map((tile, i) => `<div class="gen-set" data-tile="${from + i}">${tileHtml(tile, from + i)}</div>`).join(''));
+    if (fast && placed) {
+        placed.add();
+        return;
+    }
+    grid.insertAdjacentHTML('beforeend', tiles.slice(from).map((_, i) => setHtml(from + i)).join(''));
     setupLazyMedia(grid);
     layout();
+}
+
+/**
+ * Fast or Classic, as the setting now says: the tiles held drawn again the
+ * new way, the page where it was.
+ */
+function switchGrid(on) {
+    if (on === fast) return;
+    fast = on;
+    const grid = byId('gal_grid');
+    if (!grid) return;
+    const y = currentScroll();
+    placed?.off();
+    grid.innerHTML = '';
+    appendTiles(0);
+    window.scrollTo?.(0, y);
+    if (fast) placed?.relayout();
 }
 
 function renderBanner() {
@@ -512,7 +550,9 @@ const viewerSource = {
     },
     onClose: (index) => {
         const place = viewerImages()[index];
-        if (place) document.querySelector(`#gal_grid .gen-set[data-tile="${place.t}"]`)?.scrollIntoView?.({ block: 'nearest' });
+        if (!place) return;
+        if (fast && placed) placed.scrollTo(place.t);
+        else document.querySelector(`#gal_grid .gen-set[data-tile="${place.t}"]`)?.scrollIntoView?.({ block: 'nearest' });
     },
 };
 
@@ -578,9 +618,27 @@ export async function start(startScope) {
     showNotes('gallery', 'gal_notes');
     showAbout();
     showGroupChoice();
+    placed = placedGrid({
+        scope: tabScope,
+        grid: () => byId('gal_grid'),
+        app: () => byId('gallery_app'),
+        count: () => tiles.length,
+        html: setHtml,
+        imageOf: (index) => tileImage(tiles[index]),
+        drawn: (grid) => setupLazyMedia(grid),
+    });
     try {
-        hideNsfw = (await galleryDefaults()).hideNsfw;
-    } catch (e) { /* the gallery's default: hidden */ }
+        const defaults = await galleryDefaults();
+        hideNsfw = defaults.hideNsfw;
+        fast = defaults.galleryFast;
+    } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
+    // The grid setting saved, in the settings window or on the Settings page.
+    const followGrid = (changed) => {
+        if (!changed.includes(GRID_SETTING)) return;
+        galleryDefaults().then((defaults) => switchGrid(defaults.galleryFast)).catch(() => {});
+    };
+    tabScope.listen(window, 'mm-settings-saved', (event) => followGrid(event.detail?.changed || []));
+    tabScope.listen(window, 'mm-settings-page-applied', (event) => followGrid(event.detail?.changed || []));
     watchGridEnd(tabScope, byId('gal_sentinel'), loadIfNearEnd);
     tabScope.listen(document, 'keydown', onKey);
     // Hidden, nothing could be measured: measure again once it is shown.

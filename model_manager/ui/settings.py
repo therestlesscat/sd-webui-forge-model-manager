@@ -13,6 +13,7 @@ from modules import shared
 from ..forge_host import DEFAULTS
 from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
+from ..grids import CHOICES as GRID_CHOICES, GALLERY_GRID, GENERATIONS_GRID
 from ..image_sync import FOLDERS_OFF_SETTING, FOLDERS_SETTING, GROUP_SETTING, LEVEL_SETTING
 from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
 from .. import prompt_levels, thumbnails
@@ -247,6 +248,21 @@ def on_ui_settings():
         ).info("Ticks the box in the delete question. It can still be unticked for one delete.")
     )
 
+    # How each tab places its grid (#240): Fast, the tab's own, or Classic.
+    grid_info = ("Fast draws only the rows near the view, and stays smooth at 75,000 images. "
+                 "Classic puts every tile on the page. The browser's find then sees them all, "
+                 "but a grid of thousands freezes for seconds.")
+    shared.opts.add_option(
+        GENERATIONS_GRID,
+        shared.OptionInfo(
+            default=DEFAULTS[GENERATIONS_GRID],
+            label="Generations: grid",
+            component=gr.Dropdown,
+            component_args={"choices": list(GRID_CHOICES)},
+            section=section,
+        ).info(grid_info)
+    )
+
     # Sync images (#233): what its dialog starts from. The two folder lists
     # are the dialog's to change - a folder typed here as text breaks too
     # easily - so they are kept out of every settings page: Forge skips a
@@ -339,6 +355,17 @@ def on_ui_settings():
                "your generations, and the Civitai Images tab adds as you scroll - counted before the NSFW and prompt filters, which "
                "decide which of a page's images are shown. A page the library cannot "
                "fill is filled from Civitai first.")
+    )
+
+    shared.opts.add_option(
+        GALLERY_GRID,
+        shared.OptionInfo(
+            default=DEFAULTS[GALLERY_GRID],
+            label="Civitai Images: grid",
+            component=gr.Dropdown,
+            component_args={"choices": list(GRID_CHOICES)},
+            section=section,
+        ).info(grid_info)
     )
 
     shared.opts.add_option(

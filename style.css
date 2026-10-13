@@ -3817,6 +3817,8 @@ textarea.mm-settings-input {
     --gen-gap: 4px;
     --gen-tile-padding: 4px;
     --gen-tile-border: 2px;
+    /* Above a section's header, but the first: Fast places it by this too. */
+    --gen-section-gap: 6px;
 }
 
 .gen-toolbar {
@@ -3979,7 +3981,7 @@ textarea.mm-settings-input {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    margin-top: 6px;
+    margin-top: var(--gen-section-gap);
     padding: 4px 2px;
     border-bottom: 1px solid var(--border-color-primary, #374151);
 }
@@ -4010,6 +4012,19 @@ textarea.mm-settings-input {
    generation's images flow on as tiles of their own. */
 .gen-set {
     display: contents;
+}
+
+/* Fast (#240): the tab places each tile and section header itself
+   (shared/tiles.mjs), and gives the grid the height of all its rows. */
+.gen-grid.gen-placed {
+    display: block;
+    position: relative;
+}
+.gen-grid.gen-placed .gen-tile,
+.gen-grid.gen-placed .gen-section-head {
+    position: absolute;
+    box-sizing: border-box;
+    margin-top: 0;
 }
 
 .gen-tile {

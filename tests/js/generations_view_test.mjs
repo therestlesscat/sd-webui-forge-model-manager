@@ -259,7 +259,12 @@ check('each tile carries its image\'s shape for that', tileEls()[1].getAttribute
 const sizes = { '--gen-column-width': '200px', '--gen-gap': '12px', '--gen-image-height': '300px' };
 window.getComputedStyle = () => ({ getPropertyValue: (name) => sizes[name] || '' });
 grid().getBoundingClientRect = () => ({ width: 1300, top: 0 });
-const wideSpan = () => tileEls()[1].style.gridColumn;
+// Classic gives a wide tile its columns; Fast places it that wide (#240).
+const wideSpan = () => {
+    const tile = tileEls()[1];
+    const width = parseFloat(tile.style.width);
+    return tile.style.gridColumn || (width ? `span ${Math.round((width + 12) / (200 + 12))}` : '');
+};
 tick('generations.preserveOrder', false);
 check('without it, the wide tile takes the columns nearest its image', wideSpan(), 'span 2');
 tick('generations.preserveOrder', true);
