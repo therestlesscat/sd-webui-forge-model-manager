@@ -149,15 +149,15 @@ class ModelsDatabase:
             else:
                 cursor.execute("INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)", (key, value))
 
-    # ==================== The Gallery tab (#209) ====================
+    # ==================== The Civitai Images tab (#209) ====================
 
     def gallery_counts(self) -> Dict[str, int]:
-        """Every image the Gallery has, and how many are explicit. See GalleryOps."""
+        """Every image the Civitai Images tab has, and how many are explicit. See GalleryOps."""
         return self._gallery.counts()
 
     def gallery_image_keys(self, seed: int, hide_nsfw: bool, offset: int, limit: int,
                            group: Optional[str] = None, key: Any = None) -> List[Tuple[int, int]]:
-        """A page of the Gallery's images by score, as (image id, version id). See GalleryOps."""
+        """A page of the Civitai Images tab's images by score, as (image id, version id). See GalleryOps."""
         return self._gallery.image_keys(seed, hide_nsfw, offset, limit, group, key)
 
     def gallery_groups(self, seed: int, group: str, hide_nsfw: bool) -> List[Dict[str, Any]]:
@@ -169,7 +169,7 @@ class ModelsDatabase:
         return self._gallery.images(keys)
 
     def gallery_signature(self) -> Tuple[Any, ...]:
-        """What changes when the Gallery's images might. See GalleryOps."""
+        """What changes when the Civitai Images tab's images might. See GalleryOps."""
         return self._gallery.signature()
 
     # ==================== Models & versions ====================

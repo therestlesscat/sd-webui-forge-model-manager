@@ -30,7 +30,7 @@ TABS: Dict[str, str] = {
 NAMES = {
     "queue": "The Queue",
     "generations": "Your generations",
-    "gallery": "The Gallery tab",
+    "gallery": "The Civitai Images tab",
     "model_manager": "The Model Manager tab",
     "civitai_browser": "The Civitai Browser tab",
 }
@@ -46,10 +46,10 @@ SERVICES: Dict[str, Tuple[str, ...]] = {
     "saved_search": ("model_manager", "civitai_browser"),
     # Send to txt2img and its lookups: Forge's modules, an image's resources,
     # the chips. The Civitai Browser opens Resources, the Queue loads a task,
-    # the Gallery sends its images (#209).
+    # the Civitai Images tab sends its images (#209).
     "send": ("model_manager", "civitai_browser", "generations", "queue", "gallery"),
     # Stored image levels judged again (prompt_levels.py): the Model Manager's
-    # galleries, your generations, and the Gallery's images.
+    # galleries, your generations, and the Civitai Images tab's images.
     "restamp": ("model_manager", "generations", "gallery"),
     ANY: tuple(TABS),
 }

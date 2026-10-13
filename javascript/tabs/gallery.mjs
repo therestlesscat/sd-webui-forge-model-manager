@@ -1,5 +1,5 @@
 /**
- * The Gallery tab (#209): the Civitai images stored for the models in your
+ * The Civitai Images tab (#209): the Civitai images stored for the models in your
  * library, laid out as the Generations tab lays out your own, in an order a
  * sorting seed picks.
  *
@@ -61,6 +61,8 @@ let tabScope = null;
 
 // "Group by", remembered in this browser.
 const GROUP_BY_KEY = 'mm_gallery_group_by';
+// What this tab shows, above it until closed - closed, remembered in this browser.
+const ABOUT_CLOSED_KEY = 'mm_gallery_about_closed';
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
 const GROUP_NAMES = { model: 'Model', base_model: 'Base model', type: 'Type', size: 'Size' };
 const GROUP_PLURALS = { model: 'models', base_model: 'base models', type: 'types', size: 'sizes' };
@@ -102,6 +104,21 @@ function writeSetting(key, value) {
 }
 
 const byId = (id) => document.getElementById(id);
+
+// Kept here too: where the browser stores nothing, a Close holds for this visit.
+let aboutClosed = readSetting(ABOUT_CLOSED_KEY, '') === 'true';
+
+/** The message on what this tab shows: until it is closed. Written only when it differs. */
+function showAbout() {
+    const about = byId('gal_about');
+    if (about && about.hidden !== aboutClosed) about.hidden = aboutClosed;
+}
+
+function closeAbout() {
+    aboutClosed = true;
+    writeSetting(ABOUT_CLOSED_KEY, 'true');
+    showAbout();
+}
 
 // ------------------------------------------------------------- Group by
 function groupLabel(value) {
@@ -308,7 +325,7 @@ function renderPath() {
         return;
     }
     const facts = scope ? [`${scope.count} image${scope.count === 1 ? '' : 's'}`] : [];
-    path.innerHTML = pathHtml({ trail: ['Gallery', groupTitle(inGroup.value)], facts, back: 'gallery.back' });
+    path.innerHTML = pathHtml({ trail: ['Civitai Images', groupTitle(inGroup.value)], facts, back: 'gallery.back' });
 }
 
 // ------------------------------------------------------------- drawing
@@ -546,6 +563,7 @@ work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
 work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
 work.provide('gallery.send', ({ tile }) => sendTile(tiles[Number(tile)]));
 work.provide('gallery.showModel', ({ tile }) => showModel(tiles[Number(tile)]));
+work.provide('gallery.closeAbout', () => closeAbout());
 // Not markup's: for code, and tests - grouping, and the next part now.
 work.provide('gallery.groupBy', (value) => setGroupBy(value));
 work.provide('gallery.loadMore', () => loadNext());
@@ -558,6 +576,7 @@ export async function start(startScope) {
     tabScope = startScope;
     work.start(startScope);
     showNotes('gallery', 'gal_notes');
+    showAbout();
     showGroupChoice();
     try {
         hideNsfw = (await galleryDefaults()).hideNsfw;
@@ -568,5 +587,6 @@ export async function start(startScope) {
     tabScope.listen(window, 'resize', layout);
     tabScope.afterUpdate(layout);
     tabScope.afterUpdate(showGroupChoice);
+    tabScope.afterUpdate(showAbout);
     await reload();
 }

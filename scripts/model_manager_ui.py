@@ -39,7 +39,7 @@ def create_all_tabs():
     builds = (
         ("queue", lambda: [(create_queue_ui(), "Queue", "queue_tab")]),
         ("generations", lambda: [(create_generations_ui(), "Generations", "generations_tab")]),
-        ("gallery", lambda: [(create_gallery_ui(), "Gallery", "gallery_tab")]),
+        ("gallery", lambda: [(create_gallery_ui(), "Civitai Images", "gallery_tab")]),
         ("model_manager", create_ui),
         ("civitai_browser", lambda: [(create_civitai_browser_ui(), "Civitai Browser", "civitai_browser_tab")]),
     )

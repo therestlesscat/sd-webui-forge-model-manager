@@ -43,7 +43,7 @@ const { nsfwModelNote, galleryDefaults, shownPath } = await shared('ui_options.m
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
-// The grid both this tab and the Gallery draw (#209).
+// The grid both this tab and the Civitai Images tab draw (#209).
 const {
     wide, aspect, spanFor, applySpans: spanTiles, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd,
     currentScroll, topOf,
@@ -1493,10 +1493,9 @@ function thumbnailPlace() {
 function showThumbnailPlace() {
     const where = byId('gen_sync_thumbs_where');
     if (where) where.hidden = !makingThumbnails();
+    // The folder only for thumbnails kept in one, as the settings window has it.
     const row = byId('gen_sync_thumbs_folder_row');
-    if (row) row.classList.toggle('mm-dialog-muted', thumbnailPlace() !== 'In a folder');
-    const folder = byId('gen_sync_thumbs_folder');
-    if (folder) folder.disabled = thumbnailPlace() !== 'In a folder';
+    if (row) row.hidden = thumbnailPlace() !== 'In a folder';
     const count = byId('gen_sync_thumbs_count');
     if (count) setText(count, syncThumbsMissing === null ? '' : `${syncCount(syncThumbsMissing)} without`);
 }
@@ -1593,7 +1592,9 @@ async function startSync() {
         force: String(forcing()),
         make_thumbnails: String(makingThumbnails()),
         place: thumbnailPlace(),
-        folder: byId('gen_sync_thumbs_folder')?.value || '',
+        // Beside each image, the folder box is hidden: what it holds is
+        // neither sent nor judged, and the folder setting stays as it is.
+        ...(thumbnailPlace() === 'In a folder' ? { folder: byId('gen_sync_thumbs_folder')?.value || '' } : {}),
     });
     if (!answer.success) {
         setText(byId('gen_sync_estimate'), `Could not start: ${answer.error}`);

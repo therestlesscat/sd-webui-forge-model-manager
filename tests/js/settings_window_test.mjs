@@ -230,7 +230,7 @@ const titles = Array.from(document.querySelectorAll('.mm-settings-section > summ
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
 check('grouped into sections, in order, with a setting no section names under Other - What\'s new first, then Tabs',
       titles, ["What's new", 'Tabs',
-    'Civitai connection', 'Model Manager', 'Civitai Browser', 'Image gallery', 'Your generations', 'NSFW detection',
+    'Civitai connection', 'Model Manager', 'Civitai Browser', 'Shared (Model Manager, Civitai Browser and Civitai Images)', 'Generations', 'NSFW detection',
     'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
 check('the text encoders collapsed', $('.mm-settings-section[data-section="modules"]')?.hasAttribute('open'), false);
 
@@ -259,7 +259,7 @@ tickTab('model_manager_record_generations', false);
 check('Generations off too: the connection and the NSFW detection go with it',
       SECTION_IDS.filter(sectionShown), ['tabs', 'modules', 'other']);
 tickTab('model_manager_gallery_tab', true);
-check('the Gallery tab alone: the connection is shown, for how many of its images load at once',
+check('the Civitai Images tab alone: the connection is shown, for how many of its images load at once',
       SECTION_IDS.filter(sectionShown).includes('connection'), true);
 TAB_KEYS.forEach((key) => tickTab(key, true));
 check('all on again: every section', SECTION_IDS.filter(sectionShown), SECTION_IDS);
@@ -308,7 +308,7 @@ const recording = () => field('model_manager_record_generations').querySelector(
 check('the Generations tab\'s setting is in Your generations, with its label',
       [field(GEN_NSFW)?.closest('.mm-settings-section')?.dataset.section,
        field(GEN_NSFW)?.querySelector('.mm-settings-label')?.textContent],
-      ['generations', 'Generations tab: hide explicit images by default']);
+      ['generations', 'Generations: hide explicit images by default']);
 check('shown while generations are recorded', shown(GEN_NSFW), true);
 // Whether a delete takes the files too, to begin with (#107): under it.
 const GEN_DELETE = 'model_manager_generations_delete_files';
@@ -319,13 +319,13 @@ check('the delete setting is in Your generations, under the explicit-images one,
       [[GEN_NSFW, GEN_DELETE], 'Delete: also delete the image files, by default']);
 check('shown while generations are recorded, too', shown(GEN_DELETE), true);
 
-// Images as uploaded, not resized (#192): both in Image gallery, which both
-// tabs that show Civitai's images open.
-check('the two image-size settings are in Image gallery, with their labels',
+// Images as uploaded, not resized (#192): both in Shared, which every tab
+// that shows Civitai's images opens.
+check('the two image-size settings are in Shared, with their labels',
       ['model_manager_gallery_originals', 'model_manager_card_originals'].map((key) =>
           [field(key)?.closest('.mm-settings-section')?.dataset.section,
            field(key)?.querySelector('.mm-settings-label')?.textContent]),
-      [['gallery', 'Gallery images: load as uploaded, not resized'],
+      [['gallery', 'Galleries and Civitai Images: load as uploaded, not resized'],
        ['gallery', 'Model cards: load as uploaded, not resized']]);
 recording().checked = false;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -693,5 +693,47 @@ window.HTMLElement.prototype.scrollIntoView = function() { scrolled.push(this.da
 await reopen({ section: 'nsfw' });
 check('from a note\'s button, only the section it is about, scrolled to', [openSections(), scrolled],
       [['nsfw'], ['nsfw']]);
+
+// Thumbnails (#5): where and how many, only while they are made; the folder
+// only for thumbnails kept in one. The server now has the four.
+const PLACES = [['In a folder', 'In a folder'], ['Beside each image', 'Beside each image']];
+Object.assign(SETTINGS, {
+    model_manager_thumbnails: setting('bool', true),
+    model_manager_thumbnails_place: setting('choice', 'In a folder', { choices: PLACES }),
+    model_manager_thumbnails_folder: setting('text', ''),
+    model_manager_thumbnail_threads: setting('number', 0, { minimum: 0, maximum: 64, step: 1 }),
+});
+const THUMBS = ['model_manager_thumbnails', 'model_manager_thumbnails_place', 'model_manager_thumbnails_folder',
+                'model_manager_thumbnail_threads'];
+ORDER.push(...THUMBS);
+await reopen({ tab: 'generations' });
+const tickThumbs = (on) => {
+    const box = field('model_manager_thumbnails').querySelector('input[type="checkbox"]');
+    box.checked = on;
+    box.dispatchEvent(new window.Event('change', { bubbles: true }));
+};
+check('making thumbnails, in a folder: all four shown', THUMBS.map(shown), [true, true, true, true]);
+pick(field('model_manager_thumbnails_place').querySelector('input[data-index="1"]'));
+check('beside each image: the folder hidden, the rest shown', THUMBS.map(shown), [true, true, false, true]);
+pick(field('model_manager_thumbnails_place').querySelector('input[data-index="0"]'));
+tickThumbs(false);
+check('not making them: only the switch shown', THUMBS.map(shown), [true, false, false, false]);
+tickThumbs(true);
+check('ticked again: all four back', THUMBS.map(shown), [true, true, true, true]);
+tickTab('model_manager_record_generations', false);
+check('nothing recorded: none of the four', THUMBS.map(shown), [false, false, false, false]);
+tickTab('model_manager_record_generations', true);
+
+// "Your generations" is a model's section in the Model Manager. The settings
+// for the Generations tab and the recorder say "Generations", in the window
+// and on the WebUI's own Settings page.
+const sectionTitle = $('[data-section="generations"]')?.querySelector('summary')?.textContent.trim();
+const recordLabel = $('[data-key="model_manager_record_generations"]')?.textContent.replace(/\s+/g, ' ').trim();
+const forgeLabels = [...readFileSync(`${ROOT}/model_manager/ui/settings.py`, 'utf8').matchAll(/label="([^"]*)"/g)]
+    .map((m) => m[1]);
+check('the window names the section and its first setting "Generations"',
+      [sectionTitle?.startsWith('Generations'), recordLabel?.startsWith('Generations')], [true, true]);
+check('no label on the Settings page says "Your generations"',
+      forgeLabels.filter((label) => label.startsWith('Your generations')), []);
 
 done();

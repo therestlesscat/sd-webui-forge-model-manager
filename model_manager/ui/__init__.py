@@ -5,7 +5,7 @@ Everything Gradio renders.
   tab_model_manager.py    the Model Manager tab's markup
   tab_civitai_browser.py  the Civitai Browser tab's markup
   tab_generations.py      the Generations tab's markup
-  tab_gallery.py          the Gallery tab's markup
+  tab_gallery.py          the Civitai Images tab's markup
   tab_queue.py            the Queue tab's markup, and the Queue buttons' wiring
 
 The markup is static; the tabs are filled in by the scripts under javascript/tabs/, which the

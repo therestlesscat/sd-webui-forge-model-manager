@@ -1,5 +1,5 @@
 /**
- * The tile grid both the Generations tab and the Gallery tab draw (#209): tiles
+ * The tile grid both the Generations tab and the Civitai Images tab draw (#209): tiles
  * in columns, a wide image's tile across as many as fit it, the header of a
  * level opened inside another - Back, the way there, what it is - and the next
  * part asked for as the grid's end comes near. Each tab keeps its own tiles,

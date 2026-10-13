@@ -17,7 +17,7 @@ export let lazyMediaObserver = null;
 // Civitai's images loading now, and those in view waiting for a place (#213).
 // Civitai makes copies at 10 to 16 a second whatever is asked, and queues the
 // rest: 100 asked at once took 5.2 s each, and a part grouped by model asks
-// for up to 400 - where the Gallery's images failed to load. Past the
+// for up to 400 - where the Civitai Images tab's images failed to load. Past the
 // setting's number they wait here instead, in the order they came into view,
 // and leave the line when they leave the view. One count for the page, as
 // the watcher is one.

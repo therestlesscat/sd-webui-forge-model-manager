@@ -1,5 +1,5 @@
 """
-The Gallery tab's endpoints (#209): the Civitai images stored for the models in
+The Civitai Images tab's endpoints (#209): the Civitai images stored for the models in
 the library, in an order a seed picks, one by one or in groups.
 
 The seed is kept in schema_info, as `gallery_seed`: shared by two WebUIs that
@@ -170,14 +170,14 @@ def _state(total: int, explicit: int, hide_nsfw: bool) -> Dict[str, int]:
 
 
 def register(app: FastAPI) -> None:
-    """Register the Gallery tab's endpoints."""
+    """Register the Civitai Images tab's endpoints."""
 
     @app.get("/model-manager/gallery/browse")
     @gate("gallery")
     def get_gallery_page(page: int = 1, group: str = "", in_group: str = "",
                          hide_nsfw_images: Optional[bool] = None):
         """
-        Part `page` of a level of the Gallery, in the seed's order, through
+        Part `page` of a level of the Civitai Images tab, in the seed's order, through
         the NSFW switch - which starts as the Model Manager gallery's setting
         says, as every gallery of Civitai's images does.
 

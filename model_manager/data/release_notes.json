@@ -106,8 +106,8 @@
     "tabs": [
       "model_manager"
     ],
-    "title": "New: a Gallery of your library's images",
-    "text": "A Gallery tab can show the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks: the same seed always gives the same order, and a new seed shuffles them. Group them by model, base model, type or size. It is off until you turn it on, in the settings, under Tabs.",
+    "title": "New: Civitai Images, your library's images from Civitai",
+    "text": "A Civitai Images tab can show the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks: the same seed always gives the same order, and a new seed shuffles them. Group them by model, base model, type or size. It is off until you turn it on, in the settings, under Tabs.",
     "action": {
       "id": "settings",
       "label": "Open settings",
@@ -414,7 +414,7 @@
       "generations"
     ],
     "title": "This tab has its own setting for hiding explicit images",
-    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Generations tab: hide explicit images by default”, under Your generations - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
+    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Generations: hide explicit images by default”, under Generations - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
     "action": {
       "id": "settings",
       "label": "Open settings",

@@ -73,7 +73,7 @@ const MODULES_PREFIX = 'model_manager_modules_';
 // its id (`section` in model_manager/data/release_notes.json). A section is
 // shown while a tab it serves is on (`shownWith`; none: always, #185) - not
 // its `tabs`: the connection serves Generations' Send too, and how many of
-// the Gallery tab's images load at once (#213); storage holds the database
+// the Civitai Images tab's images load at once (#213); storage holds the database
 // every tab uses.
 const SECTIONS = [
     { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
@@ -83,9 +83,9 @@ const SECTIONS = [
       keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
     { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
       keys: [K.cbPageSize, K.cbCardSize, K.folder, K.minPrompts] },
-    { id: 'gallery', title: 'Image gallery', tabs: ['model_manager', 'civitai_browser', 'gallery'],
+    { id: 'gallery', title: 'Shared (Model Manager, Civitai Browser and Civitai Images)', tabs: ['model_manager', 'civitai_browser', 'gallery'],
       shownWith: ['model_manager', 'civitai_browser', 'gallery'], keys: [K.galleryNsfw, K.promptless, K.pageSize, K.galleryOriginals, K.cardOriginals] },
-    { id: 'generations', title: 'Your generations', tabs: ['model_manager', 'generations'],
+    { id: 'generations', title: 'Generations', tabs: ['model_manager', 'generations'],
       shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles, K.syncLevel, K.groupNoText,
                                       K.thumbnails, K.thumbnailsPlace, K.thumbnailsFolder, K.thumbnailThreads] },
     { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
@@ -118,17 +118,17 @@ const LABELS = {
     [K.minPrompts]: 'Only with usable prompts: images needed',
     [K.fillPage]: "Fill every page with 'Only Show Models with SFW images'",
     [K.galleryNsfw]: 'Hide explicit images by default',
-    [K.promptless]: 'Hide images with no prompt by default',
+    [K.promptless]: 'Model galleries: hide images with no prompt by default',
     [K.pageSize]: 'Images per page',
-    [K.galleryOriginals]: 'Gallery images: load as uploaded, not resized',
+    [K.galleryOriginals]: 'Galleries and Civitai Images: load as uploaded, not resized',
     [K.cardOriginals]: 'Model cards: load as uploaded, not resized',
-    [K.recordGenerations]: 'Your generations: record the images you generate, and show them',
-    [K.generationsNsfw]: 'Generations tab: hide explicit images by default',
+    [K.recordGenerations]: 'Generations: record the images you generate, and show them',
+    [K.generationsNsfw]: 'Generations: hide explicit images by default',
     [K.generationsDeleteFiles]: 'Delete: also delete the image files, by default',
     [K.syncLevel]: 'Sync images: default NSFW level for images without infotext',
     [K.groupNoText]: 'Sync images: group images without infotext with similar file names into one batch',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
-    [K.galleryTab]: 'Gallery tab',
+    [K.galleryTab]: 'Civitai Images tab',
     [K.mmEnabled]: 'Model Manager tab',
     [K.cbEnabled]: 'Civitai Browser tab',
     [K.queueInputs]: 'Folder for the images a task needs',
@@ -155,6 +155,13 @@ const SHOWN_WHEN = {
     [K.generationsDeleteFiles]: (s) => s.value(K.recordGenerations) !== false,
     [K.syncLevel]: (s) => s.value(K.recordGenerations) !== false,
     [K.groupNoText]: (s) => s.value(K.recordGenerations) !== false,
+    // Where and how many thumbnails are made, only while they are; a folder
+    // only for thumbnails kept in one.
+    [K.thumbnails]: (s) => s.value(K.recordGenerations) !== false,
+    [K.thumbnailsPlace]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false,
+    [K.thumbnailsFolder]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false
+        && s.value(K.thumbnailsPlace) !== 'Beside each image',
+    [K.thumbnailThreads]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false,
     // Nothing is queued while the queue is off.
     [K.queueInputs]: (s) => s.value(K.queueEnabled) !== false,
     [K.queueAskAbove]: (s) => s.value(K.queueEnabled) !== false,
@@ -1230,7 +1237,7 @@ function followSettingsPage(scope) {
             if (changed.some((key) => NSFW_KEYS.includes(key))) {
                 restampNotice().watch();
             }
-            // For what else follows a setting - "Your generations" hides its tabs.
+            // For what else follows a setting - "Generations" hides its tabs.
             window.dispatchEvent(new CustomEvent('mm-settings-page-applied', { detail: { changed } }));
         }
         if (typeof MutationObserver === 'function') {

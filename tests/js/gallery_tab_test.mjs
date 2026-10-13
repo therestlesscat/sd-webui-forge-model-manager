@@ -1,4 +1,4 @@
-// The Gallery tab (#209): the library's stored Civitai images, laid out as the
+// The Civitai Images tab (#209): the library's stored Civitai images, laid out as the
 // Generations tab lays out your own, in an order a sorting seed picks.
 //
 // The seed is the server's, shown in the toolbar: typed, it is kept and the
@@ -7,6 +7,7 @@
 // groups were. The grid scrolls for more. The NSFW switch starts as the
 // galleries' setting says. An image that names no checkpoint cannot be sent,
 // and says why; Show model opens its version in the Model Manager.
+import { readFileSync } from 'node:fs';
 import { ROOT, act, call, checker, mountTab, startTab, tabEntries, tabMarkup, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
@@ -95,6 +96,20 @@ const copyWidth = (index) => (tileEls()[index]?.querySelector('img')?.getAttribu
 check('each image\'s copy as wide as its tile draws it: a tall one 320, a wide one 800',
       [copyWidth(0), copyWidth(3)], ['320', '800']);
 
+// ------------------------------------------------------------- what it shows
+// A message on top says the tab shows only what is stored, and asks Civitai
+// for nothing; closed, it stays closed in this browser.
+const about = () => $('gal_about');
+check('the message shows, saying where the images come from and how to get more',
+      [about()?.hidden, /stored/.test(about()?.textContent || ''), /asks Civitai for nothing new/.test(about()?.textContent || ''),
+       /Load More Images/.test(about()?.textContent || '')], [false, true, true, true]);
+// Pressed only where it is drawn: without it, the checks fail rather than the suite.
+if (document.querySelector('[data-action="gallery.closeAbout"]')) act('gallery.closeAbout');
+check('Close hides it, and the browser remembers', [about()?.hidden, localStorage.getItem('mm_gallery_about_closed')],
+      [true, 'true']);
+check('a closed banner is not drawn: its display gives way to hidden',
+      /\.mm-banner\[hidden\]\s*\{\s*display:\s*none;/.test(readFileSync(`${ROOT}/style.css`, 'utf8')), true);
+
 // ------------------------------------------------------------- Send
 const sendOf = (index) => tileEls()[index]?.querySelector('[data-action="gallery.send"]');
 check('an image that names its checkpoint can be sent', sendOf(0)?.disabled, false);
@@ -144,6 +159,14 @@ await waitFor('the group', () => tileEls().length === 3 && browses.length > befo
 check('a group opens onto its images', lastBrowse()?.get('in_group'), '40');
 check('with Back, and which group', [!!document.querySelector('[data-action="gallery.back"]'),
       /Model: A LoRA/.test($('gal_path')?.textContent || '')], [true, true]);
+// Named for what it shows - Civitai's images of the library's models - in the
+// tab bar, its heading and the path inside a group. The tab's id stays gallery.
+const registered = readFileSync(`${ROOT}/scripts/model_manager_ui.py`, 'utf8').match(/create_gallery_ui\(\), "([^"]*)", "(\w+)"/);
+check('the tab is called Civitai Images, its id still gallery_tab',
+      [registered?.[1], registered?.[2]], ['Civitai Images', 'gallery_tab']);
+check('so are its heading and the path inside a group',
+      [document.querySelector('#gallery_app h2')?.textContent.trim(),
+       $('gal_path')?.querySelector('.gen-path-trail span')?.textContent], ['Civitai Images', 'Civitai Images']);
 const asked = browses.length;
 act('gallery.back');
 check('Back: the groups again, as they were, asking nothing', [tileEls().length, browses.length], [2, asked]);

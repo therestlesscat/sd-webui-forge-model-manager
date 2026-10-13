@@ -1,5 +1,5 @@
 """
-The Gallery tab's markup (#209): the Civitai images stored for the models in
+The Civitai Images tab's markup (#209): the Civitai images stored for the models in
 the library, laid out as the Generations tab lays out your own, in an order a
 sorting seed picks.
 
@@ -14,17 +14,34 @@ from .header import header_actions
 
 
 def create_gallery_ui():
-    """Create the Gallery tab UI."""
+    """Create the Civitai Images tab UI."""
     with gr.Blocks(analytics_enabled=False) as gallery_tab:
         gr.HTML("""
             <div id="gallery_app">
                 <div class="gen-header">
-                    <h2>Gallery</h2>
+                    <h2>Civitai Images</h2>
                     <!-- actions -->
                 </div>
 
                 <!-- Notes to the user per release: filled by shared/notes.mjs -->
                 <div id="gal_notes" class="mm-notes"></div>
+
+                <!-- What this tab shows, until closed: gallery.mjs shows it, and
+                     remembers a Close in this browser. Drawn as a note is. -->
+                <div id="gal_about" class="mm-banner mm-note mm-note-intro" hidden>
+                    <span class="mm-banner-icon">i</span>
+                    <span class="mm-note-body">
+                        <strong>Only the images already stored for your library</strong>
+                        <span class="mm-banner-note">This tab shows the Civitai images stored for the models in your
+                            library: those a Sync with Civitai stored, and those loaded in a model's gallery in the
+                            Model Manager. It asks Civitai for nothing new. To see more of a model's images, open it
+                            in the Model Manager and press Load More Images.</span>
+                    </span>
+                    <span class="mm-note-buttons">
+                        <button type="button" class="mm-btn secondary mm-btn-small mm-note-dismiss"
+                                data-action="gallery.closeAbout" title="Hide this message in this browser">Close</button>
+                    </span>
+                </div>
 
                 <!-- Held at the top while the grid scrolls: the seed, Group by, Back, the banner -->
                 <div class="gen-sticky-head">

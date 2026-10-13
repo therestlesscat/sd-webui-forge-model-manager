@@ -59,7 +59,7 @@ export const TABS = {
 };
 
 // What a disabled link says each tab is (tabs.py's NAMES).
-const LABELS = { queue: 'The Queue', generations: 'Your generations', gallery: 'The Gallery tab',
+const LABELS = { queue: 'The Queue', generations: 'Your generations', gallery: 'The Civitai Images tab',
                  modelManager: 'The Model Manager tab', civitaiBrowser: 'The Civitai Browser tab' };
 
 // Each tab: whether it is on and built, as the server last said - undefined

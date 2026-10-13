@@ -85,7 +85,7 @@ switch(CB, True)
 
 # The Gallery is off until asked for (#209).
 GALLERY = 'model_manager_gallery_tab'
-check('the Gallery, never switched on: its page refused', client.get('/model-manager/gallery/browse').status_code, 403)
+check('the Civitai Images tab, never switched on: its page refused', client.get('/model-manager/gallery/browse').status_code, 403)
 switch(GALLERY, True)
 check('on: answered', client.get('/model-manager/gallery/browse').status_code, 200)
 switch(GALLERY, False)
@@ -236,14 +236,14 @@ check('Generations alone: Send and the restamp - no downloads, no saved searches
 only('queue')
 check('the Queue alone: Send', areas_on(), ['always', 'any', 'queue', 'send'])
 only('gallery')
-check('the Gallery alone: Send, for its images, and the restamp, for their levels',
+check('the Civitai Images tab alone: Send, for its images, and the restamp, for their levels',
       areas_on(), ['always', 'any', 'gallery', 'restamp', 'send'])
 only()
 check('all off: what the loader asks alone', areas_on(), ['always'])
 delattr(shared.opts, QUEUE)
 check('a switch never set is on, as by default', tabs.on('queue'), True)
 delattr(shared.opts, GALLERY)
-check('but the Gallery\'s, never set, is off: its default', tabs.on('gallery'), False)
+check('but the Civitai Images tab\'s, never set, is off: its default', tabs.on('gallery'), False)
 
 
 def raises(fn):

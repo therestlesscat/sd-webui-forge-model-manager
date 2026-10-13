@@ -1,5 +1,5 @@
 """
-The Gallery tab's reads (#209): the Civitai images stored for the models in the
+The Civitai Images tab's reads (#209): the Civitai images stored for the models in the
 library, in an order a seed picks.
 
 Each image is shown once, under the lowest version id it is stored under - an
@@ -69,7 +69,7 @@ class GalleryOps:
         self._cursor = cursor
 
     def counts(self) -> Dict[str, int]:
-        """Every image the Gallery has, and how many of them are explicit."""
+        """Every image the Civitai Images tab has, and how many of them are explicit."""
         with self._cursor() as cursor:
             cursor.execute(f"{_PICKED} SELECT COUNT(*), TOTAL({_EXPLICIT}) {_JOINS}")
             total, explicit = cursor.fetchone()
@@ -171,7 +171,7 @@ class GalleryOps:
 
     def signature(self) -> Tuple[Any, ...]:
         """
-        What changes when the Gallery's images might: images stored, removed or
+        What changes when the Civitai Images tab's images might: images stored, removed or
         judged again, files coming or going. A kept group list is worked out
         again when it changes.
         """

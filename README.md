@@ -19,7 +19,7 @@ tab and each model's Your generations are rebuilt for libraries of tens of thous
 the tab asks for one scroll's worth at a time instead of reading every image you ever recorded.
 Nothing is lost in the move - every value is checked before the old tables go.
 
-**0.57 - A Gallery of your library's images.** A new tab shows the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks - the same seed, the same order; a new one, a new shuffle. Group them by model, base model, type or size. The tab is off until you turn it on in Settings -> Tabs.
+**0.57 - Civitai Images, your library's images from Civitai.** A new tab, Civitai Images, shows the Civitai images stored for every model in your library, laid out as the Generations tab lays out your own, in an order a sorting seed picks - the same seed, the same order; a new one, a new shuffle. Group them by model, base model, type or size. The tab is off until you turn it on in Settings -> Tabs.
 
 **0.56 - Send sets your generation back as it was made.** Send on an image you generated
 sets every control back as it was when you pressed Generate - the hires fix's own checkpoint
@@ -366,13 +366,13 @@ first under **Settings -> Model Manager** too.
 | Model Manager: Models per page | 20 | Model Manager page size (5-50) |
 | Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
 | Model Manager: card thumbnail is the least explicit image | on | Off shows the most recent image instead |
-| Image gallery: hide explicit images by default | on | How a model's image gallery opens, in both tabs. The Show NSFW switch above the images shows them for that model |
+| Shared: hide explicit images by default | on | How Civitai's images open: a model's image gallery in both tabs, and the Civitai Images tab. The Show NSFW switch above the images shows them for that model |
 | Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
-| Example images: hide the ones with no prompt | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images |
+| Model galleries: hide images with no prompt by default | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images. The Civitai Images tab shows every image |
 | Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
 | Queue: ask "Generate N images?" above this many images | 0 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
-| Image gallery: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs and your generations |
-| Gallery images: load as uploaded, not resized | off | Gallery images load as the upload instead of a copy the size they are drawn: sharper on a large screen, and much larger - in one measurement 3.6 MB an image against 54 KB - but often quicker the first time a gallery is opened: Civitai seldom has a copy ready, and takes about half a second to make each. Videos stay copies, which always play. The image viewer shows the upload either way |
+| Shared: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs, your generations, and the Civitai Images tab as it scrolls |
+| Galleries and Civitai Images: load as uploaded, not resized | off | Model galleries and the Civitai Images tab load the upload instead of a copy the size they are drawn: sharper on a large screen, and much larger - in one measurement 3.6 MB an image against 54 KB - but often quicker the first time a gallery is opened: Civitai seldom has a copy ready, and takes about half a second to make each. Videos stay copies, which always play. The image viewer shows the upload either way |
 | Model cards: load as uploaded, not resized | off | The same for the cards in both tabs' grids |
 | Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
 | Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |

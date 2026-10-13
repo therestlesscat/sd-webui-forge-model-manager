@@ -1,5 +1,5 @@
 """
-The Gallery tab (#209): the Civitai images stored for the models in the
+The Civitai Images tab (#209): the Civitai images stored for the models in the
 library, in an order a sorting seed picks.
 
 The seed is made the first time it is asked for, and kept: the same seed, the

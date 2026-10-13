@@ -32,7 +32,7 @@ from .console import say
 # Settings -> Model Manager lists them.
 DEFAULTS = {
     # Each tab's switch, first (tabs.py, #185): the queue, all of it (#156);
-    # your generations, recorded and shown; the Gallery, off until asked for
+    # your generations, recorded and shown; the Civitai Images tab, off until asked for
     # (#209); the Model Manager; the Civitai Browser.
     "model_manager_queue_enabled": True,
     "model_manager_record_generations": True,

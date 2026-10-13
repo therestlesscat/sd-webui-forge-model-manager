@@ -52,7 +52,7 @@ def on_ui_settings():
         RECORD_GENERATIONS,
         shared.OptionInfo(
             default=DEFAULTS[RECORD_GENERATIONS],
-            label="Your generations",
+            label="Generations",
             component=gr.Checkbox,
             section=section,
         ).info("On: every txt2img and img2img result saved to disk is recorded with all its "
@@ -66,10 +66,10 @@ def on_ui_settings():
         GALLERY_ENABLED,
         shared.OptionInfo(
             default=DEFAULTS[GALLERY_ENABLED],
-            label="Gallery tab",
+            label="Civitai Images tab",
             component=gr.Checkbox,
             section=section,
-        ).info("On: the Gallery tab - the Civitai images stored for the models in your library, "
+        ).info("On: the Civitai Images tab - the Civitai images stored for the models in your library, "
                "in an order its seed picks. Off: the tab is hidden at once and stops, and from "
                "the next start it is not created at all.")
     )
@@ -144,8 +144,8 @@ def on_ui_settings():
             component=gr.Checkbox,
             section=section,
         ).info("If enabled, each card shows the model's least explicit image. If disabled, "
-               "its most recent one. Whether the image gallery hides explicit images is "
-               "its own setting, below.")
+               "its most recent one. Whether galleries hide explicit images is a setting "
+               "of its own: Shared: hide explicit images by default.")
     )
 
     # This one setting used to decide the gallery as well, so whoever turned
@@ -157,12 +157,13 @@ def on_ui_settings():
         GALLERY_HIDE_NSFW,
         shared.OptionInfo(
             default=DEFAULTS[GALLERY_HIDE_NSFW],
-            label="Image gallery: hide explicit images by default",
+            label="Shared: hide explicit images by default",
             component=gr.Checkbox,
             section=section,
-        ).info("How a model's image gallery opens, in the Model Manager and the Civitai "
-               "Browser - and a model's Your generations; the Generations tab has its own. "
-               "The Show NSFW switch above the images shows them for that model. "
+        ).info("How Civitai's images open: a model's image gallery, in the Model Manager and "
+               "the Civitai Browser, and the Civitai Images tab - and a model's Your "
+               "generations; the Generations tab has its own. The Show NSFW switch above "
+               "the images shows them there. "
                "The Civitai Browser's Include NSFW models decides which models are listed, "
                "not which of their images are shown.")
     )
@@ -189,22 +190,23 @@ def on_ui_settings():
         "model_manager_hide_promptless_images",
         shared.OptionInfo(
             default=DEFAULTS["model_manager_hide_promptless_images"],
-            label="Example images: hide the ones with no prompt",
+            label="Model galleries: hide images with no prompt by default",
             component=gr.Checkbox,
             section=section,
         ).info("About a tenth of Civitai's images carry no prompt at all, and "
                "they cannot be read or reused. Can be turned back on per model "
-               "from the panel above the images.")
+               "from the panel above the images. Model galleries only, in the Model Manager "
+               "and the Civitai Browser: the Civitai Images tab shows every image.")
     )
 
     shared.opts.add_option(
         "model_manager_gallery_originals",
         shared.OptionInfo(
             default=DEFAULTS["model_manager_gallery_originals"],
-            label="Gallery images: load as uploaded, not resized",
+            label="Galleries and Civitai Images: load as uploaded, not resized",
             component=gr.Checkbox,
             section=section,
-        ).info("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. The image viewer shows the upload either way.")
+        ).info("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. The image viewer shows the upload either way. For model galleries and the Civitai Images tab.")
     )
 
     shared.opts.add_option(
@@ -225,12 +227,12 @@ def on_ui_settings():
         GENERATIONS_HIDE_NSFW,
         shared.OptionInfo(
             default=DEFAULTS[GENERATIONS_HIDE_NSFW],
-            label="Generations tab: hide explicit images by default",
+            label="Generations: hide explicit images by default",
             component=gr.Checkbox,
             section=section,
         ).info("How the Generations tab opens. The Show NSFW switch above the images shows "
                "them until the tab is opened again. A model's Your generations, in the Model "
-               "Manager, follows the image gallery's setting.")
+               "Manager, follows Shared: hide explicit images by default.")
     )
     if carried_generations is not None:
         shared.opts.data[GENERATIONS_HIDE_NSFW] = carried_generations
@@ -239,7 +241,7 @@ def on_ui_settings():
         GENERATIONS_DELETE_FILES,
         shared.OptionInfo(
             default=DEFAULTS[GENERATIONS_DELETE_FILES],
-            label="Your generations: deleting also deletes the image files, by default",
+            label="Generations: deleting also deletes the image files, by default",
             component=gr.Checkbox,
             section=section,
         ).info("Ticks the box in the delete question. It can still be unticked for one delete.")
@@ -278,7 +280,7 @@ def on_ui_settings():
         thumbnails.ENABLED_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[thumbnails.ENABLED_SETTING],
-            label="Your generations: make thumbnails",
+            label="Generations: make thumbnails",
             component=gr.Checkbox,
             section=section,
         ).info("Ticks \"Make thumbnails\" in the Sync images dialog, and makes one for each image "
@@ -290,7 +292,7 @@ def on_ui_settings():
         thumbnails.PLACE_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[thumbnails.PLACE_SETTING],
-            label="Your generations: where thumbnails are kept",
+            label="Generations: where thumbnails are kept",
             component=gr.Radio,
             component_args={"choices": list(thumbnails.PLACES)},
             section=section,
@@ -302,7 +304,7 @@ def on_ui_settings():
         thumbnails.FOLDER_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[thumbnails.FOLDER_SETTING],
-            label="Your generations: thumbnail folder",
+            label="Generations: thumbnail folder",
             component=gr.Textbox,
             component_args={"placeholder": "Empty: a thumbnails folder beside the database"},
             section=section,
@@ -313,7 +315,7 @@ def on_ui_settings():
         thumbnails.THREADS_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[thumbnails.THREADS_SETTING],
-            label="Your generations: thumbnails made at once",
+            label="Generations: thumbnails made at once",
             component=gr.Slider,
             component_args={"minimum": 0, "maximum": 64, "step": 1},
             section=section,
@@ -329,12 +331,12 @@ def on_ui_settings():
         PAGE_SIZE_SETTING,
         shared.OptionInfo(
             default=DEFAULTS[PAGE_SIZE_SETTING],
-            label="Image gallery: images per page",
+            label="Shared: images per page",
             component=gr.Slider,
             component_args={"minimum": 10, "maximum": MAX_PAGE_SIZE, "step": 10},
             section=section,
         ).info("How many images Load more adds at a time, in both tabs' galleries and "
-               "your generations - counted before the NSFW and prompt filters, which "
+               "your generations, and the Civitai Images tab adds as you scroll - counted before the NSFW and prompt filters, which "
                "decide which of a page's images are shown. A page the library cannot "
                "fill is filled from Civitai first.")
     )

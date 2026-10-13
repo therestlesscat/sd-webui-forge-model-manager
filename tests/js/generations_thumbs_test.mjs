@@ -66,7 +66,7 @@ check('with nothing new and no box, Start would do nothing, and says so',
 // ---------------------------------------------------------------- ticked
 tick('generations.syncThumbs', true);
 check('ticked, the place shows, starting from the settings: a folder, its default in full as the hint',
-      [byId('gen_sync_thumbs_where')?.hidden, place('In a folder')?.checked, byId('gen_sync_thumbs_folder')?.disabled,
+      [byId('gen_sync_thumbs_where')?.hidden, place('In a folder')?.checked, byId('gen_sync_thumbs_folder_row')?.hidden,
        byId('gen_sync_thumbs_folder')?.placeholder],
       [false, true, false, `Empty: ${DEFAULT}`]);
 check('it counts the images without one', text('gen_sync_thumbs_count'), '75,684 without');
@@ -80,7 +80,8 @@ check('Start works with no folder ticked, to make thumbnails alone', byId('gen_s
 const pick = (value) => { if (place(value)) place(value).checked = true; };
 pick('Beside each image');
 act('generations.syncThumbsPlace');
-check('beside each image, the folder\'s box is off', byId('gen_sync_thumbs_folder')?.disabled, true);
+check('beside each image, the folder\'s box is hidden, as in the settings window',
+      byId('gen_sync_thumbs_folder_row')?.hidden, true);
 pick('In a folder');
 act('generations.syncThumbsPlace');
 if (byId('gen_sync_thumbs_folder')) byId('gen_sync_thumbs_folder').value = 'E:/thumbs';
@@ -115,7 +116,7 @@ act('generations.syncImages');
 await waitFor('the dialog again', () => place('Beside each image')?.checked);
 check('on in the settings, the box starts ticked, beside each image',
       [byId('gen_sync_thumbs_where')?.hidden, place('Beside each image')?.checked,
-       byId('gen_sync_thumbs_folder')?.disabled], [false, true, true]);
+       byId('gen_sync_thumbs_folder_row')?.hidden], [false, true, true]);
 act('generations.closeSyncDialog');
 
 // ------------------------------------------------------ a place none names
@@ -123,7 +124,7 @@ settings = { ...settings, thumbnails_place: '' };
 act('generations.syncImages');
 await waitFor('the dialog with no place', () => place('Beside each image')?.checked === false);
 check('with no place saved, in a folder is ticked: never a box with neither',
-      [place('In a folder')?.checked, place('Beside each image')?.checked, byId('gen_sync_thumbs_folder')?.disabled],
+      [place('In a folder')?.checked, place('Beside each image')?.checked, byId('gen_sync_thumbs_folder_row')?.hidden],
       [true, false, false]);
 act('generations.closeSyncDialog');
 
@@ -143,5 +144,18 @@ progress = { ...progress, state: 'done', thumbs_done: 1, thumbs_made: 1, is_comp
 await waitFor('the second end', () => text('gen_sync_text').startsWith('Added'));
 check('and one made is "Made 1 thumbnail."', text('gen_sync_text'),
       'Added 0 images as 0 generations. Made 1 thumbnail.');
+
+// ------------------------------------------------- Start, beside each image
+// The folder box is hidden there: what it holds is not sent, so a path left
+// in it can neither be refused nor saved.
+settings = { ...settings, thumbnails_place: 'Beside each image' };
+act('generations.syncImages');
+await waitFor('the dialog beside each image', () => place('Beside each image')?.checked);
+if (byId('gen_sync_thumbs_folder')) byId('gen_sync_thumbs_folder').value = 'not/a/full/path';
+progress = { ...progress, state: 'running', stage: 'thumbnails', is_complete: false };
+act('generations.startSync');
+await waitFor('the third start', () => posted.length > 2);
+check('Start beside each image sends the place, and no folder',
+      [posted[2]?.[1].place, 'folder' in (posted[2]?.[1] || {})], ['Beside each image', false]);
 
 done();
