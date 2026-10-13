@@ -122,6 +122,28 @@ def create_generations_ui():
                                 <select id="gen_sync_level" class="mm-dialog-select"></select>
                             </label>
                         </div>
+                        <div class="mm-dialog-section">
+                            <div class="mm-dialog-heading">Thumbnails</div>
+                            <label class="mm-dialog-option" title="After the sync, a small copy of every image without one, 450 pixels tall: tiles load it instead of the full file. The viewer still shows the full file. Remembered for the next sync, and in the settings.">
+                                <input type="checkbox" id="gen_sync_thumbs" data-action="generations.syncThumbs">
+                                <span>Make thumbnails</span>
+                                <span class="mm-dialog-count" id="gen_sync_thumbs_count"></span>
+                            </label>
+                            <div id="gen_sync_thumbs_where" class="mm-dialog-sub" hidden>
+                                <label class="mm-dialog-option" title="All in one folder. Empty: a thumbnails folder beside the database.">
+                                    <input type="radio" name="gen_sync_thumbs_place" value="In a folder" data-action="generations.syncThumbsPlace">
+                                    <span>In a folder</span>
+                                </label>
+                                <div class="gen-sync-add mm-dialog-sub" id="gen_sync_thumbs_folder_row">
+                                    <input type="text" id="gen_sync_thumbs_folder" class="mm-settings-input"
+                                           placeholder="Empty: beside the database" autocomplete="off">
+                                </div>
+                                <label class="mm-dialog-option" title="In a .thumbnails folder next to each image, which Sync images skips.">
+                                    <input type="radio" name="gen_sync_thumbs_place" value="Beside each image" data-action="generations.syncThumbsPlace">
+                                    <span>Beside each image</span>
+                                </label>
+                            </div>
+                        </div>
                         <div class="mm-dialog-estimate" id="gen_sync_estimate"></div>
                         <div class="mm-dialog-actions">
                             <button type="button" class="mm-btn secondary" data-action="generations.closeSyncDialog">Cancel</button>

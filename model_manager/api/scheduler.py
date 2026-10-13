@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
+from .. import thumbnails
 from ..console import say
 from ..db import get_models_db
 from ..forge_host import checkpoint_file
@@ -118,6 +119,7 @@ def delete(db, task_ids: List[int], with_data: bool) -> Dict[str, Any]:
         inputs += files(gone.get("inputs"))
     images_deleted, failed_files = _delete_files(list(dict.fromkeys(images))) if with_data else ([], [])
     remember_kept(db, images)
+    thumbnails.forget(db, images)
     in_use = set(db.task_files_in_use(inputs))
     inputs_deleted, failed_inputs = tasks.delete_inputs([p for p in dict.fromkeys(inputs) if p not in in_use])
     return {"deleted": deleted, "skipped": skipped, "deleted_files": len(images_deleted),

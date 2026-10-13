@@ -28,6 +28,7 @@ from ..gallery import gallery_page_size, switch_counts
 from .images import gallery_switches
 from .common import failed, gate
 from ..console import say
+from .. import thumbnails
 
 # The images a card shows before "Show images".
 PREVIEW_IMAGES = 4
@@ -121,6 +122,11 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
     image's meta, its level stamped as every image the page gets is."""
     level = row.get("user_nsfw_level")
     from_prompt = level is None
+    try:
+        stat = os.stat(row["path"]) if row.get("path") else None
+    except (OSError, ValueError):
+        stat = None
+    thumb = row.get("thumbnail")
     if level is None:
         level = row.get("prompt_nsfw_level")
     return {
@@ -134,7 +140,12 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
         "meta": {**(row.get("meta") or {}), "resources": image_resources(row)},
         "infotext": row.get("infotext"),
         "url": f"/model-manager/generations/images/{row['id']}/file",
-        "exists": bool(row.get("path")) and os.path.isfile(row["path"]),
+        "exists": stat is not None,
+        # Its thumbnail's (#5), while it serves the file as it is: the
+        # address names the file's size and time, so the browser may keep it.
+        "thumb": (f"/model-manager/generations/images/{row['id']}/thumb?v={stat.st_size}-{stat.st_mtime_ns}"
+                  if stat is not None and (thumb or {}).get("thumbnail")
+                  and thumbnails.current(thumb, stat.st_size, stat.st_mtime_ns) else None),
         "mm_level": level,
         # The rating a person gave it, or None: it wins over the prompt's.
         "user_level": row.get("user_nsfw_level"),
@@ -639,6 +650,12 @@ def _register_sync(app: FastAPI):
                 "level": setting(LEVEL_SETTING),
                 "levels": [LEVEL_TO_NAME[level] for level in (*USER_LEVELS, UNKNOWN)],
                 "group": bool(setting(GROUP_SETTING)),
+                # Thumbnails (#5): whether the box starts ticked, where they
+                # go, the folder named (empty: the default) and that default.
+                "thumbnails": thumbnails.enabled(),
+                "thumbnails_place": thumbnails.place(),
+                "thumbnails_folder": str(setting(thumbnails.FOLDER_SETTING) or ""),
+                "thumbnails_default_folder": thumbnails.default_folder(),
             })
         except Exception as e:
             return failed(e)
@@ -647,42 +664,64 @@ def _register_sync(app: FastAPI):
     @gate("generations")
     def sync_estimate():
         """How many new images each folder holds, and how many synced ones a
-        Force sync would read again, by path: a walk, nothing read."""
+        Force sync would read again, by path: a walk, nothing read. And how
+        many of the library's images have no thumbnail yet (#5)."""
         try:
-            new, again = counts(get_models_db(), image_folders())
-            return JSONResponse({"success": True, "counts": new, "again": again})
+            db = get_models_db()
+            new, again = counts(db, image_folders())
+            return JSONResponse({"success": True, "counts": new, "again": again,
+                                 "thumbnails": thumbnails.missing_count(db)})
         except Exception as e:
             return failed(e)
 
     @app.post("/model-manager/generations/sync")
     @gate("generations")
     def start_sync(folders: str = Form(default="[]"), level: str = Form(default=""),
-                   group: str = Form(default="true"), force: str = Form(default="false")):
+                   group: str = Form(default="true"), force: str = Form(default="false"),
+                   make_thumbnails: str = Form(default=""), place: str = Form(default=""),
+                   folder: Optional[str] = Form(default=None)):
         """
         Start Sync images over the ticked folders, by path - JSON. Forge's
         folders left unticked are remembered, as is the level the dialog had
         and whether it grouped images with no text: the next dialog starts
         from them. With `force`, the folders' synced images are read again
-        too (#246); the box itself is not remembered.
+        too (#246); the box itself is not remembered. With `make_thumbnails`,
+        every image the library holds without a thumbnail gets one after (#5),
+        kept where `place` says - in a folder (`folder`, empty for the
+        default) or beside each image (thumbnails.PLACES); the box and the place are remembered, in the
+        settings window too.
         """
         try:
             ticked = {str(p).lower() for p in json.loads(folders or "[]")}
         except ValueError:
             return JSONResponse({"success": False, "error": "Folders not understood"}, status_code=400)
         grouped = _yes(group)
+        # Not sent - by a page from before #5 - none are made, and the setting stands.
+        making = _yes(make_thumbnails) if make_thumbnails else False
+        kept = {}
+        if make_thumbnails:
+            kept[thumbnails.ENABLED_SETTING] = making
+        if place in thumbnails.PLACES:
+            kept[thumbnails.PLACE_SETTING] = place
+        if folder is not None:
+            named = folder.strip().strip('"').strip()
+            if named and not os.path.isabs(named):
+                return JSONResponse({"success": False, "error": "Give the thumbnail folder's full path, "
+                                     "from its drive - or leave it empty for the default."}, status_code=400)
+            kept[thumbnails.FOLDER_SETTING] = os.path.normpath(named) if named else ""
         with folders_lock:
             listed = image_folders()
             entries = [f for f in listed if f["path"].lower() in ticked]
             try:
                 store_settings({FOLDERS_OFF_SETTING: "\n".join(unticked(listed, ticked)),
                                 LEVEL_SETTING: level or setting(LEVEL_SETTING),
-                                GROUP_SETTING: grouped})
+                                GROUP_SETTING: grouped, **kept})
             except Exception as e:
                 say(f"Sync images: could not keep the dialog's choices: {e}")
-            if not entries:
+            if not entries and not making:
                 return JSONResponse({"success": False, "error": "No folder ticked"}, status_code=400)
             return _start(KIND,
-                          lambda: ImageSync(entries, level_of(level), grouped, _yes(force)),
+                          lambda: ImageSync(entries, level_of(level), grouped, _yes(force), making),
                           lambda sync: sync.run(), "Sync images started")
 
     @app.post("/model-manager/generations/sync/folders/add")
@@ -831,6 +870,26 @@ def _register(app: FastAPI):
             return JSONResponse({"success": False, "error": "Image not found"}, status_code=404)
         return FileResponse(path)
 
+    @app.get("/model-manager/generations/images/{image_id}/thumb")
+    @gate("generations")
+    def get_generation_image_thumb(image_id: int):
+        """
+        A generated image's thumbnail (#5), as recorded - the browser may keep
+        it a year: the page's address for it names the file's size and time,
+        and changes with them. The full file when it has none that serves the
+        file as it is, so a tile always gets its image.
+        """
+        db = get_models_db()
+        path = db.get_generation_image_path(image_id)
+        if not path or not os.path.isfile(path):
+            return JSONResponse({"success": False, "error": "Image not found"}, status_code=404)
+        stat = os.stat(path)
+        row = db.thumbnail_rows([path]).get(path.lower())
+        if row and row.get("thumbnail") and thumbnails.current(row, stat.st_size, stat.st_mtime_ns):
+            return FileResponse(row["thumbnail"], media_type="image/webp",
+                                headers={"Cache-Control": "public, max-age=31536000, immutable"})
+        return FileResponse(path)
+
     @app.post("/model-manager/generations/images/{image_id}/delete")
     @gate("generations")
     def delete_generation_image(image_id: int, delete_files: bool = Form(default=False)):
@@ -848,6 +907,7 @@ def _register(app: FastAPI):
             paths, gone = db.delete_generation_image(image_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
             remember_kept(db, paths)
+            thumbnails.forget(db, paths)
             say(f"Deleted generated image {image_id}"
                   + (" and its file" if deleted else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted), "failed": failed,
@@ -950,6 +1010,7 @@ def _register(app: FastAPI):
                     missing.append({"generation": generation_id, "error": str(e)})
             deleted, failed = _delete_files(list(dict.fromkeys(paths))) if delete_files else ([], [])
             remember_kept(db, paths)
+            thumbnails.forget(db, paths)
             say(f"Deleted {images} generated image record(s)"
                   + (f" and {len(deleted)} file(s)" if delete_files else ""))
             return JSONResponse({"success": True, "images": images, "deleted_files": len(deleted),
@@ -976,6 +1037,7 @@ def _register(app: FastAPI):
             paths = db.delete_generation(generation_id)
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
             remember_kept(db, paths)
+            thumbnails.forget(db, paths)
             say(f"Deleted generation {generation_id}"
                   + (f" and {len(deleted)} of its image files" if delete_files else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted),

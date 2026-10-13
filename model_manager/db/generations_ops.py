@@ -480,6 +480,10 @@ class GenerationsOps:
             image["files"] = []
         for image_id, path in cursor.fetchall():
             images[image_id]["files"].append(path)
+        # Each image's thumbnail as made (#5), by its path: None without one.
+        made = self._thumbnails(cursor, [i.get("path") for i in images.values()])
+        for image in images.values():
+            image["thumbnail"] = made.get((image.get("path") or "").lower())
         return images
 
     def get_generations(self, generation_ids: List[int]) -> Dict[int, Dict[str, Any]]:
@@ -990,33 +994,37 @@ class GenerationsOps:
                            "JOIN generations g ON g.source_id = s.id GROUP BY s.id")
             return {row[0].lower(): row[1] for row in cursor.fetchall()}
 
-    def delete_synced_from(self, folder: str) -> int:
+    def delete_synced_from(self, folder: str) -> Tuple[int, List[str]]:
         """
         Remove every generation a folder's syncs brought, and the folder's
         number - Remove folder (#233). Files are not touched, and nothing goes
         on the removed list: the folder is no longer synced.
 
         Returns:
-            How many generations were removed.
+            How many generations were removed, and the paths of their images
+            no other record names - whose thumbnails can go (#5).
         """
         with self._cursor() as cursor:
             cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
             row = cursor.fetchone()
             if not row:
-                return 0
+                return 0, []
             source = row[0]
             images = ("SELECT gi.id FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
                       "WHERE g.source_id = ?")
             cursor.execute(f"DELETE FROM generation_resources WHERE image_id IN ({images})", (source,))
             cursor.execute(f"DELETE FROM image_details WHERE image_id IN ({images})", (source,))
             made = "SELECT id FROM generations WHERE source_id = ?"
+            cursor.execute(f"SELECT DISTINCT path FROM generation_images WHERE generation_id IN ({made})",
+                           (source,))
+            paths = [row[0] for row in cursor.fetchall() if row[0]]
             cursor.execute(f"DELETE FROM generation_images WHERE generation_id IN ({made})", (source,))
             cursor.execute(f"DELETE FROM generation_details WHERE generation_id IN ({made})", (source,))
             cursor.execute(f"DELETE FROM task_generations WHERE generation_id IN ({made})", (source,))
             cursor.execute("DELETE FROM generations WHERE source_id = ?", (source,))
             removed = cursor.rowcount
             cursor.execute("DELETE FROM image_sources WHERE id = ?", (source,))
-            return removed
+            return removed, self._unnamed(cursor, paths)
 
     def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
         """The removed list: each file whose row was deleted with the file
@@ -1036,6 +1044,74 @@ class GenerationsOps:
         with self._cursor() as cursor:
             cursor.executemany("DELETE FROM removed_images WHERE path = ? COLLATE NOCASE",
                                [(p,) for p in paths])
+
+    @staticmethod
+    def _unnamed(cursor, paths: Iterable[str]) -> List[str]:
+        """Of these paths, the ones no image's row names any more."""
+        free = []
+        for path in dict.fromkeys(p for p in paths if p):
+            cursor.execute("SELECT 1 FROM generation_images WHERE path = ? COLLATE NOCASE LIMIT 1", (path,))
+            if not cursor.fetchone():
+                free.append(path)
+        return free
+
+    # ------------------------------------------------------------ thumbnails
+
+    @staticmethod
+    def _thumbnails(cursor, paths: Iterable[Optional[str]]) -> Dict[str, Dict[str, Any]]:
+        """Each of these images' thumbnail rows (#5), by its path in lower case:
+        {thumbnail, size, mtime_ns}. A thumbnail of None: the image needs none."""
+        paths = list(dict.fromkeys(p for p in paths if p))
+        found: Dict[str, Dict[str, Any]] = {}
+        for start in range(0, len(paths), 500):
+            part = paths[start:start + 500]
+            cursor.execute("SELECT path, thumbnail, size, mtime_ns FROM image_thumbnails "
+                           f"WHERE path IN ({', '.join('?' * len(part))})", part)
+            for path, thumbnail, size, mtime_ns in cursor.fetchall():
+                found[path.lower()] = {"thumbnail": thumbnail, "size": size, "mtime_ns": mtime_ns}
+        return found
+
+    def thumbnail_rows(self, paths: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """These images' thumbnail rows, by path in lower case; see _thumbnails()."""
+        with self._cursor() as cursor:
+            return self._thumbnails(cursor, paths)
+
+    def thumbnail_candidates(self) -> List[Tuple[str, Optional[str], Optional[int], Optional[int]]]:
+        """
+        Every image path the library holds, once, with its thumbnail's row if
+        it has one: (path, thumbnail, size, mtime_ns) - what a sync with
+        "Make thumbnails" goes through (#5).
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT MIN(gi.path), t.thumbnail, t.size, t.mtime_ns FROM generation_images gi "
+                           "LEFT JOIN image_thumbnails t ON t.path = gi.path "
+                           "WHERE gi.path IS NOT NULL AND gi.path <> '' GROUP BY gi.path COLLATE NOCASE")
+            return [tuple(row) for row in cursor.fetchall()]
+
+    def record_thumbnails(self, entries: Iterable[Tuple[str, Optional[str], int, int]]) -> None:
+        """Keep each image's thumbnail as made: (path, thumbnail or None, the
+        image's size, its modified time in ns), replacing the one before."""
+        with self._cursor() as cursor:
+            cursor.executemany("INSERT OR REPLACE INTO image_thumbnails (path, thumbnail, size, mtime_ns) "
+                               "VALUES (?, ?, ?, ?)", list(entries))
+
+    def forget_thumbnails(self, paths: Iterable[str]) -> List[str]:
+        """
+        Remove these images' thumbnail rows.
+
+        Returns:
+            The thumbnail files they named, for the caller to delete.
+        """
+        paths = [p for p in paths if p]
+        files = []
+        with self._cursor() as cursor:
+            for start in range(0, len(paths), 500):
+                part = paths[start:start + 500]
+                marks = ", ".join("?" * len(part))
+                cursor.execute(f"SELECT thumbnail FROM image_thumbnails WHERE path IN ({marks})", part)
+                files += [row[0] for row in cursor.fetchall() if row[0]]
+                cursor.execute(f"DELETE FROM image_thumbnails WHERE path IN ({marks})", part)
+        return files
 
     def unheld_checkpoint(self, generation_id: int) -> Optional[str]:
         """The checkpoint a generation names by name alone - one Sync images

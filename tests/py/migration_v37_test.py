@@ -155,6 +155,9 @@ check('each file has its role: the library\'s file type names a VAE and a text e
 # source_id came with v38, and is empty for every generation the recorder wrote.
 whole = {g: db.get_generation(g) for g in before['whole']}
 check('v38\'s source_id is empty for each', {w.pop('source_id', 'absent') for w in whole.values()}, {None})
+# v39's thumbnail came with #5: none is made by a migration.
+check('v39\'s thumbnail is empty for each image',
+      {i.pop('thumbnail', 'absent') for w in whole.values() for i in w.get('images', [])}, {None})
 check('each generation reads back whole, as v36 read it', {g: w == before['whole'][g] for g, w in whole.items()},
       {g: True for g in before['whole']})
 

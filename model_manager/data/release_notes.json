@@ -1,5 +1,43 @@
 [
   {
+    "id": "thumbnails",
+    "version": "0.58.4",
+    "kind": "action",
+    "audience": "update",
+    "tabs": [
+      "generations"
+    ],
+    "title": "Thumbnails, so a long scroll stays light",
+    "text": "Tiles in this tab, and each model's Your generations, loaded the full image Forge saved - about 1.3 MB each - to draw a small tile. They now load a thumbnail instead, 450 pixels tall, about 21 KB. Start Sync images to make them: Make thumbnails is ticked, and it makes one for every image without one - several at once, a few minutes for tens of thousands. Each image you generate gets one as it is saved. They are kept in a folder (thumbnails, beside the database, unless you name another) or beside each image. To make none, untick the box, or turn it off in the settings. Deleting them is safe; the full images are untouched, and the viewer still shows them.",
+    "action": {
+      "id": "sync_images",
+      "label": "Sync images"
+    }
+  },
+  {
+    "id": "shared-database-0-58-4",
+    "version": "0.58.4",
+    "kind": "warning",
+    "audience": "update",
+    "important": true,
+    "when": "custom_database",
+    "tabs": [
+      "model_manager",
+      "civitai_browser",
+      "generations"
+    ],
+    "title": "This update changed the database: update the extension in your other WebUI too",
+    "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version adds a table for thumbnails to the database; an older copy cannot open it any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+    "action": {
+      "id": "settings",
+      "label": "Open settings",
+      "section": "storage"
+    },
+    "replaces": [
+      "shared-database-0-58-1"
+    ]
+  },
+  {
     "id": "sync-images",
     "version": "0.58.1",
     "kind": "feature",

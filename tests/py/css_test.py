@@ -123,5 +123,20 @@ check('it states its text colour from the theme, as its background',
        any(re.match(r'color:\s*var\(--body-text-color', x) for x in modal[0])] if modal else None,
       [True, True])
 
+# ------------------------------------------------------- a ticked radio (#5)
+# Gradio's form reset draws a ticked checkbox or radio in its container as a
+# white mark on no fill: in light mode both looked empty, and a radio, given
+# no radius, square. Every tab that fills a ticked checkbox fills a ticked
+# radio the same way, and rounds its radios.
+def selectors_of(declaration):
+    return {s.strip() for sel, d in RULES if declaration in d for s in sel.split(',')}
+filled = selectors_of('background-color: var(--checkbox-background-color-selected, #2563eb)')
+roots = sorted(s.split()[0] for s in filled if s.endswith('[type="checkbox"]:checked'))
+check('the tabs fill a ticked checkbox', len(roots) >= 5, True)
+check('and fill a ticked radio the same way',
+      [r for r in roots if f'{r} [type="radio"]:checked' not in filled], [])
+check('and round their radios',
+      [r for r in roots if f'{r} [type="radio"]' not in selectors_of('border-radius: 50%')], [])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

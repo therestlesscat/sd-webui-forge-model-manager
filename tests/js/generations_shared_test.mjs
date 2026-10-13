@@ -37,4 +37,17 @@ check('a thumbnail of yours is badged from R up, as a Civitai image\'s card is',
        badge({ mm_level: 16 }), badge({ mm_level: 8, mm_level_from_prompt: true })],
       ['', '', 'R', 'X', 'XXX', 'X · prompt']);
 
+// Thumbnails (#5): an image with one loads it, the full file as its fallback;
+// one without loads the full file, falling back to the placeholder as before.
+const drawn = (img) => {
+    const box = document.createElement('div');
+    box.innerHTML = generationImageHtml({ id: 1, url: '/x/file', exists: true, ...img });
+    const node = box.querySelector('img');
+    return [new URL(node.getAttribute('data-src')).pathname + new URL(node.getAttribute('data-src')).search,
+            node.getAttribute('data-original') ? new URL(node.getAttribute('data-original')).pathname : ''];
+};
+check('an image with a thumbnail loads it, its full file the fallback',
+      drawn({ thumb: '/x/thumb?v=10-20' }), ['/x/thumb?v=10-20', '/x/file']);
+check('one without loads its full file, with no fallback but the placeholder', drawn({ thumb: null }), ['/x/file', '']);
+
 done();

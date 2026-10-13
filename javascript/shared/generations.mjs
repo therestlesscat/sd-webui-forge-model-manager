@@ -106,11 +106,13 @@ export function ratingRowHtml(of, action, data = {}) {
  */
 export function generationImageHtml(img, { viewable = false } = {}) {
     const url = new URL(img.url || '', window.location.origin).href;
+    // Its thumbnail where it has one (#5), the full file if that fails to load.
+    const thumb = img.thumb ? new URL(img.thumb, window.location.origin).href : '';
     const level = nsfwBadge(img);
     const badge = level ? `<span class="mm-nsfw-badge">${escapeHtml(level)}</span>` : '';
     const image = img.exists
-        ? `<img data-src="${escapeHtml(url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
-                ${mediaFallback('', IMAGE_PLACEHOLDER_SVG)}${viewable ? `
+        ? `<img data-src="${escapeHtml(thumb || url)}" class="mm-lazy-media" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Generated image" loading="lazy"
+                ${mediaFallback(thumb ? url : '', IMAGE_PLACEHOLDER_SVG)}${viewable ? `
                 data-view-generation-image="${Number(img.id)}" title="Click to view"` : ''}>`
         : `<img src="${IMAGE_PLACEHOLDER_SVG}" alt="Image unavailable"
                 title="Image unavailable: its file is no longer where it was saved">`;

@@ -15,7 +15,7 @@ from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from ..image_sync import FOLDERS_OFF_SETTING, FOLDERS_SETTING, GROUP_SETTING, LEVEL_SETTING
 from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
-from .. import prompt_levels
+from .. import prompt_levels, thumbnails
 from ..scheduler import QUEUE_ENABLED
 from ..tabs import TABS
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
@@ -271,6 +271,55 @@ def on_ui_settings():
         ).info("What the Sync images dialog starts from. Images in one folder whose file names "
                "say the same settings, saved close together, become one batch, as one press of "
                "Generate made them.")
+    )
+    # Thumbnails (#5): on, in a folder, unless turned off. Sync images'
+    # dialog shows and saves the first three too.
+    shared.opts.add_option(
+        thumbnails.ENABLED_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[thumbnails.ENABLED_SETTING],
+            label="Your generations: make thumbnails",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Ticks \"Make thumbnails\" in the Sync images dialog, and makes one for each image "
+               "you generate. A sync with it ticked makes one for every image without one. Tiles "
+               "then load a small copy, 450 pixels tall, instead of the full file; the viewer still "
+               "shows the full file. An image without one shows its full file.")
+    )
+    shared.opts.add_option(
+        thumbnails.PLACE_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[thumbnails.PLACE_SETTING],
+            label="Your generations: where thumbnails are kept",
+            component=gr.Radio,
+            component_args={"choices": list(thumbnails.PLACES)},
+            section=section,
+        ).info("In a folder: the folder below. Beside each image: in a .thumbnails folder next to "
+               "it, which Sync images skips. A change applies to thumbnails made from then on; "
+               "those made before keep working where they are.")
+    )
+    shared.opts.add_option(
+        thumbnails.FOLDER_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[thumbnails.FOLDER_SETTING],
+            label="Your generations: thumbnail folder",
+            component=gr.Textbox,
+            component_args={"placeholder": "Empty: a thumbnails folder beside the database"},
+            section=section,
+        ).info("Its full path. Empty: a folder named thumbnails beside the database, which two "
+               "WebUIs sharing the database share too. Deleting it is safe: a sync makes them again.")
+    )
+    shared.opts.add_option(
+        thumbnails.THREADS_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[thumbnails.THREADS_SETTING],
+            label="Your generations: thumbnails made at once",
+            component=gr.Slider,
+            component_args={"minimum": 0, "maximum": 64, "step": 1},
+            section=section,
+        ).info("0: as many as the machine has processors - making one is mostly processor work. "
+               "Lower it for a hard disk or a network drive, or to keep the machine free while "
+               "a sync makes them.")
     )
     hidden = (None, "Model Manager")
     for key in (FOLDERS_SETTING, FOLDERS_OFF_SETTING):

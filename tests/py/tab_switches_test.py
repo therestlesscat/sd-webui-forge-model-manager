@@ -131,6 +131,7 @@ SPEC = {
     ('GET', '/model-manager/generations/{generation_id}/images'): 'generations',
     ('GET', '/model-manager/generations/{generation_id}/send-plan'): 'generations',
     ('GET', '/model-manager/generations/images/{image_id}/file'): 'generations',
+    ('GET', '/model-manager/generations/images/{image_id}/thumb'): 'generations',
     ('POST', '/model-manager/generations/images/{image_id}/delete'): 'generations',
     ('POST', '/model-manager/generations/rate'): 'generations',
     ('POST', '/model-manager/generations/delete-many'): 'generations',
@@ -196,7 +197,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 84 routes', len(SPEC), 84)
+check('the spec holds 85 routes', len(SPEC), 85)
 
 app = FastAPI()
 api.setup_api(app)

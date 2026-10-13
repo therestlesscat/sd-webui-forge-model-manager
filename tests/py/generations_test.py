@@ -334,7 +334,7 @@ if has_fastapi:
           [i['position'] for i in card['images']], [0, 1, 2, 3])
     check('each with what a card draws', sorted(card['images'][0]) == sorted(
         ['id', 'generation_id', 'position', 'iteration', 'seed', 'width', 'height', 'meta',
-         'infotext', 'url', 'exists', 'mm_level', 'mm_level_from_prompt', 'user_level']), True)
+         'infotext', 'url', 'exists', 'thumb', 'mm_level', 'mm_level_from_prompt', 'user_level']), True)
     check('and the file is there', card['images'][0]['exists'], True)
     # Its LoRAs and embeddings as a Civitai image lists them, for Send's chips:
     # the LoRAs Forge loaded for its own iteration, at their weight.

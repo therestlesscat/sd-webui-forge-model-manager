@@ -15,14 +15,29 @@ body.mm-modal-open {
 /* A ticked checkbox, filled. Gradio's form reset draws every checkbox in its
    container itself - appearance none, and once ticked a white tick - with no
    fill behind the tick: on a dark page it showed by luck, on a light one a
-   ticked box looked empty. Filled as Gradio's own checkboxes are. */
+   ticked box looked empty. Filled as Gradio's own checkboxes are. A radio
+   the same, its white dot on no fill - and square, as the reset gives it no
+   radius: the Sync dialogs' radios looked like empty boxes in light mode. */
 #model_manager_app [type="checkbox"]:checked,
 #civitai_browser_app [type="checkbox"]:checked,
 #generations_app [type="checkbox"]:checked,
 #gallery_app [type="checkbox"]:checked,
-#queue_app [type="checkbox"]:checked {
+#queue_app [type="checkbox"]:checked,
+#model_manager_app [type="radio"]:checked,
+#civitai_browser_app [type="radio"]:checked,
+#generations_app [type="radio"]:checked,
+#gallery_app [type="radio"]:checked,
+#queue_app [type="radio"]:checked {
     background-color: var(--checkbox-background-color-selected, #2563eb);
     border-color: var(--checkbox-background-color-selected, #2563eb);
+}
+
+#model_manager_app [type="radio"],
+#civitai_browser_app [type="radio"],
+#generations_app [type="radio"],
+#gallery_app [type="radio"],
+#queue_app [type="radio"] {
+    border-radius: 50%;
 }
 
 

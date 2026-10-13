@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 
 class ModelsDatabase:
@@ -542,9 +542,25 @@ class ModelsDatabase:
         """How many generations each synced folder brought; see GenerationsOps.synced_counts()."""
         return self._generations.synced_counts()
 
-    def delete_synced_from(self, folder: str) -> int:
+    def delete_synced_from(self, folder: str) -> Tuple[int, List[str]]:
         """Remove every generation a folder's syncs brought; see GenerationsOps.delete_synced_from()."""
         return self._generations.delete_synced_from(folder)
+
+    def thumbnail_rows(self, paths) -> Dict[str, Dict[str, Any]]:
+        """These images' thumbnail rows (#5); see GenerationsOps.thumbnail_rows()."""
+        return self._generations.thumbnail_rows(paths)
+
+    def thumbnail_candidates(self) -> list:
+        """Every image path, with its thumbnail's row; see GenerationsOps.thumbnail_candidates()."""
+        return self._generations.thumbnail_candidates()
+
+    def record_thumbnails(self, entries) -> None:
+        """Keep thumbnails as made; see GenerationsOps.record_thumbnails()."""
+        self._generations.record_thumbnails(entries)
+
+    def forget_thumbnails(self, paths) -> List[str]:
+        """Remove these images' thumbnail rows; see GenerationsOps.forget_thumbnails()."""
+        return self._generations.forget_thumbnails(paths)
 
     def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
         """The removed list; see GenerationsOps.removed_images()."""

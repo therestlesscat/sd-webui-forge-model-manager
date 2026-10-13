@@ -11,6 +11,8 @@ __pycache__/
 *.db-shm
 # Timestamped backups made before migrations and risky operations
 *.db.backup_*
+# Thumbnails of your generations, in their default folder beside the database (#5)
+/thumbnails/
 
 # IDE and assistant settings, local to each machine
 .idea/

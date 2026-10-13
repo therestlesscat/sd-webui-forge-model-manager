@@ -46,6 +46,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from . import thumbnails
 from .db import database_state, get_models_db
 from .forge_host import (available, closest_checkpoint, current_job, forge_name,
                          infotext_settings, installed_modules, loaded_model, loaded_modules,
@@ -513,6 +514,12 @@ def _write(p, processed, generation: _Generation) -> int:
           f"{generation.other_saves} other images saved and not recorded, "
           f"{len(files)} model files, {len(spelled)} of them in the library"
           + (f", replacing {replaced} image(s) a sync had added" if replaced else ""))
+    # With the setting on, its thumbnails now (#5): the newest images are the
+    # ones looked at most.
+    try:
+        thumbnails.for_recorded(db, [image["path"] for image in images])
+    except Exception as e:
+        _report("making thumbnails", e)
     return generation_id
 
 

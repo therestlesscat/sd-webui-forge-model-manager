@@ -2066,6 +2066,28 @@ def _migrate_to_v38(cursor):
     print("[ModelManager] Migration to v38 complete")
 
 
+def _migrate_to_v39(cursor):
+    """
+    Thumbnails of your generations (#5). Nothing is changed or dropped; v39
+    only adds image_thumbnails: one row per image a sync or the recorder
+    made a thumbnail for - keyed by the image's path, which Force sync and
+    the recorder keep where an image's id changes - with the thumbnail's
+    full path, NULL when the image needs none (no taller than a thumbnail),
+    and the image's size and modified time when it was
+    made: a changed image shows its full file until it is made again.
+    """
+    print("[ModelManager] Migrating to v39: thumbnails of your generations...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS image_thumbnails (
+            path      TEXT PRIMARY KEY COLLATE NOCASE,
+            thumbnail TEXT,
+            size      INTEGER,
+            mtime_ns  INTEGER
+        ) WITHOUT ROWID
+    """)
+    print("[ModelManager] Migration to v39 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -2087,7 +2109,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         32: lambda c: _migrate_to_v32(c, db_path),
         33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
         37: lambda c: _migrate_to_v37(c, db_path),
-        38: _migrate_to_v38,
+        38: _migrate_to_v38, 39: _migrate_to_v39,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

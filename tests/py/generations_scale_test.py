@@ -44,10 +44,23 @@ path, connection = generation_fixture.v36_database(os.path.join(WORK, 'varied'))
 facts = generation_fixture.varied(connection, WORK)
 
 
+def thumbs_aside(answer):
+    """An answer with each image's thumbnail address taken out, which v36
+    never had (#5). None is made here, so each is None: one that is not is
+    left in, to fail the comparison."""
+    answer = copy.deepcopy(answer)
+    for holder in answer.get('tiles', []) + answer.get('generations', []):
+        for image in holder.get('images', []):
+            if image.get('thumb', 'absent') is None:
+                image.pop('thumb')
+    return answer
+
+
 def ids_aside(answer):
     """An answer with the groups' and sections' ids taken out: v37 names a
-    group by its prompt's number or its value, v36 by a hash of its value."""
-    answer = copy.deepcopy(answer)
+    group by its prompt's number or its value, v36 by a hash of its value -
+    and the thumbnails' addresses (thumbs_aside)."""
+    answer = thumbs_aside(answer)
     for tile in answer.get('tiles', []):
         for part in ('group', 'section'):
             if tile.get(part):
@@ -147,7 +160,8 @@ for name in ('a', 'b', 'a2', 'x', 'vae', 'te', 'l', 'm', 'p'):
             for page in range(1, 20):
                 o = v36.generation_page(old, model, hide_nsfw, hide_promptless, page)
                 n = api.generation_page(new, model, hide_nsfw, hide_promptless, page)
-                check(f'Your generations of {name}, page {page}, switches {hide_nsfw}/{hide_promptless}', n, o)
+                check(f'Your generations of {name}, page {page}, switches {hide_nsfw}/{hide_promptless}',
+                      thumbs_aside(n), o)
                 if not o['page']['more']:
                     break
 

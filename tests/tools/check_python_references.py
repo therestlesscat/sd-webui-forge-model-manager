@@ -78,7 +78,10 @@ for path in py_files():
             if alias.name == '*':
                 continue
             checked += 1
-            if not hasattr(mod, alias.name):
+            # A submodule is a name too, though the package has not imported
+            # it yet: `from . import thumbnails` failed while no module before
+            # it in the walk had (#5).
+            if not hasattr(mod, alias.name) and importlib.util.find_spec(target + '.' + alias.name) is None:
                 fail('%s: %s has no %s' % (path, target, alias.name))
 print('   %d imported names checked' % checked)
 

@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from . import forge_host
+from . import forge_host, thumbnails
 from .console import say
 from .generations import infotext_meta
 from .image_text import IMAGE_EXTENSIONS, NamePattern, line_params, lora_hashes, prompt_loras, \
@@ -149,7 +149,8 @@ def remove_folder(db, path: str) -> Tuple[Optional[int], Optional[str]]:
         return None, "That folder is not in the list."
     if listed["forge"]:
         return None, "Forge saves results there: untick it instead."
-    removed = db.delete_synced_from(listed["path"])
+    removed, freed = db.delete_synced_from(listed["path"])
+    thumbnails.forget(db, freed)
     forge_host.store_settings({
         FOLDERS_SETTING: "\n".join(p for p in _lines(FOLDERS_SETTING) if os.path.normpath(p).lower() != target),
         FOLDERS_OFF_SETTING: "\n".join(p for p in _lines(FOLDERS_OFF_SETTING)
@@ -168,11 +169,14 @@ def walk(folder: str) -> Iterator[Tuple[str, int, int]]:
     modified time in ns). What is not a result is left out: grids, the
     "before" copies, masks, PiD copies, a JPEG beside a PNG of the same name
     - Forge's copy of a large image (export_for_4chan) - and ControlNet's
-    maps folder.
+    maps folder - and thumbnails (#5), in a `.thumbnails` folder or the
+    folder the settings keep them in.
     """
     maps = _maps_folder().lower()
+    kept = thumbnails.folder()
     for dirpath, dirnames, filenames in os.walk(folder):
-        dirnames[:] = [d for d in dirnames if d.lower() != maps]
+        dirnames[:] = [d for d in dirnames if d.lower() != maps
+                       and not thumbnails.is_thumbnail_folder(os.path.join(dirpath, d), kept)]
         pngs = {os.path.splitext(n)[0].lower() for n in filenames if n.lower().endswith(".png")}
         for name in filenames:
             stem, ext = os.path.splitext(name)
@@ -222,9 +226,9 @@ def counts(db, entries: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[
 @dataclass
 class ImageSyncProgress:
     """
-    What the page is told: the stage ("walking", "reading", "writing"), the
-    folder, counts, errors, and how it ended - "done", "cancelled" or
-    "failed".
+    What the page is told: the stage ("walking", "reading", "writing",
+    "thumbnails"), the folder, counts, errors, and how it ended - "done",
+    "cancelled" or "failed".
     """
     state: str = "running"
     stage: str = "walking"
@@ -234,6 +238,11 @@ class ImageSyncProgress:
     generations: int = 0
     images: int = 0
     again: int = 0
+    # Thumbnails (#5): how many to make, how many are done, how many of
+    # those were written - the rest needed none, or failed and were reported.
+    thumbs_total: int = 0
+    thumbs_done: int = 0
+    thumbs_made: int = 0
     errors: List[str] = field(default_factory=list)
     error_count: int = 0
     gap: Optional[float] = None
@@ -264,6 +273,8 @@ class ImageSyncProgress:
         return {"state": self.state, "stage": self.stage, "folder": self.folder,
                 "total": self.total, "read": self.read, "generations": self.generations,
                 "images": self.images, "again": self.again, "errors": list(self.errors),
+                "thumbs_total": self.thumbs_total, "thumbs_done": self.thumbs_done,
+                "thumbs_made": self.thumbs_made,
                 "error_count": self.error_count,
                 "gap": self.gap, "gap_from": self.gap_from, "cancelling": self.cancelling,
                 "started": self.started, "finished": self.finished, "error": self.error,
@@ -468,13 +479,16 @@ class ImageSync(object):
     """One sync of the given folders. Never two at once (jobs.py)."""
 
     def __init__(self, entries: List[Dict[str, Any]], level: int = UNKNOWN, group_no_text: bool = True,
-                 force: bool = False):
+                 force: bool = False, make_thumbnails: bool = False):
         self.entries = [e for e in entries if e.get("path")]
         self.level = level
         self.group_no_text = group_no_text
         # Force sync (#246): the synced images are read again as well, and
         # their rows rebuilt; what the person added is carried over.
         self.force = force
+        # Then a thumbnail for every image the library holds without a
+        # current one (#5). Force sync keeps the ones made: records go by path.
+        self.make_thumbnails = make_thumbnails
         self.progress = ImageSyncProgress()
         self._cancel = threading.Event()
 
@@ -593,10 +607,35 @@ class ImageSync(object):
             progress.generations += len(chunk)
             progress.images += sum(len(i) for _, i, _ in chunk)
             progress.folder = generations[start][0].root
+        if self.make_thumbnails and not self._thumbnails(db):
+            return
         progress.end("done")
         say(f"Sync images: wrote {progress.images} image(s) as {progress.generations} generation(s)"
             + (f", {progress.again} of them read again" if self.force else "")
             + (f", {progress.error_count} could not be read" if progress.error_count else ""))
+
+    def _thumbnails(self, db) -> bool:
+        """Make the thumbnails the library lacks (#5). False if cancelled."""
+        progress = self.progress
+        progress.stage, progress.folder = "thumbnails", None
+        todo = thumbnails.pending(db)
+        progress.thumbs_total = len(todo)
+        say(f"Sync images: {len(todo)} thumbnail(s) to make, {thumbnails.threads()} at once")
+
+        def done(outcome: str) -> None:
+            progress.thumbs_done += 1
+            progress.thumbs_made += int(outcome == thumbnails.MADE)
+
+        def failed(path: str, error: Exception) -> None:
+            progress.thumbs_done += 1
+            progress.note_error(f"could not make the thumbnail of {path}: {error}")
+
+        thumbnails.make_many(db, todo, self._cancel.is_set, done, failed)
+        if self._cancelled():
+            return False
+        say(f"Sync images: made {progress.thumbs_made} thumbnail(s); "
+            f"{progress.thumbs_done - progress.thumbs_made} image(s) needed none or failed")
+        return True
 
     def _generation(self, matcher: _Matcher, images: List[_Image]):
         """One press as the recorder's write takes it: (generation, images, files)."""

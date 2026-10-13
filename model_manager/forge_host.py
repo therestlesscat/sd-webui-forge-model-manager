@@ -94,6 +94,14 @@ DEFAULTS = {
     "model_manager_image_folders_off": "",
     "model_manager_image_sync_level": "Unknown",
     "model_manager_group_no_text": True,
+    # Thumbnails of your generations (#5): off until asked for - whether
+    # Sync images' dialog starts ticked and the recorder makes them; where
+    # they are kept (thumbnails.PLACES); the folder, empty for one beside the
+    # database; how many are made at once, 0 for every processor.
+    "model_manager_thumbnails": True,
+    "model_manager_thumbnails_place": "In a folder",
+    "model_manager_thumbnails_folder": "",
+    "model_manager_thumbnail_threads": 0,
 }
 
 

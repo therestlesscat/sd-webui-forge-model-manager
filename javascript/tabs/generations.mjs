@@ -1313,6 +1313,8 @@ work.provide('generations.syncImages', () => openSyncDialog());
 work.provide('generations.syncTick', ({ path }, box) => tickSyncFolder(path, box.checked));
 work.provide('generations.startSync', () => startSync());
 work.provide('generations.syncForce', () => { drawSyncFolders(); showSyncEstimate(); });
+work.provide('generations.syncThumbs', () => { showThumbnailPlace(); showSyncEstimate(); });
+work.provide('generations.syncThumbsPlace', () => showThumbnailPlace());
 work.provide('generations.closeSyncDialog', () => closeSyncDialog());
 work.provide('generations.syncDialogBackdrop', (data, element, event) => {
     if (event?.target === element) closeSyncDialog();
@@ -1332,6 +1334,7 @@ const SYNC = '/model-manager/generations/sync';
 // Reading one file's text took 0.7 ms in one library: 53 s for 76,148 files.
 const SYNC_READ_SECONDS = 0.0007;
 let syncFolders = [];           // as the server listed them, each with its tick and its count
+let syncThumbsMissing = null;   // the library's images with no thumbnail yet (#5), once counted
 let syncFollowing = null;       // the interval following a sync
 
 function syncCount(n) {
@@ -1389,7 +1392,9 @@ async function loadSyncFolders(ticks) {
         byId('gen_sync_level').innerHTML = data.levels.map((name) =>
             `<option value="${escapeHtml(name)}"${name === data.level ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
         byId('gen_sync_group').checked = Boolean(data.group);
+        showThumbnailChoices(data);
     }
+    syncThumbsMissing = null;
     drawSyncFolders();
     showSyncEstimate();
     const counted = await apiCall({ endpoint: `${SYNC}/estimate` }).catch((e) => ({ success: false, error: e.message }));
@@ -1401,6 +1406,7 @@ async function loadSyncFolders(ticks) {
         folder.count = counted.counts[folder.path] ?? 0;
         folder.again = counted.again?.[folder.path] ?? 0;
     });
+    syncThumbsMissing = counted.thumbnails ?? 0;
     drawSyncFolders();
     showSyncEstimate();
 }
@@ -1452,22 +1458,72 @@ function forcing() {
     return Boolean(byId('gen_sync_force')?.checked);
 }
 
+// ------------------------------------------------- thumbnails (#5)
+/** The dialog's thumbnail box, place and folder, as the settings have them. */
+function showThumbnailChoices(data) {
+    const box = byId('gen_sync_thumbs');
+    if (box) box.checked = Boolean(data.thumbnails);
+    // A place no radio names - none yet, or an old value - is in a folder,
+    // the default: a box ticked with neither place would say nothing.
+    const radios = [...document.querySelectorAll('input[name="gen_sync_thumbs_place"]')];
+    const known = radios.some((radio) => radio.value === data.thumbnails_place);
+    radios.forEach((radio) => {
+        radio.checked = radio.value === (known ? data.thumbnails_place : 'In a folder');
+    });
+    const folder = byId('gen_sync_thumbs_folder');
+    if (folder) {
+        folder.value = data.thumbnails_folder || '';
+        // In full: the box takes a full path only, and a hint trimmed to the
+        // WebUI's folder read as one it would take.
+        folder.placeholder = data.thumbnails_default_folder
+            ? `Empty: ${data.thumbnails_default_folder}` : 'Empty: beside the database';
+    }
+    showThumbnailPlace();
+}
+
+function makingThumbnails() {
+    return Boolean(byId('gen_sync_thumbs')?.checked);
+}
+
+function thumbnailPlace() {
+    return document.querySelector('input[name="gen_sync_thumbs_place"]:checked')?.value || 'In a folder';
+}
+
+/** The place shows once the box is ticked; the folder's box only for a folder. */
+function showThumbnailPlace() {
+    const where = byId('gen_sync_thumbs_where');
+    if (where) where.hidden = !makingThumbnails();
+    const row = byId('gen_sync_thumbs_folder_row');
+    if (row) row.classList.toggle('mm-dialog-muted', thumbnailPlace() !== 'In a folder');
+    const folder = byId('gen_sync_thumbs_folder');
+    if (folder) folder.disabled = thumbnailPlace() !== 'In a folder';
+    const count = byId('gen_sync_thumbs_count');
+    if (count) setText(count, syncThumbsMissing === null ? '' : `${syncCount(syncThumbsMissing)} without`);
+}
+
 function showSyncEstimate() {
     const ticked = syncFolders.filter((f) => f.ticked);
-    const counting = ticked.some((f) => f.count === null);
+    const counting = ticked.some((f) => f.count === null) || (makingThumbnails() && syncThumbsMissing === null);
     const fresh = ticked.reduce((sum, f) => sum + (f.count || 0), 0);
     const again = forcing() ? ticked.reduce((sum, f) => sum + (f.again || 0), 0) : 0;
     const total = fresh + again;
+    // Images that will need a thumbnail: those without one, and the new ones.
+    const thumbs = makingThumbnails() ? (syncThumbsMissing || 0) + fresh : 0;
     let text;
-    if (!ticked.length) text = 'Tick a folder to sync.';
+    if (!ticked.length && !makingThumbnails()) text = 'Tick a folder to sync.';
     else if (counting) text = 'Counting the new images...';
-    else if (!total) text = forcing() ? 'No images in the ticked folders.' : 'No new images in the ticked folders.';
-    else text = (again ? `${syncCount(fresh)} new, ${syncCount(again)} to read again.` : `${syncCount(total)} new images.`)
-                + ` Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; writing them comes after.`;
+    else if (!total && !thumbs) text = forcing() ? 'No images in the ticked folders.' : 'No new images in the ticked folders.';
+    else {
+        text = !total ? 'No new images in the ticked folders.'
+            : (again ? `${syncCount(fresh)} new, ${syncCount(again)} to read again.` : `${syncCount(total)} new images.`)
+              + ` Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; writing them comes after.`;
+        if (thumbs) text += ` Then about ${syncCount(thumbs)} thumbnail${thumbs === 1 ? '' : 's'} to make: several at once, minutes for tens of thousands.`;
+    }
     setText(byId('gen_sync_estimate'), text);
-    // Start would do nothing until there is something to add, or to read again.
+    showThumbnailPlace();
+    // Start would do nothing until there is something to add, read again or make.
     const start = byId('gen_sync_start');
-    if (start) start.disabled = counting || !total;
+    if (start) start.disabled = counting || (!total && !thumbs);
 }
 
 function showAddNote(text) {
@@ -1535,6 +1591,9 @@ async function startSync() {
         level: byId('gen_sync_level')?.value || '',
         group: String(Boolean(byId('gen_sync_group')?.checked)),
         force: String(forcing()),
+        make_thumbnails: String(makingThumbnails()),
+        place: thumbnailPlace(),
+        folder: byId('gen_sync_thumbs_folder')?.value || '',
     });
     if (!answer.success) {
         setText(byId('gen_sync_estimate'), `Could not start: ${answer.error}`);
@@ -1565,24 +1624,29 @@ async function pollSync() {
     if (progress.is_complete && syncFollowing !== null) {
         clearInterval(syncFollowing);
         syncFollowing = null;
-        if (progress.generations) refresh();
+        if (progress.generations || progress.thumbs_made) refresh();
     }
 }
 
 function syncStatus(p) {
     const where = p.folder ? ` in ${shownPath(p.folder)}` : '';
+    const thumbs = p.thumbs_made ? ` Made ${syncCount(p.thumbs_made)} thumbnail${p.thumbs_made === 1 ? '' : 's'}.` : '';
     if (p.state === 'done') {
         return `Added ${syncCount(p.images)} images as ${syncCount(p.generations)} generations`
-            + (p.again ? `, ${syncCount(p.again)} of them read again.` : '.');
+            + (p.again ? `, ${syncCount(p.again)} of them read again.` : '.') + thumbs;
     }
     if (p.state === 'cancelled') {
         return `Cancelled. ${syncCount(p.images)} images were added as ${syncCount(p.generations)} generations `
-               + 'before it stopped; the next sync adds the rest.';
+               + 'before it stopped; the next sync adds the rest.' + thumbs;
     }
     if (p.state === 'failed') return `Sync images failed: ${p.error}`;
     if (p.cancelling) return 'Cancelling: finishing the step under way...';
     if (p.stage === 'walking') return `Looking for new images${where}...`;
     if (p.stage === 'reading') return `Reading ${syncCount(p.read)} of ${syncCount(p.total)} images${where}`;
+    if (p.stage === 'thumbnails') {
+        return p.thumbs_total ? `Making thumbnails: ${syncCount(p.thumbs_done)} of ${syncCount(p.thumbs_total)}`
+                              : 'Looking for images without a thumbnail...';
+    }
     return `Writing: ${syncCount(p.images)} of ${syncCount(p.total)} images so far, as ${syncCount(p.generations)} generations`;
 }
 
@@ -1591,9 +1655,11 @@ function drawSyncPanel(p) {
     if (!panel) return;
     panel.hidden = false;
     setText(byId('gen_sync_text'), syncStatus(p));
-    const done = p.stage === 'reading' ? p.read : p.stage === 'writing' ? p.images : 0;
+    const thumbing = p.stage === 'thumbnails';
+    const done = p.stage === 'reading' ? p.read : p.stage === 'writing' ? p.images : thumbing ? p.thumbs_done : 0;
+    const of = thumbing ? p.thumbs_total : p.total;
     const fill = byId('gen_sync_fill');
-    if (fill) fill.style.width = p.is_complete ? '100%' : `${p.total ? Math.round(100 * done / p.total) : 0}%`;
+    if (fill) fill.style.width = p.is_complete ? '100%' : `${of ? Math.round(100 * done / of) : 0}%`;
     const cancel = byId('gen_sync_cancel');
     if (cancel) {
         cancel.hidden = p.is_complete;

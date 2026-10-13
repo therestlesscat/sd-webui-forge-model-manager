@@ -29,6 +29,7 @@ have files of their own; read them too before working there.
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
 | `image_sync.py` | Sync images (#233): the images already in Forge's result folders added as generations - the walk and what it skips, the presses rebuilt from the text, the images with no text grouped by their names and a gap learnt from the library, and the job |
+| `thumbnails.py` | thumbnails of your generations (#5): where each goes - a folder, or `.thumbnails` beside its image - making one, 450 px tall, as WebP; which images need one; forgetting them when their image's row goes. Made by Sync images when asked, and by the recorder with the setting on; recorded in `image_thumbnails` by the image's path |
 | `image_text.py` | what an image file says: its generation text, read with PIL, the text's last line by Forge's own pattern, and its name read back by Forge's naming settings (`NamePattern`) |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, Controlnet, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
 | `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
@@ -286,6 +287,16 @@ folder named by another WebUI's joined none of its 12,871 images without
 infotext, where the WebUI that saved them joined them into 639 (#247). An
 image without infotext has nothing for Send to paste: its Send is disabled,
 saying why - it was enabled, and did nothing.
+
+**A thumbnail belongs to its image's path, never its id** (#5, v39). Force
+sync and the recorder write an image's row anew, with a new id; the path
+stays, so `image_thumbnails` is keyed by it, and a thumbnail survives both.
+Its row holds the image's size and time when it was made: a changed image
+is offered its full file until a sync makes it again. A thumbnail goes only
+with the last row naming its path - every removal the app makes calls
+`thumbnails.forget` with the paths a delete hands back. Nothing is made
+unasked: a sync makes them when its box is ticked, the recorder only with
+the setting on.
 
 ## Two WebUIs: everything has to work in both
 
