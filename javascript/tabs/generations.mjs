@@ -77,6 +77,8 @@ let tabScope = null;        // this tab's, from start()
 
 // "Preserve order" and "Group by", remembered in this browser.
 const PRESERVE_ORDER_KEY = 'mm_generations_preserve_order';
+// "Expand generations" (#252): a tile per image where a level lists generations.
+const EXPAND_KEY = 'mm_generations_expand';
 const GROUP_BY_KEY = 'mm_generations_group_by';
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
 const GROUP_NAMES = {
@@ -201,6 +203,7 @@ function emptyGroupValue(by) {
 }
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
+let expand = readFlag(EXPAND_KEY);
 let rating = false;      // "Rate": a row of levels under every image - not remembered
 // "Select": a tick on every batch and image, and one Delete for all. The
 // ticks, by what they pick (tileKey) - places move as tiles go - and the
@@ -271,7 +274,7 @@ async function loadNext() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
-            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, search,
+            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -1208,7 +1211,7 @@ async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group,
-            in_subgroup: at.in_subgroup, generation: at.generation, search,
+            in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
         } });
         if (data.success) {
             state = data.state;
@@ -1228,6 +1231,18 @@ function switchPreserveOrder(checked) {
     const grid = byId('gen_grid');
     grid?.classList.toggle('gen-ordered', preserveOrder);
     applySpans();
+}
+
+/**
+ * Expand generations, or back to batches: the level you are on loads again,
+ * and those above it on Back. A batch already shows its images: nothing to
+ * load there, but the levels above it change all the same.
+ */
+function switchExpand(checked) {
+    expand = !!checked;
+    writeFlag(EXPAND_KEY, expand);
+    markAboveChanged();
+    return at.generation ? undefined : reload();
 }
 
 /** Group by something else, or nothing: the tab starts again from its top level. */
@@ -1288,6 +1303,7 @@ const refresh = () => {
 // What this tab's markup does, by name: a tile, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
 work.provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.checked));
+work.provide('generations.expand', (data, box) => switchExpand(box.checked));
 work.provide('generations.rating', (data, box) => switchRating(box.checked));
 work.provide('generations.selecting', (data, box) => switchSelecting(box.checked));
 work.provide('generations.refresh', () => refresh());
@@ -1707,6 +1723,8 @@ export async function start(scope) {
     showNotes('generations', 'gen_notes');
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;
+    const expanded = byId('gen_expand');
+    if (expanded) expanded.checked = expand;
     // "Rate" starts off, whatever the browser kept ticked from before.
     const rate = byId('gen_rate');
     if (rate) rate.checked = false;

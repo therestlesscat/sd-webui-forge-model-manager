@@ -472,7 +472,7 @@ def _group_values(db, grouping: str, keys) -> Dict[Any, str]:
 
 def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
                 in_group: str = "", generation: Optional[int] = None,
-                in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
+                in_subgroup: str = "", search: str = "", expand: bool = False) -> Dict[str, Any]:
     """
     Part `page` of a level of the Generations tab, newest first. The top level
     is a tile per generation - its first images and how many it has - or, with
@@ -485,6 +485,9 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
     carries its `section`, the page heads each with a row - so a prompt under
     its model is one click from its batches: `in_group` the section,
     `in_subgroup` the group. `in_group` alone is a section's groups.
+    With `expand` (#252), a level that would list generations lists their
+    images instead, a tile each; a level of groups, and a batch, are as they
+    were.
 
     The tab scrolls rather than pages, so there is no page note to count what
     the NSFW switch hid on each: images are filtered first and the parts cut
@@ -516,7 +519,7 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
             by = chain[0]
         elif len(chain) == 2 and in_group and not in_subgroup:
             by = chain[1]
-    if generation is not None:
+    if generation is not None or (expand and not by):
         kind, unit = "image", "image"
     elif by:
         kind, unit = "group", by
@@ -778,7 +781,7 @@ def _register(app: FastAPI):
     def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
                               group: str = "", in_group: str = "",
                               generation: Optional[int] = None, in_subgroup: str = "",
-                              search: str = ""):
+                              search: str = "", expand: bool = False):
         """
         Part `page` of a level of the Generations tab, through the NSFW switch
         - the tab's own setting decides it when not sent. See browse_page().
@@ -790,11 +793,12 @@ def _register(app: FastAPI):
             in_subgroup: grouped twice, the group opened inside that one.
             generation: the generation opened.
             search: what the images must match (search_terms()).
+            expand: a tile per image where the level lists generations (#252).
         """
         try:
             hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
             return JSONResponse({"success": True, **browse_page(
-                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup, search)})
+                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup, search, expand)})
         except Exception as e:
             return failed(e, "Generations page error")
 

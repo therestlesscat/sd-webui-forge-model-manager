@@ -49,6 +49,10 @@ def create_generations_ui():
                         <input type="checkbox" id="gen_preserve_order" data-action="generations.preserveOrder">
                         Preserve order
                     </label>
+                    <label class="gen-view-switch" title="Every image a tile of its own, instead of a tile per generation. Groups stay groups; a group opens onto its images.">
+                        <input type="checkbox" id="gen_expand" data-action="generations.expand">
+                        Expand generations
+                    </label>
                     <label class="gen-view-switch" title="Rate each image's NSFW level: a row of levels under every image">
                         <input type="checkbox" id="gen_rate" data-action="generations.rating">
                         Rate
