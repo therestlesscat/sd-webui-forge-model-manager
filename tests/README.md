@@ -105,8 +105,15 @@ is close to a browser and not one:
   proven in headless Edge ("Probes").
 - **No `KeyboardEvent`.** A key press is a plain `Event` with its keys
   assigned (`queue_ask_test.mjs`).
-- **No layout.** Widths and positions are 0; a suite checks the stylesheet's
-  rule instead.
+- **No layout.** Widths and positions are 0 - `getBoundingClientRect` gives
+  zeros, so `endIsNear` always says the end is near - and a suite checks the
+  stylesheet's rule instead. The tabs' tile grids get one (#240): `gridLayout`
+  in `harness.mjs`, which `mountTab` installs, makes a grid 1,000 px wide with
+  columns of 200 and a gap of 4 (`GRID_LAYOUT`), at the top of a window tall
+  enough that every row is near; the setter it returns moves the view, and the
+  scroll is pulled back when the grid is shorter, as a browser does - Rate
+  sent the page to the top in a browser, and nowhere in the suites until it
+  did.
 - **Its MutationObserver misses a change made through `element.style`**, which
   a browser reports - so `showTab` looks at the panel each frame rather than
   observing it.
@@ -229,7 +236,17 @@ not been shown to check anything — `MM_ROOT` on the JavaScript suites exists
 for exactly this, so they can be pointed at a worktree. From WSL, running
 Windows' `node.exe`, set `WSLENV=MM_ROOT` as well: WSL passes a Windows program
 only the variables named there, and without it the suite quietly runs against
-the current code and passes. `check_python_references.py` takes `MM_PY_ROOT`
+the current code and passes. So with `MM_TEST_GRID=Classic`, which makes
+ui-options say Classic for both tile grids whatever a suite's stand-in answers:
+without `WSLENV=MM_TEST_GRID`, 28 suites ran on Fast and passed. In `--all`,
+`grid_classic_test.mjs` reruns every suite that mounts either tab that way,
+from node, where the variable passes - 27 of them - and a suite run as Classic
+fails if any grid ended placed by the tab.
+
+A stand-in wraps a suite's `fetch` as it is set, never the newest one read at
+call time: `generations_send_test.mjs` keeps the `fetch` before and calls it
+from the next, which then called itself, and the suite hung until its process
+was killed. `check_python_references.py` takes `MM_PY_ROOT`
 the same way: a folder holding a copy of `model_manager`.
 
 ## Probes

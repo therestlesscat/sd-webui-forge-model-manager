@@ -88,6 +88,29 @@ the scheduler - and gives up, the text as it was, when no list opens. A
 suite's stand-in has to behave so: a plain `<input>` stood in for the
 upscaler, and the suites passed while it was never set.
 
+**A grid placed by the tab (#240) has the browser's habits to reckon with.**
+Fast (`tiles.mjs`, `placedGrid`) keeps only the rows within 3,000 px of the
+view on the page, and that changed four things the browser's grid never
+showed:
+
+- **A removed image keeps downloading.** The browser does not stop a
+  download for an image taken off the page. `media.mjs` freed its place among
+  the 64 loading at once (#213) as it was removed, and with Civitai's answers
+  held 2 s a fast scroll had 214 in flight. A place now frees at the image's
+  own load or error, or after 30 s.
+- **The browser's scroll anchoring stays on.** `overflow-anchor: none` on the
+  grid made the browser anchor on what is below it - the grid's end - and
+  follow it as each part made the grid taller, which brought the end near and
+  loaded the next: 145,153 px when the drag stopped, 2,195,453 px a minute
+  later. No suite can see it; the test pages have no anchoring.
+- **Measuring a collapsed grid pulls the page back.** A reset collapsed the
+  grid, and placing measures it: Rate at 6,000 px down put the page at 0. A
+  redraw of the same tiles (`reset({ keepHeight: true })`) keeps the height
+  until they are placed again; new data still collapses it.
+- **`display: contents` has no box.** A tile's set is one, so
+  `scrollIntoView` on it scrolled nothing, and closing the viewer left the
+  Classic grid where it was (#253): `showTile` asks the tile itself.
+
 ## Two WebUIs: everything has to work in both
 
 - **The UI preset control.** Neo's is a dropdown; the original Forge's a row

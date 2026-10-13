@@ -527,6 +527,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   live check that does not reproduce the failure shows the change runs, not
   that it fixes: #213's uncapped run loaded 763 images of 763. Say so in
   the commit, and ask for the observation that would settle it.
+- **Reproduce the slow case.** Fast's break of the 64-at-once cap did not
+  show while Civitai had its copies ready: 3 in flight at most. Each Civitai
+  answer held 2 s in the test browser (`page.route`) showed 214. A check of a
+  load limit holds the answers. Runs that scroll the same images get copies
+  the run before had made: a fixed hold outweighs that, and the count in
+  flight is weighed before the times.
 - **An empty grid: read what it asked the server.** The Model Manager's
   grid draws nothing until Load Models, and its filters are kept in the
   browser. On 7880 a LoRA was missing because Type was saved as

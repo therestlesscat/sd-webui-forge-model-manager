@@ -40,6 +40,9 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   and one hit a guard a second layer covers (the walk never hands a recorded
   file to the write); breaking that layer failed the check. Find out which
   before calling a check proven.
+  And a check can sit where the break draws the same thing: #240's hidden-tab
+  check hid the grid while it was at the top, where a wrong redraw draws the
+  same rows. Scrolled 20,000 px first, it failed on the break.
 - **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
   source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
   is the same size, a swap reproduced the timestamp, and the stale bytecode
@@ -79,6 +82,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   original Forge's is 3.10, so the tracer keeps a profile-hook fallback.
 - Windows' Python cannot lock a SQLite file on a WSL path: a throwaway
   database goes under `tests/work/`, on the Windows drive.
+- **`timeout` from WSL does not stop a Windows `node.exe`.** It ends the WSL
+  side; the suite runs on. Three hung copies of one suite kept running after
+  their runs timed out. Find them by command line - `Get-CimInstance
+  Win32_Process` with the suite's name in `CommandLine`, from `powershell.exe`
+  - and stop only those (`taskkill.exe /F /PID`).
 
 ## Testing
 
