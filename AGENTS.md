@@ -103,6 +103,15 @@ existed.
   check turned up - gets one before its plan is posted: 0.58.3's build began
   before #246 existed, and the owner asked "where's issue and plan in it?"
   (2026-10-12).
+- **Public text holds nothing of the owner's library.** An issue, a
+  comment, a commit message, a changelog line: no model, version or image
+  from it by id, name or file, and no prompt. A count is fine ("one
+  library's 1,095 models"); an example is made up. A measurement of
+  Civitai's API names no model either, the library's or not: the counts
+  carry it. An issue on Civitai's `nsfw` parameter listed three of the
+  library's LoRAs by id, one by name, as ones Civitai marks `minor`. The
+  owner deleted it and it was written again without them. An edit is no
+  removal: GitHub shows an issue's edits to anyone (2026-10-14).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
