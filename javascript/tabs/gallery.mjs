@@ -22,7 +22,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
     'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs',
-    'tiles.mjs'];
+    'tiles.mjs', 'previous_position.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -49,6 +49,12 @@ const { openViewer, closeViewer, viewerIsOpen, dialogShowing } = await shared('v
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// Previous Position (#250): Send and Show model note where the page was, and
+// the toolbar's button goes back there.
+const { previousPosition } = await shared('previous_position.mjs');
+const previousPlace = previousPosition({ id: 'gal_scroll_restore_btn', action: 'gallery.previousPosition',
+                                         row: '#gallery_app .gen-toolbar', before: 'gal_refresh_btn' });
 
 // What this tab uses that has work of its own: the loading module starts each
 // once for the page, before this tab (#182, #183).
@@ -180,6 +186,8 @@ work.listen(document, 'click', (event) => {
 /** This level again from its first part: a switch, a seed, Refresh, or opening. */
 async function reload() {
     closeViewer();
+    // Previous Position is a height in the grid that goes now.
+    previousPlace.clear();
     tiles = [];
     part = 0;
     more = true;
@@ -306,6 +314,7 @@ async function openTile(index) {
 function goBack() {
     if (!levels.length) return;
     closeViewer();
+    previousPlace.clear();
     request += 1;
     loading = false;
     const above = levels.pop();
@@ -472,6 +481,9 @@ function renderBanner() {
 function sendTile(tile) {
     if (!tile || tile.kind !== 'image') return undefined;
     closeViewer();
+    // Once it has closed: closing brought the image it showed last into
+    // view, so the place is the image sent.
+    previousPlace.remember();
     return sendGalleryImage({ img: tile.image, model: tile.model, version: tile.version });
 }
 
@@ -479,6 +491,7 @@ function sendTile(tile) {
 function showModel(tile) {
     if (!tile?.version?.id) return undefined;
     closeViewer();
+    previousPlace.remember();
     return open('modelManager', 'showVersion', tile.version.id, tile.version.file_path);
 }
 
@@ -603,6 +616,7 @@ work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
 work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
 work.provide('gallery.send', ({ tile }) => sendTile(tiles[Number(tile)]));
 work.provide('gallery.showModel', ({ tile }) => showModel(tiles[Number(tile)]));
+work.provide('gallery.previousPosition', () => previousPlace.restore());
 work.provide('gallery.closeAbout', () => closeAbout());
 // Not markup's: for code, and tests - grouping, and the next part now.
 work.provide('gallery.groupBy', (value) => setGroupBy(value));

@@ -17,7 +17,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
     'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'send.mjs',
-    'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -66,11 +66,18 @@ await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
 const {
-    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource, viewerPageScroll,
+    openViewer, closeViewer, showImage, viewerIndex, askToDelete, cardSource,
 } = await shared('viewer.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// Previous Position (#250): Send and Show in Civitai Browser note where the
+// page was; the button before Load Models goes back there - or to the image
+// sent. Kept in the browser's storage, so it survives a reload.
+const { previousPosition } = await shared('previous_position.mjs');
+const previousPlace = previousPosition({ id: 'mm_scroll_restore_btn', action: 'modelManager.restoreScrollPosition',
+                                         row: '.filter-buttons-row', before: 'mm_load_btn', storageKey: 'mm_scroll' });
 
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
@@ -2516,7 +2523,7 @@ const generationViewerSource = {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return false;
         if (event.target.closest?.('[data-gen-send]')) {
-            rememberScrollPosition(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
+            previousPlace.remember(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
             closeViewer();
             sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id,
                            imageId: image.id });
@@ -2645,7 +2652,7 @@ async function sendGeneration(id) {
         console.error('[ModelManager] No infotext to send for generation', card?.id);
         return;
     }
-    rememberScrollPosition(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
+    previousPlace.remember(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
     if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id,
                              imageId: first?.id })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
@@ -2806,7 +2813,7 @@ async function sendToTxt2img(imageIndex) {
     }
 
     // Save current scroll position before navigating away
-    rememberScrollPosition(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
+    previousPlace.remember(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
 
     const model = currentModels[selectedModelIndex];
     await sendGalleryImage({ img, model, version: model ? sentFile(shownVersion(model)) : null });
@@ -2938,7 +2945,9 @@ function showInCivitaiBrowser() {
 
 /** "model:<id> version:<id>" in the Civitai Browser tab, through the loading module (#184). */
 async function openInCivitaiBrowser(query) {
-    if (query) await open('civitaiBrowser', 'showModel', query);
+    if (!query) return;
+    previousPlace.remember();
+    await open('civitaiBrowser', 'showModel', query);
 }
 
 function closeDetails() {
@@ -3001,82 +3010,6 @@ function formatCommercialUse(value) {
     return labels[value] || value;
 }
 
-
-/**
- * Remember what was sent, for "Previous Position", before a Send takes the
- * page to txt2img or img2img: `target`, a selector for the image or card sent,
- * which the button brings back into view - from the viewer, the image shown
- * last, not the one it opened on. And where the page was, for when that is no
- * longer drawn: where it was when the viewer opened, if it is open, as the
- * page is held still while it is.
- */
-function rememberScrollPosition(target) {
-    const pos = viewerPageScroll() ?? (window.scrollY || document.documentElement.scrollTop || 0);
-    localStorage.setItem('mm_scroll_position', String(pos));
-    if (target) localStorage.setItem('mm_scroll_target', target);
-    else localStorage.removeItem('mm_scroll_target');
-    updateScrollRestoreButton();
-    console.log('[ModelManager] Saved scroll position:', pos, target || '');
-}
-
-// Scroll position restore functionality
-function updateScrollRestoreButton() {
-    const savedPos = localStorage.getItem('mm_scroll_position');
-    let btn = document.getElementById('mm_scroll_restore_btn');
-
-    if ((savedPos && parseInt(savedPos) > 0) || localStorage.getItem('mm_scroll_target')) {
-        // Create button if it doesn't exist
-        if (!btn) {
-            const buttonsRow = document.querySelector('.filter-buttons-row');
-            if (buttonsRow) {
-                btn = document.createElement('button');
-                btn.id = 'mm_scroll_restore_btn';
-                btn.className = 'mm-btn secondary mm-scroll-restore-btn';
-                btn.innerHTML = '↓ Previous Position';
-                btn.title = 'Scroll to previous position. Right-click to clear.';
-                btn.dataset.action = 'modelManager.restoreScrollPosition';
-                btn.oncontextmenu = function(e) {
-                    e.preventDefault();
-                    localStorage.removeItem('mm_scroll_position');
-                    localStorage.removeItem('mm_scroll_target');
-                    btn.style.display = 'none';
-                    console.log('[ModelManager] Cleared scroll position');
-                };
-                // Directly before Load Models, which stays the rightmost
-                // thing on the row. First child would put it left of the
-                // sync group, at the other end of the row entirely.
-                const loadBtn = document.getElementById('mm_load_btn');
-                buttonsRow.insertBefore(btn, loadBtn || null);
-            }
-        }
-        if (btn) {
-            btn.style.display = 'inline-flex';
-        }
-    } else {
-        if (btn) {
-            btn.style.display = 'none';
-        }
-    }
-}
-
-function restoreScrollPosition() {
-    const target = localStorage.getItem('mm_scroll_target');
-    let sent = null;
-    try {
-        sent = target ? document.querySelector(target) : null;
-    } catch (e) { /* not a selector: the position instead */ }
-    if (sent) {
-        sent.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        console.log('[ModelManager] Restored to the image sent');
-        return;
-    }
-    const savedPos = localStorage.getItem('mm_scroll_position');
-    if (savedPos) {
-        const pos = parseInt(savedPos);
-        window.scrollTo({ top: pos, behavior: 'smooth' });
-        console.log('[ModelManager] Restored scroll position:', pos);
-    }
-}
 
 // Save Search: one set of filters, in the database (savedSearch in
 // filters.mjs) - it was in this browser's storage, and is moved from there the
@@ -3369,8 +3302,8 @@ function bindElements() {
     savedFiltersReady = loadSearchFilters().catch(() => false);
     loadBaseModelOptions();
 
-    // Check for saved scroll position and show restore button
-    updateScrollRestoreButton();
+    // A place saved before - this page's, or before a reload - shows its button.
+    previousPlace.update();
 
     // Check for ongoing processes
     checkOngoingProcesses();
@@ -3466,7 +3399,7 @@ work.provide('modelManager.showGenerationResources', ({ generation }) => showGen
 work.provide('modelManager.showAllGeneration', ({ generation }) => showAllGeneration(Number(generation)));
 work.provide('modelManager.deleteGeneration', ({ generation }) => deleteGeneration(Number(generation)));
 work.provide('modelManager.showInCivitaiBrowser', () => showInCivitaiBrowser());
-work.provide('modelManager.restoreScrollPosition', () => restoreScrollPosition());
+work.provide('modelManager.restoreScrollPosition', () => previousPlace.restore());
 
 /**
  * Started by the loading module once Gradio has drawn the tab (#183): what is

@@ -45,6 +45,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
 | `wan` | a video's frames and size as Wan makes them |
 | `settings`, `viewer` | the settings window, and the image viewer every gallery opens - with the modal the metadata and Resources windows open in |
+| `previous_position` | Previous Position (#250): the place a tab's action noted before it took the page to another tab - a Send, a link to the Model Manager or the Civitai Browser - and the button back to it, in the Model Manager, the Generations and the Civitai Images tabs. Noted by the action, never by scrolling: the way up to the tab bar would be noted too. The Model Manager keeps it in the browser's storage; the tile tabs in memory, and forget it as their grid starts again - a reload, a group opened, Back, a search - where the height would land on other images |
 
 ## What the pieces assume about each other
 

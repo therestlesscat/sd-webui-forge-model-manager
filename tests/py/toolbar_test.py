@@ -198,9 +198,13 @@ ROW = ROW[:ROW.index('</div>' + chr(10) + ' ' * 16 + '</div>')]
 check('the sync comes first', ROW.index('mm_sync_btn') < ROW.index('mm_save_search_btn'))
 check('and Load Models is the last thing on the row',
       ROW.index('mm_save_search_btn') < ROW.index('mm_load_btn'))
+# The button is the shared module's since #250: the tab names what it goes
+# before; previous_position_test.mjs places it so on a page.
+PLACE = io.open(os.path.join(ROOT, 'javascript/shared/previous_position.mjs'), encoding='utf-8').read()
 check('the restore button is placed against Load Models, not at the start',
-      "buttonsRow.insertBefore(btn, loadBtn || null)" in JS)
-check('and never at firstChild', 'buttonsRow.firstChild' in JS, False)
+      "before: 'mm_load_btn'" in JS
+      and "buttonsRow.insertBefore(btn, (before && document.getElementById(before)) || null)" in PLACE)
+check('and never at firstChild', 'buttonsRow.firstChild' in JS + PLACE, False)
 
 # --- Basic and advanced filters ---------------------------------------------
 BASIC = UI[UI.index('<div class="model-manager-filters">'):UI.index('<details class="mm-advanced"')]

@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -63,6 +63,12 @@ const {
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
+
+// Previous Position (#250): Send and the ⋯ menu's links note where the page
+// was, and the toolbar's button goes back there.
+const { previousPosition } = await shared('previous_position.mjs');
+const previousPlace = previousPosition({ id: 'gen_scroll_restore_btn', action: 'generations.previousPosition',
+                                         row: '#generations_app .gen-toolbar', before: 'gen_sync_btn' });
 
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
@@ -260,6 +266,8 @@ const byId = (id) => document.getElementById(id);
 async function reload() {
     closeViewer();
     clearSelection();
+    // Previous Position is a height in the grid that goes now.
+    previousPlace.clear();
     tiles = [];
     part = 0;
     more = true;
@@ -374,6 +382,7 @@ async function goBack() {
     clearSelection();
     if (!levels.length) return;
     closeViewer();
+    previousPlace.clear();
     request += 1;
     loading = false;
     const above = levels.pop();
@@ -638,6 +647,7 @@ function sendHtml(image, mode, attributes) {
 async function sendTile(index) {
     const tile = tiles[index];
     if (!tile?.images?.[0] || tile.kind === 'group') return;
+    previousPlace.remember();
     await sendImage(tile, tile.images[0]);
 }
 
@@ -1011,6 +1021,7 @@ function closeMenu() {
  */
 function showModel(file) {
     closeViewer();
+    previousPlace.remember();
     return file.version_id ? open('modelManager', 'showVersion', file.version_id, file.path)
         : open('modelManager', 'showFile', file.path);
 }
@@ -1018,6 +1029,7 @@ function showModel(file) {
 /** Its model and version in the Civitai Browser tab, through the loading module (#184). */
 function showOnCivitai(file) {
     closeViewer();
+    previousPlace.remember();
     return open('civitaiBrowser', 'showModel', file.version_id ? `model:${file.model_id} version:${file.version_id}`
         : `model:${file.model_id}`);
 }
@@ -1083,6 +1095,9 @@ const viewerSource = {
         if (event.target.closest?.('[data-gen-send]')) {
             if (!image.infotext) return true;
             closeViewer();
+            // Once it has closed: closing brought the image it showed last
+            // into view, so the place is the image sent.
+            previousPlace.remember();
             sendImage(tile, image);
             return true;
         }
@@ -1365,6 +1380,7 @@ work.provide('generations.open', ({ tile }) => openTile(Number(tile)));
 work.provide('generations.view', ({ tile, image = 0 }) => viewTile(Number(tile), Number(image)));
 work.provide('generations.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
 work.provide('generations.send', ({ tile }) => sendTile(Number(tile)));
+work.provide('generations.previousPosition', () => previousPlace.restore());
 work.provide('generations.delete', ({ tile }) => deleteTile(Number(tile)));
 // Not markup's: for code, and tests - grouping by a chain, the next part now,
 // and how many columns a wide image spans.
