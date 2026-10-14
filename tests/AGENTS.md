@@ -29,7 +29,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   `git diff --stat` show the file back at HEAD before reading the run. An
   unquoted variable holding a list is one word in zsh: a loop over `$FILES`
   ran once, on all nineteen names as one, and the "old code" run passed on the
-  new. Read a list line by line (`while IFS= read -r f`).
+  new. Read a list line by line (`while IFS= read -r f`). And Windows' Python
+  writes `\r\n` in text mode: a break script that rewrote two files with
+  `open(path, 'w')` left them in CRLF. Read and write with `newline=''`, and
+  `cmp` against a backup after. It cannot open a script under WSL's `/tmp`
+  either: put one under `tests/work/`.
 - **A break must fail a check, not crash the suite.** `ORDER BY 0` is an
   SQLite error, not an order, and a check that sliced a list by what it
   assumed raised a `ValueError`: both "failed" without showing which check the
@@ -43,6 +47,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   And a check can sit where the break draws the same thing: #240's hidden-tab
   check hid the grid while it was at the top, where a wrong redraw draws the
   same rows. Scrolled 20,000 px first, it failed on the break.
+- **A work check takes the real request's shape.** At the suite's page of 4
+  tiles, a part read 4 of 14 base-model groups, and Classic grew 5.3 steps
+  per image and group - under the bound meant to catch it. At the tab's 100
+  it grew 87.8, against Single pass's 0.7 (#259).
 - **Clear `__pycache__` after swapping files.** Python reuses bytecode when the
   source's mtime (to the second) and size match. `SCHEMA_VERSION = 23` to `24`
   is the same size, a swap reproduced the timestamp, and the stale bytecode

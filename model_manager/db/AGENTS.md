@@ -123,6 +123,14 @@ the lookup and the write leaves a row naming nothing.
   A subquery per row inside a `GROUP BY` runs again for each use: the
   Generations tab's LoRA combination took 4.5 s at 10,000 images, and 55 ms
   as a CTE joined once (#231).
+- **A join order is fixed for a level, not case by case.** Grouped by base
+  model, SQLite joined the part before each image's key was known, and
+  looked the key up once per group of the part: 431 ms against 64 for the
+  images alone, at 75,682 images in 14 groups. `CROSS JOIN` fixed that level
+  (1,583 ms to 735) but took a part found by index from 1 ms to 136, and
+  sectioned levels 21 to 47 ms slower. Asked "aren't there better answers?",
+  the owner was right: four reads each worked the level out again, and one
+  indexed pass replaced them (Single pass, #259).
 
 ### The data
 
@@ -155,3 +163,20 @@ the lookup and the write leaves a row naming nothing.
   only copy said Unknown came out NULL - read as PG; `LIBRARY` defaulted every
   NULL stat to 0, meant only for a file with no version. Where no copy says
   more, keep what they hold; default only the rows the default is for.
+- **Temporary data is not in memory by default.** Both WebUIs' SQLite
+  (`TEMP_STORE=1`, `cache_size=-2000`) keep 2 MB of a temporary table, a
+  materialized CTE or a sort in memory and write the rest to a file in the
+  system's temp folder: Single pass's table in a file was 21 to 26% slower
+  than in memory (base model 343 ms against 272). `PRAGMA temp_store =
+  MEMORY` is per connection; changing it deletes every temporary table and
+  frees their memory (a held table, 73 MB of the process to 57), and setting
+  the value it already has deletes nothing. "Temporary tables live only in
+  memory" was said in #259 until a side agent checked.
+- **A materialized CTE has no index.** Each read of it goes through all its
+  rows: one statement holding a level's images lost to an indexed temporary
+  table by 14 to 66 ms a level (#259).
+- **Top N of each group: a cutoff through an index, not `IN (... LIMIT)`.**
+  `lv.id IN (SELECT ... WHERE x.u = part.u ORDER BY sk DESC LIMIT 4)` read
+  the table again for each part row: 3.8 s at the top level. `sk >= (SELECT
+  sk ... ORDER BY sk DESC LIMIT 1 OFFSET 3)`, on an index on (u, sk): 1 ms
+  (`_TableLevel.previews`).

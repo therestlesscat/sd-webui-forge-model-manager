@@ -107,6 +107,11 @@ existed.
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
   found inside a refactor becomes its own issue unless the owner folds it in.
+- **"Unchanged" in a plan means byte for byte.** #259's plan kept Classic's
+  reads unchanged: the fallback while Single pass is alpha. While building,
+  three were moved into helpers Single pass shared; a side agent caught it,
+  and the owner had them put back - a fault in shared code would have broken
+  the fallback too (2026-10-14).
 - Honour the existing structure rather than reorganising in passing.
 - Keep everything generic. No module exists to serve one workflow.
 - **Stop guessing after the second try.** Ask for a screenshot, a console
@@ -585,7 +590,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   their output in `tests/work/last_failures.log`.
 - **Scripted edits anchor on whole top-level lines.** A substring match put an
   import inside a function, twice (the match was an indented copy); a "cut
-  to the next method" took a module's tail with the last method. After any
+  to the next method" took a module's tail with the last method, and a cut
+  from one `def` to the next takes the next one's decorator: restoring three
+  methods from HEAD dropped `@contextmanager` from `scope_level`, 7 suites
+  failed, and a comparison of method bodies by AST had passed - the decorator
+  lies outside the body's lines (#259). After any
   scripted edit, parse every changed file and compare its function count.
   A rename by regex: grep for the old name afterwards, in every quoting - one
   that kept off a JSON key of the same name skipped `_upsert("civitai_versions")`,
