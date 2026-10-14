@@ -1,4 +1,20 @@
 [
+    {
+        "id": "single-pass",
+        "version": "0.58.14",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "generations"
+        ],
+        "title": "Generations loads faster",
+        "text": "Each set of tiles now reads your images once instead of four times: grouped by base model, about five times faster. This is new and marked alpha. If tiles look wrong or a level does not load, set \"Generations: how tiles are read\" to Classic, and report it.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "generations"
+        }
+    },
   {
     "id": "shared-database-0-58-9",
     "version": "0.58.9",

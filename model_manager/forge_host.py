@@ -50,6 +50,9 @@ DEFAULTS = {
     "model_manager_generations_delete_files": False,
     # How each tab places its grid (grids.py, #240): Fast, the tab's own.
     "model_manager_generations_grid": "Fast",
+    # How the Generations tab reads a level's images (tile_reading.py, #259):
+    # once per request, or again for each read as it always had.
+    "model_manager_generations_reading": "Single pass",
     "model_manager_gallery_page_size": 100,
     "model_manager_gallery_grid": "Fast",
     # Civitai's images loaded as uploaded, not as copies the size they are

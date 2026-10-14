@@ -26,6 +26,7 @@ from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, t
 from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, switch_counts
+from ..tile_reading import SINGLE_PASS, reading
 from .images import gallery_switches
 from .common import failed, gate
 from ..console import say
@@ -471,19 +472,20 @@ def _group_values(db, grouping: str, keys) -> Dict[Any, str]:
     return {k: str(k) for k in keys}
 
 
-def _tiles(db, scope: Scope, kind: str, unit: str, by: Optional[str], section: Optional[str],
-           hide_nsfw: bool, units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
+           units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     The tiles of `units` - a part's, or one batch's after its rating (#239) -
     as the tab draws them: each its first images, its level and rating, how
-    many images it holds, and the checkpoint and LoRAs its menu names.
+    many images it holds, and the checkpoint and LoRAs its menu names. The
+    part's own reads come from `level` (db.generation_scope_level).
     """
     part = [((u["s"],) if section else ()) + (u["u"],) for u in units]
     previews: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {key: [] for key in part}
-    for row in db.generation_scope_previews(scope, unit, section, hide_nsfw, part, PREVIEW_IMAGES):
+    for row in level.previews(part, PREVIEW_IMAGES):
         previews[((row["s"],) if section else ()) + (row["u"],)].append(row)
-    unit_loras = db.generation_scope_unit_loras(scope, unit, section, hide_nsfw, part)
-    unit_checkpoints = db.generation_scope_unit_checkpoints(scope, unit, section, hide_nsfw, part)
+    unit_loras = level.unit_loras(part)
+    unit_checkpoints = level.unit_checkpoints(part)
     preview_ids = [r["id"] for rows in previews.values() for r in rows]
     images = db.get_generation_images(preview_ids)
     image_loras = db.generation_image_loras(preview_ids)
@@ -572,8 +574,10 @@ def rated_batch(db, hide_nsfw: bool, generation: int, group: str = "", in_group:
     chain = grouping_chain(group)
     level = _scope(group, in_group, None, in_subgroup, search)
     one = dataclasses.replace(level, generations=[generation])
-    units = db.generation_scope_units(one, "generation", None, hide_nsfw, 0, 1)
-    tiles = _tiles(db, one, "generation", "generation", None, None, hide_nsfw, units)
+    # Classic, whatever the setting: one batch is found by index in about a
+    # millisecond, and a table of it would cost more than it saves.
+    with db.generation_scope_level(one, "generation", None, hide_nsfw, single_pass=False) as batch:
+        tiles = _tiles(db, batch, "generation", None, None, batch.units(0, 1))
     state, scope_info = _level_info(db, level, chain, None, hide_nsfw)
     return {"tile": tiles[0] if tiles else None, "state": state, "scope": scope_info}
 
@@ -635,10 +639,11 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
         kind, unit = "generation", "generation"
     section = chain[0] if sectioned else None
 
-    units = db.generation_scope_units(scope, unit, section, hide_nsfw, (page - 1) * size, size + 1)
-    more = len(units) > size
-    units = units[:size]
-    tiles = _tiles(db, scope, kind, unit, by, section, hide_nsfw, units)
+    with db.generation_scope_level(scope, unit, section, hide_nsfw, reading() == SINGLE_PASS) as level:
+        units = level.units((page - 1) * size, size + 1)
+        more = len(units) > size
+        units = units[:size]
+        tiles = _tiles(db, level, kind, by, section, units)
     state, scope_info = _level_info(db, scope, chain, generation, hide_nsfw)
     return {"tiles": tiles, "more": more, "state": state, "scope": scope_info}
 

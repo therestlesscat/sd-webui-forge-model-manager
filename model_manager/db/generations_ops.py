@@ -28,9 +28,11 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
+from ..console import say_failure
 from ..gallery import switch_counts_sql
 from ..nsfw import SFW_MAX
 from ..prompt_rules import MIN_PROMPT_LENGTH, trimmed_sql
@@ -251,6 +253,156 @@ def _unit_columns(unit: str, section: Optional[str]) -> List[str]:
     """The columns of `shown` naming a unit: its section's key, then its own."""
     own = {"image": "id", "generation": "generation_id"}.get(unit, f"k_{unit}")
     return ([f"k_{section}"] if section else []) + [own]
+
+
+def _units_sql(source: str, names: Sequence[str], section: bool) -> str:
+    """
+    Single pass's units of a level, from `source`'s images, as scope_units()
+    gives them, in the tab's order, ending in `LIMIT ? OFFSET ?`: `names` the
+    columns naming a unit, its section's first. Its own copy of Classic's
+    SQL, which stays as it was while Single pass is new: a fault here must
+    leave Classic a way out. tile_reading_test holds the two to one answer.
+    """
+    def shared(column):
+        return (f"CASE WHEN COUNT(DISTINCT {column}) = 1 AND SUM({column} IS NULL) = 0 "
+                f"THEN MIN({column}) END")
+
+    sectioned = (", MAX(first_key) OVER (PARTITION BY s) AS section_first, "
+                 "SUM(n) OVER (PARTITION BY s) AS section_count, "
+                 "COUNT(*) OVER (PARTITION BY s) AS section_groups") if section else ""
+    return f"""units AS (
+            SELECT {(names[0] + ' AS s, ') if section else ''}{names[-1]} AS u, MAX(sk) AS first_key,
+                   COUNT(*) AS n, COUNT(DISTINCT generation_id) AS generations,
+                   MAX(created_at) AS latest, {shared('level')} AS level,
+                   {shared('user_level')} AS user_level
+            FROM {source} GROUP BY {', '.join(names)})
+        SELECT *{sectioned} FROM units
+        ORDER BY {'section_first DESC, ' if section else ''}first_key DESC LIMIT ? OFFSET ?"""
+
+
+
+def _shared_checkpoints_sql(source: str, on: str, cols: Sequence[str]) -> str:
+    """
+    Single pass's copy of scope_unit_checkpoints(), after a WITH that has
+    `part`: each unit's checkpoint, if every image of it used one, where it is
+    now - else NULL - from `source`'s images joined to the part `on` the
+    unit's columns `cols`.
+    """
+    return f"""batch_unit AS (SELECT DISTINCT {', '.join('part.' + c + ' AS ' + c for c in cols)},
+                              {source}.generation_id AS g
+                       FROM {source} JOIN part ON {on}),
+        batch_ck AS (SELECT r.generation_id AS g, MIN(r.file_path) AS path
+                     FROM generation_resources r
+                     WHERE r.role = 'checkpoint' AND r.generation_id IN (SELECT g FROM batch_unit)
+                     GROUP BY r.generation_id)
+        SELECT {', '.join('batch_unit.' + c for c in cols)},
+               CASE WHEN COUNT(DISTINCT batch_ck.path) = 1 AND SUM(batch_ck.path IS NULL) = 0
+                    THEN MIN(batch_ck.path) END
+        FROM batch_unit LEFT JOIN batch_ck ON batch_ck.g = batch_unit.g
+        GROUP BY {', '.join('batch_unit.' + c for c in cols)}"""
+
+
+def _unit_loras_sql(source: str, on: str, cols: Sequence[str]) -> str:
+    """
+    Single pass's copy of scope_unit_loras(), after a WITH that has `part`:
+    every LoRA file each unit used, where it is now, once each - the units'
+    columns first, newest use first - from `source`'s images joined to the
+    part `on` the unit's columns `cols`.
+    """
+    return f"""SELECT {', '.join('part.' + c for c in cols)}, r.file_path,
+               MAX({source}.sk || char(1) || printf('%06d', 999999 - r.position)) AS first_seen
+        FROM {source} JOIN part ON {on}
+        JOIN generation_resources r ON r.image_id = {source}.id AND r.role = 'lora'
+             AND r.file_path IS NOT NULL
+        GROUP BY {', '.join('part.' + c for c in cols)}, r.file_path
+        ORDER BY {', '.join('part.' + c for c in cols)}, first_seen DESC"""
+
+
+# Single pass's table of a level's images (scope_level): a temporary table,
+# this connection's alone.
+_LEVEL_TABLE = "mm_level"
+
+
+class _ClassicLevel:
+    """A level as Classic reads it: each read finds the level's images again."""
+
+    def __init__(self, ops: "GenerationsOps", scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool):
+        self._ops = ops
+        self._level = (scope, unit, section, hide_nsfw)
+
+    def units(self, offset: int, limit: int) -> List[Dict[str, Any]]:
+        return self._ops.scope_units(*self._level, offset, limit)
+
+    def previews(self, part: Sequence[Tuple[Any, ...]], count: int) -> List[Dict[str, Any]]:
+        return self._ops.scope_previews(*self._level, part, count)
+
+    def unit_checkpoints(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], Optional[str]]:
+        return self._ops.scope_unit_checkpoints(*self._level, part)
+
+    def unit_loras(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[str]]:
+        return self._ops.scope_unit_loras(*self._level, part)
+
+
+class _TableLevel:
+    """
+    A level as Single pass reads it: from its table, which names a unit by
+    `cols` - (s, u), or (u) - indexed on them and the tab's order (scope_level).
+    Each read answers as Classic's does.
+    """
+
+    def __init__(self, cursor, cols: List[str]):
+        self._cursor = cursor
+        self._cols = cols
+
+    def _part(self, part: Sequence[Tuple[Any, ...]]) -> Tuple[str, List[Any]]:
+        values = ", ".join("(" + ", ".join("?" * len(self._cols)) + ")" for _ in part)
+        return (f"WITH part({', '.join(self._cols)}) AS (VALUES {values})",
+                [value for key in part for value in key])
+
+    def _on(self, table: str) -> str:
+        return " AND ".join(f"part.{c} = {table}.{c}" for c in self._cols)
+
+    def units(self, offset: int, limit: int) -> List[Dict[str, Any]]:
+        self._cursor.execute(f"WITH {_units_sql(_LEVEL_TABLE, self._cols, len(self._cols) == 2)}",
+                             [int(limit), int(offset)])
+        return [dict(r) for r in self._cursor.fetchall()]
+
+    def previews(self, part: Sequence[Tuple[Any, ...]], count: int) -> List[Dict[str, Any]]:
+        """Each unit's newest `count` images: the place of its count-th newest,
+        found through the index, and its images from there up. Numbering every
+        image of the part's units, as Classic does, took up to 635 ms."""
+        if not part or count < 1:
+            return []
+        with_part, args = self._part(part)
+        self._cursor.execute(f"""{with_part}
+            SELECT lv.*, {_CHECKPOINT.format(generation='lv.generation_id')} AS checkpoint_path
+            FROM part JOIN {_LEVEL_TABLE} lv ON {self._on('lv')} AND lv.sk >= COALESCE(
+                (SELECT x.sk FROM {_LEVEL_TABLE} x WHERE {self._on('x')}
+                 ORDER BY x.sk DESC LIMIT 1 OFFSET ?), '')
+            ORDER BY lv.sk DESC""", args + [int(count) - 1])
+        return [dict(r) for r in self._cursor.fetchall()]
+
+    def unit_checkpoints(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], Optional[str]]:
+        if not part:
+            return {}
+        with_part, args = self._part(part)
+        found: Dict[Tuple[Any, ...], Optional[str]] = {tuple(key): None for key in part}
+        self._cursor.execute(f"{with_part}, {_shared_checkpoints_sql(_LEVEL_TABLE, self._on(_LEVEL_TABLE), self._cols)}",
+                             args)
+        for row in self._cursor.fetchall():
+            found[tuple(row[:len(self._cols)])] = row[len(self._cols)]
+        return found
+
+    def unit_loras(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[str]]:
+        if not part:
+            return {}
+        with_part, args = self._part(part)
+        found: Dict[Tuple[Any, ...], List[str]] = {tuple(key): [] for key in part}
+        self._cursor.execute(f"{with_part} {_unit_loras_sql(_LEVEL_TABLE, self._on(_LEVEL_TABLE), self._cols)}",
+                             args)
+        for row in self._cursor.fetchall():
+            found.setdefault(tuple(row[:len(self._cols)]), []).append(row[len(self._cols)])
+        return found
 
 
 class GenerationsOps:
@@ -820,6 +972,54 @@ class GenerationsOps:
             for row in cursor.fetchall():
                 found.setdefault(tuple(row[:len(cols)]), []).append(row[len(cols)])
         return found
+
+    @contextmanager
+    def scope_level(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                    single_pass: bool = True) -> Iterator[Any]:
+        """
+        A level of the Generations tab, to pick a part of and read its tiles
+        from: `units(offset, limit)`, then for the part `previews(part,
+        count)`, `unit_checkpoints(part)` and `unit_loras(part)`, each
+        answering as scope_units() and the three part reads do.
+
+        Single pass (#238, #259) reads the level's images once, into a
+        temporary table in memory indexed by unit and the tab's order, and
+        reads every tile through it. Classic finds them again for each read -
+        four passes over the level - and grouped by base model SQLite joined
+        them to the part in an order that looked each image's checkpoint and
+        base model up once per group: 1.46 s at 75,682 images in 14 groups,
+        0.27 s in one pass. The table is this connection's alone, so two
+        requests at once have one each. It is dropped on the way out, and a
+        table a failed drop left is dropped first.
+        """
+        if not single_pass:
+            yield _ClassicLevel(self, scope, unit, section, hide_nsfw)
+            return
+        keys = [k for k in (unit, section) if k and k in GROUP_KEYS]
+        sql, args = self._rows_sql(scope, keys, hide_nsfw)
+        names = _unit_columns(unit, section)
+        cols = ["s", "u"][-len(names):]
+        with self._cursor() as cursor:
+            # SQLite keeps 2 MB of temporary data in memory and writes the rest
+            # to a file in the system's temp folder: the table is about 10 MB at
+            # 75,682 images, and every level read 20 to 30% faster in memory.
+            cursor.execute("PRAGMA temp_store = MEMORY")
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS temp.{_LEVEL_TABLE}")
+                cursor.execute(f"CREATE TEMP TABLE {_LEVEL_TABLE} AS {sql} SELECT id, generation_id, sk, "
+                               f"created_at, level, user_level, "
+                               f"{', '.join(f'{n} AS {c}' for n, c in zip(names, cols))} FROM shown", args)
+                cursor.execute(f"CREATE INDEX temp.{_LEVEL_TABLE}_unit ON {_LEVEL_TABLE} ({', '.join(cols)}, sk)")
+                yield _TableLevel(cursor, cols)
+            finally:
+                try:
+                    cursor.execute(f"DROP TABLE IF EXISTS temp.{_LEVEL_TABLE}")
+                    # Back to SQLite's own, so a Classic request on this thread
+                    # reads as it always has. A change of it also deletes every
+                    # temporary table: a second way the table goes.
+                    cursor.execute("PRAGMA temp_store = DEFAULT")
+                except sqlite3.Error:
+                    say_failure("Generations: a level's table was not dropped; the next request drops it")
 
     def prompt_texts(self, prompt_ids: Iterable[int]) -> Dict[int, str]:
         """These prompts' texts, by id."""

@@ -472,6 +472,11 @@ class ModelsDatabase:
         """Every LoRA each unit of a part used; see GenerationsOps.scope_unit_loras()."""
         return self._generations.scope_unit_loras(scope, unit, section, hide_nsfw, part)
 
+    def generation_scope_level(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+                               single_pass: bool = True):
+        """A level to read a part and its tiles from; see GenerationsOps.scope_level()."""
+        return self._generations.scope_level(scope, unit, section, hide_nsfw, single_pass)
+
     def generation_image_loras(self, image_ids: List[int]) -> Dict[int, List[str]]:
         """Each generated image's LoRA files; see GenerationsOps.image_loras()."""
         return self._generations.image_loras(image_ids)

@@ -110,47 +110,52 @@ def compare(label, olds, news):
 
 # ------------------------------------------------------------ every level, both switch states
 chains = [''] + list(api.GROUPINGS) + [f'{a}>{b}' for a in api.GROUPINGS for b in api.GROUPINGS if a != b]
-for hide in (False, True):
-    for group in chains:
-        label = f'grouped by {group or "nothing"}, NSFW {"hidden" if hide else "shown"}'
-        olds, news = browse_both(label, hide_nsfw=hide, group=group)
-        compare(label, olds, news)
-        first_o = olds[0]['tiles'][:2]
-        first_n = news[0]['tiles'][:2]
-        for o_tile, n_tile in zip(first_o, first_n):
-            if o_tile['kind'] == 'generation':
-                gid = o_tile['generation']['id']
-                compare(f'{label}, inside generation {gid}',
-                        *browse_both('', hide_nsfw=hide, group=group, generation=gid))
-                continue
-            if 'section' in o_tile:
-                # A section's groups, then one group inside it, then a batch inside that.
-                compare(f'{label}, a section',
-                        *browse_both('', hide_nsfw=hide, group=group,
-                                     in_group=(o_tile['section']['id'], n_tile['section']['id'])))
-                inner = browse_both('', hide_nsfw=hide, group=group,
-                                    in_group=(o_tile['section']['id'], n_tile['section']['id']),
-                                    in_subgroup=(o_tile['group']['id'], n_tile['group']['id']))
-                compare(f'{label}, a group in a section', *inner)
-            else:
-                inner = browse_both('', hide_nsfw=hide, group=group,
-                                    in_group=(o_tile['group']['id'], n_tile['group']['id']))
-                compare(f'{label}, a group', *inner)
-                o_in, n_in = inner[0][0]['tiles'][:1], inner[1][0]['tiles'][:1]
-                for o_g, n_g in zip(o_in, n_in):
-                    if o_g['kind'] == 'group':
-                        continue
-                    compare(f'{label}, a batch in a group',
+# Both ways the tab reads a level (#259): Single pass, the default, and Classic.
+for reading in ('Single pass', 'Classic'):
+    setattr(opts, 'model_manager_generations_reading', reading)
+    for hide in (False, True):
+        for group in chains:
+            label = f'{reading}, grouped by {group or "nothing"}, NSFW {"hidden" if hide else "shown"}'
+            olds, news = browse_both(label, hide_nsfw=hide, group=group)
+            compare(label, olds, news)
+            first_o = olds[0]['tiles'][:2]
+            first_n = news[0]['tiles'][:2]
+            for o_tile, n_tile in zip(first_o, first_n):
+                if o_tile['kind'] == 'generation':
+                    gid = o_tile['generation']['id']
+                    compare(f'{label}, inside generation {gid}',
+                            *browse_both('', hide_nsfw=hide, group=group, generation=gid))
+                    continue
+                if 'section' in o_tile:
+                    # A section's groups, then one group inside it, then a batch inside that.
+                    compare(f'{label}, a section',
                             *browse_both('', hide_nsfw=hide, group=group,
-                                         in_group=(o_tile['group']['id'], n_tile['group']['id']),
-                                         generation=o_g['generation']['id']))
+                                         in_group=(o_tile['section']['id'], n_tile['section']['id'])))
+                    inner = browse_both('', hide_nsfw=hide, group=group,
+                                        in_group=(o_tile['section']['id'], n_tile['section']['id']),
+                                        in_subgroup=(o_tile['group']['id'], n_tile['group']['id']))
+                    compare(f'{label}, a group in a section', *inner)
+                else:
+                    inner = browse_both('', hide_nsfw=hide, group=group,
+                                        in_group=(o_tile['group']['id'], n_tile['group']['id']))
+                    compare(f'{label}, a group', *inner)
+                    o_in, n_in = inner[0][0]['tiles'][:1], inner[1][0]['tiles'][:1]
+                    for o_g, n_g in zip(o_in, n_in):
+                        if o_g['kind'] == 'group':
+                            continue
+                        compare(f'{label}, a batch in a group',
+                                *browse_both('', hide_nsfw=hide, group=group,
+                                             in_group=(o_tile['group']['id'], n_tile['group']['id']),
+                                             generation=o_g['generation']['id']))
 
-# ------------------------------------------------------------ searching
-for search in ('cat', 'CAT', '"red fox"', '100%', 'snake_case', 'snake%case', 'lighthouse',
-               f'task:{facts["task"]}', f'cat task:{facts["task"]}', 'nothing-matches'):
-    for group in ('', 'prompt', 'model>prompt_written'):
-        label = f'search {search!r}, grouped by {group or "nothing"}'
-        compare(label, *browse_both(label, hide_nsfw=False, group=group, search=search))
+    # ------------------------------------------------------------ searching
+    for search in ('cat', 'CAT', '"red fox"', '100%', 'snake_case', 'snake%case', 'lighthouse',
+                   f'task:{facts["task"]}', f'cat task:{facts["task"]}', 'nothing-matches'):
+        for group in ('', 'prompt', 'model>prompt_written'):
+            label = f'{reading}, search {search!r}, grouped by {group or "nothing"}'
+            compare(label, *browse_both(label, hide_nsfw=False, group=group, search=search))
+
+opts.__dict__.pop('model_manager_generations_reading', None)
 
 # ------------------------------------------------------------ a model's Your generations
 for name in ('a', 'b', 'a2', 'x', 'vae', 'te', 'l', 'm', 'p'):
@@ -182,7 +187,7 @@ for generation in generations:
         check(f'rating generation {generation}\'s batch, grouped by {group or "nothing"}, search {search!r}',
               n_ids, o_ids)
 
-check('every grouping and pair was compared', len({label for label, _, _ in levels if label}) >= 2 * len(chains),
+check('every grouping and pair was compared, both ways', len({label for label, _, _ in levels if label}) >= 4 * len(chains),
       True)
 
 # ------------------------------------------------------------ a LoRA combination, its rows in reverse

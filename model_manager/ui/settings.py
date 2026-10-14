@@ -14,6 +14,7 @@ from ..forge_host import DEFAULTS
 from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
 from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from ..grids import CHOICES as GRID_CHOICES, GALLERY_GRID, GENERATIONS_GRID
+from ..tile_reading import CHOICES as READING_CHOICES, SETTING as READING_SETTING
 from ..image_sync import FOLDERS_OFF_SETTING, FOLDERS_SETTING, GROUP_SETTING, LEVEL_SETTING
 from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
 from .. import prompt_levels, thumbnails
@@ -261,6 +262,23 @@ def on_ui_settings():
             component_args={"choices": list(GRID_CHOICES)},
             section=section,
         ).info(grid_info)
+    )
+
+    # How the Generations tab reads a level's images (#259): Single pass,
+    # once per request, or Classic, again for each read.
+    shared.opts.add_option(
+        READING_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[READING_SETTING],
+            label="Generations: how tiles are read (alpha)",
+            component=gr.Dropdown,
+            component_args={"choices": list(READING_CHOICES)},
+            section=section,
+        ).info("How the Generations tab reads your images for each set of tiles. Single pass reads them "
+               "once, into a temporary table in memory, and builds every tile from it: grouped by base "
+               "model, 75,684 images took 0.28 s instead of 1.47. Classic reads them again for each "
+               "tile's previews, checkpoint and LoRAs, as before. Single pass is new: if tiles look "
+               "wrong or a level does not load, choose Classic and report it.")
     )
 
     # Sync images (#233): what its dialog starts from. The two folder lists
