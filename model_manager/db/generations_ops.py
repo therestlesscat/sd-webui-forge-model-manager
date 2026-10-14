@@ -768,7 +768,13 @@ class GenerationsOps:
     def scope_unit_checkpoints(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
                                part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], Optional[str]]:
         """The checkpoint every image of each unit of a part was made with, if
-        they share one, where it is now; None if they do not."""
+        they share one, where it is now; None if they do not.
+
+        An image's checkpoint is its batch's, so each unit's batches are listed
+        once and each batch's looked up once (#238). Looked up for every image,
+        a subquery per row, it was 1.7 s of a 2.8 s request grouped by base
+        model: 75,684 lookups for 7,762 batches. The names are this query's
+        own - grouped by model, `shown` already has a `ck`."""
         if not part:
             return {}
         sql, args, names = self._part_sql(scope, unit, section, hide_nsfw, part)
@@ -776,12 +782,19 @@ class GenerationsOps:
         on = " AND ".join(f"part.{p} = shown.{n}" for p, n in zip(cols, names))
         found: Dict[Tuple[Any, ...], Optional[str]] = {tuple(key): None for key in part}
         with self._cursor() as cursor:
-            cursor.execute(f"""{sql} SELECT {', '.join(cols)},
-                       CASE WHEN COUNT(DISTINCT path) = 1 AND SUM(path IS NULL) = 0 THEN MIN(path) END
-                FROM (SELECT {', '.join('part.' + c for c in cols)},
-                             {_CHECKPOINT.format(generation='shown.generation_id')} AS path
-                      FROM shown JOIN part ON {on})
-                GROUP BY {', '.join(cols)}""", args)
+            cursor.execute(f"""{sql},
+                batch_unit AS (SELECT DISTINCT {', '.join('part.' + c + ' AS ' + c for c in cols)},
+                                      shown.generation_id AS g
+                               FROM shown JOIN part ON {on}),
+                batch_ck AS (SELECT r.generation_id AS g, MIN(r.file_path) AS path
+                             FROM generation_resources r
+                             WHERE r.role = 'checkpoint' AND r.generation_id IN (SELECT g FROM batch_unit)
+                             GROUP BY r.generation_id)
+                SELECT {', '.join('batch_unit.' + c for c in cols)},
+                       CASE WHEN COUNT(DISTINCT batch_ck.path) = 1 AND SUM(batch_ck.path IS NULL) = 0
+                            THEN MIN(batch_ck.path) END
+                FROM batch_unit LEFT JOIN batch_ck ON batch_ck.g = batch_unit.g
+                GROUP BY {', '.join('batch_unit.' + c for c in cols)}""", args)
             for row in cursor.fetchall():
                 found[tuple(row[:len(cols)])] = row[len(cols)]
         return found
