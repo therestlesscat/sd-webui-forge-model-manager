@@ -115,6 +115,8 @@ function browse(params) {
 // Whether a delete takes the files too, to begin with (#107); and the server not answering.
 let deleteFilesSetting = false;
 let uiOptionsDown = false;
+// A server not yet restarted answers a batch's rating without its tile (#239).
+let rateAnswersTile = true;
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
@@ -148,7 +150,16 @@ globalThis.fetch = async (url, init = {}) => {
         const g = generations.find((x) => x.generation.id === Number(form.get('generation')));
         const shown = shownOf(g, hide);
         shown.forEach(apply);
-        return reply({ success: true, rated: shown.length });
+        const answer = { success: true, rated: shown.length };
+        // As the server answers since #239: the batch's tile as its level now
+        // draws it - none if the switch hides it all - and the level's totals.
+        if (rateAnswersTile) {
+            const level = browse(new URLSearchParams({ page: '1', hide_nsfw_images: String(hide) }));
+            answer.tile = level.tiles.find((t) => t.generation?.id === g.generation.id) || null;
+            answer.state = level.state;
+            answer.scope = level.scope;
+        }
+        return reply(answer);
     }
     const deleteImage = href.match(/\/generations\/images\/(\d+)\/delete/);
     const deleteGeneration = href.match(/\/generations\/(\d+)\/delete/);
@@ -581,9 +592,9 @@ await act('generations.rate', { tile: 1, level: 8 });
 check('an image rated X, with NSFW hidden, leaves the grid at once', tileIds(), ['3g', '0']);
 const loadsBeforeBatch = asked.length;
 await act('generations.rate', { tile: 0, level: 2 });
-check('a batch rated: every image of it the tab shows, and the grid loaded again in place',
-      [rated.at(-1).generation, rated.at(-1).level, asked.length > loadsBeforeBatch,
-       marked(tileEls()[0], 'mm-rate-mine')], ['3', '2', true, ['PG-13']]);
+check('a batch rated: every image of it the tab shows; its tile from the answer, no part asked again (#239)',
+      [rated.at(-1).generation, rated.at(-1).level, asked.length - loadsBeforeBatch,
+       marked(tileEls()[0], 'mm-rate-mine')], ['3', '2', 0, ['PG-13']]);
 await call('generations.groupBy', 'size');
 check('a group has no row: rated whole, its images are easily misrated', rows(), [false]);
 await call('generations.groupBy', '');
@@ -598,6 +609,27 @@ await waitFor('the viewer to move on', () => !viewer() || shownId() !== '1');
 check('an image rated R there, with NSFW hidden, leaves, and the viewer goes on or closes',
       [rated.at(-1).image_id, tileIds()], ['1', ['3g']]);
 key('Escape');
+
+// A server not yet restarted answers a batch's rating without its tile: the
+// grid is loaded again, as before #239.
+tick('generations.rating', true);
+rateAnswersTile = false;
+let beforeRating = asked.length;
+await act('generations.rate', { tile: 0, level: 1 });
+check('an answer with no tile in it, from a server not yet restarted: the grid loaded again',
+      [rated.at(-1).generation, asked.length > beforeRating, marked(tileEls()[0], 'mm-rate-mine')], ['3', true, ['PG']]);
+rateAnswersTile = true;
+// Rated X with NSFW hidden, every image of the batch is hidden: the answer has
+// no tile, and the batch leaves the grid; the banner takes the answer's totals.
+beforeRating = asked.length;
+await act('generations.rate', { tile: 0, level: 8 });
+const bannerAfterRating = document.getElementById('gen_banner')?.textContent;
+check('a batch the switch now hides all of: it leaves the grid, and nothing is asked',
+      [tileIds(), asked.length - beforeRating], [[], 0]);
+await act('generations.refresh');
+check('the banner as the server counts it, the same as after a reload',
+      bannerAfterRating, document.getElementById('gen_banner')?.textContent);
+tick('generations.rating', false);
 
 // The head - Group by and the switches, Back, the banner - is held at the top
 // while the grid scrolls, as the other tabs' banners are: one block, under

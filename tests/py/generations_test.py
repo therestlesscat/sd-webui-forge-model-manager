@@ -610,6 +610,20 @@ if has_fastapi:
     rate(generation=generation_id, level=1, hide_nsfw_images='false')
     tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
     check('one they all share, it does', (tile['level'], tile['user_level'], user_levels()), (PG, PG, [PG] * 4))
+    # A batch rated answers with its tile as a part now draws it, and the
+    # banner's totals: the tab swaps that one tile and asks for nothing more,
+    # where it loaded every part again (#239).
+    body = rate(generation=generation_id, level=4, hide_nsfw_images='false').json()
+    part = browse(hide_nsfw_images='false')
+    drawn = next(t for t in part['tiles'] if t['generation']['id'] == generation_id)
+    check('a batch rated answers with its tile, as a part draws it', body.get('tile'), drawn)
+    check('and the banner\'s totals and the level\'s header, as a part has them',
+          (body.get('state'), body.get('scope')), (part['state'], part['scope']))
+    body = rate(generation=generation_id, level=8, hide_nsfw_images='true').json()
+    hidden = browse(hide_nsfw_images='true')
+    check('rated X with the NSFW switch on, every image hidden: no tile, the totals counting them hidden',
+          ('tile' in body, body.get('tile'), body.get('state')), (True, None, hidden['state']))
+    rate(generation=generation_id, level=1, hide_nsfw_images='false')
     refused = rate(group='prompt', in_group=groups('prompt')[PROMPTS[1]]['group']['id'], level=16,
                    hide_nsfw_images='false')
     check('a group is not rated whole: its images are of any prompt, and easily misrated',
@@ -618,8 +632,14 @@ if has_fastapi:
                 level=16, hide_nsfw_images='false').json()
     check('a batch opened from a group is: its images in that group', (body['rated'], user_levels()),
           (1, [PG, 16, PG, PG]))
-    rate(path=CHECKPOINT, generation=generation_id, level=2, hide_nsfw_images='false',
-         hide_promptless_images='false')
+    in_group = groups('prompt')[PROMPTS[1]]['group']['id']
+    drawn = next(t for t in browse(group='prompt', in_group=in_group, hide_nsfw_images='false')['tiles']
+                 if t['generation']['id'] == generation_id)
+    check('and answers with its tile as that group\'s level draws it, counted within the group',
+          body.get('tile'), drawn)
+    body = rate(path=CHECKPOINT, generation=generation_id, level=2, hide_nsfw_images='false',
+                hide_promptless_images='false').json()
+    check('a card\'s answer is as it was: no tile', 'tile' in body, False)
     check('a card of a model\'s "Your generations": its images that gallery shows', user_levels(), [2] * 4)
     db.restamp_generation_levels(lambda meta: PG)
     check('the prompt words changing leaves a rating as it was', user_levels(), [2] * 4)

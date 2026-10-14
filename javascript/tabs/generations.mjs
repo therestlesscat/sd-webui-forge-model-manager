@@ -674,12 +674,28 @@ async function rateTile(index, value) {
         return;
     }
     const level = tile.user_level === value ? '' : value;
-    const scope = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup,
+    const batch = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup,
                     generation: tile.generation.id, search };
-    if (await postRating({ ...scope, level })) {
-        markAboveChanged();
+    const answer = await postRating({ ...batch, level });
+    if (!answer) return;
+    markAboveChanged();
+    // The answer carries the batch's tile as its level now draws it, and the
+    // level's totals (#239): that tile alone changes, where every part loaded
+    // was asked for again. A server not yet restarted sends no tile.
+    if (!('tile' in answer)) {
         await reloadKeepingPlace();
+        return;
     }
+    if (answer.tile) {
+        tiles[index] = answer.tile;
+        redrawTile(index);
+    } else {
+        removeTile(index);
+    }
+    state = answer.state;
+    scope = answer.scope;
+    renderBanner();
+    renderPath();
 }
 
 /**
