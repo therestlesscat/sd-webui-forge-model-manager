@@ -552,7 +552,7 @@ const viewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gal-resources]')) {
-            showImageResources(place.image, tile?.version?.id);
+            showImageResources(place.image, tile?.version?.id, { leaving: () => previousPlace.remember() });
             return true;
         }
         if (event.target.closest?.('[data-gal-model]')) {

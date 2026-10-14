@@ -783,16 +783,29 @@ class _Missing:
     versions = {}
     hashes = {}
     broken = False
+    # What Civitai's batch leaves out of models that exist (#262): with nsfw,
+    # the ones it marks minor; and some it leaves out either way, found only
+    # alone. And a model that cannot be asked alone.
+    minor = set()
+    batches_miss = set()
+    lookup_fails = set()
 
     @classmethod
     def from_settings(cls):
         return cls()
 
-    def get_models_by_ids(self, ids):
+    def get_models_by_ids(self, ids, nsfw=True):
         if _Missing.broken:
             raise RuntimeError('Civitai is down')
-        _Missing.asked.append(('models', sorted(ids)))
-        return {i: _Missing.models[i] for i in ids if i in _Missing.models}
+        _Missing.asked.append(('models' if nsfw else 'models without nsfw', sorted(ids)))
+        return {i: _Missing.models[i] for i in ids if i in _Missing.models
+                and i not in _Missing.batches_miss and not (nsfw and i in _Missing.minor)}
+
+    def get_model(self, model_id):
+        _Missing.asked.append(('model', model_id))
+        if model_id in _Missing.lookup_fails:
+            raise RuntimeError('Civitai is down')
+        return _Missing.models.get(model_id)
 
     def get_model_version(self, version_id):
         _Missing.asked.append(('version', version_id))
@@ -840,9 +853,37 @@ try:
           (got.get('7020') or {}).get('file_stem'), 'bad_hands')
     check('a hash becomes its version, and one Civitai does not know, null',
           body.get('hashes'), {'abcdef0123': 7001, '0000000000': None})
-    check('every model in one request - the hash\'s version among them - and one per unknown',
+    check('every model in one request - the hash\'s version among them - what it leaves out asked '
+          'again without NSFW, then alone (#260), and one per unknown',
           sorted(a for a in _Missing.asked if a[0] != 'hash'),
-          [('models', [700, 701, 799]), ('version', 7020)])
+          [('model', 799), ('models', [700, 701, 799]), ('models without nsfw', [799]), ('version', 7020)])
+    # Gone only on a 404 for the model alone (#260): a batch leaves out models
+    # that exist, and the dialog would say they were deleted from Civitai.
+    _Missing.models.update({
+        703: {'id': 703, 'name': 'Marked Minor', 'type': 'LORA', 'modelVersions': [
+            {'id': 7031, 'name': 'v1', 'files': _files('marked_minor.safetensors')}]},
+        704: {'id': 704, 'name': 'Missed By Batches', 'type': 'Checkpoint', 'modelVersions': [
+            {'id': 7041, 'name': 'v1', 'files': _files('missed.safetensors')}]},
+    })
+    _Missing.minor = {703}
+    _Missing.batches_miss = {704}
+    _Missing.lookup_fails = {705}
+    _Missing.asked = []
+    code, body = post('/model-manager/missing-resources',
+                      versions=json.dumps([{'version_id': 7031, 'model_id': 703},
+                                           {'version_id': 7041, 'model_id': 704},
+                                           {'version_id': 7051, 'model_id': 705}]))
+    got = body.get('versions', {})
+    check('a model the NSFW batch leaves out - one Civitai marks minor - is not gone: asked again without',
+          got.get('7031'), {'file_stem': 'marked_minor', 'file_type': 'LORA', 'model_id': 703,
+                            'name': 'Marked Minor', 'version_name': 'v1'})
+    check('one both batches leave out is asked alone, and named',
+          (got.get('7041') or {}).get('file_stem'), 'missed')
+    check('one that cannot be asked alone is not called gone: no answer for it', '7051' in got, False)
+    check('the batch, what it left out again without NSFW, what is still missing alone',
+          _Missing.asked, [('models', [703, 704, 705]), ('models without nsfw', [703, 704, 705]),
+                           ('model', 704), ('model', 705)])
+    _Missing.minor, _Missing.batches_miss, _Missing.lookup_fails = set(), set(), set()
     _Missing.asked = []
     code, body = post('/model-manager/missing-resources',
                       versions=json.dumps([{'version_id': 7001, 'model_id': 700}]), hashes='abcdef0123')

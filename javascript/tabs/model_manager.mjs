@@ -2530,7 +2530,8 @@ const generationViewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
-            showImageResources(image, currentVersionId);
+            showImageResources(image, currentVersionId, { leaving: () => previousPlace.remember(
+                `#mm_images [data-view-generation-image="${Number(image.id)}"]`) });
             return true;
         }
         if (event.target.closest?.('[data-gen-delete]')) {
@@ -2753,7 +2754,8 @@ function refreshResourceButtons(images = [...imageGallery.images, ...generationC
 
 // Show the resources behind an image, resolved and merged
 function showResources(imageIndex) {
-    return showImageResources(imageGallery.images[imageIndex], currentVersionId);
+    return showImageResources(imageGallery.images[imageIndex], currentVersionId, { leaving: () => previousPlace.remember(
+        `#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`) });
 }
 
 /**
@@ -2762,7 +2764,8 @@ function showResources(imageIndex) {
  */
 function showGenerationResources(id) {
     const { card } = drawnGeneration(id);
-    return card ? showImageResources(generationResourcesImage(card), currentVersionId) : undefined;
+    return card ? showImageResources(generationResourcesImage(card), currentVersionId, { leaving: () => previousPlace.remember(
+        `#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`) }) : undefined;
 }
 
 /**

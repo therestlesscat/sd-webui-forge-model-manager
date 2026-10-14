@@ -650,7 +650,7 @@ class CivitaiClient:
 
         return out
 
-    def get_models_by_ids(self, model_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    def get_models_by_ids(self, model_ids: List[int], nsfw: bool = True) -> Dict[int, Dict[str, Any]]:
         """
         Fetch several models in one request each 100, keyed by id.
 
@@ -658,11 +658,15 @@ class CivitaiClient:
         library. Asking per model is one call each; `ids` collapses that to one
         call per hundred, which is the difference between minutes and seconds.
 
-        Ids Civitai no longer serves are simply absent from the result, so
-        callers must treat a missing key as "not found" rather than an error.
+        An id missing from the result is not one Civitai deleted (#262): with
+        `nsfw` it leaves out the models it marks `minor`, without it every
+        model with no PG rating, and some models either way. Only
+        get_model()'s None says a model is gone.
 
         Args:
             model_ids: Civitai model ids.
+            nsfw: ask for NSFW models too. Asked again without it, the
+                `minor` ones come back.
 
         Returns:
             Dict of model id to the model payload.
@@ -672,13 +676,12 @@ class CivitaiClient:
 
         for start in range(0, len(unique), self.MODELS_BY_ID_BATCH):
             batch = unique[start:start + self.MODELS_BY_ID_BATCH]
-            data = self._request("GET", "/models", {
-                "ids": ",".join(str(m) for m in batch),
-                "limit": len(batch),
+            params: Dict[str, Any] = {"ids": ",".join(str(m) for m in batch), "limit": len(batch)}
+            if nsfw:
                 # Without it Civitai strips every showcase image but PG, and
                 # the version's cover goes with them - see version_covers().
-                "nsfw": "true",
-            })
+                params["nsfw"] = "true"
+            data = self._request("GET", "/models", params)
             for item in (data or {}).get("items", []) or []:
                 if item.get("id"):
                     found[item["id"]] = item

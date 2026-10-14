@@ -18,7 +18,7 @@ answers asks Civitai nothing.
 import contextlib
 import os
 import re
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 from .file_identity import LORA_FAMILY, NAMED_IN_PROMPTS
 from .hashing import names_this_file
@@ -304,6 +304,37 @@ def resolve_hashes(db, hashes: List[str], civitai: Callable[[], Any],
     return known, deferred
 
 
+def _models_by_id(client, model_ids: List[int]) -> Tuple[Dict[int, Dict[str, Any]], Set[int]]:
+    """
+    Civitai's models by id, and the ids it answered 404 for.
+
+    A batch (/models?ids) leaves out more than deleted models (#262): with
+    `nsfw` the ones Civitai marks `minor`, and some either way - 5 of the 18
+    one library's batch left out still existed. So what it leaves out is
+    asked again without `nsfw`, and what is still missing alone, where only a
+    404 says gone (#260). One that could not be asked is in neither.
+    """
+    models = client.get_models_by_ids(model_ids)
+    left = [m for m in model_ids if m not in models]
+    if left:
+        try:
+            models.update(client.get_models_by_ids(left, nsfw=False))
+        except Exception as e:
+            say(f"Models {left} could not be asked again: {e}")
+    gone = set()
+    for model_id in [m for m in model_ids if m not in models]:
+        try:
+            model = client.get_model(model_id)
+        except Exception as e:
+            say(f"Model {model_id} could not be asked: {e}")
+            continue
+        if model is None:
+            gone.add(model_id)
+        else:
+            models[model_id] = model
+    return models, gone
+
+
 def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
                   civitai: Callable[[], Any]) -> Dict[str, Dict[str, Any]]:
     """
@@ -318,7 +349,8 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     resource of Civitai's list carries its model id. A resource named by hash
     alone is turned into a version first (resolve_hashes), at most
     MAX_HASH_LOOKUPS of them asked of Civitai. What could not be asked, or was
-    not this time, is absent.
+    not this time, is absent. A model is gone only on a 404 for it alone
+    (_models_by_id): a batch leaves out models that exist.
 
     Args:
         wanted: [{version_id, model_id}]; model_id may be None.
@@ -348,13 +380,14 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
 
     ask = [v for v in model_of if v not in _MISSING_FILES]
     model_ids = sorted({int(model_of[v]) for v in ask if model_of[v]})
-    models = civitai().get_models_by_ids(model_ids) if model_ids else {}
+    models, gone = _models_by_id(civitai(), model_ids) if model_ids else ({}, set())
     for version_id in ask:
         model_id = model_of[version_id]
         if model_id:
             model = models.get(int(model_id))
             if model is None:
-                _MISSING_FILES[version_id] = {"gone": True}
+                if int(model_id) in gone:
+                    _MISSING_FILES[version_id] = {"gone": True}
                 continue
             version = next((v for v in model.get("modelVersions") or []
                             if v.get("id") == version_id), None)

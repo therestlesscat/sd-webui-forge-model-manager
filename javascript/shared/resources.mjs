@@ -13,9 +13,10 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, formatBytes, safeId } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, formatBytes, safeId, safeUrl } = await shared('core.mjs');
 const { downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
-const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
+const { openMetaModal, closeMetaModal, closeViewer } = await shared('viewer.mjs');
+const { available, open } = await shared('loading.mjs');
 
 // ------------------------------------------- an image's resources, looked up
 // Which Civitai versions an image's resource hashes are, and the downloads of
@@ -255,6 +256,10 @@ export async function learnResourceHashes(images) {
 // What the open dialog says above its list, if anything: why a send opened it.
 let resourcesNote = '';
 
+// What the opener does before View takes the page to another tab: note its
+// Previous Position (#250, #260). Replaced with each dialog.
+let resourcesLeaving = null;
+
 // A send stopped for its checkpoint (send.mjs), as the dialog's own Send:
 // { why, check, run, ready }. `why` says why it waits; `check()` asks the
 // server again, resolving to '' once the checkpoint can be loaded, else a
@@ -267,11 +272,13 @@ let resourcesSend = null;
  * library lacks opens it, to download it there (#134) - or, with another
  * file of its version held, to send with that (`send.useInstalled`). `send` adds a Send
  * at the bottom, disabled until the checkpoint can be loaded - asked again
- * once downloads land, or at once with `recheck`.
+ * once downloads land, or at once with `recheck`. `leaving`, if given, is
+ * called as View leaves for the Civitai Browser: the opener notes its place.
  *
  * @returns {Promise<boolean>} whether there was anything to show
  */
-export async function showImageResources(img, exclude, { note = '', send = null, recheck = false } = {}) {
+export async function showImageResources(img, exclude, { note = '', send = null, recheck = false,
+                                                         leaving = null } = {}) {
     if (!img || !img.meta) return false;
 
     const civitai = img.meta.civitaiResources || [];
@@ -280,6 +287,7 @@ export async function showImageResources(img, exclude, { note = '', send = null,
 
     resourcesNote = note;
     resourcesSend = send ? { ...send, ready: false } : null;
+    resourcesLeaving = leaving;
     const request = ++resourcesRequest;
     const stillWanted = () => request === resourcesRequest
         && !!document.querySelector('.mm-resources-modal');
@@ -290,6 +298,7 @@ export async function showImageResources(img, exclude, { note = '', send = null,
     const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
     renderResourcesModal(first, hashes.length);
     checkInstalledResources(first.known);
+    askCivitaiModels(first.known);
     if (recheck) recheckSend();
     if (!hashes.length) return true;
 
@@ -305,6 +314,7 @@ export async function showImageResources(img, exclude, { note = '', send = null,
         const merged = mergeImageResources(img, resolved, true, exclude);
         renderResourcesModal(merged, 0);
         checkInstalledResources(merged.known);
+        askCivitaiModels(merged.known);
     }
     return true;
 }
@@ -315,7 +325,7 @@ function renderResourcesModal(resources, pending = 0) {
                 <td class="mm-res-type">${escapeHtml(resource.type)}</td>
                 <td class="mm-res-name" data-res-name="${safeId(resource.versionId)}">${resourceNameHtml(resource)}</td>
                 <td class="mm-res-actions">
-                    <button type="button" class="mm-btn secondary mm-btn-small" data-open-url="https://civitai.com/model-versions/${safeId(resource.versionId)}">View</button>
+                    <span data-res-view="${safeId(resource.versionId)}">${viewCell(resource)}</span>
                     <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
                 </td>
             </tr>
@@ -442,6 +452,107 @@ function sendAgain() {
     return send.run();
 }
 
+// ------------------------------------------- View, in the Civitai Browser
+// View showed the version on civitai.com, out of the WebUI. It shows the
+// model in the Civitai Browser (#260), by its model id - asked of the server
+// where the image's list leaves it out - and says a model Civitai answers
+// 404 for is deleted. The website stays the way out where the Civitai
+// Browser cannot help.
+
+// What the server says of each version's model, once asked: version id ->
+// { modelId }, or { gone: true }. A version it could not answer for is
+// absent, and asked about again by the next dialog.
+const civitaiModels = new Map();
+// The versions being asked about, and all the asking under way: View waits on it.
+const askingVersions = new Set();
+let modelsAsked = Promise.resolve();
+// The version whose View waits on that answer.
+let viewing = null;
+
+/**
+ * Ask the server what Civitai says of these rows' models - the route the
+ * chips ask (resources.missing_files): each version's model id, or gone,
+ * only on a 404 for the model alone. One request a dialog; answers kept.
+ */
+function askCivitaiModels(resources) {
+    const versions = resources.filter((r) => r.versionId && !civitaiModels.has(r.versionId)
+                                             && !askingVersions.has(r.versionId))
+        .map((r) => ({ version_id: r.versionId, model_id: r.modelId || null }));
+    if (!versions.length) return modelsAsked;
+    for (const { version_id: id } of versions) askingVersions.add(id);
+    const asking = (async () => {
+        try {
+            const response = await fetch('/model-manager/missing-resources', {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ versions: JSON.stringify(versions), hashes: '' }) });
+            const data = await response.json();
+            if (data && data.success) {
+                for (const [id, answer] of Object.entries(data.versions || {})) {
+                    civitaiModels.set(Number(id), answer.gone ? { gone: true }
+                                                              : { modelId: safeId(answer.model_id) });
+                }
+            }
+        } catch (error) {
+            console.warn('[ModelManager] Could not ask Civitai about the resources\' models:', error);
+        }
+        for (const { version_id: id } of versions) {
+            askingVersions.delete(id);
+            redrawView(id, resources.find((r) => r.versionId === id));
+            if (civitaiModels.get(id)?.gone) redrawResourceDownload(id, resources.find((r) => r.versionId === id));
+        }
+    })();
+    modelsAsked = Promise.all([modelsAsked, asking]);
+    return modelsAsked;
+}
+
+/** A row's View - or, its model deleted from Civitai, the red words in its place. */
+function viewCell(resource) {
+    const id = resource.versionId;
+    if (civitaiModels.get(id)?.gone) {
+        return '<span class="mm-res-state error" title="Civitai no longer has this model">Model deleted from Civitai</span>';
+    }
+    const title = available('civitaiBrowser') ? 'Show this model in the Civitai Browser tab' : 'Open this version on Civitai';
+    const looking = viewing === id;
+    return `<button type="button" class="mm-btn secondary mm-btn-small" data-action="resources.view"`
+        + `${dataAttributes({ versionId: safeId(id), modelId: resource.modelId ? safeId(resource.modelId) : null })}`
+        + ` title="${escapeHtml(title)}"${looking ? ' disabled' : ''}>${looking ? 'Looking up...' : 'View'}</button>`;
+}
+
+function redrawView(versionId, resource) {
+    const cell = document.querySelector(`.mm-resources-modal [data-res-view="${versionId}"]`);
+    if (cell) cell.innerHTML = viewCell(resource || { versionId, modelId: cell.querySelector('[data-model-id]')
+        ?.dataset.modelId || null });
+}
+
+/**
+ * View: the model in the Civitai Browser, at the image's version - the
+ * dialog closed, and the viewer under it, the opener's place noted first.
+ * With the Civitai Browser off, or no model id to be had, the website.
+ */
+async function viewResource(versionId, modelId) {
+    const website = () => {
+        const url = safeUrl(`https://civitai.com/model-versions/${versionId}`);
+        if (url) window.open(url, '_blank', 'noopener');
+    };
+    if (!available('civitaiBrowser')) return website();
+    let model = modelId || civitaiModels.get(versionId)?.modelId || null;
+    if (!model && askingVersions.has(versionId)) {
+        viewing = versionId;
+        redrawView(versionId, { versionId, modelId: null });
+        await modelsAsked;
+        viewing = null;
+        redrawView(versionId, { versionId, modelId: null });
+        model = civitaiModels.get(versionId)?.modelId || null;
+    }
+    if (civitaiModels.get(versionId)?.gone) return undefined;
+    if (!model) return website();
+    const leaving = resourcesLeaving;
+    closeMetaModal();
+    closeViewer();
+    leaving?.();
+    return open('civitaiBrowser', 'showModel', `model:${model} version:${versionId}`);
+}
+
 // ------------------------------------------- downloading from the dialog
 // The dialog's Download used to be a link to Civitai's download URL: the
 // right version, but saved wherever the browser saves things, and unknown to
@@ -497,6 +608,8 @@ function resourceDownloadCell(resource) {
     if (!job && held) {
         return '<span class="mm-res-state installed">Installed</span>';
     }
+    // Deleted from Civitai: nothing to download, and the row says so (#260).
+    if (!job && civitaiModels.get(id)?.gone) return '';
     if (job && job.status === 'complete') {
         const which = job.substituted ? ` ${escapeHtml(job.versionName || '')} (the image's is gone)` : '';
         return `<span class="mm-res-state installed">Downloaded${which}</span>`;
@@ -689,6 +802,7 @@ function followResourceDownloads() {
  */
 export function start(scope) {
     scope.provide('resources.sendAgain', () => sendAgain());
+    scope.provide('resources.view', ({ versionId, modelId }) => viewResource(safeId(versionId), safeId(modelId)));
     scope.provide('resources.download', ({ versionId, modelId, hash }) =>
         downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase()));
     scope.provide('resources.useInstalledTick', (data, box) => {

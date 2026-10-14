@@ -2569,6 +2569,11 @@ body.mm-modal-open {
     cursor: help;
 }
 
+/* On the dark dialog the light red read at 3.97:1; this one at about 7 (#260). */
+.dark .mm-res-state.error {
+    color: #f87171;
+}
+
 .cb-tag-dropdown {
     position: absolute;
     top: 100%;

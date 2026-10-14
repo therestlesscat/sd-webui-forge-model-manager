@@ -197,13 +197,15 @@ check("where both lists name it, the Civitai name is the one kept",
       offered.includes('Sci Fi Environments (resolved)'), false);
 check('one the legacy list alone knew about is still offered',
       offered.includes('VAE ft MSE'), true);
-check('and every offer can be opened on Civitai, or downloaded here',
-      [panel().querySelectorAll('.mm-res-actions button[data-open-url]').length,
+check('and every offer can be viewed, or downloaded here',
+      [panel().querySelectorAll('.mm-res-actions button[data-action="resources.view"]').length,
        Array.from(panel().querySelectorAll('.mm-res-actions button'))
            .filter((b) => b.textContent.trim() === 'Download').length], [3, 3]);
 
-const viewButton = panel().querySelector('.mm-res-actions [data-open-url]');
-check("an offer's View is a button, and opens its version on Civitai (#144)",
+// View shows the model in the Civitai Browser (#260): this page has none, so
+// it opens the version on Civitai, as it always did.
+const viewButton = panel().querySelector('.mm-res-actions [data-action="resources.view"]');
+check("an offer's View is a button, and with no Civitai Browser opens its version on Civitai (#144, #260)",
       [panel().querySelectorAll('.mm-res-actions a').length, viewButton?.tagName,
        opens(viewButton).map(([url, ...rest]) => [/^https:\/\/civitai\.com\/model-versions\/\d+$/.test(url), ...rest])],
       [0, 'BUTTON', [[true, '_blank', 'noopener']]]);

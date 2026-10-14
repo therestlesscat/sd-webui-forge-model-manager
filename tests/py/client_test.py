@@ -99,6 +99,21 @@ c = Stub([{'items': [{'id': 3}]}])
 c.get_models_by_ids([3, 3, 3, None, 0])
 check('duplicates and blanks are dropped', c.asked[0][1]['ids'], '3')
 
+
+def nsfw_sent(**kwargs):
+    c = Stub([{'items': []}])
+    try:
+        c.get_models_by_ids([3], **kwargs)
+    except TypeError:
+        return 'no such argument'
+    return c.asked[0][1].get('nsfw')
+
+
+# A batch with nsfw leaves out the models Civitai marks minor; asked again
+# without it, they come back (#260, #262).
+check('NSFW models are asked for unless the caller says not',
+      [nsfw_sent(), nsfw_sent(nsfw=False)], ['true', None])
+
 # --------------------------------------------------- trained or merged, inferred
 c = Stub([{'items': [{'id': 1}, {'id': 2}]}, {'items': [{'id': 3}]}])
 check('the two queries answer', c.get_checkpoint_types([1, 2, 3, 4]),
