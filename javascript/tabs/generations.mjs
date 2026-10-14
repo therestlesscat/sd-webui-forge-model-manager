@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -39,6 +39,7 @@ const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext } = await shared('send.mjs');
+const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
 const { nsfwModelNote, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
@@ -1084,8 +1085,7 @@ const viewerSource = {
         return `${ratingRowHtml(image, 'generations.rateInViewer')}
             ${sendHtml(image, mode, 'data-gen-send')}Send to ${mode}</button>
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>
-            ${menuFor(image).length
-                ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gen-menu title="More">⋯</button>' : ''}`;
+            ${viewerResourcesHtml(image)}${viewerModelHtml(image)}`;
     },
     details: (index) => {
         const { tile, image } = viewerAt(index);
@@ -1121,9 +1121,12 @@ const viewerSource = {
             deleteFromViewer();
             return true;
         }
-        const more = event.target.closest?.('[data-gen-menu]');
-        if (more) {
-            openMenu(more, menuFor(image));
+        if (event.target.closest?.('[data-gen-resources]')) {
+            showImageResources(image, null, { leaving: () => previousPlace.remember() });
+            return true;
+        }
+        if (event.target.closest?.('[data-gen-model]')) {
+            if (image.checkpoint?.in_library) showModel(image.checkpoint);
             return true;
         }
         return false;
@@ -1136,6 +1139,24 @@ const viewerSource = {
         else showTile(byId('gen_grid'), t);
     },
 };
+
+// The viewer's buttons for an image's models, as the other viewers have them
+// (#267): Resources - its checkpoint, LoRAs and embeddings, from its own
+// meta.resources (api/generations.image_resources) - and Show model, its
+// checkpoint in the Model Manager. They took the place of a ⋯ menu.
+function viewerResourcesHtml(image) {
+    const label = resourceButtonLabel(image, null);
+    return label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${escapeHtml(label)}</button>` : '';
+}
+
+function viewerModelHtml(image) {
+    const checkpoint = image.checkpoint;
+    const why = !checkpoint ? 'This image does not say which checkpoint it was made with'
+        : !checkpoint.in_library ? `${checkpoint.name} is not in the library: deleted, moved, or never scanned`
+        : !available('modelManager') ? unavailableReason('modelManager') : '';
+    return `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-model`
+        + `${why ? ` disabled title="${escapeHtml(why)}"` : ' title="Open its checkpoint in the Model Manager"'}>Show model</button>`;
+}
 
 /** Open the viewer on image `image` of tile `index`. */
 function viewTile(index, image = 0) {

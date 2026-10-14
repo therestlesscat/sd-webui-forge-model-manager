@@ -32,7 +32,9 @@ function opens(element) {
 const PART = 2;
 const img = (id, generation, position, level = 1) => ({
     id, generation_id: generation, position, seed: 1000 + id, width: 832, height: 1216,
-    meta: { prompt: `prompt ${id}`, negativePrompt: 'blurry', steps: 20, sampler: 'Euler' },
+    meta: { prompt: `prompt ${id}`, negativePrompt: 'blurry', steps: 20, sampler: 'Euler',
+            // Its LoRAs, as api/generations.image_resources lists them: the first image's alone here.
+            ...(id === 31 ? { resources: [{ type: 'lora', name: 'sea_spray', weight: 0.8, hash: 'aaaaaaaaaa' }] } : {}) },
     infotext: `prompt ${id}\nSteps: 20, Seed: ${1000 + id}`,
     url: `/model-manager/generations/images/${id}/file`, exists: true,
     mm_level: level, mm_level_from_prompt: level > 1, user_level: null, prompt_level: level,
@@ -361,13 +363,25 @@ const fullSize = Array.from(viewer()?.querySelectorAll('.gen-info-buttons > *') 
 check('Open full size is a button, and opens the file (#144)',
       [fullSize?.tagName, opens(fullSize).map(([url, ...rest]) => [url.endsWith('/images/31/file'), ...rest])],
       ['BUTTON', [[true, '_blank', 'noopener']]]);
-check('Send, Delete and ⋯ below the image', Array.from(viewer().querySelectorAll('.mm-viewer-actions > button'))
-      .map((b) => b.textContent.trim()), ['Send to txt2img', 'Delete', '⋯']);
-click(viewer().querySelector('[data-gen-menu]'));
-click(menuEl()?.querySelector('button'));
+// Resources and Show model, as the other viewers have them, in place of a ⋯
+// menu (#267); Resources only for an image whose data names any.
+const viewerButtons = () => Array.from(viewer()?.querySelectorAll('.mm-viewer-actions > button') || [])
+    .map((b) => b.textContent.trim().replace(/ \(.*\)$/, ''));
+check('Send, Delete, then Resources and Show model below the image - no ⋯',
+      [viewerButtons().filter((b) => b !== 'Resources'), viewer().querySelector('[data-gen-menu]')],
+      [['Send to txt2img', 'Delete', 'Show model'], null]);
+const resourcesButton = viewer().querySelector('[data-gen-resources]');
+check('Resources, for an image whose data names its LoRAs', /^Resources/.test(resourcesButton?.textContent.trim() || ''), true);
+resourcesButton?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Resources dialog, its LoRA looked up', () => document.querySelector('.mm-resources-modal')?.textContent.includes('sea_spray'));
+check('which opens the Resources dialog on them, over the viewer',
+      [document.querySelector('.mm-resources-modal')?.textContent.includes('sea_spray'), !!viewer()], [true, true]);
+document.querySelector('#mm_meta_modal .mm-modal-close')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+const showModelButton = viewer().querySelector('[data-gen-model]');
+showModelButton?.dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the file to be asked for', () => shownFiles.length);
-check('⋯ in the viewer shows the image\'s own checkpoint - one Civitai does not know, by its file - closing the viewer',
-      [shownFiles.at(-1), viewer()], [ANIMA_PATH, null]);
+check('Show model shows the image\'s own checkpoint - one Civitai does not know, by its file - closing the viewer',
+      [showModelButton?.disabled, shownFiles.at(-1), viewer()], [false, ANIMA_PATH, null]);
 await call('generations.view', { tile: 0 });     // a batch: a click opens it
 check('nothing before the first', viewer().querySelector('.mm-viewer-prev').disabled, true);
 key('ArrowRight'); await settle();
@@ -375,7 +389,9 @@ check('→ steps through them', shownId(), '33');
 for (let i = 0; i < 3; i++) { key('ArrowRight'); await settle(); }
 check('then on to the next generation', [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent],
       ['21', '']);
-check('with no ⋯ for an image with no checkpoint recorded', viewer().querySelector('[data-gen-menu]'), null);
+check('for an image with no checkpoint recorded, Show model is disabled, saying why',
+      [viewer().querySelector('[data-gen-model]')?.disabled, viewer().querySelector('[data-gen-model]')?.title],
+      [true, 'This image does not say which checkpoint it was made with']);
 key('ArrowLeft'); await settle();
 check('← back to the batch\'s last image', shownId(), '35');
 key('ArrowRight'); await settle();

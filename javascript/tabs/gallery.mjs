@@ -25,7 +25,7 @@ const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs'
     'tiles.mjs', 'previous_position.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
-const { apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
 const { tabWork, open } = await shared('loading.mjs');
 const { galleryDefaults, nsfwModelNote, asUploaded } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -35,8 +35,8 @@ const {
     mediaFallback, mediaShape, viewerVideoUrl,
 } = await shared('media.mjs');
 const { nsfwBadge } = await shared('nsfw.mjs');
-const { imageTextHtml } = await shared('image_card.mjs');
-const { showImageResources } = await shared('resources.mjs');
+const { imageDetailsHtml, showImageMeta } = await shared('image_card.mjs');
+const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
 const { sendGalleryImage, cannotSend } = await shared('send.mjs');
 const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
     placedGrid, showTile } = await shared('tiles.mjs');
@@ -523,9 +523,15 @@ const viewerSource = {
         // A group's image is sent as its own: its model and version come with the tile it opens onto.
         const tile = place.tile.kind === 'image' ? place.tile : null;
         const blocked = tile ? cannotSend(place.image, tile.model, tile.version) : 'Open the group to send its images';
+        // What a Civitai image's card offers in the other tabs' viewers, in its order (#267).
+        const image = place.image;
+        const resources = resourceButtonLabel(image, tile?.version?.id);
         return `<button type="button" class="mm-btn primary mm-btn-small" data-gal-send
                         ${blocked ? `disabled title="${escapeHtml(blocked)}"` : ''}>Send to txt2img</button>
-            <button type="button" class="mm-btn secondary mm-btn-small" data-gal-resources>Resources</button>
+            <button type="button" class="mm-btn secondary mm-btn-small" data-copy="${escapeHtml(image.meta?.prompt || '')}">Copy Prompt</button>
+            <button type="button" class="mm-btn secondary mm-btn-small" data-gal-show-all>Show All</button>
+            ${image.id ? `<button type="button" class="mm-btn secondary mm-btn-small" data-open-url="https://civitai.com/images/${safeId(image.id)}">View on Civitai</button>` : ''}
+            ${resources ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gal-resources>${escapeHtml(resources)}</button>` : ''}
             ${tile ? '<button type="button" class="mm-btn secondary mm-btn-small" data-gal-model>Show model</button>' : ''}`;
     },
     details: (index) => {
@@ -535,7 +541,7 @@ const viewerSource = {
         const heading = tile?.model?.name
             ? `<div class="gen-info-heading">Model</div><div class="gen-info-value">${escapeHtml(
                 [tile.model.name, tile.version?.name].filter(Boolean).join(' · '))}</div>` : '';
-        return heading + imageTextHtml(place.image);
+        return heading + imageDetailsHtml(place.image);
     },
     where: () => '',
     more: () => more,
@@ -549,6 +555,10 @@ const viewerSource = {
         const tile = place.tile.kind === 'image' ? place.tile : null;
         if (event.target.closest?.('[data-gal-send]')) {
             if (tile) sendTile(tile);
+            return true;
+        }
+        if (event.target.closest?.('[data-gal-show-all]')) {
+            showImageMeta(place.image);
             return true;
         }
         if (event.target.closest?.('[data-gal-resources]')) {

@@ -119,19 +119,13 @@ export function imageTextHtml(img) {
 }
 
 /**
- * A Civitai image's card, as both tabs draw it. `width` is how wide the
- * gallery draws a card's image; `exclude` the version the gallery is of,
- * which its Resources leave out; `actions` what the tab's buttons do
- * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
- * alone), `showAll`, `resources`; `sendBlocked`, why Send is disabled, if it is.
+ * The text beside a Civitai image: its id, the resources its generation data
+ * lists, its prompt and settings. The card draws it, and so does the Civitai
+ * Images tab's viewer, which had built a panel of its own with part of it
+ * (#267).
  */
-export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '', asUploaded = false }) {
-    const src = img.url || '';
-
-    const meta = img.meta || {};
-    const prompt = meta.prompt || '';
-    const resources = meta.resources || [];
-    const civitaiResources = meta.civitaiResources || [];
+export function imageDetailsHtml(img) {
+    const resources = (img.meta || {}).resources || [];
 
     // Image ID
     const imageIdHtml = img.id
@@ -148,6 +142,22 @@ export function renderImageCard(img, index, { width, exclude, actions, sendBlock
              ${resources.map(r => renderResource(r)).join('')}
            </div>`
         : '';
+
+    return imageIdHtml + resourcesHtml + imageTextHtml(img);
+}
+
+/**
+ * A Civitai image's card, as both tabs draw it. `width` is how wide the
+ * gallery draws a card's image; `exclude` the version the gallery is of,
+ * which its Resources leave out; `actions` what the tab's buttons do
+ * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
+ * alone), `showAll`, `resources`; `sendBlocked`, why Send is disabled, if it is.
+ */
+export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '', asUploaded = false }) {
+    const src = img.url || '';
+
+    const meta = img.meta || {};
+    const prompt = meta.prompt || '';
 
     // The Resources button's label
     const resourcesLabel = resourceButtonLabel(img, exclude);
@@ -181,9 +191,7 @@ export function renderImageCard(img, index, { width, exclude, actions, sendBlock
                 ${nsfwLevel ? `<span class="mm-nsfw-badge">${escapeHtml(nsfwLevel)}</span>` : ''}
             </div>
             <div class="mm-image-right">
-                ${imageIdHtml}
-                ${resourcesHtml}
-                ${imageTextHtml(img)}
+                ${imageDetailsHtml(img)}
                 <div class="mm-image-actions">
                     ${actions.send ? `<button class="mm-btn primary mm-send-btn" data-action="${escapeHtml(actions.send)}" data-index="${index}"${
                         sendBlocked ? ` disabled title="${escapeHtml(sendBlocked)}"` : ''}>
