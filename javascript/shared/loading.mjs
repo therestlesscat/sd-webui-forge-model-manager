@@ -30,7 +30,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
 const { call, provide, withdraw } = await shared('calls.mjs');
-const { panelButton, showTab, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
+const { goToTab, panelButton, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
 
 /**
@@ -123,8 +123,8 @@ export async function open(name, entry, ...args) {
     if (!available(name)) return false;
     const fn = state[name].module?.entries?.[entry];
     if (typeof fn !== 'function') throw new Error(`The ${name} tab offers no ${entry}`);
-    await showTab(name);
-    await fn(...args);
+    // The entry's answer is where the jump lands (#263).
+    await goToTab(name, () => fn(...args));
     return true;
 }
 
@@ -401,7 +401,7 @@ function apply(name) {
     showElement(tabButton(name), on && !now.stopped);
     const app = typeof gradioApp === 'function' ? gradioApp() : document;
     tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on && !newerDatabase));
-    if ((!on || now.stopped) && tabShowing(name)) showTab(fallbackFor(name));
+    if ((!on || now.stopped) && tabShowing(name)) goToTab(fallbackFor(name));
 }
 
 function applyAll() {
@@ -644,7 +644,7 @@ function drawDatabaseNotices() {
  */
 async function offerDatabaseActions() {
     await useServices(['calls.mjs'], 'database');
-    provide('database.openExtensions', () => showTab('extensions'));
+    provide('database.openExtensions', () => goToTab('extensions'));
     provide('database.openSettings', async () => {
         if (await useServices(['settings.mjs'], 'database')) {
             call('settings.open', { section: 'storage', focus: 'model_manager_database_path' });

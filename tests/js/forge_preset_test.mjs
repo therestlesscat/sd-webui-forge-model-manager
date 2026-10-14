@@ -587,11 +587,20 @@ IMAGE.height = 1920;
 given.length = 0;
 loaded.length = 0;
 clearNotices();
+// Where the page is asked to scroll (#263): its tab bar, 120 px down here, then the page's top.
+const scrolls = [];
+let pageY = 5000;
+Object.defineProperty(window, 'scrollY', { get: () => pageY, configurable: true });
+window.scrollTo = (x, y) => { pageY = typeof x === 'object' ? x.top : y; scrolls.push(pageY); };
+tabs.getBoundingClientRect = () => ({ top: 120 - pageY, bottom: 160 - pageY, height: 40, width: 800 });
 await send();
 check('an I2V model\'s video is pasted into img2img, not txt2img',
       [events.includes('paste:img2img'), events.includes('paste')], [true, false]);
 check('and img2img is shown, on its img2img mode',
       [events.includes('tab:img2img'), events.includes('mode:img2img')], [true, true]);
+await waitFor('the landing', () => scrolls.length > 1);
+check('landing at the page\'s top, where the checkpoint and modules a send set are seen (#263): the tab bar, then 0',
+      scrolls, [120, 0]);
 check('with a denoising strength of 1', infotext().includes('Denoising strength: 1'), true);
 check('its frames from the video\'s length, its size in Wan\'s steps',
       [infotext().includes('Batch size: 81'), infotext().includes('Size: 1088x1920')], [true, true]);

@@ -2880,11 +2880,15 @@ async function showModel(query) {
     // A targeted lookup normally returns exactly one model - open it
     if (currentModels.length === 1) {
         await selectModel(0);
-    } else if (currentModels.length === 0) {
+        // Where the jump lands (#263): the model's details.
+        return '#mm_details';
+    }
+    if (currentModels.length === 0) {
         // A file looked up by its path is named by its file name.
         const what = query.startsWith('path:') ? query.slice(5).split(/[\\/]/).pop() : query;
         setStatus(`Nothing found for "${what}". It may not be downloaded, or the database needs a refresh.`, true);
     }
+    return undefined;
 }
 
 /**
@@ -2894,10 +2898,11 @@ async function showModel(query) {
  * checkpoint a generation's record names.
  */
 async function showFile(path) {
-    if (!path) return;
-    await showModel(`path:${path}`);
+    if (!path) return undefined;
+    const landing = await showModel(`path:${path}`);
     const wanted = currentVersions.findIndex((v) => (v.file_path || '').toLowerCase() === path.toLowerCase());
     if (wanted >= 0) await selectVersion(wanted);
+    return landing;
 }
 
 /**
@@ -2908,11 +2913,12 @@ async function showFile(path) {
  */
 async function showVersion(versionId, path) {
     const id = Number(versionId);
-    if (!id) return;
-    await showModel(`version:${id}`);
+    if (!id) return undefined;
+    const landing = await showModel(`version:${id}`);
     const files = currentVersions.filter((v) => Number(v.id) === id);
     const file = files.find((v) => path && (v.file_path || '').toLowerCase() === path.toLowerCase()) || files[0];
     if (file) await selectVersion(currentVersions.indexOf(file));
+    return landing;
 }
 
 /**

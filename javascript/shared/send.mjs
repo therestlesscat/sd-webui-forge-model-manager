@@ -17,7 +17,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall } = await shared('core.mjs');
-const { showTab } = await shared('tabs.mjs');
+const { goToTab, showTab } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
     collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips,
@@ -1106,14 +1106,18 @@ function galleryFile(model, version) {
     return { file_stem: name.replace(/\.[^.]+$/, ''), file_type: fileTypeOf(version, model) };
 }
 
+// Where a send lands: the page's top, the WebUI's header - the checkpoint
+// and the VAE / Text Encoder a send may have just set, to be seen (#263).
+const SENT_TO = { top: 0 };
+
 /** Show txt2img, or img2img on its plain img2img mode - by their ids (shared/tabs.mjs). */
 function showGenerationTab(tab) {
     if (tab === 'img2img') {
-        showTab('img2img');
+        const going = goToTab('img2img', SENT_TO);
         showTab('img2imgMode');
-        return;
+        return going;
     }
-    showTab('txt2img');
+    return goToTab('txt2img', SENT_TO);
 }
 
 /** A video's length in seconds, from its metadata alone; null if unreadable. */

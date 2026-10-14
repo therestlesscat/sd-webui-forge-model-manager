@@ -1923,6 +1923,9 @@ async function showModel(query) {
     syncLucky();
 
     await searchModels(1);
+    // Where the jump lands (#263): the model's details - or, none found,
+    // the tab's top, where the status line says so.
+    return currentModels.length === 1 ? '#cb_details' : undefined;
 }
 // What the other tabs may open this one at, through the loading module (open, #184).
 export const entries = { showModel };

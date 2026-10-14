@@ -91,3 +91,72 @@ export function showTab(tab) {
         requestAnimationFrame(look);
     });
 }
+
+// ------------------------------------------------------------- landing (#263)
+// The WebUI is one page with one scroll, and showing a tab keeps it: a jump
+// from deep in a gallery opened the other tab at that depth - through the
+// bottom while it loaded, as its loading bar shrank the page, and back down
+// as Chrome's scroll anchoring followed the images in. A jump now says where
+// it lands.
+
+// Between the top of the view and a target landed on: its edge shows.
+const LANDING_GAP = 8;
+// What the person does to scroll while a jump waits on its entry.
+const OWN_SCROLL = ['wheel', 'touchmove', 'keydown'];
+
+function scrollPage(top) {
+    window.scrollTo({ top: Math.max(0, Math.round(top)), behavior: 'instant' });
+}
+
+/** Where a tab begins on the page: its tab bar - the row a person reads the tab's name in. */
+function tabTop(tab) {
+    const button = tabButton(tab);
+    const bar = button?.parentElement || button;
+    return bar ? bar.getBoundingClientRect().top + window.scrollY : 0;
+}
+
+/** An element a landing names - itself or by selector - while it shows, or null. */
+function shownElement(target) {
+    const element = typeof target === 'string'
+        ? (typeof gradioApp === 'function' ? gradioApp() : document).querySelector(target) : target;
+    const box = element?.getBoundingClientRect?.();
+    return box && (box.width > 0 || box.height > 0) ? element : null;
+}
+
+/**
+ * Show a tab, and land where a jump means to (#263): at once at the tab's
+ * top - its tab bar at the top of the view - so whatever the tab redraws or
+ * shrinks lies below the view; then at `at`. `at`: nothing, the tab's top; a
+ * number, that far below it; { top }, that place on the page - 0, the
+ * WebUI's header; a selector or an element, its top at the top of the view,
+ * LANDING_GAP below - the tab's top while it is not shown; or a function -
+ * an entry - run once the tab shows, its answer any of those. A
+ * wheel, a touch or a key while it waits, and it stays where the person
+ * took it. Answers whether the tab shows, as showTab() does.
+ */
+export async function goToTab(tab, at) {
+    const shows = await showTab(tab);
+    // A tab that never showed is not scrolled to; its entry still runs, as
+    // it ran after showTab() alone.
+    if (shows) scrollPage(tabTop(tab));
+    let moved = false;
+    const own = () => { moved = true; };
+    OWN_SCROLL.forEach((kind) => window.addEventListener(kind, own, { capture: true, passive: true }));
+    try {
+        const target = typeof at === 'function' ? await at() : at;
+        if (!shows || moved || target === undefined || target === null) return shows;
+        if (typeof target === 'number') {
+            scrollPage(tabTop(tab) + target);
+            return shows;
+        }
+        if (typeof target?.top === 'number') {
+            scrollPage(target.top);
+            return shows;
+        }
+        const element = shownElement(target);
+        if (element) scrollPage(element.getBoundingClientRect().top + window.scrollY - LANDING_GAP);
+        return shows;
+    } finally {
+        OWN_SCROLL.forEach((kind) => window.removeEventListener(kind, own, { capture: true }));
+    }
+}

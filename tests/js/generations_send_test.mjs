@@ -84,6 +84,14 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
 
 // ------------------------------------------------------------------ Send
+// Where the page is asked to scroll: Send lands at the page's top, where the
+// WebUI's header shows the checkpoint and modules it may have set - not at
+// the scroll the Generations tab had (#263). Its tab bar is 120 px down here.
+const scrolls = [];
+let pageY = 5000;
+Object.defineProperty(window, 'scrollY', { get: () => pageY, configurable: true });
+window.scrollTo = (x, y) => { pageY = typeof x === 'object' ? x.top : y; scrolls.push(pageY); };
+document.getElementById('tabs').getBoundingClientRect = () => ({ top: 120 - pageY, bottom: 160 - pageY, height: 40, width: 800 });
 await act('generations.send', { tile: 0 });
 await waitFor('the paste', () => pasted.txt2img > 0);
 check('the Model Manager\'s script is not loaded', ready('modelManager.sendImage'), false);
@@ -91,6 +99,9 @@ check('Send pastes the generation\'s infotext into the tab it was made in', last
 check('through that tab\'s hidden button, once, naming the generation for its corrections',
       [pasted.txt2img, pasted.img2img, loaderAsked[0]?.generation, buttonPastes.txt2img], [1, 0, 1, 0]);
 check('and shows the tab', shown, ['tab_txt2img-button']);
+await waitFor('the landing', () => scrolls.length > 1);
+check('and lands at the page\'s top, the checkpoint and modules in view (#263): the tab bar, then 0',
+      scrolls, [120, 0]);
 check('having asked how the generation was made', asked.some((href) => href.includes('/generations/1/send-plan')), true);
 
 // A LoRA the prompt names by its alias - as Forge writes it, "Alias from
