@@ -49,6 +49,14 @@ _IMAGE_DETAILS = ("infotext", "meta", "loras", "hr_prompt", "hr_negative_prompt"
 # Stored as JSON text: lists and dicts.
 _JSON_COLUMNS = {"styles", "modules", "hr_modules", "params", "extra_params",
                  "script_args", "settings", "meta", "loras", "inputs"}
+# A prompt's head, if nothing names the prompt: one EXISTS per column, so each
+# is one index's lookup (v40) - an OR across them reads every row.
+_UNNAMED_PROMPT = ("SELECT grouped_as FROM prompts WHERE id = ? "
+                   "AND NOT EXISTS (SELECT 1 FROM generations WHERE prompt_id = ?) "
+                   "AND NOT EXISTS (SELECT 1 FROM generations WHERE negative_id = ?) "
+                   "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE prompt_id = ?) "
+                   "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE negative_id = ?) "
+                   "AND NOT EXISTS (SELECT 1 FROM prompts WHERE grouped_as = ? AND id <> ?)")
 # The path column a resource of each single-file role stands for.
 _SINGLE_PATHS = {"checkpoint": "checkpoint_path", "hr_checkpoint": "hr_checkpoint_path",
                  "refiner": "refiner_path"}
@@ -331,6 +339,7 @@ class GenerationsOps:
             The generation's id.
         """
         with self._cursor() as cursor:
+            self._write_lock(cursor)
             return self._record(cursor, generation, images, files)
 
     def record_generations(self, generations: Sequence[Tuple[Dict[str, Any], List[Dict[str, Any]],
@@ -338,7 +347,18 @@ class GenerationsOps:
         """Several generations, each as record_generation() takes one, in one
         transaction: a sync writes hundreds at a time (#233)."""
         with self._cursor() as cursor:
+            self._write_lock(cursor)
             return [self._record(cursor, *generation) for generation in generations]
+
+    def _write_lock(self, cursor) -> None:
+        """
+        Hold the write lock from here to the commit. Python's sqlite3 begins a
+        transaction at its first write, so a prompt looked up before it could
+        be deleted by another writer - this WebUI's Delete, or the other WebUI
+        on a shared database - before the row naming it is written (#248).
+        """
+        if not cursor.connection.in_transaction:
+            cursor.execute("BEGIN IMMEDIATE")
 
     def _record(self, cursor, generation: Dict[str, Any], images: List[Dict[str, Any]],
                 files: List[List[str]]) -> int:
@@ -839,15 +859,27 @@ class GenerationsOps:
             only its own. The files themselves are not touched here.
         """
         with self._cursor() as cursor:
-            return self.remove(cursor, generation_id)
+            freed: set = set()
+            own = self.remove(cursor, generation_id, freed)
+            self.drop_unused_prompts(cursor, freed)
+            return own
 
-    def remove(self, cursor, generation_id: int) -> List[str]:
+    def remove(self, cursor, generation_id: int, freed: set) -> List[str]:
         """delete_generation() inside a caller's transaction: a task deleted
-        with its data takes its generations with it, in one (#162)."""
+        with its data takes its generations with it, in one (#162). The
+        prompts its rows named are added to `freed`, for the caller to drop
+        those left unnamed once its deletes are done (drop_unused_prompts)."""
+        cursor.execute("SELECT prompt_id, negative_id FROM generations WHERE id = ? UNION "
+                       "SELECT prompt_id, negative_id FROM generation_images WHERE generation_id = ?",
+                       (generation_id, generation_id))
+        freed.update(p for row in cursor.fetchall() for p in row if p)
         cursor.execute("SELECT path FROM generation_images WHERE generation_id = ?",
                        (generation_id,))
         paths = [r[0] for r in cursor.fetchall()]
-        cursor.execute("DELETE FROM generation_resources WHERE generation_id = ?", (generation_id,))
+        # By image, which their key starts with: by the generation's number
+        # read every resource row of the library, 538 ms at 76,000 images.
+        cursor.execute("DELETE FROM generation_resources WHERE image_id IN "
+                       "(SELECT id FROM generation_images WHERE generation_id = ?)", (generation_id,))
         cursor.execute("DELETE FROM image_details WHERE image_id IN "
                        "(SELECT id FROM generation_images WHERE generation_id = ?)", (generation_id,))
         cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
@@ -889,15 +921,21 @@ class GenerationsOps:
             says why - and the id of the generation removed with it, or None).
         """
         with self._cursor() as cursor:
-            return self._delete_image(cursor, image_id)
+            freed: set = set()
+            gone = self._delete_image(cursor, image_id, freed)
+            self.drop_unused_prompts(cursor, freed)
+            return gone
 
-    def _delete_image(self, cursor, image_id: int) -> Tuple[List[str], Optional[int]]:
-        """delete_image() inside a caller's transaction."""
-        cursor.execute("SELECT generation_id, path FROM generation_images WHERE id = ?", (image_id,))
+    def _delete_image(self, cursor, image_id: int, freed: set) -> Tuple[List[str], Optional[int]]:
+        """delete_image() inside a caller's transaction; the prompts its rows
+        named go into `freed`, as remove() says."""
+        cursor.execute("SELECT generation_id, path, prompt_id, negative_id FROM generation_images WHERE id = ?",
+                       (image_id,))
         row = cursor.fetchone()
         if not row:
             return [], None
         generation_id, path = row[0], row[1]
+        freed.update(p for p in (row[2], row[3]) if p)
         cursor.execute("DELETE FROM generation_resources WHERE image_id = ?", (image_id,))
         cursor.execute("DELETE FROM image_details WHERE image_id = ?", (image_id,))
         cursor.execute("DELETE FROM generation_images WHERE id = ?", (image_id,))
@@ -909,6 +947,8 @@ class GenerationsOps:
             cursor.execute("UPDATE generations SET image_count = ? WHERE id = ?",
                            (left, generation_id))
         else:
+            cursor.execute("SELECT prompt_id, negative_id FROM generations WHERE id = ?", (generation_id,))
+            freed.update(p for row in cursor.fetchall() for p in row if p)
             cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
             cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
@@ -946,6 +986,8 @@ class GenerationsOps:
         """
         paths = list({image["path"].lower(): image["path"] for _, images, _ in generations for image in images}.values())
         with self._cursor() as cursor:
+            self._write_lock(cursor)
+            freed: set = set()
             rated: Dict[str, int] = {}
             bare: Dict[str, int] = {}
             old: List[int] = []
@@ -963,7 +1005,7 @@ class GenerationsOps:
                     if no_text and prompt_level is not None:
                         bare[path.lower()] = prompt_level
             for image_id in old:
-                self._delete_image(cursor, image_id)
+                self._delete_image(cursor, image_id, freed)
             written = []
             for generation, images, files in generations:
                 for image in images:
@@ -977,6 +1019,8 @@ class GenerationsOps:
                                    "WHERE generation_id = ? AND path = ?",
                                    [(rated[image["path"].lower()], generation_id, image["path"])
                                     for image in images if image["path"].lower() in rated])
+            # After the new rows: a prompt they name again keeps its number.
+            self.drop_unused_prompts(cursor, freed)
             return written
 
     def source_id(self, folder: str) -> int:
@@ -1015,6 +1059,9 @@ class GenerationsOps:
             cursor.execute(f"DELETE FROM generation_resources WHERE image_id IN ({images})", (source,))
             cursor.execute(f"DELETE FROM image_details WHERE image_id IN ({images})", (source,))
             made = "SELECT id FROM generations WHERE source_id = ?"
+            cursor.execute(f"SELECT prompt_id, negative_id FROM generation_images WHERE generation_id IN ({made}) "
+                           "UNION SELECT prompt_id, negative_id FROM generations WHERE source_id = ?", (source, source))
+            freed = {p for row in cursor.fetchall() for p in row if p}
             cursor.execute(f"SELECT DISTINCT path FROM generation_images WHERE generation_id IN ({made})",
                            (source,))
             paths = [row[0] for row in cursor.fetchall() if row[0]]
@@ -1024,6 +1071,7 @@ class GenerationsOps:
             cursor.execute("DELETE FROM generations WHERE source_id = ?", (source,))
             removed = cursor.rowcount
             cursor.execute("DELETE FROM image_sources WHERE id = ?", (source,))
+            self.drop_unused_prompts(cursor, freed)
             return removed, self._unnamed(cursor, paths)
 
     def removed_images(self) -> Dict[str, Tuple[Optional[int], Optional[int]]]:
@@ -1044,6 +1092,34 @@ class GenerationsOps:
         with self._cursor() as cursor:
             cursor.executemany("DELETE FROM removed_images WHERE path = ? COLLATE NOCASE",
                                [(p,) for p in paths])
+
+    def drop_unused_prompts(self, cursor, ids: Iterable[Optional[int]]) -> int:
+        """
+        Of these prompts, delete those nothing names any more - no
+        generation's or image's prompt or negative prompt, no other prompt as
+        its head - then the heads they named, the same way: a prompt row lives
+        as long as something uses it (#248). Run by every delete, inside its
+        transaction, once its rows are gone. Each look is one index's (v40),
+        so it costs the same in any library.
+
+        Returns:
+            How many prompt rows went.
+        """
+        ids = {i for i in ids if i}
+        dropped = 0
+        while ids:
+            heads = set()
+            for prompt_id in ids:
+                cursor.execute(_UNNAMED_PROMPT, (prompt_id,) * 7)
+                row = cursor.fetchone()
+                if row is None:
+                    continue
+                cursor.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+                dropped += 1
+                if row[0] and row[0] != prompt_id:
+                    heads.add(row[0])
+            ids = heads
+        return dropped
 
     @staticmethod
     def _unnamed(cursor, paths: Iterable[str]) -> List[str]:
@@ -1140,8 +1216,10 @@ class GenerationsOps:
                 f"WHERE g.source_id IS NOT NULL AND gi.path COLLATE NOCASE IN ({', '.join('?' * len(paths))})",
                 paths)
             ids = [row[0] for row in cursor.fetchall()]
+            freed: set = set()
             for image_id in ids:
-                self._delete_image(cursor, image_id)
+                self._delete_image(cursor, image_id, freed)
+            self.drop_unused_prompts(cursor, freed)
             return len(ids)
 
     def restamp_levels(self, level: Callable[[Optional[Dict[str, Any]]], int]) -> Tuple[int, int]:

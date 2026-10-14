@@ -94,6 +94,17 @@ the sync moves a file - never the source. A read picks its part in SQL
 33 KB a generation and 4 KB an image, as v36 had, cost a page each to read
 whatever column a list wanted.
 
+**A prompt row lives as long as something names it** (#248, v40): a
+generation's or an image's prompt or negative prompt, or a prompt it heads.
+Every delete collects the prompts its rows named and drops those left
+unnamed, at the end of its own transaction (`drop_unused_prompts`) - after
+Force sync's new rows are written, so a prompt they name again keeps its
+number. Until 0.58.9 no delete did: a Remove folder of 75,618 images left
+5,266. One index per naming column makes each look one lookup; without
+them a Remove folder freeing 2,235 prompts took 36 s. A writer that looks a
+prompt up takes the write lock first (`_write_lock`), or a delete between
+the lookup and the write leaves a row naming nothing.
+
 ## Learned the hard way
 
 ### Proving a change

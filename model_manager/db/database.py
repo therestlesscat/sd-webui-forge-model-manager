@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 39
+SCHEMA_VERSION = 40
 
 
 class ModelsDatabase:
@@ -670,8 +670,10 @@ class ModelsDatabase:
                 return None, []
             paths: List[str] = []
             if with_data:
+                freed: set = set()
                 for generation_id in made:
-                    paths += self._generations.remove(cursor, generation_id)
+                    paths += self._generations.remove(cursor, generation_id, freed)
+                self._generations.drop_unused_prompts(cursor, freed)
             return task, paths
 
     def get_images(

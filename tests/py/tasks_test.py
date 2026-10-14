@@ -212,6 +212,18 @@ check("their images' paths come back, for the files", sorted(paths), sorted([p1,
 check('the task as it was comes back, for its own files', gone['inputs'], {'prompt': 'task 1', 'steps': 1})
 check('a task that does not exist deletes nothing', db.delete_task(10 ** 9, with_data=True), (None, []))
 
+# Its generations' prompts go with them, where nothing else names them (#248).
+t = queue(7)
+made = db.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                             'prompt': 'a task prompt (#248)', 'negative_prompt': 'a task negative (#248)'},
+                            [{'position': 0, 'path': os.path.join(OUT, 'task248.png'),
+                              'prompt': 'a task prompt (#248)', 'negative_prompt': 'a task negative (#248)'}], [[]])
+db.link_task_generation(t, made)
+db.delete_task(t, with_data=True)
+check("with its data, its generations' prompts go too",
+      db._get_connection().execute("SELECT COUNT(*) FROM prompts WHERE text IN (?, ?)",
+                                   ('a task prompt (#248)', 'a task negative (#248)')).fetchone()[0], 0)
+
 # ------------------------------------- deleted in the Generations tab
 h = queue(7)
 g4, _ = generation('four')

@@ -112,6 +112,15 @@ def rows(sql, args=()):
     return [tuple(r) for r in raw.execute(sql, args).fetchall()]
 
 
+def unused():
+    """The prompts nothing names: no generation, no image, no prompt they head."""
+    return [r[0] for r in rows(
+        "SELECT p.id FROM prompts p "
+        "WHERE NOT EXISTS (SELECT 1 FROM generations g WHERE g.prompt_id = p.id OR g.negative_id = p.id) "
+        "AND NOT EXISTS (SELECT 1 FROM generation_images i WHERE i.prompt_id = p.id OR i.negative_id = p.id) "
+        "AND NOT EXISTS (SELECT 1 FROM prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")]
+
+
 def images_at(folder):
     return rows("SELECT gi.path, gi.generation_id FROM generation_images gi WHERE gi.path LIKE ? "
                 "ORDER BY gi.path", (folder + '%',))
@@ -314,6 +323,8 @@ check('the recorder replaces an imported row for its file: one generation remain
                       "WHERE gi.path = ?", (both,))),
       (1, [(None, 'the full record')]))
 check('a recorded image is never replaced', db.replace_imported_images([both]), 0)
+check("the import's prompt, which nothing else names, goes with its row (#248)",
+      rows("SELECT COUNT(*) FROM prompts WHERE text = 'recorded later'")[0][0], 0)
 
 # ---------------------------------------------------------------- cancel
 CANCEL = os.path.join(OUT, 'cancel')
@@ -468,6 +479,9 @@ check('each folder counts the generations it brought', (synced.get(ADDED.lower()
 check('one of Forge\'s folders is not removed: it is unticked',
       image_sync.remove_folder(db, FORGE_DIR), (None, "Forge saves results there: untick it instead."))
 check('a folder not in the list is not removed', image_sync.remove_folder(db, os.path.join(OUT, 'nowhere'))[0], None)
+freed = {x for r in rows("SELECT gi.prompt_id, gi.negative_id, g.prompt_id, g.negative_id FROM generation_images gi "
+                         "JOIN generations g ON g.id = gi.generation_id WHERE gi.path LIKE ?", (ADDED + '%',))
+         for x in r if x}
 removed, why = image_sync.remove_folder(db, ADDED.upper())
 check('Remove takes the folder\'s generations, spelt in any case', (removed, why, images_at(ADDED)), (3, None, []))
 check('and leaves the other folder\'s', len(images_at(OTHER)), 1)
@@ -480,6 +494,7 @@ check('nothing of them is left in any table',
            " (SELECT COUNT(*) FROM generation_details WHERE generation_id NOT IN (SELECT id FROM generations)),"
            " (SELECT COUNT(*) FROM image_sources WHERE path = ? COLLATE NOCASE)", (ADDED,)),
       [(0, 0, 0, 0)])
+check('nor a prompt only they named (#248)', [p for p in unused() if p in freed], [])
 check('it is off the list', [f['path'] for f in image_sync.folders()], [FORGE_DIR, OTHER])
 image_sync.remove_folder(db, OTHER)
 check('an unticked folder removed leaves the off setting too', opts.model_manager_image_folders_off,
@@ -629,6 +644,30 @@ after_ids = {p: id_of(p) for p in before_ids}
 check('a Force sync cancelled after one chunk: one file rewritten, the rest as they were, none lost',
       (forced.progress.state, sum(before_ids[p] != after_ids[p] for p in before_ids), len(after_ids)),
       ('cancelled', 1, 4))
+
+# ---------------------------------------------- Force sync and its prompts (#248)
+# A Force sync deletes a file's synced rows and writes them anew: a prompt the
+# new rows name again keeps its number, and one only the old rows named goes.
+PROMPTS = os.path.join(OUT, 'force-prompts')
+save(PROMPTS, '02000-p.png', infotext('force prompt kept', 50000))
+save(PROMPTS, '02001-p.png', infotext('force prompt before', 60000), at=5000)
+run([PROMPTS])
+# A prompt written after them: SQLite gives a new row the highest number
+# plus one, so without it a prompt deleted and made again could get its old
+# number back, and the check below could not fail.
+db.record_generation({'created_at': '2026-01-04T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                      'prompt': 'force prompt later'},
+                     [{'position': 0, 'path': os.path.join(OUT, 'force-later.png'), 'prompt': 'force prompt later'}],
+                     [[]])
+kept_prompt = rows("SELECT id FROM prompts WHERE text = 'force prompt kept'")
+save(PROMPTS, '02001-p.png', infotext('force prompt after', 60000), at=5000)
+image_sync.ImageSync([{'path': PROMPTS}], UNKNOWN, True, force=True).run()
+check('Force sync keeps the number of a prompt the new rows name again',
+      rows("SELECT id FROM prompts WHERE text = 'force prompt kept'"), kept_prompt)
+check('and drops the prompt only the old rows named, for the new one',
+      [rows("SELECT COUNT(*) FROM prompts WHERE text = ?", (t,))[0][0]
+       for t in ('force prompt before', 'force prompt after')], [0, 1])
+check('no prompt is left that nothing names', unused(), [])
 
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:

@@ -36,6 +36,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager import generations, image_sync, thumbnails  # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
+from model_manager.db.database import SCHEMA_VERSION     # noqa: E402
 
 from PIL import Image                                    # noqa: E402
 from PIL.PngImagePlugin import PngInfo                   # noqa: E402
@@ -137,11 +138,11 @@ with sqlite3.connect(OLD) as c:
     c.execute("UPDATE schema_info SET value = '38' WHERE key = 'version'")
 migrated = fixtures.ModelsDatabase(extension_dir=ROOT, custom_db_path=OLD)
 mc = migrated._get_connection()
-check('v38 migrates to v39: the table is there, the version says so, the image is kept',
+check('v38 migrates on: the table is there, the version says the latest, the image is kept',
       (bool(mc.execute("SELECT name FROM sqlite_master WHERE name = 'image_thumbnails'").fetchone()),
        mc.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()[0],
        mc.execute("SELECT COUNT(*) FROM generation_images").fetchone()[0]),
-      (True, '39', 1))
+      (True, str(SCHEMA_VERSION), 1))
 mc.close()
 
 # ------------------------------------------------------------ the settings

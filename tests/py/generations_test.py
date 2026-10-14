@@ -12,6 +12,7 @@ can be replaced after ours sees it - forge-helpers' hires cap does.
 import dataclasses
 import json
 import os
+import sqlite3
 import sys
 import types
 
@@ -750,6 +751,199 @@ check('the recorder replaces the row a sync wrote for its file',
           "JOIN generations g ON g.id = gi.generation_id JOIN image_details d ON d.image_id = gi.id "
           "WHERE gi.path = ?", (synced,)).fetchall()],
       [(1, 1)])
+
+# ------------------------------------------ a prompt goes with its last user (#248)
+# Each prompt's text is one row of `prompts`, shared by every generation and
+# image that names it, and by the prompts it heads as their tidied text. A
+# delete removes the prompts it leaves unnamed, in its own transaction.
+raw = db._get_connection()
+UNUSED = ("SELECT p.id FROM prompts p "
+          "WHERE NOT EXISTS (SELECT 1 FROM generations g WHERE g.prompt_id = p.id OR g.negative_id = p.id) "
+          "AND NOT EXISTS (SELECT 1 FROM generation_images i WHERE i.prompt_id = p.id OR i.negative_id = p.id) "
+          "AND NOT EXISTS (SELECT 1 FROM prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")
+
+
+def prompt_row(text):
+    row = raw.execute("SELECT id, grouped_as FROM prompts WHERE text = ?", (text,)).fetchone()
+    return tuple(row) if row else None
+
+
+serial = [0]
+
+
+def keep(prompt, negative=None, images=None, files=None):
+    """A generation of `prompt`: one image of its own, or one per text of `images`."""
+    images = images if images is not None else [prompt]
+    rows = []
+    for position, text in enumerate(images):
+        serial[0] += 1
+        rows.append({'position': position, 'path': os.path.join(OUT, 'p248', '%d.png' % serial[0]),
+                     'prompt': text, 'negative_prompt': negative})
+    generation = {'created_at': '2026-02-01T00:00:00', 'mode': 'txt2img', 'image_count': len(rows),
+                  'prompt': prompt, 'negative_prompt': negative}
+    if files:
+        generation['checkpoint_path'] = files[0]
+    return db.record_generation(generation, rows, [list(files or []) for _ in rows])
+
+
+def image_ids(generation_id):
+    return [i['id'] for i in db.get_generation(generation_id)['images']]
+
+
+g = keep('p248 alone', 'p248 alone, its negative')
+db.delete_generation(g)
+check('a generation deleted takes its prompt and negative prompt, which nothing else names',
+      (prompt_row('p248 alone'), prompt_row('p248 alone, its negative')), (None, None))
+
+# The other names it as its own prompt alone: its image was made from a wildcard.
+g, other = keep('p248 shared'), keep('p248 shared', images=['p248 shared, drawn'])
+before = prompt_row('p248 shared')
+db.delete_generation(g)
+check('a prompt another generation names stays, under its number', prompt_row('p248 shared'), before)
+db.delete_generation(other)
+
+g = keep('p248 template __colour__', images=['p248 red', 'p248 blue'])
+red, blue = image_ids(g)
+db.delete_generation_image(red)
+check("one image of a wildcard batch deleted takes its own prompt; the batch's stays",
+      (prompt_row('p248 red'), prompt_row('p248 blue') is not None,
+       prompt_row('p248 template __colour__') is not None), (None, True, True))
+db.delete_generation_image(blue)
+check("the batch's last image takes the generation's prompt with it",
+      (prompt_row('p248 blue'), prompt_row('p248 template __colour__')), (None, None))
+
+head_user = keep('p248 a b')
+g = keep('p248 a  b')
+check('a prompt with loose spacing is grouped under its tidied text',
+      prompt_row('p248 a  b')[1], prompt_row('p248 a b')[0])
+head = prompt_row('p248 a b')
+db.delete_generation(g)
+check('a member deleted goes; its head, which an image names, stays',
+      (prompt_row('p248 a  b'), prompt_row('p248 a b')), (None, head))
+db.delete_generation(head_user)
+
+g = keep('p248 c  d')
+db.delete_generation(g)
+check('a member deleted takes its head, when nothing else names the head',
+      (prompt_row('p248 c  d'), prompt_row('p248 c d')), (None, None))
+
+g, sibling = keep('p248 e  f'), keep('p248 e   f')
+head = prompt_row('p248 e f')
+db.delete_generation(g)
+check("a head another member still names stays", prompt_row('p248 e f'), head)
+db.delete_generation(sibling)
+check('and goes with the last of them', prompt_row('p248 e f'), None)
+
+if has_fastapi:
+    whole = [keep('p248 selected one'), keep('p248 selected two')]
+    batch = keep('p248 selected batch', images=['p248 selected a', 'p248 selected b', 'p248 selected c'])
+    body = client.post('/model-manager/generations/delete-many', data={
+        'generation_ids': ','.join(map(str, whole)), 'image_ids': ','.join(map(str, image_ids(batch)))}).json()
+    check('Delete selected - two generations and three images in one press - takes their prompts',
+          (body['images'], [prompt_row(t) for t in ('p248 selected one', 'p248 selected two', 'p248 selected batch',
+                                                     'p248 selected a', 'p248 selected b', 'p248 selected c')]),
+          (5, [None] * 6))
+
+check('no delete above left a prompt nothing names', [r[0] for r in raw.execute(UNUSED)], [])
+
+# Another writer - the other WebUI on a shared database, or this one's Delete -
+# removes a prompt between the recorder's lookup and its write. The recorder
+# holds the write lock from before its lookup, so the delete waits.
+first = keep('p248 raced')
+ops = db._generations
+real_lookup = ops._prompt_id
+other_writer = sqlite3.connect(db.db_path, timeout=0.2)
+raced = []
+
+
+def lookup_then_raced(cursor, text):
+    found = real_lookup(cursor, text)
+    if text == 'p248 raced' and not raced:
+        try:
+            other_writer.execute('DELETE FROM generation_images WHERE generation_id = ?', (first,))
+            other_writer.execute('DELETE FROM generations WHERE id = ?', (first,))
+            other_writer.execute('DELETE FROM prompts WHERE id = ?', (found,))
+            other_writer.commit()
+            raced.append('deleted')
+        except sqlite3.OperationalError:
+            other_writer.rollback()
+            raced.append('waited')
+    return found
+
+
+ops._prompt_id = lookup_then_raced
+try:
+    second = keep('p248 raced')
+finally:
+    ops._prompt_id = real_lookup
+    other_writer.close()
+check("a delete between the recorder's lookup and its write waits; the generation keeps its prompt",
+      (raced, db.get_generation(second)['prompt']), (['waited'], 'p248 raced'))
+db.delete_generation(second)
+if raced == ['waited']:
+    db.delete_generation(first)
+
+
+# What a delete reads must not grow with the library: the prompts it frees are
+# looked up through an index, and its resource rows found by its images.
+def steps(call):
+    count = [0]
+
+    def tick():
+        count[0] += 1
+    raw.set_progress_handler(tick, 1)
+    try:
+        call()
+    finally:
+        raw.set_progress_handler(None, 1)
+    return count[0]
+
+
+def deletes(tag):
+    """Steps to delete a generation whose prompt another names, and one whose prompt then goes."""
+    used = keep('p248 steps, used', files=[CHECKPOINT])
+    still = keep('p248 steps, used', files=[CHECKPOINT])
+    alone = keep('p248 steps, alone ' + tag, 'p248 steps, its negative ' + tag, files=[CHECKPOINT])
+    out = (steps(lambda: db.delete_generation(used)), steps(lambda: db.delete_generation(alone)))
+    db.delete_generation(still)
+    return out
+
+
+small = deletes('small')
+db.record_generations([({'created_at': '2026-02-02T00:00:00', 'mode': 'txt2img', 'image_count': 2,
+                         'prompt': 'p248 filler %d' % n, 'negative_prompt': 'p248 filler negative %d' % n,
+                         'checkpoint_path': CHECKPOINT},
+                        [{'position': p, 'path': os.path.join(OUT, 'p248', 'filler-%d-%d.png' % (n, p)),
+                          'prompt': 'p248 filler %d' % n, 'negative_prompt': 'p248 filler negative %d' % n}
+                         for p in range(2)], [[CHECKPOINT], [CHECKPOINT]]) for n in range(1500)])
+large = deletes('large')
+check("deleting a generation reads only its own: as many steps with 3,000 more images (its resource rows by image)",
+      large[0] <= small[0] + 50, True)
+check('deleting one whose prompts then go: as many steps with 3,000 more images (each looked up by an index)',
+      large[1] <= small[1] + 50, True)
+if large[0] > small[0] + 50 or large[1] > small[1] + 50:
+    print('   steps, with a prompt still named and with one freed: %r before, %r after' % (small, large))
+
+# Every way to delete images runs the step: a method that deletes them, or calls
+# one that does, also calls drop_unused_prompts.
+import ast                                               # noqa: E402
+
+DELETERS = {'remove', '_delete_image'}
+missing = []
+for module in ('generations_ops.py', 'database.py'):
+    with open(os.path.join(ROOT, 'model_manager', 'db', module), encoding='utf-8') as source:
+        tree = ast.parse(source.read())
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name in DELETERS:
+            continue
+        # Ours: self.remove(), self._generations.remove() - not a list's or a task's.
+        ours = {c.func.attr for c in ast.walk(node) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                and ast.unparse(c.func.value) in ('self', 'self._generations')}
+        texts = [c.value for c in ast.walk(node) if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+        deletes_images = bool(ours & DELETERS) or any('DELETE FROM generation_images' in t for t in texts)
+        if deletes_images and 'drop_unused_prompts' not in ours:
+            missing.append('%s %s' % (module, node.name))
+check('each method that deletes images runs the step that drops their unused prompts', missing, [])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

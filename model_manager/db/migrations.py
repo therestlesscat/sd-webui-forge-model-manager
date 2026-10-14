@@ -2088,6 +2088,24 @@ def _migrate_to_v39(cursor):
     print("[ModelManager] Migration to v39 complete")
 
 
+def _migrate_to_v40(cursor):
+    """
+    Three indexes, so a delete finds the prompts it leaves unnamed without
+    reading every row (#248): every delete now drops a prompt nothing names
+    any more, and a prompt is named by four columns and by the prompts it
+    heads. An image's prompt and a prompt's head have indexes since v37; an
+    image's negative prompt and a generation's two had none, and a prompt
+    nothing named was found so only by reading every row - 13 ms a delete,
+    36 s for a Remove folder freeing 2,235 prompts, at 76,000 images.
+    Nothing else is changed: prompts earlier versions left behind stay.
+    """
+    print("[ModelManager] Migrating to v40: indexes for the prompts a delete frees...")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_negative ON generation_images(negative_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generations_prompt ON generations(prompt_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generations_negative ON generations(negative_id)")
+    print("[ModelManager] Migration to v40 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
@@ -2109,7 +2127,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         32: lambda c: _migrate_to_v32(c, db_path),
         33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
         37: lambda c: _migrate_to_v37(c, db_path),
-        38: _migrate_to_v38, 39: _migrate_to_v39,
+        38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:
