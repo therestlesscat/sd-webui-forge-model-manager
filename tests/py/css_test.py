@@ -138,5 +138,12 @@ check('and fill a ticked radio the same way',
 check('and round their radios',
       [r for r in roots if f'{r} [type="radio"]' not in selectors_of('border-radius: 50%')], [])
 
+# ------------------------------------------------- a rating chip's margin (#251)
+# Gradio gives a button in a tab a bottom margin, at (0,2,1), and takes it back
+# from a last child: every chip but XXX stood 4px short of the row. The chip
+# says its own margin, at a weight above Gradio's - measured in headless Edge.
+chip = [body for sel, body in RULES if sel == '.mm-rate > button.mm-rate-chip[type="button"]']
+check('a rating chip says its own margin, above Gradio\'s', [('margin: 0',) in [body] for body in chip], [True])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

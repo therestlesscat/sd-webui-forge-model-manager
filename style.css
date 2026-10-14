@@ -4111,6 +4111,15 @@ textarea.mm-settings-input {
     cursor: pointer;
 }
 
+/* Gradio gives every button in a tab a bottom margin
+   (.gradio-container-4-40-0 .prose button, 4px) and takes it back from a last
+   child: each chip stretched to the row less 4px, and XXX alone to the whole
+   24px (#251). Element and type beside the class outweigh it, as for Sync
+   images' path box. The viewer is outside Gradio's container and had none. */
+.mm-rate > button.mm-rate-chip[type="button"] {
+    margin: 0;
+}
+
 .mm-rate-chip:hover {
     color: var(--body-text-color, #e5e7eb);
     border-color: var(--body-text-color-subdued, #9ca3af);
