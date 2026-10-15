@@ -41,6 +41,7 @@ const posted = [];
 const detailsAsked = [];
 const progress = [];
 let refuse = null;               // an error the download request is answered with
+let heldAnswer = null;           // the answer for a file the library holds (#276)
 
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -54,6 +55,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/civitai/download')) {
         posted.push(Object.fromEntries(init.body.entries()));
         if (refuse) return reply({ success: false, error: refuse });
+        if (heldAnswer) return reply(heldAnswer);
         progress.push({ version_id: 503, file_name: 'v3_fp32.safetensors', status: 'downloading', percent: 40,
                         downloaded_bytes: 400, total_bytes: 1000, synced: false });
         return reply({ success: true, progress: structuredClone(progress[0]) });
@@ -188,6 +190,14 @@ await click(button());
 check('7. a download Civitai refuses gives the button back, to try again',
       [button()?.disabled, button()?.textContent.trim()], [false, 'Download']);
 refuse = null;
+// Held since the button was drawn: the server asks the library first and
+// queues nothing (#276). The page said "Download started: Unknown".
+heldAnswer = { success: true, already_installed: true, version_id: 503, version_name: 'v3', substituted: false,
+               file_path: 'C:/models/lora/v3_fp32.safetensors' };
+await click(button());
+check('   a file held since: said so, nothing followed, the button given back',
+      [document.getElementById('mm_status')?.textContent, progress.length, button()?.disabled], ['Already in your library', 0, false]);
+heldAnswer = null;
 posted.length = 0;
 
 const clicked = click(button());

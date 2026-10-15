@@ -73,6 +73,7 @@ const MODELS = {
 const asked = [];
 let owned = null;           // the server's next answer about what is held
 let progress = [];          // the downloads list it answers
+let downloadAnswer = null;  // what a Download is answered, when not queued
 globalThis.fetch = async (url) => {
     const href = String(url);
     asked.push(href);
@@ -81,6 +82,7 @@ globalThis.fetch = async (url) => {
     if (href.includes('/civitai/owned')) return answer(owned || { success: true, models: {}, versions: {} });
     if (href.includes('/civitai/download/progress')) return answer({ success: true, downloads: progress });
     if (href.includes('/civitai/download')) {
+        if (downloadAnswer) return answer(downloadAnswer);
         return answer({ success: true, progress: { version_id: 10, file_name: 'a_fp16.safetensors',
                                                    status: 'downloading', percent: 10, synced: false } });
     }
@@ -203,5 +205,24 @@ check('Download stays offered, saying the copy there is ignored',
       [alreadyOwned(), downloadButton()?.disabled, downloadButton()?.title],
       [false, false, 'You have a copy in a folder Neo ignores: --esrgan-models-path replaces it. '
                      + 'This downloads one Neo loads.']);
+
+// ------------------- held since the button was drawn: not queued (#276)
+// The server asks the library first, and answers that the very file is held
+// - it arrived since, in the other WebUI say. The page said "Download
+// started: Unknown", and the button stayed a Download.
+owned = null;
+await show(2);
+downloadAnswer = { success: true, already_installed: true, version_id: 20, version_name: 'v1', substituted: false,
+                   file_path: 'models\\Lora\\b.safetensors' };
+owned = { success: true, models: { 2: { owned: true, listed: true } }, versions: { 20: { owned: true, files: [21] } } };
+asked.length = 0;
+press(downloadButton());
+await waitFor('the press to be answered', () => asked.some((u) => u.includes('/civitai/download')));
+await waitFor('the page to ask the library again', () => ownedAsks().length > 0);
+await waitFor('the answer to be drawn', () => alreadyOwned());
+check('already in the library: said so, nothing followed, and the button turns to Already Owned',
+      [$('#cb_status')?.textContent.trim(), asked.some((u) => u.includes('/download/progress')), alreadyOwned()],
+      ['Already in your library', false, true]);
+downloadAnswer = null;
 
 done();

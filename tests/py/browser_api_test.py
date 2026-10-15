@@ -718,6 +718,14 @@ class FakeDownloads:
         self.cancelled = []
         self.all_cancelled = 0
         self.progress = {}
+        # Where the library has a Civitai file, as the service would say
+        # (library_place, #276): none unless a check puts one here.
+        self.places = {}
+        self.placed = []
+
+    def library_place(self, file_id):
+        self.placed.append(file_id)
+        return self.places.get(file_id, (None, None))
 
     def queue_download(self, version_id, model_data, version_data,
                        file_index=None, file_id=None):
@@ -878,6 +886,33 @@ sys.modules['modules'].paths.models_path = facts['models_dir']
 check('a substitute only the other WebUI holds is downloaded here',
       (body['success'], body.get('already_installed'), downloads.queued[-1][:2]),
       (True, None, (OWNED_VERSION, OWNED_VERSION)))
+
+# The library first (#276): the very file held here is not queued, and the
+# page is told at once. Only the path a download would file to was looked at,
+# so a copy elsewhere in the library was fetched again.
+two_files = remote(90180, 90181, files=[
+    {'id': 801, 'name': 'full.safetensors', 'downloadUrl': 'https://example.invalid/f'},
+    {'id': 802, 'name': 'pruned.safetensors', 'primary': True, 'downloadUrl': 'https://example.invalid/p'}])
+civitai(model=two_files)
+HELD = os.path.join(facts['models_dir'], 'Stable-diffusion', 'mine', 'pruned.safetensors')
+downloads.places = {802: ('held', HELD)}
+before, downloads.placed = len(downloads.queued), []
+status, body = post('/model-manager/civitai/download', version_id=90181, model_id=90180)
+check('a file the library holds here is not queued: already in the library, and where',
+      (status, body['success'], body.get('already_installed'), body.get('file_path'), body['version_id'],
+       len(downloads.queued) - before), (200, True, True, HELD, 90181, 0))
+check('the library is asked about the file the download would take: the primary', downloads.placed, [802])
+
+downloads.placed = []
+status, body = post('/model-manager/civitai/download', version_id=90181, model_id=90180, file_id=801)
+check('another file of the version is not that one: queued',
+      (body.get('already_installed'), downloads.queued[-1][:2], downloads.placed), (None, (90181, 90181), [801]))
+
+downloads.places = {802: ('gone', HELD)}
+status, body = post('/model-manager/civitai/download', version_id=90181, model_id=90180)
+check('one the library lists but is gone from disk is queued: fetched back at its turn',
+      (body.get('already_installed'), downloads.queued[-1][:2]), (None, (90181, 90181)))
+downloads.places = {}
 
 # ---------------------------------------------------------------------- tags
 civitai(tags={'items': [{'name': 'anime'}, {'name': 'realistic'}, {'no': 'name'}]})

@@ -600,7 +600,7 @@ def register(app: FastAPI):
             progress when that substitute is held here.
         """
         try:
-            from ..download_service import get_download_service
+            from ..download_service import get_download_service, pick_file_index
 
             # Fetch model and version data from Civitai
             client = CivitaiClient.from_settings()
@@ -652,8 +652,19 @@ def register(app: FastAPI):
                                    in get_models_db().library_files(version_ids=[version_data.get("id")])):
                 return JSONResponse({"success": True, "already_installed": True, **chosen})
 
-            # Queue download
+            # The very file held here is not queued (#276): the page learns at
+            # once, and nothing joins the queue. The queue asks again at the
+            # download's turn - the file may arrive while it waits.
             service = get_download_service()
+            files = version_data.get("files") or []
+            if files:
+                wanted = files[pick_file_index(files, file_index, file_id)]
+                place, held_path = service.library_place(wanted.get("id"))
+                if place == "held":
+                    return JSONResponse({"success": True, "already_installed": True,
+                                         "file_path": held_path, **chosen})
+
+            # Queue download
             progress = service.queue_download(
                 version_id=version_data.get("id"),
                 model_data=model_data,

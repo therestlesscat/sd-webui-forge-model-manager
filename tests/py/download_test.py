@@ -1165,6 +1165,99 @@ in_library.clear()
 for path in (here, away):
     os.remove(path)
 
+# ------------------------------------------------- the library first (#276)
+# A download looked only at the path it would file to: a copy moved into a
+# subfolder of one's own, or filed by an older template, was fetched again
+# beside it, and a file deleted by hand came back somewhere else, a second
+# row. The library is asked first, by the Civitai file id, at the download's
+# turn - the file may have arrived while it waited.
+fetched = []
+service._download_file = lambda *a, **k: fetched.append(a[1]) or real_download_file(*a, **k)
+templated = os.path.join(CKPT_DIR, 'model.safetensors')
+
+
+def tidy(*paths):
+    for path in paths:
+        for p in (path, os.path.splitext(path)[0] + '.civitai.info'):
+            if os.path.exists(p):
+                os.remove(p)
+
+
+mine = os.path.join(CKPT_DIR, 'mine')
+os.makedirs(mine, exist_ok=True)
+moved = on_disk(mine, 'model.safetensors')
+in_library[1] = [moved]
+del synced[:]
+tidy(templated)
+civitai_says(FakeResponse([b'weights']))
+held =service.download_version(540, CHECKPOINT, version(id=540))
+check('a file the library holds in a subfolder of its own is not fetched again: already there',
+      (held.status, held.file_path, getattr(held, 'filed', None), held.synced, fetched,
+       os.path.exists(templated)),
+      ('complete', moved, 'Already in your library', True, [], False))
+check('nothing is added to the library: it is there', synced, [])
+
+gone = os.path.join(CKPT_DIR, 'deleted by hand', 'renamed.safetensors')
+in_library[1] = [os.path.join(ELSEWHERE, 'model.safetensors'), gone]
+tidy(templated)
+civitai_says(FakeResponse([b'weights']))
+back =service.download_version(541, CHECKPOINT, version(id=541))
+check('one the library lists, gone from disk, comes back where it was, under its name there',
+      (back.status, back.file_path, open(gone, 'rb').read() if os.path.exists(gone) else None,
+       synced[-1] if synced else None, os.path.exists(templated)),
+      ('complete', gone, b'weights', gone, False))
+check('its folder made again; another WebUI\'s row, not on disk, gives no path',
+      (os.path.isdir(os.path.dirname(gone)), fetched[-1] if fetched else None), (True, gone + '.partial'))
+tidy(gone)
+shutil.rmtree(os.path.dirname(gone), ignore_errors=True)
+
+in_library[1] = [gone, moved]
+fetched = []
+service._download_file = lambda *a, **k: fetched.append(a[1]) or real_download_file(*a, **k)
+tidy(templated)
+civitai_says(FakeResponse([b'weights']))
+both =service.download_version(542, CHECKPOINT, version(id=542))
+check('one file on two rows, one held here, one gone: held, not fetched',
+      (both.status, both.file_path, fetched), ('complete', moved, []))
+os.remove(moved)
+
+theirs = on_disk(ELSEWHERE, 'model.safetensors')
+in_library[1] = [theirs]
+tidy(templated)
+civitai_says(FakeResponse([b'weights']))
+other_webui =service.download_version(543, CHECKPOINT, version(id=543))
+check('a copy only in a folder this WebUI does not load is fetched here, as before (#188)',
+      (other_webui.status, other_webui.file_path), ('complete', templated))
+tidy(templated, theirs)
+
+# Paused while fetched back, and a sync forgot its row meanwhile - or the
+# folder template changed: the resume carries on where its .partial is. It
+# started over at the template's path, its .partial left behind.
+os.makedirs(os.path.dirname(gone), exist_ok=True)
+kept_part = on_disk(os.path.dirname(gone), 'renamed.safetensors.partial')
+in_library.clear()
+service._jobs[544] = {'partial_path': kept_part}
+resumed_at = []
+service._download_file = lambda url, path, headers, progress, resume_from=0: resumed_at.append((path, resume_from)) or False
+service.download_version(544, CHECKPOINT, version(id=544), resume=True)
+check('a resume carries on where its .partial is, from its size, not at the template\'s path',
+      resumed_at, [(kept_part, len(b'weights'))])
+os.remove(kept_part)
+shutil.rmtree(os.path.dirname(gone), ignore_errors=True)
+service._jobs.pop(544, None)
+
+# Resumed when the library holds it now: nothing fetched, its .partial gone.
+moved = on_disk(mine, 'model.safetensors')
+held_part = on_disk(CKPT_DIR, 'model.safetensors.partial')
+in_library[1] = [moved]
+service._jobs[545] = {'partial_path': held_part}
+resumed = service.download_version(545, CHECKPOINT, version(id=545), resume=True)
+check('resumed when the library holds it: complete, that file, its .partial gone',
+      (resumed.status, resumed.file_path, os.path.exists(held_part)), ('complete', moved, False))
+os.remove(moved)
+in_library.clear()
+service._download_file = real_download_file
+
 leftovers = [os.path.join(root, f) for root, _, files in os.walk(MODELS) for f in files if f.endswith('.partial')]
 check('after every download here, failed ones included, no .partial is left anywhere', leftovers, [])
 

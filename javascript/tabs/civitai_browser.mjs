@@ -1380,7 +1380,12 @@ async function startDownload(modelId, versionId, fileId) {
     try {
         updateStatus('Starting download...');
         const result = await downloads().start(modelId, versionId, fileId);
-        if (result.success) {
+        if (result.success && result.already_installed) {
+            // Arrived since the button was drawn - in the other WebUI, say:
+            // nothing is queued (#276), and the button learns it is held.
+            updateStatus('Already in your library');
+            refreshOwnership();
+        } else if (result.success) {
             updateStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
         } else {
             updateStatus(`Download error: ${result.error}`);

@@ -1445,7 +1445,9 @@ async function startDownload(modelId, versionId, fileId) {
     try {
         setStatus('Starting download...');
         const result = await downloads().start(modelId, versionId, fileId);
-        if (result.success) setStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
+        // Held here since the button was drawn: nothing is queued (#276).
+        if (result.success && result.already_installed) setStatus('Already in your library');
+        else if (result.success) setStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
         else setStatus(`Download error: ${result.error}`, true);
     } catch (e) {
         console.error('[ModelManager] Download error:', e);

@@ -30,7 +30,7 @@ from .civitai.ownership import owned_versions
 from .forge_host import setting
 from .hashing import HashResult
 from .install import INSTALL_KEY
-from .model_dirs import download_dir, filed_as, held_here, proper_place
+from .model_dirs import download_dir, filed_as, held_here, loads_here, proper_place
 from .storage import download_payload, get_metadata_paths, write_civitai_info
 from .console import say, say_failure
 
@@ -466,6 +466,30 @@ class DownloadService:
             say(f"Could not ask the library about file {file_id}: {e}")
             return []
         return [path for path in paths if held_here(path)]
+
+    def library_place(self, file_id: Optional[int]) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Where the library has this Civitai file (#276): ("held", path) when
+        any of its files is held here - nothing to fetch; else ("gone", path)
+        for one the library still lists, gone from disk, in a folder this
+        WebUI loads - fetched back there, so its row, pin and generations
+        stay; else (None, None) - fetched to the template's folder. Only the
+        file id counts: a version's other file is not this one (#189), and
+        the other WebUI's copy, in a folder this one does not load, is not
+        held here (#188).
+        """
+        held = self._held(file_id)
+        if held:
+            return "held", held[0]
+        if file_id is None or self._library is None:
+            return None, None
+        try:
+            paths = self._library(file_id)
+        except Exception as e:
+            say(f"Could not ask the library about file {file_id}: {e}")
+            return None, None
+        gone = [path for path in paths if path and not os.path.exists(path) and loads_here(path)]
+        return ("gone", gone[0]) if gone else (None, None)
 
     def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
         """A download remembered across a restart knows its ids only: ask Civitai again."""
@@ -1008,15 +1032,6 @@ class DownloadService:
                     return progress
 
             model_type = model_data.get("type", "Other")
-            base_path = self.get_base_path(model_type)
-
-            template = setting('model_manager_civitai_folder_template')
-            subfolder = apply_folder_template(template, model_data, version_data)
-            # Absolute, with no "..": the path a scan finds the file by, which
-            # is how the library knows it is the same file.
-            target_dir = os.path.abspath(os.path.join(base_path, subfolder) if subfolder else base_path)
-
-            os.makedirs(target_dir, exist_ok=True)
 
             files = version_data.get("files", [])
             if not files:
@@ -1032,6 +1047,44 @@ class DownloadService:
                 progress.status = "error"
                 progress.error = "No download URL available"
                 return progress
+
+            # The library first (#276): only the path below was ever looked
+            # at, so a copy moved into a subfolder of one's own, or filed by
+            # an older template, was fetched again beside it.
+            place, library_path = self.library_place(file_info.get("id"))
+            # A resume carries on where its .partial is: the folder template
+            # changed, or a sync forgot the row it was fetched back to, while
+            # it was paused, and it started over elsewhere, its .partial left.
+            kept = job.get("partial_path") if resume else None
+            kept = kept if kept and kept.endswith(PARTIAL) and os.path.exists(kept) else None
+            if place == "held":
+                if kept:
+                    os.remove(kept)          # only ever this download's own
+                progress.file_name = os.path.basename(library_path)
+                progress.file_path = library_path
+                progress.total_bytes = progress.downloaded_bytes = os.path.getsize(library_path)
+                progress.filed = "Already in your library"
+                # In the library already: the page waits for `synced` to say so.
+                progress.synced = True
+                progress.status = "complete"
+                say(f"Already in your library, not downloaded again: {library_path}")
+                return progress
+
+            if kept:
+                target_dir, file_name = os.path.split(kept[:-len(PARTIAL)])
+            elif place == "gone":
+                # Back where the library had it, under the name it had there:
+                # the same row, with its pin and generations, not a second.
+                target_dir, file_name = os.path.split(library_path)
+            else:
+                base_path = self.get_base_path(model_type)
+                template = setting('model_manager_civitai_folder_template')
+                subfolder = apply_folder_template(template, model_data, version_data)
+                # Absolute, with no "..": the path a scan finds the file by, which
+                # is how the library knows it is the same file.
+                target_dir = os.path.abspath(os.path.join(base_path, subfolder) if subfolder else base_path)
+
+            os.makedirs(target_dir, exist_ok=True)
 
             progress.file_name = file_name
             target_path = os.path.join(target_dir, file_name)

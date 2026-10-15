@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.59 - Download several at once
+
+*15 October 2026*
+
+A download asks your library first, so a file you already have is never fetched again, wherever it sits. It is the first step towards downloading several models at once from the Civitai Browser.
+
+- **0.59.0** (build 487) - A download asks the library first (#276). It looked only at the path it would file to - the type's folder, the folder template's subfolder, the file's name - so a file moved into a subfolder of your own, or filed under an older folder template, was fetched again beside it, and one deleted by hand came back at the template's path, its old row, pin and generations left to the next sync. Now, by the file's Civitai id: one the library holds in this WebUI's folders is not fetched, and the page says "Already in your library"; one the library lists but is gone from disk is fetched back to where it was, under the name it had there, its folder made again if need be; anything else goes where it went before. A copy only the other WebUI holds, in a folder this one does not load, is still fetched here. The download asks when it is pressed and again when its turn comes, so a file that arrives while it waits is not fetched either. No button offered a held file - it said Already Owned - but a file that arrived after the button was drawn made the Civitai Browser and the Model Manager say "Download started: Unknown"; they now say it is in your library. A paused download resumes where its .partial is: when the folder template changed while it was paused, or a sync forgot the row it was being fetched back to, it started over at the template's path and left its .partial behind.
+
 ## 0.58 - Your generations, ready for tens of thousands
 
 *11 October 2026*
