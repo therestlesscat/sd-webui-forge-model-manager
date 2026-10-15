@@ -1,5 +1,16 @@
 [
     {
+        "id": "download-selected",
+        "version": "0.59.1",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "civitai_browser"
+        ],
+        "title": "Download several models at once",
+        "text": "Tick Select, beside I'm feeling lucky, then click the models you want - on any page of your search, or across draws with I'm feeling lucky; shift-click ticks a run of them. Download selected adds each one's newest version to the downloads queue, which fetches two at a time. One already in your library, or paid on Civitai and not bought, is left out, and the line above the models says so."
+    },
+    {
         "id": "single-pass",
         "version": "0.58.14",
         "kind": "feature",

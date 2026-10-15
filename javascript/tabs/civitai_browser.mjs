@@ -48,7 +48,7 @@ const {
 } = await shared('media.mjs');
 const { nsfwImageLevel, isImageSafe } = await shared('nsfw.mjs');
 const {
-    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
+    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads, onItsWay,
 } = await shared('downloads.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta } = await shared('image_card.mjs');
 const {
@@ -87,6 +87,20 @@ let isLoading = false;
 let selectedModel = null;
 let selectedVersionIndex = 0;
 let selectedFileIndex = null;  // null = whichever file Civitai marks primary
+// Select (#223): whether it is on, and the ticks - by Civitai's model id, each
+// the search result its card was drawn from, and where the card stood, so a
+// tick outlives the page it was made on and a press goes in page order.
+// Cleared by a new search, never by paging; Select off only hides them.
+let selecting = false;
+const picked = new Map();      // model id -> { model, page, index }
+let lastPicked = -1;           // the card last ticked on this page, for shift-click
+let batch = null;              // Download selected while it runs: { stop }
+// In I'm feeling lucky a draw is the next page: ticks stay while the draw's
+// filters do. The filters the ticks' draws were made under, how many draws
+// since, and which of them the grid shows - 0 for a search's page.
+let drawnUnder = null;
+let drawCount = 0;
+let gridDraw = 0;
 // The gallery is a list of pages, as the Model Manager's is, but live: each
 // the next page of Civitai's, before the switches filter it, and Load More
 // adds the next (model_manager/gallery.py). Nothing is kept on the server;
@@ -498,6 +512,12 @@ function describeDraw(count, draw) {
     return text;
 }
 
+/** Civitai's own filters, and nothing a draw cannot use. */
+function drawFilters() {
+    const { types, checkpoint_type, base_models, nsfw, tag, period } = getFilters();
+    return { types, checkpoint_type, base_models, nsfw, tag, period };
+}
+
 /**
  * Draw a page of models at random (I'm feeling lucky), streamed: the status
  * line follows the draw, and the page comes at the end, shuffled. Another
@@ -508,10 +528,8 @@ async function drawModels() {
     const controller = new AbortController();
     activeStream = controller;
 
-    // Civitai's own filters, and nothing a draw cannot use.
-    const { types, checkpoint_type, base_models, nsfw, tag, period } = getFilters();
     const params = new URLSearchParams();
-    Object.entries({ types, checkpoint_type, base_models, nsfw, tag, period }).forEach(([k, v]) => {
+    Object.entries(drawFilters()).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== '' && v !== false) params.append(k, v);
     });
 
@@ -788,6 +806,8 @@ function renderCard(model, index) {
             { html: renderThumbs(model.stats?.thumbsUpCount, model.stats?.thumbsDownCount) },
             { text: `↓ ${formatNumber(model.stats?.downloadCount || 0)}`, title: 'Downloads' },
         ],
+        // Select's tick (#223), while it is on: kept by model, across pages.
+        tick: selecting ? { checked: picked.has(model.id) } : null,
     });
 }
 
@@ -1460,6 +1480,178 @@ work.afterUpdate(() => {
     browserShowing = showing;
 });
 
+// ------------------------------------------------------------------ Select
+// Tick models on any page of a search, then Download selected (#223): each
+// goes through the Download a press on it uses, one after another, and the
+// server says what became of it - queued, already in the library (#276),
+// paid and not bought, or no file. The page decides nothing about what may
+// be downloaded. The bar is this tab's own, drawn with the classes the other
+// tabs' bars use: what is worth one definition is its look.
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** The bar Select shows: how many are ticked, Select all, Clear, and Download selected - or Stop while it runs. */
+function selectBarHtml() {
+    const count = picked.size;
+    const busy = batch !== null;
+    const press = busy
+        ? `<button type="button" class="mm-btn danger" data-action="civitaiBrowser.stopSelected"
+                   ${batch.stop ? 'disabled title="Stopping after the model being asked for"' : 'title="Stop after the model being asked for: the rest stay ticked"'}>${batch.stop ? 'Stopping...' : 'Stop'}</button>`
+        : `<button type="button" class="mm-btn primary" data-action="civitaiBrowser.downloadSelected"
+                   ${count ? 'title="Download each ticked model\'s newest version"' : 'disabled title="Tick models first"'}>Download selected</button>`;
+    return `<span class="mm-select-count">${plural(count, 'model')} selected</span>
+        <button type="button" class="mm-btn secondary" data-action="civitaiBrowser.selectAll">Select all on this page</button>
+        <button type="button" class="mm-btn secondary" data-action="civitaiBrowser.selectClear"
+                ${count && !busy ? '' : 'disabled'}>Clear</button>
+        ${press}`;
+}
+
+function updateSelectBar() {
+    const bar = document.getElementById('cb_select_bar');
+    if (!bar) return;
+    bar.hidden = !selecting;
+    const html = selecting ? selectBarHtml() : '';
+    if (bar.innerHTML !== html) bar.innerHTML = html;
+}
+
+/** The ticks drawn as they are, without drawing the grid again. */
+function showTicks() {
+    document.querySelectorAll('#cb_grid [data-card-pick]').forEach((box) => {
+        box.checked = picked.has(currentModels[Number(box.dataset.cardPick)]?.id);
+    });
+    updateSelectBar();
+}
+
+function clearPicks() {
+    picked.clear();
+    lastPicked = -1;
+    showTicks();
+}
+
+/** Select's switch: off hides the ticks, and on shows the same ones again. */
+function setSelecting(on) {
+    selecting = Boolean(on);
+    const box = document.getElementById('cb_select');
+    if (box) box.checked = selecting;
+    renderGrid();
+    updateSelectBar();
+}
+
+/** Tick a card or untick it - with Shift, every card from the last one ticked, as this one now is. */
+function pickCard(index, on, shift) {
+    const [from, to] = shift && lastPicked >= 0
+        ? [Math.min(lastPicked, index), Math.max(lastPicked, index)] : [index, index];
+    for (let i = from; i <= to; i++) {
+        const model = currentModels[i];
+        if (!model?.id) continue;
+        if (on) picked.set(model.id, { model, page: gridDraw || currentPage, index: i });
+        else picked.delete(model.id);
+    }
+    lastPicked = index;
+    showTicks();
+}
+
+function selectAllOnPage() {
+    currentModels.forEach((model, index) => {
+        if (model?.id) picked.set(model.id, { model, page: gridDraw || currentPage, index });
+    });
+    showTicks();
+}
+
+// Selecting, a click on a card ticks it rather than opening it - caught on
+// the way down, before the card's own action, as your generations and the
+// Queue do. A click on the box has ticked it by then; only the card's action
+// is stopped.
+work.listen(document, 'click', (event) => {
+    if (!selecting) return;
+    const card = event.target.closest?.('#cb_grid .model-card');
+    const index = Number(card?.dataset.index);
+    const model = card && currentModels[index];
+    if (!model?.id) return;
+    event.stopPropagation();
+    const box = event.target.closest('[data-card-pick]');
+    if (box) {
+        pickCard(index, box.checked, event.shiftKey);
+        return;
+    }
+    event.preventDefault();
+    pickCard(index, !picked.has(model.id), event.shiftKey);
+}, true);
+
+/** What a press of Download selected came to, in one line: only what did not join the queue. */
+function batchReport(counts, failure, left) {
+    const skipped = [
+        counts.held && `${counts.held} already in your library`,
+        counts.paid && `${counts.paid} paid on Civitai, not bought`,
+        counts.coming && `${counts.coming} already downloading`,
+        counts.noFile && `${plural(counts.noFile, 'model')} with no file to download`,
+    ].filter(Boolean);
+    return [
+        skipped.length ? `Not queued: ${skipped.join(', ')}.` : '',
+        counts.failed ? `${counts.failed} failed: ${failure} - still ticked, press Download selected again.` : '',
+        left ? `Stopped: ${plural(left, 'model')} not asked for, still ticked.` : '',
+    ].filter(Boolean).join(' ');
+}
+
+/**
+ * Download selected: each tick, in page order, through the Download a press
+ * uses, one after another - each makes the server ask Civitai for the model,
+ * at the client's pace. A tick the server answers for is cleared; one that
+ * failed stays, to press again.
+ */
+async function downloadSelected() {
+    if (batch || !picked.size) return;
+    const order = [...picked.values()].sort((a, b) => a.page - b.page || a.index - b.index);
+    batch = { stop: false };
+    updateSelectBar();
+    updateStatus('');
+    const counts = { held: 0, paid: 0, coming: 0, noFile: 0, failed: 0 };
+    let failure = '';
+    let asked = 0;
+    try {
+        for (const { model } of order) {
+            if (batch.stop) break;
+            asked++;
+            const version = model.modelVersions?.[0];
+            const file = (version?.files || [])[primaryFileIndex(version)];
+            let result;
+            if (!version?.id) {
+                result = { success: false, no_file: true };
+            } else if (onItsWay(version.id)) {
+                result = { success: false, coming: true };
+            } else {
+                try {
+                    result = await downloads().start(model.id, version.id, file?.id);
+                } catch (e) {
+                    result = { success: false, error: e.message };
+                }
+            }
+            if (result.success) {
+                if (result.already_installed) counts.held++;
+            } else if (result.paid) {
+                counts.paid++;
+            } else if (result.no_file) {
+                counts.noFile++;
+            } else if (result.coming || result.error === 'Already downloading') {
+                counts.coming++;
+            } else {
+                counts.failed++;
+                failure = result.error || `the server answered ${result.status}`;
+                continue;
+            }
+            picked.delete(model.id);
+            showTicks();
+        }
+    } finally {
+        const left = batch.stop ? order.length - asked : 0;
+        batch = null;
+        showTicks();
+        updateStatus(batchReport(counts, failure, left));
+        // What arrived since the cards were drawn shows as Owned.
+        if (counts.held) refreshOwnership();
+    }
+}
+
 // ===== Tag Autocomplete (Single Tag) =====
 
 // Search tags from API
@@ -1879,9 +2071,23 @@ function search() {
     loadEnums();
     commitTypedTag();
     if (feelingLucky()) {
+        // A draw is lucky mode's next page (#223): the ticks stay, unless its
+        // filters differ from the draws they were made in - a Search's
+        // included, so none carries over from one to the other.
+        const under = JSON.stringify(drawFilters());
+        if (under !== drawnUnder) {
+            clearPicks();
+            drawCount = 0;
+            drawnUnder = under;
+        }
+        gridDraw = ++drawCount;
+        lastPicked = -1;             // a shift-click's range is one draw's
         drawModels();
         return;
     }
+    clearPicks();                    // every search starts with no ticks
+    drawnUnder = null;
+    gridDraw = 0;
     // A search starts at page 1 with only the pages it has been to: a
     // filtered page's cursor holds what the filters found then, not now.
     cursors = [""];
@@ -1889,17 +2095,20 @@ function search() {
     searchModels(1);
 }
 function prevPage() {
+    lastPicked = -1;                 // a shift-click's range is one page's
     if (currentPage > 1) {
         searchModels(currentPage - 1);
     }
 }
 function nextPage() {
+    lastPicked = -1;
     // Can go next if there are more pages AND we have a cursor for it
     if (hasMorePages && cursors[currentPage]) {
         searchModels(currentPage + 1);
     }
 }
 function goToPage(page) {
+    lastPicked = -1;
     // Can navigate to any page we have a cursor for
     if (page >= 1 && page <= cursors.length && page !== currentPage) {
         searchModels(page);
@@ -1911,6 +2120,9 @@ function goToPage(page) {
 // Model Manager's modelManager.showModel.
 async function showModel(query) {
     savedSearchDone = true;
+    clearPicks();
+    drawnUnder = null;
+    gridDraw = 0;
     await showTab('civitaiBrowser');
     const search = document.getElementById('cb_search');
     if (search) search.value = query;
@@ -1947,7 +2159,8 @@ function showInModelManager(modelId) {
 work.provide('civitaiBrowser.search', () => search());
 work.provide('civitaiBrowser.feelingLucky', () => syncLucky());
 work.provide('civitaiBrowser.startOver', () => startOver());
-work.provide('civitaiBrowser.openModel', ({ index }) => openModel(Number(index)));
+// Selecting, a click on a card ticks it instead (the listener beside Select).
+work.provide('civitaiBrowser.openModel', ({ index }) => (selecting ? undefined : openModel(Number(index))));
 work.provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('civitaiBrowser.prevPage', () => prevPage());
 work.provide('civitaiBrowser.nextPage', () => nextPage());
@@ -1963,6 +2176,14 @@ work.provide('civitaiBrowser.selectVersion', ({ index }) => selectVersion(Number
 work.provide('civitaiBrowser.toggleDescription', () => toggleDescription());
 work.provide('civitaiBrowser.showInModelManager', ({ modelId }) => showInModelManager(safeId(modelId)));
 work.provide('civitaiBrowser.closeDetails', () => closeDetails());
+work.provide('civitaiBrowser.selecting', (data, box) => setSelecting(box.checked));
+work.provide('civitaiBrowser.selectAll', () => selectAllOnPage());
+work.provide('civitaiBrowser.selectClear', () => clearPicks());
+work.provide('civitaiBrowser.downloadSelected', () => downloadSelected());
+work.provide('civitaiBrowser.stopSelected', () => {
+    if (batch) batch.stop = true;
+    updateSelectBar();
+});
 
 /**
  * Started by the loading module once Gradio has drawn the tab (#183) - after

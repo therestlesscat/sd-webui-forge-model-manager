@@ -491,6 +491,27 @@ class DownloadService:
         gone = [path for path in paths if path and not os.path.exists(path) and loads_here(path)]
         return ("gone", gone[0]) if gone else (None, None)
 
+    def paid_refusal(self, version_id: int, version_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Why a paid version is not downloaded here, or None: no API key, or
+        Civitai says the key's account has not bought it. Unknown - Civitai
+        not asked - it is tried. Asked by the route before queuing (#223),
+        and at the download's turn, which a restored download still passes.
+        """
+        paid = paid_access_info(version_data)
+        if not paid:
+            return None
+        if not api_key_from_settings():
+            return ("This version is paid on Civitai. With an API key set (the settings, "
+                    "Civitai connection), a version you have bought downloads here.")
+        bought = (owned_versions([version_id]) or {}).get(version_id)
+        if bought is False:
+            return (("This version is paid on Civitai" if paid["permanent"] else
+                     f"This version is in early access until {paid['ends_at']}")
+                    + ", and Civitai says your account has not bought it. Just bought it? Civitai's API "
+                    "takes some minutes to know: try again shortly. Otherwise, buy it on its page.")
+        return None
+
     def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
         """A download remembered across a restart knows its ids only: ask Civitai again."""
         progress = self._active_downloads.get(version_id)
@@ -1014,22 +1035,11 @@ class DownloadService:
             # One it did not is refused before anything is created: its
             # download answers 403, and _download_file would burn three
             # retries on it. Unknown - Civitai not asked - it is tried.
-            paid = paid_access_info(version_data)
-            if paid:
-                if not api_key_from_settings():
-                    progress.status = "error"
-                    progress.error = ("This version is paid on Civitai. With an API key set (the settings, "
-                                      "Civitai connection), a version you have bought downloads here.")
-                    return progress
-                bought = (owned_versions([version_id]) or {}).get(version_id)
-                if bought is False:
-                    progress.status = "error"
-                    progress.error = (
-                        ("This version is paid on Civitai" if paid["permanent"] else
-                         f"This version is in early access until {paid['ends_at']}")
-                        + ", and Civitai says your account has not bought it. Just bought it? Civitai's API "
-                        "takes some minutes to know: try again shortly. Otherwise, buy it on its page.")
-                    return progress
+            refused = self.paid_refusal(version_id, version_data)
+            if refused:
+                progress.status = "error"
+                progress.error = refused
+                return progress
 
             model_type = model_data.get("type", "Other")
 

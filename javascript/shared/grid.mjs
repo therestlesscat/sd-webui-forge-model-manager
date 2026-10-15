@@ -180,10 +180,13 @@ const CARD_NAME_LENGTH = 30;
  *     under the name: type, base model, versions.
  * @param {({text: string, title?: string}|{html: string})[]} [card.stats] -
  *     the bottom row. `html` is for renderThumbs(), which escapes its own.
+ * @param {{checked: boolean}} [card.tick] - a Select mode's tick box, in the
+ *     image's bottom-left corner, `data-card-pick` its index (#223). None
+ *     without it, and the card is as it was.
  * @returns {string} the card's HTML.
  */
 export function renderModelCard({ index, action, name, media, classes = [], data = {},
-                                  overlays = [], badges = [], stats = [] }) {
+                                  overlays = [], badges = [], stats = [], tick = null }) {
     const full = name || 'Unknown';
     const shown = full.length > CARD_NAME_LENGTH ? full.substring(0, CARD_NAME_LENGTH) + '...' : full;
     const title = (item) => (item.title ? ` title="${escapeHtml(item.title)}"` : '');
@@ -199,7 +202,9 @@ export function renderModelCard({ index, action, name, media, classes = [], data
                 ${image}
                 ${overlays.map((o) => (o.action
                     ? `<button type="button" class="${escapeHtml(o.cls)}"${title(o)} data-action="${escapeHtml(o.action)}"${dataAttributes(o.data)}>${escapeHtml(o.text)}</button>`
-                    : `<div class="${escapeHtml(o.cls)}"${title(o)}>${escapeHtml(o.text)}</div>`)).join('')}
+                    : `<div class="${escapeHtml(o.cls)}"${title(o)}>${escapeHtml(o.text)}</div>`)).join('')}${tick ? `
+                <label class="mm-select-tick" title="Select"><input type="checkbox" data-card-pick="${Number(index)}"${
+                    tick.checked ? ' checked' : ''}></label>` : ''}
             </div>
             <div class="model-card-info">
                 <div class="model-card-name" title="${escapeHtml(full)}">${escapeHtml(shown)}</div>

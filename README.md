@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.59 - Download several at once.** In the Civitai Browser, tick Select and click the models you
+want, on any page of your search or across I'm feeling lucky's draws, then press Download selected: each one's newest version joins the
+downloads queue. Before that, a download asks your library first, so a file you already have - moved
+into a subfolder of your own, say - is never fetched again.
+
 **0.58 - Your generations, ready for tens of thousands.** The tables behind the Generations
 tab and each model's Your generations are rebuilt for libraries of tens of thousands of images:
 the tab asks for one scroll's worth at a time instead of reading every image you ever recorded.

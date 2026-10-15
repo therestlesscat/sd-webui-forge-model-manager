@@ -179,6 +179,14 @@ def create_civitai_browser_ui():
                         <button type="button" id="cb_start_over_btn" class="mm-btn secondary" style="display: none" disabled
                                 data-action="civitaiBrowser.startOver"
                                 title="Nothing drawn yet: there is nothing to start over from.">Start over</button>
+                        <!-- Select (#223): a tick on each card, kept across this search's
+                             pages, and Download selected - each model through the
+                             same Download a press on it uses (civitai_browser.mjs). -->
+                        <label class="mm-checkbox-label" id="cb_select_label"
+                               title="Tick models, on any page of this search, then download them all with one press. Each downloads its newest version, as its card shows.">
+                            <input type="checkbox" id="cb_select" data-action="civitaiBrowser.selecting"> Select
+                        </label>
+                        <span id="cb_select_bar" class="mm-select-bar" hidden></span>
                         <button type="button" id="cb_save_search_btn" class="mm-btn secondary"
                                 title="Save these filters as the search this tab opens with. Right-click to clear it.">Save Search</button>
                         <button type="button" id="cb_search_btn" class="cb-btn primary" data-action="civitaiBrowser.search">Search</button>

@@ -664,6 +664,16 @@ def register(app: FastAPI):
                     return JSONResponse({"success": True, "already_installed": True,
                                          "file_path": held_path, **chosen})
 
+            # Said now, not as an Error row at its turn (#223): a batch
+            # counts the answer, and nothing joins the queue.
+            refused = service.paid_refusal(version_data.get("id"), version_data)
+            if refused:
+                return JSONResponse({"success": False, "paid": True, "error": refused, **chosen},
+                                    status_code=403)
+            if not files:
+                return JSONResponse({"success": False, "no_file": True,
+                                     "error": "No files available for download", **chosen}, status_code=409)
+
             # Queue download
             progress = service.queue_download(
                 version_id=version_data.get("id"),

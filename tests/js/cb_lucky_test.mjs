@@ -60,7 +60,7 @@ const pageStrip = () => document.querySelectorAll('#cb_grid .mm-page-num').lengt
 const row = $('cb_save_search_btn').parentElement;
 check('the box sits in the buttons row, with Start over, before Save Search',
       Array.from(row.children).map((c) => c.id),
-      ['cb_lucky_label', 'cb_start_over_btn', 'cb_save_search_btn', 'cb_search_btn']);
+      ['cb_lucky_label', 'cb_start_over_btn', 'cb_select_label', 'cb_select_bar', 'cb_save_search_btn', 'cb_search_btn']);
 check('saying what it is', $('cb_lucky_label').textContent.replace(/\s+/g, ' ').trim(), "I'm feeling lucky");
 check('unticked at first, Search a search', [$('cb_lucky').checked, $('cb_search_btn').textContent], [false, 'Search']);
 const startOver = () => $('cb_start_over_btn');

@@ -134,6 +134,17 @@ renderModelGrid({ gridId: 'test_grid', cards: [], empty: 'No <models> found.' })
 check('no cards: a line saying so, escaped', grid.querySelector('.model-grid-empty')?.textContent, 'No <models> found.');
 renderModelGrid({ gridId: 'test_grid', cards: [renderModelCard({ index: 0, action: 'test.x', name: 'One' })],
                   empty: 'none', pagination: '<div class="mm-pagination"></div>' });
+// Select's tick (#223): a box in the image's corner, only when asked for.
+const plain = { index: 5, action: 'civitaiBrowser.openModel', name: 'Ticked', media: { src: '' } };
+check('no tick asked for: none drawn, the image holding only its picture',
+      Array.from(parse(renderModelCard(plain)).querySelector('.model-card-image').children).map((e) => e.tagName),
+      ['IMG']);
+const ticked = parse(renderModelCard({ ...plain, tick: { checked: true } })).querySelector('.mm-select-tick input');
+const unticked = parse(renderModelCard({ ...plain, tick: { checked: false } })).querySelector('.mm-select-tick input');
+check('a tick asked for: a box in the image, carrying the card\'s place, checked as asked',
+      [ticked?.type, ticked?.getAttribute('data-card-pick'), ticked?.checked, unticked?.checked],
+      ['checkbox', '5', true, false]);
+
 check('cards: the list, then the page strip',
       Array.from(grid.children).map((c) => c.className), ['model-grid-inner', 'mm-pagination']);
 

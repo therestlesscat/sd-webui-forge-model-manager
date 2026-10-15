@@ -727,6 +727,9 @@ class FakeDownloads:
         self.placed.append(file_id)
         return self.places.get(file_id, (None, None))
 
+    # The service's own rule: the key and Civitai's word, faked below.
+    paid_refusal = getattr(ds.DownloadService, "paid_refusal", None)
+
     def queue_download(self, version_id, model_data, version_data,
                        file_index=None, file_id=None):
         self.queued.append((version_id, version_data.get('id'), file_index, file_id))
@@ -913,6 +916,36 @@ status, body = post('/model-manager/civitai/download', version_id=90181, model_i
 check('one the library lists but is gone from disk is queued: fetched back at its turn',
       (body.get('already_installed'), downloads.queued[-1][:2]), (None, (90181, 90181)))
 downloads.places = {}
+
+# Paid and not bought, or no file: said now, before queuing (#223). Each was
+# queued and ended as an Error row at its turn, which a batch could not count.
+real_owned, key_before = ds.owned_versions, getattr(opts, 'model_manager_civitai_api_key', '')
+civitai(model=remote(90190, 90191, paidAccess={'permanent': True}))
+opts.model_manager_civitai_api_key = ''
+before = len(downloads.queued)
+status, body = post('/model-manager/civitai/download', version_id=90191, model_id=90190)
+check('a paid version with no API key set: said no, and why; nothing queued',
+      (status, body['success'], body.get('paid'), 'With an API key set' in (body.get('error') or ''),
+       len(downloads.queued) - before), (403, False, True, True, 0))
+
+opts.model_manager_civitai_api_key = 'test-key'
+ds.owned_versions = lambda ids: {90191: False}
+status, body = post('/model-manager/civitai/download', version_id=90191, model_id=90190)
+check('one the account has not bought: said no, in the queue\'s words; nothing queued',
+      (status, body.get('paid'), 'has not bought it' in (body.get('error') or ''), len(downloads.queued) - before),
+      (403, True, True, 0))
+
+ds.owned_versions = lambda ids: {90191: True}
+status, body = post('/model-manager/civitai/download', version_id=90191, model_id=90190)
+check('one the account bought is queued', (body['success'], body.get('paid'), downloads.queued[-1][:2]),
+      (True, None, (90191, 90191)))
+ds.owned_versions, opts.model_manager_civitai_api_key = real_owned, key_before
+
+civitai(model=remote(90195, 90196, files=[]))
+before = len(downloads.queued)
+status, body = post('/model-manager/civitai/download', version_id=90196, model_id=90195)
+check('a version with no file: said no; nothing queued',
+      (status, body['success'], body.get('no_file'), len(downloads.queued) - before), (409, False, True, 0))
 
 # ---------------------------------------------------------------------- tags
 civitai(tags={'items': [{'name': 'anime'}, {'name': 'realistic'}, {'no': 'name'}]})
