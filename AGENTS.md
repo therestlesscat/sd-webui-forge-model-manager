@@ -741,9 +741,9 @@ Test what a change needs, not everything.
 - What runs as a check, and where a tool run by hand lives: `tests/AGENTS.md`,
   "Testing".
 
-`--all` runs every suite, four at a time, in about 35 s; `tests/README.md`
-says why no wider, what each suite covers, how the choice is made, and how to
-write one.
+`--all` runs every suite, twelve at a time and the slowest first, in about
+25 s; `tests/README.md` says why no wider, what each suite covers, how the
+choice is made, and how to write one.
 
 **A test run takes a minute at most; one that needs longer is asked for
 first.** That is the owner's rule. Start every run under a time limit

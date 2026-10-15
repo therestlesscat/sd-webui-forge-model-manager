@@ -34,7 +34,8 @@ function run(name) {
     });
 }
 
-// Four at a time, as the runner runs suites.
+// Four at a time: in a run this suite is one of the runner's twelve, and
+// these come on top of them.
 const results = [];
 const queue = [...suites];
 await Promise.all(Array.from({ length: 4 }, async () => {

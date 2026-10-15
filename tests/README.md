@@ -6,14 +6,18 @@ python tests/run.py --changed       only the suites the uncommitted changes need
 python tests/run.py --online        those, plus the ones that call Civitai
 python tests/run.py --tools         those, plus the suites of tools run by hand (TOOLS: the NSFW trainer)
 python tests/run.py nsfw hash       only suites matching these words
-python tests/run.py -j 8            at most 8 at a time (default: 4)
+python tests/run.py -j 8            at most 8 at a time (default: 12)
 python tests/py/hash_test.py        any suite, on its own, always
 python tests/coverage.py            line coverage, by hand: tests/work/coverage/report.txt
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`, four at a time: about 35 s for all of them. Not one per CPU:
-32 processes beside two running WebUIs left Windows out of memory. A failing suite's tail is
+`tests/work/`, twelve at a time: about 25 s for all of them, where four took
+61 s - most suites wait on timers more than they work. Not one per CPU: 32
+processes beside two running WebUIs left Windows out of memory; twelve peaked
+at about 2 GB (#270). The slowest suites of the last run start first, after
+the static checks, by the times each run keeps in `tests/work/test_times.json`;
+the results are printed in the list's order. A failing suite's tail is
 printed after the list, its name in the last line, and its whole output kept
 in `tests/work/last_failures.log` until the next run.
 

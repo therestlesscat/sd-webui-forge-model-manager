@@ -4,7 +4,7 @@ Run everything, and say what could not be run and why.
     python tests/run.py                 the offline suites and the checks
     python tests/run.py --online        those, plus the ones that call Civitai
     python tests/run.py nsfw hash       only suites whose name contains these
-    python tests/run.py -j 8            at most 8 suites at a time (default: 4)
+    python tests/run.py -j 8            at most 8 suites at a time (default: 12)
     python tests/run.py --changed       only the suites the uncommitted changes need
     python tests/run.py --all           everything, said outright (what a bare run does)
     python tests/run.py --tools         those, plus the suites of tools run by hand (TOOLS)
@@ -89,6 +89,8 @@ MAP = os.path.join(HERE, 'work', 'test_map.json')
 # by as "1 failed", and which suite it was could not be recovered.
 FAILURES = os.path.join(HERE, 'work', 'last_failures.log')
 TRACE = os.path.join(HERE, 'work', 'trace')
+# How long each suite took when it last ran, by name. Per machine.
+TIMES = os.path.join(HERE, 'work', 'test_times.json')
 
 # Files every suite of a kind depends on: a change to one needs them all.
 SHARED = {
@@ -247,6 +249,23 @@ def plan(wanted, online, node, linkedom, tools=False):
     return runs, skips
 
 
+def slowest_first(runs, times):
+    """
+    The order to start the runs in. Started in the list's order, a slow suite
+    late in it ended the run alone (#270): the slowest of the last run start
+    first. The static checks still start before them, as they fail fastest;
+    a suite with no time yet - new, or never run here - is taken for a slow
+    one. Ties keep the list's order.
+    """
+    def key(run):
+        kind, _, name = run[3]
+        if kind == 'check':
+            return (0, 0)
+        took = times.get(name)
+        return (1, -took if isinstance(took, (int, float)) else float('-inf'))
+    return sorted(runs, key=key)
+
+
 def run_one(command, env, suite=None, record=False):
     """One suite, in its own process: its result, how long it took, and -
     when recording - the files it used."""
@@ -265,10 +284,12 @@ def run_one(command, env, suite=None, record=False):
 
 def main(argv):
     online = '--online' in argv
-    # Four at a time, not one per CPU: each suite is a Python or Node process
+    # Twelve at a time, not one per CPU: each suite is a Python or Node process
     # of its own, and 32 of them beside two running WebUIs left Windows out of
-    # memory to commit ("the paging file is too small").
-    jobs = 4
+    # memory to commit ("the paging file is too small"). Most suites wait on
+    # timers more than they work: twelve ran everything in 27.6 s against
+    # 61.3 s at four, and their processes peaked at about 2 GB (#270).
+    jobs = 12
     for i, arg in enumerate(argv):
         if arg in ('-j', '--jobs') and i + 1 < len(argv):
             jobs = max(1, int(argv[i + 1]))
@@ -300,17 +321,24 @@ def main(argv):
     for label, reason in skips:
         print('  SKIP  %-44s %s' % (label, reason))
 
+    times = {}
+    try:
+        times = json.load(open(TIMES, encoding='utf-8'))
+    except (OSError, ValueError):
+        pass
+
     # Every suite is its own process with its own tests/work folder, so they
     # run side by side; the results are printed in order all the same.
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = [(label, suite, pool.submit(run_one, command, env, suite, record))
-                   for label, command, env, suite in runs]
+        started_runs = {label: pool.submit(run_one, command, env, suite, record)
+                        for label, command, env, suite in slowest_first(runs, times)}
         failures, timings, used = [], [], {}
-        for label, suite, future in futures:
-            result, took, files = future.result()
+        for label, _, _, suite in runs:
+            result, took, files = started_runs[label].result()
             if files is not None:
                 used.setdefault(suite[2], set()).update(files)
             timings.append((took, label))
+            times[suite[2]] = round(took, 2)
             if result.returncode == 0:
                 print('  ok    %-44s %5.1fs' % (label, took))
             else:
@@ -319,6 +347,8 @@ def main(argv):
 
     print()
     os.makedirs(os.path.dirname(FAILURES), exist_ok=True)
+    with open(TIMES, 'w', encoding='utf-8') as f:
+        json.dump(times, f, indent=1, sort_keys=True)
     with open(FAILURES, 'w', encoding='utf-8') as log:
         log.write('%s - %d failed\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), len(failures)))
         for label, result in failures:
