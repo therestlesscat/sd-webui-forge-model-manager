@@ -20,6 +20,7 @@ const SETTINGS = {
     model_manager_civitai_api_key: { label: 'Civitai API Key', info: '', kind: 'secret',
                                      default: '', has_value: false },
     model_manager_civitai_requests_per_second: setting('number', 6, { minimum: 1, maximum: 10, step: 1 }),
+    model_manager_downloads_at_once: setting('number', 2, { minimum: 1, maximum: 10, step: 1 }),
     model_manager_civitai_images_at_once: setting('number', 64, { minimum: 1, step: 1 }),
     model_manager_page_size: setting('number', 20, { minimum: 5, maximum: 50, step: 5,
                                                      label: 'Model Manager: Models per page' }),
@@ -287,6 +288,18 @@ check('Civitai images at once: in the connection, with its label, shown without 
       ['connection', 'Civitai images loading at once, at most', true]);
 check('a number box, no slider', [!!field(AT_ONCE)?.querySelector('input[type="number"]'),
                                   !!field(AT_ONCE)?.querySelector('input[type="range"]')], [true, false]);
+
+// How many downloads run at once (#279): in the connection, right after
+// Requests per second, shown without a key - a download needs none - a slider.
+const DOWNLOADS = 'model_manager_downloads_at_once';
+const connection = () => Array.from(document.querySelectorAll(
+    '.mm-settings-section[data-section="connection"] .mm-settings-field')).map((f) => f.dataset.key);
+check('Downloads at once: in the connection, after Requests per second, with its label, shown without a key',
+      [connection().indexOf(DOWNLOADS) - connection().indexOf('model_manager_civitai_requests_per_second'),
+       field(DOWNLOADS)?.querySelector('.mm-settings-label')?.textContent, shown(DOWNLOADS)],
+      [1, 'Downloads at once', true]);
+check('a slider from 1 to 10', ['min', 'max'].map((a) => field(DOWNLOADS)?.querySelector('input[type="range"]')?.getAttribute(a)),
+      ['1', '10']);
 
 // -------------------------------------------------------- what is shown
 check('requests per second is hidden without an API key',
@@ -604,6 +617,14 @@ $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 5);
 check('ticked and saved, the delete setting is sent by its key', posted.at(-1),
       { model_manager_generations_delete_files: true });
+
+// Downloads at once, slid to 4 and saved (#279).
+await call('settings.open');
+const downloadsSlider = field(DOWNLOADS)?.querySelector('input[type="range"]');
+if (downloadsSlider) type(downloadsSlider, '4');
+$('#mm_settings_save').click();
+await waitFor('the save', () => saved.length === 6);
+check('Downloads at once, saved as a number by its key', posted.at(-1), { model_manager_downloads_at_once: 4 });
 
 // ------------------------------------------- from the WebUI's Settings page
 // Apply there saves through the same opts.set(), so the same pass runs. Its

@@ -412,6 +412,27 @@ def on_ui_settings():
         ).info("How fast to call the Civitai API when an API key is set. Higher is faster but more likely to be rate limited. Applies to the next search, download or sync; one already running keeps its rate.")
     )
 
+    # The same top as Requests per second (#279); changed, the queue follows
+    # at once (_downloads_at_once_changed).
+    shared.opts.add_option(
+        "model_manager_downloads_at_once",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_downloads_at_once"],
+            label="Downloads: how many at once",
+            component=gr.Slider,
+            component_args={
+                "minimum": 1,
+                "maximum": 10,
+                "step": 1,
+            },
+            onchange=_downloads_at_once_changed,
+            section=section,
+        ).info("How many downloads run at the same time; the rest wait their turn in the queue. "
+               "A fast connection may want more; a hard disk, a network drive or a slow connection "
+               "may want 1. Start now still starts a waiting download over this number. Applies at once: "
+               "a lower number lets the running downloads finish, and starts no new one until fewer run.")
+    )
+
     # A box with no maximum, so the settings window draws no slider (#213).
     shared.opts.add_option(
         "model_manager_civitai_images_at_once",
@@ -663,6 +684,16 @@ def _queue_enabled_changed():
     from ..scheduler import queue_enabled, runner
     if not queue_enabled():
         runner.stop()
+
+
+def _downloads_at_once_changed():
+    # The queue follows the new number at once (#279) - only a queue already
+    # made: making one here would restore the kept downloads before any tab
+    # asked for them.
+    from ..download_service import configured_downloads_at_once, current_download_service
+    service = current_download_service()
+    if service is not None:
+        service.set_limit(configured_downloads_at_once())
 
 
 def _check_updates_changed():

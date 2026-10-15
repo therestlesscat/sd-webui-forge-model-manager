@@ -235,6 +235,35 @@ check('naming each bad value', sorted(answer.get('errors', {})), sorted([
     'model_manager_image_sync_level']))
 check('and nothing is saved - not even the good one', (opts.data, opts.saves), (before, saves))
 
+# Downloads at once (#279): 1 to 10, the same top as Requests per second.
+DOWNLOADS = 'model_manager_downloads_at_once'
+refused = [post({DOWNLOADS: n}) for n in (0, 11)]
+check('downloads at once refuses 0 and 11, saying the bounds',
+      [(code, (answer.get('errors') or {}).get(DOWNLOADS)) for code, answer in refused],
+      [(400, 'must be at least 1'), (400, 'must be at most 10')])
+# Saved, it reaches the queue through its onchange - only a queue already
+# made: making one would restore the kept downloads before any tab asked.
+from model_manager import download_service as ds          # noqa: E402
+ds._download_service = None
+code, answer = post({DOWNLOADS: 10})
+check('and takes 10, making no download queue', (code, opts.data.get(DOWNLOADS), ds._download_service),
+      (200, 10, None))
+
+
+class ToldQueue:
+    def __init__(self):
+        self.limits = []
+
+    def set_limit(self, limit):
+        self.limits.append(limit)
+
+
+ds._download_service = told = ToldQueue()
+post({DOWNLOADS: 4})
+check('saved with a queue made, the queue is told the new number', told.limits, [4])
+ds._download_service = None
+before, saves = dict(opts.data), opts.saves
+
 # --------------------------------------------------------------------- saving
 code, answer = post({'model_manager_page_size': 30.0, 'model_manager_card_size': ' 240 X 320 ',
                      'model_manager_nsfw_prompt_model_percent': 2.5})

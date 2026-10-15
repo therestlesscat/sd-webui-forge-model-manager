@@ -61,6 +61,8 @@ DEFAULTS = {
     "model_manager_card_originals": False,
     "model_manager_civitai_folder_template": "_{baseModel}/{modelName}",
     "model_manager_civitai_requests_per_second": 6,
+    # How many downloads the queue runs at once; the rest wait (#279).
+    "model_manager_downloads_at_once": 2,
     # How many of Civitai's images a page loads at once; the rest wait their
     # turn (#213). Civitai queues past 10 to 16 a second, and hundreds asked
     # at once failed to load.

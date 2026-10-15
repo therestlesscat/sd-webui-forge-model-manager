@@ -26,6 +26,7 @@ const { ready, call } = await shared('calls.mjs');
 const K = {
     apiKey: 'model_manager_civitai_api_key',
     rate: 'model_manager_civitai_requests_per_second',
+    downloadsAtOnce: 'model_manager_downloads_at_once',
     imagesAtOnce: 'model_manager_civitai_images_at_once',
     mmPageSize: 'model_manager_page_size',
     mmCardSize: 'model_manager_card_size',
@@ -81,7 +82,7 @@ const MODULES_PREFIX = 'model_manager_modules_';
 const SECTIONS = [
     { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
     { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.imagesAtOnce] },
+      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.downloadsAtOnce, K.imagesAtOnce] },
     { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
       keys: [K.mmPageSize, K.mmCardSize, K.thumbnail] },
     { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
@@ -112,6 +113,7 @@ const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, 
 const LABELS = {
     [K.apiKey]: 'API key',
     [K.rate]: 'Requests per second',
+    [K.downloadsAtOnce]: 'Downloads at once',
     [K.imagesAtOnce]: 'Civitai images loading at once, at most',
     [K.mmPageSize]: 'Models per page',
     [K.mmCardSize]: 'Card size',

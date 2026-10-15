@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 
 from .civitai import api_key_from_settings, paid_access_info
 from .civitai.ownership import owned_versions
-from .forge_host import setting
+from .forge_host import DEFAULTS, setting
 from .hashing import HashResult
 from .install import INSTALL_KEY
 from .model_dirs import download_dir, filed_as, held_here, loads_here, proper_place
@@ -591,6 +591,16 @@ class DownloadService:
             resumed = self._requeue([version_id])
         self._pump()
         return bool(resumed)
+
+    def set_limit(self, limit: int) -> None:
+        """
+        A new number to run at once (#279). A higher one starts waiting
+        downloads now; a lower one stops nothing - the running ones finish,
+        and none starts until fewer than it run.
+        """
+        with self._lock:
+            self.max_concurrent = limit
+        self._pump()
 
     def retry(self, version_id: int) -> bool:
         """
@@ -1342,7 +1352,27 @@ def get_download_service() -> DownloadService:
     global _download_service
     with _download_service_lock:
         if _download_service is None:
-            service = DownloadService(max_concurrent=2)
+            service = DownloadService(max_concurrent=configured_downloads_at_once())
             service.restore()
             _download_service = service
     return _download_service
+
+
+def current_download_service() -> Optional[DownloadService]:
+    """The download service if it has been made, else None - never made here."""
+    return _download_service
+
+
+def configured_downloads_at_once() -> int:
+    """
+    How many downloads run at once, as the settings have it (#279): 1 to 10,
+    the same top as Civitai's requests per second. The default when it cannot
+    be read.
+    """
+    try:
+        configured = setting('model_manager_downloads_at_once')
+        if configured is not None:
+            return max(1, min(int(configured), 10))
+    except (TypeError, ValueError):
+        pass
+    return DEFAULTS['model_manager_downloads_at_once']

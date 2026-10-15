@@ -224,10 +224,12 @@ is doing as it does it - the console's lines in a log, a count while it has
 no total, what a cancel still waits for, errors, and how it ended - never a
 "0/0" or a silent wait (0.48.5).
 
-**The download queue is the service's own.** `DownloadService` runs up to two,
-and when a place frees up starts the first waiting one from the top; Start now
-runs one over the limit. A version asked for again while on its way - queued,
-coming, being added, paused - is answered with the download it has, never
+**The download queue is the service's own.** `DownloadService` runs as many
+as the setting says (Downloads at once, 2 unless changed, #279) - a change
+applies at once, and a lower number stops nothing - and when a place frees up
+starts the first waiting one from the top; Start now runs one over the limit.
+A version asked for again while on its way - queued, coming, being added,
+paused - is answered with the download it has, never
 started over (`ON_ITS_WAY`); a finished one is queued afresh. The page keeps
 the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
 a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;

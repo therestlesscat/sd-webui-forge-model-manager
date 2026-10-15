@@ -1417,5 +1417,69 @@ check('the retried one\'s turn asks Civitai again, then it downloads',
       [[42, 42], (683, None, 1, False), 'complete'])
 civitai_pkg.CivitaiClient = real_client
 
+# ------------------------------------------ how many run at once, a setting (#279)
+# Downloads at once: 1 to 10, the same top as Civitai's requests per second.
+# The queue is made with it, and follows a change at once: a higher number
+# starts waiting downloads now; a lower one stops nothing, and starts none
+# until fewer than it run. It was 2, fixed in the code.
+reader = getattr(ds, 'configured_downloads_at_once', None)
+
+
+def reads(value):
+    opts.model_manager_downloads_at_once = value
+    return reader() if reader else None
+
+
+check('the setting reads as a whole number from 1 to 10; unreadable is the default',
+      [reads(3), reads(0), reads(20), reads('many')], [3, 1, 10, 2])
+
+kept_before, kept['rows'] = kept['rows'], []
+opts.model_manager_downloads_at_once = 3
+ds._download_service = None
+check('the queue, first made, takes the saved number', ds.get_download_service().max_concurrent, 3)
+ds._download_service = None
+kept['rows'] = kept_before
+
+
+def until(what, cond, seconds=3.0):
+    deadline = time.time() + seconds
+    while time.time() < deadline and not cond():
+        time.sleep(0.01)
+    return cond()
+
+
+def statuses(q, ids):
+    return [getattr(q.get_progress(v), 'status', None) for v in ids]
+
+
+AT_ONCE = [690, 691, 692, 693]
+limited = Queueing(max_concurrent=2)
+for version_id in AT_ONCE:
+    limited.queue_download(version_id, CHECKPOINT, version(id=version_id))
+until('two running', lambda: statuses(limited, AT_ONCE) == ['downloading', 'downloading', 'pending', 'pending'])
+set_limit = getattr(limited, 'set_limit', lambda limit: None)
+set_limit(3)
+check('raised from 2 to 3: one more starts at once, the last still waits',
+      [until('three running', lambda: statuses(limited, AT_ONCE)[2] == 'downloading') and statuses(limited, AT_ONCE)],
+      [['downloading', 'downloading', 'downloading', 'pending']])
+
+set_limit(1)
+settle()
+check('lowered to 1 with 3 running: none is paused or stopped',
+      statuses(limited, AT_ONCE), ['downloading', 'downloading', 'downloading', 'pending'])
+release(690)
+until('one ended', lambda: statuses(limited, AT_ONCE)[0] == 'complete')
+release(691)
+until('two ended', lambda: statuses(limited, AT_ONCE)[1] == 'complete')
+settle()
+check('none starts while as many as the number still run - one does',
+      statuses(limited, AT_ONCE), ['complete', 'complete', 'downloading', 'pending'])
+release(692)
+check('the last starts once fewer than 1 run',
+      until('the last running', lambda: statuses(limited, AT_ONCE)[3] in ('downloading', 'complete')), True)
+release(693)
+limited.wait()
+# Saving the setting tells a queue already made: settings_api_test.py.
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

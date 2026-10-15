@@ -8,7 +8,7 @@
             "civitai_browser"
         ],
         "title": "Download several models at once",
-        "text": "Tick Select, beside I'm feeling lucky, then click the models you want - on any page of your search, or across draws with I'm feeling lucky; shift-click ticks a run of them. Download selected adds each one's newest version to the downloads queue at once, which fetches two at a time. One already in your library is left out, and the line above the models says so. One that cannot be downloaded - paid on Civitai and not bought, say - shows as an Error row in the downloads panel, with Retry."
+        "text": "Tick Select, beside I'm feeling lucky, then click the models you want - on any page of your search, or across draws with I'm feeling lucky; shift-click ticks a run of them. Download selected adds each one's newest version to the downloads queue at once, which fetches two at a time unless the settings say otherwise. One already in your library is left out, and the line above the models says so. One that cannot be downloaded - paid on Civitai and not bought, say - shows as an Error row in the downloads panel, with Retry."
     },
     {
         "id": "single-pass",
