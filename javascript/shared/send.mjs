@@ -89,11 +89,12 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
             const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan` })
                 .catch(() => null);
             if (answer?.success && !answer.checkpoint_missing) return '';
-            return CHECKPOINT_WAITS[answer?.checkpoint_problem?.reason] || CHECKPOINT_WAITS.missing;
+            return waitReason(answer?.checkpoint_problem || { reason: 'missing' });
         };
         const listing = problem.reason === 'not_listed';
         if (listing) refreshWebUiModelList();
         const send = { why: CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing, check,
+                       reason: waitReason(problem), waits: CHECKPOINT_WAITS,
                        run: () => sendInfotext({ infotext, mode, meta, generationId, imageId }),
                        useInstalled: (versionId) => sendInfotext({ infotext, mode, meta, generationId, imageId,
                                                                    useVersion: versionId }) };
@@ -948,6 +949,16 @@ const CHECKPOINT_WAITS = {
 };
 
 /**
+ * The reason a server's answer gives for still waiting - one the dialog has
+ * words for, else `missing` - or '' once the checkpoint can be loaded. The
+ * dialog says what it waits for by it (#211).
+ */
+function waitReason(problem) {
+    if (!problem) return '';
+    return CHECKPOINT_WAITS[problem.reason] ? problem.reason : 'missing';
+}
+
+/**
  * A send stopped for the image's checkpoint: said at the top of the image's
  * Resources dialog, where a missing one can be downloaded - or, for an image
  * with no resources to list, in a notice. The dialog's own Send works once
@@ -972,13 +983,11 @@ async function stopForCheckpoint(img, model, version, problem) {
     const note = checkpointNote(problem);
     if (!note) return;
     console.log('[ModelManager] Not sent:', note);
-    const waits = (answer) => (answer?.checkpoint_problem
-        ? CHECKPOINT_WAITS[answer.checkpoint_problem.reason] || CHECKPOINT_WAITS.missing : '');
     const send = {
-        why: CHECKPOINT_WAITS[problem.reason],
+        why: CHECKPOINT_WAITS[problem.reason], reason: problem.reason, waits: CHECKPOINT_WAITS,
         check: problem.reason === 'not_checkpoint' ? null
-            : async () => waits(await fetchForgePlan(model, version, img, modulesFromMeta(img.meta))
-                                 || { checkpoint_problem: problem }),
+            : async () => waitReason((await fetchForgePlan(model, version, img, modulesFromMeta(img.meta))
+                                      || { checkpoint_problem: problem }).checkpoint_problem),
         run: () => sendGalleryImage({ img, model, version }),
     };
     const listing = problem.reason === 'not_listed';

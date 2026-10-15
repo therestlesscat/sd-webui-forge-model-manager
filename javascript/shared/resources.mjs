@@ -14,7 +14,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, dataAttributes, formatBytes, safeId, safeUrl } = await shared('core.mjs');
-const { downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
+const { ON_ITS_WAY, downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
 const { openMetaModal, closeMetaModal, closeViewer } = await shared('viewer.mjs');
 const { available, open } = await shared('loading.mjs');
 
@@ -261,10 +261,16 @@ let resourcesNote = '';
 let resourcesLeaving = null;
 
 // A send stopped for its checkpoint (send.mjs), as the dialog's own Send:
-// { why, check, run, ready }. `why` says why it waits; `check()` asks the
-// server again, resolving to '' once the checkpoint can be loaded, else a
-// new why; `run()` sends. No `check`: nothing the dialog offers can help.
+// { why, reason, waits, check, run, ready }. `reason` says why it waits -
+// `missing`, `not_listed`... - and `why` in words, from `waits`; `check()`
+// asks the server again, resolving to '' once the checkpoint can be loaded,
+// else the reason; `run()` sends. No `check`: nothing the dialog offers can
+// help. `gaveUp`: the dialog stopped asking, the checkpoint still not ready.
 let resourcesSend = null;
+// The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
+let resourcesRows = [];
+// Send's bar as last drawn, so a redraw that would change nothing writes nothing.
+let drawnSendBar = '';
 
 /**
  * The Resources dialog for an image - a Civitai image, or one of your own.
@@ -320,6 +326,7 @@ export async function showImageResources(img, exclude, { note = '', send = null,
 }
 
 function renderResourcesModal(resources, pending = 0) {
+    resourcesRows = resources.known;
     const rows = resources.known.map(resource => `
             <tr>
                 <td class="mm-res-type">${escapeHtml(resource.type)}</td>
@@ -351,6 +358,7 @@ function renderResourcesModal(resources, pending = 0) {
         `).join('')
         : '';
 
+    drawnSendBar = sendAgainButton();
     const modalHtml = `
         <div class="mm-modal-overlay" id="mm_meta_modal">
             <div class="mm-modal mm-resources-modal">
@@ -373,7 +381,7 @@ function renderResourcesModal(resources, pending = 0) {
                             ${rows}${stillLooking}${nothingKnown}${unknownRows}
                         </tbody>
                     </table>
-                    ${sendAgainButton()}
+                    ${drawnSendBar}
                 </div>
             </div>
         </div>
@@ -396,35 +404,74 @@ function sendAgainButton() {
         ? `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
             useChecked ? ' checked' : ''}> Use the ${escapeHtml(alternative.label)} file I have instead: `
           + 'the image may not come out exactly the same</label>' : '';
-    return `<div class="mm-dialog-buttons mm-resources-send">${tick}
+    const status = enabled ? null : sendStatus();
+    const line = status?.text
+        ? `<span class="mm-res-send-status">${escapeHtml(status.text)}</span>`
+          + (status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
+                            + 'data-action="resources.checkAgain">Check again</button>' : '')
+        : '';
+    return `<div class="mm-dialog-buttons mm-resources-send">${tick}${line}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
                     enabled ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
             </div>`;
 }
 
 /**
+ * What the stopped Send waits for, said beside it (#211): its tooltip alone
+ * said it, and a checkpoint downloaded here read "Downloaded" on its row
+ * while Send stayed grey. Its download, then Forge listing it - and once the
+ * dialog has stopped asking, that it still waits, with Check again (`again`).
+ */
+function sendStatus() {
+    const { reason, why, gaveUp } = resourcesSend;
+    const checkpoint = resourcesRows.find((r) => /checkpoint/i.test(r.type || ''));
+    const job = checkpoint && resourceDownload(checkpoint.versionId);
+    if (job && ON_ITS_WAY.has(job.status)) return { text: 'Waiting for the checkpoint\'s download to finish…' };
+    // Landed, and the check it set off not answered yet: Forge is next. The
+    // reason was still the last answer's, and on 7880 the line said "not in
+    // your library" for 120 ms beside a row saying Downloaded.
+    const landing = job?.status === 'complete' && reason === 'missing' && resourcesSend.checking;
+    if (reason === 'not_listed' || landing) {
+        return gaveUp ? { text: why, again: true } : { text: 'Waiting for Forge to list the checkpoint…' };
+    }
+    if (reason === 'missing') {
+        const offered = checkpoint && resourceDownloadCell(checkpoint).includes('data-action="resources.download"');
+        if (offered) return { text: `${why.replace(/\.$/, '')}: download it above.` };
+        return { text: why, again: gaveUp };
+    }
+    return { text: why || '' };
+}
+
+/**
  * Ask the server again whether the stopped send's checkpoint can be loaded,
  * and redraw the dialog's Send: at once, then every TIMING.sendRecheck for
  * TIMING.sendRecheckMax - Forge lists a download only once its refresh is
- * done. Stops when the dialog closes or is opened for another image.
+ * done. Stops when the dialog closes or is opened for another image; stopped
+ * by the time with the checkpoint not ready, it has given up (`gaveUp`) until
+ * asked again - Check again, or a download landing.
  */
 async function recheckSend() {
     const wanted = resourcesSend;
     if (!wanted?.check || wanted.ready || wanted.checking) return;
     wanted.checking = true;
+    if (wanted.gaveUp) {
+        wanted.gaveUp = false;
+        redrawSendBar();
+    }
     const until = Date.now() + TIMING.sendRecheckMax;
     try {
         while (resourcesSend === wanted && document.querySelector('.mm-resources-modal')) {
-            let why = wanted.why;
+            let reason = wanted.reason;
             try {
-                why = await wanted.check();
+                reason = await wanted.check();
             } catch (error) {
                 console.warn('[ModelManager] Could not ask again about the checkpoint:', error);
             }
             if (resourcesSend !== wanted) return;
-            Object.assign(wanted, { why, ready: !why });
+            const why = reason ? wanted.waits?.[reason] || wanted.waits?.missing || wanted.why : '';
+            Object.assign(wanted, { reason, why, ready: !reason, gaveUp: Boolean(reason) && Date.now() >= until });
             redrawSendBar();
-            if (!why || Date.now() >= until) return;
+            if (!reason || wanted.gaveUp) return;
             await new Promise((resolve) => setTimeout(resolve, TIMING.sendRecheck));
         }
     } finally {
@@ -629,10 +676,11 @@ function resourceDownloadCell(resource) {
         + `${other ? ' title="Download the file this image was made with"' : ''}>Download</button>`;
 }
 
-/** Redraw one row's download cell, if the dialog is showing it. */
+/** Redraw one row's download cell, if the dialog is showing it - and Send's line, which says what the checkpoint's row does. */
 function redrawResourceDownload(versionId, resource) {
     const cell = document.querySelector(`.mm-resources-modal [data-res-download="${versionId}"]`);
     if (cell) cell.innerHTML = resourceDownloadCell(resource || { versionId, modelId: null });
+    redrawSendBar();
 }
 
 /** Mark which of the dialog's versions the library holds, and redraw them. */
@@ -706,7 +754,12 @@ function redrawNote() {
 
 function redrawSendBar() {
     const box = document.querySelector('.mm-resources-modal .mm-resources-send');
-    if (box) box.outerHTML = sendAgainButton();
+    if (!box) return;
+    // Redrawn as each row is - the downloads list's every look: only when it would differ.
+    const bar = sendAgainButton();
+    if (bar === drawnSendBar) return;
+    drawnSendBar = bar;
+    box.outerHTML = bar;
 }
 
 /** Download a resource into the library: the version the image names, or its model's newest if it is gone. */
@@ -806,6 +859,7 @@ function followResourceDownloads() {
  */
 export function start(scope) {
     scope.provide('resources.sendAgain', () => sendAgain());
+    scope.provide('resources.checkAgain', () => recheckSend());
     scope.provide('resources.view', ({ versionId, modelId }) => viewResource(safeId(versionId), safeId(modelId)));
     scope.provide('resources.download', ({ versionId, modelId, hash }) =>
         downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase()));

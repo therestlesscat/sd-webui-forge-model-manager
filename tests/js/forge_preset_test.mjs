@@ -376,6 +376,19 @@ check('what it names as a checkpoint is not one: said so, nothing sent',
 check('and its Send stays disabled: no download helps', dialogSend()?.disabled, true);
 closeResources();
 
+// While the server's answers say Forge does not list it, the line beside the
+// dialog's Send says so (#211): the send hands the dialog the answer's reason,
+// which the dialog's words are found by.
+plan = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'not_listed', name: 'anima.safetensors',
+                                                          path: 'C:/models/Stable-diffusion/anima.safetensors' } };
+const askedBefore = planAsked.length;
+await send();
+await waitFor('the dialog to ask twice', () => planAsked.length >= askedBefore + 3);
+check('asked again, still not listed: the line says Send waits for Forge',
+      document.querySelector('.mm-resources-modal .mm-res-send-status')?.textContent,
+      'Waiting for Forge to list the checkpoint…');
+closeResources();
+
 // One Forge does not list yet: the dialog presses Forge's own refresh, asks
 // the server again, and its Send works once Forge lists it.
 const refresh = document.createElement('button');

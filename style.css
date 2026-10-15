@@ -2169,6 +2169,23 @@ body.mm-modal-open {
     font-size: 0.9em;
 }
 
+/* What a stopped send's Send waits for, beside it, and Check again (#211).
+   The theme's subdued text is #9ca3af in light mode too: 2.54:1 on the
+   white dialog. This grey reads at about 7.5:1; the theme's, on the dark one. */
+.mm-res-send-status {
+    align-self: center;
+    font-size: 0.9em;
+    color: #4b5563;
+}
+
+.dark .mm-res-send-status {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-resources-send > .mm-btn-small {
+    align-self: center;
+}
+
 /* ==================== Version Grouping ==================== */
 
 /* Versions badge on model cards */

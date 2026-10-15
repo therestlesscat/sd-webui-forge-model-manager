@@ -78,7 +78,7 @@ const DOWNLOAD_BUTTON_BUSY = {
 // answers the download it has (#119). A finished one can be - its file may
 // have been deleted since - though its Download button, saying Downloaded,
 // takes no click until the list forgets it.
-const ON_ITS_WAY = new Set(['starting', 'pending', 'downloading', 'finishing', 'paused']);
+export const ON_ITS_WAY = new Set(['starting', 'pending', 'downloading', 'finishing', 'paused']);
 
 /** Whether a version's download is on its way: asked for, queued, coming, being added, or paused. */
 export function onItsWay(versionId) {
