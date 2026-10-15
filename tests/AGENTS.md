@@ -76,6 +76,15 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   it found which waits were the harness's own (#271) and which the suites'
   (#272). A saving across suites is the sum over the twelve at once: 13 s
   summed was about 1 s - a side agent caught a table that gave the sums.
+- **Importing `model_manager/ui/settings.py` loads Gradio**, 2.6 s: a
+  setting's `onchange` check in `download_test.py` took that suite from 0.9 s
+  to 3.2 s. Such checks go in `settings_api_test.py`, which loads it already,
+  and whose saves run `onchange` through Forge's own `opts.set` (#279).
+- **A live check of a limit needs work slow enough to watch.** LoRAs
+  downloaded in 2 to 6 s, and the settings window took longer than that to
+  save: lowering 3 at once to 1 found one download still running, and showed
+  nothing. Lowered through the window's own save route the moment 3 ran, none
+  stopped and the next started only once none ran (#279).
 - **cProfile inflates Python-level work.** `copy.deepcopy` profiled at 4.7 s
   of `generations_scale_test`, and took 0.74 s timed directly. Time a suspect
   on its own before planning around it.

@@ -33,7 +33,11 @@ existed.
   database; how it is tested, each check failing on the old code first; and
   the version. Each choice goes to the owner as a numbered question with a
   recommendation. Code starts on an explicit yes to that plan, and anything
-  found later that changes it goes back as a plan. #187 was implemented
+  found later that changes it goes back as a plan. Answered questions are not
+  that yes: the answers go into a revision tab and the Final tab, then the
+  owner is asked, in one message, to post the Final on its issue and to start
+  building. #279 (0.59.3) was built the turn its answers came: "why didnt you
+  ask to post before and ask to start building" (2026-10-15). #187 was implemented
   straight from a survey and undone; its next plan, seven steps, was sent back
   for having no storage, no alternatives and no pros and cons (2026-10-06).
 - **A plan is a Claude Doc, and the doc is the plan.** It is written there
@@ -678,14 +682,24 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   also refuses one that ends in the runner's path - a `cat`, a `grep`, a line
   of a commit message. Put the path in a variable (`F=tests/ru; F=${F}n.py`),
   or run a script file.
-- WSL's shell here is zsh: `noclobber` is on and `cp` asks before overwriting
-  (see `tests/AGENTS.md`, "Make sure the old code is what ran"), and `echo`
+- WSL's shell here is zsh: `noclobber` is on, `cp` asks before overwriting
+  (see `tests/AGENTS.md`, "Make sure the old code is what ran") and `rm`
+  before deleting - a chained `rm` waited for an answer that never came,
+  until the task was stopped: write `command rm -f` - and `echo`
   turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
   `printf`. A word starting with `=` is looked up as a command: `echo ======`
   fails ("= not found"); use `printf -- '-----\n'`. A colon after a
   variable is a modifier: `"refs/tags/$t:refs/tags/$t"` read `$t:r`, mangled
   318 refspecs, and aborted a push - write `${t}:`.
+- **7880's copy of the extension is its own**: a git clone, at 0.56.1, with
+  files copied over it - not a link to this working tree. A change reaches it
+  by copying the changed files there, then a restart (`POST
+  /model-manager/restart`). A restart's first answers can come from the old
+  process: wait for the port's PID to change, then for
+  `/model-manager/asset-version` to answer - a 404 until the extension's
+  routes are added. 0.59.2's first live check restarted 7880 onto the old
+  code.
 - WSL's git reads a Windows checkout's line endings as changes: 7880's clone
   showed 318 files modified, and 0 with `-c core.autocrlf=true` or Windows'
   `git.exe`. Ask the latter before calling a clone dirty.

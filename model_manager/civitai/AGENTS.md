@@ -34,6 +34,11 @@ because that would mean the assumption no longer holds.
   same with an API key and without; rapid single lookups get 429 after about
   30. Every model payload carries `nsfw` (300 of 300); a thin sidecar may not
   (8 of 1,032 here), and the flag is then stored as not said (#141).
+- **Every `CivitaiClient.from_settings()` opens a new `requests.Session`**, so
+  its first request pays a new connection: `/models/{id}` took a median of 333
+  to 340 ms with a new one, 63 ms with one reused - the same ten models, timed
+  read-only (2026-10-15). A client made per press pays it each time; 0.59.2
+  moved the request off the press rather than share a session across threads.
 - **Civitai's image data can lack what the code reads.** Of 122,802 stored
   Civitai images, 13,597 had `meta: null`, and 14 of 480,615
   `civitaiResources` entries a version id with no model id. Send threw on the

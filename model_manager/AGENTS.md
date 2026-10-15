@@ -247,6 +247,18 @@ in this WebUI's folders (`_held`) - is not brought back, and a resumed one is
 asked again before anything is fetched. Never by its version alone: a
 version's other file is not this one.
 
+**A Download that names its model and version is queued by its ids** (0.59.2,
+#223) - the job a restart brings back - and Civitai is asked at its turn
+(`_fetch_job`): paid, no file and gone are Error rows there, with Retry,
+which waits again at the end of the queue and asks afresh. Asking first cost
+each press 333 to 484 ms, median 416: ten queued in 4.2 s, now 129 ms. Only
+the Resources dialog's `newer_if_gone`, and a version without its model,
+still ask first: the page follows a row by its version id, and a substitute's
+is known only once Civitai answers. The library check alone stays at the
+press - it reads the database. While its turn fetches, 0.3 to 0.7 s, a
+running download still reads `pending`, with no place in the queue: its row
+says "Waiting...".
+
 ### The page
 
 **A gallery switch's number holds when it is flipped.** An image both the NSFW
