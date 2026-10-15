@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { act, browserGalleryAnswer, startTab, tabMarkup, tick, openTab, sharedModule } from './harness.mjs';
+import { act, browserGalleryAnswer, checker, startTab, tabMarkup, tick, openTab, sharedModule } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
@@ -42,6 +42,12 @@ globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.scrollTo = () => {};
+// At the top, as a browser's page starts - the harness's mountTab does the
+// same (#271), and this suite builds its own window (#272). With no position,
+// each gallery switch worked out NaN for its scroll to the top, and waited
+// out TIMING.scrollSettle for one that never came.
+window.scrollY = 0;
+window.pageYOffset = 0;
 window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 globalThis.requestAnimationFrame = window.requestAnimationFrame;
 window.localStorage = {
@@ -125,16 +131,21 @@ globalThis.fetch = async (url) => {
 };
 
 // --- run --------------------------------------------------------------------
-const fails = [];
-const check = (label, got, want) => {
-    if (JSON.stringify(got) !== JSON.stringify(want)) {
-        fails.push(`${label}\n     got  ${JSON.stringify(got)}\n     want ${JSON.stringify(want)}`);
-    }
-};
-const settle = () => new Promise((r) => setTimeout(r, 50));
+// Each step waits for what it is waiting on, not a fixed time (#272).
+const { check, waitFor, done } = checker();
 const $ = (id) => window.document.getElementById(id);
 const singleLookups = () => asked.filter((u) => /\/civitai\/models\/\d+/.test(u));
 const searches = () => asked.filter((u) => /\/civitai\/models\?/.test(u));
+// A press of Search answers before the search does. Asked is not answered:
+// a search still loading makes the next press do nothing. The status line
+// says Searching... before the request and Showing once the cards are drawn,
+// and `asked` is emptied before each press, so the two together are this one.
+const searchAnswered = () => searches().length > 0 && /^Showing \d+ models/.test($('cb_status').textContent);
+// An opened model's gallery comes after openTab has answered: its switches
+// wait on the settings, and a switch pressed before then is undone when they
+// come. Its first image, by url: the gallery before had cards too, cleared
+// only because the page empties it as a model opens.
+const galleryDrawn = (url) => Boolean(document.querySelector(`#cb_images [data-original="${url}"]`));
 
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
@@ -151,15 +162,17 @@ for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img
 }
 await startTab('civitaiBrowser');
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
-await settle();
 
 check('the tab is there for the others, through the loading module (#184)',
       (await sharedModule('loading.mjs')).available('civitaiBrowser'), true);
 
 // ------------------------------------------------------- a targeted lookup
+// openTab answers once the entry has, and showModel awaits the lookup: its
+// request, the grid and the status line are done by then. What the model
+// opened asks for after - its gallery, what the library holds - nothing here
+// reads, and a newer model or search drops it.
 asked.length = 0;
 await openTab('civitaiBrowser', 'showModel', 'model:12345');
-await settle();
 
 check('the query lands in the search box', $('cb_search').value, 'model:12345');
 check('it goes to the model endpoint', singleLookups().length, 1);
@@ -173,7 +186,7 @@ check('one card is shown',
 asked.length = 0;
 $('cb_search').value = 'anime';
 await act('civitaiBrowser.search');
-await settle();
+await waitFor('the search for "anime" answered', searchAnswered);
 
 check('a plain query searches', searches().length >= 1, true);
 check('and asks for no model by id', singleLookups().length, 0);
@@ -185,7 +198,7 @@ for (const query of ['model:', 'model:abc', 'a model:12', 'version:99', '12345']
     asked.length = 0;
     $('cb_search').value = query;
     await act('civitaiBrowser.search');
-    await settle();
+    await waitFor(`the search for "${query}" answered`, searchAnswered);
     check(`"${query}" is a search, not a lookup`, singleLookups().length, 0);
 }
 
@@ -193,7 +206,6 @@ for (const query of ['model:', 'model:abc', 'a model:12', 'version:99', '12345']
 for (const query of ['model: 77', ' MODEL:77 ']) {
     asked.length = 0;
     await openTab('civitaiBrowser', 'showModel', query);
-    await settle();
     check(`"${query}" is still a lookup`, singleLookups().length, 1);
 }
 
@@ -202,23 +214,20 @@ for (const query of ['model: 77', ' MODEL:77 ']) {
 // showing; it used to send the model alone, and the newest version opened.
 const shownPill = () => $('cb_details').querySelector('.mm-version-pill.active')?.textContent.trim();
 await openTab('civitaiBrowser', 'showModel', 'model:555 version:9002');
-await settle();
 check('"model:555 version:9002" opens that model on that version',
       [$('cb_search').value, shownPill()], ['model:555 version:9002', 'older']);
 await openTab('civitaiBrowser', 'showModel', 'model:555 version:31337');
-await settle();
 check('a version Civitai no longer has: the newest, and a word saying so',
       [shownPill(), $('cb_status').textContent.includes('Version 31337 is no longer on Civitai')], ['v1', true]);
 asked.length = 0;
 $('cb_search').value = 'model:555 version:';
 await act('civitaiBrowser.search');
-await settle();
+await waitFor('the search for "model:555 version:" answered', searchAnswered);
 check('"model:555 version:" is a search, not a lookup', singleLookups().length, 0);
 
 // ------------------------------------------------------- a model that is gone
 asked.length = 0;
 await openTab('civitaiBrowser', 'showModel', 'model:404404');
-await settle();
 check('a model Civitai no longer has shows nothing',
       $('cb_grid').querySelectorAll('.model-card').length, 0);
 check('and says so rather than failing silently',
@@ -236,7 +245,7 @@ galleryImages = [
     { id: 12, url: 'https://example.invalid/12.jpeg', browsingLevel: 1, meta: null },
 ];
 await openTab('civitaiBrowser', 'showModel', 'model:12345');
-await settle();
+await waitFor('the gallery with the prompt filter', () => galleryDrawn(galleryImages[0].url));
 $('cb_require_prompt').checked = true;
 let renderError = null;
 try {
@@ -285,7 +294,7 @@ galleryImages = [
       meta: { prompt: 'a prompt long enough', steps: 20, sampler: 'Euler', cfgScale: 7 } },
 ];
 await openTab('civitaiBrowser', 'showModel', 'model:12345');
-await settle();
+await waitFor('the gallery with an NSFW image', () => galleryDrawn(galleryImages[0].url));
 const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
 
 await tick('civitaiBrowser.showAllImages', false);
@@ -317,7 +326,7 @@ galleryImages = [
     { id: 33, url: 'https://example.invalid/33.jpeg', browsingLevel: 8, meta: null },
 ];
 await openTab('civitaiBrowser', 'showModel', 'model:12345');
-await settle();
+await waitFor('the gallery both filters hide from', () => galleryDrawn(galleryImages[0].url));
 $('cb_require_prompt').checked = true;
 // NSFW hidden, as the switch says - which is not drawn: it would show nothing.
 await call('civitaiBrowser.showAllImages', {}, { checked: false });
@@ -350,10 +359,15 @@ await tick('civitaiBrowser.showPromptless', false);
 // A fresh copy each answer, as JSON from a server is: the tab compares each
 // poll with the last, and a shared object would change under it.
 const downloads = [];
+// The list's polls, counted so a wait can see one come. A poll is a timer of
+// the page's, and this stand-in answers it without one: by the next look a
+// waitFor takes - a timer too - the answer has been drawn.
+let progressAsked = 0;
 const fetchBefore = globalThis.fetch;
 globalThis.fetch = async (url, init) => {
     const href = String(url);
     if (href.includes('/civitai/download/progress')) {
+        progressAsked += 1;
         return { ok: true, json: async () => ({ success: true, downloads: structuredClone(downloads) }) };
     }
     if (href.includes('/civitai/download')) {
@@ -370,31 +384,33 @@ globalThis.fetch = async (url, init) => {
 };
 const badge = () => document.querySelector('#cb_downloads .cb-download-status-badge')?.textContent.trim();
 const showInManager = () => !!document.querySelector('#cb_details [data-action="civitaiBrowser.showInModelManager"]');
-// One of the page's progress polls (TIMING.poll, shortened above), and a margin.
-const poll = () => new Promise((r) => setTimeout(r, 250));
 
 await openTab('civitaiBrowser', 'showModel', 'model:31');
-await settle();
-act('civitaiBrowser.openModel', { index: 0 });
-await settle();
+await act('civitaiBrowser.openModel', { index: 0 });
 downloads.push({ version_id: 62, file_name: 'm.safetensors', status: 'downloading', percent: 40,
                  downloaded_bytes: 400, total_bytes: 1000, synced: false });
+const polled = progressAsked;
 await act('civitaiBrowser.download', { modelId: 31, versionId: 62 });
-await poll();
+// The badge says Downloading as the press answers, from the server's word
+// that it started. What a poll does with a download still running is what
+// is checked: so a poll first.
+await waitFor('a poll of the list while it downloads', () => progressAsked > polled);
 check('while downloading, no button', [badge(), showInManager()], ['Downloading', false]);
 
 Object.assign(downloads[0], { status: 'finishing', percent: 100, downloaded_bytes: 1000 });
-await poll();
+await waitFor('a poll saying it is being added', () => badge() === 'Adding to library');
 check('on disk and being added to the library, it says so - and still no button',
       [badge(), showInManager()], ['Adding to library', false]);
 
 Object.assign(downloads[0], { status: 'complete', synced: true });
-await poll();
+await waitFor('a poll saying Complete', () => badge() === 'Complete');
 check('Complete, and the button by the server\'s answer, arrive together', [badge(), showInManager()],
       ['Complete', true]);
+// The list stops polling with nothing left running. A page that went on
+// would ask again within a poll of the one that said Complete, and a second
+// refresh of Forge's lists would come with it: a poll and a half, the half
+// for Windows' timer tick (#272).
+await new Promise((r) => setTimeout(r, window.mmTiming.poll * 1.5));
 check('the batch landed: Forge\'s lists refreshed, extra networks too, once', refreshed, ['checkpoints', 'extra networks']);
 
-console.log(fails.length
-    ? fails.map((f) => 'FAIL ' + f).join('\n')
-    : 'All checks passed.');
-process.exit(fails.length ? 1 : 0);
+done();

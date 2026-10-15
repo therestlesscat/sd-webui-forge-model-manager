@@ -44,7 +44,12 @@ globalThis.fetch = async (url) => {
         : { success: true, downloads: [], notes: [] };
     return { ok: true, status: 200, json: async () => body };
 };
-const settle = () => new Promise((resolve) => realTimeout(resolve, 20));
+// One turn of the event loop before each module's work is read, so what it
+// does late is counted as its own (#272). Late work here is a chain of
+// promises - a request's answer, an await - and setImmediate runs once every
+// chain has settled; a timer is recorded when it is set, not when it fires.
+// A 20 ms sleep took 31 ms on Windows' clock, 58 times a run.
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 // ------------------------------------------------------ nothing at import
 const names = readdirSync(`${ROOT}/javascript/shared`).filter((f) => f.endsWith('.mjs')).sort();

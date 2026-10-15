@@ -11,6 +11,9 @@
 import { ROOT, checker, mountTab, sharedModule, startServices, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
+// The Queue polls every 100 ms, so a few polls' time is short: the suite
+// waits it out after the stop (#272).
+window.mmTiming = { poll: 100 };
 const { check, waitFor, done } = checker();
 document.body.insertAdjacentHTML('afterbegin', `
     <div id="tabs"><button id="tab_queue_tab-button" class="selected" aria-selected="true">Queue</button></div>`);
@@ -80,8 +83,12 @@ check('none of its actions is offered', offered(), 0);
 asked.length = 0;
 hooks.forEach((hook) => hook());
 document.dispatchEvent(new window.Event('click', { bubbles: true }));
-await new Promise((resolve) => setTimeout(resolve, 1300));
+// Three polls: one left running asks in it, even with its timer woken late
+// on a busy machine (#272).
+await new Promise((resolve) => setTimeout(resolve, 300));
 check('nothing of it runs after: it asks the server nothing in a poll\'s time',
       asked.filter((path) => path.startsWith('/model-manager/queue')), []);
+// What these start to ask later than that is a listener or a poll by then (#272).
+check('and starts nothing of it again', [[...listening].map((l) => `${l.name} ${l.type}`), intervals.size], [[], 0]);
 
 done();

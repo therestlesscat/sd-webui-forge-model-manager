@@ -70,11 +70,50 @@ window.scrollTo = (x, y) => {
 const gridEl = () => document.getElementById('gen_grid');
 const shown = () => [...gridEl().querySelectorAll('.gen-set')].map((set) => Number(set.dataset.tile));
 const generations = () => [...gridEl().querySelectorAll('.gen-tile')].map((t) => Number(t.dataset.generation));
-const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+// ------------------------------------------------------------- the waits
+// Each wait is for what its check reads (#272). A fixed sleep read too early
+// went unseen: Classic and Fast are compared, and with no wait at all both
+// read 200 tiles of 250, alike.
+//
+// The frames the page asked for and that have not run yet: a placed grid
+// draws its rows a frame after a scroll or a measure. Both names, as the
+// page's modules call either.
+let frames = 0;
+const frame = window.requestAnimationFrame;
+window.requestAnimationFrame = globalThis.requestAnimationFrame = (callback) => {
+    frames += 1;
+    return frame(() => {
+        try {
+            callback();
+        } finally {
+            frames -= 1;
+        }
+    });
+};
+// The level is loaded whole: the banner says "N match the filters (N shown)"
+// only once the last part is in. Until a reload's first part comes, the
+// banner is still the last level's, and the status says Loading... - which
+// the reload writes before it asks. `count`: and N is this many.
+const loaded = (count) => {
+    const said = document.getElementById('gen_banner')?.textContent.match(/(\d+) match the filters \((\d+) shown\)/);
+    return document.getElementById('gen_status')?.textContent !== 'Loading...'
+        && Boolean(said) && said[1] === said[2] && (count === undefined || Number(said[1]) === count);
+};
+// One turn of the event loop, its timers included: the stand-in server
+// answers at once, so every part a step asks for has come by then, and so
+// has whatever the page set for later at 0 ms - a check that nothing was
+// asked needs the page to have had that chance.
+const turn = () => new Promise((resolve) => setTimeout(resolve, 0));
+// The page's turn, then `condition`, with no frame still to run. A second
+// at most: the work is done in a turn, and a wait that fails fails fast.
+async function settled(what, condition = () => true) {
+    await turn();
+    await waitFor(what, () => frames === 0 && condition(), 20);
+}
 
 await startTab('generations');
-await waitFor('the first parts', () => browsed.length >= 1);
-await settle();
+await settled('the 250, every part', () => loaded(250));
 check('Fast by default: the grid is the tab\'s', gridEl().classList.contains('gen-placed'), true);
 check('only the rows near the view are on the page', shown().length < 100, true);
 
@@ -83,8 +122,9 @@ async function saved(choice) {
     grid = choice;
     window.dispatchEvent(new window.CustomEvent('mm-settings-saved',
         { detail: { changed: ['model_manager_generations_grid'], settings: {} } }));
-    await waitFor(`the grid ${choice}`, () => gridEl().classList.contains('gen-placed') === (choice === 'Fast'));
-    await settle();
+    // Fast measures the grid again a frame after it is placed.
+    await waitFor(`the grid ${choice}`,
+                  () => frames === 0 && gridEl().classList.contains('gen-placed') === (choice === 'Fast'));
 }
 await saved('Classic');
 check('Classic saved: the browser\'s grid, every tile loaded on the page', [gridEl().style.height, shown().length],
@@ -107,11 +147,13 @@ async function run(choice) {
     const seen = [];
     const asked = () => browsed.splice(0).map(({ page, search, group, hide_nsfw_images: nsfw, expand }) =>
         JSON.stringify({ page, search, group, nsfw, expand }));
+    // What a control asked and drew, once its level is loaded whole - or,
+    // for one that asks nothing, once it has had its turn: the comparison
+    // says too that neither way asked more.
     const look = async (label, step) => {
         browsed.length = 0;
         await step();
-        await settle();
-        await settle();
+        await settled(label, () => loaded());
         seen.push([label, asked(), generations()]);
     };
     await look('Search', async () => {
@@ -150,10 +192,18 @@ check('the controls were tried with tiles to show', classic.every(([, , tiles]) 
 // --------------------------------------------- reset, or the place kept
 // Fast, scrolled 6,000 px down the grid of 250.
 const pitch = 340 + 4;
+// A tile on the page across `y`, in the grid.
+const drawnAt = (y) => [...gridEl().querySelectorAll('.gen-tile')].some((t) => {
+    const top = parseFloat(t.style.top);
+    return top <= y && y < top + pitch;
+});
+// The rows near the view are drawn a frame after the scroll: a tile across
+// the new place says they were. Read before it, an empty grid showed no first
+// tile either, and passed "the first tiles off the page" (#272).
 async function scrolledTo(y) {
     window.scrollTo(0, y);
     window.dispatchEvent(new window.Event('scroll'));
-    await settle();
+    await settled(`the rows at ${y} drawn`, () => drawnAt(y));
 }
 const topTile = () => shown().find((i) => {
     const t = gridEl().querySelector(`.gen-set[data-tile="${i}"] .gen-tile`);
@@ -181,13 +231,11 @@ for (const [label, first, count, step] of [
     await call('generations.groupBy', '');
     await tick('generations.showNsfw', false);
     await tick('generations.expand', false);
-    await settle();
-    await settle();
+    await settled('the 250 again', () => loaded(250));
     await scrolledTo(6000);
     check(`before ${label}: scrolled down, the first tiles off the page`, shown().includes(0), false);
     await step();
-    await settle();
-    await settle();
+    await settled(`${label}'s ${count}`, () => loaded(count));
     await scrolledTo(0);
     check(`${label} changes the data: the grid starts again from its first tile, the new one's`,
           [shown()[0], generations()[0]], [0, first]);
@@ -206,8 +254,7 @@ for (const [label, first, count, step] of [
     await call('generations.groupBy', '');
     await tick('generations.showNsfw', false);
     await tick('generations.expand', false);
-    await settle();
-    await settle();
+    await settled('the 250 again', () => loaded(250));
 }
 for (const [label, on, off] of [
     ['Rate', () => tick('generations.rating', true), () => tick('generations.rating', false)],
@@ -219,7 +266,8 @@ for (const [label, on, off] of [
     const before = screenTop(anchor);
     browsed.length = 0;
     await on();
-    await settle();
+    // Nothing asked is read once the page has had its turn.
+    await settled(label);
     check(`${label} asks the server nothing`, browsed.length, 0);
     if (label === 'Rate') {
         check('Rate: the tiles grow by their rating row, the rows with them',
@@ -227,8 +275,8 @@ for (const [label, on, off] of [
     }
     check(`${label} keeps the place: the tile at the top stays where it was on the screen`,
           [shown().includes(anchor), screenTop(anchor)], [true, before]);
+    // The next scroll waits for the page's turn, before anything is read.
     await off();
-    await settle();
 }
 
 // ------------------------------------------- the viewer closed, Classic
@@ -238,14 +286,15 @@ await saved('Classic');
 const intoView = [];
 window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { intoView.push(this); };
 const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
+const viewing = () => document.querySelector('.mm-viewer-image')?.getAttribute('src') || '';
 await call('generations.view', { tile: 0 });
-await settle();
+await waitFor('the viewer on the first tile', () => viewing().endsWith('/x/10'), 20);
 for (let i = 0; i < 5; i++) {
     key('ArrowRight');
-    await settle();
+    await waitFor(`the viewer on tile ${i + 1}`, () => viewing().endsWith(`/x/${(i + 2) * 10}`), 20);
 }
 key('Escape');
-await settle();
+await waitFor('the viewer closed', () => !document.querySelector('.mm-viewer'), 20);
 const shownLast = intoView.at(-1);
 check('Classic: closing the viewer scrolls the tile it showed last into view - the tile itself, not its set',
       [shownLast?.classList.contains('gen-tile'), shownLast?.closest('.gen-set')?.dataset.tile], [true, '5']);

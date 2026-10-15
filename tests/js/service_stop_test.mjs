@@ -12,6 +12,9 @@
 import { bootPage, checker, mountTab, tabMarkup, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
+// The polls a stop has to end run every 100 ms, so a few polls' time is
+// short: the suite waits it out after each stop (#272).
+window.mmTiming = { poll: 100 };
 for (const file of ['tab_civitai_browser.py', 'tab_generations.py', 'tab_queue.py']) {
     document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${file}`));
 }
@@ -107,8 +110,14 @@ const workOf = (...files) => [
 ].sort();
 const off = (setting) => window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: {
     changed: [setting], settings: { [setting]: { value: false } } } }));
-const pollTime = () => new Promise((resolve) => real.setTimeout(resolve, 1300));
-/** What is asked from now on, while the page comes into view, is clicked and updated. */
+// Three polls: one left running asks in it, even with its timer woken late
+// on a busy machine (#272).
+const pollTime = () => new Promise((resolve) => real.setTimeout(resolve, 300));
+/**
+ * What is asked from now on, while the page comes into view, is clicked and
+ * updated. What these start to ask later than that is a timer or a listener
+ * by then, which the check after each looks for again (#272).
+ */
 async function askedAfter() {
     asked.length = 0;
     document.dispatchEvent(new window.Event('visibilitychange'));
@@ -134,6 +143,7 @@ check('the Model Manager off: nothing left of it, or of the sync it alone used',
       [actionsOf('modelManager.'), workOf('tabs/model_manager.mjs', 'shared/jobs.mjs')], [[], []]);
 check('the page back in view asks nothing of the sync',
       (await askedAfter()).filter((p) => p.startsWith('/model-manager/sync')), []);
+check('and starts nothing of it again', workOf('tabs/model_manager.mjs', 'shared/jobs.mjs'), []);
 check('the downloads list runs on, for the Civitai Browser',
       [actionsOf('downloads.').length, workOf('shared/downloads.mjs').some((w) => w.includes('every'))], [4, true]);
 
@@ -143,6 +153,8 @@ check('the Civitai Browser off: nothing left of it, or of the downloads list',
       [actionsOf('civitaiBrowser.', 'downloads.'),
        workOf('tabs/civitai_browser.mjs', 'shared/downloads.mjs', 'shared/image_card.mjs')], [[], []]);
 check('nothing asked of the downloads', (await askedAfter()).filter((p) => p.includes('/download')), []);
+check('and nothing of them started again',
+      workOf('tabs/civitai_browser.mjs', 'shared/downloads.mjs', 'shared/image_card.mjs'), []);
 check('Send\'s Resources dialog runs on, for Generations and the Queue', actionsOf('resources.').length, 4);
 
 // ----------------------------------------------------------- Generations
@@ -154,9 +166,10 @@ check('the settings window runs on, for the Queue', actionsOf('settings.'), ['se
 // ------------------------------------------------------------- the Queue
 off('model_manager_queue_enabled');
 check('every tab off: no action offered', offered(), []);
-const everyone = [...new Set([...listening].map((l) => l.by)
+const everyone = () => [...new Set([...listening].map((l) => l.by)
     .concat([...timers.values()].map((t) => t.split(' ')[0])))].filter((by) => by !== 'shared/loading.mjs');
-check('no listener or timer of any tab or service: only the loading module\'s own', workOf(...everyone), []);
+check('no listener or timer of any tab or service: only the loading module\'s own', workOf(...everyone()), []);
 check('and nothing asked, in view, clicked or updated', await askedAfter(), []);
+check('nor any listener or timer started again', workOf(...everyone()), []);
 
 done();

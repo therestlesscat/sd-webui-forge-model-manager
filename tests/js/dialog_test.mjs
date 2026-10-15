@@ -10,7 +10,7 @@ import { parseHTML } from 'linkedom';
 
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { startTab, tabMarkup } from './harness.mjs';
+import { checker, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 // The extension, found from this file rather than from a drive letter.
 const ROOT = process.env.MM_ROOT
@@ -227,24 +227,26 @@ globalThis.fetch = async (url, init = {}) => {
 };
 
 // --- run --------------------------------------------------------------------
-const fails = [];
-const check = (label, got, want) => {
-    const ok = JSON.stringify(got) === JSON.stringify(want);
-    if (!ok) fails.push(`${label}\n     got  ${JSON.stringify(got)}\n     want ${JSON.stringify(want)}`);
-};
-const settle = () => new Promise((r) => setTimeout(r, 50));
-/** Wait for what a step is waiting on, rather than for a fixed time. */
-async function until(what, predicate, ms = 3000) {
-    for (const start = Date.now(); Date.now() - start < ms;) {
-        if (predicate()) return;
-        await new Promise((r) => setTimeout(r, 20));
-    }
-    fails.push(`timed out waiting for ${what}`);
-}
+// A step waits for what its checks read, never for a fixed time (#272): 40
+// sleeps of 50 ms were two thirds of the run, and 16 waited for nothing.
+const { fails, check, waitFor } = checker();
 const closeSyncDialogFromTest = () => { $('mm_sync_dialog').style.display = 'none'; };
 const $ = (id) => window.document.getElementById(id);
 const click = (id) => $(id).dispatchEvent(new window.Event('click', { bubbles: true }));
 const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
+
+/**
+ * The estimate the step just taken asked for, answered and drawn. Every change
+ * in the dialog, and every opening, asks again once TIMING.estimate has passed;
+ * the stand-in answers at once, so the answer is drawn before the next look.
+ * Called straight after the step, with nothing awaited between: the request
+ * waited for is then the step's own. A value read instead - the request saying
+ * include_prompts=false - was already true of the request before it.
+ */
+const estimated = (what) => {
+    const before = lastEstimateQuery;
+    return waitFor(what, () => lastEstimateQuery !== before);
+};
 
 // Every status the page shows, in order. The grid reloads half a second after
 // a sync ends and says so in the same line, and a check that read the line
@@ -265,8 +267,10 @@ const statusSeen = [];
 const syncEnd = () => [...statusSeen].reverse().find((text) => /^Sync (complete|cancelled): /.test(text)) || '';
 
 // The page's waits and polls, shortened: the fake server answers at once,
-// and the same order of events happens ten times faster. See TIMING.
-window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10 };
+// and the same order of events happens ten times faster. See TIMING. The
+// banner looks for its markup each drawRetry: at 250 ms, its check waited
+// 250 ms (#272).
+window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10, drawRetry: 10 };
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
 const refreshed = [];
@@ -279,30 +283,30 @@ for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img
 
 await startTab('modelManager');
 const { showSyncDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
-// linkedom has no readyState, so onReady() is waiting on the event rather
-// than its 100ms timer. Fire it, as a browser would.
-window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
-await settle();
 
 // --- the API key banner -------------------------------------------------
 // Without a key most of what this extension does either crawls or fails, so
 // it says so rather than looking merely slow.
-// In a browser this module is a <script type="module"> in the head, so the
-// answer about the key arrives before Gradio has rendered the tab. Reproduce
-// that here: throw the banner away, then let init() run again. If the answer
-// is only applied at fetch time it is lost, which is exactly what happened.
+// The answer about the key can come before Gradio has drawn the tab. So the
+// banner is taken away, and put back only once the answer is in.
+const { apiKeyStatus } = await sharedModule('ui_options.mjs');
 const bannerHome = $('mm_api_key_warning').parentNode;
 const bannerNode = $('mm_api_key_warning');
 bannerNode.remove();
-window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
-await settle();
+await apiKeyStatus();
 
 // The markup now arrives with nothing left to trigger on: no init, no fetch,
 // no event. This is the ordering that broke it in the browser - both fixed
 // call sites had already run and found the other half missing.
 bannerHome.insertBefore(bannerNode, bannerHome.firstChild);
 bannerNode.style.display = 'none';
-await new Promise((r) => setTimeout(r, 150));
+if (hasApiKey) {
+    // Nothing shows that the banner was looked at again: it stays hidden.
+    // The page looks each drawRetry; three of them leave time for one.
+    await new Promise((r) => setTimeout(r, 3 * window.mmTiming.drawRetry));
+} else {
+    await waitFor('the banner to be shown again', () => $('mm_api_key_warning').style.display === 'flex');
+}
 
 if (hasApiKey) {
     check('the banner stays hidden when a key is set',
@@ -334,7 +338,7 @@ check('old metadata buttons are gone',
 check('dialog starts hidden', $('mm_sync_dialog').style.display, 'none');
 
 click('mm_sync_btn');
-await settle();
+await estimated('the estimate the opened dialog asks for');
 check('the button opens the dialog', $('mm_sync_dialog').style.display, 'flex');
 
 // The metadata checkbox is the only one with no id: it is never read, only
@@ -352,7 +356,7 @@ check('force sync is a scope, not a depth option',
 // Requests, not minutes - the count is the same on every machine, the
 // duration is not. Waited for, not settled: the estimate is asked again once
 // the count of new files has come, and a fixed wait read "Estimating..." once.
-await until('the estimate', () => $('mm_sync_estimate').textContent.includes(' - '));
+await waitFor('the estimate', () => $('mm_sync_estimate').textContent.includes(' - '));
 check('the estimate counts requests, approximately while it includes prompts',
     $('mm_sync_estimate').textContent, '747 models - ~3,007 requests to Civitai');
 check('and says nothing about time',
@@ -387,7 +391,7 @@ check('and carries no count', $('mm_scope_results').textContent, '');
 // asking for images unlocks the prompts beneath them
 $('mm_sync_images').checked = true;
 change($('mm_sync_images'));
-await settle();
+await estimated('the estimate with images');
 check('images unlock prompts', $('mm_sync_prompts').disabled, false);
 check('and tick them, since that is the useful default', $('mm_sync_prompts').checked, true);
 
@@ -395,20 +399,20 @@ check('and tick them, since that is the useful default', $('mm_sync_prompts').ch
 // must not keep re-ticking it.
 $('mm_sync_prompts').checked = false;
 change($('mm_sync_prompts'));
-await settle();
+await estimated('the estimate without prompts');
 check('unticking prompts sticks', $('mm_sync_prompts').checked, false);
 check('and is sent as such', lastEstimateQuery.get('include_prompts'), 'false');
 
 // Images off again: prompts go with them, unticked as well as locked.
 $('mm_sync_images').checked = false;
 change($('mm_sync_images'));
-await settle();
+await estimated('the estimate without images');
 check('prompts lock again with images', $('mm_sync_prompts').disabled, true);
 check('and untick', $('mm_sync_prompts').checked, false);
 
 $('mm_sync_images').checked = true;
 change($('mm_sync_images'));
-await settle();
+await estimated('the estimate with images again');
 check('turning images back on offers prompts again', $('mm_sync_prompts').checked, true);
 check('and the request says so',
     [lastEstimateQuery.get('include_images'), lastEstimateQuery.get('include_prompts')],
@@ -429,7 +433,7 @@ check('the notice above the buttons says the images may not be these',
      notice().textContent.includes('deletes')], [false, true, false]);
 countChoice('first').checked = true;
 change(countChoice('first'));
-await settle();
+await estimated('the estimate of the first page');
 check('the first page says what it deletes, and that they can still be seen',
     [notice().textContent.includes('This deletes 8,820 stored images from your library'),
      notice().textContent.includes('40 versions have more than 100 each'),
@@ -439,7 +443,6 @@ check('the first page says what it deletes, and that they can still be seen',
 check('and is asked for so', lastEstimateQuery.get('keep_image_count'), 'false');
 countChoice('kept').checked = true;
 change(countChoice('kept'));
-await settle();
 
 // Force sync is a scope, not a depth: it names which files to read.
 const imagesBefore = $('mm_sync_images').checked;
@@ -450,7 +453,7 @@ check('the modes carry their counts',
 
 forceRadio.checked = true;
 change(forceRadio);
-await settle();
+await estimated("the force sync's estimate");
 check('it is costed in files, not requests',
     $('mm_sync_estimate').textContent.startsWith('446 files* to read in full'), true);
 check('and says why they are unmatched',
@@ -473,21 +476,21 @@ check('asked for with the mode', lastEstimateQuery.get('force_mode'), 'unidentif
 
 $('mm_sync_force_mode').value = 'all';
 change($('mm_sync_force_mode'));
-await settle();
+await estimated('the estimate of All');
 check('All re-costs it as every file',
     $('mm_sync_estimate').textContent.startsWith('1,193 files* to read in full'), true);
 
 $('mm_sync_force_mode').value = 'identified';
 change($('mm_sync_force_mode'));
-await settle();
+await estimated('the estimate of All identified');
 check('All identified costs the matched ones',
     $('mm_sync_estimate').textContent.startsWith('747 files* to read in full'), true);
 check('choosing a mode picks the scope',
     window.document.querySelector('input[name="mm_sync_scope"]:checked').value, 'force');
 
-// Start sends the mode to the hashing endpoint, not the metadata one
+// Start sends the mode to the hashing endpoint, not the metadata one. A force
+// sync posts before it awaits anything, so the request is there at once.
 click('mm_sync_dialog_start');
-await settle();
 check('a force sync posts to the identifying endpoint',
     posts[posts.length - 1].url, '/model-manager/sync');
 const forceBody = new URLSearchParams(posts[posts.length - 1].body);
@@ -497,15 +500,14 @@ check('and forces', forceBody.get('force'), 'true');
 posts.length = 0;
 
 // wait out the progress poll, so the run is finished and the dialog usable
-await until('the sync to finish', () => $('mm_sync_btn').disabled === false);
+await waitFor('the sync to finish', () => $('mm_sync_btn').disabled === false);
 check('the sync releases when it completes', $('mm_sync_btn').disabled, false);
 
 click('mm_sync_btn');
-await settle();
 const allRadio = window.document.querySelector('input[name="mm_sync_scope"][value="all"]');
 allRadio.checked = true;
 change(allRadio);
-await settle();
+await estimated('the estimate of all models');
 // Images is usable again; prompts follow images, as they always do.
 check('leaving the scope unlocks the depth',
     [$('mm_sync_images').disabled, $('mm_sync_prompts').disabled],
@@ -515,7 +517,7 @@ check('and restores what was chosen before', $('mm_sync_images').checked, images
 // the download scope runs the other way, and the two never both apply
 $('mm_sync_downloaded_days').value = '2';
 change($('mm_sync_downloaded_days'));
-await settle();
+await estimated('the estimate of a download window');
 check('choosing a download window picks that scope',
     window.document.querySelector('input[name="mm_sync_scope"]:checked').value, 'downloaded');
 check('the download window is sent', lastEstimateQuery.get('downloaded_days'), '2');
@@ -523,16 +525,17 @@ check('and the staleness window is not', lastEstimateQuery.get('stale_days'), '0
 
 $('mm_sync_stale_days').value = '30';
 change($('mm_sync_stale_days'));
-await settle();
+await estimated('the estimate of a staleness window');
 check('switching back sends staleness again', lastEstimateQuery.get('stale_days'), '30');
 check('and drops the download window', lastEstimateQuery.get('downloaded_days'), '0');
 
 // run a search, then reopen: the scope is offered, and already counted
 closeSyncDialogFromTest();
 click('mm_load_btn');
-await settle();
+// Load Models is disabled until its answer is drawn.
+await waitFor('the search to load', () => !$('mm_load_btn').disabled);
 click('mm_sync_btn');
-await settle();
+await estimated('the estimate the reopened dialog asks for');
 
 const resultsRadio = window.document.querySelector('input[name="mm_sync_scope"][value="results"]');
 check('a search enables the results scope', resultsRadio.disabled, false);
@@ -542,13 +545,15 @@ check('and counts it without being picked', $('mm_scope_results').textContent, '
 
 resultsRadio.checked = true;
 change(resultsRadio);
-await settle();
+await estimated('the estimate of the results');
 check('and passes them to the estimate',
     lastEstimateQuery.get('paths').split(',').length, 47);
 
 // Start sends exactly what was chosen
 click('mm_sync_dialog_start');
-await settle();
+// Start for these results posts once their paths are read, a moment after
+// the click - and only then disables Sync, which the wait below looks at.
+await waitFor('the sync to be posted', () => posts.length > 0);
 check('dialog closes on start', $('mm_sync_dialog').style.display, 'none');
 check('one request was posted', posts.length, 1);
 const body = new URLSearchParams(posts[0].body);
@@ -563,13 +568,12 @@ check('nor anything the walk does besides', [body.get('reread_headers'), body.ge
       ['false', 'false']);
 
 // --- the Files section: what the walk every sync starts with does besides -----
-await until('the metadata sync to finish', () => $('mm_sync_btn').disabled === false);
+await waitFor('the metadata sync to finish', () => $('mm_sync_btn').disabled === false);
 posts.length = 0;
 NEW_FILES.files = 12;
 NEW_FILES.bytes = 3 * 1073741824;
 click('mm_sync_btn');
-await settle();
-await settle();
+await estimated('the estimate with the new files');
 check('both boxes start unticked, the move one usable once its list has come',
       [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled], [false, false, false]);
 check('the box counts the files it can move',
@@ -580,15 +584,17 @@ check('the estimate says what every sync will read in full, whatever its scope',
 $('mm_sync_reread').checked = true;
 $('mm_sync_move').checked = true;
 change($('mm_sync_move'));
-click('mm_sync_dialog_start');
-await settle();
-const walkBody = new URLSearchParams(posts[0]?.body || '');
-check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
-check('every sync so far changed no file, whatever was ticked: Forge\'s lists not refreshed', refreshed, []);
+// How the sync will end, set before it starts: its first poll closes it, one
+// poll after Start, and set after the checks below it raced that poll (#272).
 WALKED.added = 2;
 WALKED.removed = 1;
 WALKED.moved = 1;
-await until('that sync to finish', () => $('mm_sync_btn').disabled === false);
+click('mm_sync_dialog_start');
+await waitFor('the sync to be posted', () => posts.length > 0);
+const walkBody = new URLSearchParams(posts[0]?.body || '');
+check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
+check('every sync so far changed no file, whatever was ticked: Forge\'s lists not refreshed', refreshed, []);
+await waitFor('that sync to finish', () => $('mm_sync_btn').disabled === false);
 check('one that added, forgot or moved files refreshes Forge\'s lists, once', refreshed, ['checkpoints', 'extra networks']);
 refreshed.length = 0;
 check('the status says what the walk did to the library',
@@ -598,20 +604,18 @@ for (const key of Object.keys(WALKED)) delete WALKED[key];
 
 posts.length = 0;
 click('mm_sync_btn');
-await settle();
+await estimated('the estimate the dialog asks for');
 check('the next time the dialog opens, both are unticked again',
       [$('mm_sync_reread').checked, $('mm_sync_move').checked], [false, false]);
 forceRadio.checked = true;
 change(forceRadio);
-await settle();
 $('mm_sync_reread').checked = true;
 click('mm_sync_dialog_start');
-await settle();
 const forceWalk = new URLSearchParams(posts[0]?.body || '');
 check('a force sync sends them too',
       [posts[0]?.url, forceWalk.get('reread_headers'), forceWalk.get('move_misplaced')],
       ['/model-manager/sync', 'true', 'false']);
-await until('the force sync to finish', () => $('mm_sync_btn').disabled === false);
+await waitFor('the force sync to finish', () => $('mm_sync_btn').disabled === false);
 NEW_FILES.files = 0;
 NEW_FILES.bytes = 0;
 
@@ -619,13 +623,13 @@ NEW_FILES.bytes = 0;
 // Every sync walks the library before it has a total: the bar said "0/0".
 POLLS.push({ total: 0, processed: 0, synced: 0, skipped: 0, errors: 0, not_found: 0,
              current_model: 'Reading your model folders: 120/1576', error_messages: [], is_complete: false });
+// Start reads the dialog as it is: nothing the opening asks for has to come.
 click('mm_sync_btn');
-await settle();
 click('mm_sync_dialog_start');
-await until('the walk to be shown', () => $('mm_sync_text').textContent.startsWith('Reading'));
+await waitFor('the walk to be shown', () => $('mm_sync_text').textContent.startsWith('Reading'));
 check('while the sync has no total, the bar says what the walk is doing, and no "0/0"',
       $('mm_sync_text').textContent, 'Reading your model folders: 120/1576');
-await until('that sync to finish too', () => $('mm_sync_btn').disabled === false);
+await waitFor('that sync to finish too', () => $('mm_sync_btn').disabled === false);
 posts.length = 0;
 
 // --- the log, in place of the grid -----------------------------------------
@@ -643,9 +647,8 @@ POLLS.push({ ...RUNNING }, { ...RUNNING, cancelling: true, processed: 4 },
 WALKED.cancelled = true;
 logAsked.length = 0;
 click('mm_sync_btn');
-await settle();
 click('mm_sync_dialog_start');
-await until('the log\'s lines', () => $('mm_sync_log_lines').childElementCount === 4);
+await waitFor('the log\'s lines', () => $('mm_sync_log_lines').childElementCount === 4);
 check('a sync opens its log in place of the grid and its tabs',
       [$('mm_sync_log').hidden, $('model_manager_app').classList.contains('mm-log-open')], [false, true]);
 const logRows = () => Array.from($('mm_sync_log_lines').children);
@@ -660,19 +663,23 @@ check('an error in red, a warning in amber, the rest as they are',
       ['mm-sync-log-line', 'mm-sync-log-line', 'mm-sync-log-line mm-sync-log-error', 'mm-sync-log-line mm-sync-log-warn']);
 
 // Cancel: said on the button, the status line and the bar, until it is done.
+// The button changes, and the request goes, before Cancel awaits anything.
 click('mm_sync_cancel_btn');
-await settle();
 check('Cancel, once pressed, says it is cancelling and cannot be pressed again',
       [$('mm_sync_cancel_btn').textContent, $('mm_sync_cancel_btn').disabled], ['Cancelling...', true]);
 check('and asks the server', posts.some((post) => post.url === '/model-manager/sync/cancel'), true);
-await until('the poll to say it is cancelling', () => $('mm_sync_text').textContent.startsWith('Cancelling'));
+await waitFor('the poll to say it is cancelling', () => $('mm_sync_text').textContent.startsWith('Cancelling'));
 check('the log was asked from where the sync began, then from where each poll ended',
       logAsked.slice(0, 2), ['-1', '99']);
 check('the bar says what it is waiting for', $('mm_sync_text').textContent,
       'Cancelling: 4/10 done - finishing what is in progress');
-check('and so does the status line', $('mm_status').textContent,
+// Recorded, not read: the grid reloads half a second after an earlier sync
+// ended and rewrites the line, and with the waits shortened it can land here
+// (#272). The last cancelling status has to be the poll's, with its count.
+check('and so does the status line',
+      [...statusSeen].reverse().find((text) => text.startsWith('Cancelling the sync')),
       'Cancelling the sync: no new file starts, the ones in progress finish first - 2 synced so far');
-await until('that sync to stop', () => $('mm_sync_btn').disabled === false);
+await waitFor('that sync to stop', () => $('mm_sync_btn').disabled === false);
 check('it ends as cancelled, not complete', syncEnd().slice(0, 16), 'Sync cancelled: ');
 delete WALKED.cancelled;
 check('the log stays once the sync has ended', $('mm_sync_log').hidden, false);
@@ -686,13 +693,12 @@ check('Log shows it again', [$('mm_sync_log').hidden, $('mm_sync_log_btn').style
 
 posts.length = 0;
 click('mm_sync_btn');
-await settle();
 click('mm_sync_dialog_start');
-await settle();
+await waitFor('the new sync to start its log', () => $('mm_sync_log_lines').childElementCount === 0);
 check('a new sync starts a log of its own', $('mm_sync_log_lines').childElementCount, 0);
 check('and a Cancel that can be pressed', [$('mm_sync_cancel_btn').textContent, $('mm_sync_cancel_btn').disabled],
       ['Cancel', false]);
-await until('the new sync to finish', () => $('mm_sync_btn').disabled === false);
+await waitFor('the new sync to finish', () => $('mm_sync_btn').disabled === false);
 click('mm_sync_log_hide');
 posts.length = 0;
 
@@ -702,8 +708,7 @@ posts.length = 0;
 check('there is no Scan Disk: no button, no dialog', [$('mm_refresh_btn'), $('mm_scan_dialog')], [null, null]);
 posts.length = 0;
 click('mm_sync_btn');
-await settle();
-await settle();
+await estimated('the estimate the dialog asks for');
 check('the box says how many files it can move - not the one whose name is taken in its folder',
       $('mm_sync_move_label').textContent, 'Move files into their type\'s folder (1)');
 check('its box can be ticked, and is not', [$('mm_sync_move').disabled, $('mm_sync_move').checked], [false, false]);
@@ -723,16 +728,14 @@ $('mm_sync_move').checked = false;
 change($('mm_sync_move'));
 check('unticked again, both go', [$('mm_sync_move_note').hidden, $('mm_sync_misplaced').hidden], [true, true]);
 click('mm_sync_dialog_cancel');
-await settle();
 showSyncDialog({ rereadHeaders: true });
-await settle();
+await estimated("the estimate the note's dialog asks for");
 check('a note\'s button ticks "Read every file\'s header again", never the move',
       [$('mm_sync_dialog').style.display, $('mm_sync_reread').checked, $('mm_sync_move').checked], ['flex', true, false]);
 click('mm_sync_dialog_cancel');
 MISPLACED.length = 0;
 click('mm_sync_btn');
-await settle();
-await settle();
+await estimated('the estimate the dialog asks for');
 check('with nothing to move, the box says none, cannot be ticked, and says nothing more',
       [$('mm_sync_move_label').textContent, $('mm_sync_move').disabled, $('mm_sync_move_note').hidden,
        $('mm_sync_misplaced').hidden],
@@ -741,8 +744,7 @@ click('mm_sync_dialog_cancel');
 MISPLACED.push({ path: 'C:/models/Lora/taken.pt', to: 'C:/models/embeddings/taken.pt',
                  file_type: 'TextualInversion', identified_by: '', clash: 'different' });
 click('mm_sync_btn');
-await settle();
-await settle();
+await estimated('the estimate the dialog asks for');
 check('nor when every file\'s name is taken in its folder',
       [$('mm_sync_move_label').textContent, $('mm_sync_move').disabled], ['Move files into their type\'s folder (0)', true]);
 MISPLACED.length = 0;
