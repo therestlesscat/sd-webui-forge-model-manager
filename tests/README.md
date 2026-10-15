@@ -12,7 +12,7 @@ python tests/coverage.py            line coverage, by hand: tests/work/coverage/
 ```
 
 The suites run side by side, each in its own process with its own folder under
-`tests/work/`, twelve at a time: about 25 s for all of them, where four took
+`tests/work/`, twelve at a time: about 22 s for all of them, where four took
 61 s - most suites wait on timers more than they work. Not one per CPU: 32
 processes beside two running WebUIs left Windows out of memory; twelve peaked
 at about 2 GB (#270). The slowest suites of the last run start first, after
@@ -134,6 +134,12 @@ is close to a browser and not one:
   back (`download_controls_test.mjs`).
 - **`onAfterUiUpdate` does nothing** unless the suite collects the callbacks
   and runs them (`quiet_updates_test.mjs`).
+- **The stand-in window starts at `scrollY` 0, as a browser's** (#271).
+  Without it a gallery going to its top worked out NaN, asked for a scroll
+  the harness ignores, and waited out its 500 ms fallback, 19 times in 8
+  suites; `gallery_test`'s "back at the top" passed only because every switch
+  scrolled. A suite that builds its own window sets it itself: #271's fix did
+  not reach `bridge_test`'s.
 
 When a suite passes and the page does not, look for what the suite set up
 that the WebUI does not - and ask a real browser ("Probes").
@@ -200,6 +206,17 @@ that the WebUI does not - and ask a real browser ("Probes").
   `goToTab` (#263) first skipped the entry when the tab was not found, and 15
   suites failed: a wrapper around `showTab` keeps its old order, the entry
   running either way.
+- **A check that nothing happens needs the page's chance, not a long sleep.**
+  Shorten the timer it would show in (`window.mmTiming`, before the page
+  loads) and wait a few of them: the stop suites went from one 1,000 ms poll
+  waited 1,300 ms to 100 ms polls waited 300, and still failed on every leak
+  (#272). Where only promises are pending, one `setImmediate` turn drains
+  them: `import_work_test` went from 2.0 s to 0.25 s, its six breaks failing
+  still.
+- **A wait's condition answers at once, without awaiting.** A promise counts
+  as true: `generations_grid_test`'s `loaded()` awaited a sleep inside its
+  condition, and would have passed at once; nothing called it. The harness
+  now fails such a wait, naming it (#271).
 
 ## What is here
 

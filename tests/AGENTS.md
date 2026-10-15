@@ -69,6 +69,25 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   a tracer that hooked every call, `--all` had grown to 72-83 s; it takes 31
   s since both were fixed. Time a run plain and traced before guessing why
   it is slow.
+- **A slow run: wall time against CPU first.** The browser suites ran 95 s
+  summed against 31 s of CPU: they waited, mostly on timers. More at once,
+  4 to 12, took `--all` from 61.3 s to 27.6 s, and tracing for `--changed`
+  cost nothing (#270). A probe charging each idle gap to the timer that ended
+  it found which waits were the harness's own (#271) and which the suites'
+  (#272). A saving across suites is the sum over the twelve at once: 13 s
+  summed was about 1 s - a side agent caught a table that gave the sums.
+- **cProfile inflates Python-level work.** `copy.deepcopy` profiled at 4.7 s
+  of `generations_scale_test`, and took 0.74 s timed directly. Time a suspect
+  on its own before planning around it.
+- **A comparison of two ways cannot catch a wait too short.**
+  `generations_grid_test` compared Classic with Fast after each control; with
+  no wait at all both read 200 tiles of 250, alike, and it passed. Its waits
+  now count to the whole level (#272): a wait is for what the check reads,
+  never for a time that usually covers it.
+- **A break can be made in memory.** A module hook (`module.registerHooks`,
+  or an `--import` preload) rewrites a page module as Node loads it: no file
+  is touched, and suites can be proven side by side - #272's five were, at
+  once.
 
 ### The code
 
@@ -95,6 +114,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   their runs timed out. Find them by command line - `Get-CimInstance
   Win32_Process` with the suite's name in `CommandLine`, from `powershell.exe`
   - and stop only those (`taskkill.exe /F /PID`).
+- **Windows' Node wakes an idle timer on its clock's tick, 15.5 ms apart.**
+  Measured with `node.exe`: 0, 1 or 10 ms take 15.2-15.5 ms, 16 ms takes
+  29.7, 50 ms takes 62.2. A look every 50 ms slept 62; a 20 ms sleep, 31.
+  Linux Node in WSL reads `/mnt/f` over 9p and is slower still: measure with
+  `node.exe`.
 
 ## Testing
 

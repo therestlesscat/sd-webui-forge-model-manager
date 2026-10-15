@@ -125,6 +125,9 @@ existed.
   then were resumed to build them, and the owner heard of each round only
   once it had started: the reading cost 131-238 k tokens an agent, 0.98 M
   in all; the building 144-307 k, 1.22 M in all.
+- **Agents at once each get a folder of their own** under the scratchpad. On
+  #272 two wrote `hooks.mjs` at its root, and one's proof runs used the
+  other's breaks until it noticed and ran them again.
 - **"Unchanged" in a plan means byte for byte.** #259's plan kept Classic's
   reads unchanged: the fallback while Single pass is alpha. While building,
   three were moved into helpers Single pass shared; a side agent caught it,
@@ -171,7 +174,9 @@ existed.
   that looks obvious is how `get_max_nsfw_level` returned `UNKNOWN` without
   importing it. The console's trace helper was first named `failed` - the
   name `api/common.py` already exports, 41 uses - and inside `common.py` its
-  own call recursed; it is `say_failure` (#143).
+  own call recursed; it is `say_failure` (#143). Nor in an issue's text:
+  #274 first named `scope.timeout` for the scope's timer, which does not
+  exist; it is `scope.later`.
 - **Verify before asserting, especially about your own effects.** "I only work
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
@@ -751,7 +756,7 @@ Test what a change needs, not everything.
   "Testing".
 
 `--all` runs every suite, twelve at a time and the slowest first, in about
-25 s; `tests/README.md` says why no wider, what each suite covers, how the
+22 s; `tests/README.md` says why no wider, what each suite covers, how the
 choice is made, and how to write one.
 
 **A test run takes a minute at most; one that needs longer is asked for
