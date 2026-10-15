@@ -85,8 +85,14 @@ globalThis.fetch = async (url) => {
     }
     return reply({ success: true });
 };
+// Asked to scroll, the page moves there and says so, as a browser's does once
+// a smooth scroll ends: a gallery going back to its top waits for that.
 const scrolls = [];
-window.scrollTo = (to) => scrolls.push(to);
+window.scrollTo = (to) => {
+    scrolls.push(to);
+    Object.defineProperty(window, 'scrollY', { value: to.top, configurable: true, writable: true });
+    window.dispatchEvent(new window.Event('scroll'));
+};
 
 // --- run --------------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
@@ -148,13 +154,19 @@ check('a page the switches empty still has its separator and its note, which say
       ['Page 4', 'Displaying 0 images for page 4 · 100 hidden due to NSFW filter · no more images on Civitai', 270]);
 check('so there is no Load More', loadMore(), false);
 
+// Scrolled down the gallery first: a page already at the top has nowhere to
+// go, in a browser too. This check passed from the top for as long as the
+// stand-in page had no position, and every switch scrolled (#271).
 scrolls.length = 0;
+window.scrollY = 2000;
 before = asked.length;
 await tick('modelManager.showNsfwImages', true);
 await waitFor('the reload', () => cards().length === 100);
 check('changing a switch starts again from page 1', [pagesAsked(before), separators(), notes()],
       [['1'], [], ['Displaying 100 images for page 1']]);
-check('back at the top of the gallery', scrolls.length > 0, true);
+check('and takes the page from 2,000 px down back up to the gallery',
+      [scrolls.length, scrolls.at(-1)?.top < 2000], [1, true]);
+window.scrollY = 0;
 
 // ---------------------------------------------------------------- the viewer
 // A click on an image opens the shared viewer on the card as it is: its file

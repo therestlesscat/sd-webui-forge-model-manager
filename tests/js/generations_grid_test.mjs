@@ -71,10 +71,6 @@ const gridEl = () => document.getElementById('gen_grid');
 const shown = () => [...gridEl().querySelectorAll('.gen-set')].map((set) => Number(set.dataset.tile));
 const generations = () => [...gridEl().querySelectorAll('.gen-tile')].map((t) => Number(t.dataset.generation));
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
-const loaded = (n) => waitFor(`${n} tiles`, async () => {
-    await settle();
-    return browsed.length && !browsed.at(-1).pending && document.getElementById('gen_status')?.textContent === '';
-});
 
 await startTab('generations');
 await waitFor('the first parts', () => browsed.length >= 1);

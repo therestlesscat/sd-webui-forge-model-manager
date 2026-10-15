@@ -319,6 +319,11 @@ export function mountTab(tabFile) {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
     window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
     window.scrollTo = () => {};
+    // At the top, as a browser's page starts (#271). With no position, a
+    // gallery going back to its top worked out NaN, asked for a scroll, and
+    // waited out half a second for one that never came.
+    window.scrollY = 0;
+    window.pageYOffset = 0;
     window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
     globalThis.requestAnimationFrame = window.requestAnimationFrame;
     window.localStorage = {
@@ -406,10 +411,17 @@ export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = n
     return asked;
 }
 
-// The most tries a wait may ask for: 400 looks, 20 seconds. Seven waits
-// once asked for 4,000-6,000, up to 300 s each, and a broken one held a run
-// for minutes before it said anything (#145). A suite waits in seconds.
+// The most tries a wait may ask for: 400 tries of 50 ms, 20 seconds. Seven
+// waits once asked for 4,000-6,000, up to 300 s each, and a broken one held a
+// run for minutes before it said anything (#145). A suite waits in seconds.
 export const MAX_WAIT_TRIES = 400;
+
+// A try is five looks, 10 ms apart (#271). One look every 50 ms slept out the
+// rest of it once the page was ready: 32 s summed over the suites. Windows
+// wakes a timer on its clock's tick, 15.5 ms apart, so a try there takes 78
+// ms, where one look took 62: no budget got shorter.
+const LOOK_MS = 10;
+const LOOKS_PER_TRY = 5;
 
 /** Collect failures without stopping at the first one. */
 export function checker(label = '') {
@@ -436,9 +448,17 @@ export function checker(label = '') {
                            + ' - a suite waits in seconds');
                 return;
             }
-            for (let n = 0; n < tries; n++) {
-                if (predicate()) return;
-                await new Promise((r) => setTimeout(r, 50));
+            for (let n = 0; n < tries * LOOKS_PER_TRY; n++) {
+                const seen = predicate();
+                // A promise is true: a condition that awaits would pass at
+                // once, whatever it came to.
+                if (typeof seen?.then === 'function') {
+                    fails.push(`${prefix}waits for ${what}: its condition answers with a promise,`
+                               + ' which counts as true at once - a condition answers without awaiting');
+                    return;
+                }
+                if (seen) return;
+                await new Promise((r) => setTimeout(r, LOOK_MS));
             }
             fails.push(`${prefix}timed out waiting for ${what}`);
         },
