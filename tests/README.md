@@ -191,6 +191,10 @@ that the WebUI does not - and ask a real browser ("Probes").
 - **A crash hides a suite's earlier failures.** `checker()` prints them at
   `done()`: a TypeError at line 588 of a browser suite hid the failures of the
   section above it. Read the crash, then run again.
+- **The suites have no Gradio tab buttons**, so `showTab` answers false.
+  `goToTab` (#263) first skipped the entry when the tab was not found, and 15
+  suites failed: a wrapper around `showTab` keeps its old order, the entry
+  running either way.
 
 ## What is here
 

@@ -629,6 +629,14 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   looked wrong; measured on 7870, two did - the ones inside Gradio's
   container. And measure again after the change: the owner asks for it, and
   the second run is what confirmed all five.
+- **A sample drawn through a lookup cannot measure what the lookup
+  misses.** #262's 100 random models entered only if a batch returned them,
+  so a model every batch leaves out could never enter, and 99 of 100
+  overstated it. A side agent caught it.
+- **A live check says what it did not press.** #263's clicked the tab's
+  button, not Send, which writes; the owner then hit a Send crash and asked
+  "did you test this". It was old (#266), but the report had not said Send
+  went untested.
 - Writing a check: `tests/AGENTS.md`, "Proving a change". Timing SQL:
   `model_manager/db/AGENTS.md`, "Proving a change". A delay on the page:
   `javascript/AGENTS.md`, "Proving a change".

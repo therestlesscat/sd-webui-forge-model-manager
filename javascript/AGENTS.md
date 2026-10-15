@@ -136,6 +136,13 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   four of ours did, and every extension's callbacks ran four times a second,
   without end. Write only what differs - `setText` / `setTitle` in
   `core.mjs` - and `quiet_updates_test.mjs` finds any that does not.
+- **A tab switch keeps the page's one scroll.** A jump from deep in a gallery
+  opened the other tab at that depth: its loading bar shrank the page to
+  about 2,100 px, the view was clamped to its bottom, and Chrome's scroll
+  anchoring carried it back to 3,730 as the images came in. The first visit
+  lands at 0 only because the empty tab is one screen tall. Every jump goes
+  through `goToTab` (`shared/tabs.mjs`, #263), and an entry answers where it
+  lands.
 
 ## Learned the hard way
 

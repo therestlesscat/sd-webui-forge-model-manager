@@ -24,8 +24,17 @@ because that would mean the assumption no longer holds.
   35 KB and a 431. Civitai's own filters apply to the ids; a text query
   ignores them. More than 100 matches come back as the first 100 by the sort,
   with a cursor: a draw that kept only those favoured the most downloaded.
-- **Civitai's `nsfw` search parameter has two states, not three.** `true`
-  gives both kinds (42 of 100 newest LoRAs NSFW), `false` or left out the
-  safe ones alone: there is no "NSFW only". Every model payload carries
-  `nsfw` (300 of 300); a thin sidecar may not (8 of 1,032 here), and the flag
-  is then stored as not said (#141).
+- **Civitai's `nsfw` search parameter has two states, not three, and
+  neither is "every model".** `true` leaves out the models Civitai marks
+  `minor` (4 of 4 seen); left out, or `false`, it returns only models whose
+  `nsfwLevel` has the PG bit (56 of 100 random models, every level odd),
+  whatever their `nsfw` flag - not "the safe ones alone", as this said. There
+  is no "NSFW only". A batch by `ids` also leaves out some models for no known
+  reason: absent is not deleted, only a 404 from `/models/<id>` is (#262). The
+  same with an API key and without; rapid single lookups get 429 after about
+  30. Every model payload carries `nsfw` (300 of 300); a thin sidecar may not
+  (8 of 1,032 here), and the flag is then stored as not said (#141).
+- **Civitai's image data can lack what the code reads.** Of 122,802 stored
+  Civitai images, 13,597 had `meta: null`, and 14 of 480,615
+  `civitaiResources` entries a version id with no model id. Send threw on the
+  first (#266); View asks the server for the second (#260).
