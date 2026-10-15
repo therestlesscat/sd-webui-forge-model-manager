@@ -738,6 +738,21 @@ def register(app: FastAPI):
             say(f"Missing resources error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.get("/model-manager/other-versions")
+    @gate("send")
+    def other_versions(version_id: int, model_id: int):
+        """
+        The versions of a model the library holds here, other than this one:
+        what a stopped Send's Resources dialog offers to send with when the
+        image's checkpoint is missing (#278). See resources.other_versions.
+        """
+        try:
+            return JSONResponse({"success": True,
+                                 "versions": resources.other_versions(get_models_db(), version_id, model_id)})
+        except Exception as e:
+            say(f"Other versions error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.get("/model-manager/image-resources")
     @gate("send")
     def image_resources(version_ids: str = "", hashes: str = "", names: str = ""):

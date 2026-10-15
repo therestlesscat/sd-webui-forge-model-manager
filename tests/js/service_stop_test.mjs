@@ -155,7 +155,7 @@ check('the Civitai Browser off: nothing left of it, or of the downloads list',
 check('nothing asked of the downloads', (await askedAfter()).filter((p) => p.includes('/download')), []);
 check('and nothing of them started again',
       workOf('tabs/civitai_browser.mjs', 'shared/downloads.mjs', 'shared/image_card.mjs'), []);
-check('Send\'s Resources dialog runs on, for Generations and the Queue', actionsOf('resources.').length, 5);
+check('Send\'s Resources dialog runs on, for Generations and the Queue', actionsOf('resources.').length, 6);
 
 // ----------------------------------------------------------- Generations
 off('model_manager_record_generations');

@@ -392,25 +392,38 @@ function renderResourcesModal(resources, pending = 0) {
 
 /**
  * The dialog's Send, for a send it stopped: disabled, saying why, until ready
- * - or, with another file of the checkpoint's version held, until the person
- * ticks that they want that one (#233). One Send, whichever it sends with.
+ * - or until the person picks what the library has instead: a tick for
+ * another file of the checkpoint's version (#233) or one other version of its
+ * model, a dropdown for several versions (#278). One Send, whichever it sends with.
  */
 function sendAgainButton() {
     if (!resourcesSend) return '';
-    const { ready, why, alternative, useChecked } = resourcesSend;
-    const offered = !ready && alternative && resourcesSend.useInstalled;
-    const enabled = ready || (offered && useChecked);
-    const tick = offered
-        ? `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
-            useChecked ? ' checked' : ''}> Use the ${escapeHtml(alternative.label)} file I have instead: `
-          + 'the image may not come out exactly the same</label>' : '';
+    const { ready, why, alternative, alternatives, useChecked, chosen } = resourcesSend;
+    const canUse = !ready && resourcesSend.useInstalled;
+    const offered = canUse && alternative;
+    const listed = canUse && !alternative && alternatives?.length > 1;
+    const enabled = ready || (offered && useChecked) || (listed && chosen);
+    const caution = 'the image may not come out exactly the same';
+    const tick = !offered ? ''
+        : `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
+            useChecked ? ' checked' : ''}> `
+          + (alternative.kind === 'version'
+              ? `Use ${escapeHtml(alternative.label)}, the version I have, instead: ${caution}</label>`
+              : `Use the ${escapeHtml(alternative.label)} file I have instead: ${caution}</label>`);
+    const pick = !listed ? ''
+        : '<label class="mm-res-use-installed mm-res-pick">Send with: <select class="mm-dialog-select" '
+          + `data-action="resources.chooseVersion" title="The image may not come out exactly the same.">`
+          + `<option value=""${chosen ? '' : ' selected'}>The image's own checkpoint - download it above</option>`
+          + alternatives.map((v) => `<option value="${safeId(v.version_id)}"${
+              Number(v.version_id) === chosen ? ' selected' : ''}>${escapeHtml(versionLabel(v))}</option>`).join('')
+          + '</select></label>';
     const status = enabled ? null : sendStatus();
     const line = status?.text
         ? `<span class="mm-res-send-status">${escapeHtml(status.text)}</span>`
           + (status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
                             + 'data-action="resources.checkAgain">Check again</button>' : '')
         : '';
-    return `<div class="mm-dialog-buttons mm-resources-send">${tick}${line}
+    return `<div class="mm-dialog-buttons mm-resources-send">${tick}${pick}${line}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
                     enabled ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
             </div>`;
@@ -478,21 +491,25 @@ async function recheckSend() {
         wanted.checking = false;
     }
 }
-// The dialog's other way out of a stopped send: closed, and sent with the
-// library's file of the image's version, though not the image's own (#233).
-function useInstalled(versionId) {
+// The dialog's other way out of a stopped send: closed, and sent with what
+// the library has - a `file` of the image's version, though not the image's
+// own (#233), or another `version` of its model (#278).
+function useInstalled(versionId, kind) {
     const send = resourcesSend;
     if (!send?.useInstalled) return undefined;
     closeMetaModal();
     resourcesSend = null;
-    return send.useInstalled(versionId);
+    return send.useInstalled(versionId, kind);
 }
 
 // The dialog's Send: closed, and the image sent again, through every check -
-// with the library's other file of its version, when that is what is ticked.
+// with what the library has, when that is what is ticked or picked.
 function sendAgain() {
     const send = resourcesSend;
-    if (!send?.ready && send?.alternative && send.useChecked) return useInstalled(send.alternative.versionId);
+    if (!send?.ready && send?.alternative && send.useChecked) {
+        return useInstalled(send.alternative.versionId, send.alternative.kind || 'file');
+    }
+    if (!send?.ready && !send?.alternative && send?.chosen) return useInstalled(send.chosen, 'version');
     if (!send?.ready) return undefined;
     closeMetaModal();
     resourcesSend = null;
@@ -701,6 +718,8 @@ async function checkInstalledResources(resources) {
     }
     for (const resource of resources) redrawResourceDownload(resource.versionId, resource);
     offerInstalledFile(resources);
+    offerOtherVersions(resources).catch((error) =>
+        console.warn('[ModelManager] Could not ask which other versions the library holds:', error));
     await labelImageFiles(resources);
 }
 
@@ -708,6 +727,7 @@ async function checkInstalledResources(resources) {
  * A send stopped for its checkpoint, the library holding another file of its
  * version (#233): the dialog's Send can go with that one, once the person
  * ticks that they want it - the image may not come out exactly the same.
+ * The closer match: it takes the place of any other versions offered (#278).
  */
 function offerInstalledFile(resources) {
     if (!resourcesSend?.useInstalled) return;
@@ -715,8 +735,51 @@ function offerInstalledFile(resources) {
                                            && otherFileHashes.has(r.hash) && !installedResourceHashes.has(r.hash));
     if (!resource) return;
     const held = otherFileHashes.get(resource.hash);
-    resourcesSend.alternative = { versionId: resource.versionId, resource,
+    resourcesSend.alternative = { versionId: resource.versionId, resource, kind: 'file',
                                   label: fileLabel(held, held.file_size) || held.name };
+    resourcesSend.alternatives = null;
+    redrawSendBar();
+    redrawNote();
+}
+
+/** A held version as the tick and the dropdown name it: "V17 (SD 1.5)". */
+function versionLabel(version) {
+    const name = version.version_name || version.file_name || `version ${version.version_id}`;
+    return version.base_model ? `${name} (${version.base_model})` : name;
+}
+
+/**
+ * A send stopped for a checkpoint the library lacks, and no other file of its
+ * version held: the versions of its model the library holds, to send with
+ * instead (#278) - a tick for one, a dropdown for several. Asked once a
+ * dialog, by the model id the image's data or Civitai's answer gives.
+ */
+async function offerOtherVersions(resources) {
+    const send = resourcesSend;
+    if (!send?.useInstalled || send.reason !== 'missing' || send.alternative || send.versionsAsked) return;
+    const resource = resources.find((r) => r.versionId && /checkpoint/i.test(r.type || '')
+                                           && !installedResourceVersions.has(r.versionId)
+                                           && !(r.hash && installedResourceHashes.has(r.hash)));
+    if (!resource) return;
+    let modelId = resource.modelId || civitaiModels.get(resource.versionId)?.modelId;
+    if (!modelId && askingVersions.has(resource.versionId)) {
+        await modelsAsked;
+        modelId = civitaiModels.get(resource.versionId)?.modelId;
+    }
+    if (!modelId || resourcesSend !== send || send.versionsAsked) return;
+    send.versionsAsked = true;
+    const answer = await apiCall({ endpoint: '/model-manager/other-versions',
+                                   params: { version_id: resource.versionId, model_id: modelId } });
+    const versions = (answer?.success && answer.versions) || [];
+    // The file of its own version, found meanwhile, is the closer match.
+    if (resourcesSend !== send || send.alternative || !versions.length) return;
+    send.versionsOf = resource;
+    if (versions.length === 1) {
+        send.alternative = { versionId: versions[0].version_id, resource, kind: 'version',
+                             label: versionLabel(versions[0]) };
+    } else {
+        Object.assign(send, { alternatives: versions, chosen: null });
+    }
     redrawSendBar();
     redrawNote();
 }
@@ -737,9 +800,18 @@ async function labelImageFiles(resources) {
     }
 }
 
-/** The dialog's note: a stopped send's, naming the image's file where another of its version is held. */
+/**
+ * The dialog's note: a stopped send's, naming the image's file where another
+ * of its version is held - or its version, where other versions are (#278).
+ */
 function noteText() {
     const alternative = resourcesSend?.alternative;
+    const versionsOf = resourcesSend?.versionsOf;
+    if (versionsOf && (alternative?.kind === 'version' || (!alternative && resourcesSend.alternatives?.length))) {
+        const which = [versionsOf.name, versionsOf.versionName].filter(Boolean).join(' ');
+        return `The checkpoint this image was made with, ${which}, is not in your library. `
+               + 'Download it here, or send with the version of it you have.';
+    }
     const made = alternative && imageFiles.get(alternative.resource.hash);
     if (!made) return resourcesNote;
     const which = [alternative.resource.name, alternative.resource.versionName].filter(Boolean).join(' ');
@@ -863,6 +935,11 @@ export function start(scope) {
     scope.provide('resources.view', ({ versionId, modelId }) => viewResource(safeId(versionId), safeId(modelId)));
     scope.provide('resources.download', ({ versionId, modelId, hash }) =>
         downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase()));
+    scope.provide('resources.chooseVersion', (data, select) => {
+        if (!resourcesSend) return;
+        resourcesSend.chosen = Number(select?.value) || null;
+        redrawSendBar();
+    });
     scope.provide('resources.useInstalledTick', (data, box) => {
         if (!resourcesSend) return;
         resourcesSend.useChecked = Boolean(box?.checked);

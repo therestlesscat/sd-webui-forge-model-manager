@@ -2169,6 +2169,11 @@ body.mm-modal-open {
     font-size: 0.9em;
 }
 
+/* The versions held, to send with one (#278): "Send with:" on one line beside its dropdown. */
+.mm-res-pick {
+    white-space: nowrap;
+}
+
 /* What a stopped send's Send waits for, beside it, and Check again (#211).
    The theme's subdued text is #9ca3af in light mode too: 2.54:1 on the
    white dialog. This grey reads at about 7.5:1; the theme's, on the dark one. */

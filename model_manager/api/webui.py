@@ -77,11 +77,14 @@ def _listed_upscaler(db, file_path: str):
     return None
 
 
-def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str) -> dict:
+def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str,
+                      instead: bool = False) -> dict:
     """
     The image's checkpoint for a send from a gallery that is not a
     checkpoint's: {checkpoint: Forge's name for it} or {checkpoint_problem}.
-    See forge_modules_for().
+    `instead`: the version asked for is not the image's own (#278) - the
+    answer names the file sent with, for the page to say. See
+    forge_modules_for().
     """
     from ..forge_host import checkpoint_name
     from ..model_dirs import loads_here
@@ -95,7 +98,7 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
     if path:
         name = checkpoint_name(path)
         if name:
-            return {"checkpoint": name}
+            return {"checkpoint": name, "instead": os.path.basename(path)} if instead else {"checkpoint": name}
         reason = "not_listed" if loads_here(path) else "elsewhere"
         return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path}}
     if found.get("missing"):
@@ -128,7 +131,7 @@ def register(app: FastAPI):
     @gate("send")
     def forge_modules_for(file_path: str = "", base_model: str = "",
                           version_ids: str = "", hashes: str = "", model_name: str = "",
-                          vae: str = "", module: List[str] = Query(default=[])):
+                          vae: str = "", module: List[str] = Query(default=[]), use_version: int = 0):
         """
         What Send to txt2img should set up in Forge before sending an image.
 
@@ -147,6 +150,10 @@ def register(app: FastAPI):
             vae: The VAE the image's generation data names, if any.
             module: Every module it names - its VAE, then each `Module N`
                 Forge wrote (#204) - once per name.
+            use_version: Send with the library's file of this version, not
+                the checkpoint the image names - another file of its version,
+                or another version of its model, picked in the Resources
+                dialog (#278). The answer's `instead` names the file.
 
         Returns:
             preset: Forge's UI preset, or null if unknown. source: how it was
@@ -185,6 +192,10 @@ def register(app: FastAPI):
         from ..send_plan import SendModel, plan_model
 
         db = get_models_db()
+        if use_version:
+            # The version picked stands for the image's checkpoint, whatever
+            # the image names: its preset, its modules, the file loaded.
+            version_ids, hashes, model_name = str(use_version), "", ""
         try:
             found = plan_model(db, file_path, base_model,
                                version_ids.split(","), hashes.split(","), model_name)
@@ -204,7 +215,7 @@ def register(app: FastAPI):
                   "upscaler": None, "upscaler_not_listed": None}
         gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
         if gallery_type != "Checkpoint":
-            answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name))
+            answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name, bool(use_version)))
         if gallery_type == "Upscaler":
             answer["upscaler"] = _listed_upscaler(db, file_path)
             answer["upscaler_not_listed"] = None if answer["upscaler"] else os.path.basename(file_path)

@@ -209,6 +209,34 @@ def other_files(db, hashes: List[str], by_hash: Dict[str, Any]) -> Dict[str, Dic
     return found
 
 
+def other_versions(db, version_id: int, model_id: int) -> List[Dict[str, Any]]:
+    """
+    The versions of the image's checkpoint's model the library holds here,
+    other than the image's own (#278): a stopped Send can go with one of
+    them, picked in the Resources dialog. Any base model - each says its own,
+    since one model can hold an SD 1.5 and an SDXL version. Newest first, by
+    Civitai's order as last synced; a version Civitai no longer lists, last.
+
+    Returns:
+        [{version_id, version_name, base_model, file_name}], one per version:
+        its first checkpoint file held here.
+    """
+    from .model_dirs import held_here
+    listed, _ = db.get_civitai_versions(int(model_id))
+    place = {v.get("id"): n for n, v in enumerate(listed or [])}
+    found: Dict[int, Dict[str, Any]] = {}
+    for row in db.get_versions_for_model(int(model_id)):
+        held = row.get("id")
+        if (not held or held == int(version_id) or held in found or row.get("file_type") != "Checkpoint"
+                or not held_here(row.get("file_path"))):
+            continue
+        found[held] = {"version_id": held, "version_name": row.get("version_name") or "",
+                       "base_model": row.get("base_model") or "",
+                       "file_name": os.path.basename(row.get("file_path") or "")}
+    # Stable: what Civitai does not list keeps the library's newest-published order, after the rest.
+    return sorted(found.values(), key=lambda v: place.get(v["version_id"], len(place)))
+
+
 def file_for_hash(client, file_hash: str) -> Optional[Dict[str, Any]]:
     """
     The file on Civitai whose hash an image names - not only its version: a

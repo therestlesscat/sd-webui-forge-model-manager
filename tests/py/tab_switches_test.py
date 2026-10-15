@@ -165,6 +165,7 @@ SPEC = {
     ('POST', '/model-manager/resolve-hashes'): 'send',
     ('POST', '/model-manager/missing-resources'): 'send',
     ('GET', '/model-manager/image-resources'): 'send',
+    ('GET', '/model-manager/other-versions'): 'send',
     ('GET', '/model-manager/forge-modules'): 'send',
     ('GET', '/model-manager/forge-modules/current'): 'send',
     ('GET', '/model-manager/queue/status'): 'queue',
@@ -197,7 +198,7 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
 }
-check('the spec holds 85 routes', len(SPEC), 85)
+check('the spec holds 86 routes', len(SPEC), 86)
 
 app = FastAPI()
 api.setup_api(app)

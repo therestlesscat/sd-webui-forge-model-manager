@@ -62,7 +62,8 @@ export function sendTab(card) {
  *
  * @returns {Promise<boolean>} whether it could be sent
  */
-export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null }) {
+export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null,
+                                     useKind = 'file' }) {
     if (!infotext) return false;
     meta = meta || {};
     let plan = null;
@@ -96,16 +97,13 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         const send = { why: CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing, check,
                        reason: waitReason(problem), waits: CHECKPOINT_WAITS,
                        run: () => sendInfotext({ infotext, mode, meta, generationId, imageId }),
-                       useInstalled: (versionId) => sendInfotext({ infotext, mode, meta, generationId, imageId,
-                                                                   useVersion: versionId }) };
+                       useInstalled: (versionId, kind) => sendInfotext({ infotext, mode, meta, generationId, imageId,
+                                                                         useVersion: versionId, useKind: kind }) };
         console.log('[ModelManager] Not sent:', note);
         if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
         return false;
     }
-    if (plan?.instead) {
-        showNotice(`Sent with ${plan.instead}, another file of the version this image was made with: `
-                   + 'it may not come out exactly the same.', { info: true });
-    }
+    if (plan?.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
     if (plan?.preset) await switchForgePreset(plan.preset);
     if (plan?.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -660,9 +658,11 @@ function imageCheckpoint(img) {
  * What to set up in Forge for an image: its UI preset, and the modules to
  * select. Which model that is for - the gallery's checkpoint, the image's
  * own, a LoRA's, Civitai's say - the server works out (send_plan.py).
- * null if the server cannot say.
+ * `useVersion`: the library's version to send with in place of the image's
+ * checkpoint, picked in the Resources dialog (#278). null if the server
+ * cannot say.
  */
-async function fetchForgePlan(model, version, img, modules = []) {
+async function fetchForgePlan(model, version, img, modules = [], useVersion = null) {
     if (!model) return null;
     const checkpoint = imageCheckpoint(img);
     const params = new URLSearchParams();
@@ -673,6 +673,7 @@ async function fetchForgePlan(model, version, img, modules = []) {
     if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
     if (checkpoint.name) params.set('model_name', checkpoint.name);
     for (const name of modules || []) params.append('module', name);
+    if (useVersion) params.set('use_version', String(useVersion));
     try {
         const response = await fetch('/model-manager/forge-modules?' + params.toString());
         const plan = await response.json();
@@ -958,6 +959,12 @@ function waitReason(problem) {
     return CHECKPOINT_WAITS[problem.reason] ? problem.reason : 'missing';
 }
 
+/** Sent with what the library has, in place of the image's checkpoint: a `file` of its version, or another `version` (#278). */
+function insteadNotice(file, kind) {
+    const what = kind === 'version' ? 'another version of the model' : 'another file of the version';
+    return `Sent with ${file}, ${what} this image was made with: it may not come out exactly the same.`;
+}
+
 /**
  * A send stopped for the image's checkpoint: said at the top of the image's
  * Resources dialog, where a missing one can be downloaded - or, for an image
@@ -989,6 +996,10 @@ async function stopForCheckpoint(img, model, version, problem) {
             : async () => waitReason((await fetchForgePlan(model, version, img, modulesFromMeta(img.meta))
                                       || { checkpoint_problem: problem }).checkpoint_problem),
         run: () => sendGalleryImage({ img, model, version }),
+        // Another file of the image's version, or another version of its
+        // model, picked in the dialog (#278) - as your generations' send has.
+        useInstalled: (versionId, kind) => sendGalleryImage({ img, model, version, useVersion: versionId,
+                                                              useKind: kind }),
     };
     const listing = problem.reason === 'not_listed';
     if (listing) refreshWebUiModelList();
@@ -1414,9 +1425,12 @@ async function pasteWithButton(tab, promptTextarea, text) {
  * Send a gallery image to txt2img - img2img for an image-to-video model -
  * with Forge set up for it: its UI preset, checkpoint, modules, scheduler and
  * hires fix, its LoRAs and embeddings as chips. `model` is the library's
- * model the gallery is of, `version` the one it shows.
+ * model the gallery is of, `version` the one it shows. `useVersion`: the
+ * library's version to load in place of the image's checkpoint - a `file`
+ * of its own version or another `version` of its model (`useKind`), picked
+ * in the Resources dialog (#278).
  */
-export async function sendGalleryImage({ img, model, version }) {
+export async function sendGalleryImage({ img, model, version, useVersion = null, useKind = 'file' }) {
     // Its Send is disabled; pressed regardless - the viewer's copy of a card
     // drawn before - it is said, and nothing is asked. Before anything reads
     // the image's data: an image with none threw on it here (#266).
@@ -1449,7 +1463,7 @@ export async function sendGalleryImage({ img, model, version }) {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
         const filesAsked = fetchImageFiles(img);
-        const plan = await fetchForgePlan(model, version, img, modulesFromMeta(meta));
+        const plan = await fetchForgePlan(model, version, img, modulesFromMeta(meta), useVersion);
 
         // The gallery's own file is loaded when it is a checkpoint. Any other
         // gallery's image needs its own checkpoint, the one thing a send
@@ -1459,6 +1473,7 @@ export async function sendGalleryImage({ img, model, version }) {
             await stopForCheckpoint(img, model, version, plan.checkpoint_problem);
             return;
         }
+        if (plan?.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
 
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to
