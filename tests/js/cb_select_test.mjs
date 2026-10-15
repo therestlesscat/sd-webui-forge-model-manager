@@ -85,6 +85,10 @@ const click = (i, shift = false) => cards()[i].dispatchEvent(
     Object.assign(new window.Event('click', { bubbles: true, cancelable: true }), { shiftKey: shift }));
 const onPage = (n) => waitFor(`page ${n}`, () => status().includes(`(page ${n})`) && cards().length === 3);
 const pressed = () => posted.map((p) => p.model);
+// View, on a card's image while selecting (#280), and a press on it.
+const views = () => Array.from(document.querySelectorAll('#cb_grid .model-card .model-card-image .cb-view-btn'));
+const pressView = (i, shift = false) => views()[i]?.dispatchEvent(
+    Object.assign(new window.Event('click', { bubbles: true, cancelable: true }), { shiftKey: shift }));
 
 $('cb_search').value = 'loras';
 act('civitaiBrowser.search');
@@ -94,6 +98,7 @@ await onPage(1);
 check('a Select switch in the row under the filters', Boolean($('cb_select')), true);
 if (!$('cb_select')) done();
 check('no boxes until Select is on', boxes().length, 0);
+check('nor View: a click on a card opens it', views().length, 0);
 tick('civitaiBrowser.selecting', true);
 check('Select on: a box on every card, and the bar', [boxes().length, $('cb_select_bar').hidden, count()],
       [3, false, '0 models selected']);
@@ -112,6 +117,22 @@ box.checked = true;
 box.dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
 check('a click on the box itself ticks it', [ticked(), $('cb_details').style.display], [[true, true, true], 'none']);
 
+// ------------------------------------------------------------- View (#280)
+// Selecting, a click on the card ticks it: View, in the corner of its image
+// the tick leaves free, opens it.
+check('Select on: View on every card, in its image', views().length, 3);
+click(1);
+pressView(1);
+await waitFor('the model opened by View', () => $('cb_details').style.display === 'block');
+check('View opens the model - its details shown, its card marked - and Select stays on',
+      [$('cb_details').style.display, cards()[1]?.classList.contains('selected'), $('cb_select').checked, boxes().length],
+      ['block', true, true, 3]);
+check('and leaves the ticks as they were', [ticked(), count()], [[true, false, true], '2 models selected']);
+pressView(0, true);
+check('Shift with View: it opens that model, and makes no run of ticks',
+      [cards()[0]?.classList.contains('selected'), ticked(), count()], [true, [true, false, true], '2 models selected']);
+click(1);
+
 // ------------------------------------------------------------- paging
 act('civitaiBrowser.nextPage');
 await onPage(2);
@@ -125,6 +146,7 @@ check('back on page 1: its ticks drawn again, the count both pages\'', [ticked()
 
 tick('civitaiBrowser.selecting', false);
 check('Select off: no boxes, no bar', [boxes().length, $('cb_select_bar').hidden], [0, true]);
+check('and no View', views().length, 0);
 tick('civitaiBrowser.selecting', true);
 check('Select on again: the same ticks', [ticked(), count()], [[true, true, true], '4 models selected']);
 

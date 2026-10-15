@@ -796,6 +796,11 @@ function renderCard(model, index) {
                 cls: 'cb-paid-badge', title: paidAccessLabel(firstVersion),
                 text: firstVersion.paid_access.permanent ? 'Paid' : 'Early Access',
             }] : []),
+            // Selecting, a click on the card ticks it: View opens it (#280).
+            ...(selecting ? [{
+                cls: 'cb-view-btn', text: 'View', title: "Open this model's details",
+                action: 'civitaiBrowser.viewModel', data: { index },
+            }] : []),
         ],
         badges: [
             { cls: 'type-badge', text: model.type || 'Unknown' },
@@ -1564,6 +1569,8 @@ function selectAllOnPage() {
 // is stopped.
 work.listen(document, 'click', (event) => {
     if (!selecting) return;
+    // View opens the model (#280): its click goes on to its own action.
+    if (event.target.closest?.('.cb-view-btn')) return;
     const card = event.target.closest?.('#cb_grid .model-card');
     const index = Number(card?.dataset.index);
     const model = card && currentModels[index];
@@ -2160,6 +2167,8 @@ work.provide('civitaiBrowser.feelingLucky', () => syncLucky());
 work.provide('civitaiBrowser.startOver', () => startOver());
 // Selecting, a click on a card ticks it instead (the listener beside Select).
 work.provide('civitaiBrowser.openModel', ({ index }) => (selecting ? undefined : openModel(Number(index))));
+// View, on a card while selecting (#280): opens it all the same.
+work.provide('civitaiBrowser.viewModel', ({ index }) => openModel(Number(index)));
 work.provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('civitaiBrowser.prevPage', () => prevPage());
 work.provide('civitaiBrowser.nextPage', () => nextPage());
