@@ -385,6 +385,24 @@ body.mm-modal-open {
     display: none !important;
 }
 
+/* A checkbox in the row and what it shows, as one set (#281): I'm feeling
+   lucky with Start over, Select with its bar. Boxed only while the checkbox
+   is ticked - while it holds more than the checkbox: a box around one control
+   is a box for nothing (0.48.3). The theme's border colour suits both modes;
+   no background, as the theme's input fill stays white in dark mode. Inside
+   the shared row: not a row of its own, as the Browser's old group was. */
+.filter-buttons-set {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.filter-buttons-set:has(input[type="checkbox"]:checked) {
+    padding: 3px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 8px;
+}
+
 /* The checkbox sitting among the buttons has to match their box by hand. */
 .filter-buttons-row .mm-checkbox-label {
     height: 36px;

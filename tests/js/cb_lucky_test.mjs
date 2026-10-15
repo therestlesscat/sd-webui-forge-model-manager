@@ -58,9 +58,13 @@ const pageStrip = () => document.querySelectorAll('#cb_grid .mm-page-num').lengt
 
 // ------------------------------------------------------------------ the box
 const row = $('cb_save_search_btn').parentElement;
-check('the box sits in the buttons row, with Start over, before Save Search',
-      Array.from(row.children).map((c) => c.id),
-      ['cb_lucky_label', 'cb_start_over_btn', 'cb_select_label', 'cb_select_bar', 'cb_save_search_btn', 'cb_search_btn']);
+const kids = (el) => Array.from(el?.children || []).map((c) => c.id);
+// Each checkbox and what it shows, as one set (#281).
+check('the row holds the lucky set, the Select set, then Save Search and Search',
+      kids(row), ['cb_lucky_set', 'cb_select_set', 'cb_save_search_btn', 'cb_search_btn']);
+check('the lucky set holds the box and Start over; the Select set, Select and its bar',
+      [kids($('cb_lucky_set')), kids($('cb_select_set'))],
+      [['cb_lucky_label', 'cb_start_over_btn'], ['cb_select_label', 'cb_select_bar']]);
 check('saying what it is', $('cb_lucky_label').textContent.replace(/\s+/g, ' ').trim(), "I'm feeling lucky");
 check('unticked at first, Search a search', [$('cb_lucky').checked, $('cb_search_btn').textContent], [false, 'Search']);
 const startOver = () => $('cb_start_over_btn');

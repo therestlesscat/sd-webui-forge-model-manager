@@ -436,5 +436,20 @@ check('the backdrop sits above the other modal',
       int(re.search(r'\.mm-dialog-backdrop \{[^}]*z-index: (\d+)', CSS).group(1))
       > int(re.search(r'\.mm-modal-overlay \{[^}]*z-index: (\d+)', CSS).group(1)))
 
+# The Civitai Browser's row in two sets (#281): each checkbox with what it
+# shows, boxed while it is ticked. A set sits inside the shared row - not a
+# row of its own, which .filter-buttons-group was - and the script still
+# finds each control by its id, never by walking the row.
+set_at = CSS.find('.filter-buttons-set {')
+check('the set is one shared rule, not a cb- copy',
+      (set_at >= 0, '.cb-filter-buttons-set' in CSS, '.filter-buttons-group' in CSS), (True, False, False))
+boxed_at = CSS.find('.filter-buttons-set:has(input[type="checkbox"]:checked) {')
+check('boxed only while its checkbox is ticked, in the theme\'s border colour',
+      boxed_at >= 0 and 'border: 1px solid var(--border-color-primary' in CSS[boxed_at:CSS.index('}', boxed_at)])
+CB_SCRIPT = io.open(os.path.join(ROOT, 'javascript/tabs/civitai_browser.mjs'), encoding='utf-8').read()
+walks = [m.group(0) for m in re.finditer(
+    r"(cb_lucky_label|cb_lucky|cb_start_over_btn|cb_select_label|cb_select|cb_select_bar)['\"]\)?\??\.(parentElement|parentNode|closest|previousElementSibling|nextElementSibling)", CB_SCRIPT)]
+check('the script never walks the row from the sets\' controls', walks, [])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
