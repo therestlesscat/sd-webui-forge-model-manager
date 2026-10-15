@@ -732,14 +732,18 @@ export async function downloadResource(versionId, modelId, hash = '') {
     let data;
     try {
         let fileId;
+        let listed;
         if (hash) {
             const found = await apiCall({ endpoint: '/model-manager/civitai/file-by-hash', params: { hash } })
                 .catch(() => null);
             fileId = found?.file?.file_id || undefined;
+            listed = found?.file;
         }
         // No file Civitai lists by the hash - the version deleted, say - is
         // downloaded as before: the version's primary, or the model's newest.
-        data = await downloads().start(modelId, versionId, fileId, { newerIfGone: !fileId });
+        // One found is queued at once, its name and size the row's (#223).
+        data = await downloads().start(modelId, versionId, fileId,
+                                       { newerIfGone: !fileId, fileName: listed?.name, sizeKb: listed?.size_kb });
     } catch (error) {
         data = { success: false, error: String(error.message || error) };
     }

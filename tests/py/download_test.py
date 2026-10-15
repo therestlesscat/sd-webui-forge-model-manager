@@ -1324,5 +1324,98 @@ check('a file of unknown type stays in Civitai\'s folder', (unread.file_path, ge
 clear()
 file_identity.identify = real_identify
 
+# ------------------------------------------- queued by its ids, retried (#223)
+# Named by model and version, a press joins the queue at once, by its ids:
+# Civitai is asked at its turn, as for a download brought back after a
+# restart. Asking first cost each press about 0.4 s. A failure there is the
+# row's, and Retry puts it back at the end of the queue, asking afresh.
+import model_manager.civitai as civitai_pkg               # noqa: E402
+
+
+class TurnClient:
+    """Civitai as a download's turn asks it: the model, or a failure."""
+    model = None
+    fails = None
+    asked = []
+
+    @classmethod
+    def from_settings(cls):
+        return cls()
+
+    def get_model(self, model_id):
+        TurnClient.asked.append(model_id)
+        if TurnClient.fails:
+            raise TurnClient.fails
+        return TurnClient.model
+
+    def close(self):
+        pass
+
+
+def queue_by_ids(q, version_id, **extra):
+    try:
+        return q.queue_download(version_id, None, None, file_id=1, model_id=42, **extra)
+    except TypeError:               # a queue that takes no ids: the checks below say so
+        return None
+
+
+def job_of(q, version_id):
+    return {k: (q._jobs.get(version_id) or {}).get(k) for k in ('model_id', 'file_id', 'model_data', 'version_data')}
+
+
+real_client = civitai_pkg.CivitaiClient
+civitai_pkg.CivitaiClient = TurnClient
+by_ids = Queueing(max_concurrent=0)
+row = queue_by_ids(by_ids, 680, file_name='from the page.safetensors', size_kb=2.0)
+check('queued by its ids: the row shows the name and size the page sent, waiting',
+      [getattr(row, 'file_name', None), getattr(row, 'total_bytes', None), getattr(row, 'status', None)],
+      ['from the page.safetensors', 2048, 'pending'])
+check('its job holds the ids alone, for its turn', job_of(by_ids, 680),
+      {'model_id': 42, 'file_id': 1, 'model_data': None, 'version_data': None})
+
+TurnClient.model, TurnClient.asked = dict(CHECKPOINT, modelVersions=[version(id=680)]), []
+release(680)
+by_ids.max_concurrent = 1
+by_ids._pump()
+by_ids.wait()
+check('at its turn, Civitai is asked for the model, then that version downloads',
+      [TurnClient.asked, queued[-1], getattr(by_ids.get_progress(680), 'status', None)],
+      [[42], (680, None, 1, False), 'complete'])
+
+TurnClient.fails = RuntimeError('Civitai is busy')
+queue_by_ids(by_ids, 681)
+by_ids.wait()
+failed = by_ids.get_progress(681)
+check('a fetch that fails at its turn: an Error row saying what it could not do',
+      [getattr(failed, 'status', None), getattr(failed, 'error', None)],
+      ['error', 'Could not ask Civitai about this version: Civitai is busy'])
+
+# Refused at its turn - paid, not bought, say - after Civitai answered: the
+# answer is kept on the job. A retry must not reuse it.
+TurnClient.fails = None
+by_ids.max_concurrent = 0
+by_ids.queue_download(683, CHECKPOINT, version(id=683), file_id=1)
+by_ids.get_progress(683).status, by_ids.get_progress(683).error = 'error', 'Not bought'
+queue_by_ids(by_ids, 682)
+retry = getattr(by_ids, 'retry', lambda version_id: None)
+check('Retry on an Error row: waiting again, its error cleared, last in the list',
+      [retry(683), [(p['version_id'], p['status'], p['error']) for p in by_ids.get_all_progress()][-2:]],
+      [True, [(682, 'pending', None), (683, 'pending', None)]])
+check('its job back to its ids alone, so its turn asks Civitai afresh', job_of(by_ids, 683),
+      {'model_id': 42, 'file_id': 1, 'model_data': None, 'version_data': None})
+check('Retry on a row that is not in error changes nothing',
+      [retry(682), retry(680), [p['version_id'] for p in by_ids.get_all_progress()]],
+      [False, False, [680, 681, 682, 683]])
+
+TurnClient.model, TurnClient.asked = dict(CHECKPOINT, modelVersions=[version(id=682), version(id=683)]), []
+release(682, 683)
+by_ids.max_concurrent = 1
+by_ids._pump()
+by_ids.wait()
+check('the retried one\'s turn asks Civitai again, then it downloads',
+      [TurnClient.asked, queued[-1], getattr(by_ids.get_progress(683), 'status', None)],
+      [[42, 42], (683, None, 1, False), 'complete'])
+civitai_pkg.CivitaiClient = real_client
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

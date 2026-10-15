@@ -1441,10 +1441,10 @@ function selectFile(fileIndex) {
 
 // The list and its panel are shared with the Civitai Browser: see
 // downloads() in shared/downloads.mjs.
-async function startDownload(modelId, versionId, fileId) {
+async function startDownload(modelId, versionId, fileId, file = {}) {
     try {
         setStatus('Starting download...');
-        const result = await downloads().start(modelId, versionId, fileId);
+        const result = await downloads().start(modelId, versionId, fileId, file);
         // Held here since the button was drawn: nothing is queued (#276).
         if (result.success && result.already_installed) setStatus('Already in your library');
         else if (result.success) setStatus(`Download started: ${result.progress?.file_name || 'Unknown'}`);
@@ -3384,8 +3384,8 @@ work.provide('modelManager.deletePickedGenerations', () => deletePickedGeneratio
 work.provide('modelManager.rateInViewer', ({ level }) => rateInViewer(Number(level)));
 work.provide('modelManager.rateGeneration', ({ generation, level, image }) =>
     rateGeneration(Number(generation), Number(level), image ? Number(image) : null));
-work.provide('modelManager.download', ({ modelId, versionId, fileId }) =>
-    startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
+work.provide('modelManager.download', ({ modelId, versionId, fileId, fileName, sizeKb }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId), { fileName, sizeKb }));
 work.provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
 work.provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
 work.provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));

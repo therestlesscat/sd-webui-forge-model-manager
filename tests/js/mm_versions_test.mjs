@@ -204,8 +204,9 @@ const clicked = click(button());
 check('   Download is disabled at the click, before the server answers',
       [button()?.disabled, button()?.textContent.trim()], [true, 'Starting...']);
 await clicked;
-check('   Download asks for that version and file', posted,
-      [{ model_id: '4001', version_id: '503', file_id: '9031' }]);
+// With the file's name and size, the row's until its turn asks Civitai (#223).
+check('   Download asks for that version and file, naming it and its size', posted,
+      [{ model_id: '4001', version_id: '503', file_id: '9031', file_name: 'v3_fp32.safetensors', size_kb: '4096' }]);
 check('   and stays disabled, saying how it is going',
       [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
 await click(button());

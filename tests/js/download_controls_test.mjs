@@ -1,12 +1,12 @@
 // The downloads panel's controls (#37, #38): a running download can be
 // paused; a waiting one started now, moved up or down, or cancelled; a paused
-// one resumed. The rows are in the server's order - the order downloads were
+// one resumed; a failed one retried (#223). The rows are in the server's order - the order downloads were
 // added in, which ↑/↓ change - and a change of state never moves one; a
 // waiting one says its place in the queue. Pause all and Resume all show when
 // there is something to pause or resume.
 // Each asks the server (/download/control) and takes the list it answers.
 // The server's side: download_test.py.
-import { ROOT, act, checker, mountTab, sharedModule, startTab } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -31,6 +31,7 @@ globalThis.fetch = async (url, init = {}) => {
         asked.push([action, id]);
         if (action === 'start_now') server = server.map((d) => (d.version_id === id ? dl(id, 'downloading') : d));
         if (action === 'resume_all') server = server.map((d) => (d.status === 'paused' ? dl(d.version_id, 'pending', { queue_position: 1 }) : d));
+        if (action === 'retry') server = [...server.filter((d) => d.version_id !== id), dl(id, 'pending', { queue_position: 1 })];
         return reply({ success: true, done: true, downloads: structuredClone(server) });
     }
     if (href.includes('/download/cancel')) {
@@ -123,5 +124,21 @@ check('Resume all: asked, nothing is left to resume, and the resumed one is wher
 await act('downloads.cancel', { versionId: 3 });
 check('a waiting one cancelled: at once, without waiting for a poll, and in its row',
       [cancelled, row(3)?.querySelector('.mm-download-status-badge')?.textContent, names()], [[3], 'Cancelled', LISTED]);
+
+// Civitai is asked at a download's turn (#223): a failure there is its row's,
+// and Retry puts it back at the end of the queue.
+server = [...server, dl(6, 'error', { error: 'Could not ask Civitai about this version: busy' })];
+downloads().track(server[0]);
+await waitFor('the failed one', () => row(6));
+check('a failed one: why, Retry, and Dismiss',
+      [text(6), buttons(6), calls(6)[0]],
+      ['Could not ask Civitai about this version: busy', [['Retry', false], ['Dismiss', false]],
+       ['downloads.control', 'retry', '6']]);
+const retry = Array.from(row(6)?.querySelectorAll('button') || []).find((b) => b.textContent.trim() === 'Retry');
+if (retry) press(retry);
+await waitFor('the retry answered', () => row(6)?.querySelector('.mm-download-status-badge')?.textContent !== 'Error');
+check('Retry: asked, and the row waits again, last',
+      [asked.at(-1), row(6)?.querySelector('.mm-download-status-badge')?.textContent, names().at(-1)],
+      [['retry', 6], 'Queued', 'v6']);
 
 done();

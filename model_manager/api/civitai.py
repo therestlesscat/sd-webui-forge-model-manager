@@ -571,13 +571,24 @@ def register(app: FastAPI):
         file_index: Optional[int] = Form(default=None),
         file_id: Optional[int] = Form(default=None),
         newer_if_gone: bool = Form(default=False),
+        file_name: Optional[str] = Form(default=None),
+        size_kb: Optional[float] = Form(default=None),
     ):
         """
         Start downloading a model version from Civitai.
 
-        Fetches full model/version data then queues the download. Without
-        model_id, Civitai is asked which model the version belongs to - an
-        image's resources do not always say.
+        Named by its model and version, it joins the queue at once, by its
+        ids (#223): the download asks Civitai at its turn and makes every
+        check there - paid, no file, gone - as one brought back after a
+        restart does. Asking first cost each press about 0.4 s, and Download
+        selected pressed one after another. Only a file the library holds
+        here is answered at once: the database alone says so. file_name and
+        size_kb are the page's, the row's until its turn.
+
+        Otherwise - newer_if_gone, or no model_id - it fetches the model's
+        data first, then queues the download. Without model_id, Civitai is
+        asked which model the version belongs to - an image's resources do
+        not always say.
 
         file_id names one of the version's files outright and is what the file
         picker sends; file_index picks one by position. Leave both out and the
@@ -601,6 +612,20 @@ def register(app: FastAPI):
         """
         try:
             from ..download_service import get_download_service, pick_file_index
+
+            if model_id and not newer_if_gone:
+                service = get_download_service()
+                asked = {"version_id": version_id, "version_name": None, "substituted": False}
+                if file_id is not None:
+                    place, held_path = service.library_place(file_id)
+                    if place == "held":
+                        return JSONResponse({"success": True, "already_installed": True,
+                                             "file_path": held_path, **asked})
+                progress = service.queue_download(version_id, None, None, file_index=file_index,
+                                                  file_id=file_id, model_id=model_id,
+                                                  file_name=file_name, size_kb=size_kb)
+                return JSONResponse({"success": True, "message": "Download queued",
+                                     "progress": progress.to_dict(), **asked})
 
             # Fetch model and version data from Civitai
             client = CivitaiClient.from_settings()
@@ -758,8 +783,8 @@ def register(app: FastAPI):
     def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
         """
         Steer the downloads: `pause` or `resume` one, `start_now` a waiting
-        one (over the limit), move one `up` or `down` the queue, or
-        `pause_all` / `resume_all`. Cancel is /download/cancel.
+        one (over the limit), move one `up` or `down` the queue, `retry` a
+        failed one, or `pause_all` / `resume_all`. Cancel is /download/cancel.
 
         Returns:
             done: whether it applied (a download already finished, say, is
@@ -769,7 +794,8 @@ def register(app: FastAPI):
             from ..download_service import get_download_service
             service = get_download_service()
             one = {"pause": service.pause, "resume": service.resume, "start_now": service.start_now,
-                   "up": lambda v: service.move(v, -1), "down": lambda v: service.move(v, 1)}
+                   "up": lambda v: service.move(v, -1), "down": lambda v: service.move(v, 1),
+                   "retry": service.retry}
             if action in one:
                 done = bool(one[action](version_id))
             elif action == "pause_all":

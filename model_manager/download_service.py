@@ -513,7 +513,10 @@ class DownloadService:
         return None
 
     def _fetch_job(self, version_id: int, job: Dict[str, Any]) -> None:
-        """A download remembered across a restart knows its ids only: ask Civitai again."""
+        """
+        A download that knows its ids only - remembered across a restart,
+        queued at once (#223), or retried: ask Civitai at its turn.
+        """
         progress = self._active_downloads.get(version_id)
         try:
             from .civitai import CivitaiClient
@@ -530,7 +533,7 @@ class DownloadService:
         except Exception as e:
             if progress:
                 progress.status = "error"
-                progress.error = f"Could not resume: {e}"
+                progress.error = f"Could not ask Civitai about this version: {e}"
 
     def start_now(self, version_id: int) -> bool:
         """A waiting download, started at once - over the limit, which only paces the queue."""
@@ -588,6 +591,30 @@ class DownloadService:
             resumed = self._requeue([version_id])
         self._pump()
         return bool(resumed)
+
+    def retry(self, version_id: int) -> bool:
+        """
+        A failed download, waiting again at the end of the queue, as a new
+        press would (#223). Its turn asks Civitai afresh, not the answer of
+        the first try: a version bought since, or given a file since, then
+        downloads. Only one in error.
+        """
+        with self._lock:
+            failed = self._active_downloads.get(version_id)
+            if not failed or failed.status != "error":
+                return False
+            job = self._jobs.get(version_id) or {}
+            self._jobs[version_id] = {"model_id": job.get("model_id"), "file_id": job.get("file_id"),
+                                      "file_index": job.get("file_index"),
+                                      "model_data": None, "version_data": None}
+            del self._active_downloads[version_id]
+            self._active_downloads[version_id] = DownloadProgress(
+                version_id=version_id, file_name=failed.file_name, total_bytes=failed.total_bytes)
+            self._cancel_flags[version_id] = False
+            self._pause_flags[version_id] = False
+        self._save()
+        self._pump()
+        return True
 
     def _requeue(self, version_ids: List[int]) -> List[int]:
         """These paused downloads, pending again, where they are in the list. Under the lock."""
@@ -1217,21 +1244,33 @@ class DownloadService:
     def queue_download(
         self,
         version_id: int,
-        model_data: Dict[str, Any],
-        version_data: Dict[str, Any],
+        model_data: Optional[Dict[str, Any]],
+        version_data: Optional[Dict[str, Any]],
         file_index: Optional[int] = None,
-        file_id: Optional[int] = None
+        file_id: Optional[int] = None,
+        model_id: Optional[int] = None,
+        file_name: Optional[str] = None,
+        size_kb: Optional[float] = None
     ) -> DownloadProgress:
-        """Queue a download for parallel processing."""
+        """
+        Queue a download for parallel processing. Without the version's data,
+        it is queued by its ids alone, as a restart brings one back: Civitai
+        is asked at its turn (#223), and the row shows the name and size the
+        page sent until then.
+        """
         progress = DownloadProgress(version_id=version_id)
-        files = version_data.get("files", [])
-        chosen = files[pick_file_index(files, file_index, file_id)] if files else {}
-        progress.file_name = chosen.get("name", "Unknown")
-        # Civitai's size (in KiB), shown before it begins - and after a restart.
-        progress.total_bytes = int((chosen.get("sizeKB") or 0) * 1024)
-        # The file chosen, by Civitai's id: after a restart the version is
-        # fetched again, and its list may come in another order (#187).
-        file_id = chosen.get("id", file_id)
+        if version_data is None:
+            progress.file_name = file_name or "Unknown"
+            progress.total_bytes = int((size_kb or 0) * 1024)
+        else:
+            files = version_data.get("files", [])
+            chosen = files[pick_file_index(files, file_index, file_id)] if files else {}
+            progress.file_name = chosen.get("name", "Unknown")
+            # Civitai's size (in KiB), shown before it begins - and after a restart.
+            progress.total_bytes = int((chosen.get("sizeKB") or 0) * 1024)
+            # The file chosen, by Civitai's id: after a restart the version is
+            # fetched again, and its list may come in another order (#187).
+            file_id = chosen.get("id", file_id)
 
         with self._lock:
             # One on its way is answered as it is: dropping its row and
@@ -1248,7 +1287,7 @@ class DownloadService:
             self._cancel_flags[version_id] = False
             self._jobs[version_id] = {"model_data": model_data, "version_data": version_data,
                                       "file_index": file_index, "file_id": file_id,
-                                      "model_id": (model_data or {}).get("id")}
+                                      "model_id": (model_data or {}).get("id") or model_id}
         self._save()
         self._pump()
         return progress

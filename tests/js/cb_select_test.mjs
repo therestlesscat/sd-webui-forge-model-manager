@@ -5,9 +5,10 @@
 // new search clears them. A click on a card ticks it rather than opening it.
 // Download selected presses the Download a card's details use for each tick,
 // in page order, one after another, and the server says what became of each
-// - queued, already in the library (#276), paid and not bought, no file - or
-// fails, which leaves the tick to press again. The page decides nothing
-// about what may be downloaded.
+// - queued, or already in the library (#276) - or fails, which leaves the tick
+// to press again. Each joins the queue at once, its file's name and size the
+// row's: Civitai is asked at its turn, where paid and no file are Error rows
+// with Retry. The page decides nothing about what may be downloaded.
 import { act, checker, mountTab, openTab, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
@@ -18,13 +19,14 @@ const model = (id, extra = {}) => ({
     id, name: `Model ${id}`, type: 'LORA', stats: {}, creator: {}, owned_locally: false, ...extra,
     modelVersions: [{ id: id * 10, name: 'v2', images: [], paid_access: null,
                       files: [{ id: id * 10 + 1, name: `m${id}_fp32.safetensors` },
-                              { id: id * 10 + 2, name: `m${id}.safetensors`, primary: true }] }],
+                              { id: id * 10 + 2, name: `m${id}.safetensors`, primary: true, sizeKB: id * 1024 }] }],
 });
 // Model 1: Owned - the library holds an older version - its newest not held.
 const PAGES = [[model(1, { owned_locally: true }), model(2), model(3)], [model(4), model(5), model(6)],
                [model(7), model(8), model(9)]];
 
 const posted = [];          // each download asked for: model, version, file
+const labels = [];          // and the name and size the row shows until its turn
 let answers = {};           // version id -> the server's answer, when not "queued"
 let hold = 0;               // ms each download answer is held
 let inFlight = 0, mostInFlight = 0;
@@ -38,6 +40,7 @@ globalThis.fetch = async (url, init = {}) => {
         const asked = { model: Number(init.body.get('model_id')), version: Number(init.body.get('version_id')),
                         file: Number(init.body.get('file_id')) };
         posted.push(asked);
+        labels.push({ name: init.body.get('file_name'), sizeKb: init.body.get('size_kb') });
         inFlight++;
         mostInFlight = Math.max(mostInFlight, inFlight);
         if (hold) await new Promise((r) => setTimeout(r, hold));
@@ -141,8 +144,6 @@ click(1);
 click(0);
 answers = {
     20: { body: { success: true, already_installed: true, version_id: 20, file_path: 'models\\Lora\\m2.safetensors' } },
-    30: { status: 403, body: { success: false, paid: true, error: 'This version is paid on Civitai.' } },
-    40: { status: 409, body: { success: false, no_file: true, error: 'No files available for download' } },
     50: { status: 500, body: { success: false, error: 'Civitai is limiting requests' } },
 };
 act('civitaiBrowser.downloadSelected');
@@ -151,10 +152,11 @@ check('pressed in page order, page 1 top to bottom, then page 2 - model 6, alrea
       pressed(), [1, 2, 3, 4, 5]);
 check('the Owned card\'s newest version, by its primary file - not the first',
       posted[0], { model: 1, version: 10, file: 12 });
+check('each with its file\'s name and size: the row\'s until its turn asks Civitai',
+      labels.slice(0, 2), [{ name: 'm1.safetensors', sizeKb: '1024' }, { name: 'm2.safetensors', sizeKb: '2048' }]);
 check('one line, only for what did not join the queue',
-      status(), 'Not queued: 1 already in your library, 1 paid on Civitai, not bought, 1 already downloading, '
-                + '1 model with no file to download. 1 failed: Civitai is limiting requests - still ticked, '
-                + 'press Download selected again.');
+      status(), 'Not queued: 1 already in your library, 1 already downloading. 1 failed: Civitai is limiting '
+                + 'requests - still ticked, press Download selected again.');
 check('the failed one stays ticked; every other is cleared', [ticked(), count()], [[false, false, false], '1 model selected']);
 
 // Every tick queued: nothing to say.

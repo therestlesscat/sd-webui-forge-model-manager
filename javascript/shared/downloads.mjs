@@ -114,8 +114,9 @@ function downloadButtonState(versionId) {
  *
  * `controls` is the tab's, named once there: the `prefix` of its ids - the
  * button is `<prefix>_download_btn` - and what its markup does
- * (shared/calls.mjs): `download`, reading data-model-id, data-version-id and
- * data-file-id, and `selectFile`, the picker's value its file's index.
+ * (shared/calls.mjs): `download`, reading data-model-id, data-version-id,
+ * data-file-id, and the file's data-file-name and data-size-kb - the row's
+ * until its turn (#223) - and `selectFile`, the picker's value its file's index.
  * A paid version answers the download URL
  * with 401/403 until it is bought on Civitai, so it is offered only when
  * Civitai says the API key's account bought it (`paid_access.owned`, see
@@ -152,7 +153,8 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${title} `
             + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
             + `data-action="${escapeHtml(download)}"`
-            + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id) })}>`
+            + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id),
+                                  fileName: file?.name, sizeKb: file?.sizeKB })}>`
             + `${state.label}</button>`;
     }
 
@@ -191,6 +193,9 @@ export function showChosenFile(controls, modelId, version, file) {
     if (button) {
         const ids = { 'data-model-id': modelId, 'data-version-id': version?.id, 'data-file-id': file.id };
         for (const [name, id] of Object.entries(ids)) button.setAttribute(name, String(safeId(id) ?? ''));
+        // The row's name and size until the download's turn asks Civitai (#223).
+        button.setAttribute('data-file-name', file.name || '');
+        button.setAttribute('data-size-kb', String(Number(file.sizeKB) || ''));
     }
 }
 
@@ -312,6 +317,11 @@ function renderDownloadItem(dl, prefix) {
                 ? downloadControl('resume', id, 'Resume', 'Carry on from where it stopped', { kind: 'primary' })
                 : '';
     const showDismiss = status === 'complete' || status === 'error' || status === 'cancelled';
+    // Civitai is asked at the download's turn (#223), so a failure there is
+    // this row's: Retry waits again at the end of the queue, asking afresh.
+    const retry = status === 'error'
+        ? downloadControl('retry', id, 'Retry', 'Ask Civitai again, and download it', { kind: 'primary' })
+        : '';
     const p = prefix;
 
     return `
@@ -343,6 +353,7 @@ function renderDownloadItem(dl, prefix) {
                 </span>
                 <div class="${p}-download-actions">
                     ${controls}
+                    ${retry}
                     ${showCancel ? `
                         <button class="mm-btn mm-btn-small danger" data-action="downloads.cancel"${dataAttributes({ versionId: safeId(dl.version_id) })}>Cancel</button>
                     ` : ''}
@@ -512,7 +523,7 @@ function createDownloads(scope) {
          * its HTTP status. `newerIfGone`: the model's newest version if this
          * one is gone from Civitai - what the Resources dialog asks for.
          */
-        start: async function start(modelId, versionId, fileId, { newerIfGone = false } = {}) {
+        start: async function start(modelId, versionId, fileId, { newerIfGone = false, fileName, sizeKb } = {}) {
             if (onItsWay(versionId)) return { success: false, error: 'Already downloading' };
             starting.add(Number(versionId));
             renderButtons();
@@ -523,6 +534,10 @@ function createDownloads(scope) {
                 // Omitted when unknown, which leaves the backend on the primary.
                 if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
                 if (newerIfGone) form.append('newer_if_gone', 'true');
+                // Named by model and version, it is queued at once, and Civitai
+                // asked at its turn (#223): until then the row shows these.
+                if (fileName) form.append('file_name', fileName);
+                if (Number(sizeKb) > 0) form.append('size_kb', String(Number(sizeKb)));
                 const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
                 const result = await response.json();
                 starting.delete(Number(versionId));

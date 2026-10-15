@@ -76,6 +76,10 @@ await waitFor('the download', () => posts.length);
 check('Download fetches the file Civitai lists with the hash - never the primary, nor a newer one',
       [asked.some((h) => h.includes(`/civitai/file-by-hash?hash=${HASH}`)), posts[0]?.file_id, posts[0]?.newer_if_gone],
       [true, '2202961', undefined]);
+// Queued at once, by its ids (#223): the row shows the file's name and size
+// until its turn asks Civitai.
+check('naming the file and its size, the row\'s until its turn',
+      [posts[0]?.file_name, posts[0]?.size_kb], ['cyber_2202961.safetensors', '5780198.5']);
 close();
 
 // ------------------------------------------------ opened by a stopped send

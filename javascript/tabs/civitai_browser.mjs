@@ -1396,10 +1396,10 @@ function showResources(index) {
 
 // Start download. The list and its panel are shared with the Model
 // Manager: see downloads() in shared/downloads.mjs.
-async function startDownload(modelId, versionId, fileId) {
+async function startDownload(modelId, versionId, fileId, file = {}) {
     try {
         updateStatus('Starting download...');
-        const result = await downloads().start(modelId, versionId, fileId);
+        const result = await downloads().start(modelId, versionId, fileId, file);
         if (result.success && result.already_installed) {
             // Arrived since the button was drawn - in the other WebUI, say:
             // nothing is queued (#276), and the button learns it is held.
@@ -1582,7 +1582,6 @@ work.listen(document, 'click', (event) => {
 function batchReport(counts, failure, left) {
     const skipped = [
         counts.held && `${counts.held} already in your library`,
-        counts.paid && `${counts.paid} paid on Civitai, not bought`,
         counts.coming && `${counts.coming} already downloading`,
         counts.noFile && `${plural(counts.noFile, 'model')} with no file to download`,
     ].filter(Boolean);
@@ -1595,8 +1594,9 @@ function batchReport(counts, failure, left) {
 
 /**
  * Download selected: each tick, in page order, through the Download a press
- * uses, one after another - each makes the server ask Civitai for the model,
- * at the client's pace. A tick the server answers for is cleared; one that
+ * uses, one after another. Each joins the queue at once, and Civitai is asked
+ * at its turn (#223) - paid, not bought, or no file, is an Error row there,
+ * with Retry. A tick the server answers for is cleared; one whose request
  * failed stays, to press again.
  */
 async function downloadSelected() {
@@ -1605,7 +1605,7 @@ async function downloadSelected() {
     batch = { stop: false };
     updateSelectBar();
     updateStatus('');
-    const counts = { held: 0, paid: 0, coming: 0, noFile: 0, failed: 0 };
+    const counts = { held: 0, coming: 0, noFile: 0, failed: 0 };
     let failure = '';
     let asked = 0;
     try {
@@ -1621,15 +1621,14 @@ async function downloadSelected() {
                 result = { success: false, coming: true };
             } else {
                 try {
-                    result = await downloads().start(model.id, version.id, file?.id);
+                    result = await downloads().start(model.id, version.id, file?.id,
+                                                     { fileName: file?.name, sizeKb: file?.sizeKB });
                 } catch (e) {
                     result = { success: false, error: e.message };
                 }
             }
             if (result.success) {
                 if (result.already_installed) counts.held++;
-            } else if (result.paid) {
-                counts.paid++;
             } else if (result.no_file) {
                 counts.noFile++;
             } else if (result.coming || result.error === 'Already downloading') {
@@ -2167,8 +2166,8 @@ work.provide('civitaiBrowser.nextPage', () => nextPage());
 work.provide('civitaiBrowser.showAllImages', (data, box) => toggleShowAllImages(box.checked));
 work.provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
 work.provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
-work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId }) =>
-    startDownload(safeId(modelId), safeId(versionId), safeId(fileId)));
+work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId, fileName, sizeKb }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId), { fileName, sizeKb }));
 work.provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
 work.provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 work.provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));
