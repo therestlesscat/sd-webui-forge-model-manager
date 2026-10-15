@@ -116,6 +116,15 @@ existed.
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
   found inside a refactor becomes its own issue unless the owner folds it in.
+- **Two agents or more: ask first, with the reason and the cost.** Before
+  starting or resuming two or more agents for one step - side agents, a
+  fan-out, a workflow - say what each will do, why it needs an agent of its
+  own rather than this session, and each one's projected token cost; start
+  them on the owner's yes. A projection is taken from what agents of the
+  kind cost before. On #272 (2026-10-14) five agents read one suite each,
+  then were resumed to build them, and the owner heard of each round only
+  once it had started: the reading cost 131-238 k tokens an agent, 0.98 M
+  in all; the building 144-307 k, 1.22 M in all.
 - **"Unchanged" in a plan means byte for byte.** #259's plan kept Classic's
   reads unchanged: the fallback while Single pass is alpha. While building,
   three were moved into helpers Single pass shared; a side agent caught it,
