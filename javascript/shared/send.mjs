@@ -626,8 +626,11 @@ export function galleryIsCheckpoint(model, version) {
  * checkpoint's, Send needs the checkpoint the image was made with, and an
  * image that names none - no Model, no model hash, no checkpoint among its
  * resources - gives it nothing to load (#134). Its Send is drawn disabled.
+ * An image Civitai gave no generation data has nothing to send from any
+ * gallery: a checkpoint's let it through, and its send threw (#266).
  */
 export function cannotSend(img, model, version) {
+    if (!img?.meta || !Object.keys(img.meta).length) return 'Civitai gave this image no generation data: nothing to send.';
     if (galleryIsCheckpoint(model, version)) return '';
     const named = imageCheckpoint(img);
     if (named.versionIds.length || named.hashes.length || named.name) return '';
@@ -1405,6 +1408,14 @@ async function pasteWithButton(tab, promptTextarea, text) {
  * model the gallery is of, `version` the one it shows.
  */
 export async function sendGalleryImage({ img, model, version }) {
+    // Its Send is disabled; pressed regardless - the viewer's copy of a card
+    // drawn before - it is said, and nothing is asked. Before anything reads
+    // the image's data: an image with none threw on it here (#266).
+    const blocked = cannotSend(img, model, version);
+    if (blocked) {
+        showNotice(blocked);
+        return;
+    }
     const meta = img.meta;
 
     // Debug: log available size-related fields
@@ -1428,13 +1439,6 @@ export async function sendGalleryImage({ img, model, version }) {
     try {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. Anything failing here leaves the send as it was before.
-        // Its Send is disabled; pressed regardless - the viewer's copy of a
-        // card drawn before - it is said, and nothing is asked.
-        const blocked = cannotSend(img, model, version);
-        if (blocked) {
-            showNotice(blocked);
-            return;
-        }
         const filesAsked = fetchImageFiles(img);
         const plan = await fetchForgePlan(model, version, img, modulesFromMeta(meta));
 

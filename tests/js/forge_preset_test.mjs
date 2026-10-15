@@ -443,6 +443,27 @@ MODEL.model_type = 'Checkpoint';
 button = await sendButton();
 check('a checkpoint\'s gallery sends it, its checkpoint the gallery\'s',
       [button.disabled, button.hasAttribute('title')], [false, false]);
+
+// An image Civitai gave no generation data has nothing to send, even from a
+// checkpoint's gallery, whose checkpoint would load: its Send is disabled,
+// saying so - and sendGalleryImage, asked anyway, says so too rather than
+// throwing on the data it reads first (#266).
+const NO_DATA = 'Civitai gave this image no generation data: nothing to send.';
+IMAGE.meta = null;
+button = await sendButton();
+check('a checkpoint\'s gallery, an image with no generation data: Send disabled, saying why',
+      [button.disabled, button.getAttribute('title')], [true, NO_DATA]);
+const { sendGalleryImage } = await sharedModule('send.mjs');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+let thrown = null;
+planAsked.length = 0;
+try {
+    await sendGalleryImage({ img: IMAGE, model: MODEL, version: MODEL });
+} catch (error) {
+    thrown = String(error);
+}
+check('and sent from elsewhere anyway: no throw, the reason said, nothing asked',
+      [thrown, document.querySelector('.mm-notice')?.textContent, planAsked.length], [null, NO_DATA, 0]);
 MODEL.model_type = 'LORA';
 IMAGE.meta = { ...IMAGE.meta, 'Model hash': 'aaaa111122' };
 button = await sendButton();
