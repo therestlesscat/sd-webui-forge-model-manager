@@ -210,7 +210,7 @@ def query_models_grouped(
         effective_level_expr = model_level_sql(
             "m.nsfw_level",
             "v.nsfw_level",
-            "SELECT MAX(effective_nsfw_level) FROM images WHERE version_id = v.id",
+            "SELECT MAX(effective_nsfw_level) FROM image_galleries WHERE version_id = v.id",
         )
 
         if grid.nsfw_mode == "contains":
@@ -298,10 +298,10 @@ def query_models_grouped(
         "updated_at": "cm_updated_at",
         # How many images the card's version has stored. A subquery on the
         # row being sorted, named by {row}: ranked while the page is chosen,
-        # page once it has been. Counting through idx_images_version for
+        # page once it has been. Counting through the gallery key for
         # every model took 6.3 ms on a library of 1,051 files and 86,872
         # images; sorting by file size, 2.9.
-        "image_count": "(SELECT COUNT(*) FROM images WHERE images.version_id = {row}.id)",
+        "image_count": "(SELECT COUNT(*) FROM image_galleries WHERE image_galleries.version_id = {row}.id)",
     }
     sort_field = valid_sort_fields.get(grid.sort_by, "file_modified")
     sort_dir = "DESC" if grid.sort_order.lower() == "desc" else "ASC"
@@ -323,10 +323,10 @@ def query_models_grouped(
         # of every version: checking every image of every version took
         # 13.7 s against a library of 101,759 images, the unfiltered grid 1.1.
         outer_conditions.append(f"""EXISTS (
-            SELECT 1 FROM images WHERE version_id = ranked.id
+            SELECT 1 FROM image_galleries WHERE version_id = ranked.id
         ) AND NOT EXISTS (
             SELECT 1 FROM (
-                SELECT effective_nsfw_level FROM images
+                SELECT effective_nsfw_level FROM image_galleries
                 WHERE version_id = ranked.id
                 ORDER BY {GALLERY_ORDER}
                 LIMIT ?
@@ -346,10 +346,12 @@ def query_models_grouped(
     # in Civitai's order. '' in a cover column means "has none" and NULL
     # "not known"; either way the gallery is looked at next. See
     # version_covers().
-    first_image = (f"(SELECT url FROM images WHERE version_id = page.id "
-                   f"ORDER BY {GALLERY_ORDER} LIMIT 1)")
-    first_safe_image = (f"(SELECT url FROM images WHERE version_id = page.id "
-                        f"AND effective_nsfw_level <= {SFW_MAX} ORDER BY {GALLERY_ORDER} LIMIT 1)")
+    # The image is picked from its gallery's index, then its address read by key.
+    first_image = (f"(SELECT url FROM image_records WHERE image_id = (SELECT image_id FROM image_galleries "
+                   f"WHERE version_id = page.id ORDER BY {GALLERY_ORDER} LIMIT 1))")
+    first_safe_image = (f"(SELECT url FROM image_records WHERE image_id = (SELECT image_id FROM image_galleries "
+                        f"WHERE version_id = page.id AND effective_nsfw_level <= {SFW_MAX} "
+                        f"ORDER BY {GALLERY_ORDER} LIMIT 1))")
     preview_url_column = (
         f"COALESCE(NULLIF(page.safe_cover_url, ''), {first_safe_image})" if grid.preview_least_nsfw
         else f"COALESCE(NULLIF(page.cover_url, ''), NULLIF(page.safe_cover_url, ''), {first_image})"
@@ -435,7 +437,7 @@ def query_models_grouped(
         )
         SELECT
             page.*,
-            COALESCE((SELECT MAX(effective_nsfw_level) FROM images
+            COALESCE((SELECT MAX(effective_nsfw_level) FROM image_galleries
                       WHERE version_id = page.id), {UNKNOWN}) as max_image_nsfw,
             {preview_url_column} as preview_url
         FROM page

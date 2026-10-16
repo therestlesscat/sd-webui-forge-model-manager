@@ -89,7 +89,7 @@ def v40_library(directory):
 
 
 # ------------------------------------------------------------ the migration
-check('v41 is the schema this copy writes', SCHEMA_VERSION, 41)
+check('v41 is a schema this copy has passed', SCHEMA_VERSION >= 41)
 path, connection = v40_library(os.path.join(WORK, 'library'))
 before = everything(connection)
 check('the library holds a row in each of the five tables',

@@ -54,7 +54,12 @@ def create_gallery_ui():
                     </label>
                     <button type="button" class="mm-btn secondary" id="gal_new_seed" data-action="gallery.newSeed"
                             title="A new seed, at random: the images in a new order">New seed</button>
-                    <!-- Group by: a menu, filled by gallery.mjs -->
+                    <!-- Search: Enter searches; emptied, it shows everything again (#283) -->
+                    <input type="search" id="gal_search" class="gen-search" data-action="gallery.search"
+                           placeholder="Search prompts" aria-label="Search Civitai's images"
+                           title="Every word must be in an image's prompt or negative prompt; a &quot;quoted phrase&quot; as one.">
+                    <!-- Group by: a menu, each grouping with a "then by" list beside
+                         it, filled by gallery.mjs -->
                     <span class="gen-view-switch gen-group-menu" title="Gather the images that share something">
                         Group by
                         <span class="gen-group-anchor">

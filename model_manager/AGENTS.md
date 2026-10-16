@@ -11,7 +11,7 @@ have files of their own; read them too before working there.
 
 | | |
 |---|---|
-| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops`, `generations_ops`, `tasks_ops` (the generation queue), `downloads_ops` (the download queue, across a restart), `query`, `migrations`; `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
+| `db/` | everything that touches SQLite. A facade (`database.py`) over one module per job: `models_ops`, `images_ops` (Civitai's images, each stored once), `gallery_ops` (the Civitai Images tab's levels), `generations_ops`, `tasks_ops` (the generation queue), `downloads_ops` (the download queue, across a restart), `query`, `migrations`; `prompt_table` the rules of a table of prompt texts images point to, which both kinds of image have (#283); `library` the one read of a file with its version (`LIBRARY`); the grid's filters, sort and page travel as one `GridQuery` (`query.py`), read from the request once |
 | `civitai/` | talking to Civitai: `client` (auth, rate limiting, retries), `prompt_filter`, `size_filter` (filtering a search by download size), `licensing`, `ownership` (which paid versions the key's account bought), `random_draw` (I'm feeling lucky: a page drawn at random from what Civitai's own filters allow, leaving out the models earlier draws showed under the same filters and those the library has - #191) |
 | `forge_host.py` | what the extension asks of the WebUI it runs in, and the one module that asks (with `ui/settings.py`, which registers the settings; `tests/tools/check_forge_imports.py`): its settings, with one table of their defaults (`DEFAULTS`) that registration and every read take; Forge's options, folders, checkpoints, modules, presets and samplers; which Forge it is, and where Neo and the original Forge keep a thing apart |
 | `tabs.py` | which tabs are on (#41), the one place that says: each tab's switch (`TABS`), what several share, on while any of them is (`SERVICES`: downloads, Send, the restamp), and which tabs this start created (`built`, for the page). Every route names its area on the line under its own (`api/common.gate`) and answers 403 while it is off - `tab_switches_test.py` holds all 84 to a table; startup work and the recorder ask it too |
@@ -45,7 +45,7 @@ have files of their own; read them too before working there.
 | `console.py` | what the extension writes to the console: every "[ModelManager]" line goes through `say()` - a failure with its trace through `say_failure()` - which prints it and keeps the last 2,000 for the sync's log panel (`/model-manager/sync/progress?since=`); `console_test.py` fails on a print of its own |
 | `remembered.py` | answers kept in memory - Civitai's about versions, file hashes, SFW verdicts, versions an account bought: a map with a bound, under a lock; how old an answer may be stays its caller's |
 | `data/` | files that ship with the code: `nsfw_prompt_words.txt`, the bundled prompt words, and `nsfw_prompt_model.json.gz`, the prompt model, trained from a pull of Civitai by `tools/train_nsfw_from_civitai.py`; `release_notes.json`, the notes to the user |
-| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, three helpers: `common` (what every endpoint module shares - the card-size parser, the answer to a failure, the gate every route passes), and for the Civitai endpoints `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
+| `api/` | the HTTP endpoints, one module per area, each with `register(app)`: `models`, `images`, `generations` (your own images: a model's gallery of them, and the Generations tab), `jobs`, `civitai`, `webui`, `settings` (the settings window's), `notes` (notes to the user). Beside them, four helpers: `common` (what every endpoint module shares - the card-size parser, the answer to a failure, the gate every route passes), `levels` (what a tab of tiles is asked for - its grouping chain, a search's words - read alike by the Generations and the Civitai Images endpoints, #283), and for the Civitai endpoints `annotations` (marking up search results with what the library holds) and `prompts` (whether a model's images are worth opening) |
 | `ui/` | settings, and the markup for each tab: Queue, Generations, Model Manager, Civitai Browser, in that order - building the Queue tab also wires the Queue buttons; `header.py` what they draw alike - the version and the settings gear, the downloads panel |
 
 ## What the pieces assume about each other
@@ -188,11 +188,13 @@ A model's Sync button, the metadata sync "with images" and a force sync
 fetch either the first page (the gallery page size) or as many images as
 the version has stored - the person chooses, told what each costs and how
 many stored images the first would delete (#103; `refresh_size`,
-`fetch_gallery`) - and replace every stored image of the version with them,
+`fetch_gallery`) - and replace every gallery row of the version with them,
 in one transaction (`db.replace_first_page`): Civitai's order changes, so old
-pages kept beside a fresh first one would duplicate and leave gaps. Pages past
-what was fetched come again when someone pages there. A download's sync takes
-the first page: nothing is stored to keep.
+pages kept beside a fresh first one would duplicate and leave gaps. An image
+is stored once (#283): the fetch is its record for every gallery showing it,
+and one no gallery shows any more goes. Pages past what was fetched come again
+when someone pages there. A download's sync takes the first page: nothing is
+stored to keep.
 
 **What Civitai fails on during a sync is tried again at its end, patiently.**
 A model's details are stored before its gallery is fetched, so a gallery

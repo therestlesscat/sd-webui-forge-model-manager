@@ -276,7 +276,7 @@ stays here.
 | File | What it holds | Sections from here |
 | --- | --- | --- |
 | `model_manager/AGENTS.md` | The Python package: what each module is for, and what its parts assume | Layout: `model_manager/`; Where each rule lives; The library: files, versions and rows; Civitai: sync and downloads; The page; Your generations; Two WebUIs: everything has to work in both; Known gaps; The data; The code; The environment |
-| `model_manager/db/AGENTS.md` | Everything that touches SQLite: tables, migrations, queries | Where each rule lives; The library: files, versions and rows; Your generations; Proving a change; The data; The code |
+| `model_manager/db/AGENTS.md` | Everything that touches SQLite: tables, migrations, queries | Where each rule lives; The library: files, versions and rows; Civitai's images; Your generations; Proving a change; The data; The code |
 | `model_manager/civitai/AGENTS.md` | What Civitai's API does that its documentation does not say | Civitai: sync and downloads; The data |
 | `model_manager/api/AGENTS.md` | Lessons from the HTTP endpoints | The code |
 | `javascript/AGENTS.md` | How the WebUI loads the page's scripts, and what the tabs' scripts assume | The page; The WebUI's rules, which are not obvious; Proving a change |

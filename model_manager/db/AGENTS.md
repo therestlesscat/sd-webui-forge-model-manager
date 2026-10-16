@@ -86,6 +86,25 @@ share a date to the millisecond, or have none; without the tie-break SQLite
 returned either, and a cover changed between loads. Anything that picks one of
 several needs an order that cannot tie.
 
+### Civitai's images
+
+**A Civitai image is stored once, whatever galleries show it** (#283, v42).
+An image is in the gallery of every resource it used, and was stored again for
+each: 7,742 of one library's 117,142 images had copies, 1,333 of them
+differing - each gallery fetched at another time. `images` holds what search
+and grouping read of it, narrow; `image_records` Civitai's record, whole, the
+source; `image_resources` and `image_prompts` are made from the record when it
+is written, never the source; `image_galleries` which versions show it, where,
+and its level - on each gallery row, as every filter by level starts from a
+gallery and the grid asks each version's worst level at once. The newest fetch
+is the record for every gallery, except that a fetch without generation data
+keeps the stored record's (`carry_generation_data`): Civitai's image list
+carries no prompts, and the lookup that adds them is skipped or fails, so a
+fetch for one gallery would have emptied every other's. A gallery replaced or
+cleared takes only the images no other gallery shows (`forget_unshown`). The
+Civitai Images tab reads a level once, into a temporary table in memory, as
+the Generations tab does (`GalleryOps.level`).
+
 ### Your generations
 
 **Your images are narrow rows; their details are kept apart** (#231, v37).

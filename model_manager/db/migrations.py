@@ -2197,13 +2197,318 @@ def _migrate_to_v41(cursor, db_path: str):
     print("[ModelManager] Migration to v41 complete")
 
 
+# v42's tables (#283): each Civitai image stored once. `images` narrow, read
+# by search and grouping; `image_galleries` which versions show an image,
+# where, and its level; `image_records` the record as Civitai sent it, whole;
+# `image_resources` and `image_prompts` made from the record, never the source.
+_V42_TABLES = """
+CREATE TABLE images_v42 (
+    id          INTEGER PRIMARY KEY,
+    prompt_id   INTEGER,
+    negative_id INTEGER,
+    width       INTEGER,
+    height      INTEGER,
+    media_type  TEXT NOT NULL DEFAULT 'image',
+    created_at  TEXT
+);
+CREATE TABLE image_galleries (
+    version_id           INTEGER NOT NULL,
+    image_id             INTEGER NOT NULL,
+    page                 INTEGER NOT NULL,
+    position             INTEGER,
+    effective_nsfw_level INTEGER,
+    PRIMARY KEY (version_id, image_id)
+) WITHOUT ROWID;
+CREATE TABLE image_records (
+    image_id INTEGER PRIMARY KEY,
+    url      TEXT,
+    data     TEXT NOT NULL
+);
+CREATE TABLE image_resources (
+    image_id     INTEGER NOT NULL,
+    position     INTEGER NOT NULL,
+    role         TEXT NOT NULL,
+    type         TEXT,
+    model_id     INTEGER,
+    version_id   INTEGER,
+    weight       REAL,
+    name         TEXT,
+    version_name TEXT,
+    PRIMARY KEY (image_id, position)
+) WITHOUT ROWID;
+CREATE TABLE image_prompts (
+    id         INTEGER PRIMARY KEY,
+    text       TEXT NOT NULL UNIQUE,
+    grouped_as INTEGER NOT NULL,
+    length     INTEGER NOT NULL DEFAULT 0
+)
+"""
+_V42_INDEXES = """
+CREATE INDEX idx_images_prompt ON images(prompt_id);
+CREATE INDEX idx_images_negative ON images(negative_id);
+CREATE INDEX idx_images_created ON images(created_at);
+CREATE INDEX idx_images_size ON images(width, height);
+CREATE INDEX idx_image_galleries_order ON image_galleries(version_id, page, position, image_id, effective_nsfw_level);
+CREATE INDEX idx_image_galleries_level ON image_galleries(version_id, effective_nsfw_level);
+CREATE INDEX idx_image_galleries_image ON image_galleries(image_id, version_id, effective_nsfw_level);
+CREATE INDEX idx_image_resources_image ON image_resources(role, image_id, version_id);
+CREATE INDEX idx_image_prompts_grouped ON image_prompts(grouped_as);
+CREATE INDEX idx_image_prompts_lookup ON image_prompts(id, grouped_as, length)
+"""
+# Your generations' image indexes, named `idx_images_*` since v37-v40 as if they
+# were `images`': renamed for their table first, as #284 named the tables, so
+# `idx_images_*` is Civitai's `images`' alone.
+_V42_RENAMED_INDEXES = (
+    ("idx_images_generation", "idx_generation_images_generation",
+     "generation_images(generation_id, position, prompt_nsfw_level, user_nsfw_level)"),
+    ("idx_images_prompt", "idx_generation_images_prompt", "generation_images(prompt_id)"),
+    ("idx_images_negative", "idx_generation_images_negative", "generation_images(negative_id)"),
+    ("idx_images_path", "idx_generation_images_path", "generation_images(path COLLATE NOCASE)"),
+)
+# Civitai's resource types, as the grouping reads them: frozen, as a migration's
+# rules must be. Anything else is `other`.
+_V42_ROLES = {"checkpoint": "checkpoint", "lora": "lora", "locon": "lora", "dora": "lora",
+              "textualinversion": "embedding", "vae": "vae", "upscaler": "upscaler"}
+# A prompt's length, trimmed as a prompt worth reading is (prompt_rules.trimmed_sql), frozen.
+_V42_LENGTH = "LENGTH(TRIM(COALESCE(text, ''), char(32) || char(9) || char(13) || char(10)))"
+
+
+def _v42_resources(record):
+    """Each resource the record lists, as image_resources' columns from `position` on."""
+    meta = record.get("meta") if isinstance(record, dict) else None
+    listed = meta.get("civitaiResources") if isinstance(meta, dict) else None
+    rows = []
+    for position, entry in enumerate(listed if isinstance(listed, list) else []):
+        if isinstance(entry, dict):
+            kind = entry.get("type")
+            rows.append((position, _V42_ROLES.get(str(kind or "").lower(), "other"), kind, entry.get("modelId"),
+                         entry.get("modelVersionId"), entry.get("weight"), entry.get("name"),
+                         entry.get("modelVersionName")))
+    return rows
+
+
+def _v42_prompt(record, key):
+    meta = record.get("meta") if isinstance(record, dict) else None
+    text = meta.get(key) if isinstance(meta, dict) else None
+    return text if isinstance(text, str) else None
+
+
+# What v42 expects of the tables it made, read from each record as it was
+# written - by Python, as the extension reads records everywhere - into tables
+# of the new ones' column types, so a value stored with a conversion (a weight
+# sent as "0.8") compares as stored.
+_V42_EXPECTED = """
+CREATE TEMP TABLE v42_prompts (image_id INTEGER, prompt TEXT, negative TEXT);
+CREATE TEMP TABLE v42_resources (image_id INTEGER, position INTEGER, role TEXT, type TEXT, model_id INTEGER,
+                                 version_id INTEGER, weight REAL, name TEXT, version_name TEXT)
+"""
+_V42_RESOURCE_COLUMNS = "image_id, position, role, type, model_id, version_id, weight, name, version_name"
+
+
+def _v42_check(cursor, merged):
+    """
+    The new tables against the old one before it is dropped: every row's
+    gallery facts, value and type; each image's address, size and date its
+    newest copy's - Civitai can date an image again between two galleries'
+    fetches (10 of one library's images), and the newest copy wins, as for
+    the record (#283); the record byte for byte where nothing was carried
+    over; each image's prompts and resources as its record lists them
+    (_V42_EXPECTED). Each read goes through the old table once, by an index
+    or a group: a check that asked each row about its image's other copies
+    read the whole table again per row, 127,000 times (#283). Raises on any
+    difference.
+    """
+    def same(old, new):
+        return f"({old} IS {new} AND typeof({old}) = typeof({new}))"
+
+    def none(label, sql, args=()):
+        found = cursor.execute(sql, args).fetchone()[0]
+        if found:
+            raise RuntimeError(f"[ModelManager] v42 would lose data: {found} {label}")
+
+    old_rows, gallery_rows = (cursor.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                              for t in ("images", "image_galleries"))
+    if old_rows != gallery_rows:
+        raise RuntimeError(f"[ModelManager] v42 would lose data: {gallery_rows} gallery rows for {old_rows} images rows")
+    none("rows whose gallery, page, place or level did not come through",
+         "SELECT COUNT(*) FROM images o WHERE NOT EXISTS (SELECT 1 FROM image_galleries g "
+         "WHERE g.version_id = o.version_id AND g.image_id = o.id AND "
+         f"{same('o.page', 'g.page')} AND {same('o.position', 'g.position')} AND "
+         f"{same('o.effective_nsfw_level', 'g.effective_nsfw_level')})")
+    newest = "SELECT * FROM images WHERE rowid IN (SELECT MAX(rowid) FROM images GROUP BY id)"
+    none("images whose address, size or date is not their newest copy's",
+         f"SELECT COUNT(*) FROM ({newest}) o LEFT JOIN images_v42 n ON n.id = o.id "
+         "LEFT JOIN image_records r ON r.image_id = o.id WHERE n.id IS NULL OR r.image_id IS NULL OR NOT ("
+         f"{same('o.url', 'r.url')} AND {same('o.width', 'n.width')} AND {same('o.height', 'n.height')} "
+         f"AND {same('o.created_at', 'n.created_at')})")
+    distinct = cursor.execute("SELECT COUNT(DISTINCT id) FROM images").fetchone()[0]
+    for table in ("images_v42", "image_records"):
+        count = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        if count != distinct:
+            raise RuntimeError(f"[ModelManager] v42 would lose data: {table} holds {count} images of {distinct}")
+    changed = cursor.execute(f"SELECT COUNT(*) FROM ({newest}) o JOIN image_records r ON r.image_id = o.id "
+                             "WHERE r.data IS NOT o.data").fetchone()[0]
+    if changed != len(merged):
+        raise RuntimeError(f"[ModelManager] v42 changed {changed} records, carrying data over into {len(merged)}")
+    prompts = ("SELECT n.id, p.text, q.text FROM images_v42 n LEFT JOIN image_prompts p ON p.id = n.prompt_id "
+               "LEFT JOIN image_prompts q ON q.id = n.negative_id")
+    expected = "SELECT image_id, prompt, negative FROM temp.v42_prompts"
+    none("images whose prompts are not their record's", f"SELECT COUNT(*) FROM ({prompts} EXCEPT {expected})")
+    none("records whose prompts no image holds", f"SELECT COUNT(*) FROM ({expected} EXCEPT {prompts})")
+    stored = f"SELECT {_V42_RESOURCE_COLUMNS} FROM image_resources"
+    expected = f"SELECT {_V42_RESOURCE_COLUMNS} FROM temp.v42_resources"
+    none("resources a record lists and image_resources lacks", f"SELECT COUNT(*) FROM ({expected} EXCEPT {stored})")
+    none("resources image_resources holds that no record lists", f"SELECT COUNT(*) FROM ({stored} EXCEPT {expected})")
+
+
+def _v42_room(db_path: str) -> None:
+    """
+    Room for v42 beside the database: its backup, a copy of the whole file,
+    and the new tables, written before the old one goes - about twice the
+    database. Refused before anything is written, saying what it needs: a
+    full disk failed mid-way, with only SQLite's own words.
+    """
+    if not os.path.isfile(db_path):
+        return
+    size = sum(os.path.getsize(p) for p in (db_path, db_path + "-wal") if os.path.isfile(p))
+    free = shutil.disk_usage(os.path.dirname(os.path.abspath(db_path))).free
+    if free < 2 * size:
+        raise RuntimeError(
+            f"[ModelManager] Updating the database (v42) needs about {2 * size / 1e9:.1f} GB free beside it - "
+            f"a backup of it and its new tables - and {free / 1e9:.1f} GB is free. The database is unchanged: "
+            "free some space and start the WebUI again.")
+
+
+def _migrate_to_v42(cursor, db_path: str):
+    """
+    Each Civitai image stored once (#283), in the tables search and grouping
+    read. `images` held a row per gallery an image showed in, each with the
+    whole record; 7,742 of one library's 117,142 images had several. The
+    newest copy - the highest row number, each write having replaced its row -
+    becomes the image's record, with the generation data an older copy had
+    where the newest has no prompt, as a sync carries it over
+    (keep_generation_data). Its prompts and resources are copied out of it.
+    Backed up first, built beside the old table in one transaction, and
+    checked (_v42_check) before the old table is dropped.
+    """
+    print("[ModelManager] Migrating to v42: each Civitai image stored once...")
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "image_records" in tables:
+        print("[ModelManager] Migration to v42 already done")
+        return
+    connection = cursor.connection
+    if connection.in_transaction:
+        connection.commit()
+    if cursor.execute("SELECT EXISTS (SELECT 1 FROM images)").fetchone()[0]:
+        _v42_room(db_path)
+        _back_up(connection, db_path, 42)
+    total = cursor.execute("SELECT COUNT(DISTINCT id) FROM images").fetchone()[0]
+
+    # One transaction for every step: the caller's commit ends it, a raise
+    # rolls it back.
+    cursor.execute("BEGIN")
+    for statement in (_V42_TABLES + ";" + _V42_EXPECTED).split(";"):
+        if statement.strip():
+            cursor.execute(statement)
+    cursor.execute("INSERT INTO image_galleries (version_id, image_id, page, position, effective_nsfw_level) "
+                   "SELECT version_id, id, page, position, effective_nsfw_level FROM images")
+
+    prompt_ids = {}
+
+    def prompt_id(text):
+        if text is None:
+            return None
+        if text not in prompt_ids:
+            tidied = " ".join(text.split())
+            grouped = 0 if tidied == "" else None if tidied == text else prompt_id(tidied)
+            new_id = len(prompt_ids) + 1
+            prompt_ids[text] = new_id
+            cursor.execute("INSERT INTO image_prompts (id, text, grouped_as) VALUES (?, ?, ?)",
+                           (new_id, text, new_id if grouped is None else grouped))
+        return prompt_ids[text]
+
+    merged = set()
+    reader = connection.cursor()
+    copies = []
+    done = [0]
+
+    def write(copies):
+        newest = copies[0]
+        image_id, url, width, height, created_at, data = newest
+        try:
+            record = json.loads(data)
+        except (TypeError, ValueError):
+            record = None
+        if isinstance(record, dict):
+            meta = record.get("meta") if isinstance(record.get("meta"), dict) else {}
+            if not meta.get("prompt"):
+                for older in copies[1:]:
+                    try:
+                        old = json.loads(older[5]).get("meta")
+                    except (TypeError, ValueError, AttributeError):
+                        old = None
+                    if isinstance(old, dict) and old.get("prompt"):
+                        carried = dict(old)
+                        carried.update({k: v for k, v in meta.items() if v is not None})
+                        record["meta"] = carried
+                        data = json.dumps(record)
+                        merged.add(image_id)
+                        break
+        cursor.execute("INSERT INTO images_v42 (id, prompt_id, negative_id, width, height, media_type, created_at) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (image_id, prompt_id(_v42_prompt(record, "prompt")),
+                        prompt_id(_v42_prompt(record, "negativePrompt")), width, height,
+                        record.get("type") if isinstance(record, dict) and isinstance(record.get("type"), str)
+                        else "image", created_at))
+        cursor.execute("INSERT INTO image_records (image_id, url, data) VALUES (?, ?, ?)", (image_id, url, data))
+        resources = [(image_id,) + row for row in _v42_resources(record)]
+        cursor.executemany("INSERT INTO image_resources (image_id, position, role, type, model_id, version_id, "
+                           "weight, name, version_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", resources)
+        # What the check will expect, read from the record as it was written.
+        cursor.execute("INSERT INTO temp.v42_prompts VALUES (?, ?, ?)",
+                       (image_id, _v42_prompt(record, "prompt"), _v42_prompt(record, "negativePrompt")))
+        cursor.executemany(f"INSERT INTO temp.v42_resources ({_V42_RESOURCE_COLUMNS}) "
+                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", resources)
+        done[0] += 1
+        # A large library takes a while: said as it goes, so a WebUI that looks
+        # stuck is not stopped for it (stopped, it starts over, nothing lost).
+        if done[0] % 20000 == 0:
+            print(f"[ModelManager] v42: {done[0]:,} of {total:,} images...")
+
+    for row in reader.execute("SELECT id, url, width, height, created_at, data FROM images ORDER BY id, rowid DESC"):
+        if copies and copies[0][0] != row[0]:
+            write(copies)
+            copies = []
+        copies.append(tuple(row))
+    if copies:
+        write(copies)
+    reader.close()
+    cursor.execute(f"UPDATE image_prompts SET length = {_V42_LENGTH}")
+
+    print(f"[ModelManager] v42: {done[0]:,} images written; checking them against the old table...")
+    _v42_check(cursor, merged)
+    cursor.execute("DROP TABLE temp.v42_prompts")
+    cursor.execute("DROP TABLE temp.v42_resources")
+    cursor.execute("DROP TABLE images")
+    cursor.execute("ALTER TABLE images_v42 RENAME TO images")
+    for old, new, on in _V42_RENAMED_INDEXES:
+        cursor.execute(f"DROP INDEX IF EXISTS {old}")
+        cursor.execute(f"CREATE INDEX IF NOT EXISTS {new} ON {on}")
+    for statement in _V42_INDEXES.split(";"):
+        if statement.strip():
+            cursor.execute(statement)
+    print(f"[ModelManager] Migration to v42 complete: "
+          f"{cursor.execute('SELECT COUNT(*) FROM images').fetchone()[0]} images, "
+          f"{len(merged)} given an older copy's generation data")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
-    # Only v4, v25, v32, v37 and v41 take the path; v4 the directory too. Each
-    # makes a backup first.
+    # Only v4, v25, v32, v37, v41 and v42 take the path; v4 the directory too.
+    # Each makes a backup first.
     steps = {
         2: _migrate_to_v2, 3: _migrate_to_v3,
         4: lambda c: _migrate_to_v4(c, db_path, db_dir),
@@ -2220,6 +2525,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         37: lambda c: _migrate_to_v37(c, db_path),
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
+        42: lambda c: _migrate_to_v42(c, db_path),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

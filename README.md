@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.60 - Search Civitai's images.** The Civitai Images tab can be searched by prompt, as the
+Generations tab is, and grouped by each image's prompt, its LoRAs or the day it was made - and two
+deep, a grouping inside another. Each Civitai image is now stored once, whatever galleries show it.
+
 **0.59 - Download several at once.** In the Civitai Browser, tick Select and click the models you
 want, on any page of your search or across I'm feeling lucky's draws, then press Download selected: each one's newest version joins the
 downloads queue. Before that, a download asks your library first, so a file you already have - moved

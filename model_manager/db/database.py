@@ -28,7 +28,7 @@ from contextlib import contextmanager
 from .migrations import run_migrations
 from .models_ops import ModelsOps, _stored_spelling
 from .query import GridQuery
-from .images_ops import ImagesOps
+from .images_ops import ImagesOps, forget_unshown
 from .generations_ops import GenerationsOps
 from .tasks_ops import TasksOps
 from .downloads_ops import DownloadsOps
@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 41
+SCHEMA_VERSION = 42
 
 
 class ModelsDatabase:
@@ -151,18 +151,13 @@ class ModelsDatabase:
 
     # ==================== The Civitai Images tab (#209) ====================
 
-    def gallery_counts(self) -> Dict[str, int]:
-        """Every image the Civitai Images tab has, and how many are explicit. See GalleryOps."""
-        return self._gallery.counts()
+    def gallery_level(self, seed: int, scope):
+        """A level of the Civitai Images tab, read once: its counts, a page, its groups. See GalleryOps.level."""
+        return self._gallery.level(seed, scope)
 
-    def gallery_image_keys(self, seed: int, hide_nsfw: bool, offset: int, limit: int,
-                           group: Optional[str] = None, key: Any = None) -> List[Tuple[int, int]]:
-        """A page of the Civitai Images tab's images by score, as (image id, version id). See GalleryOps."""
-        return self._gallery.image_keys(seed, hide_nsfw, offset, limit, group, key)
-
-    def gallery_groups(self, seed: int, group: str, hide_nsfw: bool) -> List[Dict[str, Any]]:
-        """Every group of a grouping, with its counts and first images. See GalleryOps."""
-        return self._gallery.groups(seed, group, hide_nsfw)
+    def gallery_prompt_names(self, keys) -> Dict[int, str]:
+        """Prompt groups' names, their texts tidied. See GalleryOps."""
+        return self._gallery.prompt_names(keys)
 
     def gallery_images(self, keys) -> List[Dict[str, Any]]:
         """The Gallery's images by (image id, version id), in order. See GalleryOps."""
@@ -721,6 +716,10 @@ class ModelsDatabase:
         """Get total and filtered image counts for a version."""
         return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt)
 
+    def stored_records(self, image_ids) -> List[Dict[str, Any]]:
+        """The stored records of these images, whatever galleries show them. See db/images_ops.py."""
+        return self._images.stored_records(image_ids)
+
     def get_image_ids(self, version_id: int) -> Set[int]:
         """The ids of the images stored for a version."""
         return self._images.get_image_ids(version_id)
@@ -738,8 +737,10 @@ class ModelsDatabase:
         after the clear.
         """
         with self._cursor() as cursor:
-            cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
+            held = self._images.clear_version_in(cursor, version_id)
             self._images.insert_images(cursor, version_id, 1, images)
+            # An image the fresh page no longer has goes once no gallery shows it.
+            forget_unshown(cursor, held)
             self._set_images_state(cursor, version_id, next_cursor, True)
 
     def clear_version_images(self, version_id: int):

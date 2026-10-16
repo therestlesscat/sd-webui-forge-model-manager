@@ -22,7 +22,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
     'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs',
-    'tiles.mjs', 'previous_position.mjs'];
+    'tiles.mjs', 'previous_position.mjs', 'grouping.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
@@ -53,6 +53,7 @@ await shared('settings.mjs');
 // Previous Position (#250): Send and Show model note where the page was, and
 // the toolbar's button goes back there.
 const { previousPosition } = await shared('previous_position.mjs');
+const { groupChain: chainOf, groupMenu: makeGroupMenu, startSearchBox } = await shared('grouping.mjs');
 const previousPlace = previousPosition({ id: 'gal_scroll_restore_btn', action: 'gallery.previousPosition',
                                          row: '#gallery_app .gen-toolbar', before: 'gal_refresh_btn' });
 
@@ -72,8 +73,16 @@ const GRID_SETTING = 'model_manager_gallery_grid';
 // What this tab shows, above it until closed - closed, remembered in this browser.
 const ABOUT_CLOSED_KEY = 'mm_gallery_about_closed';
 // What a group is called, by what the images are grouped by (GROUPINGS on the server).
-const GROUP_NAMES = { model: 'Model', base_model: 'Base model', type: 'Type', size: 'Size' };
-const GROUP_PLURALS = { model: 'models', base_model: 'base models', type: 'types', size: 'sizes' };
+// What a group is called, by what the images are grouped by (GROUPINGS on the server): the
+// gallery's model, its base model, its file's type; the image's size, prompt, LoRAs, day (#283).
+const GROUP_NAMES = {
+    model: 'Model', base_model: 'Base model', type: 'Type', size: 'Size',
+    prompt: 'Prompt', loras: 'LoRA combination', day: 'Day',
+};
+const GROUP_PLURALS = {
+    model: 'models', base_model: 'base models', type: 'types', size: 'sizes',
+    prompt: 'prompts', loras: 'LoRA combinations', day: 'days',
+};
 // A tile's column and its image's height, as the stylesheet draws them
 // (--gen-column-width, --gen-image-height): what a copy is sized for.
 const COLUMN_WIDTH = 200;
@@ -82,7 +91,8 @@ const IMAGE_HEIGHT = 300;
 // Civitai Browser call it; any other type by its own name.
 const TYPE_NAMES = { TextualInversion: 'Embedding', Controlnet: 'ControlNet' };
 
-let groupBy = GROUP_NAMES[readSetting(GROUP_BY_KEY, '')] ? readSetting(GROUP_BY_KEY, '') : '';
+let groupBy = chainOf(readSetting(GROUP_BY_KEY, ''), GROUP_NAMES).length ? readSetting(GROUP_BY_KEY, '') : '';
+let search = '';
 let hideNsfw = true;
 // How the grid is placed, as the settings say (#240): Fast, by the tab - its
 // placement, from start() - or Classic, by the browser.
@@ -96,7 +106,8 @@ let state = null;           // the totals, for the banner
 let scope = null;           // what the level is, for its header
 let part = 0;
 let more = true;
-let inGroup = null;         // the group opened: {key, value}
+let at = {};                // the groups opened: {in_group, in_subgroup}
+let title = '';             // the level's title, in the path
 const levels = [];
 let loading = false;
 let request = 0;            // a newer load drops an older one's answer
@@ -133,54 +144,18 @@ function closeAbout() {
 }
 
 // ------------------------------------------------------------- Group by
-function groupLabel(value) {
-    return GROUP_NAMES[value] || 'Nothing';
+/** What a Group by value groups by, in order: one grouping or two (shared/grouping.mjs). */
+function groupChain(value) {
+    return chainOf(value, GROUP_NAMES);
 }
 
-function groupList() {
-    return document.querySelector('#gallery_app .gen-group-list');
-}
-
-function groupMenuHtml() {
-    const pick = (value, text) => `<button type="button" data-group-pick="${escapeHtml(value)}"
-        class="${value === groupBy ? 'gen-group-chosen' : ''}">${escapeHtml(text)}</button>`;
-    return pick('', 'Nothing') + Object.entries(GROUP_NAMES).map(([value, text]) => pick(value, text)).join('');
-}
-
-/** The button says the grouping - writing nothing when it already does: this runs after every update. */
-function showGroupChoice() {
-    setText(byId('gal_group_by'), groupLabel(groupBy));
-}
-
-function closeGroupMenu() {
-    const list = groupList();
-    if (!list || list.hidden) return false;
-    list.hidden = true;
-    byId('gal_group_by')?.setAttribute('aria-expanded', 'false');
-    return true;
-}
-
-work.listen(document, 'click', (event) => {
-    const target = event.target;
-    const list = groupList();
-    if (!list) return;
-    if (target.closest?.('#gal_group_by')) {
-        if (!closeGroupMenu()) {
-            list.innerHTML = groupMenuHtml();
-            list.hidden = false;
-            byId('gal_group_by')?.setAttribute('aria-expanded', 'true');
-        }
-        return;
-    }
-    if (list.hidden) return;
-    const pick = target.closest?.('[data-group-pick]');
-    if (pick && list.contains(pick)) {
-        closeGroupMenu();
-        setGroupBy(pick.dataset.groupPick);
-        return;
-    }
-    if (!target.closest?.('#gallery_app .gen-group-menu')) closeGroupMenu();
+// The menu, its "then by" lists and its listeners: shared/grouping.mjs.
+const groupMenu = makeGroupMenu(work, {
+    app: '#gallery_app', button: 'gal_group_by', names: GROUP_NAMES,
+    current: () => groupBy, choose: (value) => setGroupBy(value),
 });
+const showGroupChoice = () => groupMenu.showChoice();
+const closeGroupMenu = () => groupMenu.close();
 
 // ------------------------------------------------------------- loading
 /** This level again from its first part: a switch, a seed, Refresh, or opening. */
@@ -208,7 +183,8 @@ async function loadNext() {
     const asked = ++request;
     try {
         const data = await apiCall({ endpoint: '/model-manager/gallery/browse', params: {
-            page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: inGroup ? inGroup.key : '',
+            page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
+            in_group: at.in_group ?? '', in_subgroup: at.in_subgroup ?? '', search,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -235,6 +211,7 @@ async function loadNext() {
 }
 
 function emptyText() {
+    if (search && !(state && state.total)) return 'No image matches the search.';
     if (state && state.total) return 'Every image is hidden by the NSFW filter.';
     return 'No stored images yet: a sync with Civitai stores each model\'s images, and they appear here.';
 }
@@ -293,7 +270,8 @@ function typedSeed(box) {
 /** The top level again, from its first part: the order or the grouping changed. */
 function toTop() {
     levels.length = 0;
-    inGroup = null;
+    at = {};
+    title = '';
     scope = null;
     window.scrollTo?.(0, topOf(byId('gallery_app')));
     return reload();
@@ -303,8 +281,11 @@ function toTop() {
 async function openTile(index) {
     const tile = tiles[index];
     if (!tile || tile.kind !== 'group') return;
-    levels.push({ tiles, state, scope, part, more, inGroup, scrollY: currentScroll() });
-    inGroup = { key: tile.group.key, value: tile.group.value };
+    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll() });
+    // A group of the first grouping opens onto the second's groups, when there is one.
+    const key = String(tile.group.key ?? '');
+    at = at.in_group !== undefined ? { in_group: at.in_group, in_subgroup: key } : { in_group: key };
+    title = groupTitle(tile.group.value, tile.group.by);
     scope = null;
     window.scrollTo?.(0, topOf(byId('gallery_app')));
     await reload();
@@ -318,7 +299,7 @@ function goBack() {
     request += 1;
     loading = false;
     const above = levels.pop();
-    ({ tiles, state, scope, part, more, inGroup } = above);
+    ({ tiles, state, scope, part, more, at, title } = above);
     const grid = byId('gal_grid');
     if (grid) grid.innerHTML = '';
     placed?.reset();
@@ -329,20 +310,27 @@ function goBack() {
     window.scrollTo?.(0, above.scrollY);
 }
 
-function groupTitle(value, by = groupBy) {
-    return `${GROUP_NAMES[by] || 'Group'}: ${value || 'Unknown'}`;
+/** "Model: xyz" - `by`, what the group's images share; the first grouping if not said. */
+function groupTitle(value, by = groupChain(groupBy)[0]) {
+    return `${GROUP_NAMES[by] || 'Group'}: ${value || emptyGroupValue(by)}`;
+}
+
+/** What a group of images that share nothing of `by` is called. */
+function emptyGroupValue(by) {
+    return by === 'loras' ? 'No LoRAs' : by === 'prompt' ? 'No prompt' : 'Unknown';
 }
 
 /** Inside a group: Back, the way here, how many images. */
 function renderPath() {
     const path = byId('gal_path');
     if (!path) return;
-    if (!levels.length || !inGroup) {
+    if (!levels.length) {
         path.innerHTML = '';
         return;
     }
     const facts = scope ? [`${scope.count} image${scope.count === 1 ? '' : 's'}`] : [];
-    path.innerHTML = pathHtml({ trail: ['Civitai Images', groupTitle(inGroup.value)], facts, back: 'gallery.back' });
+    const trail = ['Civitai Images', ...levels.slice(1).map((level) => level.title), title];
+    path.innerHTML = pathHtml({ trail, facts, back: 'gallery.back' });
 }
 
 // ------------------------------------------------------------- drawing
@@ -389,7 +377,7 @@ function tileHtml(tile, index) {
             </div>
             <span class="gen-count">×${tile.matching_count}</span>
             <span class="gen-group-name" title="${escapeHtml(groupTitle(tile.group.value, tile.group.by))}">`
-            + `${escapeHtml(tile.group.value || 'Unknown')}</span>`;
+            + `${escapeHtml(tile.group.value || emptyGroupValue(tile.group.by))}</span>`;
         actions = `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}</div>`;
     } else {
         media = `<div class="gen-viewable" data-action="gallery.view" data-tile="${index}" title="View">${imageHtml(image)}</div>`;
@@ -466,7 +454,8 @@ function renderBanner() {
         matching: state.filtered || 0,
         total: state.total || 0,
         onScreen,
-        word: 'stored',
+        // Searching, the total is what the search found, not all that is stored.
+        word: search ? 'found by the search' : 'stored',
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
         switches: [{
@@ -602,11 +591,19 @@ function onKey(event) {
 // ------------------------------------------------------------- the switches
 /** Group by something else, or nothing: the tab starts again from its top level. */
 function setGroupBy(value) {
-    const next = GROUP_NAMES[value] ? value : '';
+    const next = groupChain(value).length ? value : '';
     if (next === groupBy && !levels.length) return undefined;
     groupBy = next;
     writeSetting(GROUP_BY_KEY, groupBy);
     showGroupChoice();
+    return toTop();
+}
+
+/** Search, or show everything again: the tab starts again from its top level. */
+function setSearch(value) {
+    const text = String(value || '').trim();
+    if (text === search) return undefined;
+    search = text;
     return toTop();
 }
 
@@ -620,6 +617,7 @@ function showNsfw(checked) {
 work.provide('gallery.seed', (data, box) => typedSeed(box));
 work.provide('gallery.newSeed', () => keepSeed(null));
 work.provide('gallery.refresh', () => reload());
+work.provide('gallery.search', (data, box) => setSearch(box.value));
 work.provide('gallery.showNsfw', (data, box) => showNsfw(box.checked));
 work.provide('gallery.back', () => goBack());
 work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
@@ -642,6 +640,7 @@ export async function start(startScope) {
     showNotes('gallery', 'gal_notes');
     showAbout();
     showGroupChoice();
+    startSearchBox(byId('gal_search'), setSearch);
     placed = placedGrid({
         scope: tabScope,
         grid: () => byId('gal_grid'),

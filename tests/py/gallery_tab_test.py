@@ -57,7 +57,8 @@ client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
 # every third explicit; one image stored under two of them; and images of a
 # version with no file, which the library does not have.
 with db._cursor() as cursor:
-    cursor.execute('DELETE FROM images')
+    for table in ('image_galleries', 'images', 'image_records', 'image_resources', 'image_prompts'):
+        cursor.execute(f'DELETE FROM {table}')
     versions = facts['version_ids'][:3]
     cursor.execute('SELECT id, model_id FROM versions WHERE id IN (%s)' % ','.join('?' * len(versions)), versions)
     model_of = dict(cursor.fetchall())
@@ -171,14 +172,15 @@ by_lowest = lambda s: sorted(want_models, key=lambda k: min(score(i, s) for i in
 seed = next(s for s in range(1, 10000) if by_rank(s) != by_lowest(s))
 client.post('/model-manager/gallery/seed', data={'seed': str(seed)})
 groups, data = every_page(group='model')
+# A group is named by its id in a request: its key after a "v" (#283).
 check('grouped by model: a tile per model, each group placed by the seed and itself',
-      [t.get('group', {}).get('key') for t in groups], by_rank(seed))
+      [t.get('group', {}).get('key') for t in groups], ['v%d' % m for m in by_rank(seed)])
 inside = {}
 for tile in groups:
     key = tile.get('group', {}).get('key')
     inside[key] = ids_of(every_page(group='model', in_group=str(key))[0])
 check('inside a group, its images by their scores',
-      inside, {m: sorted(ids, key=lambda i: (score(i, seed), i)) for m, ids in model_images.items()})
+      inside, {'v%d' % m: sorted(ids, key=lambda i: (score(i, seed), i)) for m, ids in model_images.items()})
 check('a group\'s tile shows its first four images, and counts them all',
       [([img['id'] for img in t['images']], t['matching_count']) for t in groups],
       [(inside[t['group']['key']][:4], len(inside[t['group']['key']])) for t in groups])

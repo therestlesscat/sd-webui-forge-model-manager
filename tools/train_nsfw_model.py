@@ -59,7 +59,11 @@ def read_library(path):
     """One row per image with a prompt: (level, generation data, post)."""
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     rows, seen = [], set()
-    for image_id, data in db.execute("SELECT id, data FROM images"):
+    # Each image's record once since v42 (#283); before it, a copy per gallery.
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    sql = ("SELECT image_id, data FROM image_records" if "image_records" in tables
+           else "SELECT id, data FROM images")
+    for image_id, data in db.execute(sql):
         if image_id in seen:
             continue
         seen.add(image_id)

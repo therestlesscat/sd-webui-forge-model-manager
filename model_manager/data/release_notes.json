@@ -1,5 +1,39 @@
 [
     {
+        "id": "civitai-images-search",
+        "version": "0.60.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "gallery"
+        ],
+        "title": "Search Civitai's images, and group them by prompt, LoRAs or day",
+        "text": "A search box beside Group by finds the images whose prompt or negative prompt holds every word you type - a \"quoted phrase\" as one. Group by now offers prompt, LoRA combination and day beside model, base model, type and size, and each grouping can be grouped again by another: hover a grouping to choose what comes inside it."
+    },
+    {
+        "id": "shared-database-0-60-0",
+        "version": "0.60.0",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version stores each Civitai image once, after backing the database up beside itself; an older copy cannot open it any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "storage"
+        },
+        "replaces": [
+            "shared-database-0-59-10"
+        ]
+    },
+    {
         "id": "shared-database-0-59-10",
         "version": "0.59.10",
         "kind": "warning",

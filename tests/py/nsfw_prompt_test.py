@@ -89,7 +89,7 @@ dbmod._db_instance = db
 version = facts['version_ids'][0]
 path = next(p for p in facts['linked_paths'] if db.get_version(p)['id'] == version)
 with db._cursor() as cursor:
-    cursor.execute("DELETE FROM images WHERE version_id = ?", (version,))
+    cursor.execute("DELETE FROM image_galleries WHERE version_id = ?", (version,))
 snib_pg = {'id': 9101, 'url': 'https://example.invalid/snib.jpeg', 'browsingLevel': 1,
            'meta': {'prompt': 'a snib, 1girl'}}
 zorp_pg = {'id': 9102, 'url': 'https://example.invalid/zorp.jpeg', 'browsingLevel': 1,
@@ -101,7 +101,7 @@ db.store_images(version, 1, [snib_pg, zorp_pg, plain_pg])
 
 def stored(image_id):
     with db._cursor() as cursor:
-        cursor.execute("SELECT effective_nsfw_level FROM images WHERE id = ?", (image_id,))
+        cursor.execute("SELECT effective_nsfw_level FROM image_galleries WHERE image_id = ?", (image_id,))
         return cursor.fetchone()[0]
 
 

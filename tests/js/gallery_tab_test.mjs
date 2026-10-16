@@ -6,9 +6,11 @@
 // a model's images into a tile, which opens onto them, with Back to where the
 // groups were. The grid scrolls for more. The NSFW switch starts as the
 // galleries' setting says. An image that names no checkpoint cannot be sent,
-// and says why; Show model opens its version in the Model Manager.
+// and says why; Show model opens its version in the Model Manager. Group by
+// goes two deep, "then by" another grouping, and the search asks the server
+// for the images whose prompts hold its words (#283).
 import { readFileSync } from 'node:fs';
-import { ROOT, act, call, checker, mountTab, startTab, tabEntries, tabMarkup, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, press, startTab, tabEntries, tabMarkup, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
 const { check, waitFor, done } = checker();
@@ -37,7 +39,23 @@ globalThis.fetch = async (url, init = {}) => {
         const params = new URL(href, 'http://webui').searchParams;
         browses.push(params);
         const page = Number(params.get('page'));
-        if (params.get('group') === 'model' && !params.get('in_group')) {
+        if (params.get('search') === 'nothing') {
+            return reply({ success: true, seed, more: false, state: { total: 0, filtered: 0, hidden_nsfw: 0, nsfw_count: 0 },
+                           scope: { count: 0 }, tiles: [] });
+        }
+        if (params.get('in_subgroup')) {
+            return reply({ success: true, seed, more: false, state: { ...STATE, total: 3, filtered: 3 },
+                           scope: { count: 3 }, tiles: [1, 2].map((id) => imageTile(id)) });
+        }
+        if (params.get('group') === 'model>day' && params.get('in_group')) {
+            return reply({ success: true, seed, more: false, state: { ...STATE, total: 7, filtered: 7 },
+                           scope: { count: 7, groups: 2 }, tiles: [
+                { kind: 'group', group: { key: '2026-01-02', value: '2026-01-02', by: 'day', count: 3 }, matching_count: 3,
+                  images: [image(1), image(2)] },
+                { kind: 'group', group: { key: '2026-01-03', value: '2026-01-03', by: 'day', count: 4 }, matching_count: 4,
+                  images: [image(3)] }] });
+        }
+        if (String(params.get('group') || '').startsWith('model') && !params.get('in_group')) {
             return reply({ success: true, seed, more: false, state: STATE, scope: { count: 30, groups: 2 }, tiles: [
                 { kind: 'group', group: { key: 40, value: 'A LoRA', by: 'model', count: 7 }, matching_count: 7,
                   images: [image(1), image(2), image(3), image(4)] },
@@ -174,5 +192,79 @@ check('and the path gone', $('gal_path')?.innerHTML.trim(), '');
 call('gallery.groupBy', '');
 await waitFor('ungrouped again', () => lastBrowse()?.get('group') === null && tileEls().length === 5);
 check('Group by Nothing: the images again', $('gal_group_by')?.textContent, 'Nothing');
+
+// ------------------------------------------------------------- two deep (#283)
+// Each block reports what is missing as a failure, rather than stopping the suite.
+const click = (el) => {
+    if (!el) throw new Error('nothing to click');
+    el.dispatchEvent(new window.Event('click', { bubbles: true }));
+};
+try {
+click($('gal_group_by'));
+const menu = document.querySelector('#gallery_app .gen-group-list');
+const firsts = [...menu.querySelectorAll('.gen-group-item > [data-group-pick]')].map((b) => b.dataset.groupPick);
+check('Group by offers the image\'s own groupings beside the gallery\'s: prompt, LoRAs, day',
+      firsts, ['model', 'base_model', 'type', 'size', 'prompt', 'loras', 'day']);
+check('and beside each, what to group its groups by then',
+      [...menu.querySelectorAll('[data-group-first="model"] .gen-group-sub [data-group-pick]')].map((b) => b.dataset.groupPick),
+      ['model>base_model', 'model>type', 'model>size', 'model>prompt', 'model>loras', 'model>day']);
+click(menu.querySelector('[data-group-pick="model>day"]'));
+await waitFor('grouped two deep', () => lastBrowse()?.get('group') === 'model>day' && tileEls().length === 2);
+check('model, then day: asked so, and the button says both', $('gal_group_by')?.textContent, 'Model › Day');
+act('gallery.open', { tile: 0 });
+await waitFor('the model\'s days', () => lastBrowse()?.get('in_group') === '40' && tileEls().length === 2
+    && tileEls()[0].querySelector('.gen-group-name')?.textContent === '2026-01-02');
+check('a model\'s group opens onto its days, not its images', lastBrowse()?.get('in_subgroup'), null);
+act('gallery.open', { tile: 0 });
+await waitFor('the day\'s images', () => lastBrowse()?.get('in_subgroup') === '2026-01-02' && tileEls().length === 2);
+check('a day opens onto its images, inside its model',
+      [lastBrowse()?.get('in_group'), lastBrowse()?.get('in_subgroup')], ['40', '2026-01-02']);
+check('the path names both groups',
+      [...document.querySelectorAll('#gal_path *')].some((el) => /Model: A LoRA/.test(el.textContent))
+      && [...document.querySelectorAll('#gal_path *')].some((el) => /Day: 2026-01-02/.test(el.textContent)), true);
+const deep = browses.length;
+act('gallery.back');
+check('Back: the model\'s days again, asking nothing',
+      [tileEls().map((el) => el.querySelector('.gen-group-name')?.textContent), browses.length],
+      [['2026-01-02', '2026-01-03'], deep]);
+act('gallery.back');
+check('Back again: the models', [tileEls().length, $('gal_path')?.innerHTML.trim()], [2, '']);
+} catch (error) {
+    check('two deep: Group by\'s "then by", a group, a subgroup and Back', String(error), null);
+}
+
+// ------------------------------------------------------------- search (#283)
+try {
+const search = $('gal_search');
+if (!search) throw new Error('no search box');
+check('a search box, starting empty', search?.value, '');
+search.value = 'a cat';
+press(search);
+await waitFor('the search asked', () => lastBrowse()?.get('search') === 'a cat');
+check('a search keeps the grouping, from its top level',
+      [lastBrowse()?.get('group'), lastBrowse()?.get('in_group'), lastBrowse()?.get('page')], ['model>day', null, '1']);
+call('gallery.groupBy', '');
+await waitFor('ungrouped, searched', () => lastBrowse()?.get('group') === null && tileEls().length === 5);
+check('the banner says what the search found, not all that is stored',
+      /found by the search/.test($('gal_banner')?.textContent || ''), true);
+search.value = 'nothing';
+press(search);
+await waitFor('nothing found', () => lastBrowse()?.get('search') === 'nothing'
+    && $('gal_status')?.textContent !== 'Loading...');
+check('a search that finds nothing says so', [tileEls().length, $('gal_status')?.textContent],
+      [0, 'No image matches the search.']);
+const searched = browses.length;
+search.value = '';
+search.dispatchEvent(new window.Event('search'));
+await waitFor('everything again', () => browses.length > searched && tileEls().length === 5);
+check('its × empties it, and shows everything again: no search asked', lastBrowse()?.get('search') || '', '');
+} catch (error) {
+    check('search: the box, what it asks, what it says', String(error), null);
+}
+
+const source = readFileSync(`${ROOT}/javascript/tabs/gallery.mjs`, 'utf8');
+check('the tab loads no module of your generations\' - what both tabs use is shared/grouping.mjs',
+      [/['"]generations\.mjs['"]/.test(source), /tabs\/generations/.test(source), /['"]grouping\.mjs['"]/.test(source)],
+      [false, false, true]);
 
 done();

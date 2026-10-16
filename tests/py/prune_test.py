@@ -117,7 +117,7 @@ def held(model_id, version_id):
     with sqlite3.connect(facts['db_path']) as c:
         version = c.execute('SELECT COUNT(*) FROM versions WHERE id = ?', (version_id,)).fetchone()[0]
         model = c.execute('SELECT COUNT(*) FROM models WHERE id = ?', (model_id,)).fetchone()[0]
-        images = c.execute('SELECT COUNT(*) FROM images WHERE version_id = ?', (version_id,)).fetchone()[0]
+        images = c.execute('SELECT COUNT(*) FROM image_galleries WHERE version_id = ?', (version_id,)).fetchone()[0]
     return bool(version), bool(model), images
 
 

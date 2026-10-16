@@ -8,6 +8,7 @@ import os
 import json
 from datetime import datetime, timezone
 from ..hashing import hash_key, read_hashes
+from .images_ops import forget_unshown
 from .library import LIBRARY
 from .query import GridQuery, query_models_grouped
 from ..nsfw import UNKNOWN
@@ -540,10 +541,11 @@ class ModelsOps:
                 DELETE FROM versions WHERE id NOT IN
                     (SELECT version_id FROM files WHERE version_id IS NOT NULL)
             """)
-            cursor.execute("""
-                DELETE FROM images WHERE version_id NOT IN (SELECT id FROM versions)
-            """)
+            cursor.execute("SELECT image_id FROM image_galleries WHERE version_id NOT IN (SELECT id FROM versions)")
+            held = [row[0] for row in cursor.fetchall()]
+            cursor.execute("DELETE FROM image_galleries WHERE version_id NOT IN (SELECT id FROM versions)")
             images = cursor.rowcount
+            forget_unshown(cursor, held)
             cursor.execute("""
                 DELETE FROM models
                 WHERE COALESCE(is_bookmarked, 0) = 0

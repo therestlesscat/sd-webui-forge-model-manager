@@ -1,6 +1,7 @@
 """
-The Civitai Images tab's endpoints (#209): the Civitai images stored for the models in
-the library, in an order a seed picks, one by one or in groups.
+The Civitai Images tab's endpoints (#209, #283): the Civitai images stored for the
+models in the library, in an order a seed picks, one by one or in groups, one
+or two deep, and searched by their prompts.
 
 The seed is kept in schema_info, as `gallery_seed`: shared by two WebUIs that
 share the database, and made the first time it is asked for. The images'
@@ -18,10 +19,11 @@ from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
-from ..db.gallery_ops import GROUPINGS
+from ..db.gallery_ops import GROUPINGS, NUMBER_KEYS, Scope
 from ..gallery import gallery_page_size
 from ..model_dirs import held_here
 from ..nsfw import stamp_levels
+from . import levels
 from .common import failed, gate
 from .images import gallery_switches
 
@@ -63,13 +65,13 @@ def group_rank(seed: int, group: str, key: Any) -> bytes:
     return hashlib.blake2b(f"{seed}:{group}:{key}".encode("utf-8"), digest_size=8).digest()
 
 
-def ordered_groups(db, seed: int, group: str, hide_nsfw: bool) -> List[Dict[str, Any]]:
-    """A grouping's groups in the seed's order, kept until the images change."""
-    kept = (group, seed, bool(hide_nsfw), db.gallery_signature())
+def ordered_groups(db, seed: int, group: str, scope: Scope, level) -> List[Dict[str, Any]]:
+    """A grouping's groups within a level (read by `level`), in the seed's order, kept until the images change."""
+    kept = (group, seed, bool(scope.hide_nsfw), tuple(scope.words), tuple(scope.opened), db.gallery_signature())
     with _lock:
         if kept in _groups_kept:
             return _groups_kept[kept]
-    groups = db.gallery_groups(seed, group, hide_nsfw)
+    groups = level.groups(group)
     groups.sort(key=lambda g: (group_rank(seed, group, g["key"]), str(g["key"])))
     with _lock:
         if len(_groups_kept) >= _KEPT:
@@ -119,48 +121,96 @@ def image_tiles(db, keys) -> List[Dict[str, Any]]:
     return tiles
 
 
+def group_id(key: Any) -> str:
+    """
+    A group as a request names it: its key after a "v", so a group whose key
+    is empty - no LoRAs, no base model - is a group still, where an empty
+    in_group means none is opened. As the Generations tab names its groups.
+    """
+    return f"v{'' if key is None else key}"
+
+
+def group_key(grouping: str, text: str) -> Any:
+    """The key a group id names (group_id): a number for a model or a prompt; None for no group."""
+    if not str(text).startswith("v"):
+        return None
+    value = str(text)[1:]
+    if grouping in NUMBER_KEYS:
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _lora_name(key: str, images: List[Dict[str, Any]]) -> str:
+    """A LoRA group's name: its LoRAs as one of its images lists them, by name and version."""
+    wanted = {part for part in str(key or "").split(",") if part}
+    for image in images:
+        meta = image.get("meta") if isinstance(image.get("meta"), dict) else {}
+        names = {}
+        for entry in meta.get("civitaiResources") or []:
+            if isinstance(entry, dict) and str(entry.get("modelVersionId")) in wanted:
+                name = " ".join(str(x) for x in (entry.get("name"), entry.get("modelVersionName")) if x)
+                names[str(entry.get("modelVersionId"))] = name or str(entry.get("modelVersionId"))
+        if len(names) == len(wanted):
+            return ", ".join(sorted(names.values(), key=str.lower))
+    return ", ".join(sorted(wanted))
+
+
 def browse_page(db, seed: int, hide_nsfw: bool, page: int, group: str = "",
-                in_group: str = "") -> Dict[str, Any]:
+                in_group: str = "", in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
     """
     Part `page` of a level: every image, a grouping's groups, or one group's
-    images. With what the banner counts, and whether there is more.
+    images - one or two groupings deep, and only what the search finds. With
+    what the banner counts, and whether there is more.
     """
     size = gallery_page_size()
     page = max(int(page or 1), 1)
     offset = (page - 1) * size
-    group = group if group in GROUPINGS else ""
-    groups = ordered_groups(db, seed, group, hide_nsfw) if group else []
+    chain = levels.grouping_chain(group, GROUPINGS)
+    words, _ = levels.search_terms(search, tasks=False)
+    opened = []
+    for grouping, text in zip(chain, (in_group, in_subgroup)):
+        if text == "":
+            break
+        opened.append((grouping, group_key(grouping, text)))
+    scope = Scope(bool(hide_nsfw), words, opened)
+    grouping = chain[len(opened)] if len(opened) < len(chain) else None
+    # The level read once, its counts and its page or groups from it (#283).
+    with db.gallery_level(seed, scope) as read:
+        counts = read.counts()
+        if grouping:
+            groups = ordered_groups(db, seed, grouping, scope, read)
+        else:
+            keys = read.image_keys(offset, size + 1)
 
-    if group and in_group == "":
+    if grouping:
         level = groups[offset:offset + size]
         previews = image_tiles(db, [pair for g in level for pair in g["previews"]])
         by_key = {}
         for tile in previews:
             by_key.setdefault((tile["image"]["id"], tile["version"]["id"]), tile)
-        tiles = [{
-            "kind": "group",
-            "group": {"key": g["key"], "value": g["name"], "by": group, "count": g["count"]},
-            "images": [by_key[pair]["image"] for pair in g["previews"] if pair in by_key],
-            "matching_count": g["count"] - (g["nsfw"] if hide_nsfw else 0),
-        } for g in level]
-        counts = db.gallery_counts()
+        names = db.gallery_prompt_names([g["key"] for g in level]) if grouping == "prompt" else {}
+        tiles = []
+        for g in level:
+            images = [by_key[pair]["image"] for pair in g["previews"] if pair in by_key]
+            name = (names.get(g["key"], "") if grouping == "prompt"
+                    else _lora_name(g["key"], images) if grouping == "loras" else g["name"])
+            tiles.append({
+                "kind": "group",
+                "group": {"key": group_id(g["key"]), "value": name, "by": grouping, "count": g["count"]},
+                "images": images,
+                "matching_count": g["count"] - (g["nsfw"] if hide_nsfw else 0),
+            })
         return {"seed": seed, "tiles": tiles, "more": offset + size < len(groups),
                 "state": _state(counts["total"], counts["nsfw"], hide_nsfw),
                 "scope": {"count": counts["total"], "groups": len(groups)}}
 
-    key: Any = None
-    if group:
-        key = int(in_group) if group == "model" else in_group
-        entry = next((g for g in groups if str(g["key"]) == str(in_group)), None)
-        total, explicit = (entry["count"], entry["nsfw"]) if entry else (0, 0)
-    else:
-        counts = db.gallery_counts()
-        total, explicit = counts["total"], counts["nsfw"]
-    keys = db.gallery_image_keys(seed, hide_nsfw, offset, size + 1, group or None, key)
     # The level's count is what it shows, as its group's tile says it.
-    shown = total - (explicit if hide_nsfw else 0)
+    shown = counts["total"] - (counts["nsfw"] if hide_nsfw else 0)
     return {"seed": seed, "tiles": image_tiles(db, keys[:size]), "more": len(keys) > size,
-            "state": _state(total, explicit, hide_nsfw), "scope": {"count": shown}}
+            "state": _state(counts["total"], counts["nsfw"], hide_nsfw), "scope": {"count": shown}}
 
 
 def _state(total: int, explicit: int, hide_nsfw: bool) -> Dict[str, int]:
@@ -174,22 +224,25 @@ def register(app: FastAPI) -> None:
 
     @app.get("/model-manager/gallery/browse")
     @gate("gallery")
-    def get_gallery_page(page: int = 1, group: str = "", in_group: str = "",
-                         hide_nsfw_images: Optional[bool] = None):
+    def get_gallery_page(page: int = 1, group: str = "", in_group: str = "", in_subgroup: str = "",
+                         search: str = "", hide_nsfw_images: Optional[bool] = None):
         """
         Part `page` of a level of the Civitai Images tab, in the seed's order, through
         the NSFW switch - which starts as the Model Manager gallery's setting
         says, as every gallery of Civitai's images does.
 
         Args:
-            group: what the images are grouped by (db/gallery_ops.GROUPINGS), or none.
-            in_group: the group opened, by its key.
+            group: what the images are grouped by (db/gallery_ops.GROUPINGS), one
+                grouping or two, as "model>day"; or none.
+            in_group: the group opened, by its id (group_id); in_subgroup, the
+                group opened inside it, when grouped two deep.
+            search: the words an image's prompt or negative prompt must hold.
         """
         try:
             db = get_models_db()
             hide_nsfw, _ = gallery_switches(hide_nsfw_images, None)
             return JSONResponse({"success": True, **browse_page(
-                db, gallery_seed(db), bool(hide_nsfw), page, group, in_group)})
+                db, gallery_seed(db), bool(hide_nsfw), page, group, in_group, in_subgroup, search)})
         except Exception as e:
             return failed(e, "Gallery page error")
 

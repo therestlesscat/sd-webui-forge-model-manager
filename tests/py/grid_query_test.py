@@ -48,7 +48,7 @@ db, facts = fixtures.build(WORK)
 # one: stored out of order, pages and positions deciding.
 versions = facts['version_ids'][:4]
 with db._cursor() as cursor:
-    cursor.execute("DELETE FROM images WHERE version_id IN (%s)" % ",".join("?" * len(versions)), versions)
+    cursor.execute("DELETE FROM image_galleries WHERE version_id IN (%s)" % ",".join("?" * len(versions)), versions)
 for n, version in enumerate(versions):
     db.store_images(version, 2, [{'id': 1000 * n + 1, 'url': f'https://e.invalid/{n}-p2.jpeg',
                                   'browsingLevel': 1}])
@@ -206,7 +206,7 @@ def steps(**kw):
 carded = [r['id'] for r in query()[0] if r['id'] and r['id'] not in versions]
 for version in carded[:2]:
     with db._cursor() as cursor:
-        cursor.execute("DELETE FROM images WHERE version_id = ?", (version,))
+        cursor.execute("DELETE FROM image_galleries WHERE version_id = ?", (version,))
     db.store_images(version, 1, [{'id': 700000 + version % 100000, 'url': 'https://e.invalid/pg.jpeg',
                                   'browsingLevel': 1}])
 check('two models pass "Only Show Models with SFW images"', query(sfw_only=True)[1] >= 2)
@@ -224,16 +224,16 @@ for label, kw in (('the default grid', {}), ('NSFW previews', {'preview_least_ns
     db.store_images(elsewhere, 3, extra)
     after, _ = steps(**kw)
     with db._cursor() as cursor:
-        cursor.execute("DELETE FROM images WHERE id BETWEEN 900000 AND 904999")
+        cursor.execute("DELETE FROM image_galleries WHERE image_id BETWEEN 900000 AND 904999")
     check(f'{label}: 5,000 images on a card not shown add next to no work',
           (after - before) < 5000, True)
 
 # ---------------------------------------------------------------- the index
 with db._cursor() as cursor:
-    cursor.execute("PRAGMA index_info(idx_images_gallery)")
-    check('v24 indexes images in gallery order, with the level',
+    cursor.execute("PRAGMA index_info(idx_image_galleries_order)")
+    check('galleries are indexed in gallery order, with the level (v24, image_galleries since v42)',
           [row[2] for row in cursor.fetchall()],
-          ['version_id', 'page', 'position', 'id', 'effective_nsfw_level'])
+          ['version_id', 'page', 'position', 'image_id', 'effective_nsfw_level'])
 
 # ------------------------------------------ which version a card shows (#25)
 # The newest published; two with one date - Deep Negative's V1 75T and V1 64T,

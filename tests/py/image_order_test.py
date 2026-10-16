@@ -76,7 +76,7 @@ check('a page loaded later follows the one before it, in its own order',
 
 # ------------------------------------- rows stored before positions were kept
 with db._cursor() as cursor:
-    cursor.execute("UPDATE images SET position = NULL WHERE version_id = ?", (version,))
+    cursor.execute("UPDATE image_galleries SET position = NULL WHERE version_id = ?", (version,))
 check('rows stored before v19 have no position, and keep sorting by id',
       ids(version), [10, 20, 30, 50, 5, 40])
 

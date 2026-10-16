@@ -36,8 +36,9 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequ
 from ..console import say_failure
 from ..gallery import switch_counts_sql
 from ..nsfw import SFW_MAX
-from ..prompt_rules import MIN_PROMPT_LENGTH, trimmed_sql
+from ..prompt_rules import MIN_PROMPT_LENGTH
 from .library import LIBRARY
+from .prompt_table import PromptTable, like_pattern, tidy  # noqa: F401 - tidy is read from here
 
 # A generation's columns as the recorder hands them, by the table keeping them.
 _GENERATION_COLUMNS = ("created_at", "mode", "forge", "image_count", "prompt_nsfw_level",
@@ -52,14 +53,10 @@ _IMAGE_DETAILS = ("infotext", "meta", "loras", "hr_prompt", "hr_negative_prompt"
 # Stored as JSON text: lists and dicts.
 _JSON_COLUMNS = {"styles", "modules", "hr_modules", "params", "extra_params",
                  "script_args", "settings", "meta", "loras", "inputs"}
-# A prompt's head, if nothing names the prompt: one EXISTS per column, so each
-# is one index's lookup (v40) - an OR across them reads every row.
-_UNNAMED_PROMPT = ("SELECT grouped_as FROM generation_prompts WHERE id = ? "
-                   "AND NOT EXISTS (SELECT 1 FROM generations WHERE prompt_id = ?) "
-                   "AND NOT EXISTS (SELECT 1 FROM generations WHERE negative_id = ?) "
-                   "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE prompt_id = ?) "
-                   "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE negative_id = ?) "
-                   "AND NOT EXISTS (SELECT 1 FROM generation_prompts WHERE grouped_as = ? AND id <> ?)")
+# Your generations' prompts: every column naming a row, each indexed (v40).
+PROMPTS = PromptTable("generation_prompts", (("generations", "prompt_id"), ("generations", "negative_id"),
+                                             ("generation_images", "prompt_id"),
+                                             ("generation_images", "negative_id")))
 # The path column a resource of each single-file role stands for.
 _SINGLE_PATHS = {"checkpoint": "checkpoint_path", "hr_checkpoint": "hr_checkpoint_path",
                  "refiner": "refiner_path"}
@@ -113,11 +110,6 @@ _ORDER = "created_at DESC, generation_id DESC, position"
 # position, each at a fixed width.
 _SORT_KEY = ("g.created_at || char(1) || printf('%012d', gi.generation_id) || char(1) "
              "|| printf('%06d', 999999 - gi.position)")
-
-
-def tidy(text: Any) -> str:
-    """A prompt as a group's key: its spacing tidied, nothing else changed."""
-    return " ".join(str(text if text is not None else "").split())
 
 
 def group_id(grouping: str, key: Any) -> str:
@@ -458,22 +450,8 @@ class GenerationsOps:
     # ---------------------------------------------------------------- writing
 
     def _prompt_id(self, cursor, text: Optional[str]) -> Optional[int]:
-        """The generation_prompts row holding this text, made if there is none: grouped
-        by the row holding its tidied text, made too where needed."""
-        if text is None:
-            return None
-        cursor.execute("SELECT id FROM generation_prompts WHERE text = ?", (text,))
-        row = cursor.fetchone()
-        if row:
-            return row[0]
-        tidied = tidy(text)
-        grouped = 0 if tidied == "" else None if tidied == text else self._prompt_id(cursor, tidied)
-        cursor.execute(f"INSERT INTO generation_prompts (text, grouped_as, length) VALUES (?, ?, LENGTH({trimmed_sql('?')}))",
-                       (text, grouped or 0, text))
-        new_id = cursor.lastrowid
-        if grouped is None:
-            cursor.execute("UPDATE generation_prompts SET grouped_as = ? WHERE id = ?", (new_id, new_id))
-        return new_id
+        """The generation_prompts row holding this text, made if there is none (PromptTable.id_for)."""
+        return PROMPTS.id_for(cursor, text)
 
     def record_generation(self, generation: Dict[str, Any],
                           images: List[Dict[str, Any]],
@@ -777,8 +755,8 @@ class GenerationsOps:
             args_where.append(scope.task)
         for index, word in enumerate(scope.words):
             # A word is matched as typed, ignoring case: % and _ mean themselves.
-            ctes.append(f"hit{index} AS (SELECT id FROM generation_prompts WHERE text LIKE ? ESCAPE '\\')")
-            args.append("%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+            ctes.append(PROMPTS.match(f"hit{index}"))
+            args.append(like_pattern(word))
             where.append(f"(gi.prompt_id IN hit{index} OR gi.negative_id IN hit{index} "
                          f"OR g.prompt_id IN hit{index} OR g.negative_id IN hit{index})")
         for grouping, opened in scope.opened:
@@ -1028,8 +1006,7 @@ class GenerationsOps:
         if not ids:
             return {}
         with self._cursor() as cursor:
-            cursor.execute(f"SELECT id, text FROM generation_prompts WHERE id IN ({', '.join('?' * len(ids))})", ids)
-            return {r[0]: r[1] for r in cursor.fetchall()}
+            return PROMPTS.texts(cursor, ids)
 
     def count_generations(self, files: Optional[List[str]]) -> int:
         """How many generations used any of these files - or at all, for None."""
@@ -1319,21 +1296,7 @@ class GenerationsOps:
         Returns:
             How many prompt rows went.
         """
-        ids = {i for i in ids if i}
-        dropped = 0
-        while ids:
-            heads = set()
-            for prompt_id in ids:
-                cursor.execute(_UNNAMED_PROMPT, (prompt_id,) * 7)
-                row = cursor.fetchone()
-                if row is None:
-                    continue
-                cursor.execute("DELETE FROM generation_prompts WHERE id = ?", (prompt_id,))
-                dropped += 1
-                if row[0] and row[0] != prompt_id:
-                    heads.add(row[0])
-            ids = heads
-        return dropped
+        return PROMPTS.drop_unused(cursor, ids)
 
     @staticmethod
     def _unnamed(cursor, paths: Iterable[str]) -> List[str]:

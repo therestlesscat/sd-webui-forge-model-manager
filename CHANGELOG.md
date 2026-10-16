@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.60 - Search Civitai's images, and group them by what they say
+
+*15 October 2026*
+
+The Civitai Images tab can be searched by prompt, as the Generations tab is, and grouped by each image's prompt, its LoRAs or the day it was made, beside the gallery's model, base model, type and size - and two deep, a grouping inside another. Behind it, each Civitai image is stored once, whatever galleries show it.
+
+- **0.60.0** (build 500) - Search and new groupings in the Civitai Images tab, each Civitai image stored once (#283). The tab could not be searched: a Civitai image's prompt lived only inside its stored record, and searching one word through every record took about 1.2 s a request. A search box now finds the images whose prompt or negative prompt holds every word typed - a "quoted phrase" as one - on every page, count and group. Group by offers prompt (spacing tidied), LoRA combination and day (your local date) beside model, base model, type and size, and each grouping can be grouped again by another, with Back up each level. An image was stored again for every gallery that showed it - 7,742 of one library's 117,142 had copies - and is now stored once, its record shared: migration v42 makes five tables from the old one, keeps each image's newest copy with the fullest generation data any copy had, checks every value before dropping the old table, and backs the database up beside itself first (`models.db.backup_<date>_<time>_v42`, the size of the database). It needs about twice the database's size free beside it, and says so before touching anything when there is not; it says its progress as it goes - about half a minute for 117,000 images on an NVMe drive. A fetch without prompts - a sync with Image prompts unticked, or without an API key - no longer empties prompts another gallery's fetch stored. A group whose key is empty - no LoRAs, no base model - can be opened; before, it showed the groups again. A level is read once a request, into a table in memory: a page and its counts in about half the time, a model's gallery with Hide images with no prompt in 1 ms where it took 111. Your generations' image indexes are named for their table. Two WebUIs sharing one database must both update: an older copy refuses it.
+
 ## 0.59 - Download several at once
 
 *15 October 2026*

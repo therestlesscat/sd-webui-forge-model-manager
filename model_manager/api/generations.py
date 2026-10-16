@@ -28,6 +28,7 @@ from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import gallery_page_size, generations_page_size, switch_counts
 from ..tile_reading import SINGLE_PASS, reading
 from .images import gallery_switches
+from . import levels
 from .common import failed, gate
 from ..console import say
 from .. import thumbnails
@@ -423,31 +424,13 @@ GROUPINGS = {
 
 
 def grouping_chain(group: str) -> List[str]:
-    """
-    What `group` groups by, in order: one grouping ("model"), or two
-    ("model>prompt_written") - a group of the first opens onto groups of the
-    second. Anything else, or more than two, is no grouping at all.
-    """
-    keys = [k for k in str(group or "").split(">")]
-    return keys if 1 <= len(keys) <= 2 and all(k in GROUPINGS for k in keys) else []
+    """What `group` groups by, of the Generations tab's groupings (api/levels.py)."""
+    return levels.grouping_chain(group, GROUPINGS)
 
 
 def search_terms(text: str) -> Tuple[List[str], Optional[int]]:
-    """
-    What a Generations search asks for: the words an image's prompt or
-    negative prompt must each hold - a "quoted phrase" as one - and, with
-    task:<number>, the Queue's task whose run made it. Nothing else is a key:
-    a prompt's own "(red:1.2)" is searched for as typed.
-    """
-    words: List[str] = []
-    task = None
-    for quoted, plain in re.findall(r'"([^"]*)"|(\S+)', text or ""):
-        found = re.fullmatch(r"task:(\d+)", plain, re.IGNORECASE)
-        if found:
-            task = int(found.group(1))
-        elif (quoted or plain).strip():
-            words.append(quoted or plain)
-    return words, task
+    """What a Generations search asks for: its words, and task:<number> (api/levels.py)."""
+    return levels.search_terms(text, tasks=True)
 
 
 def _scope(group: str = "", in_group: str = "", generation: Optional[int] = None,

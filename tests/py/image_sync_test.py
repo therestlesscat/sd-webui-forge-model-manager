@@ -130,7 +130,8 @@ def images_at(folder):
 tables = {r[0] for r in rows("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
 check('v38 adds the folder table, the removed list and the two indexes - the tables named for your '
       'generations since v41',
-      {'generation_sources', 'generation_images_removed', 'idx_images_path', 'idx_generations_source'} <= tables,
+      {'generation_sources', 'generation_images_removed', 'idx_generation_images_path',
+       'idx_generations_source'} <= tables,
       True)
 check('generations name their folder', 'source_id' in {r[1] for r in rows("PRAGMA table_info(generations)")})
 

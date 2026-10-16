@@ -62,14 +62,14 @@ def listed(**params):
 def set_levels(version_id, *levels):
     """Give a version exactly these images, in this gallery order."""
     with db._cursor() as cursor:
-        cursor.execute("DELETE FROM images WHERE version_id = ?", (version_id,))
+        cursor.execute("DELETE FROM image_galleries WHERE version_id = ?", (version_id,))
         for n, level in enumerate(levels):
             # Pages and ids both run in order, as a sync stores them; two
             # pages, so the order is page first and id within it.
             cursor.execute(
-                "INSERT INTO images (id, version_id, page, effective_nsfw_level, data) "
-                "VALUES (?, ?, ?, ?, '{}')",
-                (version_id * 1000 + n, version_id, 1 + n // 10, level))
+                "INSERT INTO image_galleries (version_id, image_id, page, effective_nsfw_level) "
+                "VALUES (?, ?, ?, ?)",
+                (version_id, version_id * 1000 + n, 1 + n // 10, level))
 
 
 def versions_of(model_id):

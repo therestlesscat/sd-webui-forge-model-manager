@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -68,6 +68,7 @@ await shared('settings.mjs');
 // Previous Position (#250): Send and the ⋯ menu's links note where the page
 // was, and the toolbar's button goes back there.
 const { previousPosition } = await shared('previous_position.mjs');
+const { groupChain: chainOf, groupMenu: makeGroupMenu, startSearchBox } = await shared('grouping.mjs');
 const previousPlace = previousPosition({ id: 'gen_scroll_restore_btn', action: 'generations.previousPosition',
                                          row: '#generations_app .gen-toolbar', before: 'gen_sync_btn' });
 
@@ -95,106 +96,19 @@ const GROUP_NAMES = {
     model: 'Model', loras: 'LoRA combination', size: 'Size', day: 'Day',
 };
 
-/**
- * What a Group by value groups by, in order: one grouping, or two joined by
- * ">" ("model>prompt_written"), a group of the first opening onto groups of
- * the second. Anything else is no grouping - grouping_chain() on the server.
- */
+/** What a Group by value groups by, in order: one grouping or two (shared/grouping.mjs). */
 function groupChain(value) {
-    const keys = String(value || '').split('>');
-    return keys.length <= 2 && keys.every((key) => GROUP_NAMES[key]) ? keys : [];
+    return chainOf(value, GROUP_NAMES);
 }
 
 // ------------------------------------------------------------- Group by
-// A menu rather than a list: the groupings - a click groups by one - and
-// beside each, on hover, what to group its groups by then: any other. Built
-// here, from GROUP_NAMES, into the tab's empty list, each time it opens.
-
-function groupLabel(value) {
-    const chain = groupChain(value);
-    return chain.length ? chain.map((key) => GROUP_NAMES[key]).join(' › ') : 'Nothing';
-}
-
-function groupMenuHtml() {
-    const keys = Object.keys(GROUP_NAMES);
-    const chain = groupChain(groupBy);
-    const pick = (value, text) => `<button type="button" data-group-pick="${escapeHtml(value)}"
-        class="${value === groupBy ? 'gen-group-chosen' : ''}">${escapeHtml(text)}</button>`;
-    return pick('', 'Nothing') + keys.map((first) => `
-        <div class="gen-group-item" data-group-first="${first}">
-            <button type="button" data-group-pick="${first}" class="${chain[0] === first ? 'gen-group-chosen' : ''}"
-                    aria-haspopup="true">${escapeHtml(GROUP_NAMES[first])}<span>▸</span></button>
-            <div class="gen-group-sub gen-menu-panel" hidden>
-                <div class="gen-group-sub-title">then by</div>
-                ${keys.filter((key) => key !== first).map((key) => pick(`${first}>${key}`, GROUP_NAMES[key])).join('')}
-            </div>
-        </div>`).join('');
-}
-
-/**
- * The button says the grouping, after Gradio redraws the tab too - and writes
- * nothing when it already does: this runs after every update. The list is
- * drawn when the menu opens, marking the choice then.
- */
-function showGroupChoice() {
-    setText(byId('gen_group_by'), groupLabel(groupBy));
-}
-
-function groupList() {
-    return document.querySelector('#generations_app .gen-group-list');
-}
-
-/** The "then by" list of one grouping open, any other closed. */
-function openGroupItem(item) {
-    groupList()?.querySelectorAll('.gen-group-item').forEach((other) => {
-        const open = other === item;
-        other.classList.toggle('gen-group-open', open);
-        const sub = other.querySelector('.gen-group-sub');
-        if (sub) sub.hidden = !open;
-    });
-}
-
-function closeGroupMenu() {
-    const list = groupList();
-    if (!list || list.hidden) return false;
-    list.hidden = true;
-    byId('gen_group_by')?.setAttribute('aria-expanded', 'false');
-    return true;
-}
-
-work.listen(document, 'click', (event) => {
-    const target = event.target;
-    const list = groupList();
-    if (!list) return;
-    if (target.closest?.('#gen_group_by')) {
-        if (!closeGroupMenu()) {
-            list.innerHTML = groupMenuHtml();
-            list.hidden = false;
-            byId('gen_group_by')?.setAttribute('aria-expanded', 'true');
-            // The chosen grouping's "then by" list open, to change the second.
-            openGroupItem(list.querySelector('.gen-group-item > .gen-group-chosen')?.parentElement || null);
-        }
-        return;
-    }
-    if (list.hidden) return;
-    const pick = target.closest?.('[data-group-pick]');
-    if (pick && list.contains(pick)) {
-        closeGroupMenu();
-        setGroupBy(pick.dataset.groupPick);
-        return;
-    }
-    const item = target.closest?.('.gen-group-item');
-    if (item && list.contains(item)) {
-        openGroupItem(item);
-        return;
-    }
-    if (!target.closest?.('.gen-group-menu')) closeGroupMenu();
+// The menu, its "then by" lists and its listeners: shared/grouping.mjs.
+const groupMenu = makeGroupMenu(work, {
+    app: '#generations_app', button: 'gen_group_by', names: GROUP_NAMES,
+    current: () => groupBy, choose: (value) => setGroupBy(value),
 });
-
-work.listen(document, 'mouseover', (event) => {
-    const item = event.target.closest?.('.gen-group-item');
-    if (item && groupList()?.contains(item) && !item.classList.contains('gen-group-open')) openGroupItem(item);
-});
+const showGroupChoice = () => groupMenu.showChoice();
+const closeGroupMenu = () => groupMenu.close();
 
 // What a section's groups are, counted in its header: "5 prompts".
 const GROUP_PLURALS = {
@@ -1829,13 +1743,7 @@ export async function start(scope) {
     if (rate) rate.checked = false;
     const select = byId('gen_select');
     if (select) select.checked = false;
-    // The search starts empty, whatever the browser kept in the box. Its ×
-    // empties it without a change, which a search event tells.
-    const box = byId('gen_search');
-    if (box) {
-        box.value = '';
-        box.addEventListener('search', () => setSearch(box.value));
-    }
+    startSearchBox(byId('gen_search'), setSearch);
     showGroupChoice();
     byId('gen_grid')?.classList.toggle('gen-ordered', preserveOrder);
     placed = placedGrid({

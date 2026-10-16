@@ -475,8 +475,9 @@ class SyncService:
                                             refresh_size(stored, self.keep_image_count))
         # /images returns meta: null - generation data comes from a
         # separate endpoint. Keep what is stored, then look up the
-        # rest; without both, a re-sync replaced prompts with nulls.
-        keep_generation_data(images, db.get_images(version_id))
+        # rest; without both, a re-sync replaced prompts with nulls. Kept from
+        # the image's record whatever gallery holds it (#283).
+        keep_generation_data(images, db.stored_records(img.get("id") for img in images))
         enrich_images_with_generation_data(self.client, images)
         db.replace_first_page(version_id, images, next_cursor)
         return len(images), next_cursor is not None
@@ -1386,7 +1387,7 @@ class SyncService:
             # Prompts already stored stay, whether or not this sync looks any
             # up - and are then not looked up again.
             for version_id, images, _ in galleries:
-                keep_generation_data(images, db.get_images(version_id))
+                keep_generation_data(images, db.stored_records(img.get("id") for img in images))
 
             # One pooled lookup for the whole chunk, then hand each gallery
             # back the rows that belong to it.
@@ -1445,7 +1446,7 @@ class SyncService:
                 with self._patiently():
                     images, next_cursor = fetch_gallery(self.client, version["id"],
                                                         sizes.get(version["id"], page_size))
-                    keep_generation_data(images, db.get_images(version["id"]))
+                    keep_generation_data(images, db.stored_records(img.get("id") for img in images))
                     if include_prompts:
                         enrich_images_with_generation_data(self.client, images)
                 db.replace_first_page(version["id"], images, next_cursor)

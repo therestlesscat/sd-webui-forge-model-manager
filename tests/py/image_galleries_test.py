@@ -8,7 +8,9 @@ other gallery holding it: whichever was fetched last kept it. In one library
 41,532 of 101,242 stored images named two or more of its galleries, and
 images vanished from a gallery "as if they never existed", coming back only
 when that gallery happened to be fetched again. They are now keyed by
-(version_id, id): one row per gallery an image is in.
+(version_id, id): one row per gallery an image is in. Since v42 (#283) an
+image is stored once, its record shared by every gallery showing it, and
+`image_galleries` holds a row per gallery it is in.
 """
 import contextlib
 import io
@@ -75,9 +77,9 @@ db.store_images(second, page=1, images=[image(9001), image(9003)])
 
 db.store_images(first, page=1, images=[image(9001, level=4)])
 levels = {r[0]: r[1] for r in db._get_connection().execute(
-    "SELECT version_id, effective_nsfw_level FROM images WHERE id = 9001")}
-check('3. storing it again in one gallery changes only that gallery\'s row',
-      (levels.get(first) != levels.get(second), len(levels)), (True, 2))
+    "SELECT version_id, effective_nsfw_level FROM image_galleries WHERE image_id = 9001")}
+check('3. storing it again in one gallery: one record, the new level in both galleries (#283)',
+      (levels.get(first) == levels.get(second), len(levels), levels.get(first) > 1), (True, 2, True))
 
 changed = db.restamp_image_levels()
 check('4. restamping judges every row, shared ones included, without error',
@@ -109,16 +111,18 @@ old.close()
 
 migrated = ModelsDatabase(WORK, custom_db_path=OLD)
 conn = migrated._get_connection()
-key = sorted((r[5], r[1]) for r in conn.execute("PRAGMA table_info(images)") if r[5])
-check('5. the migration keys images by gallery and image', key, [(1, 'version_id'), (2, 'id')])
+key = sorted((r[5], r[1]) for r in conn.execute("PRAGMA table_info(image_galleries)") if r[5])
+check('5. the migrations key galleries by gallery and image (v25, and v42\'s image_galleries)', key,
+      [(1, 'version_id'), (2, 'image_id')])
 check('   keeping every row, with its data',
-      (conn.execute("SELECT COUNT(*) FROM images").fetchone()[0],
-       conn.execute("SELECT data FROM images WHERE id = 7").fetchone()[0]), (100, '{"id": 7}'))
-check('   and every index it had',
+      (conn.execute("SELECT COUNT(*) FROM image_galleries").fetchone()[0],
+       conn.execute("SELECT data FROM image_records WHERE image_id = 7").fetchone()[0]), (100, '{"id": 7}'))
+check('   and the gallery\'s order index',
       {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'"
-                                  " AND tbl_name = 'images' AND sql IS NOT NULL")}
-      >= {'idx_images_version', 'idx_images_gallery'}, True)
-backups = [n for n in os.listdir(WORK) if n.startswith('old.db.backup_')]
+                                  " AND tbl_name = 'image_galleries' AND sql IS NOT NULL")}
+      >= {'idx_image_galleries_order'}, True)
+# v25 backs up, and v42 does too, named for itself.
+backups = sorted(n for n in os.listdir(WORK) if n.startswith('old.db.backup_') and not n.endswith('_v42'))
 check('   having backed the database up first, beside it', len(backups), 1)
 if backups:
     kept = sqlite3.connect(os.path.join(WORK, backups[0]))

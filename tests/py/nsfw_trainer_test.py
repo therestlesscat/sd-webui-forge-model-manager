@@ -67,6 +67,21 @@ out = os.path.join(WORK, 'trained.json.gz')
 run = subprocess.run(TRAIN + [db_path, '--out', out], capture_output=True, text=True)
 check('1. the trainer runs', (run.returncode, run.stderr[-300:] if run.returncode else ''), (0, ''))
 check('   counting an image once, whichever galleries hold it', '100 prompts' in run.stdout)
+
+# A library since v42 (#283): each image's record once, in image_records.
+new_path = os.path.join(WORK, 'library_v42.db')
+if os.path.exists(new_path):
+    os.remove(new_path)
+new_db = sqlite3.connect(new_path)
+new_db.execute('CREATE TABLE images (id INTEGER PRIMARY KEY, prompt_id INTEGER)')
+new_db.execute('CREATE TABLE image_records (image_id INTEGER PRIMARY KEY, url TEXT, data TEXT NOT NULL)')
+new_db.executemany('INSERT INTO image_records VALUES (?, NULL, ?)', [(r[0], r[2]) for r in rows if r[1] == 1])
+new_db.commit()
+new_db.close()
+run_new = subprocess.run(TRAIN + [new_path, '--out', os.path.join(WORK, 'trained_v42.json.gz')],
+                         capture_output=True, text=True)
+check('   and a library since v42, its records in image_records',
+      (run_new.returncode, '100 prompts' in run_new.stdout), (0, True))
 use(out)
 trained = nsfw.prompt_model()
 check('   and writes a model nsfw.py reads', trained is not None)
