@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.61 - See which versions Civitai allows only on its site
+
+*16 October 2026*
+
+A creator can allow a version only for generating on Civitai's site, and Civitai then refuses its download. The Model Manager now marks such a version before Download is pressed - a sign on its pill, and Download saying "On-site only" - from what a sync stores, and the Civitai Browser can mark it on its cards and in a model's panel, behind a setting.
+
+- **0.61.0** (build 504) - Versions Civitai allows only for generating on its site are marked before Download is pressed (#229). Only Civitai's lookup by file hash says so - not its search, nor a model's answer - and it answers up to 100 versions a request. Every sync now keeps Civitai's record of each version of the models it reads, held or not, in a table of its own (migration v43, `version_records`): what the model's answer says and what the lookup says, each without the showcase images - about 5 KB a version, measured on 82 (both carry the version's notes). At its end a sync asks the lookup about those versions, 100 a request - one library's 4,456 versions take 45 - and the sync dialog's request count and the sync's progress bar both count them. The Model Manager's panel reads what was stored and asks Civitai nothing: an on-site-only version's pill shows ☁, its tooltip says why, and its Download reads "On-site only", disabled. A notice asks an install that updates to run a metadata sync of every model, which fills the records of the models it already has. In the Civitai Browser, a new setting, "Civitai Browser: mark on-site-only versions", off by default, asks the lookup once per page of cards and once per model opened - a page of 20 cards took 0.3 to 0.4 s and 0.3 to 1 MB, as each version's answer carries its showcase images - and marks a card "On-site only", its pill and its Download. A version Civitai does not answer is never marked on a guess. Two WebUIs sharing one database must both update: an older copy refuses it.
+
 ## 0.60 - Search Civitai's images, and group them by what they say
 
 *15 October 2026*

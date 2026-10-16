@@ -487,7 +487,7 @@ check('as does the other one', progress.total, len(facts['linked_paths']))
 
 # errors are counted and the last ten kept
 sync, client = service()
-sync.sync_model = lambda path, force=False, classify_checkpoint=True, rehash=False: (
+sync.sync_model = lambda path, force=False, classify_checkpoint=True, rehash=False, look_up=True: (
     _failing_result(path))
 
 
@@ -515,9 +515,10 @@ sync, client = service()
 real_sync_model = sync.sync_model
 
 
-def cancel_after_one(path, force=False, classify_checkpoint=True, rehash=False):
+def cancel_after_one(path, force=False, classify_checkpoint=True, rehash=False, look_up=True):
     sync.cancel()
-    return real_sync_model(path, force=force, classify_checkpoint=classify_checkpoint, rehash=rehash)
+    return real_sync_model(path, force=force, classify_checkpoint=classify_checkpoint, rehash=rehash,
+                           look_up=look_up)
 
 
 sync.sync_model = cancel_after_one

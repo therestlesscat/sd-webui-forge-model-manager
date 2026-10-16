@@ -193,9 +193,12 @@ class Told(SyncService):
     def __init__(self, client=None):
         super().__init__(client=Civitai(0))
 
-    def sync_model(self, model_path, force=False, classify_checkpoint=True, known=None):
+    def sync_model(self, model_path, force=False, classify_checkpoint=True, known=None, look_up=True):
         told.append(self.keep_image_count)
         return type('Result', (), {'success': True, 'error': None})()
+
+    def look_up_listed_versions(self):
+        return 0
 
 
 real_service = models_api.SyncService

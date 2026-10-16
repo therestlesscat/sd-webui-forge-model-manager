@@ -53,7 +53,7 @@ const {
     generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
 } = await shared('generations.mjs');
 const {
-    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
+    paidAccessLabel, isPaid, onSiteOnly, ON_SITE_ONLY, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
     refreshWebUiModelLists,
 } = await shared('downloads.mjs');
 const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount, showSyncDialog } = await shared('jobs.mjs');
@@ -1205,11 +1205,15 @@ function renderVersionSelector() {
             const version = entry.version;
             const versionName = version.name || `v${index + 1}`;
             const paidNote = paidAccessLabel(version);
+            // Civitai allows it only for generating on its site, as the last sync's lookup said (#229).
+            const onSite = onSiteOnly(version);
             const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}\nNot downloaded`
+                + `${onSite ? `\nOn-site only: ${ON_SITE_ONLY.charAt(0).toLowerCase()}${ON_SITE_ONLY.slice(1)}` : ''}`
                 + `${paidNote ? '\n' + paidNote : ''}`;
-            return `<button class="mm-version-pill ${activeClass} ${isPaid(version) ? 'paid' : ''}" data-pill="${index}"
+            const sign = onSite ? ' \u2601\uFE0E' : isPaid(version) ? ' ⬥' : '';
+            return `<button class="mm-version-pill ${activeClass} ${isPaid(version) ? 'paid' : ''}${onSite ? ' onsite' : ''}" data-pill="${index}"
                            data-action="modelManager.selectPill" data-index="${index}"
-                           title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${isPaid(version) ? ' ⬥' : ''}</button>`;
+                           title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${sign}</button>`;
         }
         const version = locals[entry.local];
         const versionName = version.version_name || `v${index + 1}`;

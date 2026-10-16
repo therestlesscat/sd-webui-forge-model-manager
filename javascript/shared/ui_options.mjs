@@ -39,6 +39,9 @@ let asUploadedNow = { gallery: false, cards: false };
 // Whether a model card's video plays by itself (#220): playing until an
 // answer says otherwise, as cards were drawn before the setting.
 let cardVideosNow = { play: true };
+// Whether the Civitai Browser marks on-site-only versions (#229): off until an
+// answer says otherwise, as the setting is by default.
+let onSiteMarksNow = { on: false };
 // How many of Civitai's images load at once (#213), from the last answer:
 // the setting's default until one is in, or from a server too old to say.
 const IMAGES_AT_ONCE = 64;
@@ -48,6 +51,7 @@ function learn(data) {
     if (data) {
         asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
         cardVideosNow = { play: data.card_videos_play !== false };
+        onSiteMarksNow = { on: data.civitai_on_site_marks === true };
         const atOnce = Number(data.images_at_once);
         imagesAtOnceNow = Number.isInteger(atOnce) && atOnce >= 1 ? atOnce : IMAGES_AT_ONCE;
     }
@@ -62,6 +66,11 @@ export function asUploaded() {
 /** Whether a model card's video plays by itself, as the last answer said: {play}. */
 export function cardVideos() {
     return cardVideosNow;
+}
+
+/** Whether the Civitai Browser marks on-site-only versions, as the last answer said: {on}. */
+export function onSiteMarks() {
+    return onSiteMarksNow;
 }
 
 /** How many of Civitai's images may load at once, as the last answer said. */

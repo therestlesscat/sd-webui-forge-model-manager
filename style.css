@@ -2735,9 +2735,12 @@ body.mm-modal-open {
 }
 
 /* Versions Civitai charges Buzz for: early access, or permanently paid.
-   Sits under the Owned badge so both can show at once. */
+   Sits under the Owned badge so both can show at once. The on-site-only
+   badge (#229) is the same box, in its own colour below. */
 #civitai_browser_app .cb-paid-badge,
-.mm-settings-card-row .cb-paid-badge {
+.mm-settings-card-row .cb-paid-badge,
+#civitai_browser_app .cb-onsite-badge,
+.mm-settings-card-row .cb-onsite-badge {
     position: absolute;
     top: 8px;
     left: 8px;
@@ -2784,6 +2787,26 @@ body.mm-modal-open {
 .mm-version-pill.paid {
     border-color: #b45309;
     color: #fbbf24 !important;
+}
+
+/* A version Civitai allows only for generating on its site (#229): a dark
+   slate badge over the image in both modes, its text white, and below the
+   paid badge when a version is both. */
+#civitai_browser_app .cb-onsite-badge,
+.mm-settings-card-row .cb-onsite-badge {
+    background: #334155;
+    color: #ffffff !important;
+}
+
+#civitai_browser_app .cb-onsite-badge ~ .cb-paid-badge,
+.mm-settings-card-row .cb-onsite-badge ~ .cb-paid-badge {
+    top: 36px;
+}
+
+/* Its pill: a slate border, the pill's own text colour, in either mode -
+   but the picked one keeps the picked pill's border. */
+.mm-version-pill.onsite:not(.active) {
+    border-color: #64748b;
 }
 
 /* Picks which of a version's files to download. Only rendered when a

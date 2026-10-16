@@ -1,5 +1,43 @@
 [
     {
+        "id": "on-site-only-sync",
+        "version": "0.61.0",
+        "kind": "action",
+        "audience": "update",
+        "tabs": [
+            "model_manager"
+        ],
+        "title": "Sync to see which versions Civitai allows only on its site",
+        "text": "A version whose creator allows it only for generating on Civitai cannot be downloaded. The Model Manager now marks it with ☁ on its pill, and its Download says “On-site only” - from what a sync stores. Run Sync with Civitai once, with All models and Metadata, to mark the models you already have; each sync after keeps them up to date.",
+        "action": {
+            "id": "sync",
+            "label": "Open Sync"
+        }
+    },
+    {
+        "id": "shared-database-0-61-0",
+        "version": "0.61.0",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version adds a table for Civitai's record of each version; an older copy cannot open the database any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "storage"
+        },
+        "replaces": [
+            "shared-database-0-60-0"
+        ]
+    },
+    {
         "id": "civitai-images-search",
         "version": "0.60.0",
         "kind": "feature",

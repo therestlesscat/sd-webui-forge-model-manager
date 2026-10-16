@@ -27,6 +27,7 @@ from ..civitai import (
     search_models_with_usable_prompts,
     size_range_check,
 )
+from ..civitai.licensing import versions_on_site_only
 from .annotations import (annotate_image_levels, annotate_local_ownership, annotate_paid_access,
                           held_model_ids, ownership)
 from ..nsfw import stamp_levels
@@ -414,6 +415,33 @@ def register(app: FastAPI):
         """Start over: forget the models the draws have shown, so they can be drawn again (#191)."""
         random_draw.forget_shown()
         return {"success": True}
+
+    @app.get("/model-manager/civitai/usage")
+    @gate("downloads")
+    def civitai_usage(versions: str = ""):
+        """
+        Which of these versions Civitai allows only for generating on its site
+        (#229), for the Civitai Browser's cards and panel with its setting on:
+        `versions` is "id:sha256" pairs, comma-separated - the file hashes the
+        search gave. One lookup by hash per hundred. A version Civitai does not
+        answer is left out of `versions`: unknown, never on-site only.
+        """
+        wanted: Dict[int, str] = {}
+        for pair in versions.split(","):
+            vid, _, sha = pair.strip().partition(":")
+            if vid.isdigit() and len(sha) == 64:
+                wanted[int(vid)] = sha
+        try:
+            client = CivitaiClient.from_settings()
+            try:
+                answer = versions_on_site_only(client, wanted) if wanted else {}
+            finally:
+                client.close()
+            say(f"Asked Civitai which of {len(wanted)} versions allow downloads: "
+                f"{sum(answer.values())} on-site only")
+            return {"success": True, "versions": {str(k): v for k, v in answer.items()}}
+        except Exception as e:
+            return failed(e, "Civitai usage lookup error")
 
     @app.get("/model-manager/civitai/owned")
     @gate("civitai_browser")

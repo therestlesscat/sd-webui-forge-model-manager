@@ -50,7 +50,8 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     Counted the way sync_metadata() actually batches, so the number shown in
     the dialog is the number of requests that will be made: models a hundred
     per request, two more per hundred checkpoints to learn trained from merged,
-    one gallery page per version, and generation data thirty ids per request
+    one per hundred versions they list for the lookup by hash (#229), one
+    gallery page per version, and generation data thirty ids per request
     pooled across a chunk of versions.
 
     Requests, deliberately, and not minutes. How long those requests take
@@ -94,6 +95,11 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     checkpoint_ids = {v["model_id"] for v in versions if v.get("model_id")} \
         & set(db.checkpoint_model_ids())
     checkpoint_requests = (2 * math.ceil(len(checkpoint_ids) / 100)) if checkpoint_ids else 0
+    # And one more per hundred versions those models list, held or not: the
+    # lookup by hash that says whether each allows downloads (#229). Counted
+    # from the stored lists, which the sync then reads afresh.
+    listed = db.count_listed_versions({v["model_id"] for v in versions if v.get("model_id")})
+    lookup_requests = math.ceil(listed / 100) if listed else 0
     image_options = gallery_refresh_options(db, [v["id"] for v in versions if v.get("id")],
                                             include_prompts) if include_images else None
     chosen = (image_options or {}).get("kept" if keep_image_count else "first") or {}
@@ -101,7 +107,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
     prompt_requests = chosen.get("prompts", 0)
     images_total = chosen.get("images", 0)
 
-    total = metadata_requests + checkpoint_requests + image_requests + prompt_requests
+    total = metadata_requests + checkpoint_requests + lookup_requests + image_requests + prompt_requests
     return {
         "versions": len(versions),
         # What "All models" would come to, so the dialog can show it beside
@@ -113,6 +119,7 @@ def estimate_metadata_sync(model_paths: Optional[List[str]] = None,
         "requests": {
             "metadata": metadata_requests,
             "checkpoints": checkpoint_requests,
+            "lookups": lookup_requests,
             "images": image_requests,
             "prompts": prompt_requests,
             "total": total,

@@ -118,6 +118,12 @@ class SyncService:
         # one gallery, and it was fetched once per file (#133). None fetches
         # every time, as one file's sync does.
         self.galleries_fetched: Optional[Set[int]] = None
+        # The models whose list this run read from Civitai, for the lookup by
+        # hash at its end (#229). A lock of its own: _progress_lock is replaced.
+        self._listed_models: Set[int] = set()
+        self._listed_lock = threading.Lock()
+        # Those lookups, counted on the bar from the sync's start (_reserve_lookups).
+        self._lookups_reserved = 0
         self._galleries_lock = threading.Lock()
 
     def _first_for_gallery(self, version_id: int) -> bool:
@@ -225,7 +231,7 @@ class SyncService:
     def sync_model(self, model_path: str, force: bool = False,
                    classify_checkpoint: bool = True,
                    known: Optional[Dict[str, Any]] = None,
-                   rehash: bool = False) -> SyncResult:
+                   rehash: bool = False, look_up: bool = True) -> SyncResult:
         """
         Sync a single model with Civitai - see _sync_model().
 
@@ -233,6 +239,10 @@ class SyncService:
         file's architecture again as well (architecture.py): it is when a
         file is new, or may no longer be what was read. Whatever Civitai
         said, and never a reason for the sync to fail.
+
+        `look_up`: then ask the lookup by hash about the model's versions
+        (look_up_listed_versions). A caller syncing several files passes
+        False and asks once, after the last.
         """
         result = self._sync_model(model_path, force=force,
                                   classify_checkpoint=classify_checkpoint, known=known,
@@ -243,7 +253,85 @@ class SyncService:
             except Exception as e:
                 say(f"Architecture check failed for "
                       f"{os.path.basename(model_path)}: {e}")
+        if look_up:
+            self.look_up_listed_versions()
         return result
+
+    def _reserve_lookups(self, model_ids) -> None:
+        """
+        The lookups by hash this sync makes at its end (#229), counted on the
+        bar from its start: one per hundred versions the models' stored lists
+        name. Counted only once they began, the full bar stepped back - by 45
+        requests on one library; look_up_listed_versions() puts the real
+        number in their place, a request or so off at most.
+        """
+        listed = get_models_db().count_listed_versions(model_ids)
+        reserved = (listed + 99) // 100
+        with self._progress_lock:
+            self._progress.total += reserved
+        self._lookups_reserved = reserved
+
+    def look_up_listed_versions(self) -> int:
+        """
+        Civitai's lookup by hash for every version of the models this run read
+        from Civitai (#229), held or not, 100 a request, kept beside each
+        version's record: the one answer that says whether its creator allows
+        downloads. Asked whatever the Civitai Browser's setting says. A
+        request that fails is said, and leaves its records as they were: never
+        a reason for the sync to fail.
+
+        Returns:
+            how many records were written
+        """
+        with self._listed_lock:
+            model_ids, self._listed_models = self._listed_models, set()
+        reserved, self._lookups_reserved = self._lookups_reserved, 0
+
+        def counted(requests: int) -> None:
+            # The bar's total takes the real number in place of the one reserved.
+            with self._progress_lock:
+                self._progress.total += requests - reserved
+
+        if not model_ids or self._cancel_requested:
+            counted(0)
+            return 0
+        db = get_models_db()
+        hashes = db.version_lookup_hashes(model_ids)
+        wanted = sorted(set(hashes.values()))
+        if not wanted:
+            counted(0)
+            return 0
+        # Civitai's own limit; a client that cannot ask fails below, and is said.
+        batch = getattr(self.client, "VERSIONS_BY_HASH_BATCH", 100)
+        requests_made = (len(wanted) + batch - 1) // batch
+        say(f"Asking Civitai which of {len(hashes)} versions allow downloads "
+            f"({requests_made} request{'s' if requests_made > 1 else ''})")
+        counted(requests_made)
+        # Counted by version: Civitai answers one for each file of it a hash asked
+        # about, so a version sharing a file with another comes back in a later
+        # request too - 4,534 "of 4,496" on one library.
+        stored: Set[int] = set()
+        failed = 0
+        for number, start in enumerate(range(0, len(wanted), batch), 1):
+            if self._cancel_requested:
+                break
+            with self._progress_lock:
+                self._progress.current_model = (f"Asking Civitai which versions allow downloads: "
+                                                f"{number} of {requests_made}")
+            try:
+                found = self.client.get_versions_by_hashes(wanted[start:start + batch])
+                answered = {v["id"]: v for v in found if v.get("id") in hashes}
+                db.store_version_lookups(list(answered.values()))
+                stored.update(answered)
+            except Exception as e:
+                failed += 1
+                say(f"Could not ask Civitai which versions allow downloads: {e}")
+            finally:
+                with self._progress_lock:
+                    self._progress.processed += 1
+        say(f"Civitai said whether downloads are allowed for {len(stored)} of {len(hashes)} versions"
+            + (f"; {failed} request{'s' if failed > 1 else ''} failed" if failed else ""))
+        return len(stored)
 
     def _sync_model(self, model_path: str, force: bool = False,
                     classify_checkpoint: bool = True,
@@ -801,6 +889,9 @@ class SyncService:
 
                     # As one: a cleanup between the two took the new model (#200).
                     db.upsert_identified(civitai_model, version_data, from_civitai=True)
+                    # Its list is Civitai's now: asked about by hash at the end (#229).
+                    with self._listed_lock:
+                        self._listed_models.add(model_id)
 
             else:
                 # Version-only response (model fetch failed)
@@ -905,6 +996,9 @@ class SyncService:
             model_paths += [p for p in new + changed if os.path.normcase(p) not in listed]
 
         self._progress.total = len(model_paths)
+        wanted = {os.path.normcase(p) for p in model_paths}
+        self._reserve_lookups({v["model_id"] for v in get_models_db().get_linked_versions()
+                               if v.get("model_id") and os.path.normcase(v["file_path"]) in wanted})
         say(f"Starting sync with {max_workers} threads for {len(model_paths)} models")
 
         # A force sync reads every file again, whatever is stored.
@@ -912,6 +1006,7 @@ class SyncService:
         # A file identified again leaves what it was; cancelled too, as it
         # only takes what no file names (#200).
         forget_orphans(get_models_db())
+        self.look_up_listed_versions()
 
         # Said before it is complete: the page's last poll reads the log with it.
         self._progress.cancelled = self._cancel_requested
@@ -956,7 +1051,7 @@ class SyncService:
                 # Tried again, it is not read again: its hashes were kept.
                 with self._patiently() if patient else contextlib.nullcontext():
                     return path, self.sync_model(path, force=force, classify_checkpoint=False,
-                                                 rehash=rehash and not patient)
+                                                 rehash=rehash and not patient, look_up=False)
             finally:
                 with self._progress_lock:
                     self._in_flight.remove(name)
@@ -1150,6 +1245,7 @@ class SyncService:
         # - so the bar counts both passes rather than filling up halfway.
         galleries = len({v["id"] for v in versions}) if include_images else 0
         self._progress.total = len(versions) + galleries + len(new_files) + len(changed)
+        self._reserve_lookups({v["model_id"] for v in versions if v.get("model_id")})
         self._progress.removed += len(missing)
         for version in missing:
             self._progress.error_messages.append(
@@ -1159,7 +1255,9 @@ class SyncService:
         if versions and not self._refresh_metadata(versions, include_images, include_prompts,
                                                    callback, max_workers):
             # Civitai did not answer: a file looked up now would be taken for
-            # one it does not know.
+            # one it does not know - nor any lookup by hash made.
+            self._progress.total -= self._lookups_reserved
+            self._lookups_reserved = 0
             self._progress.is_complete = True
             return self._progress
 
@@ -1172,6 +1270,7 @@ class SyncService:
             say(f"Identifying {len(changed)} file(s) changed since they were read")
             self._sync_files(changed, force=True, max_workers=configured_hash_threads())
         forget_orphans(get_models_db())
+        self.look_up_listed_versions()
 
         self._progress.cancelled = self._cancel_requested
         say(f"Metadata sync {'cancelled' if self._cancel_requested else 'complete'}: "

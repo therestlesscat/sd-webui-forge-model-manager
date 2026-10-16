@@ -116,6 +116,7 @@ SPEC = {
     ('GET', '/model-manager/civitai/models/random'): 'civitai_browser',
     ('POST', '/model-manager/civitai/models/random/forget'): 'civitai_browser',
     ('GET', '/model-manager/civitai/owned'): 'civitai_browser',
+    ('GET', '/model-manager/civitai/usage'): 'downloads',
     ('GET', '/model-manager/civitai/models/{model_id}'): 'civitai_browser',
     ('GET', '/model-manager/civitai/versions/{version_id}/images'): 'civitai_browser',
     ('GET', '/model-manager/civitai/tags'): 'civitai_browser',
@@ -199,7 +200,7 @@ SPEC = {
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 87 routes', len(SPEC), 87)
+check('the spec holds 88 routes', len(SPEC), 88)
 
 app = FastAPI()
 api.setup_api(app)

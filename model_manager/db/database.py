@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 42
+SCHEMA_VERSION = 43
 
 
 class ModelsDatabase:
@@ -197,6 +197,22 @@ class ModelsDatabase:
     def get_civitai_versions(self, model_id: int) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
         """A model's stored versions, and when Civitai last listed them."""
         return self._models.get_civitai_versions(model_id)
+
+    def store_version_lookups(self, versions: List[Dict[str, Any]]) -> int:
+        """What Civitai's lookup by hash said of recorded versions (#229). See db/models_ops.py."""
+        return self._models.store_version_lookups(versions)
+
+    def version_lookup_hashes(self, model_ids) -> Dict[int, str]:
+        """{version id: SHA-256} of these models' recorded versions, for the lookup by hash (#229)."""
+        return self._models.version_lookup_hashes(model_ids)
+
+    def count_listed_versions(self, model_ids) -> int:
+        """How many versions these models' stored lists name (#229's lookups, for the sync estimate)."""
+        return self._models.count_listed_versions(model_ids)
+
+    def version_usage_controls(self, version_ids) -> Dict[int, str]:
+        """{version id: Civitai's usageControl word}, from the stored lookups (#229)."""
+        return self._models.version_usage_controls(version_ids)
 
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """Get a Civitai model by ID."""

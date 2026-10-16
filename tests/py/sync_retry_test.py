@@ -148,7 +148,9 @@ check('a model whose images fail has its details stored all the same', row(A).ge
 check('its images are asked for again at the end, patiently',
       [a for a in sync.client.asked if a[0] == 'images'], [('images', False), ('images', True)])
 check('and stored then', images_of(8101), [81011])
-check('counted once, synced, no error', (progress.synced, progress.errors, progress.processed), (1, 0, 1))
+# On the bar: the file once, and the sync's one lookup by hash at its end (#229).
+check('counted once, synced, no error', (progress.synced, progress.errors, progress.processed, progress.total),
+      (1, 0, 2, 2))
 check('the log says so', ('retry_a.safetensors: its images are tried again at the end, more patiently' in said_since(mark),
                           'retry_a.safetensors: 1 images, at the second try' in said_since(mark)), (True, True))
 
@@ -175,7 +177,8 @@ progress = sync.sync_all(model_paths=[C], force=True)
 # second, its SHA-256 is answered.
 check('Civitai not answering about a file: asked again at the end, patiently',
       [a for a in sync.client.asked if a[0] == 'by_hash'], [('by_hash', False), ('by_hash', False), ('by_hash', True)])
-check('and identified then', (row(C).get('id'), progress.synced, progress.errors, progress.processed), (8301, 1, 0, 1))
+check('and identified then', (row(C).get('id'), progress.synced, progress.errors, progress.processed, progress.total),
+      (8301, 1, 0, 2, 2))
 check('read once: its hashes were kept for the second try', hashed, [C])
 check('the log says it is tried again',
       any(t.startswith('retry_c.safetensors: Civitai did not answer') for t in said_since(mark)), True)

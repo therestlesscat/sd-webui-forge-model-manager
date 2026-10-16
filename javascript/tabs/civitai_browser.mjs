@@ -29,7 +29,7 @@ const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded, cardVideos,
-    ignoredTag,
+    ignoredTag, onSiteMarks,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
@@ -48,7 +48,8 @@ const {
 } = await shared('media.mjs');
 const { nsfwImageLevel, isImageSafe } = await shared('nsfw.mjs');
 const {
-    paidAccessLabel, isPaid, primaryFileIndex, renderDownloadControls, showChosenFile, downloads, onItsWay,
+    paidAccessLabel, isPaid, onSiteOnly, ON_SITE_ONLY, primaryFileIndex, renderDownloadControls, showChosenFile,
+    downloads, onItsWay,
 } = await shared('downloads.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta } = await shared('image_card.mjs');
 const {
@@ -455,6 +456,7 @@ async function searchModelsStreaming(page, cursor) {
                     + describeFilterStats(stats);
                 isStreaming = false;
                 renderGrid();
+                askOnSite(cardVersions());
                 updateStatus(status);
             } else if (evt.type === 'error') {
                 throw new Error(evt.error);
@@ -561,6 +563,7 @@ async function drawModels() {
                 if (typeof evt.draw?.shown_total === 'number') shownTotal = evt.draw.shown_total;
                 syncLucky();
                 renderGrid();
+                askOnSite(cardVersions());
                 updateStatus(describeDraw(currentModels.length, evt.draw || {}));
             } else if (evt.type === 'error') {
                 throw new Error(evt.error);
@@ -622,6 +625,7 @@ async function showModelById(modelId, versionId = null) {
         cursors = [""];
         hasMorePages = false;
         renderGrid();
+        askOnSite(cardVersions());
         // Versions get deleted on Civitai; the model is still worth showing.
         const versionIndex = versionId === null ? 0
             : (data.model.modelVersions || []).findIndex(v => v.id === versionId);
@@ -721,6 +725,7 @@ async function searchModels(page = 1) {
             }
 
             renderGrid();
+            askOnSite(cardVersions());
             closeDetails();
 
             let status = `Showing ${currentModels.length} models (page ${currentPage})`;
@@ -792,6 +797,8 @@ function renderCard(model, index) {
                 cls: 'cb-ignored-badge', text: ignoredTag(model.ignored_because).label,
                 title: ignoredTag(model.ignored_because).why,
             }] : []),
+            // Civitai allows the version it shows only for generating on its site (#229).
+            ...(onSiteOnly(firstVersion) ? [{ cls: 'cb-onsite-badge', title: ON_SITE_ONLY, text: 'On-site only' }] : []),
             // Buzz paywall on the version this card is previewing
             ...(isPaid(firstVersion) ? [{
                 cls: 'cb-paid-badge', title: paidAccessLabel(firstVersion),
@@ -847,6 +854,7 @@ async function openModel(index, versionIndex = 0) {
 
     renderModelDetails();
     refreshOwnership();
+    askOnSite(model.modelVersions || []);
     // At once, before even the settings are asked: the last model's images
     // stayed up for a second or more, as if the click had done nothing.
     showImagesLoading();
@@ -897,14 +905,17 @@ function renderVersionSelector() {
         const paidClass = isPaid(version) ? 'paid' : '';
         const versionName = version.name || `v${index + 1}`;
         const ignored = !version.owned_locally && version.ignored_because ? ignoredTag(version.ignored_because) : null;
-        const ownedIndicator = version.owned_locally ? ' ✓' : ignored ? ' \u2298' : (isPaid(version) ? ' ⬥' : '');
+        const onSite = onSiteOnly(version);
+        const ownedIndicator = version.owned_locally ? ' ✓' : ignored ? ' \u2298'
+            : onSite ? ' \u2601\uFE0E' : (isPaid(version) ? ' ⬥' : '');
         const paidNote = paidAccessLabel(version);
         const tooltip = `${versionName}\nBase: ${version.baseModel || 'Unknown'}`
             + `${version.owned_locally ? '\n(Owned)' : ''}`
             + `${ignored ? `\n(${ignored.label}: ${version.ignored_because} replaces its folder)` : ''}`
+            + `${onSite ? `\nOn-site only: ${ON_SITE_ONLY.charAt(0).toLowerCase()}${ON_SITE_ONLY.slice(1)}` : ''}`
             + `${paidNote ? '\n' + paidNote : ''}`;
 
-        return `<button class="mm-version-pill ${activeClass} ${ownedClass} ${paidClass}"
+        return `<button class="mm-version-pill ${activeClass} ${ownedClass} ${paidClass}${onSite ? ' onsite' : ''}"
                        data-action="civitaiBrowser.selectVersion" data-index="${index}"
                        title="${escapeHtml(tooltip)}">${escapeHtml(versionName)}${ownedIndicator}</button>`;
     }).join('');
@@ -1473,6 +1484,46 @@ async function refreshOwnership() {
         set(model, 'owned_versions', ownedVersions);
     }
     if (!changed) return;
+    renderGrid();
+    if (selectedModel) renderModelDetails();
+}
+
+// Whether a version is one Civitai allows only for generating on its site
+// (#229): asked of the server, which asks Civitai's lookup by hash, only with
+// the setting on - each answer is large. Written on the versions asked about,
+// the page's own copies: an answer that comes after a new search or draw
+// marks copies no longer shown, and draws nothing. Not asked again when the
+// tab shows or after a download, as Owned is: each ask costs the whole
+// answer again.
+const versionSha256 = (version) => {
+    const files = version?.files || [];
+    const sha = (file) => file?.hashes?.SHA256;
+    return sha(files[primaryFileIndex(version)]) || files.map(sha).find(Boolean) || null;
+};
+const cardVersions = () => currentModels.map((model) => model?.modelVersions?.[0]).filter(Boolean);
+
+async function askOnSite(versions) {
+    if (!onSiteMarks().on) return;
+    const wanted = versions.filter((v) => v?.id && !('on_site_only' in v) && versionSha256(v));
+    if (!wanted.length) return;
+    let answer;
+    try {
+        answer = await apiCall({ endpoint: '/model-manager/civitai/usage', params: {
+            versions: wanted.map((v) => `${v.id}:${versionSha256(v)}`).join(',') } });
+    } catch (e) {
+        console.error('[CivitaiBrowser] On-site check error:', e);
+        return;
+    }
+    if (!answer?.success) return;
+    let marked = false;
+    for (const version of wanted) {
+        const said = answer.versions?.[version.id];
+        if (typeof said !== 'boolean') continue;
+        version.on_site_only = said;
+        marked = marked || said;
+    }
+    const shown = currentModels.some((model) => (model?.modelVersions || []).some((v) => wanted.includes(v)));
+    if (!marked || !shown) return;
     renderGrid();
     if (selectedModel) renderModelDetails();
 }

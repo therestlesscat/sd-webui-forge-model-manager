@@ -141,4 +141,24 @@ check('Retry: asked, and the row waits again, last',
       [asked.at(-1), row(6)?.querySelector('.mm-download-status-badge')?.textContent, names().at(-1)],
       [['retry', 6], 'Queued', 'v6']);
 
+// Download's order of cases (#229): Already Owned before on-site only, and
+// on-site only before paid - a version can be both paid and on-site only.
+const { renderDownloadControls } = await sharedModule('downloads.mjs');
+const CONTROLS = { prefix: 'mm', download: 'modelManager.download', selectFile: 'modelManager.selectFile' };
+const drawn = (version, owned = false) => {
+    const box = document.createElement('div');
+    box.innerHTML = renderDownloadControls({ controls: CONTROLS, modelId: 1, version, fileIndex: 0, owned });
+    const button = box.querySelector('button');
+    return [button?.textContent.trim(), Boolean(button?.disabled), button?.hasAttribute('data-download-version')];
+};
+const FILE = [{ id: 1, name: 'a.safetensors', primary: true }];
+check('Download: Already Owned before on-site only',
+      drawn({ id: 91, files: FILE, on_site_only: true }, true), ['Already Owned', true, false]);
+check('on-site only before paid',
+      drawn({ id: 92, files: FILE, on_site_only: true, paid_access: { permanent: true, owned: false } }),
+      ['On-site only', true, false]);
+check('not known, or allowed: Download as today',
+      [drawn({ id: 93, files: FILE, on_site_only: null })[2], drawn({ id: 94, files: FILE, on_site_only: false })[2]],
+      [true, true]);
+
 done();

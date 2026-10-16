@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.61 - Versions Civitai allows only on its site.** A creator can allow a version only for
+generating on Civitai, and Civitai then refuses its download. The Model Manager now marks such a
+version - a sign on its pill, and Download saying "On-site only" - from what a sync stores; the
+Civitai Browser can mark it on its cards and in a model's panel, with its setting on.
+
 **0.60 - Search Civitai's images.** The Civitai Images tab can be searched by prompt, as the
 Generations tab is, and grouped by each image's prompt, its LoRAs or the day it was made - and two
 deep, a grouping inside another. Each Civitai image is now stored once, whatever galleries show it.

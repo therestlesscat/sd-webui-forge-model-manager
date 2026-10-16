@@ -430,8 +430,9 @@ function refreshSyncEstimate() {
             };
             // The checkpoint trained/merged check is part of fetching metadata
             // (two requests per hundred checkpoints). The total always counted
-            // it; no line did, so the lines came to less than the total.
-            cost('mm_cost_metadata', requests.metadata + (requests.checkpoints || 0));
+            // it; no line did, so the lines came to less than the total. So is
+            // the lookup by hash of each model's versions (#229).
+            cost('mm_cost_metadata', requests.metadata + (requests.checkpoints || 0) + (requests.lookups || 0));
             cost('mm_cost_images', requests.images);
             cost('mm_cost_prompts', requests.prompts, true);
             showImageOptions(choice.images ? estimate.image_options : null, choice.keepImageCount);

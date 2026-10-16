@@ -34,6 +34,18 @@ export function isPaid(version) {
 }
 
 /**
+ * Whether Civitai allows this version only for generating on its site (#229):
+ * `on_site_only`, as the server read it from the lookup by hash - true, false,
+ * or not known. Only a known true marks it.
+ */
+export function onSiteOnly(version) {
+    return version?.on_site_only === true;
+}
+
+/** What a mark of it says, on a card, a pill and Download alike. */
+export const ON_SITE_ONLY = 'The creator allows this version only for generating on Civitai.';
+
+/**
  * Index of the file a download of this version will produce.
  *
  * Mirrors download_service.pick_file_index: files[0] is often the full
@@ -134,6 +146,10 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
     let button = '';
     if (owned) {
         button = `<button class="mm-btn secondary" disabled>Already Owned</button>`;
+    } else if (onSiteOnly(version)) {
+        // Civitai refuses its download; its page, beside this, generates with it.
+        const why = `${ON_SITE_ONLY} Generate with it on its page: View on Civitai, beside this.`;
+        button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">On-site only</button>`;
     } else if (paidLabel && version?.paid_access?.owned !== true) {
         const why = version?.paid_access?.owned === false
             ? 'Civitai says your account has not bought it. Just bought it? Its API takes some minutes to know: '

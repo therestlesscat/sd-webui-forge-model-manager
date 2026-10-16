@@ -496,6 +496,19 @@ def on_ui_settings():
     )
 
     shared.opts.add_option(
+        "model_manager_civitai_on_site_marks",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_civitai_on_site_marks"],
+            label="Civitai Browser: mark on-site-only versions",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Marks the versions whose creator allows them only for generating on Civitai - Civitai refuses "
+               "their download - on the cards and in a model's panel. Asks Civitai once per page and once per "
+               "model opened; its answer is often under a megabyte, and can be a few. The Model Manager marks "
+               "them whatever this says, from what a sync stored.")
+    )
+
+    shared.opts.add_option(
         "model_manager_civitai_sfw_fill_page",
         shared.OptionInfo(
             default=DEFAULTS["model_manager_civitai_sfw_fill_page"],

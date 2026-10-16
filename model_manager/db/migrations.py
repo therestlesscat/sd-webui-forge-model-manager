@@ -2505,6 +2505,32 @@ def _migrate_to_v42(cursor, db_path: str, progress=None):
           f"{len(merged)} given an older copy's generation data")
 
 
+def _migrate_to_v43(cursor):
+    """
+    Civitai's own record of each version (#229): `version_records`, one row
+    per version Civitai lists for a model in the library, held or not. Two
+    sources, kept apart, each with when it was written: what the model's
+    answer says of the version (`listed`), and what the lookup by file hash
+    says (`looked_up`) - the only one that carries `usageControl`, whether
+    the creator allows downloads. Both as Civitai sent them, but the
+    showcase images, kept as galleries. Nothing is changed or dropped: the
+    table starts empty, and a sync fills it.
+    """
+    print("[ModelManager] Migrating to v43: Civitai's record of each version...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS version_records (
+            version_id   INTEGER PRIMARY KEY,
+            model_id     INTEGER NOT NULL,
+            listed       TEXT,
+            listed_at    TEXT,
+            looked_up    TEXT,
+            looked_up_at TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_version_records_model ON version_records(model_id)")
+    print("[ModelManager] Migration to v43 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2532,6 +2558,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
         42: lambda c: _migrate_to_v42(c, db_path, progress),
+        43: _migrate_to_v43,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

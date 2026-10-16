@@ -65,6 +65,9 @@ DEFAULTS = {
     "model_manager_card_originals": False,
     # A model card's video plays by itself (#220); off, its still and a play button.
     "model_manager_card_videos_play": True,
+    # The Civitai Browser marks versions allowed only for generating on
+    # Civitai (#229): a lookup per page and per panel, often under a megabyte.
+    "model_manager_civitai_on_site_marks": False,
     "model_manager_civitai_folder_template": "_{baseModel}/{modelName}",
     "model_manager_civitai_requests_per_second": 6,
     # How many downloads the queue runs at once; the rest wait (#279).

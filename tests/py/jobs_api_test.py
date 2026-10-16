@@ -281,7 +281,7 @@ check('counting the versions it would refresh',
 check('and the models behind them', estimate['models'], fixtures.MODELS)
 check('the requests are broken down by what they are for',
       sorted(estimate['requests']),
-      ['checkpoints', 'images', 'metadata', 'prompts', 'total'])
+      ['checkpoints', 'images', 'lookups', 'metadata', 'prompts', 'total'])
 check('metadata is a hundred models a request', estimate['requests']['metadata'], 1)
 check('checkpoints cost two more, being inferred from two queries',
       estimate['requests']['checkpoints'], 2)

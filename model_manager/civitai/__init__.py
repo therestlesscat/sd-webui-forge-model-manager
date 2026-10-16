@@ -4,7 +4,7 @@ Talking to Civitai.
   client.py         the HTTP client: auth, rate limiting, retries, endpoints
   prompt_filter.py  finding models whose images carry a usable prompt
   size_filter.py    finding models whose download is a given size
-  licensing.py      whether a version has to be paid for
+  licensing.py      whether a version has to be paid for, or is on-site only
   random_draw.py    a random draw of models, every match equally likely
 
 Import what you need from here; the split behind it is about what the code is

@@ -198,6 +198,8 @@ class CivitaiClient:
     # one token per request whatever the batch holds, so the difference
     # between 20 and 30 is a third off every gallery refresh.
     GENERATION_DATA_BATCH = 30
+    # Civitai's bulk lookup by hash takes at most this many (its own limit).
+    VERSIONS_BY_HASH_BATCH = 100
 
     # Rate limits (requests per second).
     # Civitai was measured serving ~10 req/s without complaint; these stay well
@@ -290,7 +292,8 @@ class CivitaiClient:
         method: str,
         endpoint: str,
         params: Optional[Any] = None,
-        absolute_url: Optional[str] = None
+        absolute_url: Optional[str] = None,
+        json_body: Optional[Any] = None
     ) -> Any:
         """
         Make a rate-limited request with retry logic.
@@ -300,6 +303,8 @@ class CivitaiClient:
             endpoint: API endpoint (e.g., "/models/123")
             params: Query parameters, or a query string already encoded
             absolute_url: Full URL to use instead of BASE_URL + endpoint.
+            json_body: A body sent as JSON (the bulk lookup by hash). A
+                request without one is sent as it always was.
 
         Returns:
             Parsed JSON response (dict for the v1 API, list for tRPC batches).
@@ -349,7 +354,8 @@ class CivitaiClient:
                     method,
                     url,
                     params=params,
-                    timeout=self.REQUEST_TIMEOUT
+                    timeout=self.REQUEST_TIMEOUT,
+                    **({"json": json_body} if json_body is not None else {})
                 )
 
                 # Handle specific status codes
@@ -471,6 +477,20 @@ class CivitaiClient:
             return self._request("GET", f"/model-versions/by-hash/{file_hash}")
         except CivitaiNotFoundError:
             return None
+
+    def get_versions_by_hashes(self, hashes: List[str]) -> List[Dict[str, Any]]:
+        """
+        The versions whose files have these SHA-256s, up to 100 a call: the
+        one answer that says each version's `usageControl` (#229) - the
+        search and /models/{id} do not. Only published versions are
+        answered; a hash nothing matches is left out.
+        """
+        if not hashes:
+            return []
+        if len(hashes) > self.VERSIONS_BY_HASH_BATCH:
+            raise ValueError(f"at most {self.VERSIONS_BY_HASH_BATCH} hashes a call, not {len(hashes)}")
+        answer = self._request("POST", "/model-versions/by-hash", json_body=list(hashes))
+        return [v for v in answer if isinstance(v, dict)] if isinstance(answer, list) else []
 
     def get_model_version(self, version_id: int) -> Optional[Dict[str, Any]]:
         """

@@ -17,6 +17,7 @@ from ..forge_host import setting
 from ..nsfw import NAME_TO_LEVEL
 from ..sync_service import SyncService, forget_orphans
 from ..civitai import CivitaiClient, paid_access_info
+from ..civitai.licensing import on_site_only
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
 from ..model_dirs import COMPANIONS, file_modified, folder_of, ignored_because
@@ -366,8 +367,12 @@ def register(app: FastAPI):
                 version["ignored_because"] = ignored_because(version["file_path"])
 
             local_ids = {v["id"] for v in versions if v.get("id")}
+            # Whether each allows downloads, as the last sync's lookup by hash
+            # said (#229): nothing is asked here. Unknown is None, never False.
+            words = db.version_usage_controls(v["id"] for v in listed or [])
             civitai_versions = [
-                {**v, "local": v["id"] in local_ids, "paid_access": paid_access_info(v)}
+                {**v, "local": v["id"] in local_ids, "paid_access": paid_access_info(v),
+                 "on_site_only": on_site_only(words.get(v["id"]))}
                 for v in listed or []
             ]
             # A paid one the key's account bought can be downloaded.
@@ -454,13 +459,15 @@ def register(app: FastAPI):
 
                 # Forced, but with the hashes read from the file before if
                 # it has not changed: a force sync is what reads it again.
-                result = sync_service.sync_model(file_path, force=True)
+                result = sync_service.sync_model(file_path, force=True, look_up=False)
                 if result.success:
                     synced_count += 1
                 elif result.error:
                     errors.append(f"{os.path.basename(file_path)}: {result.error}")
             # Once, after every file: one identified again leaves what it was (#200).
             forget_orphans(db)
+            # And its versions asked about by hash once, not per file (#229).
+            sync_service.look_up_listed_versions()
 
             return JSONResponse({
                 "success": True,

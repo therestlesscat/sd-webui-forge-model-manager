@@ -242,6 +242,24 @@ def version_summary(version: Dict[str, Any]) -> Dict[str, Any]:
     return summary
 
 
+def _without_images(version: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A version as Civitai sent it, but its showcase images (#229): nearly all
+    of its bytes, and a held version's are stored already, as its gallery.
+    """
+    return {k: v for k, v in version.items() if k != "images"}
+
+
+def _primary_sha256(version: Dict[str, Any]) -> Optional[str]:
+    """The SHA-256 of a version's primary file - else of any file Civitai lists one for."""
+    files = [f for f in version.get("files") or [] if isinstance(f, dict)]
+    for listed in sorted(files, key=lambda f: not f.get("primary")):
+        sha = (listed.get("hashes") or {}).get("SHA256")
+        if isinstance(sha, str) and sha:
+            return sha.upper()
+    return None
+
+
 def _civitai_order(versions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Versions in the order Civitai shows them.
 
@@ -359,7 +377,11 @@ class ModelsOps:
             cursor.execute(
                 "UPDATE models SET versions = ?, versions_synced_at = ? WHERE id = ?",
                 (json.dumps(_civitai_order(incoming)), now, model_id))
-            return cursor.rowcount > 0
+            written = cursor.rowcount > 0
+            if written:
+                ModelsOps._store_records(cursor, model_id,
+                                         [v for v in versions if isinstance(v, dict) and v.get("id")], now)
+            return written
 
         cursor.execute("SELECT versions, versions_synced_at FROM models WHERE id = ?",
                        (model_id,))
@@ -378,6 +400,91 @@ class ModelsOps:
         cursor.execute("UPDATE models SET versions = ? WHERE id = ?",
                        (json.dumps(_civitai_order(merged)), model_id))
         return True
+
+    @staticmethod
+    def _store_records(cursor, model_id: int, versions: List[Dict[str, Any]], now: str) -> None:
+        """
+        Civitai's record of each version its list names (#229), as the model's
+        answer says it: every field but the images. What the lookup by hash
+        said is kept beside it, until it is asked again; a version the list no
+        longer names loses its record.
+        """
+        ids = [int(v["id"]) for v in versions]
+        cursor.executemany(
+            "INSERT INTO version_records (version_id, model_id, listed, listed_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(version_id) DO UPDATE SET model_id = excluded.model_id, "
+            "listed = excluded.listed, listed_at = excluded.listed_at",
+            [(int(v["id"]), model_id, json.dumps(_without_images(v)), now) for v in versions])
+        cursor.execute(f"DELETE FROM version_records WHERE model_id = ? "
+                       f"AND version_id NOT IN ({', '.join('?' * len(ids))})", (model_id, *ids))
+
+    def store_version_lookups(self, versions: List[Dict[str, Any]]) -> int:
+        """
+        What Civitai's lookup by hash said of each version (#229), every field
+        but the images, beside the model's answer - for a version recorded
+        already. A version Civitai answered that no list names is left out.
+
+        Returns:
+            how many records it was written to
+        """
+        now = datetime.now().isoformat()
+        rows = [(json.dumps(_without_images(v)), now, v["id"])
+                for v in versions if isinstance(v, dict) and isinstance(v.get("id"), int)]
+        with self._cursor() as cursor:
+            cursor.executemany("UPDATE version_records SET looked_up = ?, looked_up_at = ? "
+                               "WHERE version_id = ?", rows)
+            return cursor.rowcount
+
+    def version_lookup_hashes(self, model_ids) -> Dict[int, str]:
+        """
+        {version id: its file's SHA-256} for every recorded version of these
+        models, held or not: what the lookup by hash is asked with. A version
+        none of whose files Civitai lists a SHA-256 for is left out: it
+        cannot be asked.
+        """
+        ids = sorted({int(m) for m in model_ids if m})
+        found: Dict[int, str] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute(f"SELECT version_id, listed FROM version_records "
+                               f"WHERE model_id IN ({', '.join('?' * len(chunk))}) AND listed IS NOT NULL", chunk)
+                for version_id, listed in cursor.fetchall():
+                    sha = _primary_sha256(json.loads(listed))
+                    if sha:
+                        found[version_id] = sha
+        return found
+
+    def count_listed_versions(self, model_ids) -> int:
+        """How many versions these models' stored lists name, held or not."""
+        ids = sorted({int(m) for m in model_ids if m})
+        total = 0
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute(f"SELECT COALESCE(SUM(json_array_length(versions)), 0) FROM models "
+                               f"WHERE id IN ({', '.join('?' * len(chunk))}) AND versions IS NOT NULL", chunk)
+                total += cursor.fetchone()[0]
+        return total
+
+    def version_usage_controls(self, version_ids) -> Dict[int, str]:
+        """
+        {version id: Civitai's `usageControl` word}, from what the lookup by
+        hash said and a sync stored (#229). A version never looked up, or one
+        Civitai said no word of, is left out.
+        """
+        ids = sorted({int(v) for v in version_ids if v})
+        found: Dict[int, str] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute(f"SELECT version_id, looked_up FROM version_records "
+                               f"WHERE version_id IN ({', '.join('?' * len(chunk))}) AND looked_up IS NOT NULL", chunk)
+                for version_id, looked_up in cursor.fetchall():
+                    word = (json.loads(looked_up) or {}).get("usageControl")
+                    if isinstance(word, str) and word:
+                        found[version_id] = word
+        return found
 
     def get_civitai_versions(self, model_id: int) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
         """A model's stored versions, and when Civitai last listed them.
@@ -551,7 +658,10 @@ class ModelsOps:
                 WHERE COALESCE(is_bookmarked, 0) = 0
                   AND id NOT IN (SELECT model_id FROM versions WHERE model_id IS NOT NULL)
             """)
-            return cursor.rowcount, images
+            models = cursor.rowcount
+            # Civitai's records of their versions (#229) go with them.
+            cursor.execute("DELETE FROM version_records WHERE model_id NOT IN (SELECT id FROM models)")
+            return models, images
 
     def normalize_version_paths(self) -> int:
         """

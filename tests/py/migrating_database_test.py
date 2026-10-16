@@ -54,7 +54,9 @@ def check(label, got, want=True):
         fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
 
 
-OLD = SCHEMA_VERSION - 1
+# v41: v42 is the migration held and failed below, the one that says how far
+# it has got; SCHEMA_VERSION - 1 was it until v43 (#229).
+OLD = 41
 template = os.path.join(WORK, 'template.db')
 conn = sqlite3.connect(template)
 conn.execute("CREATE TABLE IF NOT EXISTS schema_info (key TEXT PRIMARY KEY, value TEXT)")
