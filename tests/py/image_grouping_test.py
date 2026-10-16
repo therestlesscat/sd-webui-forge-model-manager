@@ -138,7 +138,7 @@ run(NAMED)
 row = raw.execute("SELECT g.created_at, r.file_path, d.meta, d.infotext FROM generation_images gi "
                   "JOIN generations g ON g.id = gi.generation_id "
                   "JOIN generation_resources r ON r.image_id = gi.id AND r.role = 'checkpoint' "
-                  "JOIN image_details d ON d.image_id = gi.id WHERE gi.path = ?", (named,)).fetchone()
+                  "JOIN generation_image_details d ON d.image_id = gi.id WHERE gi.path = ?", (named,)).fetchone()
 check('the image\'s time is its name\'s, not the file\'s', row[0], '2026-03-01T13:00:00')
 check('its [model_name] finds the library\'s checkpoint by file name', row[1], CHECKPOINT)
 check('its details are what its name says, under Forge\'s names, with no text',

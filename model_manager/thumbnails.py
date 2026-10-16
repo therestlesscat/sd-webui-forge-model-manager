@@ -11,7 +11,7 @@ without one shows its full file, as before.
 
 Each is kept where the person chose - in a folder (beside the database by
 default) or in a `.thumbnails` folder beside each image - and recorded in
-`image_thumbnails`, keyed by the image's path: Force sync and the recorder
+`generation_thumbnails`, keyed by the image's path: Force sync and the recorder
 give an image a new id, never a new path. The record holds the image's
 size and modified time when it was made, so a changed image shows its full
 file until a sync makes it again.

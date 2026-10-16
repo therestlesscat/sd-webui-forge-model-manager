@@ -1,12 +1,13 @@
 """
-Internal module for the images you generate, in the tables of schema v37 (#231):
+Internal module for the images you generate, in the tables of schema v37 (#231),
+named for them since v41 (#284):
 
 - generations and generation_images: what lists, groups and filters read,
   narrow, so a scan of tens of thousands of images reads few pages - a wide
   row costs its whole page whatever column is read;
-- generation_details and image_details: one row each, what one Send or one
+- generation_details and generation_image_details: one row each, what one Send or one
   tile reads, with the lists and paths exactly as Forge recorded them;
-- prompts: each text once. `grouped_as` is the row holding the text with its
+- generation_prompts: each text once. `grouped_as` is the row holding the text with its
   spacing tidied (0 when nothing is left), which the Generations tab groups by;
   `length` how long it is, trimmed as a prompt worth reading is - both held by
   an index, read for every image without reading the texts;
@@ -53,12 +54,12 @@ _JSON_COLUMNS = {"styles", "modules", "hr_modules", "params", "extra_params",
                  "script_args", "settings", "meta", "loras", "inputs"}
 # A prompt's head, if nothing names the prompt: one EXISTS per column, so each
 # is one index's lookup (v40) - an OR across them reads every row.
-_UNNAMED_PROMPT = ("SELECT grouped_as FROM prompts WHERE id = ? "
+_UNNAMED_PROMPT = ("SELECT grouped_as FROM generation_prompts WHERE id = ? "
                    "AND NOT EXISTS (SELECT 1 FROM generations WHERE prompt_id = ?) "
                    "AND NOT EXISTS (SELECT 1 FROM generations WHERE negative_id = ?) "
                    "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE prompt_id = ?) "
                    "AND NOT EXISTS (SELECT 1 FROM generation_images WHERE negative_id = ?) "
-                   "AND NOT EXISTS (SELECT 1 FROM prompts WHERE grouped_as = ? AND id <> ?)")
+                   "AND NOT EXISTS (SELECT 1 FROM generation_prompts WHERE grouped_as = ? AND id <> ?)")
 # The path column a resource of each single-file role stands for.
 _SINGLE_PATHS = {"checkpoint": "checkpoint_path", "hr_checkpoint": "hr_checkpoint_path",
                  "refiner": "refiner_path"}
@@ -457,21 +458,21 @@ class GenerationsOps:
     # ---------------------------------------------------------------- writing
 
     def _prompt_id(self, cursor, text: Optional[str]) -> Optional[int]:
-        """The prompts row holding this text, made if there is none: grouped
+        """The generation_prompts row holding this text, made if there is none: grouped
         by the row holding its tidied text, made too where needed."""
         if text is None:
             return None
-        cursor.execute("SELECT id FROM prompts WHERE text = ?", (text,))
+        cursor.execute("SELECT id FROM generation_prompts WHERE text = ?", (text,))
         row = cursor.fetchone()
         if row:
             return row[0]
         tidied = tidy(text)
         grouped = 0 if tidied == "" else None if tidied == text else self._prompt_id(cursor, tidied)
-        cursor.execute(f"INSERT INTO prompts (text, grouped_as, length) VALUES (?, ?, LENGTH({trimmed_sql('?')}))",
+        cursor.execute(f"INSERT INTO generation_prompts (text, grouped_as, length) VALUES (?, ?, LENGTH({trimmed_sql('?')}))",
                        (text, grouped or 0, text))
         new_id = cursor.lastrowid
         if grouped is None:
-            cursor.execute("UPDATE prompts SET grouped_as = ? WHERE id = ?", (new_id, new_id))
+            cursor.execute("UPDATE generation_prompts SET grouped_as = ? WHERE id = ?", (new_id, new_id))
         return new_id
 
     def record_generation(self, generation: Dict[str, Any],
@@ -540,7 +541,7 @@ class GenerationsOps:
             image_id = cursor.lastrowid
             details = [c for c in _IMAGE_DETAILS if c in image]
             cursor.execute(
-                f"INSERT INTO image_details (image_id{''.join(', ' + c for c in details)}) "
+                f"INSERT INTO generation_image_details (image_id{''.join(', ' + c for c in details)}) "
                 f"VALUES ({', '.join('?' * (len(details) + 1))})",
                 [image_id] + [_stored(c, image[c]) for c in details])
             cursor.executemany(
@@ -622,8 +623,8 @@ class GenerationsOps:
                    p.text AS prompt, q.text AS negative_prompt
             FROM generations g
             LEFT JOIN generation_details d ON d.generation_id = g.id
-            LEFT JOIN prompts p ON p.id = g.prompt_id
-            LEFT JOIN prompts q ON q.id = g.negative_id
+            LEFT JOIN generation_prompts p ON p.id = g.prompt_id
+            LEFT JOIN generation_prompts q ON q.id = g.negative_id
             WHERE g.id IN ({', '.join('?' * len(generation_ids))})
         """, list(generation_ids))
         return {r["id"]: _read(r) for r in cursor.fetchall()}
@@ -639,9 +640,9 @@ class GenerationsOps:
                    {', '.join('d.' + c for c in _IMAGE_DETAILS)},
                    p.text AS prompt, q.text AS negative_prompt
             FROM generation_images gi
-            LEFT JOIN image_details d ON d.image_id = gi.id
-            LEFT JOIN prompts p ON p.id = gi.prompt_id
-            LEFT JOIN prompts q ON q.id = gi.negative_id
+            LEFT JOIN generation_image_details d ON d.image_id = gi.id
+            LEFT JOIN generation_prompts p ON p.id = gi.prompt_id
+            LEFT JOIN generation_prompts q ON q.id = gi.negative_id
             WHERE gi.id IN ({marks})
         """, list(image_ids))
         images = {r["id"]: _read(r) for r in cursor.fetchall()}
@@ -673,8 +674,8 @@ class GenerationsOps:
                                 d.checkpoint_path) AS checkpoint_path
                 FROM generations g
                 LEFT JOIN generation_details d ON d.generation_id = g.id
-                LEFT JOIN prompts p ON p.id = g.prompt_id
-                LEFT JOIN prompts q ON q.id = g.negative_id
+                LEFT JOIN generation_prompts p ON p.id = g.prompt_id
+                LEFT JOIN generation_prompts q ON q.id = g.negative_id
                 WHERE g.id IN ({marks})
             """, list(generation_ids))
             return {r["id"]: dict(r) for r in cursor.fetchall()}
@@ -738,9 +739,9 @@ class GenerationsOps:
         if "readable" in needs or "prompt" in keys:
             # Named: SQLite looked each prompt up by its row, text and all -
             # 130 ms at 76,000 images, against 26 through the index (#231).
-            joins.append("LEFT JOIN prompts ip INDEXED BY idx_prompts_lookup ON ip.id = gi.prompt_id")
+            joins.append("LEFT JOIN generation_prompts ip INDEXED BY idx_generation_prompts_lookup ON ip.id = gi.prompt_id")
         if "prompt_written" in keys:
-            joins.append("LEFT JOIN prompts wp INDEXED BY idx_prompts_lookup ON wp.id = g.prompt_id")
+            joins.append("LEFT JOIN generation_prompts wp INDEXED BY idx_generation_prompts_lookup ON wp.id = g.prompt_id")
         if "checkpoint" in needs or keys & {"model", "base_model"}:
             ctes.append("ck AS (SELECT generation_id, MIN(name) AS name, MIN(file_path) AS path "
                         "FROM generation_resources WHERE role = 'checkpoint' GROUP BY generation_id)")
@@ -776,7 +777,7 @@ class GenerationsOps:
             args_where.append(scope.task)
         for index, word in enumerate(scope.words):
             # A word is matched as typed, ignoring case: % and _ mean themselves.
-            ctes.append(f"hit{index} AS (SELECT id FROM prompts WHERE text LIKE ? ESCAPE '\\')")
+            ctes.append(f"hit{index} AS (SELECT id FROM generation_prompts WHERE text LIKE ? ESCAPE '\\')")
             args.append("%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
             where.append(f"(gi.prompt_id IN hit{index} OR gi.negative_id IN hit{index} "
                          f"OR g.prompt_id IN hit{index} OR g.negative_id IN hit{index})")
@@ -786,7 +787,7 @@ class GenerationsOps:
                 where.append("0")
             elif grouping in PROMPT_GROUPINGS:
                 column = "gi.prompt_id" if grouping == "prompt" else "g.prompt_id"
-                where.append(f"({column} IN (SELECT id FROM prompts WHERE grouped_as = ?)"
+                where.append(f"({column} IN (SELECT id FROM generation_prompts WHERE grouped_as = ?)"
                              + (f" OR {column} IS NULL)" if key == 0 else ")"))
                 args_where.append(key)
             else:
@@ -1027,7 +1028,7 @@ class GenerationsOps:
         if not ids:
             return {}
         with self._cursor() as cursor:
-            cursor.execute(f"SELECT id, text FROM prompts WHERE id IN ({', '.join('?' * len(ids))})", ids)
+            cursor.execute(f"SELECT id, text FROM generation_prompts WHERE id IN ({', '.join('?' * len(ids))})", ids)
             return {r[0]: r[1] for r in cursor.fetchall()}
 
     def count_generations(self, files: Optional[List[str]]) -> int:
@@ -1093,7 +1094,7 @@ class GenerationsOps:
         # read every resource row of the library, 538 ms at 76,000 images.
         cursor.execute("DELETE FROM generation_resources WHERE image_id IN "
                        "(SELECT id FROM generation_images WHERE generation_id = ?)", (generation_id,))
-        cursor.execute("DELETE FROM image_details WHERE image_id IN "
+        cursor.execute("DELETE FROM generation_image_details WHERE image_id IN "
                        "(SELECT id FROM generation_images WHERE generation_id = ?)", (generation_id,))
         cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
         cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
@@ -1150,7 +1151,7 @@ class GenerationsOps:
         generation_id, path = row[0], row[1]
         freed.update(p for p in (row[2], row[3]) if p)
         cursor.execute("DELETE FROM generation_resources WHERE image_id = ?", (image_id,))
-        cursor.execute("DELETE FROM image_details WHERE image_id = ?", (image_id,))
+        cursor.execute("DELETE FROM generation_image_details WHERE image_id = ?", (image_id,))
         cursor.execute("DELETE FROM generation_images WHERE id = ?", (image_id,))
         cursor.execute("SELECT COUNT(*) FROM generation_images WHERE generation_id = ?",
                        (generation_id,))
@@ -1209,7 +1210,7 @@ class GenerationsOps:
                 cursor.execute(
                     "SELECT gi.id, gi.path, gi.user_nsfw_level, gi.prompt_nsfw_level, d.infotext IS NULL "
                     "FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
-                    "LEFT JOIN image_details d ON d.image_id = gi.id "
+                    "LEFT JOIN generation_image_details d ON d.image_id = gi.id "
                     f"WHERE g.source_id IS NOT NULL AND gi.path COLLATE NOCASE IN ({', '.join('?' * len(part))})", part)
                 for image_id, path, user_level, prompt_level, no_text in cursor.fetchall():
                     old.append(image_id)
@@ -1239,15 +1240,15 @@ class GenerationsOps:
     def source_id(self, folder: str) -> int:
         """The number a synced folder is known by, made the first time."""
         with self._cursor() as cursor:
-            cursor.execute("INSERT OR IGNORE INTO image_sources (path) VALUES (?)", (folder,))
-            cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
+            cursor.execute("INSERT OR IGNORE INTO generation_sources (path) VALUES (?)", (folder,))
+            cursor.execute("SELECT id FROM generation_sources WHERE path = ? COLLATE NOCASE", (folder,))
             return cursor.fetchone()[0]
 
     def synced_counts(self) -> Dict[str, int]:
         """How many generations each synced folder brought, by its path in
         lower case."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT s.path, COUNT(g.id) FROM image_sources s "
+            cursor.execute("SELECT s.path, COUNT(g.id) FROM generation_sources s "
                            "JOIN generations g ON g.source_id = s.id GROUP BY s.id")
             return {row[0].lower(): row[1] for row in cursor.fetchall()}
 
@@ -1262,7 +1263,7 @@ class GenerationsOps:
             no other record names - whose thumbnails can go (#5).
         """
         with self._cursor() as cursor:
-            cursor.execute("SELECT id FROM image_sources WHERE path = ? COLLATE NOCASE", (folder,))
+            cursor.execute("SELECT id FROM generation_sources WHERE path = ? COLLATE NOCASE", (folder,))
             row = cursor.fetchone()
             if not row:
                 return 0, []
@@ -1270,7 +1271,7 @@ class GenerationsOps:
             images = ("SELECT gi.id FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
                       "WHERE g.source_id = ?")
             cursor.execute(f"DELETE FROM generation_resources WHERE image_id IN ({images})", (source,))
-            cursor.execute(f"DELETE FROM image_details WHERE image_id IN ({images})", (source,))
+            cursor.execute(f"DELETE FROM generation_image_details WHERE image_id IN ({images})", (source,))
             made = "SELECT id FROM generations WHERE source_id = ?"
             cursor.execute(f"SELECT prompt_id, negative_id FROM generation_images WHERE generation_id IN ({made}) "
                            "UNION SELECT prompt_id, negative_id FROM generations WHERE source_id = ?", (source, source))
@@ -1283,7 +1284,7 @@ class GenerationsOps:
             cursor.execute(f"DELETE FROM task_generations WHERE generation_id IN ({made})", (source,))
             cursor.execute("DELETE FROM generations WHERE source_id = ?", (source,))
             removed = cursor.rowcount
-            cursor.execute("DELETE FROM image_sources WHERE id = ?", (source,))
+            cursor.execute("DELETE FROM generation_sources WHERE id = ?", (source,))
             self.drop_unused_prompts(cursor, freed)
             return removed, self._unnamed(cursor, paths)
 
@@ -1291,19 +1292,19 @@ class GenerationsOps:
         """The removed list: each file whose row was deleted with the file
         kept, lower case -> (size, modified time in ns) as it was then."""
         with self._cursor() as cursor:
-            cursor.execute("SELECT path, size, mtime_ns FROM removed_images")
+            cursor.execute("SELECT path, size, mtime_ns FROM generation_images_removed")
             return {row[0].lower(): (row[1], row[2]) for row in cursor.fetchall()}
 
     def remember_removed(self, entries: Iterable[Tuple[str, int, int]]) -> None:
         """Put files on the removed list, each (path, size, modified time in ns)."""
         with self._cursor() as cursor:
-            cursor.executemany("INSERT OR REPLACE INTO removed_images (path, size, mtime_ns) "
+            cursor.executemany("INSERT OR REPLACE INTO generation_images_removed (path, size, mtime_ns) "
                                "VALUES (?, ?, ?)", list(entries))
 
     def forget_removed(self, paths: Iterable[str]) -> None:
         """Take files off the removed list: they are gone from disk."""
         with self._cursor() as cursor:
-            cursor.executemany("DELETE FROM removed_images WHERE path = ? COLLATE NOCASE",
+            cursor.executemany("DELETE FROM generation_images_removed WHERE path = ? COLLATE NOCASE",
                                [(p,) for p in paths])
 
     def drop_unused_prompts(self, cursor, ids: Iterable[Optional[int]]) -> int:
@@ -1327,7 +1328,7 @@ class GenerationsOps:
                 row = cursor.fetchone()
                 if row is None:
                     continue
-                cursor.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+                cursor.execute("DELETE FROM generation_prompts WHERE id = ?", (prompt_id,))
                 dropped += 1
                 if row[0] and row[0] != prompt_id:
                     heads.add(row[0])
@@ -1354,7 +1355,7 @@ class GenerationsOps:
         found: Dict[str, Dict[str, Any]] = {}
         for start in range(0, len(paths), 500):
             part = paths[start:start + 500]
-            cursor.execute("SELECT path, thumbnail, size, mtime_ns FROM image_thumbnails "
+            cursor.execute("SELECT path, thumbnail, size, mtime_ns FROM generation_thumbnails "
                            f"WHERE path IN ({', '.join('?' * len(part))})", part)
             for path, thumbnail, size, mtime_ns in cursor.fetchall():
                 found[path.lower()] = {"thumbnail": thumbnail, "size": size, "mtime_ns": mtime_ns}
@@ -1373,7 +1374,7 @@ class GenerationsOps:
         """
         with self._cursor() as cursor:
             cursor.execute("SELECT MIN(gi.path), t.thumbnail, t.size, t.mtime_ns FROM generation_images gi "
-                           "LEFT JOIN image_thumbnails t ON t.path = gi.path "
+                           "LEFT JOIN generation_thumbnails t ON t.path = gi.path "
                            "WHERE gi.path IS NOT NULL AND gi.path <> '' GROUP BY gi.path COLLATE NOCASE")
             return [tuple(row) for row in cursor.fetchall()]
 
@@ -1381,7 +1382,7 @@ class GenerationsOps:
         """Keep each image's thumbnail as made: (path, thumbnail or None, the
         image's size, its modified time in ns), replacing the one before."""
         with self._cursor() as cursor:
-            cursor.executemany("INSERT OR REPLACE INTO image_thumbnails (path, thumbnail, size, mtime_ns) "
+            cursor.executemany("INSERT OR REPLACE INTO generation_thumbnails (path, thumbnail, size, mtime_ns) "
                                "VALUES (?, ?, ?, ?)", list(entries))
 
     def forget_thumbnails(self, paths: Iterable[str]) -> List[str]:
@@ -1397,9 +1398,9 @@ class GenerationsOps:
             for start in range(0, len(paths), 500):
                 part = paths[start:start + 500]
                 marks = ", ".join("?" * len(part))
-                cursor.execute(f"SELECT thumbnail FROM image_thumbnails WHERE path IN ({marks})", part)
+                cursor.execute(f"SELECT thumbnail FROM generation_thumbnails WHERE path IN ({marks})", part)
                 files += [row[0] for row in cursor.fetchall() if row[0]]
-                cursor.execute(f"DELETE FROM image_thumbnails WHERE path IN ({marks})", part)
+                cursor.execute(f"DELETE FROM generation_thumbnails WHERE path IN ({marks})", part)
         return files
 
     def unheld_checkpoint(self, generation_id: int) -> Optional[str]:
@@ -1448,7 +1449,7 @@ class GenerationsOps:
             # gave it (#233): there is no prompt to judge.
             cursor.execute("SELECT gi.id, d.meta, gi.prompt_nsfw_level FROM generation_images gi "
                            "JOIN generations g ON g.id = gi.generation_id "
-                           "LEFT JOIN image_details d ON d.image_id = gi.id "
+                           "LEFT JOIN generation_image_details d ON d.image_id = gi.id "
                            "WHERE NOT (g.source_id IS NOT NULL AND d.infotext IS NULL)")
             rows = cursor.fetchall()
         changed = []

@@ -29,7 +29,7 @@ have files of their own; read them too before working there.
 | `prompt_levels.py` | restamping stored image levels when the prompt words change |
 | `generations.py` | recording the images you generate: what each of Forge's hooks can see, and when |
 | `image_sync.py` | Sync images (#233): the images already in Forge's result folders added as generations - the walk and what it skips, the presses rebuilt from the text, the images with no text grouped by their names and a gap learnt from the library, and the job |
-| `thumbnails.py` | thumbnails of your generations (#5): where each goes - a folder, or `.thumbnails` beside its image - making one, 450 px tall, as WebP; which images need one; forgetting them when their image's row goes. Made by Sync images when asked, and by the recorder with the setting on; recorded in `image_thumbnails` by the image's path |
+| `thumbnails.py` | thumbnails of your generations (#5): where each goes - a folder, or `.thumbnails` beside its image - making one, 450 px tall, as WebP; which images need one; forgetting them when their image's row goes. Made by Sync images when asked, and by the recorder with the setting on; recorded in `generation_thumbnails` by the image's path |
 | `image_text.py` | what an image file says: its generation text, read with PIL, the text's last line by Forge's own pattern, and its name read back by Forge's naming settings (`NamePattern`) |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, Controlnet, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
 | `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
@@ -288,7 +288,7 @@ reads what Forge wrote into the file, so a synced generation has a
 the inputs. The recorder wins: saving a file a sync holds replaces the
 synced row. The presses are rebuilt by settings alike, seed +1 and running
 number +1: 630 of 630 recorded generations came out exactly. A delete that
-keeps the file puts it on `removed_images`, with its size and time, or the
+keeps the file puts it on `generation_images_removed`, with its size and time, or the
 next sync brings it back. A checkpoint the library lacks is kept by its
 name, a resource row with no path: Send stops on it and opens Resources.
 A sync skips every image it holds, so a fix to reading or matching reaches
@@ -304,7 +304,7 @@ saying why - it was enabled, and did nothing.
 
 **A thumbnail belongs to its image's path, never its id** (#5, v39). Force
 sync and the recorder write an image's row anew, with a new id; the path
-stays, so `image_thumbnails` is keyed by it, and a thumbnail survives both.
+stays, so `generation_thumbnails` is keyed by it, and a thumbnail survives both.
 Its row holds the image's size and time when it was made: a changed image
 is offered its full file until a sync makes it again. A thumbnail goes only
 with the last row naming its path - every removal the app makes calls

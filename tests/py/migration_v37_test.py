@@ -82,13 +82,13 @@ def rebuilt(connection):
                {', '.join('d.' + c for c in migrations._V37_GENERATION_DETAILS)},
                p.text AS prompt, q.text AS negative_prompt
         FROM generations g JOIN generation_details d ON d.generation_id = g.id
-        LEFT JOIN prompts p ON p.id = g.prompt_id LEFT JOIN prompts q ON q.id = g.negative_id""")}
+        LEFT JOIN generation_prompts p ON p.id = g.prompt_id LEFT JOIN generation_prompts q ON q.id = g.negative_id""")}
     images = {r['id']: dict(r) for r in connection.execute(f"""
         SELECT {', '.join('gi.' + c for c in migrations._V37_IMAGE)},
                {', '.join('d.' + c for c in migrations._V37_IMAGE_DETAILS)},
                p.text AS prompt, q.text AS negative_prompt
-        FROM generation_images gi JOIN image_details d ON d.image_id = gi.id
-        LEFT JOIN prompts p ON p.id = gi.prompt_id LEFT JOIN prompts q ON q.id = gi.negative_id""")}
+        FROM generation_images gi JOIN generation_image_details d ON d.image_id = gi.id
+        LEFT JOIN generation_prompts p ON p.id = gi.prompt_id LEFT JOIN generation_prompts q ON q.id = gi.negative_id""")}
     return generations, images
 
 
@@ -110,15 +110,17 @@ def differences(old, new, columns):
 path, facts, before = library('every_kind')
 db = ModelsDatabase(extension_dir=ROOT, custom_db_path=path)
 raw = sqlite3.connect(path)
-# Migrated to today's schema, through v37: later migrations only add (v38).
+# Migrated to today's schema, through v37: later migrations only add (v38), and
+# name two of its tables for your generations (v41).
 check('the database is at today\'s schema, past v37',
       raw.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone(), (str(SCHEMA_VERSION),))
 check('the old tables are gone, and nothing temporary is left',
       sorted(r[0] for r in raw.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND "
                                        "(name LIKE 'generation%' OR name LIKE '%v37' OR name = 'prompts' "
                                        "OR name = 'image_details')")),
-      ['generation_details', 'generation_images', 'generation_resources', 'generations', 'image_details',
-       'prompts'])
+      ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
+       'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
+       'generations'])
 check('backed up first, beside it', any(f.startswith('models.db.backup_') for f in os.listdir(os.path.dirname(path))))
 
 # 8: every column of every row, the same value and type.

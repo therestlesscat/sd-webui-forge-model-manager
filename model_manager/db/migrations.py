@@ -2106,13 +2106,104 @@ def _migrate_to_v40(cursor):
     print("[ModelManager] Migration to v40 complete")
 
 
+def _back_up(connection, db_path: str, version: int) -> str:
+    """
+    A copy of the whole database beside it, before migration `version`
+    changes what is there - through SQLite's backup API, as v25 did: the
+    database is in WAL mode, and a copy of its main file alone can miss what
+    was written last. Named for the version too: one run can back up twice
+    in a second - a database coming from v36 does, for v37 and for v41 - and
+    the second would have written over the first.
+
+    A transaction an earlier migration of the same run left open is committed
+    first, or the backup waits on it for ever; each migration tolerates being
+    run again, so committing them is safe, and the backup then holds them.
+    """
+    if connection.in_transaction:
+        connection.commit()
+    path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_v{version}"
+    target = sqlite3.connect(path)
+    try:
+        connection.backup(target)
+    finally:
+        target.close()
+    print(f"[ModelManager] Backed up the database to {path}")
+    return path
+
+
+# v41's renames: each table of your own images named for them, beside
+# Civitai's `images` (#284). The two indexes named after their table go with it.
+_V41_TABLES = (
+    ("prompts", "generation_prompts"),
+    ("image_details", "generation_image_details"),
+    ("image_thumbnails", "generation_thumbnails"),
+    ("image_sources", "generation_sources"),
+    ("removed_images", "generation_images_removed"),
+)
+_V41_INDEXES = (
+    ("idx_prompts_grouped", "idx_generation_prompts_grouped", "generation_prompts", ("grouped_as",)),
+    ("idx_prompts_lookup", "idx_generation_prompts_lookup", "generation_prompts", ("id", "grouped_as", "length")),
+)
+
+
+def _migrate_to_v41(cursor, db_path: str):
+    """
+    Five tables of your generations renamed, so every one says whose it is
+    (#284): beside `images`, which holds Civitai's, `prompts`, `image_details`,
+    `image_thumbnails`, `image_sources` and `removed_images` read as Civitai's.
+    Renamed in place - no row is copied or changed - and the two indexes named
+    after `prompts` made again under the new name. Backed up first wherever one
+    of them holds a row, as asked for this one; checked before the commit, a
+    difference raising so the transaction leaves the database at v40.
+    """
+    print("[ModelManager] Migrating to v41: the tables of your generations named for them...")
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    renames = [(old, new) for old, new in _V41_TABLES if old in tables and new not in tables]
+    indexes = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    if not renames and all(new in indexes for _, new, _, _ in _V41_INDEXES):
+        print("[ModelManager] Migration to v41 already done")
+        return
+    counts = {old: cursor.execute(f'SELECT COUNT(*) FROM "{old}"').fetchone()[0] for old, _ in renames}
+
+    connection = cursor.connection
+    if connection.in_transaction:
+        connection.commit()
+    if any(counts.values()):
+        _back_up(connection, db_path, 41)
+
+    # One transaction for every step: the caller's commit ends it, a raise
+    # rolls it back.
+    cursor.execute("BEGIN")
+    for old, new in renames:
+        cursor.execute(f'ALTER TABLE "{old}" RENAME TO "{new}"')
+    for old, new, table, columns in _V41_INDEXES:
+        cursor.execute(f'DROP INDEX IF EXISTS "{old}"')
+        cursor.execute(f'CREATE INDEX IF NOT EXISTS "{new}" ON "{table}"({", ".join(columns)})')
+
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    for old, new in renames:
+        if old in tables or new not in tables:
+            raise RuntimeError(f"[ModelManager] v41 did not rename {old} to {new}")
+        found = cursor.execute(f'SELECT COUNT(*) FROM "{new}"').fetchone()[0]
+        if found != counts[old]:
+            raise RuntimeError(f"[ModelManager] v41 would lose data: {new} holds {found} rows, "
+                               f"{old} held {counts[old]}")
+    for old, new, table, columns in _V41_INDEXES:
+        where = {row[0]: row[1] for row in cursor.execute(
+            "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?)", (old, new))}
+        on = tuple(row[2] for row in cursor.execute(f'PRAGMA index_info("{new}")'))
+        if old in where or where.get(new) != table or on != columns:
+            raise RuntimeError(f"[ModelManager] v41 did not make {new} on {table}{columns}")
+    print("[ModelManager] Migration to v41 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str):
     """Bring a database from `from_version` up to `to_version`, and no further."""
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
-    # Only v4, v25, v32 and v37 take the path; v4 the directory too. Each makes a
-    # backup first.
+    # Only v4, v25, v32, v37 and v41 take the path; v4 the directory too. Each
+    # makes a backup first.
     steps = {
         2: _migrate_to_v2, 3: _migrate_to_v3,
         4: lambda c: _migrate_to_v4(c, db_path, db_dir),
@@ -2128,6 +2219,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         33: _migrate_to_v33, 34: _migrate_to_v34, 35: _migrate_to_v35, 36: _migrate_to_v36,
         37: lambda c: _migrate_to_v37(c, db_path),
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
+        41: lambda c: _migrate_to_v41(c, db_path),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 40
+SCHEMA_VERSION = 41
 
 
 class ModelsDatabase:

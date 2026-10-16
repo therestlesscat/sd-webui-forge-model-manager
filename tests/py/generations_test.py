@@ -12,6 +12,7 @@ can be replaced after ours sees it - forge-helpers' hires cap does.
 import dataclasses
 import json
 import os
+import re
 import sqlite3
 import sys
 import types
@@ -49,7 +50,9 @@ dbmod._db_instance = db
 check('the database has the generation tables',
       sorted(r[0] for r in db._get_connection().execute(
           "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'")),
-      ['generation_details', 'generation_images', 'generation_resources', 'generations'])
+      ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
+       'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
+       'generations'])
 
 # ------------------------------------------------------------ Forge, stood in
 CHECKPOINT = facts['linked_paths'][0]
@@ -771,7 +774,7 @@ generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False, names=['syn
 check('the recorder replaces the row a sync wrote for its file',
       [tuple(r) for r in db._get_connection().execute(
           "SELECT g.source_id IS NULL, d.infotext IS NOT NULL FROM generation_images gi "
-          "JOIN generations g ON g.id = gi.generation_id JOIN image_details d ON d.image_id = gi.id "
+          "JOIN generations g ON g.id = gi.generation_id JOIN generation_image_details d ON d.image_id = gi.id "
           "WHERE gi.path = ?", (synced,)).fetchall()],
       [(1, 1)])
 
@@ -780,14 +783,14 @@ check('the recorder replaces the row a sync wrote for its file',
 # image that names it, and by the prompts it heads as their tidied text. A
 # delete removes the prompts it leaves unnamed, in its own transaction.
 raw = db._get_connection()
-UNUSED = ("SELECT p.id FROM prompts p "
+UNUSED = ("SELECT p.id FROM generation_prompts p "
           "WHERE NOT EXISTS (SELECT 1 FROM generations g WHERE g.prompt_id = p.id OR g.negative_id = p.id) "
           "AND NOT EXISTS (SELECT 1 FROM generation_images i WHERE i.prompt_id = p.id OR i.negative_id = p.id) "
-          "AND NOT EXISTS (SELECT 1 FROM prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")
+          "AND NOT EXISTS (SELECT 1 FROM generation_prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")
 
 
 def prompt_row(text):
-    row = raw.execute("SELECT id, grouped_as FROM prompts WHERE text = ?", (text,)).fetchone()
+    row = raw.execute("SELECT id, grouped_as FROM generation_prompts WHERE text = ?", (text,)).fetchone()
     return tuple(row) if row else None
 
 
@@ -885,7 +888,7 @@ def lookup_then_raced(cursor, text):
         try:
             other_writer.execute('DELETE FROM generation_images WHERE generation_id = ?', (first,))
             other_writer.execute('DELETE FROM generations WHERE id = ?', (first,))
-            other_writer.execute('DELETE FROM prompts WHERE id = ?', (found,))
+            other_writer.execute('DELETE FROM generation_prompts WHERE id = ?', (found,))
             other_writer.commit()
             raced.append('deleted')
         except sqlite3.OperationalError:
@@ -963,7 +966,7 @@ for module in ('generations_ops.py', 'database.py'):
         ours = {c.func.attr for c in ast.walk(node) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
                 and ast.unparse(c.func.value) in ('self', 'self._generations')}
         texts = [c.value for c in ast.walk(node) if isinstance(c, ast.Constant) and isinstance(c.value, str)]
-        deletes_images = bool(ours & DELETERS) or any('DELETE FROM generation_images' in t for t in texts)
+        deletes_images = bool(ours & DELETERS) or any(re.search(r'DELETE FROM generation_images\b', t) for t in texts)
         if deletes_images and 'drop_unused_prompts' not in ours:
             missing.append('%s %s' % (module, node.name))
 check('each method that deletes images runs the step that drops their unused prompts', missing, [])

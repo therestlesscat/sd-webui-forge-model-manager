@@ -221,7 +221,7 @@ made = db.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2i
 db.link_task_generation(t, made)
 db.delete_task(t, with_data=True)
 check("with its data, its generations' prompts go too",
-      db._get_connection().execute("SELECT COUNT(*) FROM prompts WHERE text IN (?, ?)",
+      db._get_connection().execute("SELECT COUNT(*) FROM generation_prompts WHERE text IN (?, ?)",
                                    ('a task prompt (#248)', 'a task negative (#248)')).fetchone()[0], 0)
 
 # ------------------------------------- deleted in the Generations tab

@@ -46,6 +46,13 @@ and the page draws one pill per version, with a Files list under it to read,
 not to pick from. Which of a version's files Send uses is decided by what each
 is and where it is (`send_plan.send_files`), and the list says which.
 
+**A table of your own images says so; Civitai's catalogue does not.** No
+table is named for Civitai, as above. Your generations' tables each start
+with `generation` - `generation_prompts`, `generation_thumbnails` and the rest
+(v41, #284) - so `images` and `image_*` are Civitai's images alone. Until v41,
+`prompts`, `image_details`, `image_thumbnails`, `image_sources` and
+`removed_images` held yours beside `images`, and read as Civitai's.
+
 **A file is known by its path; Civitai's id for it is a fact about it.**
 `files` is keyed by `file_path`: what Forge loads, what a sync walks, and what
 `pins` and `generation_resources` name - on purpose, so a pin or a generation's
@@ -83,8 +90,8 @@ several needs an order that cannot tie.
 
 **Your images are narrow rows; their details are kept apart** (#231, v37).
 Lists, groups and filters read `generations` and `generation_images`, about
-45 bytes a row; `generation_details` and `image_details` hold what one tile
-or one Send reads, the lists and paths exactly as recorded; `prompts` holds
+45 bytes a row; `generation_details` and `generation_image_details` hold what one tile
+or one Send reads, the lists and paths exactly as recorded; `generation_prompts` holds
 each text once, with `grouped_as` - the row holding its text with its
 spacing tidied, 0 when nothing is left - and its trimmed `length`.
 `generation_resources` is an index made from the recorded lists - each file
@@ -153,7 +160,7 @@ the lookup and the write leaves a row naming nothing.
   first in the row, 286; through an index holding it, 2.6; from a narrow
   table, 7. And it may pass over a covering index for a lookup by row id:
   each image's prompt looked up by id read the prompt's text row, 130 ms at
-  76,000 images, and 26 with `INDEXED BY idx_prompts_lookup` (#231).
+  76,000 images, and 26 with `INDEXED BY idx_generation_prompts_lookup` (#231).
 - **A table holding another source's facts is built from that source's
   fields, not from the old table's columns.** v32 split `model_versions` into
   what it held, and Civitai's own id for each file - which a sync, a download

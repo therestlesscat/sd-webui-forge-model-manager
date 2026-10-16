@@ -123,8 +123,9 @@ def page_image(path):
 
 
 # --------------------------------------------------------------- v39's table
-columns = [r[1] for r in raw.execute("PRAGMA table_info(image_thumbnails)").fetchall()]
-check('v39 adds image_thumbnails: the image\'s path, its thumbnail, its size and time',
+columns = [r[1] for r in raw.execute("PRAGMA table_info(generation_thumbnails)").fetchall()]
+check('v39 adds image_thumbnails, generation_thumbnails since v41: the image\'s path, its thumbnail, '
+      'its size and time',
       columns, ['path', 'thumbnail', 'size', 'mtime_ns'])
 
 # A v38 database comes up to v39, its rows untouched.
@@ -134,12 +135,12 @@ old.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2img', '
                       [{'position': 0, 'path': 'C:\\x.png', 'infotext': 'x'}], [[]])
 old._get_connection().close()
 with sqlite3.connect(OLD) as c:
-    c.execute("DROP TABLE image_thumbnails")
+    c.execute("DROP TABLE generation_thumbnails")
     c.execute("UPDATE schema_info SET value = '38' WHERE key = 'version'")
 migrated = fixtures.ModelsDatabase(extension_dir=ROOT, custom_db_path=OLD)
 mc = migrated._get_connection()
 check('v38 migrates on: the table is there, the version says the latest, the image is kept',
-      (bool(mc.execute("SELECT name FROM sqlite_master WHERE name = 'image_thumbnails'").fetchone()),
+      (bool(mc.execute("SELECT name FROM sqlite_master WHERE name = 'generation_thumbnails'").fetchone()),
        mc.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()[0],
        mc.execute("SELECT COUNT(*) FROM generation_images").fetchone()[0]),
       (True, str(SCHEMA_VERSION), 1))

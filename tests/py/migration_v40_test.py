@@ -71,7 +71,7 @@ check('the library has generations, images and prompts to keep',
 
 migrations.run_migrations(cursor, 39, 40, path, WORK)
 connection.commit()
-check('v40 is the schema this copy writes', SCHEMA_VERSION, 40)
+check('v40 is a schema this copy has passed', SCHEMA_VERSION >= 40)
 check('an index on each image\'s negative prompt',
       indexed(connection, 'generation_images').get('idx_images_negative'), ['negative_id'])
 check('an index on each generation\'s prompt and negative prompt',

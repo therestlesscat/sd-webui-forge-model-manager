@@ -115,10 +115,10 @@ def rows(sql, args=()):
 def unused():
     """The prompts nothing names: no generation, no image, no prompt they head."""
     return [r[0] for r in rows(
-        "SELECT p.id FROM prompts p "
+        "SELECT p.id FROM generation_prompts p "
         "WHERE NOT EXISTS (SELECT 1 FROM generations g WHERE g.prompt_id = p.id OR g.negative_id = p.id) "
         "AND NOT EXISTS (SELECT 1 FROM generation_images i WHERE i.prompt_id = p.id OR i.negative_id = p.id) "
-        "AND NOT EXISTS (SELECT 1 FROM prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")]
+        "AND NOT EXISTS (SELECT 1 FROM generation_prompts q WHERE q.grouped_as = p.id AND q.id <> p.id)")]
 
 
 def images_at(folder):
@@ -128,8 +128,10 @@ def images_at(folder):
 
 # ------------------------------------------------------------- v38's tables
 tables = {r[0] for r in rows("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
-check('v38 adds the folder table, the removed list and the two indexes',
-      {'image_sources', 'removed_images', 'idx_images_path', 'idx_generations_source'} <= tables, True)
+check('v38 adds the folder table, the removed list and the two indexes - the tables named for your '
+      'generations since v41',
+      {'generation_sources', 'generation_images_removed', 'idx_images_path', 'idx_generations_source'} <= tables,
+      True)
 check('generations name their folder', 'source_id' in {r[1] for r in rows("PRAGMA table_info(generations)")})
 
 # ------------------------------------------------------------ what is read
@@ -319,12 +321,12 @@ db.record_generation({'created_at': '2026-01-02T00:00:00', 'mode': 'txt2img', 'i
                      [{'position': 0, 'path': both, 'infotext': 'the full record'}], [[]])
 check('the recorder replaces an imported row for its file: one generation remains, the recorded one',
       (replaced, rows("SELECT g.source_id, d.infotext FROM generation_images gi JOIN generations g "
-                      "ON g.id = gi.generation_id JOIN image_details d ON d.image_id = gi.id "
+                      "ON g.id = gi.generation_id JOIN generation_image_details d ON d.image_id = gi.id "
                       "WHERE gi.path = ?", (both,))),
       (1, [(None, 'the full record')]))
 check('a recorded image is never replaced', db.replace_imported_images([both]), 0)
 check("the import's prompt, which nothing else names, goes with its row (#248)",
-      rows("SELECT COUNT(*) FROM prompts WHERE text = 'recorded later'")[0][0], 0)
+      rows("SELECT COUNT(*) FROM generation_prompts WHERE text = 'recorded later'")[0][0], 0)
 
 # ---------------------------------------------------------------- cancel
 CANCEL = os.path.join(OUT, 'cancel')
@@ -490,9 +492,9 @@ check('no image file is touched, and none goes on the removed list',
       ([True] * 3, [False] * 3))
 check('nothing of them is left in any table',
       rows("SELECT (SELECT COUNT(*) FROM generation_resources WHERE image_id NOT IN (SELECT id FROM generation_images)),"
-           " (SELECT COUNT(*) FROM image_details WHERE image_id NOT IN (SELECT id FROM generation_images)),"
+           " (SELECT COUNT(*) FROM generation_image_details WHERE image_id NOT IN (SELECT id FROM generation_images)),"
            " (SELECT COUNT(*) FROM generation_details WHERE generation_id NOT IN (SELECT id FROM generations)),"
-           " (SELECT COUNT(*) FROM image_sources WHERE path = ? COLLATE NOCASE)", (ADDED,)),
+           " (SELECT COUNT(*) FROM generation_sources WHERE path = ? COLLATE NOCASE)", (ADDED,)),
       [(0, 0, 0, 0)])
 check('nor a prompt only they named (#248)', [p for p in unused() if p in freed], [])
 check('it is off the list', [f['path'] for f in image_sync.folders()], [FORGE_DIR, OTHER])
@@ -598,7 +600,7 @@ remember_kept(db, db.delete_generation_image(id_of(dropped))[0])
 raw.execute("UPDATE generation_images SET generation_id = ?, position = 1 WHERE path = ?", (gen_of(split_a), split_b))
 raw.commit()
 recorded_before = rows("SELECT gi.id, gi.generation_id, d.infotext FROM generation_images gi "
-                       "JOIN image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,))
+                       "JOIN generation_image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,))
 forge_host.installed_modules = lambda: {'spaced .safetensors': SPACED}
 run([FORCE], level=UNKNOWN)
 check('a plain sync leaves a held image as it was written: no module',
@@ -619,7 +621,7 @@ check('a deleted image is not brought back', rows("SELECT COUNT(*) FROM generati
                                                   (dropped,))[0][0], 0)
 check('a recorded image is untouched: same row, same record',
       rows("SELECT gi.id, gi.generation_id, d.infotext FROM generation_images gi "
-           "JOIN image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,)), recorded_before)
+           "JOIN generation_image_details d ON d.image_id = gi.id WHERE gi.path = ?", (kept_record,)), recorded_before)
 check('no image is held twice',
       rows("SELECT COUNT(*) FROM (SELECT LOWER(path) FROM generation_images GROUP BY LOWER(path) HAVING COUNT(*) > 1)")[0][0], 0)
 
@@ -659,13 +661,13 @@ db.record_generation({'created_at': '2026-01-04T00:00:00', 'mode': 'txt2img', 'i
                       'prompt': 'force prompt later'},
                      [{'position': 0, 'path': os.path.join(OUT, 'force-later.png'), 'prompt': 'force prompt later'}],
                      [[]])
-kept_prompt = rows("SELECT id FROM prompts WHERE text = 'force prompt kept'")
+kept_prompt = rows("SELECT id FROM generation_prompts WHERE text = 'force prompt kept'")
 save(PROMPTS, '02001-p.png', infotext('force prompt after', 60000), at=5000)
 image_sync.ImageSync([{'path': PROMPTS}], UNKNOWN, True, force=True).run()
 check('Force sync keeps the number of a prompt the new rows name again',
-      rows("SELECT id FROM prompts WHERE text = 'force prompt kept'"), kept_prompt)
+      rows("SELECT id FROM generation_prompts WHERE text = 'force prompt kept'"), kept_prompt)
 check('and drops the prompt only the old rows named, for the new one',
-      [rows("SELECT COUNT(*) FROM prompts WHERE text = ?", (t,))[0][0]
+      [rows("SELECT COUNT(*) FROM generation_prompts WHERE text = ?", (t,))[0][0]
        for t in ('force prompt before', 'force prompt after')], [0, 1])
 check('no prompt is left that nothing names', unused(), [])
 
