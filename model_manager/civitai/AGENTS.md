@@ -43,3 +43,20 @@ because that would mean the assumption no longer holds.
   Civitai images, 13,597 had `meta: null`, and 14 of 480,615
   `civitaiResources` entries a version id with no model id. Send threw on the
   first (#266); View asks the server for the second (#260).
+- **Whether a version may be downloaded has one bulk answer.** `POST
+  /api/v1/model-versions/by-hash` takes up to 100 SHA-256s and answers each
+  matching version whole, `usageControl` included (#229); the search,
+  `/models/{id}`, `mini/{id}` and `by-hash/ids` leave it out. A version comes
+  back once per file a hash matches, so one sharing a file with another
+  returns in a later request too: the log first said 4,534 "of 4,496". Its
+  answer is `/model-versions/{id}`'s, the same size: a median of 14 and 15 KB
+  a version on two samples of 100, nearly all of it the images' generation
+  data; the 5 largest of 100 carried 43 to 47% of the bytes, the largest 1.6
+  MB. Say the median and the spread: "77 KB a version" was a mean, and made
+  one panel sound like megabytes. 2 of the 50 newest versions had no SHA-256
+  on any file, and cannot be asked.
+- **On-site only is per version, not in the licence.** The model's licence
+  fields (`allowCommercialUse` and the rest) are the model's, and set apart;
+  `usageControl` is each version's. Setting it takes a Gold membership or a
+  permission (Civitai's `model-version-usage-control.ts`), which is why it is
+  rare.

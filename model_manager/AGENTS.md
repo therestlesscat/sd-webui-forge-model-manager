@@ -261,6 +261,15 @@ press - it reads the database. While its turn fetches, 0.3 to 0.7 s, a
 running download still reads `pending`, with no place in the queue: its row
 says "Waiting...".
 
+**Every sync ends by asking which versions allow downloads** (#229): a full
+sync, a metadata sync, a model's Sync and a download's sync ask Civitai's
+lookup by hash about every version of the models they read, 100 a request,
+and keep it (`look_up_listed_versions`). A caller syncing several files passes
+`look_up=False` to each and asks once after the last. The bar counts these
+requests from the sync's start (`_reserve_lookups`): counted only once they
+ran, it first sat at 100% for 45 requests and 35 s on one library, then -
+counted late - stepped back.
+
 ### The page
 
 **A gallery switch's number holds when it is flipped.** An image both the NSFW
@@ -393,8 +402,9 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   `Download` makes its download answer 401, "The creator of this asset has
   disabled downloads on this file". Our 401 branch
   (`download_service.py`, since 2220995) blamed a missing API key whatever
-  Civitai said (#224). A sample of about 2,000 versions found none to test
-  with (#226).
+  Civitai said (#224). A sample of about 2,000 versions found none; one
+  library's sync of 4,496 found 3 `Generation` and 5 `ExternalGeneration`
+  (#226), kept in `version_records` (`model_manager/db/AGENTS.md`).
 
 ### The code
 

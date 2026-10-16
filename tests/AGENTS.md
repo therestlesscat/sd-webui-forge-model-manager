@@ -61,6 +61,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   And a check can sit where the break draws the same thing: #240's hidden-tab
   check hid the grid while it was at the top, where a wrong redraw draws the
   same rows. Scrolled 20,000 px first, it failed on the break.
+- **A failure report the console cannot print hides the failure.** A check
+  expecting the settings' ⚙ failed on HEAD, and printing it crashed the
+  suite on Windows' console (cp1252) before any FAIL line; `download_test`
+  writes with `sys.stdout.reconfigure(errors='backslashreplace')` (#224).
+- **A suite HEAD cannot import is proven by breaks.** #229's server suite
+  imports what HEAD lacks: 11 deliberate breaks of the new code each failed a
+  check instead, and 3 of the page's. The late-answer check passed its break
+  until it opened the panel - a redraw the break needed to show.
 - **A work check takes the real request's shape.** At the suite's page of 4
   tiles, a part read 4 of 14 base-model groups, and Classic grew 5.3 steps
   per image and group - under the bound meant to catch it. At the tab's 100

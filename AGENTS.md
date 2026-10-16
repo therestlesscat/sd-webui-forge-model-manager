@@ -176,6 +176,10 @@ existed.
 
 ### Getting it right
 
+- **A log line is not a version.** "4534 of 4496" was read as 7870 still
+  running the code before a fix; the new code printed it too - a second
+  bug - and the owner had restarted (#229). Before saying what code a WebUI
+  runs, check that the new code cannot print what it shows.
 - **Never guess at an import or a function name.** Read the module. A name
   that looks obvious is how `get_max_nsfw_level` returned `UNKNOWN` without
   importing it. The console's trace helper was first named `failed` - the
@@ -550,6 +554,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 
 ### Proving a change
 
+- **Measure at the sizes the page asks.** #229's issue costed a page of 100
+  cards; a page holds 5 to 50. "this seems to be the worst case scenario",
+  the owner said - measured again, 20 cards took 0.3 to 0.4 s and 0.3 to 1 MB.
 - **Drive the page's own control, not its endpoint.** A download started by
   a POST to `/model-manager/civitai/download` was never followed by the
   page: its poll starts from the page's own Download. So Forge's lists were
@@ -701,7 +708,7 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   318 refspecs, and aborted a push - write `${t}:`.
 - **7880's copy of the extension is its own**: a git clone with files copied
   over it - not a link to this working tree - so its version is the last
-  copy's (0.60.1 on 2026-10-16, its database at v42). A change reaches it
+  copy's (0.61.0 on 2026-10-16, its database at v43). A change reaches it
   by copying the changed files there, then a restart (`POST
   /model-manager/restart`). It is not always running: when its port does not
   listen, a live check waits for the owner to start it. A restart's first answers can come from the old

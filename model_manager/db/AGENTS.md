@@ -104,6 +104,15 @@ share a date to the millisecond, or have none; without the tie-break SQLite
 returned either, and a cover changed between loads. Anything that picks one of
 several needs an order that cannot tie.
 
+**Civitai's record of a version is kept whole, in two halves** (#229, v43).
+`version_records` holds a row for each version a model's stored list names,
+held or not: what the model's answer said of it (`listed`) and what the lookup
+by hash said (`looked_up`, the one with `usageControl`), each with its time,
+neither with the showcase images. A list written again keeps the other half
+until it is asked afresh; a version the list no longer names loses its row,
+and a forgotten model takes its rows (`prune_orphans`). On one library, 4,498
+rows in 15.4 MB, about 3.6 KB each: both halves carry the version's notes.
+
 ### Civitai's images
 
 **A Civitai image is stored once, whatever galleries show it** (#283, v42).

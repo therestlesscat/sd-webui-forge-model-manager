@@ -154,6 +154,11 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   65 ms was the button held. Event Timing's `duration` runs from the input to
   the frame on screen. A trace may open with a focusing click: anchor on the
   input being measured. Esc, read the same way, was 19.6 ms.
+- **After a sync, its log covers the Model Manager.** The grid and the
+  details are `display: none` until the log's Hide (`mm_sync_log_hide`), and
+  Playwright's clicks failed as "not visible" (#229). The bar's text keeps its
+  last words ("Syncing: 8/8 - Preparing..."); the sync's end is in
+  `mm_status`.
 
 ## Kept elsewhere, and true here too
 
