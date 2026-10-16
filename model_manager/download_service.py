@@ -54,6 +54,33 @@ _clock = time.monotonic
 #: A download asked for and not yet over: asked for again, it is not started again.
 ON_ITS_WAY = ("pending", "downloading", "finishing", "paused")
 
+_ADD_A_KEY = ("Add one in the settings (⚙ at the top right of the Model Manager or Civitai Browser tab), "
+              "under Civitai connection.")
+
+
+def _civitai_message(body: str) -> str:
+    """Why Civitai refused a download: the "message" of its JSON answer, or ''."""
+    try:
+        return (json.loads(body) or {}).get("message") or ""
+    except (ValueError, AttributeError):
+        return ""
+
+
+def _refused_401(reason: str, key_set: bool) -> str:
+    """
+    What a 401 from Civitai's download says (#224). It sends one for a login
+    the creator asks for - only to a request without a session, so a key is
+    what helps - and for a version whose creator turned downloads off, which
+    no key changes. Both said a key was missing until Civitai's words were read.
+    """
+    if not reason:
+        return ("Civitai asks for an API key for this download. " + _ADD_A_KEY if not key_set else
+                "Civitai refused the download (HTTP 401) without saying why.")
+    said = f"Civitai refused the download: {reason}"
+    if key_set or "logged in" not in reason.lower():
+        return said
+    return f"{said}{'' if said.endswith(('.', '!', '?')) else '.'} An API key logs you in. {_ADD_A_KEY}"
+
 
 @dataclass
 class DownloadProgress:
@@ -985,17 +1012,12 @@ class DownloadService:
 
                     if status_code == 401:
                         progress.status = "error"
-                        progress.error = ("Civitai asks for an API key for this download. Add one in the settings "
-                                          "(\u2699 at the top right of the Model Manager or Civitai Browser tab), "
-                                          "under Civitai connection.")
+                        progress.error = _refused_401(_civitai_message(response_body),
+                                                      bool(api_key_from_settings()))
                         return False
                     elif status_code == 403:
                         # Civitai says why, in JSON - "Early Access", say.
-                        reason = ""
-                        try:
-                            reason = (json.loads(response_body) or {}).get("message") or ""
-                        except (ValueError, AttributeError):
-                            pass
+                        reason = _civitai_message(response_body)
                         progress.status = "error"
                         progress.error = (f"Civitai refused the download: {reason}" if reason else
                                           "Access denied. This model may require special permissions or a valid API key.")

@@ -21,7 +21,11 @@ for _p in (ROOT, TESTS):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import webui_stub                                        # noqa: E402
+# A failure naming the settings' ⚙ crashed the report on Windows' console
+# (cp1252), and hid which check had failed.
+sys.stdout.reconfigure(errors='backslashreplace')
+
+import webui_stub                                       # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'download')
 shutil.rmtree(WORK, ignore_errors=True)
@@ -382,6 +386,30 @@ ok, progress = download(FakeResponse(error=http_error(403)))
 check('a 403 fails too', ok, False)
 check('blaming permissions', 'Access denied' in (progress.error or ''), True)
 check('and does not retry either', len(FakeSession.asked), 1)
+
+# Civitai says why it refused (#224): a creator who turned downloads off, a
+# login it asks for. Only the login is a key's to fix, and only with none set.
+DISABLED = '{"error":"Unauthorized","message":"The creator of this asset has disabled downloads on this file"}'
+LOGIN = '{"error":"Unauthorized","message":"The creator of this asset requires you to be logged in to download it"}'
+ok, progress = download(FakeResponse(error=http_error(401, DISABLED)))
+check("a 401 for downloads turned off says Civitai's words, and nothing of a key", progress.error,
+      'Civitai refused the download: The creator of this asset has disabled downloads on this file')
+check('without retrying', len(FakeSession.asked), 1)
+
+ok, progress = download(FakeResponse(error=http_error(401, LOGIN)))
+check('one asking for a login, with no key set, says so, and where a key goes', progress.error,
+      'Civitai refused the download: The creator of this asset requires you to be logged in to download it. '
+      'An API key logs you in. Add one in the settings (⚙ at the top right of the Model Manager or '
+      'Civitai Browser tab), under Civitai connection.')
+
+opts.model_manager_civitai_api_key = 'test-key'
+ok, progress = download(FakeResponse(error=http_error(401, LOGIN)))
+check("with a key set, Civitai's words alone: the key was sent", progress.error,
+      'Civitai refused the download: The creator of this asset requires you to be logged in to download it')
+ok, progress = download(FakeResponse(error=http_error(401)))
+check('and one that says nothing, with a key set, does not blame a missing key', progress.error,
+      'Civitai refused the download (HTTP 401) without saying why.')
+opts.model_manager_civitai_api_key = ''
 
 ok, progress = download(*[FakeResponse(error=http_error(500))] * 3)
 check('a server error fails after retrying', ok, False)
