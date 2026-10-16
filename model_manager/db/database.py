@@ -41,6 +41,15 @@ from ..console import say
 # The schema this code expects. Bumping it means adding a migration.
 SCHEMA_VERSION = 43
 
+# How long a call waits for another's write before "database is locked".
+BUSY_SECONDS = 30.0
+# How long it waits while the database is compacted (#287): a VACUUM holds
+# the database for its whole length, past 30 s on a slow disk, and a write
+# that gave up - a generation's record - would be lost. Reads never wait.
+COMPACT_WAIT_SECONDS = 3600.0
+# Set while upkeep.Compact runs.
+compacting = threading.Event()
+
 
 class ModelsDatabase:
     """
@@ -81,15 +90,24 @@ class ModelsDatabase:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
             # Wait for locks rather than failing, and use WAL so a read during
             # a long scan does not block.
-            self._local.connection = sqlite3.connect(self.db_path, timeout=30.0)
+            self._local.connection = sqlite3.connect(self.db_path, timeout=BUSY_SECONDS)
             self._local.connection.row_factory = sqlite3.Row
             self._local.connection.execute("PRAGMA journal_mode=WAL")
+            self._local.waits_compact = False
         return self._local.connection
 
     @contextmanager
     def _cursor(self):
         """Context manager for database cursor."""
         conn = self._get_connection()
+        # While a compact runs, a write waits for it; the first call after it
+        # waits as long as ever again. Set only when it changes, so a call
+        # inside another keeps what the outer one set.
+        waits = compacting.is_set()
+        if waits != self._local.waits_compact:
+            seconds = COMPACT_WAIT_SECONDS if waits else BUSY_SECONDS
+            conn.execute(f"PRAGMA busy_timeout = {int(seconds * 1000)}")
+            self._local.waits_compact = waits
         cursor = conn.cursor()
         try:
             yield cursor

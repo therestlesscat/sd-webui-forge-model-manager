@@ -1,5 +1,7 @@
 """
-The settings window's two endpoints: what the settings are, and saving them.
+The settings window's endpoints: what the settings are, and saving them; and
+the database file's space and backups, which it shows under Database file
+(#287).
 
 The settings themselves are the WebUI's, registered in ui/settings.py and kept
 in shared.opts. The window is a second way to edit them, not a copy: what it
@@ -18,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
-from .common import gate
+from .common import failed, gate
 
 SECTION_ID = "model_manager"
 SECRET = "model_manager_civitai_api_key"
@@ -387,3 +389,58 @@ def register(app: FastAPI):
             return JSONResponse(answer, status_code=200 if answer["success"] else 400)
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+    # ------------------------------------------- the database file (#287)
+
+    @app.get("/model-manager/database/space")
+    @gate("any")
+    def database_space():
+        """
+        The database in use: its size, the space no row uses, what would stop
+        a compact, the running or last compact, and the backups beside it.
+        """
+        from ..db import upkeep
+        try:
+            return JSONResponse({"success": True, **upkeep.space(upkeep.in_use())})
+        except Exception as e:
+            return failed(e, "Reading the database's space")
+
+    @app.post("/model-manager/database/compact")
+    @gate("any")
+    def database_compact():
+        """Start a compact of the database in use; 409 with why when it cannot."""
+        from ..db import upkeep
+        try:
+            reason = upkeep.start(upkeep.in_use())
+        except Exception as e:
+            return failed(e, "Starting a compact")
+        if reason:
+            return JSONResponse({"success": False, "error": reason}, status_code=409)
+        return JSONResponse({"success": True, "compact": upkeep.progress()})
+
+    @app.get("/model-manager/database/compact")
+    @gate("any")
+    def database_compact_progress():
+        """The running or last compact's progress, for the window's poll; null before any."""
+        from ..db import upkeep
+        return JSONResponse({"success": True, "compact": upkeep.progress()})
+
+    @app.post("/model-manager/database/compact/cancel")
+    @gate("any")
+    def database_compact_cancel():
+        """Interrupt the running compact: the database stays as it was."""
+        from ..db import upkeep
+        if not upkeep.cancel():
+            return JSONResponse({"success": False, "error": "No compact is running."}, status_code=409)
+        return JSONResponse({"success": True})
+
+    @app.post("/model-manager/database/backups/delete")
+    @gate("any")
+    def database_backups_delete(names: List[str] = Body(..., embed=True)):
+        """Delete backups beside the database, by their names alone; each name's end."""
+        from ..db import upkeep
+        try:
+            answer = upkeep.delete_backups(upkeep.in_use(), names)
+        except Exception as e:
+            return failed(e, "Deleting database backups")
+        return JSONResponse(answer, status_code=200 if answer["success"] else 409)

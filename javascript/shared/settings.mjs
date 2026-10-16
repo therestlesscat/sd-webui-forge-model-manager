@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, holdPage } = await shared('core.mjs');
+const { TIMING, escapeHtml, formatBytes, holdPage } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 
 const K = {
@@ -236,6 +236,8 @@ function createSettings() {
     const previewAsked = {};
     const previewDrawn = {};         // what each preview last drew, to skip redrawing it
     let keyTests = 0;                // a key test's answer is shown only if nothing changed since
+    // The database file's space and backups, under Database file (#287).
+    const upkeep = createUpkeep(() => root?.querySelector('#mm_settings_upkeep') || null);
 
     const state = {
         value: (key) => draft[key],
@@ -326,6 +328,7 @@ function createSettings() {
             </details>`).join('');
         refresh();
         loadWhatsNew();
+        upkeep.start();
         if (openedFor.section) body.querySelector(`[data-section="${openedFor.section}"]`)?.scrollIntoView?.({ block: 'start' });
         if (openedFor.focus) {
             const field = body.querySelector(['input', 'textarea', 'select']
@@ -388,6 +391,7 @@ function createSettings() {
                 ${head}
                 ${renderControl(key, control, id, label)}
                 <div class="mm-settings-extra" data-extra="${escapeHtml(key)}"></div>
+                ${key === K.database ? '<div class="mm-upkeep" id="mm_settings_upkeep"></div>' : ''}
                 ${s.info ? `<div class="mm-settings-help">${escapeHtml(s.info)}</div>` : ''}
                 <div class="mm-settings-error" data-error="${escapeHtml(key)}"></div>
             </div>`;
@@ -814,6 +818,7 @@ function createSettings() {
     function redrawField(key) {
         const field = root.querySelector(`.mm-settings-field[data-key="${key}"]`);
         if (field) field.outerHTML = renderField(key);
+        if (key === K.database) upkeep.draw();
         refresh();
     }
 
@@ -874,6 +879,14 @@ function createSettings() {
             t.textContent = input.type === 'password' ? 'Show' : 'Hide';
         } else if (act === 'test-key') {
             testKey(t);
+        } else if (act === 'compact') {
+            upkeep.compact();
+        } else if (act === 'compact-cancel') {
+            upkeep.cancel();
+        } else if (act === 'backup-delete') {
+            upkeep.remove([t.dataset.name]);
+        } else if (act === 'backups-delete-all') {
+            upkeep.remove(null);
         } else if (act === 'forget') {
             secretTyped = '';
             showKeyTest('', '');
@@ -990,10 +1003,12 @@ function createSettings() {
         if (n && !window.confirm(`Discard ${n} unsaved change${n === 1 ? '' : 's'}?`)) return;
         root.style.display = 'none';
         holdPage('settings', false);
+        upkeep.stop();
     }
 
     /** Gone with the last tab (#186): its routes refuse now, so nothing in it is asked to be kept. */
     function remove() {
+        upkeep.stop();
         if (root) holdPage('settings', false);
         root?.remove();
         root = null;
@@ -1029,6 +1044,7 @@ function createSettings() {
             take(answer);
             root.style.display = 'none';
             holdPage('settings', false);
+            upkeep.stop();
             window.dispatchEvent(new CustomEvent('mm-settings-saved', {
                 detail: { changed: answer.changed || [], settings: answer.settings },
             }));
@@ -1042,6 +1058,271 @@ function createSettings() {
     }
 
     return { open, close, remove };
+}
+
+// ------------------------------------------------------------------------
+// The database file: the space no row uses, and the backups beside it (#287)
+
+// Seconds a compact takes per byte kept, on a fast disk: 17.4 s for 1.76 GB.
+const COMPACT_SECONDS_PER_BYTE = 17.4 / 1.76e9;
+
+// formatBytes says "Unknown" for 0: here 0 is known.
+const sizeText = (bytes) => (bytes > 0 ? formatBytes(bytes) : '0 B');
+
+/** When a backup was made, as its line says it: "15 Oct 2026, 23:39". */
+function backupMade(made) {
+    const date = new Date(made);
+    if (Number.isNaN(date.getTime())) return made;
+    return date.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric',
+                                          hour: '2-digit', minute: '2-digit' });
+}
+
+function backupHolds(backup) {
+    if (backup.kind === 'image_cache') return 'the old image cache';
+    return backup.holds === null || backup.holds === undefined ? 'version unknown' : `database version ${backup.holds}`;
+}
+
+/**
+ * The Compact database line and the Old backups list, drawn into the box
+ * `container()` finds - the settings window's, under Database file - from
+ * the server's answer (db/upkeep.py). It asks again each second while a
+ * compact runs, and every few seconds while something stops one, so the
+ * button comes back by itself.
+ */
+function createUpkeep(container) {
+    let space = null;      // the server's last answer
+    let message = null;    // {text, tone}: what an action's answer said
+    let watched = false;   // a compact this window started or saw running: its end is shown
+    let timer = null;
+    let asked = 0;         // an answer is drawn only if nothing was asked since
+    let active = false;    // between the window's drawing and its closing
+
+    function later(work, ms) {
+        clearTimeout(timer);
+        timer = setTimeout(work, ms);
+    }
+
+    /** Ask the server, and draw what it says. */
+    async function ask() {
+        clearTimeout(timer);
+        timer = null;
+        if (!active || !container()) return;
+        const mine = ++asked;
+        let answer;
+        try {
+            answer = await (await fetch('/model-manager/database/space', { cache: 'no-store' })).json();
+        } catch (e) {
+            answer = { success: false, error: e.message };
+        }
+        if (mine !== asked || !active || !container()) return;
+        space = answer;
+        draw();
+        if (!answer.success) return;
+        if (answer.compact?.state === 'running') {
+            watched = true;
+            later(follow, TIMING.compactPoll);
+        } else if (answer.blocked) {
+            later(ask, TIMING.compactRetry);
+        }
+    }
+
+    /** A running compact's progress, each second until it ends. */
+    async function follow() {
+        timer = null;
+        if (!active || !container()) return;
+        let answer;
+        try {
+            answer = await (await fetch('/model-manager/database/compact', { cache: 'no-store' })).json();
+        } catch (e) {
+            answer = null;
+        }
+        if (!active || !container()) return;
+        if (answer?.success && answer.compact?.state === 'running') {
+            space = { ...space, compact: answer.compact };
+            draw();
+            later(follow, TIMING.compactPoll);
+        } else {
+            ask();
+        }
+    }
+
+    function compactHtml() {
+        const s = space;
+        const c = s.compact;
+        if (c?.state === 'running') {
+            return `
+                <div class="mm-upkeep-row">
+                    <span class="mm-upkeep-line">Compacting the database... ${Math.floor(c.seconds)} s</span>
+                    <button type="button" class="mm-btn mm-btn-small" data-act="compact-cancel">Cancel</button>
+                </div>
+                <div class="mm-restamp-bar mm-restamp-unknown"><div class="mm-restamp-fill"></div></div>`;
+        }
+        const total = s.file_bytes + s.wal_bytes;
+        let ended = '';
+        if (c && (watched || (c.state === 'done' && !c.shrunk))) {
+            let text;
+            let tone = 'good';
+            if (c.state === 'done' && c.shrunk) {
+                text = `Compacted: ${sizeText(c.before)} to ${sizeText(c.after)}, `
+                    + `${sizeText(Math.max(0, c.before - c.after))} freed, in ${Math.round(c.seconds)} s.`;
+            } else if (c.state === 'done') {
+                text = `Compacted. The file shrinks to ${sizeText(s.pages * s.page_size)} as soon as nothing `
+                    + 'is reading it: something was reading it for the 30 seconds the compact waited. '
+                    + 'This window tries again each time it asks.';
+                tone = 'warn';
+            } else if (c.state === 'cancelled') {
+                text = 'Cancelled: the database is as it was.';
+                tone = '';
+            } else if (c.locked) {
+                text = 'Could not compact: another program was writing to the database, most likely the other '
+                    + 'WebUI sharing it. Nothing was changed; try again when it is idle.';
+                tone = 'bad';
+            } else {
+                text = `Could not compact: ${c.error || 'the server did not say why'}. Nothing was changed.`;
+                tone = 'bad';
+            }
+            ended = `<div class="mm-upkeep-line" data-tone="${tone}" role="status">${escapeHtml(text)}</div>`;
+        }
+        let line;
+        let why = '';
+        if (s.blocked) {
+            line = s.blocked;
+            why = s.blocked;
+        } else if (s.free_bytes < s.min_free) {
+            line = `The file is already compact: ${sizeText(s.free_bytes)} of ${sizeText(total)} unused.`;
+            why = line;
+        } else {
+            line = `About ${sizeText(s.free_bytes)} of the ${sizeText(total)} file is unused.`;
+        }
+        return `${ended}
+            <div class="mm-upkeep-row">
+                <span class="mm-upkeep-line">${escapeHtml(line)}</span>
+                <button type="button" class="mm-btn mm-btn-small" data-act="compact"
+                        ${why ? `disabled title="${escapeHtml(why)}"` : ''}>Compact database</button>
+            </div>`;
+    }
+
+    function backupsHtml() {
+        const list = space.backups || [];
+        if (!list.length) return '<div class="mm-upkeep-line">No old backups beside the database.</div>';
+        return `
+            <div class="mm-upkeep-row mm-upkeep-backups-head">
+                <span class="mm-upkeep-line">Old backups: ${list.length} ${list.length === 1 ? 'copy' : 'copies'},
+                    ${sizeText(space.backups_bytes)}</span>
+                <button type="button" class="mm-btn mm-btn-small" data-act="backups-delete-all">Delete all</button>
+            </div>
+            <div class="mm-upkeep-backups">
+                ${list.map((b) => `
+                    <span>${escapeHtml(backupMade(b.made))}</span>
+                    <span>${escapeHtml(backupHolds(b))}</span>
+                    <span>${escapeHtml(sizeText(b.bytes))}</span>
+                    <button type="button" class="mm-btn mm-btn-small" data-act="backup-delete"
+                            data-name="${escapeHtml(b.name)}">Delete</button>`).join('')}
+            </div>`;
+    }
+
+    function draw() {
+        const box = container();
+        if (!box || !space) return;
+        if (!space.success) {
+            box.innerHTML = `<div class="mm-upkeep-line" data-tone="warn">Could not read the database's space: ${
+                escapeHtml(space.error || 'the server did not say why')}</div>`;
+            return;
+        }
+        box.innerHTML = compactHtml()
+            + (message ? `<div class="mm-upkeep-line" data-tone="${escapeHtml(message.tone)}" role="status">${
+                escapeHtml(message.text)}</div>` : '')
+            + backupsHtml();
+    }
+
+    async function post(endpoint, body) {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+        });
+        return response.json();
+    }
+
+    async function compact() {
+        const s = space;
+        if (!s?.success) return;
+        const seconds = Math.max(5, Math.round(s.kept_bytes * COMPACT_SECONDS_PER_BYTE / 5) * 5);
+        const question = `Compact the database? It rewrites the ${sizeText(s.file_bytes + s.wal_bytes)} file: `
+            + `about ${seconds} seconds on a fast disk, longer on a slow one. `
+            + 'Generations, downloads and syncs in this WebUI wait until it ends.'
+            + (s.custom_database ? ' Another WebUI sharing this file should not generate or sync meanwhile: '
+                + 'its writes give up after 30 seconds.' : '');
+        if (!window.confirm(question)) return;
+        message = null;
+        let answer;
+        try {
+            answer = await post('/model-manager/database/compact');
+        } catch (e) {
+            answer = { success: false, error: e.message };
+        }
+        if (answer.success) {
+            watched = true;
+        } else {
+            message = { text: `Not compacted: ${answer.error || 'the server did not say why'}`, tone: 'bad' };
+        }
+        ask();
+    }
+
+    async function cancel() {
+        try {
+            await post('/model-manager/database/compact/cancel');
+        } catch (e) {
+            // The next ask shows where it is.
+        }
+        ask();
+    }
+
+    /** Delete these backups by name, all of them for null - each after a question. */
+    async function remove(names) {
+        const list = space?.backups || [];
+        const chosen = names === null ? list : list.filter((b) => names.includes(b.name));
+        if (!chosen.length) return;
+        const bytes = chosen.reduce((sum, b) => sum + b.bytes, 0);
+        const question = chosen.length === 1 && names !== null
+            ? `Delete the backup of ${backupHolds(chosen[0])}, made ${backupMade(chosen[0].made)}? `
+                + `It frees ${sizeText(chosen[0].bytes)}. It cannot be undone.`
+            : `Delete all ${chosen.length} backups? They free ${sizeText(bytes)}. They cannot be undone.`;
+        if (!window.confirm(question)) return;
+        let answer;
+        try {
+            answer = await post('/model-manager/database/backups/delete', { names: chosen.map((b) => b.name) });
+        } catch (e) {
+            answer = { success: false, error: e.message };
+        }
+        if (!answer.success) {
+            message = { text: `Not deleted: ${answer.error || 'the server did not say why'}`, tone: 'bad' };
+        } else {
+            const kept = (answer.results || []).filter((r) => !r.deleted);
+            message = kept.length
+                ? { text: kept.map((r) => `Could not delete ${r.name}: ${r.error}.`).join(' '), tone: 'bad' }
+                : null;
+        }
+        ask();
+    }
+
+    /** The window drawn: ask for the file's space. */
+    function start() {
+        active = true;
+        message = null;
+        watched = false;
+        ask();
+    }
+
+    /** The window closed: no more asking. */
+    function stop() {
+        active = false;
+        clearTimeout(timer);
+        timer = null;
+        asked += 1;
+    }
+
+    return { start, stop, draw, compact, cancel, remove };
 }
 
 // ------------------------------------------------------------------------

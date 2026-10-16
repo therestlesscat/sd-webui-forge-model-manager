@@ -3870,16 +3870,64 @@ textarea.mm-settings-input {
     display: none;
 }
 
-.mm-settings-key-test[data-tone="good"] {
+.mm-settings-key-test[data-tone="good"],
+.mm-upkeep-line[data-tone="good"] {
     color: #22c55e;
 }
 
-.mm-settings-key-test[data-tone="bad"] {
+.mm-settings-key-test[data-tone="bad"],
+.mm-upkeep-line[data-tone="bad"] {
     color: #ef4444;
 }
 
-.mm-settings-key-test[data-tone="warn"] {
+.mm-settings-key-test[data-tone="warn"],
+.mm-upkeep-line[data-tone="warn"] {
     color: #f59e0b;
+}
+
+/* The database file's unused space and its old backups, under Database
+   file (#287). Not faded as the "In use:" line is: it holds buttons. */
+/* The text at 12px, as the "In use:" line; its buttons as the window's
+   other small ones, which take 0.85em of the field's text. */
+.mm-upkeep {
+    margin-top: 8px;
+    line-height: 1.5;
+}
+
+.mm-upkeep-line,
+.mm-upkeep-backups > span {
+    font-size: 12px;
+}
+
+.mm-upkeep:empty {
+    display: none;
+}
+
+.mm-upkeep-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.mm-upkeep-row > .mm-upkeep-line {
+    flex: 1 1 auto;
+}
+
+.mm-upkeep .mm-restamp-bar {
+    margin-top: 4px;
+}
+
+/* A backup a line: when, which version, its size, Delete. */
+.mm-upkeep-backups {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    justify-content: start;
+    align-items: center;
+    gap: 4px 16px;
+    margin-top: 4px;
+    padding-left: 12px;
 }
 
 /* Judging stored images again: a notice in the corner with a bar. */

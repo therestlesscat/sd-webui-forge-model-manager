@@ -45,6 +45,22 @@ database is as it was" - true of v42 alone - and says the update "stopped
 before it finished". Each backup is the database's size: 7880's v40 library
 made two of 357 MB, two seconds apart.
 
+**A compact holds this WebUI's writes, never its reads** (#287). A VACUUM
+holds the database's write lock for its whole length - 17 s for 1.8 GB on
+an NVMe drive - and a writer gives up after its busy timeout, 30 s: on a
+slower disk a generation recorded meanwhile would be lost. Readers go on, in
+WAL mode, on the file as it was. So `_cursor`, the step every call passes
+through, sets its connection's busy timeout to an hour while
+`database.compacting` is up, and back on the first call after; the other
+WebUI's connections cannot be told, and the question before a compact says
+so. The space comes back only at a TRUNCATE checkpoint, which needs a
+moment with nothing reading: SQLite's own checkpoints copy the pages back
+and leave the WAL at its full size. SQLite builds the new copy in the
+system's temp folder (`etilqs_*`, `tempfile.gettempdir()`), then writes it
+through the WAL: the room needed is what the file keeps, twice. A new
+database has a 4 KB backup from the first run: v4 copies the file before it
+changes anything, whatever it holds.
+
 ### The library: files, versions and rows
 
 **A version is one row; its files are rows of their own** (#133).

@@ -194,13 +194,18 @@ SPEC = {
     ('POST', '/model-manager/settings/test-key'): 'any',
     ('GET', '/model-manager/settings/nsfw-levels'): 'any',
     ('POST', '/model-manager/settings'): 'any',
+    ('GET', '/model-manager/database/space'): 'any',
+    ('POST', '/model-manager/database/compact'): 'any',
+    ('GET', '/model-manager/database/compact'): 'any',
+    ('POST', '/model-manager/database/compact/cancel'): 'any',
+    ('POST', '/model-manager/database/backups/delete'): 'any',
     ('GET', '/model-manager/video-still'): 'any',
     ('GET', '/model-manager/asset-version'): 'always',
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 88 routes', len(SPEC), 88)
+check('the spec holds 93 routes', len(SPEC), 93)
 
 app = FastAPI()
 api.setup_api(app)

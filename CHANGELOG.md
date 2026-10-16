@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.62 - Give back the space your database no longer uses
+
+*16 October 2026*
+
+The database file never got smaller: what an update or a delete frees stays inside it, and every update that reshapes it leaves a full copy beside it. The settings window now shows both under Database file - how much of the file is unused, and each backup with the version it holds - and gives the space back: Compact database, and Delete on the backups.
+
+- **0.62.0** (build 506) - Compact database, and the old backups, in the settings window (#287). SQLite keeps the pages a delete or a dropped table frees, and the extension never ran the VACUUM that gives them back: after v42, one library's 1.92 GB file held 566 MB of them, and two backups of 1.03 GB each sat beside it. Under Database file, in Sync and storage, a line now says how much of the file is unused, and Compact database rewrites it without that space, after a question - about 17 s for 1.8 GB on an NVMe drive - then hands the space back to the disk; it says the size before and after, and Cancel leaves the database as it was. While it runs, this WebUI's writes - a generation's record, a download's state - wait for it instead of giving up after 30 seconds; the tabs keep reading. It is off, saying why, under 10 MB to free, while a sync, Sync images, judging stored images again or a working queue runs, and when the disk lacks room for it (about twice what the file keeps) - pointing to the backups when deleting them would make enough. Below it, Old backups lists the copies migrations made beside the database, each with when it was made and which database version it holds, with Delete and Delete all, each after a question; only files named as migrations name them, in the database's own folder, can be deleted, and none while a migration runs. With a database shared by two WebUIs, the question warns that the other's writes give up after 30 seconds meanwhile.
+
 ## 0.61 - See which versions Civitai allows only on its site
 
 *16 October 2026*

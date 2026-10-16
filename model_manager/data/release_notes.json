@@ -1,5 +1,24 @@
 [
     {
+        "id": "database-space",
+        "version": "0.62.0",
+        "kind": "feature",
+        "audience": "update",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations",
+            "gallery"
+        ],
+        "title": "Give back the space your database no longer uses",
+        "text": "Updates that reshape the database leave the space its old tables took inside the file, and a full copy of it beside the file. Compact database, under the Database file setting, shows how much and gives the space back; Old backups, below it, lists the copies and deletes the ones you no longer need.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "storage"
+        }
+    },
+    {
         "id": "on-site-only-sync",
         "version": "0.61.0",
         "kind": "action",

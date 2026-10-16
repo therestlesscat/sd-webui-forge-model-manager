@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.62 - Give back the space your database no longer uses.** Updates and deletes leave space
+inside the database file, and each update that reshapes it leaves a full copy beside it. Under
+Database file in the settings, Compact database gives the space back, and Old backups lists the
+copies with the version each holds, to delete the ones you no longer need.
+
 **0.61 - Versions Civitai allows only on its site.** A creator can allow a version only for
 generating on Civitai, and Civitai then refuses its download. The Model Manager now marks such a
 version - a sign on its pill, and Download saying "On-site only" - from what a sync stores; the

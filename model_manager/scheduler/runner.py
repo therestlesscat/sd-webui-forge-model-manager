@@ -469,6 +469,15 @@ def _running() -> Optional[Queue]:
     return _queue if jobs.running(KIND) else None
 
 
+def working() -> bool:
+    """
+    Whether the queue runs a task or will take the next: a paused one, waiting
+    for Resume, is not. A compact of the database waits for one that is (#287).
+    """
+    queue = _running()
+    return queue is not None and queue.progress.state != "paused"
+
+
 def stop() -> bool:
     queue = _running()
     if queue is not None:
