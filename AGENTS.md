@@ -13,6 +13,17 @@ beside it and holds nothing of its own: the root's once described the
 architecture as well, drifted, and named three modules that no longer
 existed.
 
+**Every item added to an AGENTS.md is checked first, on four counts.**
+Verified: its facts and numbers read from the source - the diff, a
+read-only query, a run - not remembered. Required: an agent working here
+would get something wrong without it. Adding value: the code, its comments
+and git history do not already say it. Not a duplicate: searched for in
+every AGENTS.md and `tests/README.md`; an entry that covers it is updated
+instead. A proposed item says how it passed each. Of the #287 round's six
+proposed lessons, three failed when the owner asked: one was in
+`tests/README.md` already, one in the suite's own comment, one readable from
+the code (2026-10-16).
+
 ## How to work here
 
 ### Asking, and changing
@@ -37,7 +48,10 @@ existed.
   that yes: the answers go into a revision tab and the Final tab, then the
   owner is asked, in one message, to post the Final on its issue and to start
   building. #279 (0.59.3) was built the turn its answers came: "why didnt you
-  ask to post before and ask to start building" (2026-10-15). #187 was implemented
+  ask to post before and ask to start building" (2026-10-15). #287's build
+  changed a rule mid-way - a paused queue no longer stopped a compact - and
+  said so only in the report after building; a side agent flagged it, and the
+  owner was asked then (2026-10-16). #187 was implemented
   straight from a survey and undone; its next plan, seven steps, was sent back
   for having no storage, no alternatives and no pros and cons (2026-10-06).
 - **A plan is a Claude Doc, and the doc is the plan.** It is written there
@@ -458,7 +472,11 @@ them) - with one copy of the markup in light mode and one under `.dark`.
 Measure what the change is about with `getComputedStyle`, against the
 stylesheet before it (`git show HEAD:style.css`): what should not move, in
 either mode, must come out the same. A probe without the theme or the other
-extensions' styles measured buttons the same that were not.
+extensions' styles measured buttons the same that were not. And measure a new
+control against the same control elsewhere in the window: #287's probe found
+every existing element unchanged, and missed that its own buttons were 10.2
+px beside the window's 13.6 - `mm-btn-small` is 0.85em, and the new block
+set 12px on itself rather than on its text. The owner saw it.
 
 ## Conventions
 

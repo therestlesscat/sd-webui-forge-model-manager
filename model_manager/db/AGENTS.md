@@ -59,7 +59,9 @@ and leave the WAL at its full size. SQLite builds the new copy in the
 system's temp folder (`etilqs_*`, `tempfile.gettempdir()`), then writes it
 through the WAL: the room needed is what the file keeps, twice. A new
 database has a 4 KB backup from the first run: v4 copies the file before it
-changes anything, whatever it holds.
+changes anything, whatever it holds. VACUUM kept a `files`-shaped table's
+implicit rowids, gaps and all, in both WebUIs' SQLite, and packs part-filled
+pages too: 7880's file kept 27,044 pages and came out at 26,208.
 
 ### The library: files, versions and rows
 
