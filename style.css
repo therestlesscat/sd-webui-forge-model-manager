@@ -1037,6 +1037,38 @@ body.mm-modal-open {
     background: rgba(0, 0, 0, 0.85) !important;
 }
 
+/* A model card's play button, while "Model cards: play videos" is off
+   (#220): over the still, in the image's bottom-right corner - dark in
+   both modes, as the pin is, its sign white over any image. */
+.mm-card-play {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 2;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.7) !important;
+    color: #fff !important;
+    font-size: 12px;
+    line-height: 26px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.mm-card-play:hover {
+    background: rgba(0, 0, 0, 0.85) !important;
+}
+
+/* The Civitai Browser's View holds that corner while Select is on (#280):
+   the play button sits just left of it. */
+.model-card-image:has(.cb-view-btn) .mm-card-play {
+    right: 55px;
+    bottom: 3px;
+}
+
 /* Bookmark indicator on model cards */
 .mm-bookmark-indicator {
     position: absolute;

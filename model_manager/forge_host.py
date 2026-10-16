@@ -63,6 +63,8 @@ DEFAULTS = {
     # drawn (#192): a card's copy was 54 KB on average, the upload 66 times that.
     "model_manager_gallery_originals": False,
     "model_manager_card_originals": False,
+    # A model card's video plays by itself (#220); off, its still and a play button.
+    "model_manager_card_videos_play": True,
     "model_manager_civitai_folder_template": "_{baseModel}/{modelName}",
     "model_manager_civitai_requests_per_second": 6,
     # How many downloads the queue runs at once; the rest wait (#279).

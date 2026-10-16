@@ -28,7 +28,7 @@ const { ready, call } = await shared('calls.mjs');
 const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded, cardVideos,
     ignoredTag,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -44,7 +44,7 @@ const {
     createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
-    isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, galleryImageWidth, setupLazyMedia,
+    isVideoUrl, cardMediaUrl, originalMediaUrl, videoPosterUrl, viewerVideoUrl, galleryImageWidth, setupLazyMedia,
 } = await shared('media.mjs');
 const { nsfwImageLevel, isImageSafe } = await shared('nsfw.mjs');
 const {
@@ -782,7 +782,8 @@ function renderCard(model, index) {
         action: 'civitaiBrowser.openModel',
         name: model.name,
         media: { src, video: isVideoUrl({ url: src, type: image?.type }),
-                 original: image?.url ? originalMediaUrl(image.url) : '' },
+                 original: image?.url ? originalMediaUrl(image.url) : '',
+                 play: cardVideos().play, poster: src ? videoPosterUrl(src) : '' },
         classes: [model.owned_locally ? 'owned' : ''],
         overlays: [
             ...(model.owned_locally ? [{ cls: 'cb-owned-badge', text: 'Owned' }] : []),

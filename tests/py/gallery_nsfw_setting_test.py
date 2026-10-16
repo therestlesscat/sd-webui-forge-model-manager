@@ -110,6 +110,12 @@ setattr(opts, 'model_manager_gallery_originals', True)
 check('Gallery images on: the page is told', client.get('/model-manager/ui-options').json().get('gallery_originals'), True)
 setattr(opts, 'model_manager_card_originals', True)
 check('Model cards on: the page is told', client.get('/model-manager/ui-options').json().get('card_originals'), True)
+# Model cards: play videos (#220): on unless turned off, and the page told either way.
+check('a card\'s video plays by default, and the page is told so',
+      client.get('/model-manager/ui-options').json().get('card_videos_play'), True)
+setattr(opts, 'model_manager_card_videos_play', False)
+check('turned off, the page is told', client.get('/model-manager/ui-options').json().get('card_videos_play'), False)
+setattr(opts, 'model_manager_card_videos_play', True)
 
 # How many of Civitai's images a page loads at once (#213): a whole number of
 # at least 1, else the default - a box left blank, 0, or a word.

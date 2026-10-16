@@ -28,7 +28,7 @@ const { ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath, uiOptions, asUploaded,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath, uiOptions, asUploaded, cardVideos,
     ignoredTag,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
@@ -45,7 +45,7 @@ const {
     createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
-    isVideoUrl, cardMediaUrl, originalMediaUrl, viewerVideoUrl, IMAGE_PLACEHOLDER_SVG, galleryImageWidth,
+    isVideoUrl, cardMediaUrl, originalMediaUrl, videoPosterUrl, viewerVideoUrl, IMAGE_PLACEHOLDER_SVG, galleryImageWidth,
     setupLazyMedia,
 } = await shared('media.mjs');
 const {
@@ -603,7 +603,8 @@ function mmCard(model, index) {
         index,
         action: 'modelManager.selectModel',
         name: model.display_name,
-        media: { src, video: isVideoUrl({ url: src }), original: originalMediaUrl(model.preview_url) },
+        media: { src, video: isVideoUrl({ url: src }), original: originalMediaUrl(model.preview_url),
+                 play: cardVideos().play, poster: videoPosterUrl(src) },
         classes: [model.has_civitai_data ? 'has-civitai' : 'no-civitai', nsfwCardClass(model.nsfw_level || 1)],
         data: { 'model-id': model.civitai_model_id || '' },
         overlays: [

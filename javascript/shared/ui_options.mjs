@@ -36,6 +36,9 @@ let uiOptionsRequest = null;
 // galleries, on the grids' cards - from the last answer: resized until one
 // is in. Read as a card or a tile is drawn, which cannot wait for it.
 let asUploadedNow = { gallery: false, cards: false };
+// Whether a model card's video plays by itself (#220): playing until an
+// answer says otherwise, as cards were drawn before the setting.
+let cardVideosNow = { play: true };
 // How many of Civitai's images load at once (#213), from the last answer:
 // the setting's default until one is in, or from a server too old to say.
 const IMAGES_AT_ONCE = 64;
@@ -44,6 +47,7 @@ let imagesAtOnceNow = IMAGES_AT_ONCE;
 function learn(data) {
     if (data) {
         asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
+        cardVideosNow = { play: data.card_videos_play !== false };
         const atOnce = Number(data.images_at_once);
         imagesAtOnceNow = Number.isInteger(atOnce) && atOnce >= 1 ? atOnce : IMAGES_AT_ONCE;
     }
@@ -53,6 +57,11 @@ function learn(data) {
 /** How Civitai's images load, as the last answer said: {gallery, cards}. */
 export function asUploaded() {
     return asUploadedNow;
+}
+
+/** Whether a model card's video plays by itself, as the last answer said: {play}. */
+export function cardVideos() {
+    return cardVideosNow;
 }
 
 /** How many of Civitai's images may load at once, as the last answer said. */

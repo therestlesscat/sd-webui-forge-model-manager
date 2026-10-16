@@ -231,6 +231,17 @@ def on_ui_settings():
             section=section,
         ).info("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. For the cards of both tabs' grids.")
     )
+    shared.opts.add_option(
+        "model_manager_card_videos_play",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_card_videos_play"],
+            label="Model cards: play videos",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On, a model card whose cover is a video plays it. Off, the card shows the video's still, with a "
+               "play button in its corner; the video loads only when pressed. Galleries and the viewer are not "
+               "changed.")
+    )
 
 
     # The Generations tab followed the image gallery's setting; it starts from

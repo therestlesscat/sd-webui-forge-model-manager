@@ -212,6 +212,8 @@ check('a dropdown is a choice too, with each choice\'s value',
        [c[1] for c in s['model_manager_image_sync_level'].get('choices', [])]],
       ['choice', ['PG', 'PG-13', 'R', 'X', 'XXX', 'Unknown']])
 check('a checkbox is on or off', s['model_manager_gallery_hide_nsfw']['kind'], 'bool')
+check('Model cards: play videos is a checkbox, on by default (#220)',
+      [s.get('model_manager_card_videos_play', {}).get(k) for k in ('kind', 'value')], ['bool', True])
 # How many of Civitai's images load at once (#213): a box, at least 1 and no
 # maximum - so the settings window draws no slider beside it.
 check('a box is a number with no maximum',

@@ -10,7 +10,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml, dataAttributes, formatNumber } = await shared('core.mjs');
-const { mediaFallback } = await shared('media.mjs');
+const { cardVideoTag, mediaFallback } = await shared('media.mjs');
 
 /**
  * A model's reception, as Civitai reports it since star ratings went away.
@@ -191,10 +191,16 @@ export function renderModelCard({ index, action, name, media, classes = [], data
     const shown = full.length > CARD_NAME_LENGTH ? full.substring(0, CARD_NAME_LENGTH) + '...' : full;
     const title = (item) => (item.title ? ` title="${escapeHtml(item.title)}"` : '');
     const src = media?.src || '';
+    // "Model cards: play videos" off (#220): the still, the video kept for
+    // the play button - which loads it only when pressed.
+    const still = () => `<img class="mm-card-still" src="${escapeHtml(media.poster || CARD_PLACEHOLDER)}" alt="${
+        escapeHtml(full)}" loading="lazy" ${mediaFallback('', CARD_PLACEHOLDER)}${
+        dataAttributes({ video: src, videoOriginal: media.original || '' })}>`
+        + '<button type="button" class="mm-card-play" title="Play the video" data-action="media.cardVideo">▶</button>';
     const image = !src
         ? `<img src="${CARD_PLACEHOLDER}" alt="${escapeHtml(full)}">`
         : media.video
-            ? `<video src="${escapeHtml(src)}" loop muted autoplay playsinline ${mediaFallback(media.original)}></video>`
+            ? (media.play === false ? still() : cardVideoTag(src, media.original))
             : `<img src="${escapeHtml(src)}" alt="${escapeHtml(full)}" loading="lazy" ${mediaFallback(media.original, CARD_PLACEHOLDER)}>`;
     return `
         <div class="${['model-card', ...classes.filter(Boolean)].join(' ')}" data-index="${Number(index)}"${dataAttributes(data)} data-action="${escapeHtml(action)}">

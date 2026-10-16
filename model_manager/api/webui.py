@@ -298,6 +298,8 @@ def register(app: FastAPI):
         # Images as uploaded, not resized (#192): galleries, and the grids' cards.
         gallery_originals = bool(setting('model_manager_gallery_originals'))
         card_originals = bool(setting('model_manager_card_originals'))
+        # Whether a model card's video plays by itself (#220).
+        card_videos_play = bool(setting('model_manager_card_videos_play'))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -346,7 +348,7 @@ def register(app: FastAPI):
                 "gallery_hide_nsfw": gallery_hide_nsfw,
                 "hide_promptless_images": hide_promptless_images,
                 "gallery_originals": gallery_originals,
-                "card_originals": card_originals,
+                "card_originals": card_originals, "card_videos_play": card_videos_play,
                 "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
@@ -375,6 +377,7 @@ def register(app: FastAPI):
                  "gallery_hide_nsfw": gallery_hide_nsfw,
                  "hide_promptless_images": hide_promptless_images,
                  "gallery_originals": gallery_originals, "card_originals": card_originals,
+                 "card_videos_play": card_videos_play,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,

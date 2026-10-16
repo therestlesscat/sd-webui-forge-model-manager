@@ -223,10 +223,43 @@ export function fallBack(node) {
  * stops (#186). A load's and an error's events do not bubble: heard on the
  * way down.
  */
+/**
+ * A model card's playing video: looped, muted, falling back to the upload.
+ * One tag, for a card drawn playing and for one whose play button was
+ * pressed (#220).
+ */
+export function cardVideoTag(src, original) {
+    return `<video src="${escapeHtml(src)}" loop muted autoplay playsinline ${mediaFallback(original)}></video>`;
+}
+
+/**
+ * A model card's play button pressed, with "Model cards: play videos" off
+ * (#220): its still gives way to the video, playing; pressed again, the
+ * video goes and the still is back. The video loads only now.
+ */
+export function toggleCardVideo(button) {
+    const box = button?.closest?.('.model-card-image');
+    const still = box?.querySelector('img.mm-card-still');
+    if (!still) return;
+    const video = box.querySelector('video');
+    if (video) {
+        video.remove();
+        still.hidden = false;
+        button.textContent = '▶';
+        button.title = 'Play the video';
+    } else {
+        still.insertAdjacentHTML('afterend', cardVideoTag(still.dataset.video, still.dataset.videoOriginal));
+        still.hidden = true;
+        button.textContent = '■';
+        button.title = 'Stop on the still';
+    }
+}
+
 export function start(scope) {
     if (typeof document === 'undefined' || typeof document.addEventListener !== 'function'
             || globalThis.__mmMediaFallback) return;
     globalThis.__mmMediaFallback = true;
+    scope.provide('media.cardVideo', (data, button) => toggleCardVideo(button));
     scope.onStop(() => {
         globalThis.__mmMediaFallback = false;
         mediaLoading.clear();
