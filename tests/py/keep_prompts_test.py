@@ -117,10 +117,10 @@ def sync():
 
 
 Civitai.generation = None            # the lookup fails
-opts.model_manager_gallery_page_size = 50
+opts.model_manager_sync_images_per_version = 50
 worked = sync()
-opts.model_manager_gallery_page_size = 100
-check('a sync asks for the first page at the gallery page size set', Civitai.limits, [50])
+opts.model_manager_sync_images_per_version = 100
+check('a sync asks for the first page at the sync\'s size set', Civitai.limits, [50])
 check('a sync whose prompt lookup fails still succeeds', worked, True)
 after = {img['id']: img for img in db.get_images(version)}
 check('and every image keeps the prompt it had',

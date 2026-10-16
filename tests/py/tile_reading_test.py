@@ -21,7 +21,9 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 opts = webui_stub.install()
-opts.model_manager_gallery_page_size = 4
+# The tab loads a part at a time as you scroll, not a setting (#230).
+import model_manager.gallery as gallery_module        # noqa: E402
+gallery_module.TILE_PART = 4
 
 import generation_fixture                                # noqa: E402
 from model_manager import tile_reading                   # noqa: E402
@@ -259,7 +261,7 @@ def steps(database):
 
 
 # A part holds every group, as the tab's page of 100 tiles does.
-opts.model_manager_gallery_page_size = 100
+gallery_module.TILE_PART = 100
 two, fourteen = library('two_bases', 2), library('fourteen_bases', 14)
 growth = (steps(fourteen) - steps(two)) / (2000 * 12)
 # Classic joined the part before each image's base model was known, and

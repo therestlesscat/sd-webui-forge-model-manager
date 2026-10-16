@@ -23,7 +23,13 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 opts = webui_stub.install()
-opts.model_manager_gallery_page_size = 4
+# The tab loads a part at a time as you scroll, not a setting (#230).
+import model_manager.gallery as gallery_module        # noqa: E402
+gallery_module.TILE_PART = 4
+# Your generations at the same size, as the frozen v36 reads page both by one;
+# below the settings' 5, so the few here make several pages (#230).
+gallery_module.MIN_PAGE_SIZE = 1
+opts.model_manager_mm_generations_per_page = 4
 
 import generation_fixture                                # noqa: E402
 import v36_generations as v36                            # noqa: E402

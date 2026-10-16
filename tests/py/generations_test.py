@@ -29,6 +29,9 @@ opts = webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+import model_manager.gallery as gallery_module        # noqa: E402
+# Pages of one generation, below the settings' 5, to page this suite's few (#230).
+gallery_module.MIN_PAGE_SIZE = 1
 from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager import generations                    # noqa: E402
 from model_manager.nsfw import PG, PROMPT_LEVEL          # noqa: E402
@@ -311,12 +314,12 @@ if has_fastapi:
         return client.get('/model-manager/generations/page', params={'path': path, **params}).json()
 
     # A page is a slice of the gallery's generations, newest first - its size
-    # the images-per-page setting - before the switches.
+    # the Your generations per page setting (#230) - before the switches.
     newer = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
-    opts.model_manager_gallery_page_size = 1
+    opts.model_manager_mm_generations_per_page = 1
     first = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
     second = page(CHECKPOINT, page=2, hide_nsfw_images='true', hide_promptless_images='false')
-    opts.model_manager_gallery_page_size = 100
+    opts.model_manager_mm_generations_per_page = 100
     check('at one generation a page, page 1 is the newest, and more come after it',
           ([c['id'] for c in first['generations']], first['page']['more']), ([newer], True))
     check('page 2 the one before it, the last',
@@ -653,11 +656,11 @@ if has_fastapi:
     check('there is no deleting a group: it is refused, and nothing goes',
           (refused.status_code != 200, groups('loras')['']['matching_count']), (True, before_group))
 
-    opts.model_manager_gallery_page_size = 1
+    gallery_module.TILE_PART = 1
     parts = [browse(page=n, hide_nsfw_images='false') for n in (1, 2)]
     last = browse(page=db.count_generations(None), hide_nsfw_images='false')
-    opts.model_manager_gallery_page_size = 100
-    check('parts of the images-per-page setting, one after another, until there are no more',
+    gallery_module.TILE_PART = 100
+    check('parts of a fixed size (TILE_PART, #230), one after another, until there are no more',
           ([len(p['tiles']) for p in parts], parts[0]['more'], last['more'],
            parts[1]['tiles'][0]['generation']['id'] != parts[0]['tiles'][0]['generation']['id']),
           ([1, 1], True, False, True))

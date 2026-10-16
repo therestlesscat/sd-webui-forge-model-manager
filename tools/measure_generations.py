@@ -28,7 +28,8 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 opts = webui_stub.install()
-opts.model_manager_gallery_page_size = 100
+import model_manager.gallery as gallery_module        # noqa: E402
+gallery_module.TILE_PART = 100   # the Generations tab's part, as it ships (#230)
 
 import generation_fixture                                # noqa: E402
 import v36_generations as v36                            # noqa: E402

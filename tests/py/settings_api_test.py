@@ -132,6 +132,15 @@ opts.add_option('sd_model_checkpoint', OptionInfo('x', 'Checkpoint', section=('s
 
 from model_manager.ui import settings as ui_settings     # noqa: E402
 
+# Page sizes per tab (#230): saved as the one setting they were split from,
+# and one of the new already saved - as a config.json from 0.59.7 with one
+# setting moved after updating would be.
+OLD_PAGES = 'model_manager_gallery_page_size'
+PAGE_KEYS = ('model_manager_mm_images_per_page', 'model_manager_cb_images_per_page',
+             'model_manager_mm_generations_per_page', 'model_manager_sync_images_per_version')
+opts.data[OLD_PAGES] = 50
+opts.data['model_manager_cb_images_per_page'] = 20
+
 ui_settings.on_ui_settings()
 
 # The restamp onchange starts, counted rather than run.
@@ -179,6 +188,19 @@ s = answer['settings']
 check('a slider is a number with its bounds',
       {k: s['model_manager_page_size'].get(k) for k in ('kind', 'minimum', 'maximum', 'step', 'value')},
       {'kind': 'number', 'minimum': 5, 'maximum': 50, 'step': 5, 'value': 20})
+check('each tab\'s page size and the sync\'s is a slider from 5 to 200, in steps of 5 (#230)',
+      [{k: s.get(key, {}).get(k) for k in ('kind', 'minimum', 'maximum', 'step')} for key in PAGE_KEYS],
+      [{'kind': 'number', 'minimum': 5, 'maximum': 200, 'step': 5}] * 4)
+check('the old setting saved at 50 is carried over, one new already saved keeps its own',
+      [opts.data.get(key) for key in PAGE_KEYS], [50, 20, 50, 50])
+check('and the old setting is gone: from the saved settings, and from the window',
+      (OLD_PAGES in opts.data, OLD_PAGES in s), (False, False))
+carry = getattr(ui_settings, 'carry_over_page_sizes', lambda data: None)
+nothing_saved, new_saved = {}, {'model_manager_mm_images_per_page': 30}
+carry(nothing_saved)
+carry(new_saved)
+check('nothing saved, nothing carried: each starts at its default; the new saved alone, nothing changes',
+      (nothing_saved, new_saved), ({}, {'model_manager_mm_images_per_page': 30}))
 check('a radio is a choice, with each choice\'s value',
       [s['model_manager_nsfw_detection']['kind'],
        [c[1] for c in s['model_manager_nsfw_detection']['choices']]],

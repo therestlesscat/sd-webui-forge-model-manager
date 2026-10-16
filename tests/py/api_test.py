@@ -583,10 +583,10 @@ check('the last page holds what is left, and nothing comes after it',
       (body['page']['count'], body['page']['more']), (50, False))
 check('past the end is an empty page, not an error', page(9)['page']['count'], 0)
 shared_opts = sys.modules['modules.shared'].opts
-shared_opts.model_manager_gallery_page_size = 30
+shared_opts.model_manager_mm_images_per_page = 30
 check('the page size is a setting: page 2 at 30 is the 31st to the 60th',
       [i['id'] for i in page(2, hide_nsfw_images='false')['images']], ALL[30:60])
-shared_opts.model_manager_gallery_page_size = 100
+shared_opts.model_manager_mm_images_per_page = 100
 
 # The Civitai Browser's cache has no level column, so its pages are filtered
 # in Python. The two must mean the same by every count, on the same images.
@@ -735,10 +735,10 @@ try:
             raise RuntimeError('Civitai: overloaded (503)')
     civitai_pages = Down({})
     opts_ = sys.modules['modules.shared'].opts
-    opts_.model_manager_gallery_page_size = 10
+    opts_.model_manager_mm_images_per_page = 10
     body = get('/model-manager/images/gallery-page', version_id=EMPTY, page=1,
                hide_nsfw_images='false', hide_promptless_images='false')[1]
-    opts_.model_manager_gallery_page_size = 100
+    opts_.model_manager_mm_images_per_page = 100
     check('a page Civitai fails to fill shows what is stored, with the error for its note',
           (len(body['images']), body['page']['error']), (3, 'Civitai: overloaded (503)'))
 finally:

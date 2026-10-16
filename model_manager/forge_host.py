@@ -53,7 +53,11 @@ DEFAULTS = {
     # How the Generations tab reads a level's images (tile_reading.py, #259):
     # once per request, or again for each read as it always had.
     "model_manager_generations_reading": "Single pass",
-    "model_manager_gallery_page_size": 100,
+    # Each tab with pages pages by its own, and a sync keeps its own (#230).
+    "model_manager_mm_images_per_page": 100,
+    "model_manager_cb_images_per_page": 100,
+    "model_manager_mm_generations_per_page": 100,
+    "model_manager_sync_images_per_version": 100,
     "model_manager_gallery_grid": "Fast",
     # Civitai's images loaded as uploaded, not as copies the size they are
     # drawn (#192): a card's copy was 54 KB on average, the upload 66 times that.

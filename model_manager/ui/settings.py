@@ -11,7 +11,8 @@ import gradio as gr
 from modules import shared
 
 from ..forge_host import DEFAULTS
-from ..gallery import MAX_PAGE_SIZE, PAGE_SIZE_SETTING
+from ..gallery import (CB_IMAGES_SETTING, GENERATIONS_SETTING, MAX_PAGE_SIZE, MIN_PAGE_SIZE, MM_IMAGES_SETTING,
+                       OLD_PAGE_SIZE_SETTING, PAGE_SETTINGS, SYNC_IMAGES_SETTING)
 from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, RECORD_GENERATIONS
 from ..grids import CHOICES as GRID_CHOICES, GALLERY_GRID, GENERATIONS_GRID
 from ..tile_reading import CHOICES as READING_CHOICES, SETTING as READING_SETTING
@@ -33,6 +34,7 @@ CIVITAI_BROWSER_ENABLED = TABS["civitai_browser"]
 def on_ui_settings():
     """Register extension settings."""
     section = ("model_manager", EXTENSION_NAME)
+    carry_over_page_sizes(shared.opts.data)
 
     # Each tab's switch, first, in the order of the tabs (tabs.py, #185).
     shared.opts.add_option(
@@ -126,6 +128,12 @@ def on_ui_settings():
             section=section,
         ).info("Number of models to display per page.")
     )
+    _page_size_option(MM_IMAGES_SETTING, "Model Manager: Civitai images per page",
+                      "How many images Load More adds in a model's Civitai images in the Model Manager - "
+                      "counted before the NSFW and prompt switches.", section)
+    _page_size_option(GENERATIONS_SETTING, "Your generations: generations per page",
+                      "How many generations Load More adds in a model's Your generations. Not used by the "
+                      "Generations tab: it loads as you scroll.", section)
 
     shared.opts.add_option(
         "model_manager_database_path",
@@ -187,6 +195,9 @@ def on_ui_settings():
             section=section,
         ).info("Number of models to display per page in Civitai Browser.")
     )
+    _page_size_option(CB_IMAGES_SETTING, "Civitai Browser: images per page",
+                      "How many images Load More adds in a model's images in the Civitai Browser, fetched from "
+                      "Civitai - counted before the NSFW and prompt switches.", section)
 
     shared.opts.add_option(
         "model_manager_hide_promptless_images",
@@ -362,20 +373,6 @@ def on_ui_settings():
         shared.opts.add_option(key, shared.OptionInfo(default=DEFAULTS[key], label=key, section=hidden))
 
     shared.opts.add_option(
-        PAGE_SIZE_SETTING,
-        shared.OptionInfo(
-            default=DEFAULTS[PAGE_SIZE_SETTING],
-            label="Shared: images per page",
-            component=gr.Slider,
-            component_args={"minimum": 10, "maximum": MAX_PAGE_SIZE, "step": 10},
-            section=section,
-        ).info("How many images Load more adds at a time, in both tabs' galleries and "
-               "your generations, and the Civitai Images tab adds as you scroll - counted before the NSFW and prompt filters, which "
-               "decide which of a page's images are shown. A page the library cannot "
-               "fill is filled from Civitai first.")
-    )
-
-    shared.opts.add_option(
         GALLERY_GRID,
         shared.OptionInfo(
             default=DEFAULTS[GALLERY_GRID],
@@ -466,6 +463,11 @@ def on_ui_settings():
                "SATA SSD: 2-4. NVMe: 4-8, or more on a CPU with many cores. "
                "Lower it if a sync makes the machine slow.")
     )
+    _page_size_option(SYNC_IMAGES_SETTING, "Sync: images kept per version",
+                      "How many of each version's Civitai images a sync fetches and keeps - from the sync dialog, "
+                      "a model's Sync, a download. The dialog's \"First N images\" is this number. A model's NSFW "
+                      "level counts its worst stored image, and the Civitai Images tab shows stored images only: "
+                      "fewer kept, less to judge and show.", section)
 
     shared.opts.add_option(
         "model_manager_civitai_min_prompt_images",
@@ -650,6 +652,31 @@ def on_ui_settings():
 
 GALLERY_HIDE_NSFW = "model_manager_gallery_hide_nsfw"
 
+
+
+def _page_size_option(key, label, info, section):
+    """A page size or a sync's count (#230): a slider, as every one of them is."""
+    shared.opts.add_option(key, shared.OptionInfo(
+        default=DEFAULTS[key], label=label, component=gr.Slider,
+        component_args={"minimum": MIN_PAGE_SIZE, "maximum": MAX_PAGE_SIZE, "step": 5},
+        section=section).info(info))
+
+
+def carry_over_page_sizes(data):
+    """
+    The page sizes' first values (#230), from the one setting they were split
+    out of: each with no value of its own takes the old one's, once; then the
+    old one goes from the saved settings, so the next save does not write it
+    back. Someone who had 50 has 50 in all four.
+
+    Args:
+        data: the saved settings, as `shared.opts.data` holds them - changed in place.
+    """
+    if OLD_PAGE_SIZE_SETTING not in data:
+        return
+    old = data.pop(OLD_PAGE_SIZE_SETTING)
+    for key in PAGE_SETTINGS:
+        data.setdefault(key, old)
 
 
 def carry_over_gallery_nsfw(data):

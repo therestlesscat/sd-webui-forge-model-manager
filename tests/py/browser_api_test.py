@@ -32,6 +32,9 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+import model_manager.gallery as gallery_module           # noqa: E402
+# Pages of 2, below the settings' 5, to page this suite's few images (#230).
+gallery_module.MIN_PAGE_SIZE = 1
 import model_manager.api.civitai as endpoints            # noqa: E402
 import model_manager.download_service as ds              # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
@@ -603,7 +606,7 @@ def image(n, level=1, meta=USABLE):
     return {'id': 95000 + n, 'url': 'p%d' % n, 'browsingLevel': level, 'meta': meta}
 
 
-shared_opts.model_manager_gallery_page_size = 2
+shared_opts.model_manager_cb_images_per_page = 2
 gallery = Gallery([image(n) for n in range(5)], short=2)
 Stub.get_model_images = staticmethod(gallery)
 civitai(generation={})
@@ -628,7 +631,7 @@ check('the last page says Civitai has no more',
 
 # Civitai gives at most 100 images a request, whatever it is asked: 150, 200
 # and 201 all came back as 100. A larger page is asked for in parts.
-shared_opts.model_manager_gallery_page_size = 150
+shared_opts.model_manager_cb_images_per_page = 150
 gallery = Gallery([image(n, meta=None) for n in range(300)])
 Stub.get_model_images = staticmethod(gallery)
 forget()
@@ -637,7 +640,7 @@ check('a page larger than Civitai gives is asked for 100, then the rest',
       (gallery.asked, body['page']['count']), ([(None, 100), ('100', 50)], 150))
 check('and its prompts looked up in one go, not one request per part',
       [c[0] for c in Stub.calls].count('get_generation_data'), 1)
-shared_opts.model_manager_gallery_page_size = 100
+shared_opts.model_manager_cb_images_per_page = 100
 
 # The switches: which of the page's images are shown, and its counts.
 gallery = Gallery([image(n, level=8 if n % 4 == 0 else 1, meta=USABLE if n % 3 else None)
@@ -661,7 +664,7 @@ check('its note counts what each switch hid, and each kind it holds, for the ban
        'promptless_count': 50 - 13 - len(kept), 'more': False})
 
 # Failures: the first request is the whole page; a later one leaves a part.
-shared_opts.model_manager_gallery_page_size = 2
+shared_opts.model_manager_cb_images_per_page = 2
 Stub.get_model_images = staticmethod(Gallery([image(n) for n in range(5)], fail_at=0))
 status, body = get('/model-manager/civitai/versions/90110/images')
 check('a page Civitai will not give is a 500, saying why',
@@ -671,7 +674,7 @@ status, body = get('/model-manager/civitai/versions/90110/images', page=2, curso
 check('one that fails part-way is what came, with the error, and where to go on from',
       ([i['id'] for i in body['images']], body['page']['error'], body['next_cursor']),
       ([95002], 'Civitai: overloaded (503)', '3'))
-shared_opts.model_manager_gallery_page_size = 100
+shared_opts.model_manager_cb_images_per_page = 100
 
 Stub.get_model_images = staticmethod(Gallery([]))
 status, body = get('/model-manager/civitai/versions/90100/images')

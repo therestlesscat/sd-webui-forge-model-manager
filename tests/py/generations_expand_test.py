@@ -33,7 +33,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.api import generations as api         # noqa: E402
 from model_manager.db.generations_ops import Scope       # noqa: E402
-from model_manager.gallery import PAGE_SIZE_SETTING      # noqa: E402
+import model_manager.gallery as gallery_module        # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG, X                     # noqa: E402
 
@@ -144,9 +144,10 @@ check('task:, expanded: the images its run made',
       shape(browse(search=f'task:{task}', expand='true')), [('image', [i]) for i in ids(again)])
 
 # ----------------------------------------------------------------- parts
-setattr(opts, PAGE_SIZE_SETTING, 3)
+# The tab loads a part at a time as you scroll, not a setting (#230).
+gallery_module.TILE_PART = 3
 parts = [browse(expand='true', page=n) for n in (1, 2, 3)]
-check('in parts of the page size, more until the last',
+check('in parts of TILE_PART, more until the last',
       [(len(p['tiles']), p['more']) for p in parts], [(3, True), (3, True), (1, False)])
 seen = [i for p in parts for _, imgs in shape(p) for i in imgs]
 check('every image once across the parts', (sorted(seen), len(seen)), (sorted(everything + ids(explicit)), 7))

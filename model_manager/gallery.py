@@ -22,20 +22,63 @@ from .forge_host import DEFAULTS, setting
 from .nsfw import SFW_MAX, image_level
 from .prompt_rules import image_readable
 
-PAGE_SIZE_SETTING = "model_manager_gallery_page_size"
+# What each gallery with pages pages by, and how many images a sync keeps
+# (#230): one setting did all of it, so 5 Civitai images a page also meant 5
+# of your own and 5 kept by a sync.
+MM_IMAGES_SETTING = "model_manager_mm_images_per_page"
+CB_IMAGES_SETTING = "model_manager_cb_images_per_page"
+GENERATIONS_SETTING = "model_manager_mm_generations_per_page"
+SYNC_IMAGES_SETTING = "model_manager_sync_images_per_version"
+PAGE_SETTINGS = (MM_IMAGES_SETTING, CB_IMAGES_SETTING, GENERATIONS_SETTING, SYNC_IMAGES_SETTING)
+# The one setting they were split from: carried over once (ui/settings.py).
+OLD_PAGE_SIZE_SETTING = "model_manager_gallery_page_size"
+MIN_PAGE_SIZE = 5
 # A sync fetches a gallery's first page in one request, and Civitai answers at
 # most 200 images to one; a larger size, set by hand in config.json, failed
 # the fetch instead of paging.
 MAX_PAGE_SIZE = 200
+# What the Generations tab and the Civitai Images tab add as you scroll near
+# the end: a part, not a setting - they have no pages to size.
+TILE_PART = 100
+
+
+def _sized(key: str) -> int:
+    """A page size the settings give, kept to something that works."""
+    try:
+        size = int(setting(key))
+    except (TypeError, ValueError):
+        size = DEFAULTS[key]
+    return min(max(size, MIN_PAGE_SIZE), MAX_PAGE_SIZE)
+
+
+def mm_images_page_size() -> int:
+    """How many images Load More adds in a model's Civitai images, in the Model Manager."""
+    return _sized(MM_IMAGES_SETTING)
+
+
+def cb_images_page_size() -> int:
+    """How many images Load More adds in a model's images, in the Civitai Browser."""
+    return _sized(CB_IMAGES_SETTING)
+
+
+def generations_page_size() -> int:
+    """How many generations Load More adds in a model's Your generations."""
+    return _sized(GENERATIONS_SETTING)
+
+
+def sync_image_count() -> int:
+    """How many of each version's Civitai images a sync fetches and keeps."""
+    return _sized(SYNC_IMAGES_SETTING)
 
 
 def gallery_page_size() -> int:
-    """The page size the settings give, kept to something that works."""
-    try:
-        size = int(setting(PAGE_SIZE_SETTING))
-    except (TypeError, ValueError):
-        size = DEFAULTS[PAGE_SIZE_SETTING]
-    return min(max(size, 1), MAX_PAGE_SIZE)
+    """
+    What a tab that loads as you scroll adds at a time - the Generations
+    tab, the Civitai Images tab - and the frozen v36 reads' page
+    (tests/v36_generations.py): TILE_PART, read when asked, so a suite can
+    shrink it.
+    """
+    return TILE_PART
 
 
 # The most images Civitai's /images gives to one request: the client asks
@@ -45,12 +88,12 @@ IMAGES_PER_REQUEST = 100
 
 def refresh_size(stored: int, keep_count: bool) -> int:
     """
-    How many images a refresh of a gallery fetches (#103): a page, at the
-    size the settings give, or as many as the version has stored - never
-    fewer than a page. A refresh replaces the stored gallery whole, so the
-    first deletes what was stored past it.
+    How many images a refresh of a gallery fetches (#103): what a sync keeps
+    (#230), or as many as the version has stored - never fewer than what a
+    sync keeps. A refresh replaces the stored gallery whole, so the first
+    deletes what was stored past it.
     """
-    page = gallery_page_size()
+    page = sync_image_count()
     return max(page, stored) if keep_count else page
 
 

@@ -25,7 +25,7 @@ from ..db import get_models_db
 from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, tidy
 from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
-from ..gallery import gallery_page_size, switch_counts
+from ..gallery import gallery_page_size, generations_page_size, switch_counts
 from ..tile_reading import SINGLE_PASS, reading
 from .images import gallery_switches
 from .common import failed, gate
@@ -174,7 +174,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             more come after it;
         state: the gallery's totals, over every page, for the banner.
     """
-    size = gallery_page_size()
+    size = generations_page_size()
     page = max(1, int(page or 1))
     files = db.generation_gallery_files(path)
     on_page, total = db.generation_scope_generations(Scope(files=files), (page - 1) * size, size)

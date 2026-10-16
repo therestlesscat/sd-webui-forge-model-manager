@@ -18,7 +18,7 @@ from ..db import get_models_db
 from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
-from ..gallery import filter_images, gallery_page_size
+from ..gallery import filter_images, mm_images_page_size
 from .common import failed, gate, streams_status
 from ..console import say
 
@@ -76,7 +76,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
             the error if fetching failed - what is stored is shown anyway;
         images_state: the gallery's totals, for the banner.
     """
-    size = gallery_page_size()
+    size = mm_images_page_size()
     page = max(1, int(page or 1))
     version = db.get_version_by_id(version_id)
     stored = db.count_images_by_version([version_id]).get(version_id, 0)

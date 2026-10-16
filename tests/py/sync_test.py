@@ -278,9 +278,9 @@ sync, client = service(
                        {'id': 2, 'url': 'u2', 'meta': None}],
             'next_cursor': 'more'},
     types={70010: 'Merge'})
-opts.model_manager_gallery_page_size = 40
+opts.model_manager_sync_images_per_version = 40
 result = sync.sync_model(FRESH)
-opts.model_manager_gallery_page_size = 100
+opts.model_manager_sync_images_per_version = 100
 # A single checkpoint goes all the way through, classification included. It
 # used not to: _classify_checkpoints() takes self._progress_lock, which only
 # sync_all() and sync_metadata() created, so every download of a checkpoint
@@ -303,7 +303,7 @@ check('marked as identified', row['has_civitai_data'], True)
 check('with the hashes that found it', row['file_hashes']['sha256'], fresh_hashes.sha256)
 check('its trigger words', row['trained_words'], ['trigger'])
 check('and the images are stored', len(db.get_images(70011)), 2)
-check('fetched at the gallery page size set, as a download is synced this way',
+check('fetched at the sync\'s size set, as a download is synced this way',
       client.limits, [40])
 check('and it was asked whether it was trained or merged',
       [a for a in client.asked if a[0] == 'types'], [('types', [70010])])
@@ -615,19 +615,19 @@ check('and the prompts behind them in one pooled request',
 
 # A gallery's first page is fetched at the size it is paged in, so opening
 # the model after a sync needs no request of its own. It was always 100.
-opts.model_manager_gallery_page_size = 30
+opts.model_manager_sync_images_per_version = 30
 sync, client = service(
     models=payloads(rows),
     images=lambda version_id: {
         'images': [{'id': version_id, 'url': 'u%d' % version_id, 'meta': None}],
         'next_cursor': None})
 sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
-check('a sync asks for each gallery at the page size set', client.limits, [30, 30])
+check('a sync asks for each gallery at the sync\'s size set', client.limits, [30, 30])
 
 # A size set by hand above 200 is kept to it, rather than failing every
 # gallery's fetch; and Civitai is asked for at most 100 a request - the
 # client asks for no more - so it comes in batches (#103).
-opts.model_manager_gallery_page_size = 300
+opts.model_manager_sync_images_per_version = 300
 sync, client = service(
     models=payloads(rows),
     images=lambda version_id: {
@@ -635,7 +635,7 @@ sync, client = service(
         'next_cursor': None})
 sync.sync_metadata(model_paths=TWO_PATHS, include_images=True)
 check('a page size above what Civitai gives is asked for in batches of 100', client.limits, [100, 100])
-opts.model_manager_gallery_page_size = 100
+opts.model_manager_sync_images_per_version = 100
 stored = db.get_images(rows[0]['id'])
 check('the gallery replaced what was there', len(stored), 1)
 check('with the prompt that was looked up',

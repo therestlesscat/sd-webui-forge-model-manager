@@ -37,7 +37,7 @@ def check(label, got, want=True):
 
 db, facts = fixtures.build(os.path.join(TESTS, 'work', 'gallery_count'))
 dbmod._db_instance = db
-opts.model_manager_gallery_page_size = 100
+opts.model_manager_sync_images_per_version = 100
 
 
 class Civitai(object):

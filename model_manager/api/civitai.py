@@ -30,7 +30,7 @@ from ..civitai import (
 from .annotations import (annotate_image_levels, annotate_local_ownership, annotate_paid_access,
                           held_model_ids, ownership)
 from ..nsfw import stamp_levels
-from ..gallery import gallery_page_size
+from ..gallery import cb_images_page_size
 from ..gallery import filter_images
 from .images import PAGE_FETCHES
 
@@ -488,7 +488,7 @@ def register(app: FastAPI):
             Civitai failed part-way; next_cursor, for the page after.
         """
         try:
-            size = gallery_page_size()
+            size = cb_images_page_size()
             page = max(1, int(page or 1))
             images, next_cursor, error = [], cursor or None, None
             client = CivitaiClient.from_settings()

@@ -24,7 +24,6 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 opts = webui_stub.install()
-opts.model_manager_gallery_page_size = 100
 
 import generation_fixture                                # noqa: E402
 from model_manager.api import generations as api         # noqa: E402

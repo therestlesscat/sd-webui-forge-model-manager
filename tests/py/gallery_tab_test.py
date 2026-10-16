@@ -46,7 +46,9 @@ def check(label, got, want=True):
 db, facts = fixtures.build(os.path.join(TESTS, 'work', 'gallery_tab'))
 dbmod._db_instance = db
 opts.model_manager_gallery_tab = True
-opts.model_manager_gallery_page_size = 10
+# The tab loads a part at a time as you scroll, not a setting (#230).
+import model_manager.gallery as gallery_module        # noqa: E402
+gallery_module.TILE_PART = 10
 opts.model_manager_gallery_hide_nsfw = False
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
 
