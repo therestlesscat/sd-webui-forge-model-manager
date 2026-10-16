@@ -51,6 +51,17 @@ the sync's module, and the Queue alone asked for the sync's progress
 
 ### The page
 
+**A stopped Send's Resources dialog offers what the library holds** through
+the `useInstalled` the Send hands it: another file of the image's version
+when one is held, else the model's other versions - a tick for one, a
+dropdown for several (#278). Until #278 only your generations' Send handed
+it, and a Civitai image's offered nothing.
+
+**The settings window holds every section's fields, and shows those of the
+tab it was opened from.** Opened from the Model Manager, the Civitai
+Browser's page-size field was hidden and a Playwright fill timed out; another
+section's setting is saved through `POST /model-manager/settings` (#230).
+
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/downloads.mjs` polls once and draws into each tab's panel -
 started by the Model Manager and the Civitai Browser, null before. It

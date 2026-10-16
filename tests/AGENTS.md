@@ -8,6 +8,13 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
 
 ### Proving a change
 
+- **Read a failing suite's own output, not only the runner's list.** #220's
+  run left two FAIL lines out of its list, "off: no video in the card"
+  among them, and that check looked passed on the old code; `node.exe
+  tests/js/<suite>` showed both.
+- **A live check of a carried-over setting needs a saved value the new
+  default does not equal.** 7880's saved 100 was the new default too: set
+  to 30 before the restart, all four new settings read 30 (#230).
 - **A guard is a claim too.** #213's plan named "every gallery's suite" as
   the guard that images still load. In those suites the harness's watcher
   never says an image came into view, so no image had ever loaded there; a
@@ -100,6 +107,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
 
 ### The code
 
+- **Page sizes in a suite:** one paging fewer items than the settings allow
+  lowers `gallery.MIN_PAGE_SIZE`; one shrinking the two scrolling tabs' part
+  sets `gallery.TILE_PART`. Both are read when asked; `page_sizes_test`
+  holds the real range (#230).
 - **`check_python_references.py` does not model `@staticmethod`** called on an
   instance; make such a helper a plain method rather than leave a red check.
 - **A text search for names sees only what it was written for.**

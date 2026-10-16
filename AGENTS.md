@@ -69,6 +69,8 @@ existed.
   both WebUIs. #214's on-site-only plan recommended remembering Civitai's
   answer for five minutes with neither, and the owner had to ask how
   complex it was (2026-10-10).
+- **A Final tab holds the whole merged plan**, never a pointer to the main
+  tab: #220's was first written as one, and refilled.
 - **A plan doc keeps its first draft; each round of changes is a tab.**
   Nothing in a plan doc is deleted: what a decision removes is crossed
   out where it stands (2026-10-10). What a round of discussion adds - one
@@ -673,6 +675,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 
 ### The environment
 
+- **Windows Python's printed lines end in `\r`.** A `while read` loop handed
+  them to `curl.exe` with it, and the request broke: `tr -d '\r'` first
+  (#230).
 - **This is Windows: paths are case-insensitive.** `claude.md` and
   `CLAUDE.md` are one file, and deleting the "duplicate" deletes the
   original - which is how `CLAUDE.md` once had to be written twice.
