@@ -27,6 +27,24 @@ any difference raises, and the transaction leaves the old tables as they
 were (`migration_v37_test`, a migration dropping a LoRA's `pass` among its
 breaks).
 
+**A migration runs at startup, in a thread of its own, and says so** (#285).
+It ran when something first opened the database: with the queue on, the
+queue's recovery opened it inside `app_started` and held the WebUI's start
+for the whole migration; with only the Civitai Browser on, nothing did. Now
+`on_app_started` starts it whatever tabs are on, and `migration_state()` -
+about to run, how far it has got, or its error - is read without the
+database, by ui-options and `GET /model-manager/database/migration`: the page
+covers its tabs until it ends, and whatever reads the database waits. A
+failed one is not run again in the same process, each request with a backup
+of its own. A long migration calls `progress(text)` where it prints.
+
+**A run of several migrations is not one transaction.** `_back_up` commits
+what the run's earlier migrations wrote before it copies the file, so a
+failure in a later one leaves those in place. #285's notice first said "the
+database is as it was" - true of v42 alone - and says the update "stopped
+before it finished". Each backup is the database's size: 7880's v40 library
+made two of 357 MB, two seconds apart.
+
 ### The library: files, versions and rows
 
 **A version is one row; its files are rows of their own** (#133).
@@ -157,6 +175,13 @@ the lookup and the write leaves a row naming nothing.
   sectioned levels 21 to 47 ms slower. Asked "aren't there better answers?",
   the owner was right: four reads each worked the level out again, and one
   indexed pass replaced them (Single pass, #259).
+- **A migration's check is held to the library's size.** v42's first check
+  of each image's date asked each row about its image's other copies, and
+  read the whole old table again per row: every suite passed, and at 127,000
+  rows the migration never finished. A work check holds it now
+  (`migration_v42_test`: four times the images, under six times SQLite's
+  virtual machine steps); the live library migrated in 13.0 s, 117,142
+  images.
 
 ### The data
 

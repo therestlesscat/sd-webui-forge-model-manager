@@ -41,6 +41,13 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   `open(path, 'w')` left them in CRLF. Read and write with `newline=''`, and
   `cmp` against a backup after. It cannot open a script under WSL's `/tmp`
   either: put one under `tests/work/`.
+- **A new suite runs on the old code from a copy of HEAD.** `git archive HEAD
+  | tar -x -C tests/work/<x>/head`, the suite copied into that tree: its
+  paths come from its own place, so HEAD's package runs and the working tree
+  is not touched - #285's server suite failed 12 of 19 checks there. A fake
+  that calls through to the real function calls it as HEAD's is called:
+  #285's passed a third argument HEAD's v42 did not take, and its thread
+  crashed instead of failing a check.
 - **A break must fail a check, not crash the suite.** `ORDER BY 0` is an
   SQLite error, not an order, and a check that sliced a list by what it
   assumed raised a `ValueError`: both "failed" without showing which check the

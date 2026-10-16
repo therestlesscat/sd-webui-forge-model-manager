@@ -325,6 +325,8 @@ Where they differ, and what the extension does about it - on the server in
 - **Python 3.10 in the original Forge.** Nothing newer than 3.10 syntax or
   library. Check with that install's `system\python\python.exe`, compiling
   every file.
+- **SQLite 3.37.2 in the original Forge**, 3.50.4 in Neo's venv. An SQL
+  feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35.
 - The other differences sit beside their code: `model_manager/AGENTS.md`, "Two
   WebUIs: everything has to work in both" - no `blake3`, the detector's helpers
   moved, the other WebUI's files; and `javascript/shared/AGENTS.md`, "Two
@@ -697,10 +699,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   fails ("= not found"); use `printf -- '-----\n'`. A colon after a
   variable is a modifier: `"refs/tags/$t:refs/tags/$t"` read `$t:r`, mangled
   318 refspecs, and aborted a push - write `${t}:`.
-- **7880's copy of the extension is its own**: a git clone, at 0.56.1, with
-  files copied over it - not a link to this working tree. A change reaches it
+- **7880's copy of the extension is its own**: a git clone with files copied
+  over it - not a link to this working tree - so its version is the last
+  copy's (0.60.1 on 2026-10-16, its database at v42). A change reaches it
   by copying the changed files there, then a restart (`POST
-  /model-manager/restart`). A restart's first answers can come from the old
+  /model-manager/restart`). It is not always running: when its port does not
+  listen, a live check waits for the owner to start it. A restart's first answers can come from the old
   process: wait for the port's PID to change, then for
   `/model-manager/asset-version` to answer - a 404 until the extension's
   routes are added. 0.59.2's first live check restarted 7880 onto the old
