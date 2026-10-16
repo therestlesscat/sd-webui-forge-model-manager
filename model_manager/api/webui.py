@@ -284,7 +284,7 @@ def register(app: FastAPI):
         from ..civitai import api_key_from_settings
         from ..forge_host import DEFAULTS, restartable, samplers, schedulers, setting, short_name
         from ..model_dirs import shown_roots
-        from ..db import database_state
+        from ..db import database_state, migration_state
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
         from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
         from ..scheduler import queue_enabled
@@ -365,6 +365,8 @@ def register(app: FastAPI):
                 "webui_short_name": short_name(),
                 # A database newer than this copy knows: the tabs are covered, none starts (#136).
                 "database_newer": database_state(),
+                # A migration running or failed at this start: the tabs wait under a notice (#285).
+                "database_migrating": migration_state(),
             })
 
         except Exception as e:
@@ -387,6 +389,17 @@ def register(app: FastAPI):
                  "tabs": tabs, "restartable": can_restart},
                 status_code=500
             )
+
+    @app.get("/model-manager/database/migration")
+    @gate("always")
+    def database_migration():
+        """
+        The migration the page's notice waits on (#285): running, with how far
+        it has got, or failed with its error; None once it is done. Read
+        without the database, which waits for it.
+        """
+        from ..db import migration_state
+        return JSONResponse({"success": True, "migrating": migration_state()})
 
     @app.post("/model-manager/restart")
     @gate("always")

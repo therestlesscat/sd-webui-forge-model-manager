@@ -28,7 +28,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, onReady, once } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, onReady, once, setText } = await shared('core.mjs');
 const { call, provide, withdraw } = await shared('calls.mjs');
 const { goToTab, panelButton, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
@@ -400,7 +400,7 @@ function apply(name) {
     const on = now.on !== false;
     showElement(tabButton(name), on && !now.stopped);
     const app = typeof gradioApp === 'function' ? gradioApp() : document;
-    tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on && !newerDatabase));
+    tab.also.forEach((id) => showElement(app.querySelector(`#${id}`), on && !blocked()));
     if ((!on || now.stopped) && tabShowing(name)) goToTab(fallbackFor(name));
 }
 
@@ -605,6 +605,38 @@ function takeSwitches(value) {
 // and built is covered by a notice saying why, and what to do.
 let newerDatabase = null;
 
+// A migration of the database at this start (#285): {from, to, progress,
+// error}, or null. While it runs no tab starts either - each would wait on
+// the database - and the notice says how far it has got; once it is done the
+// tabs start, in the same page. Failed, the notice says so, and stays.
+let migrating = null;
+
+/** Whether the tabs wait under a notice: a database newer than this copy, or one migrating. */
+function blocked() {
+    return Boolean(newerDatabase || migrating);
+}
+
+function migratingNotice() {
+    const { from, to, progress, error } = migrating;
+    const versions = `v${escapeHtml(String(from))} to v${escapeHtml(String(to))}`;
+    if (error) {
+        return `<div class="newer-database database-migrating database-migration-failed">
+            <h3>The Model Manager could not update its database.</h3>
+            <p>The update of its tables from ${versions} stopped before it finished.
+               The tabs stay off until the WebUI is restarted, which tries it again.</p>
+            <p>The WebUI's console says more.</p>
+            <p class="newer-database-path">${escapeHtml(error)}</p>
+        </div>`;
+    }
+    return `<div class="newer-database database-migrating">
+        <h3>The Model Manager is updating its database.</h3>
+        <p>Its tables are brought from ${versions}, once, after this update of the extension.
+           The tabs start by themselves when it is done: nothing needs doing meanwhile.</p>
+        <p>An image generated meanwhile is recorded once it is done.</p>
+        <p class="database-migrating-progress">${escapeHtml(progress || 'Starting...')}</p>
+    </div>`;
+}
+
 function databaseNotice() {
     const { schema, known, path } = newerDatabase;
     return `<div class="newer-database">
@@ -627,14 +659,68 @@ function databaseNotice() {
  * as this runs after every update.
  */
 function drawDatabaseNotices() {
-    if (!newerDatabase) return;
+    if (!blocked()) return;
     const app = typeof gradioApp === 'function' ? gradioApp() : document;
     for (const [name, tab] of Object.entries(TABS)) {
         const root = app.querySelector(`#${tab.root}`);
-        if (!root || !state[name].on || !state[name].built || root.querySelector(':scope > .newer-database')) continue;
+        if (!root || !state[name].on || !state[name].built) continue;
+        if (!newerDatabase) {
+            // How far it has got, written only where it differs: this runs after every update.
+            const shown = root.querySelector(':scope > .database-migrating .database-migrating-progress');
+            if (shown) setText(shown, migrating.progress || 'Starting...');
+        }
+        if (root.querySelector(':scope > .newer-database')) continue;
         root.classList.add('database-blocked');
-        root.insertAdjacentHTML('afterbegin', databaseNotice());
+        root.insertAdjacentHTML('afterbegin', newerDatabase ? databaseNotice() : migratingNotice());
     }
+}
+
+/** Take the migration's notices off the tabs, to start them or to draw them anew. */
+function removeMigratingNotices() {
+    const app = typeof gradioApp === 'function' ? gradioApp() : document;
+    for (const tab of Object.values(TABS)) {
+        const root = app.querySelector(`#${tab.root}`);
+        const notice = root?.querySelector(':scope > .database-migrating');
+        if (!notice) continue;
+        notice.remove();
+        root.classList.remove('database-blocked');
+    }
+}
+
+/**
+ * Ask how the migration is going, every second, until it is done - then the
+ * tabs that are on and built start, with no reload - or failed, when its
+ * notice says so and the asking stops. A request that fails is asked again:
+ * the server is still there, and may only be busy.
+ */
+function followMigration() {
+    setTimeout(async () => {
+        let answer = null;
+        try {
+            answer = await apiCall({ endpoint: '/model-manager/database/migration' });
+        } catch {
+            answer = null;
+        }
+        if (answer?.success !== true) {
+            followMigration();
+            return;
+        }
+        const now = answer.migrating || null;
+        if (!now) {
+            migrating = null;
+            removeMigratingNotices();
+            for (const name of Object.keys(TABS)) {
+                apply(name);
+                if (state[name].on && state[name].built) startTab(name);
+            }
+            return;
+        }
+        const failed = Boolean(now.error) && !migrating?.error;
+        migrating = now;
+        if (failed) removeMigratingNotices();
+        drawDatabaseNotices();
+        if (!now.error) followMigration();
+    }, TIMING.poll);
 }
 
 /**
@@ -673,13 +759,15 @@ export const boot = once(() => {
         restartable = data?.restartable === true;
         newerDatabase = data?.database_newer || null;
         if (newerDatabase) await offerDatabaseActions();
+        migrating = newerDatabase ? null : data?.database_migrating || null;
+        if (migrating && !migrating.error) followMigration();
         for (const [name, tab] of Object.entries(TABS)) {
             // Unsaid - ui-options not answering - a tab is as its switch is by default.
             const said = data?.tabs?.[tab.server];
             state[name].on = said ? said.on !== false : tab.unsaid !== false;
             state[name].built = said ? said.built !== false : tab.unsaid !== false;
             apply(name);
-            if (state[name].on && state[name].built && !newerDatabase) startTab(name);
+            if (state[name].on && state[name].built && !blocked()) startTab(name);
         }
         drawDatabaseNotices();
         window.addEventListener('mm-settings-saved', (event) => {

@@ -102,6 +102,16 @@ class ModelsDatabase:
 
     def _init_db(self):
         """Create the version table and run whatever migrations are missing."""
+        try:
+            self._init_tables()
+        except Exception as error:
+            # Rolled back: the database is as it was (#285).
+            _migration_failed(str(error))
+            raise
+        # Committed: the page's notice goes, and its tabs start.
+        _migration_ended()
+
+    def _init_tables(self):
         with self._cursor() as cursor:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schema_info (
@@ -123,8 +133,13 @@ class ModelsDatabase:
                     "Update this copy - another WebUI sharing the database has been updated.")
 
             if current_version < SCHEMA_VERSION:
+                # Said to the page while it runs (#285), the tabs held until it
+                # ends - a library's, not a new file's, which takes no time.
+                said = (lambda text: _migration_said(current_version, text)) if current_version else None
+                if said:
+                    said("")
                 run_migrations(cursor, current_version, SCHEMA_VERSION,
-                               self.db_path, self.db_dir)
+                               self.db_path, self.db_dir, progress=said)
             if current_version == 0:
                 # A database made now, by this version: notes for people
                 # updating from before it do not apply (release_notes.py).
@@ -813,6 +828,77 @@ def database_path() -> str:
     return _custom_path() or os.path.join(_EXTENSION_DIR, ModelsDatabase.DB_NAME)
 
 
+# A migration this start runs (#285): {"from", "to", "progress", "error"}
+# while it runs, or with its error once it failed; None before and after. The
+# page's notice over the tabs reads it, through ui-options and its own route.
+_migration: Optional[Dict[str, Any]] = None
+_migration_lock = threading.Lock()
+
+
+def _migration_said(version: int, progress: str, error: Optional[str] = None) -> None:
+    global _migration
+    with _migration_lock:
+        _migration = {"from": version, "to": SCHEMA_VERSION, "progress": progress, "error": error}
+
+
+def _migration_failed(error: str) -> None:
+    global _migration
+    with _migration_lock:
+        if _migration is not None:
+            _migration = dict(_migration, error=error)
+
+
+def _migration_ended() -> None:
+    global _migration
+    with _migration_lock:
+        if _migration is not None and not _migration.get("error"):
+            _migration = None
+
+
+def migration_state() -> Optional[Dict[str, Any]]:
+    """
+    The database's migration at this start (#285): {"from", "to", "progress",
+    "error"} - running, or failed with its error - or None. Before it starts,
+    a database at an older schema reads as one about to run. Read without
+    opening the database through ModelsDatabase, which waits for it.
+    """
+    with _migration_lock:
+        if _migration is not None:
+            return dict(_migration)
+    behind = database_behind()
+    if behind:
+        return {"from": behind["schema"], "to": SCHEMA_VERSION, "progress": "", "error": None}
+    return None
+
+
+def _stored_schema(path: str) -> Optional[int]:
+    """The schema a database file says it is at, read with mode=ro; None where it cannot be read."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()
+        finally:
+            conn.close()
+        return int(row[0]) if row else 0
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+def database_behind() -> Optional[Dict[str, Any]]:
+    """
+    Whether the database this WebUI opens is at an older schema than this copy
+    knows, so its first open migrates it: {"schema", "known", "path"}, or None
+    - for one at this schema, one not made yet, or one it cannot read.
+    """
+    path = database_path()
+    schema = _stored_schema(path)
+    if not schema or schema >= SCHEMA_VERSION:
+        return None
+    return {"schema": schema, "known": SCHEMA_VERSION, "path": path}
+
+
 def database_state() -> Optional[Dict[str, Any]]:
     """
     Whether the database this WebUI opens is at a schema newer than this copy
@@ -824,18 +910,8 @@ def database_state() -> Optional[Dict[str, Any]]:
     and for startup, which then leaves it alone.
     """
     path = database_path()
-    if not os.path.isfile(path):
-        return None
-    try:
-        conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
-        try:
-            row = conn.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()
-        finally:
-            conn.close()
-        schema = int(row[0]) if row else 0
-    except (sqlite3.Error, ValueError):
-        return None
-    if schema <= SCHEMA_VERSION:
+    schema = _stored_schema(path)
+    if schema is None or schema <= SCHEMA_VERSION:
         return None
     return {"schema": schema, "known": SCHEMA_VERSION, "path": path}
 
@@ -846,6 +922,11 @@ def get_models_db() -> ModelsDatabase:
 
     if _db_instance is None:
         with _db_lock:
+            # A migration that failed is not run again by every request, each
+            # with a backup of its own: the start's failure is said again (#285).
+            failed = (migration_state() or {}).get("error")
+            if _db_instance is None and failed:
+                raise RuntimeError(failed)
             if _db_instance is None:
                 # Refused before it is opened (#136): opening it would set its
                 # journal mode, writing the file, before _init_db refuses it.

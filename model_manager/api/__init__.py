@@ -21,13 +21,15 @@ so adding an endpoint means editing one file rather than scrolling one.
 on_app_started is registered by scripts/model_manager_ui.py, each time Forge
 runs it - not here, at import, which happens once a process.
 """
+import threading
+
 from fastapi import FastAPI
 
 from . import civitai, gallery, generations, images, jobs, models, notes, scheduler, settings, webui
 from .. import prompt_levels, update_check
 from ..scheduler import runner
-from ..db import database_state
-from ..console import say
+from ..db import database_behind, database_state, get_models_db
+from ..console import say, say_failure
 
 
 def setup_api(app: FastAPI):
@@ -55,10 +57,30 @@ def on_app_started(demo, app):
             f"extension knows (v{newer['known']}): update this copy. Nothing reads or writes it until then.")
         update_check.start_in_background()
         return
+    # Whether a newer version is out: now, then every 12 hours.
+    update_check.start_in_background()
+    if database_behind():
+        # Migrated now, whatever tabs are on, in a thread of its own: the page
+        # is served meanwhile, with a notice over every tab until it ends
+        # (#285). With only the Civitai Browser on, nothing else would open
+        # the database, and the notice would stay. What reads it waits.
+        threading.Thread(target=_migrate_then_start, name="ModelManager-migrate", daemon=True).start()
+        return
+    _start_services()
+
+
+def _migrate_then_start():
+    try:
+        get_models_db()
+    except Exception:
+        say_failure("The database's migration failed; it is as it was, its backup beside it")
+        return
+    _start_services()
+
+
+def _start_services():
     # Each of these is left out while the tabs it serves are off (tabs.py).
     # Stored image levels, redone if the NSFW prompt words changed.
     prompt_levels.start_in_background()
-    # Whether a newer version is out: now, then every 12 hours.
-    update_check.start_in_background()
     # Queued tasks a restart or a crash left running are stopped (#155).
     runner.recover()

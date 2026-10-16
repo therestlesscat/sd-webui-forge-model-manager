@@ -197,8 +197,9 @@ SPEC = {
     ('GET', '/model-manager/asset-version'): 'always',
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
+    ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 86 routes', len(SPEC), 86)
+check('the spec holds 87 routes', len(SPEC), 87)
 
 app = FastAPI()
 api.setup_api(app)

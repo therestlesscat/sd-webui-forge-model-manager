@@ -2379,7 +2379,7 @@ def _v42_room(db_path: str) -> None:
             "free some space and start the WebUI again.")
 
 
-def _migrate_to_v42(cursor, db_path: str):
+def _migrate_to_v42(cursor, db_path: str, progress=None):
     """
     Each Civitai image stored once (#283), in the tables search and grouping
     read. `images` held a row per gallery an image showed in, each with the
@@ -2392,6 +2392,7 @@ def _migrate_to_v42(cursor, db_path: str):
     checked (_v42_check) before the old table is dropped.
     """
     print("[ModelManager] Migrating to v42: each Civitai image stored once...")
+    tell = progress or (lambda text: None)
     tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "image_records" in tables:
         print("[ModelManager] Migration to v42 already done")
@@ -2474,6 +2475,7 @@ def _migrate_to_v42(cursor, db_path: str):
         # stuck is not stopped for it (stopped, it starts over, nothing lost).
         if done[0] % 20000 == 0:
             print(f"[ModelManager] v42: {done[0]:,} of {total:,} images...")
+            tell(f"{done[0]:,} of {total:,} images")
 
     for row in reader.execute("SELECT id, url, width, height, created_at, data FROM images ORDER BY id, rowid DESC"):
         if copies and copies[0][0] != row[0]:
@@ -2486,6 +2488,7 @@ def _migrate_to_v42(cursor, db_path: str):
     cursor.execute(f"UPDATE image_prompts SET length = {_V42_LENGTH}")
 
     print(f"[ModelManager] v42: {done[0]:,} images written; checking them against the old table...")
+    tell(f"{done[0]:,} images written; checking them against the old table")
     _v42_check(cursor, merged)
     cursor.execute("DROP TABLE temp.v42_prompts")
     cursor.execute("DROP TABLE temp.v42_resources")
@@ -2503,8 +2506,11 @@ def _migrate_to_v42(cursor, db_path: str):
 
 
 def run_migrations(cursor, from_version: int, to_version: int,
-                   db_path: str, db_dir: str):
-    """Bring a database from `from_version` up to `to_version`, and no further."""
+                   db_path: str, db_dir: str, progress=None):
+    """
+    Bring a database from `from_version` up to `to_version`, and no further.
+    `progress(text)` hears how far a long one has got, for the page (#285).
+    """
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
     # Only v4, v25, v32, v37, v41 and v42 take the path; v4 the directory too.
@@ -2525,7 +2531,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         37: lambda c: _migrate_to_v37(c, db_path),
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
-        42: lambda c: _migrate_to_v42(c, db_path),
+        42: lambda c: _migrate_to_v42(c, db_path, progress),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:
