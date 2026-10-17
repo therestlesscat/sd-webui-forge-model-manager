@@ -42,6 +42,7 @@ const {
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
+    newerVersionsBadge,
     createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
@@ -323,6 +324,7 @@ function getFilters() {
         has_civitai: document.getElementById('mm_civitai')?.value || '',
         ...bookmarkedFilter,
         min_versions: document.getElementById('mm_min_versions')?.value || '',
+        newer_version: document.getElementById('mm_newer_version')?.value || '',
         min_size_gb: sizeBound('mm_min_size'),
         max_size_gb: sizeBound('mm_max_size'),
         ...previewLeastNsfwFilter,
@@ -613,12 +615,14 @@ function mmCard(model, index) {
             pinButton(model, index, 'mm-pin-btn'),
         ],
         badges: [
-            { cls: 'type-badge', text: model.model_type || 'Unknown' },
-            ...(model.base_model ? [{ cls: 'base-model', text: model.base_model }] : []),
+            { cls: 'type-badge', text: model.model_type || 'Unknown', title: model.model_type || 'Unknown' },
+            ...(model.base_model ? [{ cls: 'base-model', text: model.base_model, title: model.base_model }] : []),
             // Only when several versions are on disk.
             // "×3", not "v3", which read as version 3 (#208).
             ...(versions > 1 ? [{ cls: 'versions-badge', text: `×${versions}`,
                                   title: `${versions} versions of this model are on disk` }] : []),
+            // Civitai lists a version newer than any held (#218).
+            ...newerVersionsBadge(model),
         ],
         stats: [
             { text: formatFileSize(model.file_size) },
@@ -2851,6 +2855,7 @@ async function showModel(query) {
     setValue('mm_base_model', '');
     setValue('mm_is_bookmarked', '');
     setValue('mm_min_versions', '');
+    setValue('mm_newer_version', '');
     setValue('mm_min_size', '');
     setValue('mm_max_size', '');
 
@@ -3042,6 +3047,7 @@ function currentSearchFilters() {
         civitai: document.getElementById('mm_civitai')?.value || '',
         is_bookmarked: document.getElementById('mm_is_bookmarked')?.value || '',
         min_versions: document.getElementById('mm_min_versions')?.value || '',
+        newer_version: document.getElementById('mm_newer_version')?.value || '',
         min_size: document.getElementById('mm_min_size')?.value || '',
         max_size: document.getElementById('mm_max_size')?.value || '',
         sort_by: document.getElementById('mm_sort_by')?.value || 'name',
@@ -3178,6 +3184,7 @@ function applySearchFilters(filters) {
         if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
         if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
         if (Object.prototype.hasOwnProperty.call(filters, 'min_versions')) document.getElementById('mm_min_versions').value = filters.min_versions;
+        if (Object.prototype.hasOwnProperty.call(filters, 'newer_version')) document.getElementById('mm_newer_version').value = filters.newer_version;
         for (const [key, id] of [['min_size', 'mm_min_size'], ['max_size', 'mm_max_size']]) {
             if (Object.prototype.hasOwnProperty.call(filters, key)) document.getElementById(id).value = filters[key];
         }

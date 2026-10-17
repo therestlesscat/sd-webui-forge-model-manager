@@ -176,6 +176,18 @@ check('a model that is not local is marked so', body['models'][0]['owned_locally
 check('and one that is, is', body['models'][1]['owned_locally'], True)
 check('naming which version', body['models'][1]['owned_versions'], [OWNED_VERSION])
 check('nothing was filtered, so there are no filter stats', body['filterStats'], None)
+
+# An owned model whose newest version is not the one held (#218): the search
+# answers every version, in Civitai's order, so the card can say what is newer.
+NEWER = remote(OWNED_MODEL, 990101)
+NEWER['modelVersions'][0].update(name='v9', baseModel='Pony')
+NEWER['modelVersions'].append(remote(OWNED_MODEL, OWNED_VERSION)['modelVersions'][0])
+civitai(models={'items': [NEWER, remote(90001, 90002)], 'nextCursor': None})
+status, body = get('/model-manager/civitai/models')
+check('an Owned model lists the versions Civitai has before every one held',
+      [(v.get('id'), v.get('name'), v.get('base_model')) for v in body['models'][0].get('newer_versions') or []],
+      [(990101, 'v9', 'Pony')])
+check('a model not owned has none', body['models'][1].get('newer_versions'), [])
 check('the client was closed', ('close',) in Stub.calls, True)
 
 status, body = get('/model-manager/civitai/models', types='Checkpoint,LORA',

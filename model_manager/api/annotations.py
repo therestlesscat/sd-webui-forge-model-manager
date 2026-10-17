@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Set
 
 from ..civitai import paid_access_info
 from ..model_dirs import held_here, ignored_because
+from .. import newer_versions
 from ..nsfw import stamp_levels
 
 
@@ -82,6 +83,9 @@ def annotate_local_ownership(db, models: List[Dict[str, Any]]):
     """
     Mark which of these models, versions and files the library holds, in
     place - and which models it lists, for "Show in MM". See ownership().
+    An owned model also gets the versions Civitai lists before every one it
+    holds here (`newer_versions`, #218), from its own `modelVersions`: a
+    search answers every version, in Civitai's order.
 
     Args:
         db: Models database.
@@ -105,3 +109,5 @@ def annotate_local_ownership(db, models: List[Dict[str, Any]]):
             version["ignored_because"] = theirs.get("ignored")
             if version["owned_locally"]:
                 model["owned_versions"].append(version.get("id"))
+        model["newer_versions"] = newer_versions.describe(newer_versions.newer_versions(
+            model.get("modelVersions") or [], model["owned_versions"]))

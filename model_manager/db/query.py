@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass
 
 from ..nsfw import SFW_MAX, UNKNOWN, max_mode_ceiling, model_level_sql
+from ..newer_versions import NEWER_SQL
 from .images_ops import GALLERY_ORDER
 from .library import LIBRARY
 
@@ -142,6 +143,8 @@ class GridQuery:
     checkpoint_type: Optional[str] = None
     # Only models with no image in the library above PG-13.
     sfw_only: bool = False
+    # Only models Civitai lists a newer version of than any held (#218).
+    newer_only: bool = False
     # The grid's tabs: True the pinned cards, False the rest, None all.
     pinned: Optional[bool] = None
     sort_by: str = "file_modified"
@@ -333,6 +336,10 @@ def query_models_grouped(
             ) WHERE effective_nsfw_level > ?
         )""")
         outer_params.extend([SFW_SAMPLE_SIZE, SFW_MAX])
+    if grid.newer_only:
+        # Of the version the card shows, which names its model - the rule
+        # the cards' badge takes in Python (newer_versions.py).
+        outer_conditions.append(NEWER_SQL.format(version_id="ranked.id"))
     # Both tabs' counts come from one count, before the tab's own condition.
     count_where = " AND ".join(outer_conditions)
     if grid.pinned is not None:

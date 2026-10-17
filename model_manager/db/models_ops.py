@@ -499,6 +499,39 @@ class ModelsOps:
             return None, None
         return json.loads(row[0]), row[1]
 
+    def civitai_versions_for(self, model_ids) -> Dict[int, Tuple[List[Dict[str, Any]], Optional[str]]]:
+        """
+        Many models' stored versions, and when Civitai last listed them: a
+        page of cards in one read (#218). A model with none stored is left out.
+        """
+        ids = sorted({int(m) for m in model_ids if m})
+        found: Dict[int, Tuple[List[Dict[str, Any]], Optional[str]]] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute(f"SELECT id, versions, versions_synced_at FROM models "
+                               f"WHERE id IN ({', '.join('?' * len(chunk))}) AND versions IS NOT NULL", chunk)
+                for model_id, versions, synced_at in cursor.fetchall():
+                    found[model_id] = (json.loads(versions), synced_at)
+        return found
+
+    def held_version_ids(self, model_ids) -> Dict[int, set]:
+        """
+        {model id: the ids of its versions with a file in the library} - what
+        the details panel ticks as downloaded, the other WebUI's files too.
+        """
+        ids = sorted({int(m) for m in model_ids if m})
+        found: Dict[int, set] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute(f"SELECT DISTINCT v.model_id, f.version_id FROM files f "
+                               f"JOIN versions v ON v.id = f.version_id "
+                               f"WHERE v.model_id IN ({', '.join('?' * len(chunk))})", chunk)
+                for model_id, version_id in cursor.fetchall():
+                    found.setdefault(model_id, set()).add(version_id)
+        return found
+
     def get_civitai_model(self, model_id: int) -> Optional[Dict[str, Any]]:
         """Get a Civitai model by ID."""
         with self._cursor() as cursor:

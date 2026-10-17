@@ -24,6 +24,27 @@ from ..model_dirs import COMPANIONS, file_modified, folder_of, ignored_because
 from ..download_service import template_folders
 from .. import resources
 from ..console import say
+from .. import newer_versions
+
+
+def mark_newer_versions(db, models) -> None:
+    """
+    Each card's `newer_versions` (#218): what Civitai lists before every
+    version the library holds of its model, from the stored list - asked of
+    the page's models alone, two reads for the page - and when Civitai last
+    gave that list (`versions_synced_at`). Whether each allows downloads is
+    what the last sync's lookup by hash said; nothing is asked of Civitai.
+    """
+    ids = {m.get("model_id") for m in models if m.get("model_id")}
+    lists = db.civitai_versions_for(ids) if ids else {}
+    held = db.held_version_ids(ids) if ids else {}
+    newer = {model_id: newer_versions.newer_versions(listed, held.get(model_id, ()))
+             for model_id, (listed, _) in lists.items()}
+    words = db.version_usage_controls(v["id"] for found in newer.values() for v in found)
+    for model in models:
+        model_id = model.get("model_id")
+        model["newer_versions"] = newer_versions.describe(newer.get(model_id) or [], words)
+        model["versions_synced_at"] = lists.get(model_id, (None, None))[1]
 
 
 def register(app: FastAPI):
@@ -60,6 +81,8 @@ def register(app: FastAPI):
         checkpoint_type: str = "",
         # Only models with no image in the library above PG-13
         sfw_only: bool = False,
+        # "available": only models Civitai lists a newer version of (#218)
+        newer_version: str = "",
         # The grid's tabs: True the pinned cards, False the rest, None all.
         # The response says how many each tab holds under these filters.
         pinned: Optional[bool] = None,
@@ -175,6 +198,7 @@ def register(app: FastAPI):
                 offset=0 if paths_only else offset,
                 preview_least_nsfw=preview_least_nsfw,
                 sfw_only=sfw_only,
+                newer_only=newer_version == "available",
                 pinned=None if paths_only else pinned,
             )
             models, total_count = db.query_models_grouped(grid, counts=tab_counts)
@@ -196,6 +220,7 @@ def register(app: FastAPI):
             # A file in a folder this WebUI does not load says why (#195).
             for model in models:
                 model["ignored_because"] = ignored_because(model.get("file_path") or "")
+            mark_newer_versions(db, models)
 
             # Get the setting value for JS to initialize checkbox
             preview_least_nsfw_setting = setting('model_manager_preview_least_nsfw')

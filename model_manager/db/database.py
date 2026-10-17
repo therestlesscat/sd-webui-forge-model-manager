@@ -216,6 +216,14 @@ class ModelsDatabase:
         """A model's stored versions, and when Civitai last listed them."""
         return self._models.get_civitai_versions(model_id)
 
+    def civitai_versions_for(self, model_ids) -> Dict[int, Tuple[List[Dict[str, Any]], Optional[str]]]:
+        """Many models' stored versions and their times, in one read (#218). See db/models_ops.py."""
+        return self._models.civitai_versions_for(model_ids)
+
+    def held_version_ids(self, model_ids) -> Dict[int, set]:
+        """{model id: its versions with a file in the library}. See db/models_ops.py."""
+        return self._models.held_version_ids(model_ids)
+
     def store_version_lookups(self, versions: List[Dict[str, Any]]) -> int:
         """What Civitai's lookup by hash said of recorded versions (#229). See db/models_ops.py."""
         return self._models.store_version_lookups(versions)

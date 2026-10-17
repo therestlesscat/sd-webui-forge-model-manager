@@ -1,5 +1,17 @@
 [
     {
+        "id": "newer-version-badge",
+        "version": "0.63.2",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "model_manager",
+            "civitai_browser"
+        ],
+        "title": "See which models have a newer version",
+        "text": "A card now says New version when Civitai lists a version newer than any you have; its tooltip names them. In the Model Manager, Newer Version in Advanced filters lists only those models. The Model Manager's list is as of each model's last sync."
+    },
+    {
         "id": "hide-models-in-library",
         "version": "0.63.0",
         "kind": "feature",

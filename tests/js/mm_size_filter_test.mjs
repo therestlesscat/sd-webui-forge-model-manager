@@ -48,6 +48,8 @@ check('in Advanced filters, a range: min and max', [!!$('mm_min_size')?.closest(
       $('mm_min_size')?.closest('.filter-range') === $('mm_max_size')?.closest('.filter-range')], [true, true]);
 await waitFor('the saved search', () => $('mm_min_size').value === '1.5');
 check('a saved search restores the range', [$('mm_min_size').value, $('mm_max_size').value], ['1.5', '8']);
+// Saved before Newer Version (#218), it has no value for it: Any.
+check('a search saved before Newer Version leaves it at Any', $('mm_newer_version')?.value, '');
 
 let asked = await load();
 check('Load Models asks for it, in GB', [asked.get('min_size_gb'), asked.get('max_size_gb')], ['1.5', '8']);

@@ -840,11 +840,39 @@ body.mm-modal-open {
     margin-bottom: 6px;
 }
 
+/* One line, always: a card's height is fixed, and a second line of badges
+   pushed its stats below the bottom, cut off - with New version (#218) on
+   most cards that had it, and before it on a long base model with a count
+   ("Checkpoint, Wan Video 2.2 T2V-A14B, x2"). The type is cut short first,
+   with an ellipsis, to a few letters at least; only past that the base model
+   (its shrink weighed a thousandth of the type's). Each keeps its full name
+   in its tooltip; the counts never shrink. */
 .model-card-meta {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 4px;
     margin-bottom: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.model-card-meta .badge {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.model-card-meta .badge.type-badge {
+    flex: 0 1000 auto;
+    min-width: 2.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model-card-meta .badge.base-model {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .model-card-stats {
@@ -2241,6 +2269,21 @@ body.mm-modal-open {
     background: rgba(76, 175, 80, 0.25);
     color: #81c784;
     font-weight: 600;
+}
+
+/* New version (#218): Civitai lists a version newer than any held. One
+   badge for both tabs' cards; amber, apart from the type's blue, the base
+   model's purple and the count's green. Its own shade for each mode, its
+   colour !important against Gradio's .prose colouring. */
+.badge.newer-badge {
+    background: rgba(217, 119, 6, 0.14);
+    color: #b45309 !important;
+    font-weight: 600;
+}
+
+.dark .badge.newer-badge {
+    background: rgba(245, 158, 11, 0.22);
+    color: #fbbf24 !important;
 }
 
 /* Version selector section in details panel */

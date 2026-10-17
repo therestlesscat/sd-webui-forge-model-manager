@@ -161,6 +161,13 @@ def create_ui():
                                     <option value="true">Yes</option>
                                 </select>
                             </div>
+                            <div class="filter-group" title="Models Civitai lists a version of that is newer than any you have, as of each model's last sync">
+                                <label>Newer Version</label>
+                                <select id="mm_newer_version">
+                                    <option value="">Any</option>
+                                    <option value="available">Available</option>
+                                </select>
+                            </div>
                             <div class="filter-group">
                                 <label>Min Versions</label>
                                 <input type="number" id="mm_min_versions" min="1" placeholder="Any" style="width: 70px;">

@@ -41,6 +41,7 @@ const {
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
+    newerVersionsBadge,
     createCardSize, statsRows,
 } = await shared('grid.mjs');
 const {
@@ -825,8 +826,11 @@ function renderCard(model, index) {
             }] : []),
         ],
         badges: [
-            { cls: 'type-badge', text: model.type || 'Unknown' },
-            ...(firstVersion?.baseModel ? [{ cls: 'base-model', text: firstVersion.baseModel }] : []),
+            { cls: 'type-badge', text: model.type || 'Unknown', title: model.type || 'Unknown' },
+            ...(firstVersion?.baseModel ? [{ cls: 'base-model', text: firstVersion.baseModel, title: firstVersion.baseModel }] : []),
+            // Civitai lists a version newer than any held here (#218); on-site
+            // only as this page's own marks asked it.
+            ...newerVersionsBadge(model, (id) => onSiteOnly((model.modelVersions || []).find((v) => v.id === id))),
         ],
         stats: [
             // stats.rating no longer exists in the API; thumbs are what Civitai reports now.

@@ -9,8 +9,34 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { escapeHtml, dataAttributes, formatNumber } = await shared('core.mjs');
+const { escapeHtml, dataAttributes, formatNumber, formatDay } = await shared('core.mjs');
 const { cardVideoTag, mediaFallback } = await shared('media.mjs');
+
+// How many newer versions the badge's tooltip names before "and N more".
+const NEWER_NAMED = 5;
+
+/**
+ * A card's New version badge (#218), both tabs alike: what the server says
+ * Civitai lists before every version held (`newer_versions`), newest first.
+ * The tooltip names each with its base model and what keeps it from a plain
+ * download; `onSite(id)` answers for a version the server could not say of
+ * (the Civitai Browser's own marks), and `versions_synced_at`, where the
+ * list is the stored one, says how old it is. Nothing, when nothing is newer.
+ */
+export function newerVersionsBadge(model, onSite = () => null) {
+    const newer = model?.newer_versions || [];
+    if (!newer.length) return [];
+    const why = (v) => [v.base_model, v.paid ? v.paid.toLowerCase() : '',
+                        (v.on_site_only ?? onSite(v.id)) ? 'on-site only' : ''].filter(Boolean).join(', ');
+    const named = newer.slice(0, NEWER_NAMED).map((v) => (why(v) ? `${v.name} (${why(v)})` : v.name));
+    const more = newer.length > NEWER_NAMED ? [`and ${newer.length - NEWER_NAMED} more`] : [];
+    const asOf = model.versions_synced_at ? [`As of the last sync, ${formatDay(model.versions_synced_at)}`] : [];
+    return [{
+        cls: 'newer-badge',
+        text: newer.length === 1 ? 'New version' : `${newer.length} new versions`,
+        title: [`Newer on Civitai than any version you have: ${[...named, ...more].join(', ')}`, ...asOf].join('\n'),
+    }];
+}
 
 /**
  * A model's reception, as Civitai reports it since star ratings went away.
