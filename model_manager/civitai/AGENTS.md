@@ -24,6 +24,10 @@ because that would mean the assumption no longer holds.
   35 KB and a 431. Civitai's own filters apply to the ids; a text query
   ignores them. More than 100 matches come back as the first 100 by the sort,
   with a cursor: a draw that kept only those favoured the most downloaded.
+- **A search answers every version of a model**, in Civitai's order: 139 of
+  139 and 58 of 58 versions on two models, the same as `/models/{id}` and as
+  a sync's stored list (2026-10-16). A card can be judged from the search
+  answer alone (#218).
 - **Civitai's `nsfw` search parameter has two states, not three, and
   neither is "every model".** `true` leaves out the models Civitai marks
   `minor` (4 of 4 seen); left out, or `false`, it returns only models whose

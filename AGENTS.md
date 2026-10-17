@@ -347,7 +347,9 @@ Where they differ, and what the extension does about it - on the server in
   library. Check with that install's `system\python\python.exe`, compiling
   every file.
 - **SQLite 3.37.2 in the original Forge**, 3.50.4 in Neo's venv. An SQL
-  feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35.
+  feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35;
+  `json_each` and `json_extract` run there (#218, checked with that install's
+  Python).
 - The other differences sit beside their code: `model_manager/AGENTS.md`, "Two
   WebUIs: everything has to work in both" - no `blake3`, the detector's helpers
   moved, the other WebUI's files; and `javascript/shared/AGENTS.md`, "Two
@@ -479,7 +481,11 @@ extensions' styles measured buttons the same that were not. And measure a new
 control against the same control elsewhere in the window: #287's probe found
 every existing element unchanged, and missed that its own buttons were 10.2
 px beside the window's 13.6 - `mm-btn-small` is 0.85em, and the new block
-set 12px on itself rather than on its text. The owner saw it.
+set 12px on itself rather than on its text. The owner saw it. And measure
+what it does to the box it sits in: #218's New version badge measured the
+type badge's size in both modes and both tabs, while on a card of fixed
+height it pushed the badge row to a second line, 39 px against 18, and cut
+the stats off on most cards that had it. The owner's screenshot found it.
 
 ## Conventions
 
