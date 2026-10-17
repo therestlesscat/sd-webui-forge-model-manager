@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.63 - Hide the models you already have.** In the Civitai Browser, Hide models in my library,
+under Post-processing Options, leaves out every model marked Owned and fills the page from the
+rest, so what is new to you is easy to spot. It costs Civitai no request.
+
 **0.62 - Give back the space your database no longer uses.** Updates and deletes leave space
 inside the database file, and each update that reshapes it leaves a full copy beside it. Under
 Database file in the settings, Compact database gives the space back, and Old backups lists the
@@ -192,9 +196,10 @@ do before it does it.
 
 Search Civitai without leaving the WebUI, by name, type, base model, tag and file size.
 Models you already have are marked **Owned**, with a jump to them in the Model Manager.
-Two checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
-whose first example images include anything NSFW, and **Only with usable prompts** keeps
-only models whose images have a prompt worth reusing. Results stream in as they are found.
+Three checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
+whose first example images include anything NSFW, **Only with usable prompts** keeps
+only models whose images have a prompt worth reusing, and **Hide models in my library** leaves
+out the ones marked Owned. Results stream in as they are found.
 Save Search keeps the search, and runs it the first time the tab is opened.
 
 ![Civitai Browser search results](docs/images/cb-search.png)
@@ -329,6 +334,8 @@ Search Civitai and download directly into the right model folder.
   "Show in Model Manager" jump
 - **Usable-prompt filter**: only show models whose images carry a prompt plus
   steps/sampler/CFG
+- **Hide models in my library**: leave out the models marked Owned, the page filled from
+  the rest
 - Image gallery read live from Civitai, a page at a time, with Load More
 - **Downloads**, shared with the Model Manager: as many at a time as the settings say -
   two unless changed - with progress, speed and time left; a waiting one started now,

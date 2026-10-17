@@ -68,11 +68,12 @@ check('each keeping to the width its checkboxes need, rather than sharing out th
       [$('cb_nsfw').closest('.filter-group').classList.contains('filter-group-compact'),
        $('cb_sfw_only').closest('.filter-group').classList.contains('filter-group-compact')],
       [true, true]);
-// The first row: what to search for, how, and in what order.
+// The first row: what to search for, how, and in what order - Search last,
+// beside Period and Sort when their line has room (#217).
 const firstRow = Array.from($('cb_type').closest('.filter-row').querySelectorAll(':scope > *'))
     .map((g) => (g.querySelector('label')?.textContent || '').trim());
 check('on the first row, between Checkpoint Type and Sort',
-      firstRow, ['Type', 'Checkpoint Type', 'API Options', 'Post-processing Options', 'Period']);
+      firstRow, ['Type', 'Checkpoint Type', 'API Options', 'Post-processing Options', 'Period', 'Search']);
 const nsfwTip = $('cb_nsfw').closest('label').title;
 const sfwTip = $('cb_sfw_only_label').title;
 check('Include NSFW models explains that Civitai decides, and what it still lets through',
@@ -94,8 +95,11 @@ check('with it unticked there is no banner', bannerShown(), false);
 $('cb_sfw_only').outerHTML = $('cb_sfw_only').outerHTML;
 toggle('cb_sfw_only', true);
 check('ticking it puts up a banner - the box redrawn by Gradio, as it is', bannerShown(), true);
-check('above the status line, where the short page is reported',
-      banner().nextElementSibling === $('cb_status'), true);
+// The status line, where the short page is reported, is in the row with
+// Search since #217: the banner sits under the filter bar, over the models.
+check('under the filter bar and its status line, over the models',
+      [banner().previousElementSibling?.classList.contains('cb-filters'), banner().nextElementSibling === $('cb_grid')],
+      [true, true]);
 check('saying what the tooltip says, word for word',
       $('cb_sfw_only_banner_text').textContent, sfwTip);
 const settingNote = $('cb_sfw_only_banner_setting')?.textContent.replace(/\s+/g, ' ') || '';

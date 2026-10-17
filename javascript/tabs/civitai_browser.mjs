@@ -219,6 +219,7 @@ function getFilters() {
         sfw_only: sfwOnlyEnabled(),
         min_size_gb: sizeBound('cb_min_size'),
         max_size_gb: sizeBound('cb_max_size'),
+        hide_owned: hideOwnedEnabled(),
     };
 }
 
@@ -228,6 +229,7 @@ function getFilters() {
  */
 function describeFilterStats(stats) {
     const skipped = [];
+    if (stats.libraryFilter) skipped.push(`${stats.inLibrary || 0} in your library`);
     if (stats.sfwFilter) skipped.push(`${stats.unsafe || 0} with NSFW images`);
     if (stats.promptFilter !== false) skipped.push(`${stats.dropped || 0} without usable prompts`);
     if (stats.sizeFilter) skipped.push(`${stats.rejected || 0} outside the size range`);
@@ -249,6 +251,8 @@ function filteringMessage() {
     if (feelingLucky()) return 'Drawing models at random...';
     if (requirePromptEnabled()) return 'Checking models for usable prompts...';
     if (sfwOnlyEnabled()) return 'Checking models for SFW images...';
+    const { min_size_gb: minSize, max_size_gb: maxSize } = getFilters();
+    if (minSize === '' && maxSize === '' && hideOwnedEnabled()) return 'Leaving out models in your library...';
     return 'Looking for models in the size range...';
 }
 
@@ -303,6 +307,12 @@ function requirePromptEnabled() {
     return document.getElementById('cb_require_prompt')?.checked || false;
 }
 
+// Is "Hide models in my library" ticked and in force (#217)? A draw leaves
+// those models out always, so the box is set aside while drawing.
+function hideOwnedEnabled() {
+    return !feelingLucky() && (document.getElementById('cb_hide_owned')?.checked || false);
+}
+
 // ------------------------------------------------------- I'm feeling lucky
 // Ticked, Search becomes Draw: a page of models drawn at random from those
 // Civitai's own filters allow, every one equally likely (#102,
@@ -324,14 +334,14 @@ function feelingLucky() {
 }
 
 /** Grey out a control a draw does not use, or bring it back; `holder` carries the look and the tooltip. */
-function setAside(holder, controls, aside) {
+function setAside(holder, controls, aside, why = NOT_IN_A_DRAW) {
     if (!holder) return;
     if (holder.dataset.title === undefined) holder.dataset.title = holder.title || '';
     for (const control of controls) {
         if (control && control.disabled !== aside) control.disabled = aside;
     }
     holder.classList.toggle('filter-disabled', aside);
-    setTitle(holder, aside ? `${NOT_IN_A_DRAW} ${holder.dataset.title}`.trim() : holder.dataset.title);
+    setTitle(holder, aside ? `${why} ${holder.dataset.title}`.trim() : holder.dataset.title);
 }
 
 function syncLucky() {
@@ -342,6 +352,8 @@ function syncLucky() {
     setAside(group('cb_sort'), [byId('cb_sort')], lucky);
     setAside(group('cb_min_size'), [byId('cb_min_size'), byId('cb_max_size')], lucky);
     setAside(byId('cb_require_prompt')?.closest('label'), [byId('cb_require_prompt')], lucky);
+    setAside(byId('cb_hide_owned_label'), [byId('cb_hide_owned')], lucky,
+             'A draw always leaves out the models in your library.');
     syncSfwOnlyEnabled();
     const button = byId('cb_search_btn');
     setText(button, lucky ? 'Draw' : 'Search');
@@ -434,8 +446,9 @@ async function searchModelsStreaming(page, cursor) {
             } else if (evt.type === 'progress') {
                 // Every model looked at was taken or passed over by one filter.
                 const seen = evt.found + (evt.dropped || 0) + (evt.unsafe || 0)
-                    + (evt.failed || 0) + (evt.rejected || 0);
-                const passed = [evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
+                    + (evt.failed || 0) + (evt.rejected || 0) + (evt.in_library || 0);
+                const passed = [evt.in_library ? `${evt.in_library} in your library` : '',
+                                evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
                                 evt.dropped ? `${evt.dropped} without usable prompts` : '',
                                 evt.rejected ? `${evt.rejected} outside the size range` : '',
                                 evt.failed ? `${evt.failed} could not be checked` : '']
@@ -673,16 +686,17 @@ async function searchModels(page = 1) {
 
     // A range nothing can be in would spend every search it is allowed on
     // finding that out.
-    const { min_size_gb: minSize, max_size_gb: maxSize, sfw_only: sfwOnly } = getFilters();
+    const { min_size_gb: minSize, max_size_gb: maxSize, sfw_only: sfwOnly, hide_owned: hideOwned } = getFilters();
     if (minSize !== '' && maxSize !== '' && minSize > maxSize) {
         updateStatus('File size: Min is larger than Max.');
         return;
     }
 
     // A filtered page is filled from as many models as it takes - checked one
-    // by one for prompts, or searched through for a size - so stream results
-    // in as they are found instead of blocking on the whole page.
-    if (requirePromptEnabled() || sfwOnly || minSize !== '' || maxSize !== '') {
+    // by one for prompts, searched through for a size or past the library's
+    // models - so stream results in as they are found instead of blocking on
+    // the whole page.
+    if (requirePromptEnabled() || sfwOnly || minSize !== '' || maxSize !== '' || hideOwned) {
         isLoading = true;
         try {
             await searchModelsStreaming(page, cursors[cursorIndex] || "");
@@ -2044,6 +2058,7 @@ function currentSearch() {
         base_models: value('cb_base_model'), sort: value('cb_sort'), period: value('cb_period'),
         nsfw: ticked('cb_nsfw'), tag: selectedTag, require_prompt: ticked('cb_require_prompt'),
         sfw_only: ticked('cb_sfw_only'), min_size: value('cb_min_size'), max_size: value('cb_max_size'),
+        hide_owned: ticked('cb_hide_owned'),
     };
 }
 
@@ -2065,6 +2080,7 @@ function applySearch(filters) {
     tick('cb_nsfw', 'nsfw');
     tick('cb_require_prompt', 'require_prompt');
     tick('cb_sfw_only', 'sfw_only');
+    tick('cb_hide_owned', 'hide_owned');
     set('cb_min_size', 'min_size');
     set('cb_max_size', 'max_size');
     if (Object.prototype.hasOwnProperty.call(filters, 'tag')) selectTag(filters.tag || '');

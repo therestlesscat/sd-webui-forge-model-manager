@@ -242,6 +242,17 @@ body.mm-modal-open {
     min-width: 0;
 }
 
+/* A group that takes half a row at least: it joins the line before it when
+   that line has half the row free, filling the rest, and otherwise takes a
+   line of its own - the Civitai Browser's Search beside Period and Sort
+   (#217). Centred, it lines up with a bordered box beside it: the box's
+   padding and border are the same above and below, so captions and
+   controls meet at the same heights. */
+.filter-group.filter-group-fill {
+    flex: 1 1 50%;
+    align-self: center;
+}
+
 /* Specific enough to beat .filter-group-bordered .filter-group, which pins
    every control in that box to 100px. */
 .filter-group-bordered .filter-group.filter-group-wide {
@@ -2696,6 +2707,17 @@ body.mm-modal-open {
     padding: 10px;
     color: var(--body-text-color-subdued, #9ca3af);
     font-size: 0.9em;
+}
+
+/* In the row with Search (#217): it takes the room the buttons leave, at the
+   left, and wraps to more lines as they grow - Start over, Select's bar. Too
+   narrow for both, the row wraps and it has a line of its own. No padding of
+   its own, to line up with the buttons. */
+.filter-buttons-row .cb-status {
+    flex: 1 1 16em;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
 }
 
 /* Owned badge for Civitai Browser cards */

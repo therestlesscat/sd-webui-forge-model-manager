@@ -82,6 +82,7 @@ def search_models_with_usable_prompts(
     max_searches: Optional[int] = None,
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
+    leave_out: Iterable[int] = (),
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -95,7 +96,7 @@ def search_models_with_usable_prompts(
         client, search_params, count_usable_images, page_size,
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
         batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
-        inspect=inspect, inspect_many=inspect_many,
+        inspect=inspect, inspect_many=inspect_many, leave_out=leave_out,
     ):
         if kind == "done":
             summary = payload
@@ -117,6 +118,7 @@ def iter_models_with_usable_prompts(
     max_searches: Optional[int] = None,
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
+    leave_out: Iterable[int] = (),
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -145,6 +147,13 @@ def iter_models_with_usable_prompts(
     pooled; it answers one verdict per model, and RATE_LIMITED for one
     Civitai refused. It takes precedence over `inspect`.
 
+    `leave_out` is the ids of models never to show - those the library holds,
+    for "Hide models in my library" (#217). Free like `accept`, it is asked
+    first, and a model it names is counted as `in_library`, never as
+    `rejected`. Each model passed over is counted once, where the loop moves
+    past it: a chunk asks again about what the skip before it let through,
+    and a page full partway through a chunk leaves the rest to the next page.
+
     If Civitai rate-limits a search or a check (CivitaiRateLimitError), the
     page stops there with `rate_limited` set, and the token points at the
     model that was not checked, so Next retries it rather than skipping it.
@@ -160,13 +169,15 @@ def iter_models_with_usable_prompts(
         max_checks: Maximum models to check before giving up on filling the page.
         batch_size: Models to pull from Civitai per search call.
         accept: Free check run before the prompt check; False drops the model.
+        leave_out: Ids of models to pass over before any other check.
         max_searches: Maximum search calls before giving up on filling the page.
         inspect: Costly check returning None to keep, or a reason to drop.
         inspect_many: The same, for a chunk of models at once.
 
     Yields events as the work happens, so a caller can show results while the
     rest are still being checked:
-        ("progress", {"checked", "dropped", "unsafe", "failed", "rejected", "found"})
+        ("progress", {"checked", "dropped", "unsafe", "failed", "rejected",
+                          "in_library", "found"})
             after each search and before each chunk of costly checks
         ("model", model) as each qualifying model is found
         ("done", summary) once, last, with nextCursor and final counts
@@ -181,6 +192,15 @@ def iter_models_with_usable_prompts(
             return None if count_usable_images(model) >= min_usable else "prompt"
 
     cursor, index = decode_filter_token(start_token)
+    leave_out = set(leave_out or ())
+
+    def passed_over(model):
+        """Why a free check passes this model over - "library" or "rejected" - or None."""
+        if model.get("id") in leave_out:
+            return "library"
+        if accept is not None and not accept(model):
+            return "rejected"
+        return None
 
     models: List[Dict[str, Any]] = []
     batch: Optional[List[Dict[str, Any]]] = None
@@ -190,6 +210,7 @@ def iter_models_with_usable_prompts(
     unsafe = 0        # failed the SFW check
     failed = 0        # the check itself failed, so nothing is known
     rejected = 0      # failed accept(), never given a costly check
+    in_library = 0    # in leave_out, never given any other check
     searches = 0
     exhausted = False
     budget_reached = False
@@ -197,7 +218,8 @@ def iter_models_with_usable_prompts(
 
     def counts():
         return {"checked": checked, "dropped": dropped, "unsafe": unsafe,
-                "failed": failed, "rejected": rejected, "found": len(models)}
+                "failed": failed, "rejected": rejected, "in_library": in_library,
+                "found": len(models)}
 
     while len(models) < page_size:
         if max_checks is not None and checked >= max_checks:
@@ -245,12 +267,24 @@ def iter_models_with_usable_prompts(
                 index = 0
                 continue
 
-        # Pass over what the free check rejects before any prompt check is
+        # Pass over what the free checks rule out before any prompt check is
         # spent on it. Consumed in order, so the resume token stays exact.
-        if accept is not None:
-            while index < len(batch) and not accept(batch[index]):
+        if accept is not None or leave_out:
+            passed = 0
+            while index < len(batch):
+                reason = passed_over(batch[index])
+                if reason is None:
+                    break
                 index += 1
-                rejected += 1
+                passed += 1
+                if reason == "library":
+                    in_library += 1
+                else:
+                    rejected += 1
+            # Said at once: progress after a search alone counted only the
+            # batches before this one, and a page filled from one said 0.
+            if passed:
+                yield "progress", counts()
             if index >= len(batch):
                 continue
 
@@ -273,9 +307,9 @@ def iter_models_with_usable_prompts(
         chunk = batch[index:index + take]
 
         # What check() says about a model: KEEP, a reason string, SKIPPED
-        # for one accept() rules out (costing no check), or RATE_LIMITED.
+        # for one a free check rules out (costing no check), or RATE_LIMITED.
         def check(model):
-            if accept is not None and not accept(model):
+            if passed_over(model) is not None:
                 return SKIPPED
             try:
                 return inspect(model) or KEEP
@@ -287,7 +321,7 @@ def iter_models_with_usable_prompts(
                 return "prompt" if count_usable_images is not None else "failed"
 
         if inspect_many is not None:
-            eligible = [accept is None or accept(model) for model in chunk]
+            eligible = [passed_over(model) is None for model in chunk]
             try:
                 answers = iter(inspect_many([m for m, ok in zip(chunk, eligible) if ok]))
                 verdicts = [(next(answers) or KEEP) if ok else SKIPPED for ok in eligible]
@@ -317,7 +351,10 @@ def iter_models_with_usable_prompts(
                 break
             consumed += 1
             if verdict is SKIPPED:
-                rejected += 1
+                if passed_over(model) == "library":
+                    in_library += 1
+                else:
+                    rejected += 1
             elif verdict is KEEP:
                 models.append(model)
                 yield "model", model
@@ -348,6 +385,7 @@ def iter_models_with_usable_prompts(
         "unsafe": unsafe,
         "failed": failed,
         "rejected": rejected,
+        "in_library": in_library,
         "budget_reached": budget_reached,
         "rate_limited": rate_limited,
         "exhausted": exhausted,

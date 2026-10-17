@@ -82,6 +82,9 @@ def create_civitai_browser_ui():
                                 <label class="cb-checkbox-label" title="Only show models whose images have a prompt plus steps/sampler/CFG. Slower: each model is checked against Civitai.">
                                     <input type="checkbox" id="cb_require_prompt"> Only with usable prompts
                                 </label>
+                                <label class="cb-checkbox-label" id="cb_hide_owned_label" title="Leaves out every model you have a file of in this WebUI's folders, the ones marked Owned, and fills the page from the rest. Owned means your library here, not a paid version bought on Civitai. Free: no extra requests, though a search that is mostly owned may need more searches to fill a page.">
+                                    <input type="checkbox" id="cb_hide_owned"> Hide models in my library
+                                </label>
                             </div>
                         </div>
                         <div class="filter-group-bordered">
@@ -109,9 +112,10 @@ def create_civitai_browser_ui():
                                 </select>
                             </div>
                         </div>
-                    </div>
-                    <div class="filter-row">
-                        <div class="filter-group">
+                        <!-- Search ends the row, half its width at least: beside Period and
+                             Sort when their line has that free, else on a line of its own
+                             (#217). -->
+                        <div class="filter-group filter-group-fill">
                             <label>Search</label>
                             <input type="text" id="cb_search" placeholder="Search models...">
                         </div>
@@ -172,8 +176,12 @@ def create_civitai_browser_ui():
                          cannot use (syncLucky in civitai_browser.mjs); Start over shows
                          while it is ticked, and forgets the models drawn so far (#191).
                          Each checkbox and what it shows are one set, boxed while it is
-                         ticked (#281). -->
+                         ticked (#281). The status line leads the row, at its left: it
+                         takes the room the buttons leave, and wraps beside them (#217). -->
                     <div class="filter-buttons-row">
+                        <div id="cb_status" class="cb-status">
+                            Click 'Search' to browse Civitai models.
+                        </div>
                         <span class="filter-buttons-set" id="cb_lucky_set">
                             <label class="mm-checkbox-label" id="cb_lucky_label"
                                    title="Search becomes Draw: a page of models drawn at random from all of Civitai, every model the filters allow equally likely. It uses Type, Checkpoint Type, Base Model, Tag, Period and Include NSFW models; the search text, the sort and the post-processing options are set aside while it is ticked. A draw leaves out the models drawn before it, under the same filters, and those in your library.">
@@ -211,11 +219,6 @@ def create_civitai_browser_ui():
                             <a href="#" class="mm-banner-link" data-action="settings.open" data-section="advanced">in the settings</a>, under Advanced - not recommended:
                             one page can take hundreds of requests and several minutes.</span>
                         <span id="cb_sfw_only_banner_model" class="mm-banner-note"></span></span>
-                </div>
-
-                <!-- Status -->
-                <div id="cb_status" class="cb-status">
-                    Click 'Search' to browse Civitai models.
                 </div>
 
                 <!-- Model Grid -->

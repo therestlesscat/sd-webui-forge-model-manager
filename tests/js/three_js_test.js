@@ -95,6 +95,7 @@ check('isPaid true for both',
 // getFilters reads the size boxes through sizeBound, which filters.mjs, loaded above, has.
 sandbox.feelingLucky = lift('feelingLucky');       // which asks whether a draw is on
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
+sandbox.hideOwnedEnabled = lift('hideOwnedEnabled'); // and Hide models in my library through this (#217)
 const getFilters = lift('getFilters');
 const group = makeGroup();
 els.cb_search = { value: 'anime' };

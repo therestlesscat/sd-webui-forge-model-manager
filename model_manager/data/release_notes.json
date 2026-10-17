@@ -1,5 +1,16 @@
 [
     {
+        "id": "hide-models-in-library",
+        "version": "0.63.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "civitai_browser"
+        ],
+        "title": "Hide the models you already have",
+        "text": "New: Hide models in my library, under Post-processing Options. Ticked, a search leaves out every model marked Owned and fills the page from the rest, so what is new to you is easy to spot. It costs Civitai no request."
+    },
+    {
         "id": "database-space",
         "version": "0.62.0",
         "kind": "feature",

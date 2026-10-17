@@ -68,8 +68,12 @@ const at = (id) => groups.findIndex((g) => g.querySelector(`#${id}`));
 check('the size boxes sit under Advanced filters, between Base Model and Tag',
       [row.closest('details')?.id, at('cb_base_model') < at('cb_min_size'),
        at('cb_min_size') < at('cb_tag_input')], ['cb_advanced', true, true]);
-check('and Search has a row of its own',
-      $('cb_search').closest('.filter-row').querySelectorAll(':scope > .filter-group').length, 1);
+// Search ends the first row, at least half its width: on Period and Sort's
+// line when that has half the row free, else on a line of its own (#217).
+const first = document.querySelector('.cb-filters > .filter-row');
+check('and Search ends the first filter row, taking half of it at least',
+      [first?.lastElementChild === $('cb_search').closest('.filter-group'),
+       $('cb_search').closest('.filter-group')?.classList.contains('filter-group-fill')], [true, true]);
 check('a group that keeps to its content rather than sharing the row',
       groups[at('cb_min_size')]?.classList.contains('filter-group-compact'), true);
 check('both in one group, under one caption',

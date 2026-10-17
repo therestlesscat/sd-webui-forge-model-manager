@@ -208,5 +208,115 @@ done = list(pf.iter_models_with_usable_prompts(
 check('a check that raises drops the model rather than the page', done['models'], [])
 check('and is counted as dropped', done['dropped'], 1)
 
+
+# ------------------------------------------- models the library holds (#217)
+# "Hide models in my library" hands the loop the ids to leave out. They are
+# passed over before any other check, and counted once: where the loop moves
+# past them, not each time it looks - a chunk looks again at what the skip
+# before it let through, and a page that fills mid-chunk leaves the rest for
+# the next page, which looks at them again.
+class ByCursor:
+    """Civitai, answering each cursor with its batch: a resumed page asks again."""
+
+    def __init__(self, batches):
+        self.batches = dict(batches)
+        self.calls = []
+
+    def search_models(self, **kwargs):
+        self.calls.append(kwargs)
+        items, next_cursor = self.batches[kwargs.get('cursor')]
+        return {'items': items, 'nextCursor': next_cursor}
+
+
+def leaving_out(searcher, page_size, owned, count=None, **kwargs):
+    """A page with `owned` left out; None, and a failed check, where the loop cannot."""
+    try:
+        return pf.search_models_with_usable_prompts(
+            searcher, {'query': ''}, count, page_size, leave_out=owned, **kwargs)
+    except TypeError as e:
+        fails.append('the loop takes the ids to leave out\n   %s' % e)
+        return None
+
+
+def ids(done):
+    return [m['id'] for m in done['models']] if done else None
+
+
+search = ByCursor({None: ([model(n, 1) for n in range(1, 11)], None)})
+done = leaving_out(search, 5, {2, 4, 6, 8})
+check('the page is filled from the models not held, in Civitai\'s order', ids(done), [1, 3, 5, 7, 9])
+check('counting the held ones it passed over', done and done.get('in_library'), 4)
+check('as a reason of their own, not the size filter\'s', done and done.get('rejected'), 0)
+
+# Pages read back to back, held models at a batch's start, its end, and in
+# the next batch: together they are the list without them, none twice.
+search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], 'c1'),
+                   'c1': ([model(n, 1) for n in range(7, 13)], None)})
+owned = {1, 6, 7, 9}
+seen, passed, token, pages = [], 0, None, 0
+while pages < 10:
+    done = leaving_out(search, 3, owned, start_token=token)
+    if done is None:
+        break
+    pages += 1
+    seen += ids(done)
+    passed += done.get('in_library', 0)
+    token = done['nextCursor']
+    if not token:
+        break
+check('page after page gives every model not held, once each', seen,
+      [n for n in range(1, 13) if n not in owned])
+check('and counts each held one once over the pages', passed, len(owned))
+
+# A page that fills partway through a chunk of costly checks: the held models
+# after it are the next page's to count.
+search = ByCursor({None: ([model(1, 1), model(2, 1), model(3, 1), model(4, 1), model(5, 1)], None)})
+first = leaving_out(search, 2, {3, 5}, count=usable, workers=4)
+check('the first page fills before reaching them', ids(first), [1, 2])
+check('and counts none of them', first and first.get('in_library'), 0)
+second = first and leaving_out(search, 2, {3, 5}, count=usable, workers=4,
+                               start_token=first['nextCursor'])
+check('the next page counts them, once', (ids(second), second and second.get('in_library')), ([4], 2))
+
+# With a costly check, a held model never costs one.
+handed = []
+def inspect_all(models):
+    handed.extend(m['id'] for m in models)
+    return [None] * len(models)
+
+search = ByCursor({None: ([model(n, 1) for n in range(1, 9)], None)})
+done = leaving_out(search, 8, {2, 3, 7}, inspect_many=inspect_all, workers=4)
+check('a held model is never handed to the costly check', (sorted(set(handed)), ids(done)),
+      ([1, 4, 5, 6, 8], [1, 4, 5, 6, 8]))
+
+# Held and outside the size range: counted once, as held.
+search = ByCursor({None: ([model(1, 1), model(2, 1), model(3, 1)], None)})
+done = leaving_out(search, 3, {2}, accept=lambda m: m['id'] != 2)
+check('a model held and outside the size range is counted as held alone',
+      (ids(done), done and done.get('in_library'), done and done.get('rejected')), ([1, 3], 1, 0))
+
+# The running count rises within a batch, as models are passed over - not
+# only after each search, where it would cover the batches before alone.
+def progress_counts(owned=(), accept=None):
+    search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], None)})
+    try:
+        events = list(pf.iter_models_with_usable_prompts(search, {'query': ''}, None, 6,
+                                                         leave_out=owned, accept=accept))
+    except TypeError:
+        return None
+    return [(p.get('in_library'), p.get('rejected')) for kind, p in events if kind == 'progress']
+
+counts = progress_counts(owned={2, 3, 5})
+check('within one batch, progress counts the held models as they are passed over',
+      counts and counts[-1][0], 3)
+counts = progress_counts(accept=lambda m: m['id'] % 2 == 0)
+check('and the size filter\'s count rises the same way', counts and counts[-1][1], 3)
+
+# Nothing to leave out: the progress events still say so, with a count of 0.
+search = ByCursor({None: ([model(1, 1)], None)})
+events = list(pf.iter_models_with_usable_prompts(search, {'query': ''}, None, 1))
+check('progress carries the count, 0 with nothing left out',
+      [payload.get('in_library') for kind, payload in events if kind == 'progress'][0], 0)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

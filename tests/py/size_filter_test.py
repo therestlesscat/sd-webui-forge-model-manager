@@ -160,15 +160,18 @@ check('the progress events count what the size ruled out',
 check('and so does the summary', events[-1][1]['rejected'], 1)
 
 # With size alone there are no prompt checks to report between, so progress
-# comes after every search - each one is a wait of its own.
+# comes after every search - each one is a wait of its own - and after each
+# run of models the size passed over, so the count is not a batch behind
+# (#217, R3).
 search = Searcher([([sized(1, 6.5), sized(2, 6.5)], 'b2'),
                    ([sized(3, 6.5), sized(4, 0.1)], None)])
 events = list(pf.iter_models_with_usable_prompts(
     search, {'query': ''}, None, 5, accept=small))
 progress = [p for kind, p in events if kind == 'progress']
-check('size alone reports progress after each search', len(progress), 2)
-check('counting what the searches so far passed over',
-      [p['rejected'] for p in progress], [0, 2])
+check('size alone reports progress after each search, and after each run it passed over',
+      len(progress), 4)
+check('counting what was passed over so far, the current batch included',
+      [p['rejected'] for p in progress], [0, 2, 2, 3])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

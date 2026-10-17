@@ -414,6 +414,62 @@ check('saying so in its summary',
 check('asking Civitai for as much as it gives per call',
       [c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'], 100)
 
+# ------------------------------------------------- Hide models in my library (#217)
+# The models the library holds are left out, by the rule the Owned badge and
+# a draw use (#188): a row whose file is gone, or one in a folder this WebUI
+# does not load, is not held, and stays shown.
+HELD = sorted(library)[:2]
+LISTED = [remote(90120, 90121), remote(HELD[0], HELD[0] * 10 + 1), remote(GONE, GONE * 10),
+          remote(AWAY, AWAY * 10), remote(HELD[1], HELD[1] * 10 + 1), remote(90130, 90131)]
+civitai(models={'items': LISTED, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', hide_owned='true', limit=10)
+check('the box leaves out the models the library holds, and no other',
+      [m['id'] for m in body['models']], [90120, GONE, AWAY, 90130])
+check('saying how many, and that it was on',
+      ((body['filterStats'] or {}).get('inLibrary'), (body['filterStats'] or {}).get('libraryFilter')),
+      (2, True))
+check('a free check: Civitai asked for as much as it gives per call, no image looked up',
+      ([c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'],
+       [c for c in Stub.calls if c[0] == 'get_model_images']), (100, []))
+
+civitai(models={'items': LISTED, 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 10, 'hide_owned': 'true', 'require_prompt': 'false'}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('the stream leaves them out too',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [90120, GONE, AWAY, 90130])
+# Progress is sent as models are passed over, not only after each search
+# (R3): within one batch, the line counts them before the page is done.
+check('its progress counts them as it goes',
+      [line.get('in_library') for line in lines if line['type'] == 'progress'][-1], 2)
+check('and its summary says so', (lines[-1].get('filterStats') or {}).get('inLibrary'), 2)
+
+civitai(models={'items': LISTED, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', limit=10)
+check('unticked, nothing is left out, and nothing filtered',
+      (len(body['models']), body['filterStats']), (len(LISTED), None))
+
+# A library that cannot be read fails the search, as the cards' Owned badges,
+# reading the same rows, would.
+def unreadable(db):
+    raise RuntimeError('library unreadable')
+
+real_held = endpoints.held_model_ids
+endpoints.held_model_ids = unreadable
+try:
+    civitai(models={'items': LISTED, 'nextCursor': None})
+    status, body = get('/model-manager/civitai/models', hide_owned='true', limit=10)
+    check('a library that cannot be read fails the search, saying why',
+          (status, body.get('error')), (500, 'library unreadable'))
+    civitai(models={'items': LISTED, 'nextCursor': None})
+    with client.stream('GET', '/model-manager/civitai/models/stream',
+                       params={'limit': 10, 'hide_owned': 'true', 'require_prompt': 'false'}) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+    check('and the stream says so in the stream',
+          (lines[-1]['type'], lines[-1].get('error')), ('error', 'library unreadable'))
+finally:
+    endpoints.held_model_ids = real_held
+
 # ------------------------------------------------- Only Show Models with SFW images
 # Each candidate's first images are looked at; one above PG-13 rules it out.
 from model_manager.api import prompts as prompt_checks          # noqa: E402

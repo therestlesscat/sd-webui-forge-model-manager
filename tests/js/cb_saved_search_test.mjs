@@ -104,6 +104,9 @@ check('and the bar shows them - a base model Civitai\'s list brings included - a
       [$('cb_search').value, $('cb_type').value, $('cb_base_model').value, $('cb_sort').value, $('cb_period').value,
        $('cb_nsfw').checked, $('cb_tag_chip_name')?.textContent],
       ['lighthouse', 'LORA', 'Brand New Base 2', 'Newest', 'Month', true, 'landscape']);
+// A search saved before Hide models in my library (#217) has no value for it.
+check('a search saved before the library box leaves it unticked, and hides nothing',
+      [$('cb_hide_owned')?.checked, first?.get('hide_owned') === 'true'], [false, false]);
 clickTab();
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('and not again when the tab is shown again', searches.length, 1);

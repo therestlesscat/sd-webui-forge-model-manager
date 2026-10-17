@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.63 - Hide the models you already have
+
+*16 October 2026*
+
+A search in the Civitai Browser shows the models you already have beside the ones you do not, each marked Owned. A new box under Post-processing Options, Hide models in my library, leaves them out and fills the page from the rest, so what is new to you is easy to spot.
+
+- **0.63.0** (build 508) - Hide models in my library, in the Civitai Browser (#217, asked for in #214). Ticked, a search leaves out every model with the Owned badge - a file of it on disk, in a folder this WebUI loads from, by the badge's own rule - and fills the page from the rest, through the loop the size filter and the two other boxes share: Next and Previous go on from where the page ended, nothing skipped or shown twice. It costs Civitai no request, and runs before the SFW and prompt checks, so a model it hides never costs one; the library is read once a search request. The status line counts them first among what it passed over ("skipped 88 in your library, 30 outside the size range"), and its running count while the page fills now rises as models are passed over - the size filter's too, which counted only the searches before the one under way, so a page filled from one search said 0 until it was done. The status line moves into the row with Search, at its left, and wraps beside the buttons as they grow; in a window too narrow for both it takes a line of its own above them. The Search box moves up beside Period and Sort when their line has half the filter bar free, and keeps a line of its own otherwise: at 1200 px the filters take one line fewer. A search that is mostly owned stops after 5 searches - 500 models with no other box ticked, 200 for a page of 20 with SFW or prompts on - and says to press Next. While I'm feeling lucky is ticked the box is set aside: a draw leaves those models out always. Save Search keeps it; a search saved before this version leaves it unticked.
+
 ## 0.62 - Give back the space your database no longer uses
 
 *16 October 2026*

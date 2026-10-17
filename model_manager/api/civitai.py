@@ -51,16 +51,17 @@ _enums_lock = threading.Lock()
 ENUMS_TTL_SECONDS = 6 * 60 * 60
 
 # A filtered page is filled from as many searches as it takes, up to this
-# many. Only the size filter can need them: its check is free, so a narrow
-# range over a broad search is bounded by the search calls, not the checks.
+# many. Only the free checks can need them - the size filter, and hiding the
+# library's models (#217): a narrow range, or a search the library mostly
+# holds, is bounded by the search calls, not the checks.
 MAX_FILTER_SEARCHES = 5
-# Civitai's largest search page. The size filter asks for the most it can
+# Civitai's largest search page. The free checks ask for the most they can
 # per call, since each call is the whole cost of checking a batch.
 SIZE_FILTER_BATCH = 100
 
 
 def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
-                    limit, min_usable, fill_page=False):
+                    limit, min_usable, fill_page=False, leave_out=()):
     """
     The filter loop's arguments for the filters asked for.
 
@@ -77,6 +78,9 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
     on checks and searches while the SFW check is on, so a page runs until it
     is full or Civitai has no more to give. The 429 stop above still applies,
     and is then the only thing that ends a page early.
+
+    `leave_out` is the ids of the models the library holds, with "Hide models
+    in my library" ticked (#217): free like the size filter, and asked first.
 
     Returns:
         (whether the SFW check is on, the loop's keyword arguments)
@@ -100,6 +104,7 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
         workers=PROMPT_CHECK_WORKERS,
         accept=size_check,
         max_searches=None if unbounded else MAX_FILTER_SEARCHES,
+        leave_out=leave_out,
     )
 
 
@@ -108,7 +113,7 @@ def _fill_page_setting() -> bool:
     return bool(setting('model_manager_civitai_sfw_fill_page'))
 
 
-def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
+def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable, hide_owned=False):
     """What a filtered page passed over, for the browser's status line."""
     return {
         "checked": summary["checked"],
@@ -116,9 +121,11 @@ def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable):
         "unsafe": summary["unsafe"],
         "failed": summary["failed"],
         "rejected": summary["rejected"],
+        "inLibrary": summary["in_library"],
         "promptFilter": require_prompt,
         "sfwFilter": sfw,
         "sizeFilter": size_check is not None,
+        "libraryFilter": hide_owned,
         "budgetReached": summary["budget_reached"],
         "rateLimited": summary["rate_limited"],
         "minUsable": min_usable,
@@ -137,21 +144,31 @@ class _Search:
     params: Dict[str, Any]                  # Civitai's search parameters
     min_usable: int                         # usable images that make a model count
     size_check: Optional[Callable]          # None: no size filter
+    hide_owned: bool = False                # Hide models in my library (#217)
 
     def options(self, client, *, require_prompt: bool, sfw_only: bool):
-        """(whether the SFW check is on, the filter loop's arguments) - _filter_options()."""
+        """
+        (whether the SFW check is on, the filter loop's arguments) - _filter_options().
+
+        The models the library holds are read once for the request, by the
+        rule a draw leaves them out by. A read that fails fails the search,
+        as each card's Owned badge, reading the same rows, would.
+        """
+        leave_out = held_model_ids(get_models_db()) if self.hide_owned else ()
         return _filter_options(client, require_prompt=require_prompt, sfw_only=sfw_only,
                                nsfw=self.params["nsfw"], size_check=self.size_check, limit=self.limit,
-                               min_usable=self.min_usable, fill_page=_fill_page_setting())
+                               min_usable=self.min_usable, fill_page=_fill_page_setting(),
+                               leave_out=leave_out)
 
     def stats(self, summary, *, require_prompt: bool, sfw: bool):
         """What a filtered page passed over - _filter_stats()."""
         return _filter_stats(summary, require_prompt=require_prompt, sfw=sfw,
-                             size_check=self.size_check, min_usable=self.min_usable)
+                             size_check=self.size_check, min_usable=self.min_usable,
+                             hide_owned=self.hide_owned)
 
 
 def _search(*, query, types, base_models, nsfw, sort, period, tag, checkpoint_type,
-            min_size_gb, max_size_gb, limit) -> _Search:
+            min_size_gb, max_size_gb, limit, hide_owned=False) -> _Search:
     """A search as both endpoints read it: the page size the setting gives when
     none is asked for, the card size, and the comma-separated lists split."""
     def split(values):
@@ -165,6 +182,7 @@ def _search(*, query, types, base_models, nsfw, sort, period, tag, checkpoint_ty
                     period=period, nsfw=nsfw, tag=tag, checkpoint_type=checkpoint_type),
         min_usable=max(int(setting('model_manager_civitai_min_prompt_images')), 1),
         size_check=size_range_check(min_size_gb, max_size_gb),
+        hide_owned=hide_owned,
     )
 
 
@@ -203,6 +221,7 @@ def register(app: FastAPI):
         min_size_gb: float = 0,   # Latest version's primary file; 0 = no bound
         max_size_gb: float = 0,
         limit: int = 0,  # 0 = use setting
+        hide_owned: bool = False,  # leave out the models the library holds (#217)
     ):
         """
         Search Civitai models with local ownership detection.
@@ -213,12 +232,13 @@ def register(app: FastAPI):
         try:
             search = _search(query=query, types=types, base_models=base_models, nsfw=nsfw, sort=sort,
                              period=period, tag=tag, checkpoint_type=checkpoint_type,
-                             min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit)
+                             min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit,
+                             hide_owned=hide_owned)
             client = CivitaiClient.from_settings()
             filter_stats = None
             try:
                 sfw, options = search.options(client, require_prompt=require_prompt, sfw_only=sfw_only)
-                if require_prompt or sfw or search.size_check:
+                if require_prompt or sfw or search.size_check or search.hide_owned:
                     # Civitai can filter on none of these, so models are
                     # checked locally and the page is filled from what
                     # survives.
@@ -271,6 +291,7 @@ def register(app: FastAPI):
         min_size_gb: float = 0,
         max_size_gb: float = 0,
         limit: int = 0,
+        hide_owned: bool = False,
     ):
         """
         Search Civitai with the usable-prompt or size filter, streaming results.
@@ -291,7 +312,8 @@ def register(app: FastAPI):
         """
         search = _search(query=query, types=types, base_models=base_models, nsfw=nsfw, sort=sort,
                          period=period, tag=tag, checkpoint_type=checkpoint_type,
-                         min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit)
+                         min_size_gb=min_size_gb, max_size_gb=max_size_gb, limit=limit,
+                         hide_owned=hide_owned)
 
         def generate():
             client = CivitaiClient.from_settings()
