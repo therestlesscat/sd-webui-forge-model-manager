@@ -201,7 +201,10 @@ that the WebUI does not - and ask a real browser ("Probes").
   `try` and does nothing.
 - **A crash hides a suite's earlier failures.** `checker()` prints them at
   `done()`: a TypeError at line 588 of a browser suite hid the failures of the
-  section above it. Read the crash, then run again.
+  section above it. Read the crash, then run again. Run on HEAD, a suite for
+  a new control crashes at its first use: `cb_hide_owned_test` hid its four
+  markup FAILs at `$('cb_hide_owned').checked = false`, and now ends at
+  `done()` after them when the control is missing (#217).
 - **The suites have no Gradio tab buttons**, so `showTab` answers false.
   `goToTab` (#263) first skipped the entry when the tab was not found, and 15
   suites failed: a wrapper around `showTab` keeps its old order, the entry

@@ -200,7 +200,10 @@ the code (2026-10-16).
   name `api/common.py` already exports, 41 uses - and inside `common.py` its
   own call recursed; it is `say_failure` (#143). Nor in an issue's text:
   #274 first named `scope.timeout` for the scope's timer, which does not
-  exist; it is `scope.later`.
+  exist; it is `scope.later`. Nor a CSS class: #217's Search modifier was
+  first `filter-group-half`, already the Tag group's (`max-width: 50%`), and
+  Search stopped at half the row until a headless probe measured it. Grep
+  `style.css` and the markup for a new class first.
 - **Verify before asserting, especially about your own effects.** "I only work
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
@@ -639,7 +642,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   old code until a restart - answers: 0.55.2's live check added its new
   setting to ui-options in the test browser alone. Near a destructive
   button, route its endpoint to abort as a net: each delete question was
-  opened and cancelled, 100 tiles before and after.
+  opened and cancelled, 100 tiles before and after. A glob nets more than
+  the button: `**/model-manager/civitai/download**` also aborted the
+  downloads panel's poll (`download/progress`), and each #217 live check
+  logged two console errors, "Download poll error". Route the POST alone.
 - **Read the run's result before committing.** A commit chained after the
   run with `;` went in over "1 failed", and which suite could not be
   recovered. The runner now names failing suites in its last line and keeps
