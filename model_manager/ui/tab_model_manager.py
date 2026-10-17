@@ -129,9 +129,10 @@ def create_ui():
                                 </select>
                             </div>
                         </div>
-                    </div>
-                    <div class="filter-row">
-                        <div class="filter-group" style="flex: 1;">
+                        <!-- Search ends the row, half its width at least: beside Sort By and
+                             Order when their line has that free, else on a line of its own
+                             (#288). -->
+                        <div class="filter-group filter-group-fill">
                             <label>Search</label>
                             <input type="text" id="mm_search" placeholder="Search name or trigger words, or model: / version: / hash: / file:" title="Prefixed searches match exactly: model:&lt;id&gt;, version:&lt;id&gt;, hash:&lt;any hash&gt;, file:&lt;filename&gt;">
                         </div>

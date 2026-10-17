@@ -244,8 +244,8 @@ body.mm-modal-open {
 
 /* A group that takes half a row at least: it joins the line before it when
    that line has half the row free, filling the rest, and otherwise takes a
-   line of its own - the Civitai Browser's Search beside Period and Sort
-   (#217). Centred, it lines up with a bordered box beside it: the box's
+   line of its own - Search beside Period and Sort in the Civitai Browser
+   (#217), beside Sort By and Order in the Model Manager (#288). Centred, it lines up with a bordered box beside it: the box's
    padding and border are the same above and below, so captions and
    controls meet at the same heights. */
 .filter-group.filter-group-fill {

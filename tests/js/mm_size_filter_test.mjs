@@ -38,6 +38,12 @@ const load = async () => {
     return listed.at(-1);
 };
 
+// Search ends the first filter row, half its width at least: beside Sort By
+// and Order when their line has that free, else a line of its own (#288).
+const searchGroup = $('mm_search')?.closest('.filter-group');
+check('Search ends the first filter row, taking half of it at least, with no width of its own',
+      [document.querySelector('.filter-row')?.lastElementChild === searchGroup,
+       searchGroup?.classList.contains('filter-group-fill'), searchGroup?.getAttribute('style')], [true, true, null]);
 check('in Advanced filters, a range: min and max', [!!$('mm_min_size')?.closest('#mm_advanced'),
       $('mm_min_size')?.closest('.filter-range') === $('mm_max_size')?.closest('.filter-range')], [true, true]);
 await waitFor('the saved search', () => $('mm_min_size').value === '1.5');

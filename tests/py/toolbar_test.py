@@ -219,11 +219,13 @@ for control in ('mm_civitai', 'mm_base_model', 'mm_is_bookmarked', 'mm_min_versi
                 'mm_allow_different_license'):
     check('%s is behind Advanced' % control, control in ADVANCED)
 
-# One row of controls, then the search box on its own.
-check('the visible controls share a single row', BASIC.count('<div class="filter-row">'), 2)
-check('and the search box is the second of them',
-      BASIC.index('mm_search') > BASIC.rindex('<div class="filter-row">'))
-check('the search box is given the row to itself', 'style="flex: 1;"' in BASIC)
+# One row of controls, the search box last: beside Sort By and Order when
+# their line has half the bar free, else on a line of its own (#288).
+check('the visible controls share a single row', BASIC.count('<div class="filter-row">'), 1)
+check('and the search box ends it, after Sort By and Order',
+      BASIC.index('mm_search') > BASIC.index('filter-group-bordered')
+      and 'class="filter-group filter-group-fill"' in BASIC)
+check('with no width of its own to beat the rule', 'style="flex: 1;"' in BASIC, False)
 
 # Controls of three different element types sit side by side in that row, so
 # the height is stated once rather than derived from padding - which is how
