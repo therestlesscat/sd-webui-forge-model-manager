@@ -706,11 +706,9 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-/* Status bar */
-/* As wide as the grid's cards and centred as they are, like the tabs under
-   it (balanceGridRows sets the width). */
+/* Status bar. The tab's width, as the tabs under it: as wide as the grid's
+   cards, it shrank to one card's on a last page of one (#290). */
 .model-manager-status {
-    max-width: var(--mm-grid-width, none);
     padding: 10px 0;
     background: var(--block-background-fill, #1f2937);
     border-radius: 6px;
@@ -2292,10 +2290,8 @@ body.mm-modal-open {
 }
 
 /* Over the Model Manager's grid: Pinned and Unpinned, the gallery's tabs.
-   As wide as the grid's cards, and centred as they are (balanceGridRows sets
-   the width), so the tabs start at the first card's edge. */
+   The tab's width, whatever the page holds (#290). */
 .mm-grid-tabs {
-    max-width: var(--mm-grid-width, none);
     margin: 8px auto;
     border-bottom: 1px solid var(--border-color-primary, #374151);
 }
