@@ -70,6 +70,9 @@ check('Settings -> Model Manager registers every setting in the table, and no ot
       sorted(registered), sorted(host.DEFAULTS))
 check('each with the table\'s default',
       {key: value for key, value in registered.items() if value != host.DEFAULTS.get(key)}, {})
+check('a file in parts (#282): on, over 4 connections, by default',
+      [registered.get('model_manager_download_in_parts'), registered.get('model_manager_connections_per_file')],
+      [True, 4])
 
 # ------------------------------------------------------------------- reading
 opts.__dict__.clear()

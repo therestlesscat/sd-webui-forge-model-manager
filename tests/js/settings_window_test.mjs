@@ -21,6 +21,8 @@ const SETTINGS = {
                                      default: '', has_value: false },
     model_manager_civitai_requests_per_second: setting('number', 6, { minimum: 1, maximum: 10, step: 1 }),
     model_manager_downloads_at_once: setting('number', 2, { minimum: 1, maximum: 10, step: 1 }),
+    model_manager_download_in_parts: setting('bool', true),
+    model_manager_connections_per_file: setting('number', 4, { minimum: 2, maximum: 16, step: 1 }),
     model_manager_civitai_images_at_once: setting('number', 64, { minimum: 1, step: 1 }),
     model_manager_page_size: setting('number', 20, { minimum: 5, maximum: 50, step: 5,
                                                      label: 'Model Manager: Models per page' }),
@@ -300,6 +302,25 @@ check('Downloads at once: in the connection, after Requests per second, with its
       [1, 'Downloads at once', true]);
 check('a slider from 1 to 10', ['min', 'max'].map((a) => field(DOWNLOADS)?.querySelector('input[type="range"]')?.getAttribute(a)),
       ['1', '10']);
+
+// A file in parts (#282): the switch after Downloads at once, then how many
+// connections - a slider from 2, the switch being the only off - shown only
+// while the switch is on, its value kept while hidden.
+const IN_PARTS = 'model_manager_download_in_parts';
+const CONNECTIONS = 'model_manager_connections_per_file';
+check('in parts: after Downloads at once, the switch, then the connections, with their labels',
+      [connection().slice(connection().indexOf(DOWNLOADS) + 1, connection().indexOf(DOWNLOADS) + 3),
+       [IN_PARTS, CONNECTIONS].map((k) => field(k)?.querySelector('.mm-settings-label')?.textContent)],
+      [[IN_PARTS, CONNECTIONS], ['Download large files in parts', 'Connections per file']]);
+const connectionsSlider = () => field(CONNECTIONS)?.querySelector('input[type="range"]');
+check('the connections: a slider from 2 to 16, at 4, shown while the switch is on',
+      [connectionsSlider()?.getAttribute('min'), connectionsSlider()?.getAttribute('max'), connectionsSlider()?.value,
+       shown(CONNECTIONS)], ['2', '16', '4', true]);
+tickTab(IN_PARTS, false);
+check('the switch off: the connections hidden, their value kept', [shown(CONNECTIONS), connectionsSlider()?.value],
+      [false, '4']);
+tickTab(IN_PARTS, true);
+check('on again: shown', shown(CONNECTIONS), true);
 
 // -------------------------------------------------------- what is shown
 check('requests per second is hidden without an API key',

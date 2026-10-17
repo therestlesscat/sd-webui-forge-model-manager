@@ -1509,5 +1509,279 @@ release(693)
 limited.wait()
 # Saving the setting tells a queue already made: settings_api_test.py.
 
+# ------------------------------------------------------ a file in parts (#282)
+# Civitai's storage holds each connection to about 60 MB/s, so a large file
+# is fetched over several, each a part into a file of its own - part 1 the
+# .partial, part N .partial.N - joined in order at the end. The storage here
+# answers each request by the Range it asks. Parts are at least PART_MIN, made
+# small so a 300-byte file is a "large" one.
+import threading                                         # noqa: E402
+
+STORAGE = 'https://storage.invalid/signed'
+PARTS_URL = 'https://example.invalid/parts'
+
+
+class PartResponse(FakeResponse):
+    """A stretch of the file, in 10-byte chunks, with what a check puts between them."""
+    def __init__(self, data, start, end, total, status_code=206, between=None, half=None, wait=0.0):
+        def pieces(stretch):
+            for at in range(0, len(stretch), 10):
+                if wait:
+                    yield lambda: time.sleep(wait)
+                yield stretch[at:at + 10]
+        half = len(data) // 2 if half is None else half
+        chunks = (list(pieces(data[:half])) + [between] + list(pieces(data[half:])) if between is not None
+                  else list(pieces(data)))
+        super().__init__(chunks, total=len(data), status_code=status_code)
+        if status_code == 206:
+            self.headers['content-range'] = 'bytes %d-%d/%d' % (start, end, total)
+        self.url = STORAGE
+        self.counted = True
+
+    def close(self):
+        if self.counted:
+            self.counted = False
+            with PartsSession.lock:
+                PartsSession.open_now -= 1
+        super().close()
+
+
+class PartsSession:
+    """Civitai's address and its storage, answering by the Range asked - or as `script` says."""
+    body = b''
+    asked = []
+    script = None
+    wait = 0.0
+    lock = threading.Lock()
+    open_now = 0
+    most_open = 0
+
+    def get(self, url, headers=None, stream=False, timeout=None):
+        asked = (headers or {}).get('Range')
+        body = PartsSession.body
+        start, end = 0, len(body) - 1
+        if asked:
+            first, last = asked[len('bytes='):].split('-')
+            start, end = int(first), (int(last) if last else len(body) - 1)
+        with PartsSession.lock:
+            PartsSession.asked.append((url, asked))
+            nth = sum(1 for _, r in PartsSession.asked if r and int(r[6:].split('-')[0]) // 75 == start // 75)
+        what = PartsSession.script(url, start, end, nth) if PartsSession.script else None
+        if isinstance(what, Exception):
+            raise what
+        if what == 'whole' or not asked:
+            reply = PartResponse(body, 0, len(body) - 1, len(body), status_code=200, wait=PartsSession.wait)
+        else:
+            # Half way through the part asked: an open first request runs on
+            # past its part, which ends at the next multiple of 75.
+            part_end = min(end, (start // 75) * 75 + 74)
+            reply = PartResponse(body[start:end + 1], start, end, len(body),
+                                 between=what if callable(what) else None, half=(part_end - start + 1) // 2,
+                                 wait=PartsSession.wait)
+        with PartsSession.lock:
+            PartsSession.open_now += 1
+            PartsSession.most_open = max(PartsSession.most_open, PartsSession.open_now)
+        return reply
+
+
+def storage_says(body, script=None, wait=0.0):
+    PartsSession.body, PartsSession.script, PartsSession.wait = body, script, wait
+    PartsSession.asked = []
+    PartsSession.open_now = PartsSession.most_open = 0
+
+
+def in_parts(version_id, body):
+    return version(id=version_id, files=[{
+        'id': 90, 'name': 'parts_%d.safetensors' % version_id, 'primary': True,
+        'downloadUrl': PARTS_URL, 'sizeKB': len(body) / 1024,
+        'hashes': {'SHA256': hashlib.sha256(body).hexdigest().upper()}}])
+
+
+def part_files(version_id):
+    partial = os.path.join(CKPT_DIR, 'parts_%d.safetensors.partial' % version_id)
+    return sorted(n for n in os.listdir(CKPT_DIR) if n.startswith(os.path.basename(partial)))
+
+
+real_part_min = getattr(ds, 'PART_MIN', None)
+ds.PART_MIN = 10
+ds.requests = types.SimpleNamespace(Session=PartsSession, exceptions=real_requests.exceptions)
+BIG = bytes(range(256)) + bytes(range(44))           # 300 bytes: four parts of 75
+BIG_SHA = hashlib.sha256(BIG).hexdigest().upper()
+kept['rows'] = []
+
+storage_says(BIG)
+whole = service.download_version(700, CHECKPOINT, in_parts(700, BIG))
+ranges = [r for _, r in PartsSession.asked]
+check('a large file: four requests, the first at Civitai\'s address from byte 0, the rest at the storage for '
+      'their parts',
+      [len(ranges), PartsSession.asked[0] if PartsSession.asked else None,
+       sorted((u, r) for u, r in PartsSession.asked[1:])],
+      [4, (PARTS_URL, 'bytes=0-'),
+       [(STORAGE, 'bytes=150-224'), (STORAGE, 'bytes=225-299'), (STORAGE, 'bytes=75-149')]])
+check('joined in order: the file, its SHA-256 Civitai\'s, complete, nothing left beside it',
+      [whole.status, io.open(whole.file_path, 'rb').read() == BIG if whole.file_path else None, whole.sha256,
+       part_files(700)], ['complete', True, BIG_SHA, []])
+
+storage_says(BIG, script=lambda url, start, end, nth: 'whole')
+taken = service.download_version(701, CHECKPOINT, in_parts(701, BIG))
+check('a storage that sends the whole file for part 1\'s range: read as one connection, one request, '
+      'no part file made',
+      [PartsSession.asked, taken.status, io.open(taken.file_path, 'rb').read() == BIG if taken.file_path else None,
+       part_files(701)], [[(PARTS_URL, 'bytes=0-')], 'complete', True, []])
+
+storage_says(BIG[:15])
+small = service.download_version(702, CHECKPOINT, in_parts(702, BIG[:15]))
+check('a file under two parts: one request with no Range, today\'s one connection',
+      [[r for _, r in PartsSession.asked], small.status], [[None], 'complete'])
+
+opts.model_manager_download_in_parts = False
+storage_says(BIG)
+off = service.download_version(703, CHECKPOINT, in_parts(703, BIG))
+check('the switch off: one request with no Range, whatever the count',
+      [[r for _, r in PartsSession.asked], off.status], [[None], 'complete'])
+opts.model_manager_download_in_parts = True
+
+
+def sizes(version_id):
+    partial = os.path.join(CKPT_DIR, 'parts_%d.safetensors.partial' % version_id)
+    return [os.path.getsize(p) if os.path.exists(p) else None
+            for p in [partial] + ['%s.%d' % (partial, n) for n in (2, 3, 4)]]
+
+
+def pause_when_half(version_id, whole_parts):
+    """
+    A script: the parts in `whole_parts` (by their first byte's part, 0 to 3)
+    come whole; the others stop half way until every one has, then the
+    download is paused - so it pauses with those parts done, the rest half.
+    """
+    half = []
+
+    def between():
+        with PartsSession.lock:
+            half.append(1)
+        waiting = 4 - len(whole_parts)
+        until('every part half way', lambda: len(half) >= waiting
+              and all(s == 75 for i, s in enumerate(sizes(version_id)) if i in whole_parts))
+        service._pause_flags[version_id] = True
+
+    return lambda url, start, end, nth: None if start // 75 in whole_parts else between
+
+
+storage_says(BIG, script=pause_when_half(704, {0, 1}))
+paused_parts = service.download_version(704, CHECKPOINT, in_parts(704, BIG))
+check('paused in parts: two done, two half way, every part file kept, nothing joined',
+      [paused_parts.status, sizes(704)], ['paused', [75, 75, 37, 37]])
+check('kept to resume after a restart, by its .partial',
+      [(r['version_id'], os.path.basename(r['partial_path'] or '')) for r in kept['rows'] if r['version_id'] == 704],
+      [(704, 'parts_704.safetensors.partial')])
+after_restart = DownloadService(max_concurrent=2)
+after_restart.restore()
+check('after a restart, it is back paused, as far as all its parts got',
+      [getattr(after_restart.get_progress(704), 'status', None),
+       getattr(after_restart.get_progress(704), 'downloaded_bytes', None)], ['paused', 75 + 75 + 37 + 37])
+
+storage_says(BIG)
+on_again = service.download_version(704, CHECKPOINT, in_parts(704, BIG), resume=True)
+check('resumed: the first request asks from part 1\'s own size; only the unfinished parts ask, each from its own, '
+      'at the storage address it reached',
+      [PartsSession.asked[0] if PartsSession.asked else None, sorted(PartsSession.asked[1:])],
+      [(PARTS_URL, 'bytes=75-'), [(STORAGE, 'bytes=187-224'), (STORAGE, 'bytes=262-299')]])
+check('and the file is whole, its SHA-256 Civitai\'s', [on_again.status, on_again.sha256, part_files(704)],
+      ['complete', BIG_SHA, []])
+
+# Turned off while paused: its parts one after another, never two at once.
+storage_says(BIG, script=pause_when_half(705, {0, 1}))
+service.download_version(705, CHECKPOINT, in_parts(705, BIG))
+opts.model_manager_download_in_parts = False
+storage_says(BIG, wait=0.005)
+one_by_one = service.download_version(705, CHECKPOINT, in_parts(705, BIG), resume=True)
+check('the switch turned off while paused: resumed one part at a time, nothing fetched twice, the file whole',
+      [PartsSession.most_open, sorted(r for _, r in PartsSession.asked[1:]), one_by_one.sha256],
+      [1, ['bytes=187-224', 'bytes=262-299'], BIG_SHA])
+opts.model_manager_download_in_parts = True
+
+# The count lowered while paused: at most that many parts at once.
+storage_says(BIG, script=pause_when_half(706, set()))
+service.download_version(706, CHECKPOINT, in_parts(706, BIG))
+opts.model_manager_connections_per_file = 2
+storage_says(BIG, wait=0.005)
+two_at_once = service.download_version(706, CHECKPOINT, in_parts(706, BIG), resume=True)
+check('four parts half way, the count set to 2, resumed: at most two at once, the file whole',
+      [PartsSession.most_open <= 2, len(PartsSession.asked), two_at_once.sha256], [True, 4, BIG_SHA])
+check('and it reads the count anew at each start: two did run at once', PartsSession.most_open, 2)
+
+# The count changed while a download runs: it keeps what it began with.
+opts.model_manager_connections_per_file = 4
+arrived = []
+
+
+def lower_meanwhile(url, start, end, nth):
+    def between():
+        with PartsSession.lock:
+            arrived.append(start)
+        until('all four running', lambda: len(arrived) >= 4)
+        opts.model_manager_connections_per_file = 2
+    return between
+
+
+storage_says(BIG, script=lower_meanwhile)
+kept_on = service.download_version(707, CHECKPOINT, in_parts(707, BIG))
+check('the count lowered while it runs: its four parts carry on, the file whole',
+      [len(arrived), PartsSession.most_open, kept_on.sha256], [4, 4, BIG_SHA])
+opts.model_manager_connections_per_file = 4
+
+# A part's connection drops: that part alone asks again, from its own size,
+# through Civitai's address for a fresh storage link.
+def drop_part_3(url, start, end, nth):
+    if start // 75 == 2 and nth == 1:
+        def broken():
+            raise real_requests.exceptions.ConnectionError('dropped')
+        return broken
+    return None
+
+
+storage_says(BIG, script=drop_part_3)
+dropped = service.download_version(708, CHECKPOINT, in_parts(708, BIG))
+asked_part_3 = [(u, r) for u, r in PartsSession.asked if r and int(r[6:].split('-')[0]) // 75 == 2]
+check('a part\'s connection drops: it asks again from its own size, at Civitai\'s address; no other part again',
+      [asked_part_3, len(PartsSession.asked), dropped.sha256],
+      [[(STORAGE, 'bytes=150-224'), (PARTS_URL, 'bytes=187-224')], 5, BIG_SHA])
+
+# A part the storage sends whole every time: asked three times, then the
+# download pauses, saying why, its parts kept.
+storage_says(BIG, script=lambda url, start, end, nth: 'whole' if start // 75 == 2 else None)
+refused = service.download_version(709, CHECKPOINT, in_parts(709, BIG))
+check('a part the storage will not send in part: asked three times, then paused, saying why, parts kept',
+      [len([r for _, r in PartsSession.asked if r and int(r[6:].split('-')[0]) // 75 == 2]), refused.status,
+       refused.error, len(part_files(709))],
+      [3, 'paused', "Civitai's storage would not send part 3 of 4. Resume to try again.", 4])
+
+# Cancelled while in parts: every part file goes.
+def cancel_in_part_2(url, start, end, nth):
+    if start // 75 == 1:
+        return lambda: service._cancel_flags.__setitem__(710, True)
+    return None
+
+
+storage_says(BIG, script=cancel_in_part_2)
+gone_parts = service.download_version(710, CHECKPOINT, in_parts(710, BIG))
+check('cancelled while in parts: the .partial and every part file gone',
+      [gone_parts.status, part_files(710)], ['cancelled', []])
+service._cancel_flags.pop(710, None)
+
+# A join cut short by a restart leaves a gap in the numbers: started again.
+gap = os.path.join(CKPT_DIR, 'parts_711.safetensors.partial')
+io.open(gap, 'wb').write(BIG[:150])
+io.open(gap + '.3', 'wb').write(BIG[150:225])
+storage_says(BIG)
+restarted_join = service.download_version(711, CHECKPOINT, in_parts(711, BIG), resume=True)
+check('a join cut short (part 2 gone, part 3 there): started again, and whole',
+      [PartsSession.asked[0] if PartsSession.asked else None, restarted_join.sha256, part_files(711)],
+      [(PARTS_URL, 'bytes=0-'), BIG_SHA, []])
+
+ds.requests = types.SimpleNamespace(Session=FakeSession, exceptions=real_requests.exceptions)
+if real_part_min is not None:
+    ds.PART_MIN = real_part_min
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -114,6 +114,15 @@ check('Pause all and Resume all show, there being something to pause and somethi
 check('and the summary counts the paused', document.getElementById('mm_downloads_summary')?.textContent,
       '1 downloading, 2 pending, 1 paused, 1 finished');
 
+// A download in parts that paused itself says why (#282): Resume tries again.
+const WHY = "Civitai's storage would not send part 3 of 4. Resume to try again.";
+server = structuredClone(ALL).map((d) => (d.version_id === 4 ? dl(4, 'paused', { error: WHY }) : d));
+await waitFor('the paused one with its reason', () => text(4)?.includes('Resume to try'));
+check('a paused one with a reason: how far it got, and why',
+      [text(4), buttons(4)], [`Paused - 40.00 MB / 100.00 MB · ${WHY}`, [['Resume', false], ['Cancel', false]]]);
+server = structuredClone(ALL);
+await waitFor('the reason gone again', () => text(4) === 'Paused - 40.00 MB / 100.00 MB');
+
 await act('downloads.control', { control: 'start_now', versionId: 2 });
 check('Start now: asked, and the list is the server\'s answer at once - no row moved',
       [asked.at(-1), buttons(2)[0], names()], [['start_now', 2], ['Pause', false], LISTED]);

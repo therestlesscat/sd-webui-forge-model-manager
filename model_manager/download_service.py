@@ -47,6 +47,14 @@ RATE_SAMPLE_EVERY = 0.5
 RATE_FIRST = 1.0
 # How many times a resume asks for the rest before it takes the whole file.
 RANGE_TRIES = 3
+# A part of a file fetched over a connection of its own (#282) is at least
+# this big: a 40 MB LoRA keeps one connection, a 100 MB one gets three.
+# Civitai's storage holds each connection to about 60 MB/s, so a part this
+# size takes half a second, and a new connection's setup is a small share.
+PART_MIN = 32 * 1024 * 1024
+# How many times a part asks again - from its own size - before the download
+# pauses, saying why.
+PART_TRIES = 3
 
 # Bound once: what the speed is measured by, whatever later replaces `time`.
 _clock = time.monotonic
@@ -82,6 +90,72 @@ def _refused_401(reason: str, key_set: bool) -> str:
     return f"{said}{'' if said.endswith(('.', '!', '?')) else '.'} An API key logs you in. {_ADD_A_KEY}"
 
 
+def _refused_403(reason: str) -> str:
+    """What a 403 from Civitai's download says: its words - "Early Access", say - when it gives them."""
+    return (f"Civitai refused the download: {reason}" if reason else
+            "Access denied. This model may require special permissions or a valid API key.")
+
+
+def _part_path(partial_path: str, index: int) -> str:
+    """Where part `index` (from 0) of a download in parts is written: the first is the .partial itself."""
+    return partial_path if index == 0 else f"{partial_path}.{index + 1}"
+
+
+def _part_numbers(partial_path: str) -> List[int]:
+    """The numbers of the part files beside a .partial (2, 3, ...), in order."""
+    folder, name = os.path.split(partial_path)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    pattern = re.compile(re.escape(name) + r"\.(\d+)")
+    return sorted(int(m.group(1)) for m in (pattern.fullmatch(n) for n in names) if m)
+
+
+def _part_count(partial_path: str) -> int:
+    """
+    How many parts a kept download was split into, read from its files: 0
+    with no .partial, 1 for one connection, N for a .partial with parts 2 to
+    N beside it. -1 when the numbers have a gap: a join cut short by a
+    restart, its parts no longer adding up.
+    """
+    if not os.path.exists(partial_path):
+        return 0
+    numbers = _part_numbers(partial_path)
+    if not numbers:
+        return 1
+    return numbers[-1] if numbers == list(range(2, numbers[-1] + 1)) else -1
+
+
+def _partial_bytes(partial_path: str) -> int:
+    """How far a kept download got: its .partial and every part beside it."""
+    paths = [partial_path] + [f"{partial_path}.{n}" for n in _part_numbers(partial_path)]
+    return sum(os.path.getsize(p) for p in paths if os.path.exists(p))
+
+
+def _remove_partial(partial_path: str) -> None:
+    """A download's unfinished files - its .partial and the parts beside it (#282): only ever its own."""
+    for path in [partial_path] + [f"{partial_path}.{n}" for n in _part_numbers(partial_path)]:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as e:
+            say(f"Could not remove {path}: {e}")
+
+
+def _range_total(content_range: str) -> int:
+    """The file's whole size from a 206's Content-Range ("bytes 0-99/1000"); 0 when it does not say."""
+    try:
+        return int(content_range.rsplit("/", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _split(total: int, parts: int) -> List[Tuple[int, int]]:
+    """The first and last byte of each part: equal, from the file's exact size alone, so a resume finds the same."""
+    return [(i * total // parts, (i + 1) * total // parts - 1) for i in range(parts)]
+
+
 @dataclass
 class DownloadProgress:
     """Track download progress."""
@@ -114,46 +188,59 @@ class DownloadProgress:
     # page sees only its polls, a second or more apart.
     _samples: deque = field(default_factory=deque, repr=False)
     _last_growth: Optional[float] = field(default=None, repr=False)
+    # A file in parts records from every part's thread (#282), and the page's
+    # poll reads the samples meanwhile.
+    _lock: Any = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def record(self, now: Optional[float] = None) -> None:
         """Note the bytes so far, for the speed: after every chunk, cheaply."""
-        now = _clock() if now is None else now
-        samples = self._samples
-        if samples and self.downloaded_bytes > samples[-1][1]:
-            self._last_growth = now
-        elif not samples:
-            self._last_growth = now
-        if not samples or now - samples[-1][0] >= RATE_SAMPLE_EVERY:
-            samples.append((now, self.downloaded_bytes))
-        # One sample at or before the window's start is kept, as its baseline.
-        while len(samples) > 1 and samples[1][0] <= now - RATE_WINDOW:
-            samples.popleft()
+        with self._lock:
+            now = _clock() if now is None else now
+            samples = self._samples
+            if samples and self.downloaded_bytes > samples[-1][1]:
+                self._last_growth = now
+            elif not samples:
+                self._last_growth = now
+            if not samples or now - samples[-1][0] >= RATE_SAMPLE_EVERY:
+                samples.append((now, self.downloaded_bytes))
+            # One sample at or before the window's start is kept, as its baseline.
+            while len(samples) > 1 and samples[1][0] <= now - RATE_WINDOW:
+                samples.popleft()
+
+    def add(self, count: int) -> None:
+        """Bytes one part brought (#282): added and recorded as one step."""
+        with self._lock:
+            self.downloaded_bytes += count
+            self.record()
 
     def restart_rate(self) -> None:
         """A new attempt starts from nothing: the speed is measured afresh."""
-        self._samples.clear()
-        self._last_growth = None
+        with self._lock:
+            self._samples.clear()
+            self._last_growth = None
 
     def rate(self, now: Optional[float] = None) -> Tuple[Optional[float], Optional[float], bool]:
         """
         (bytes a second, seconds left, stalled) while downloading; the first
         two None when there is not yet a second's worth to go on, or no total.
         """
-        if self.status != "downloading" or not self._samples:
-            return None, None, False
-        now = _clock() if now is None else now
-        if self._last_growth is not None and now - self._last_growth >= RATE_WINDOW:
-            return None, None, True
-        base_time, base_bytes = self._samples[0]
-        for sample in self._samples:
-            if sample[0] <= now - RATE_WINDOW:
-                base_time, base_bytes = sample
-            else:
-                break
-        elapsed = now - base_time
+        with self._lock:
+            if self.status != "downloading" or not self._samples:
+                return None, None, False
+            now = _clock() if now is None else now
+            if self._last_growth is not None and now - self._last_growth >= RATE_WINDOW:
+                return None, None, True
+            base_time, base_bytes = self._samples[0]
+            for sample in self._samples:
+                if sample[0] <= now - RATE_WINDOW:
+                    base_time, base_bytes = sample
+                else:
+                    break
+            elapsed = now - base_time
+            downloaded = self.downloaded_bytes
         if elapsed < RATE_FIRST:
             return None, None, False
-        speed = (self.downloaded_bytes - base_bytes) / elapsed
+        speed = (downloaded - base_bytes) / elapsed
         if speed <= 0:
             return None, None, False
         left = (self.total_bytes - self.downloaded_bytes) / speed if self.total_bytes else None
@@ -377,8 +464,8 @@ class DownloadService:
                 progress.status = "cancelled"
                 progress.error = "Download cancelled"
                 dropped = True
-        if partial and os.path.exists(partial):
-            os.remove(partial)
+        if partial:
+            _remove_partial(partial)
         if dropped:
             self._save()
 
@@ -459,8 +546,8 @@ class DownloadService:
             return False
         job.pop("resume", None)
         partial = job.pop("partial_path", None)
-        if partial and os.path.exists(partial):
-            os.remove(partial)
+        if partial:
+            _remove_partial(partial)
         progress = self._active_downloads.get(version_id)
         if progress:
             progress.file_path = found[0]
@@ -753,10 +840,7 @@ class DownloadService:
             found = self._held(row.get("file_id"))
             if found:
                 if partial:
-                    try:
-                        os.remove(partial)
-                    except OSError as e:
-                        say(f"Could not remove {partial}: {e}")
+                    _remove_partial(partial)
                 say(f"Already in your library, not brought back: {row.get('file_name') or version_id} "
                     f"({found[0]})")
                 continue
@@ -767,7 +851,7 @@ class DownloadService:
                 self._active_downloads[version_id] = DownloadProgress(
                     version_id=version_id, file_name=row.get("file_name") or "",
                     total_bytes=row.get("total_bytes") or 0,
-                    downloaded_bytes=os.path.getsize(partial) if partial else 0, status="paused")
+                    downloaded_bytes=_partial_bytes(partial) if partial else 0, status="paused")
                 job = {"model_id": row.get("model_id"), "file_id": row.get("file_id"),
                        "file_index": row.get("file_index"), "model_data": None, "version_data": None}
                 if partial:
@@ -1017,10 +1101,8 @@ class DownloadService:
                         return False
                     elif status_code == 403:
                         # Civitai says why, in JSON - "Early Access", say.
-                        reason = _civitai_message(response_body)
                         progress.status = "error"
-                        progress.error = (f"Civitai refused the download: {reason}" if reason else
-                                          "Access denied. This model may require special permissions or a valid API key.")
+                        progress.error = _refused_403(_civitai_message(response_body))
                         return False
                     else:
                         if attempt < max_retries - 1:
@@ -1055,6 +1137,297 @@ class DownloadService:
         finally:
             # Always release tqdm position
             self._release_tqdm_position(progress.version_id)
+
+    # ------------------------------------------------------- a file in parts
+    def _parts_for(self, size: int) -> int:
+        """
+        How many parts a new download is split into (#282): 1 with the switch
+        off or no size from Civitai, else the connections setting, with no
+        part under PART_MIN - so a file under two of them keeps one connection.
+        """
+        if size <= 0 or not parts_enabled():
+            return 1
+        return max(1, min(configured_connections_per_file(), size // PART_MIN))
+
+    def _part_request(self, url: str, headers: Dict[str, str], start: int, end: Optional[int] = None):
+        """One request for the bytes from `start` - to `end`, or to the file's end."""
+        asked = dict(headers)
+        asked["Range"] = f"bytes={start}-{'' if end is None else end}"
+        response = requests.Session().get(url, headers=asked, stream=True, timeout=60)
+        response.raise_for_status()
+        return response
+
+    def _download_parts(self, url: str, partial_path: str, headers: Dict[str, str],
+                        progress: DownloadProgress, parts: int, resumed: bool = False) -> bool:
+        """
+        A file fetched in parts (#282), each over a connection of its own into
+        a file of its own - part 1 the .partial itself, part N `.partial.N` -
+        and joined in order once all are whole. Each part file's size is how
+        far that part got, so pause, resume and a restart work part by part,
+        as the .partial's size does for one connection. The split is this
+        download's for good: a resume finds it in its part files. How many
+        parts fetch at once is read now, at each start or resume.
+
+        The first request, at Civitai's address, asks from part 1's own size
+        to the end of the file: its answer gives the file's exact size, which
+        the split is made from, and part 1 is read from it. A storage that
+        sends the whole file instead is read as one connection on a first
+        start; on a resume it is asked again, and then the download pauses,
+        saying so. Returns as _download_file does.
+        """
+        version_id = progress.version_id
+        if not resumed:
+            _remove_partial(partial_path)
+        have = os.path.getsize(partial_path) if resumed and os.path.exists(partial_path) else 0
+
+        first = None
+        failure = ""
+        for attempt in range(PART_TRIES):
+            try:
+                first = self._part_request(url, headers, have)
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                body = ""
+                try:
+                    body = e.response.text if e.response is not None else ""
+                except Exception:
+                    pass
+                if status in (401, 403):
+                    _remove_partial(partial_path)
+                    progress.status = "error"
+                    progress.error = (_refused_401(_civitai_message(body), bool(api_key_from_settings()))
+                                      if status == 401 else _refused_403(_civitai_message(body)))
+                    return False
+                say(f"HTTP error {status}: {e}")
+                failure = f"Download failed (HTTP {status}): {e}"
+            except requests.exceptions.RequestException as e:
+                say(f"Download attempt {attempt + 1} failed: {e}")
+                failure = f"Download failed after {PART_TRIES} attempts: {e}"
+            if first is not None:
+                if getattr(first, "status_code", 200) == 206 or not resumed:
+                    break
+                # Civitai's storage now and then ignores a range; a fresh
+                # redirect is answered (RANGE_TRIES).
+                say(f"The server sent the whole of {progress.file_name}, not the rest: asking again")
+                failure = f"Civitai's storage would not send part 1 of {parts}"
+                first.close()
+                first = None
+                continue
+            if attempt < PART_TRIES - 1:
+                time.sleep(3)
+        if first is None:
+            if resumed:
+                # What it has is kept: a stop needs a way back.
+                return self._pause_saying(progress, f"{failure}. Resume to try again.")
+            progress.status = "error"
+            progress.error = failure
+            return False
+
+        if getattr(first, "status_code", 200) == 206:
+            total = _range_total(first.headers.get("content-range", "") or first.headers.get("Content-Range", ""))
+        else:
+            # The whole file for a first request: read as one connection.
+            total, parts = int(first.headers.get("content-length", 0) or 0), 1
+        if total <= 0:
+            # A size the answer does not give cannot be split: one part, to its end.
+            total, parts = 0, 1
+        bounds = _split(total, parts) if total else [(0, None)]
+        paths = [_part_path(partial_path, i) for i in range(parts)]
+        for path in paths:
+            if not os.path.exists(path):
+                open(path, "wb").close()             # the split, kept on disk from the start
+
+        def left(i: int) -> Optional[int]:
+            start, end = bounds[i]
+            return None if end is None else end - start + 1 - os.path.getsize(paths[i])
+
+        hasher = hashlib.sha256()
+        with open(paths[0], "rb") as done_part:     # part 1, resumed: read once to begin with
+            for block in iter(lambda: done_part.read(4 * 1024 * 1024), b""):
+                hasher.update(block)
+        progress.total_bytes = total
+        progress.downloaded_bytes = sum(os.path.getsize(p) for p in paths)
+        progress.restart_rate()
+        progress.record()
+        # Where the redirect went: the storage address the other parts ask.
+        storage = {"url": getattr(first, "url", None) or url}
+        if left(0) == 0:
+            first.close()
+            first = None
+
+        todo = deque(i for i in range(parts) if left(i) != 0)
+        connections = configured_connections_per_file() if parts_enabled() else 1
+        stopped: Dict[str, Any] = {}
+        lock = threading.Lock()
+        pbar = None
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(total=total, initial=progress.downloaded_bytes, unit='B', unit_scale=True,
+                        unit_divisor=1024, desc=progress.file_name[:30], ncols=80,
+                        position=self._allocate_tqdm_position(version_id), leave=True) if total else None
+        except ImportError:
+            pass
+
+        def work() -> None:
+            nonlocal first
+            while True:
+                with lock:
+                    if not todo or stopped:
+                        return
+                    i = todo.popleft()
+                    response, first = (first, None) if i == 0 else (None, first)
+                try:
+                    outcome = self._fetch_part(i, parts, bounds[i], paths[i], url, headers, storage,
+                                               progress, hasher if i == 0 else None, response, stopped, pbar)
+                except Exception as e:                 # a full disk, say: the download fails, as today
+                    outcome = ("error", f"Download error: {e}")
+                if outcome is not None:
+                    with lock:
+                        stopped.setdefault("why", outcome)
+
+        try:
+            threads = [threading.Thread(target=work, daemon=True, name=f"model-manager-part-{version_id}-{n}")
+                       for n in range(max(1, min(connections, len(todo))))]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        finally:
+            if first is not None:
+                first.close()
+            if pbar is not None:
+                pbar.close()
+            self._release_tqdm_position(version_id)
+
+        why = stopped.get("why")
+        if self._is_cancelled(version_id) or why == "cancelled":
+            _remove_partial(partial_path)
+            progress.status = "cancelled"
+            progress.error = "Download cancelled"
+            return False
+        if self._is_paused(version_id) or why == "paused":
+            progress.status = "paused"           # every part kept, to resume from
+            return False
+        if why is not None:
+            kind, message = why
+            if kind == "pause":
+                return self._pause_saying(progress, message)
+            _remove_partial(partial_path)
+            progress.status = "error"
+            progress.error = message
+            return False
+
+        self._join_parts(paths, hasher)
+        size = os.path.getsize(partial_path)
+        if total and size != total:
+            _remove_partial(partial_path)
+            progress.status = "error"
+            progress.error = f"Download error: Incomplete download: {size}/{total} bytes"
+            return False
+        progress.sha256 = hasher.hexdigest().upper()
+        return True
+
+    def _fetch_part(self, index: int, parts: int, bounds: Tuple[int, Optional[int]], path: str,
+                    url: str, headers: Dict[str, str], storage: Dict[str, str], progress: DownloadProgress,
+                    hasher, response, stopped: Dict[str, Any], pbar) -> Any:
+        """
+        One part, from its file's size to its end: None once whole, or why it
+        stopped - "paused", "cancelled", ("pause", why) once it has asked
+        PART_TRIES times, ("error", why) for a refusal. It asks the storage
+        address first; each time again, Civitai's, for a fresh one - a signed
+        link expires, and a storage that ignored a range answers a fresh
+        redirect. A connection that drops loses nothing: the part asks again
+        from its own size.
+        """
+        start, end = bounds
+        version_id = progress.version_id
+        name = f"part {index + 1} of {parts}"
+        failure = ""
+        for attempt in range(PART_TRIES):
+            have = os.path.getsize(path)
+            need = None if end is None else end - start + 1 - have
+            if need is not None and need <= 0:
+                return None
+            fresh = attempt > 0 or storage["url"] == url
+            try:
+                if response is None:
+                    if fresh:
+                        response = self._part_request(url, headers, start + have, end)
+                        storage["url"] = getattr(response, "url", None) or storage["url"]
+                    else:
+                        response = self._part_request(storage["url"], {"User-Agent": headers.get("User-Agent", "")},
+                                                      start + have, end)
+                    if getattr(response, "status_code", 200) != 206:
+                        failure = f"Civitai's storage would not send {name}"
+                        response.close()
+                        response = None
+                        continue
+                with open(path, "ab") as f:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if self._is_cancelled(version_id):
+                            return "cancelled"
+                        if self._is_paused(version_id):
+                            return "paused"
+                        if stopped:
+                            return None
+                        if not chunk:
+                            continue
+                        if need is not None:
+                            chunk = chunk[:need]
+                        f.write(chunk)
+                        if hasher is not None:
+                            hasher.update(chunk)
+                        progress.add(len(chunk))
+                        if pbar is not None:
+                            pbar.update(len(chunk))
+                        if need is not None:
+                            need -= len(chunk)
+                            if need == 0:
+                                break
+                if need is None or need == 0:
+                    return None
+                failure = f"{name} ended early"
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                body = ""
+                try:
+                    body = e.response.text if e.response is not None else ""
+                except Exception:
+                    pass
+                if fresh and status == 401:
+                    return ("error", _refused_401(_civitai_message(body), bool(api_key_from_settings())))
+                if fresh and status == 403:
+                    return ("error", _refused_403(_civitai_message(body)))
+                # From the storage, a 403 is most likely its signed link expired.
+                failure = f"{name}: HTTP {status}"
+            except requests.exceptions.RequestException as e:
+                failure = f"{name}: {e}"
+            finally:
+                if response is not None:
+                    response.close()
+                    response = None
+            say(f"Download of {progress.file_name}, {failure}: asking again")
+        if failure.startswith("Civitai's storage"):
+            return ("pause", f"{failure}. Resume to try again.")
+        return ("pause", f"{failure[0].upper()}{failure[1:]}. Resume to try again.")
+
+    @staticmethod
+    def _join_parts(paths: List[str], hasher) -> None:
+        """Parts 2 to N appended to the .partial in order, each hashed on the way and gone once added."""
+        with open(paths[0], "ab") as out:
+            for path in paths[1:]:
+                with open(path, "rb") as part:
+                    for block in iter(lambda: part.read(4 * 1024 * 1024), b""):
+                        hasher.update(block)
+                        out.write(block)
+                os.remove(path)
+
+    def _pause_saying(self, progress: DownloadProgress, why: str) -> bool:
+        """A download in parts that cannot go on for now: paused, every part kept, saying why (#282)."""
+        say(f"Download of {progress.file_name} paused: {why}")
+        progress.status = "paused"
+        progress.error = why
+        return False
 
     def download_version(
         self,
@@ -1128,7 +1501,7 @@ class DownloadService:
             kept = kept if kept and kept.endswith(PARTIAL) and os.path.exists(kept) else None
             if place == "held":
                 if kept:
-                    os.remove(kept)          # only ever this download's own
+                    _remove_partial(kept)    # only ever this download's own
                 progress.file_name = os.path.basename(library_path)
                 progress.file_path = library_path
                 progress.total_bytes = progress.downloaded_bytes = os.path.getsize(library_path)
@@ -1204,12 +1577,24 @@ class DownloadService:
             # name - one a scan would take for the model - and whatever the
             # download deletes is only ever its own .partial.
             partial_path = target_path + PARTIAL
-            resume_from = os.path.getsize(partial_path) if resume and os.path.exists(partial_path) else 0
+            # In parts (#282), its split is in its part files: a resume keeps
+            # it, and a paused one-connection download stays on one.
+            kept_parts = _part_count(partial_path) if resume else 0
+            if kept_parts < 0:
+                say(f"A join of {file_name}'s parts was cut short: starting it again")
+                _remove_partial(partial_path)
+                kept_parts = 0
+            resume_from = os.path.getsize(partial_path) if kept_parts == 1 else 0
+            parts = kept_parts or self._parts_for(int((file_info.get("sizeKB") or 0) * 1024))
             # Kept in the database while it runs, so a restart - or a crash -
             # leaves it paused, to be resumed, rather than a stray .partial.
             job["partial_path"] = partial_path
             self._save()
-            success = self._download_file(download_url, partial_path, headers, progress, resume_from)
+            if parts > 1:
+                success = self._download_parts(download_url, partial_path, headers, progress, parts,
+                                               resumed=kept_parts > 1)
+            else:
+                success = self._download_file(download_url, partial_path, headers, progress, resume_from)
 
             if not success:
                 if progress.status == "paused":
@@ -1254,9 +1639,9 @@ class DownloadService:
             say_failure(f"Download error: {e}")
             progress.status = "error"
             progress.error = str(e)
-            # Only ever this download's own unfinished file.
-            if partial_path and os.path.exists(partial_path):
-                os.remove(partial_path)
+            # Only ever this download's own unfinished files.
+            if partial_path:
+                _remove_partial(partial_path)
             return progress
         finally:
             with self._lock:
@@ -1398,3 +1783,25 @@ def configured_downloads_at_once() -> int:
     except (TypeError, ValueError):
         pass
     return DEFAULTS['model_manager_downloads_at_once']
+
+
+def parts_enabled() -> bool:
+    """Whether a large file is fetched in parts (#282): the switch, on unless turned off."""
+    try:
+        return bool(setting('model_manager_download_in_parts'))
+    except (TypeError, ValueError):
+        return DEFAULTS['model_manager_download_in_parts']
+
+
+def configured_connections_per_file() -> int:
+    """
+    How many connections a file in parts is fetched over (#282): 2 to 16 - the
+    switch is the only off. The default when it cannot be read.
+    """
+    try:
+        configured = setting('model_manager_connections_per_file')
+        if configured is not None:
+            return max(2, min(int(configured), 16))
+    except (TypeError, ValueError):
+        pass
+    return DEFAULTS['model_manager_connections_per_file']

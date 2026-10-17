@@ -440,6 +440,36 @@ def on_ui_settings():
                "may want 1. Start now still starts a waiting download over this number. Applies at once: "
                "a lower number lets the running downloads finish, and starts no new one until fewer run.")
     )
+    # A file in parts (#282). Read when a download starts or resumes, so
+    # neither needs an onchange: a running download keeps what it began with.
+    shared.opts.add_option(
+        "model_manager_download_in_parts",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_download_in_parts"],
+            label="Downloads: fetch large files in parts",
+            component=gr.Checkbox,
+            section=section,
+        ).info("Fetch a large file from Civitai over several connections at once, each fetching a part of it. "
+               "Civitai's storage holds each connection to about 60 MB/s, so a faster line gets large files "
+               "sooner. Off, every file downloads over one connection, as before. Applies to the next "
+               "download, and to a paused one when it resumes.")
+    )
+    shared.opts.add_option(
+        "model_manager_connections_per_file",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_connections_per_file"],
+            label="Downloads: connections per file",
+            component=gr.Slider,
+            component_args={
+                "minimum": 2,
+                "maximum": 16,
+                "step": 1,
+            },
+            section=section,
+        ).info("How many connections a large file is fetched over, while Download large files in parts is "
+               "on. A part is at least 32 MB, so smaller files use fewer. Applies to the next download, and "
+               "to a paused one when it resumes.")
+    )
 
     # A box with no maximum, so the settings window draws no slider (#213).
     shared.opts.add_option(

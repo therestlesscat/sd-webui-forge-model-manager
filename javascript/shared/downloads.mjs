@@ -358,6 +358,7 @@ function renderDownloadItem(dl, prefix) {
                     ${status === 'downloading' && dl.started_over ? ' · started over: the server would not resume' : ''}
                     ${status === 'pending' ? (dl.queue_position ? `Waiting - ${ordinal(dl.queue_position)} in the queue` : 'Waiting...') : ''}
                     ${status === 'paused' ? `Paused - ${downloaded} / ${total}` : ''}
+                    ${status === 'paused' && dl.error ? ` · ${escapeHtml(dl.error)}` : ''}
                     ${status === 'finishing' ? `Adding to library... ${total}` : ''}
                     ${status === 'complete' ? `${total}` : ''}
                     ${status === 'complete' && dl.filed ? ` · ${escapeHtml(dl.filed)}` : ''}

@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.64 - Large downloads, several times faster.** A large file from Civitai now downloads over
+several connections at once, each fetching a part of it. Civitai holds each connection to about
+60 MB/s, so a fast line gets a checkpoint several times sooner. Download large files in parts, in
+the settings' Civitai connection, turns it off; Connections per file says how many.
+
 **0.63 - Hide the models you already have.** In the Civitai Browser, Hide models in my library,
 under Post-processing Options, leaves out every model marked Owned and fills the page from the
 rest, so what is new to you is easy to spot. It costs Civitai no request.

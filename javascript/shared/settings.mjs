@@ -27,6 +27,8 @@ const K = {
     apiKey: 'model_manager_civitai_api_key',
     rate: 'model_manager_civitai_requests_per_second',
     downloadsAtOnce: 'model_manager_downloads_at_once',
+    inParts: 'model_manager_download_in_parts',
+    connectionsPerFile: 'model_manager_connections_per_file',
     imagesAtOnce: 'model_manager_civitai_images_at_once',
     mmPageSize: 'model_manager_page_size',
     mmCardSize: 'model_manager_card_size',
@@ -88,7 +90,7 @@ const MODULES_PREFIX = 'model_manager_modules_';
 const SECTIONS = [
     { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
     { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.downloadsAtOnce, K.imagesAtOnce] },
+      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.downloadsAtOnce, K.inParts, K.connectionsPerFile, K.imagesAtOnce] },
     { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
       keys: [K.mmPageSize, K.mmImagesPerPage, K.mmGenerationsPerPage, K.mmCardSize, K.thumbnail] },
     { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
@@ -120,6 +122,8 @@ const LABELS = {
     [K.apiKey]: 'API key',
     [K.rate]: 'Requests per second',
     [K.downloadsAtOnce]: 'Downloads at once',
+    [K.inParts]: 'Download large files in parts',
+    [K.connectionsPerFile]: 'Connections per file',
     [K.imagesAtOnce]: 'Civitai images loading at once, at most',
     [K.mmPageSize]: 'Models per page',
     [K.mmCardSize]: 'Card size',
@@ -169,6 +173,8 @@ const SHOWN_WHEN = {
     // Without a key the client runs at Civitai's anonymous rate, whatever
     // this says.
     [K.rate]: (s) => s.hasKey(),
+    // How many parts only while files are fetched in parts (#282).
+    [K.connectionsPerFile]: (s) => s.value(K.inParts) !== false,
     [K.percent]: (s) => s.value(K.detection) === 'model',
     // No Generations tab while nothing is recorded.
     [K.generationsNsfw]: (s) => s.value(K.recordGenerations) !== false,

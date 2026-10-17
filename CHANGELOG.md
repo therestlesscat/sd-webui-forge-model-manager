@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.64 - Large downloads, several times faster
+
+*17 October 2026*
+
+A large file from Civitai now downloads over several connections at once, each fetching a part of it. Civitai's storage holds each connection to about 60 MB/s, so on a faster line a checkpoint arrives several times sooner: 4 connections fetched a 2.13 GB file about three times as fast as one. Download large files in parts, in the settings' Civitai connection, turns it off.
+
+- **0.64.0** (build 514) - Large downloads in parts (#282). A file is cut into parts, each fetched over a connection of its own into a file beside the `.partial`, and joined in order at the end, its SHA-256 taken on the way: the file is never read again just to hash it, and the join took 1.6 to 1.8 s for 2.13 GB on an NVMe drive. A part is at least 32 MB, so a file under 64 MB keeps one connection, as before. Measured on one line: one connection gave 55 to 69 MB/s; this code in parts 137 MB/s over 4 connections and 225 MB/s over 8. Pause, Resume and a restart carry on part by part, each from where it stopped; a part whose connection drops asks again for its own rest, and the others go on. A part Civitai's storage will not send in part, after three tries, pauses the download, and its row in the downloads panel says why - Resume tries again, losing nothing. Two settings, in Civitai connection: Download large files in parts (on), and Connections per file (2 to 16, 4), shown in the settings window only while the first is on. Each applies to the next download, and to a paused one when it resumes: a running one keeps what it began with, a paused one resumes with the new number over the parts it has - one at a time with the switch off - and one paused on one connection stays on one. Connections multiply with Downloads at once: two files at 4 connections each is 8.
+
 ## 0.63 - Hide the models you already have
 
 *16 October 2026*

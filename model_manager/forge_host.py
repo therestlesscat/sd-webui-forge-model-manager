@@ -72,6 +72,10 @@ DEFAULTS = {
     "model_manager_civitai_requests_per_second": 6,
     # How many downloads the queue runs at once; the rest wait (#279).
     "model_manager_downloads_at_once": 2,
+    # A large file fetched in parts, over this many connections (#282):
+    # Civitai's storage holds each to about 60 MB/s; 4 were 3.1 times one.
+    "model_manager_download_in_parts": True,
+    "model_manager_connections_per_file": 4,
     # How many of Civitai's images a page loads at once; the rest wait their
     # turn (#213). Civitai queues past 10 to 16 a second, and hundreds asked
     # at once failed to load.
