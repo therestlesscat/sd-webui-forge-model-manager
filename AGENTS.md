@@ -42,7 +42,11 @@ the code (2026-10-16).
   alternatives, with their pros and cons side by side; what is old and what
   this work makes new; what it costs - a migration, the other WebUI, the live
   database; how it is tested, each check failing on the old code first; and
-  the version. Each choice goes to the owner as a numbered question with a
+  the version. A plan that adds a setting says what changing it does to work
+  already under way - running, paused, queued: #282's added a connections
+  setting with no answer, and the owner asked "what if user change either of
+  settings during an download or during paused download?" (2026-10-17).
+  Each choice goes to the owner as a numbered question with a
   recommendation. Code starts on an explicit yes to that plan, and anything
   found later that changes it goes back as a plan. Answered questions are not
   that yes: the answers go into a revision tab and the Final tab, then the

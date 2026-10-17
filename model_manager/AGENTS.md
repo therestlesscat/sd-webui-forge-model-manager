@@ -237,7 +237,16 @@ the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
 a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
 Resume asks Civitai's download address again (its storage link is signed and
 expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
-there, and checks the finished file as ever. What is not over - running,
+there, and checks the finished file as ever. A large file comes in parts
+(0.64.0, #282): part N writes `.partial.N` beside the `.partial`, and each
+file's size is how far its part got, so pause, resume and a restart work
+part by part - `restore` adds the sizes up, and every removal takes the parts
+too (`_remove_partial`). The split is fixed at the first start and read back
+from the files; how many parts fetch at once is read at each start or
+resume. A gap in the numbers is a join cut short, and that download starts
+over. One connection keeps the code above unchanged. Civitai's storage holds
+each connection to 55-69 MB/s (four runs), and its signed link lasts 24
+hours (`X-Amz-Expires=86400`). What is not over - running,
 paused or waiting - is kept in the `downloads` table, one row each in the
 list's order, under this install's key (`INSTALL_KEY`): a restart or a crash
 leaves it paused, and a WebUI sharing the database never takes it up. Each
