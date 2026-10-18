@@ -44,16 +44,16 @@ import os
 import sys
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from . import thumbnails
+from . import generation_inputs, thumbnails
 from .db import database_state, get_models_db
 from .forge_host import (available, closest_checkpoint, current_job, forge_name,
                          infotext_settings, installed_modules, loaded_model, loaded_modules,
                          main_infotext, parse_generation_parameters)
 from .nsfw import generated_level
 from .console import say
-from .scheduler.capture import pressed_inputs
+from .scheduler.capture import pressed_images, pressed_inputs
 from .scheduler.runner import queued_task
 from .tabs import TABS, on
 
@@ -200,6 +200,9 @@ def postprocess(p, processed) -> Optional[int]:
         delattr(p, _ATTR)
     except AttributeError:
         pass
+    # Taken whether or not this run is recorded: a run that saves nothing
+    # holds no images after it (#34).
+    held = pressed_images(generation.job)
     try:
         if getattr(processed, "video_path", None):
             say("Generation not recorded: videos are not, yet")
@@ -210,7 +213,7 @@ def postprocess(p, processed) -> Optional[int]:
             return None
         if _newer_database():
             return None
-        return _write(p, processed, generation)
+        return _write(p, processed, generation, held)
     except Exception as e:
         _report("recording a generation", e)
         return None
@@ -433,7 +436,7 @@ def _at(values: Any, index: int) -> Any:
 
 # ----------------------------------------------------------------- writing
 
-def _write(p, processed, generation: _Generation) -> int:
+def _write(p, processed, generation: _Generation, held: Optional[Dict[str, Any]] = None) -> int:
     db = get_models_db()
 
     batch_size = int(getattr(p, "batch_size", 1) or 1)
@@ -496,23 +499,30 @@ def _write(p, processed, generation: _Generation) -> int:
         "extra_params": _extra_params(p),
         "script_args": _script_args(p),
         "settings": {key: _jsonable(value) for key, value in infotext_settings().items()},
-        "inputs": _named_inputs(db, generation.job),
+        "inputs": None,
         "infotext": main_infotext(p, images[0]["infotext"]),
         "image_count": len(images),
         "prompt_nsfw_level": max(image["prompt_nsfw_level"] for image in images),
     })
 
-    with _lock:
+    inputs, sources = _inputs_and_sources(db, row["mode"], generation.job, held)
+    with generation_inputs.LOCK, _lock:
+        # The images the press started from (#34): a file already in the
+        # store is not written again, and none is deleted until this row
+        # names it - forget() waits on the same lock.
+        kept = generation_inputs.save(sources) if sources else {}
+        row["inputs"] = generation_inputs.with_kept(inputs, kept) if kept else inputs
         # A sync may have brought these files in from their folder (#233):
         # the full record replaces what it read from the file.
         replaced = db.replace_imported_images([image["path"] for image in images])
-        generation_id = db.record_generation(row, images, used)
+        generation_id = db.record_generation(row, images, used, kept)
         _link_to_task(db, generation_id)
     files = {f for files in used for f in files}
     say(f"Recorded generation {generation_id} ({row['mode']}): "
           f"{len(images)} of {len(generation.results)} results saved, "
           f"{generation.other_saves} other images saved and not recorded, "
           f"{len(files)} model files, {len(spelled)} of them in the library"
+          + (f", {len(kept)} source image(s) kept" if kept else "")
           + (f", replacing {replaced} image(s) a sync had added" if replaced else ""))
     # With the setting on, its thumbnails now (#5): the newest images are the
     # ones looked at most.
@@ -534,6 +544,25 @@ def _named_inputs(db, job: Optional[str]) -> Optional[Dict[str, Any]]:
     if task_id is not None:
         return (db.get_task(task_id) or {}).get("inputs")
     return pressed_inputs(job)
+
+
+def _inputs_and_sources(db, mode: str, job: Optional[str],
+                        held: Optional[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """
+    A run's named inputs, and the images to keep of what its press started
+    from (#34): the canvases the press held, or a queued task's own files for
+    its mode - each copied into the store, every other file the task names
+    said missing, so deleting the task takes nothing of the generation's.
+    With keeping off, the inputs as they were, and nothing to keep.
+    """
+    inputs = _named_inputs(db, job)
+    if not inputs or not generation_inputs.keeping():
+        return inputs, {}
+    if queued_task(job) is not None:
+        names = generation_inputs.mode_images(mode, inputs.get("fixed") or {})
+        sources = generation_inputs.from_files(inputs.get("fixed") or {}, names)
+        return generation_inputs.drop_files(inputs), sources
+    return inputs, dict(held or {})
 
 
 def _link_to_task(db, generation_id: int) -> None:

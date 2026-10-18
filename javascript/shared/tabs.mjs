@@ -19,11 +19,16 @@ const { TIMING } = await shared('core.mjs');
 // modules/ui.py; ours in scripts/model_manager_ui.py and
 // model_manager/ui/tab_model_manager.py). Gradio 4 gives its button the
 // panel's id and "-button". img2imgMode is img2img's own mode, beside Sketch
-// and Inpaint.
+// and Inpaint; the rest of its modes, the same ids in both WebUIs.
 const PANELS = {
     txt2img: 'tab_txt2img',
     img2img: 'tab_img2img',
     img2imgMode: 'img2img_img2img_tab',
+    img2imgSketch: 'img2img_img2img_sketch_tab',
+    img2imgInpaint: 'img2img_inpaint_tab',
+    img2imgInpaintSketch: 'img2img_inpaint_sketch_tab',
+    img2imgInpaintUpload: 'img2img_inpaint_upload_tab',
+    img2imgBatch: 'img2img_batch_tab',
     queue: 'tab_queue_tab',
     generations: 'tab_generations_tab',
     gallery: 'tab_gallery_tab',
@@ -32,6 +37,14 @@ const PANELS = {
     // The WebUI's own, the same in both: the database notice opens it (#136).
     extensions: 'tab_extensions',
 };
+
+/**
+ * img2img's modes in the order Forge numbers them - the mode a press sends
+ * is the index (#34): img2img, Sketch, Inpaint, Inpaint sketch, Inpaint
+ * upload, Batch.
+ */
+export const IMG2IMG_MODES = ['img2imgMode', 'img2imgSketch', 'img2imgInpaint', 'img2imgInpaintSketch',
+                              'img2imgInpaintUpload', 'img2imgBatch'];
 
 function find(id) {
     return (typeof gradioApp === 'function' ? gradioApp() : document).querySelector(`#${id}`);

@@ -50,6 +50,7 @@ import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .. import generation_inputs
 from ..console import say
 from ..db import get_models_db
 from ..forge_host import (checkpoint_choice, generate_names, installed_modules,
@@ -132,11 +133,23 @@ def _values_for(tab: str, named: Dict[str, Any], skip: Any) -> Tuple[List[Any], 
     components = list(own.inputs)
     values, notes = replay.rebuild(tab, components, named)
     names = replay.input_names(tab, components)
+    # The canvases of every img2img mode but the press's own keep what is on
+    # screen, as Forge's own send buttons leave them (#34): nothing of them is
+    # kept, and setting them meant emptying them.
+    fixed_names = generate_names(tab)
+    used = set(generation_inputs.mode_images(tab, named.get("fixed") or {}))
+    others = {at for at, name in enumerate(fixed_names)
+              if name in generation_inputs.CANVASES and name not in used}
+    if others:
+        left = tuple(f"{fixed_names[at]}:" for at in others)
+        notes = [note for note in notes if not note.startswith(left)]
     shown, skipped = [], []
     for at in range(1, len(components)):
         component = components[at]
         value = _shown(component, values[at])
-        if type(component).__name__ == "State":
+        if at in others:
+            shown.append(skip)
+        elif type(component).__name__ == "State":
             shown.append(skip)
             if not _same(value, replay.default(component)):
                 skipped.append(names[at])
@@ -356,6 +369,21 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
 
 # -------------------------------------------------------------- the button
 
+def _canvas_answer(tab: str, request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    For img2img, the mode the press was made in - the page shows it - and
+    whether its source came back (#34): Send says the source is not kept
+    only when it did not.
+    """
+    db = get_models_db()
+    if request.get("generation") is not None:
+        named = (db.get_generation(int(request["generation"])) or {}).get("inputs")
+    else:
+        named = (db.get_task(int(request.get("task"))) or {}).get("inputs")
+    fixed = (named or {}).get("fixed") or {}
+    return {"mode": generation_inputs.mode_of(fixed), "source": generation_inputs.source_back(tab, named)}
+
+
 def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
     """The hidden button's function: `count` outputs of Generate's, then `extras`."""
     import gradio as gr
@@ -386,6 +414,8 @@ def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
                 answer["task"] = request.get("task")
                 values, skipped, notes = task_values(tab, int(request.get("task")), skip=gr.update())
             answer.update({"skipped": skipped, "notes": notes})
+            if tab == "img2img":
+                answer.update(_canvas_answer(tab, request))
             return [*values, *rest, json.dumps(answer)]
         except NoPaste as e:
             say(f"Send: {e}; Forge's own paste is used")

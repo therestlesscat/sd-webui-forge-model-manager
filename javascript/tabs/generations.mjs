@@ -50,7 +50,7 @@ const {
     currentScroll, topOf, placedGrid, showTile,
 } = await shared('tiles.mjs');
 const {
-    ratingRowHtml, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
+    ratingRowHtml, keptViews, selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport,
     generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
 } = await shared('generations.mjs');
 
@@ -1054,6 +1054,7 @@ const viewerSource = {
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>
             ${viewerResourcesHtml(image)}${viewerModelHtml(image)}`;
     },
+    views: (index) => keptViews(viewerAt(index).image),
     details: (index) => {
         const { tile, image } = viewerAt(index);
         return image ? infoHtml(tile, image, new URL(image.url || '', window.location.origin).href) : '';

@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.65 - Send an inpaint back as it was
+
+*18 October 2026*
+
+An img2img generation now keeps the picture it started from and what was painted over it - the mask, or the strokes. Send puts both back in img2img, on the mode the generation was made in, and the viewer shows them beside the result. One file per picture, however many generations started from it, deleted with the last of them; the settings' Generations section turns it off.
+
+- **0.65.0** (build 520) - The source and mask of an img2img generation are kept (#34). Each press of img2img keeps its mode's two canvases - the picture, and the mask or strokes over it; no other mode's, which Forge does not read for that press - as PNG files in a store, generation-inputs beside the database unless set otherwise - shared by two WebUIs that share the database, as the thumbnails are - one file per picture by a hash of its pixels, under its first two letters, and names them in the generation's record and in a new table, generation_input_files (database v44). Send on such a generation puts them back in their canvas; Send and the Queue's Load to UI now open img2img on the generation's own mode - they opened its plain mode, while the mode Generate would send - the value Forge reads - said the generation's (seen on a test install: plain mode shown, value 2 for Inpaint) - and leave every other mode's canvases as they are, as Forge's own send buttons do, where they emptied them. The notice that the source is not kept shows only when it did not come back; it showed after every Send to img2img. A queued task's generation keeps its own copies: it named the task's files, and deleting the task took them. The viewer has a switch on such an image: Result, Source, Source with its mask or strokes. Deleting a generation deletes its kept files once no other generation names them, whatever Also delete the image files says. Hashing a picture of 1024 x 1024 takes 1.5 ms (8 without the processor's SHA instructions); saving it as PNG 85 ms in Neo, 233 in the original Forge, and skipped for a picture already kept. Runs through Forge's API and img2img's Batch mode keep nothing yet (#296); ControlNet's images neither (#297).
+
 ## 0.64 - Large downloads, several times faster
 
 *17 October 2026*

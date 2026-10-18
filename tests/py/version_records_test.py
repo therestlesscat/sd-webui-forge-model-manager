@@ -151,7 +151,7 @@ with sqlite3.connect(old) as c:
     columns = [r[1] for r in c.execute('PRAGMA table_info(version_records)')]
     version = c.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()[0]
 check('v43 adds it: a version, its model, each source and when', (columns, version),
-      (['version_id', 'model_id', 'listed', 'listed_at', 'looked_up', 'looked_up_at'], '43'))
+      (['version_id', 'model_id', 'listed', 'listed_at', 'looked_up', 'looked_up_at'], str(dbmod.SCHEMA_VERSION)))
 real_schema = dbmod.SCHEMA_VERSION
 dbmod.SCHEMA_VERSION = 42
 try:

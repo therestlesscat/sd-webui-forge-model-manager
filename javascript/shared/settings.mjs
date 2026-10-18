@@ -64,6 +64,8 @@ const K = {
     thumbnailsPlace: 'model_manager_thumbnails_place',
     thumbnailsFolder: 'model_manager_thumbnails_folder',
     thumbnailThreads: 'model_manager_thumbnail_threads',
+    keepInputs: 'model_manager_generations_keep_inputs',
+    inputsFolder: 'model_manager_generations_inputs_dir',
     queueEnabled: 'model_manager_queue_enabled',
     mmEnabled: 'model_manager_model_manager_enabled',
     cbEnabled: 'model_manager_civitai_browser_enabled',
@@ -102,7 +104,8 @@ const SECTIONS = [
     { id: 'civitai_images', title: 'Civitai Images', tabs: ['gallery'], shownWith: ['gallery'], keys: [K.galleryGrid] },
     { id: 'generations', title: 'Generations', tabs: ['model_manager', 'generations'],
       shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles, K.generationsGrid, K.generationsReading, K.syncLevel, K.groupNoText,
-                                      K.thumbnails, K.thumbnailsPlace, K.thumbnailsFolder, K.thumbnailThreads] },
+                                      K.thumbnails, K.thumbnailsPlace, K.thumbnailsFolder, K.thumbnailThreads,
+                                      K.keepInputs, K.inputsFolder] },
     { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
     { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations', 'gallery'],
       shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.detection, K.percent, K.words] },
@@ -153,6 +156,8 @@ const LABELS = {
     [K.galleryGrid]: 'Civitai Images: grid',
     [K.syncLevel]: 'Sync images: default NSFW level for images without infotext',
     [K.groupNoText]: 'Sync images: group images without infotext with similar file names into one batch',
+    [K.keepInputs]: 'img2img: keep the image a generation started from, and its mask',
+    [K.inputsFolder]: 'Folder for the images a generation started from',
     [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
     [K.galleryTab]: 'Civitai Images tab',
     [K.mmEnabled]: 'Model Manager tab',
@@ -193,6 +198,9 @@ const SHOWN_WHEN = {
     [K.thumbnailsFolder]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false
         && s.value(K.thumbnailsPlace) !== 'Beside each image',
     [K.thumbnailThreads]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false,
+    // Where an img2img generation's source is kept, only while it is (#34).
+    [K.keepInputs]: (s) => s.value(K.recordGenerations) !== false,
+    [K.inputsFolder]: (s) => s.value(K.recordGenerations) !== false && s.value(K.keepInputs) !== false,
     // Nothing is queued while the queue is off.
     [K.queueInputs]: (s) => s.value(K.queueEnabled) !== false,
     [K.queueAskAbove]: (s) => s.value(K.queueEnabled) !== false,

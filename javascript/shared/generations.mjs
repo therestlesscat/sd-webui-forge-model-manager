@@ -96,6 +96,24 @@ export function ratingRowHtml(of, action, data = {}) {
     </div>`;
 }
 
+/**
+ * The viewer's other views of one of your images (#34): the source its
+ * img2img press started from, and that source with the layer painted over
+ * it - when its generation kept them. The first is the image itself. Both
+ * tabs that show your generations offer it.
+ */
+export function keptViews(image) {
+    const kept = image?.inputs;
+    if (!kept?.source) return [];
+    const at = (url) => new URL(url, window.location.origin).href;
+    const views = [{ label: 'Result' }, { label: 'Source', url: at(kept.source) }];
+    if (kept.layer) {
+        views.push({ label: kept.layer_kind === 'strokes' ? 'Source with its strokes' : 'Source with its mask',
+                     url: at(kept.source), layer: at(kept.layer), kind: kept.layer_kind });
+    }
+    return views;
+}
+
 // ------------------------------------------------------------ one of them
 /**
  * One of your images, as a thumbnail: a placeholder where its file is gone,

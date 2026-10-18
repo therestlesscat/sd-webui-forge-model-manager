@@ -4848,6 +4848,45 @@ textarea.mm-settings-input {
     border-radius: 4px;
 }
 
+/* Another view of an image (#34): the source an img2img generation started
+   from, alone or with its layer drawn over it. Both pictures are the same
+   size and fill the frame alike, so the layer lands where it was painted. */
+.mm-viewer-layered {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.mm-viewer-layered-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* A painted mask shows through; an uploaded one is black and white, and
+   only its white is drawn. Strokes in colour show as painted. */
+.mm-viewer-layer[data-layer-kind="mask"] {
+    opacity: 0.65;
+}
+
+.mm-viewer-layer[data-layer-kind="mask-upload"] {
+    opacity: 0.6;
+    mix-blend-mode: screen;
+}
+
+/* The switch between them: the viewer's own small buttons, the view shown
+   a primary one - their shared rules serve light and dark. */
+.mm-viewer-views {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.mm-viewer-views:empty {
+    display: none;
+}
+
 .mm-viewer-bar {
     display: flex;
     align-items: center;

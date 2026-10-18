@@ -18,7 +18,7 @@ from ..grids import CHOICES as GRID_CHOICES, GALLERY_GRID, GENERATIONS_GRID
 from ..tile_reading import CHOICES as READING_CHOICES, SETTING as READING_SETTING
 from ..image_sync import FOLDERS_OFF_SETTING, FOLDERS_SETTING, GROUP_SETTING, LEVEL_SETTING
 from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
-from .. import prompt_levels, thumbnails
+from .. import generation_inputs, prompt_levels, thumbnails
 from ..scheduler import QUEUE_ENABLED
 from ..tabs import TABS
 from ..update_check import SETTING as CHECK_UPDATES, check_soon
@@ -378,6 +378,31 @@ def on_ui_settings():
         ).info("0: as many as the machine has processors - making one is mostly processor work. "
                "Lower it for a hard disk or a network drive, or to keep the machine free while "
                "a sync makes them.")
+    )
+    # The images an img2img generation started from (#34).
+    shared.opts.add_option(
+        generation_inputs.KEEP_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[generation_inputs.KEEP_SETTING],
+            label="Generations: keep the image an img2img generation started from, and its mask",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: each img2img generation recorded keeps the picture in its mode's canvas and "
+               "what was painted over it - the mask, or the strokes - so Send puts them back and "
+               "the viewer shows them. One file per picture, however many generations started from "
+               "it, deleted with the last of them. Off: nothing more is kept; what was kept stays.")
+    )
+    shared.opts.add_option(
+        generation_inputs.FOLDER_SETTING,
+        shared.OptionInfo(
+            default=DEFAULTS[generation_inputs.FOLDER_SETTING],
+            label="Generations: folder for the images a generation started from",
+            component=gr.Textbox,
+            component_args={"placeholder": "Empty: a generation-inputs folder beside the database"},
+            section=section,
+        ).info("Its full path. Empty: a folder named generation-inputs beside the database, which two "
+               "WebUIs sharing the database share too. Generations keep their files' full paths, so a "
+               "change applies to generations recorded after it.")
     )
     hidden = (None, "Model Manager")
     for key in (FOLDERS_SETTING, FOLDERS_OFF_SETTING):

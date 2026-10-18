@@ -455,7 +455,8 @@ class GenerationsOps:
 
     def record_generation(self, generation: Dict[str, Any],
                           images: List[Dict[str, Any]],
-                          files: List[List[str]]) -> int:
+                          files: List[List[str]],
+                          input_files: Optional[Dict[str, str]] = None) -> int:
         """
         Store one generation and its images, in one transaction.
 
@@ -465,13 +466,18 @@ class GenerationsOps:
             images: Each result, by its columns, the same way.
             files: For each image, in the same order, the model files it
                 used, as the library spells them.
+            input_files: The files kept of the images its press started
+                from (#34), by Forge's input name.
 
         Returns:
             The generation's id.
         """
         with self._cursor() as cursor:
             self._write_lock(cursor)
-            return self._record(cursor, generation, images, files)
+            generation_id = self._record(cursor, generation, images, files)
+            cursor.executemany("INSERT INTO generation_input_files (generation_id, name, path) VALUES (?, ?, ?)",
+                               [(generation_id, name, path) for name, path in (input_files or {}).items()])
+            return generation_id
 
     def record_generations(self, generations: Sequence[Tuple[Dict[str, Any], List[Dict[str, Any]],
                                                             List[List[str]]]]) -> List[int]:
@@ -1297,6 +1303,54 @@ class GenerationsOps:
             How many prompt rows went.
         """
         return PROMPTS.drop_unused(cursor, ids)
+
+    def input_files(self, generation_id: int) -> Dict[str, str]:
+        """The files kept of the images a generation's press started from
+        (#34), by Forge's input name."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT name, path FROM generation_input_files WHERE generation_id = ?",
+                           (generation_id,))
+            return {name: path for name, path in cursor.fetchall()}
+
+    def input_files_of(self, generation_ids: Iterable[int]) -> Dict[int, Dict[str, str]]:
+        """The kept files of each of these generations that kept any (#34):
+        {generation id: {input name: path}}, for a page of images at once."""
+        ids = list(dict.fromkeys(int(i) for i in generation_ids))
+        found: Dict[int, Dict[str, str]] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                part = ids[start:start + 500]
+                cursor.execute("SELECT generation_id, name, path FROM generation_input_files "
+                               f"WHERE generation_id IN ({', '.join('?' * len(part))})", part)
+                for generation_id, name, path in cursor.fetchall():
+                    found.setdefault(generation_id, {})[name] = path
+        return found
+
+    def drop_orphan_input_files(self) -> List[str]:
+        """
+        Remove the kept-file rows of generations that are gone - their ids
+        are never reused - whichever delete took them (#34).
+
+        Returns:
+            The files those rows named that no row names any more, for the
+            caller to delete.
+        """
+        with self._cursor() as cursor:
+            self._write_lock(cursor)
+            cursor.execute("SELECT DISTINCT path FROM generation_input_files WHERE generation_id NOT IN "
+                           "(SELECT id FROM generations)")
+            paths = [row[0] for row in cursor.fetchall()]
+            if not paths:
+                return []
+            cursor.execute("DELETE FROM generation_input_files WHERE generation_id NOT IN "
+                           "(SELECT id FROM generations)")
+            free = []
+            for path in paths:
+                cursor.execute("SELECT 1 FROM generation_input_files WHERE path = ? COLLATE NOCASE LIMIT 1",
+                               (path,))
+                if not cursor.fetchone():
+                    free.append(path)
+            return free
 
     @staticmethod
     def _unnamed(cursor, paths: Iterable[str]) -> List[str]:

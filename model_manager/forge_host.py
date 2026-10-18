@@ -123,6 +123,10 @@ DEFAULTS = {
     "model_manager_thumbnails_place": "In a folder",
     "model_manager_thumbnails_folder": "",
     "model_manager_thumbnail_threads": 0,
+    # The images an img2img generation started from (#34): kept unless
+    # turned off; the folder, empty for generation-inputs beside the database.
+    "model_manager_generations_keep_inputs": True,
+    "model_manager_generations_inputs_dir": "",
 }
 
 

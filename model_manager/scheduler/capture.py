@@ -37,6 +37,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .. import generation_inputs
 from ..console import say, say_failure
 from ..db import get_models_db
 from ..forge_host import (forge_name, generate_names, page_blocks, script_runner,
@@ -58,6 +59,11 @@ _found: Dict[str, Dict[str, Any]] = {}
 # the recorder takes them. A run that saves nothing leaves its own here,
 # until newer presses push them out.
 _pressed = Remembered(most=32)
+
+# The canvases an img2img press's mode reads, as the press sent them (#34),
+# by the same id: the recorder keeps them as files once it records, and
+# takes them at the end of every run, recorded or not.
+_held = Remembered(most=32)
 
 # The page side of our listener on Generate. Forge's own submit() makes the
 # run's id and hands it to Generate's listener alone; ours is sent an empty
@@ -219,6 +225,14 @@ def _recorder(tab: str, own) -> Callable:
             _pressed[job] = name_inputs(tab, own.inputs, list(values), NoFiles())
         except Exception as e:
             say(f"Generations: could not name {tab}'s inputs for its record: {e}")
+            return
+        try:
+            if generation_inputs.keeping():
+                held = generation_inputs.held_images(tab, generate_names(tab), list(values))
+                if held:
+                    _held[job] = held
+        except Exception as e:
+            say(f"Generations: could not hold {tab}'s source image for its record: {e}")
 
     return record
 
@@ -227,6 +241,12 @@ def pressed_inputs(job: Optional[str]) -> Optional[Dict[str, Any]]:
     """The named inputs of the press that started this run, taken: None if
     none was kept for it."""
     return _pressed.pop(job) if job else None
+
+
+def pressed_images(job: Optional[str]) -> Dict[str, Any]:
+    """The canvases the press that started this run held (#34), taken:
+    {input name: image}, empty if none."""
+    return (_held.pop(job) if job else None) or {}
 
 
 # ------------------------------------------------------------ the capture

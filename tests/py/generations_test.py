@@ -51,7 +51,8 @@ check('the database has the generation tables',
       sorted(r[0] for r in db._get_connection().execute(
           "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'")),
       ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
-       'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
+       'generation_input_files', 'generation_prompts', 'generation_resources', 'generation_sources',
+       'generation_thumbnails',
        'generations'])
 
 # ------------------------------------------------------------ Forge, stood in

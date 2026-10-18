@@ -12,6 +12,10 @@
  *   buttons(i)     the buttons below it, as HTML
  *   details(i)     the panel, as HTML
  *   where(i)       a word on where it is, or ''
+ *   views(i)       other ways to show it, optional: [{ label, url, layer, kind }],
+ *                  the first the image itself - a switch under it picks one
+ *                  (#34: the source an img2img generation started from, and
+ *                  that source with the layer painted over it)
  *   more()         whether another page can be loaded
  *   loadMore()     loads it, adding to what count() counts
  *   onClick(e, i)  a click inside the viewer the gallery handles; true if so
@@ -41,7 +45,7 @@ const WHEEL_PAUSE_MS = 150;
 const AROUND = '.mm-viewer, .mm-viewer-stage, .mm-viewer-main, .mm-viewer-frame, '
     + '.mm-viewer-bar, .mm-viewer-where';
 
-let current = null;      // { source, index, element, wheel, wheelAt, pageScroll }
+let current = null;      // { source, index, view, element, wheel, wheelAt, pageScroll }
 
 function readPanelClosed() {
     try {
@@ -76,6 +80,7 @@ export function openViewer(source, index = 0) {
                 <div class="mm-viewer-frame"></div>
                 <div class="mm-viewer-bar">
                     <span class="mm-viewer-where"></span>
+                    <span class="mm-viewer-views"></span>
                     <span class="mm-viewer-actions"></span>
                 </div>
             </div>
@@ -96,7 +101,7 @@ export function openViewer(source, index = 0) {
     document.body.appendChild(element);
     // The page under it stays where it is: the wheel is the viewer's.
     holdPage('viewer', true);
-    current = { source, index: 0, element, wheel: 0, wheelAt: 0, pageScroll };
+    current = { source, index: 0, view: 0, element, wheel: 0, wheelAt: 0, pageScroll };
     showImage(index);
     return current;
 }
@@ -120,7 +125,10 @@ export function showImage(index) {
         closeViewer();
         return;
     }
-    current.index = Math.max(0, Math.min(index, count - 1));
+    const shown = Math.max(0, Math.min(index, count - 1));
+    // Another image opens as itself, not as the view the last was left on.
+    if (shown !== current.index) current.view = 0;
+    current.index = shown;
     render();
 }
 
@@ -166,9 +174,16 @@ function render() {
     // source's videoUrl): the frame is measured first, as it is now.
     const playUrl = media.video && source.videoUrl
         ? source.videoUrl(media, { width: frame.clientWidth, height: frame.clientHeight }) : media.url;
-    frame.innerHTML = media.video
+    const views = source.views?.(index) || [];
+    const view = views[current.view] && current.view > 0 ? views[current.view] : null;
+    frame.innerHTML = view ? viewHtml(view)
+        : media.video
         ? `<video class="mm-viewer-image" src="${escapeHtml(playUrl)}" controls autoplay muted loop playsinline></video>`
         : `<img class="mm-viewer-image" src="${escapeHtml(media.url)}" alt="Image">`;
+    element.querySelector('.mm-viewer-views').innerHTML = views.length > 1
+        ? views.map((v, at) => `<button type="button" class="mm-btn ${at === current.view ? 'primary active' : 'secondary'} mm-btn-small mm-viewer-view"
+                                        data-view="${at}" aria-pressed="${at === current.view}">${escapeHtml(v.label)}</button>`).join('')
+        : '';
     element.querySelector('.mm-viewer-actions').innerHTML = source.buttons(index) || '';
     element.querySelector('.mm-viewer-where').textContent = source.where?.(index) || '';
     element.querySelector('.mm-viewer-info').innerHTML = source.details(index) || '';
@@ -176,9 +191,29 @@ function render() {
     element.querySelector('.mm-viewer-next').disabled = index >= source.count() - 1 && !source.more();
 }
 
+/**
+ * Another view of the image: a picture, or a picture with a layer drawn over
+ * it - both the same size, so each fills the frame the same way and the
+ * layer lands where it was painted.
+ */
+function viewHtml(view) {
+    if (!view.layer) return `<img class="mm-viewer-image" src="${escapeHtml(view.url)}" alt="${escapeHtml(view.label)}">`;
+    return `<div class="mm-viewer-layered">
+        <img class="mm-viewer-layered-image" src="${escapeHtml(view.url)}" alt="${escapeHtml(view.label)}">
+        <img class="mm-viewer-layered-image mm-viewer-layer" data-layer-kind="${escapeHtml(view.kind || '')}"
+             src="${escapeHtml(view.layer)}" alt="">
+    </div>`;
+}
+
 function onClick(event) {
     if (!current) return;
     const target = event.target;
+    const view = target.closest?.('[data-view]');
+    if (view) {
+        current.view = Number(view.getAttribute('data-view')) || 0;
+        render();
+        return;
+    }
     const step = target.closest?.('[data-step]');
     if (step) {
         stepViewer(Number(step.getAttribute('data-step')));

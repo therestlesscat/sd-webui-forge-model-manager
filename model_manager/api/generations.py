@@ -31,7 +31,7 @@ from .images import gallery_switches
 from . import levels
 from .common import failed, gate
 from ..console import say
-from .. import thumbnails
+from .. import generation_inputs, thumbnails
 
 # The images a card shows before "Show images".
 PREVIEW_IMAGES = 4
@@ -120,9 +120,31 @@ def file_ref(path: Optional[str], known: Dict[str, Dict[str, Any]]) -> Optional[
             "model_name": (entry or {}).get("model_name")}
 
 
-def _image(row: Dict[str, Any]) -> Dict[str, Any]:
+def _kept_views(db, generation_ids) -> Dict[int, Dict[str, Any]]:
+    """
+    For each of these generations that kept the images its press started
+    from (#34), what the viewer's switch shows: the source's address, its
+    layer's if one was painted, and what the layer is - strokes drawn in
+    colour, or a mask - so the page draws it over the source fitly.
+    """
+    views = {}
+    for generation_id, files in db.generation_input_files_of(generation_ids).items():
+        names = next((n for n in generation_inputs.MODE_IMAGES.values() if n[0] in files), None)
+        if not names:
+            continue
+        layer = names[1] if len(names) > 1 and names[1] in files else None
+        views[generation_id] = {
+            "source": f"/model-manager/generations/{generation_id}/input/{names[0]}",
+            "layer": f"/model-manager/generations/{generation_id}/input/{layer}" if layer else None,
+            "layer_kind": generation_inputs.LAYER_KINDS.get(layer),
+        }
+    return views
+
+
+def _image(row: Dict[str, Any], kept: Optional[Dict[int, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """An image as the page draws one: its generation data as a Civitai
-    image's meta, its level stamped as every image the page gets is."""
+    image's meta, its level stamped as every image the page gets is; with
+    `kept` (_kept_views), what its generation's press started from."""
     level = row.get("user_nsfw_level")
     from_prompt = level is None
     try:
@@ -155,6 +177,9 @@ def _image(row: Dict[str, Any]) -> Dict[str, Any]:
         # What set the level, for the badge's "X · prompt": nobody rates
         # these images, so it is the prompt unless the user has.
         "mm_level_from_prompt": from_prompt and level != PG,
+        # Only where its generation kept them: every other image's answer
+        # stays as it was.
+        **({"inputs": (kept or {})[row["generation_id"]]} if row["generation_id"] in (kept or {}) else {}),
     }
 
 
@@ -191,12 +216,13 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     generations = db.get_generations(drawn)
     previews = [r["id"] for g in drawn for r in by_generation[g][:PREVIEW_IMAGES]]
     images = db.get_generation_images(previews)
+    kept = _kept_views(db, drawn)
     cards = []
     for generation_id in drawn:
         card = dict(generations.get(generation_id) or {"id": generation_id})
         card["matching_count"] = len(by_generation[generation_id])
         card.update(shared_levels(by_generation[generation_id]))
-        card["images"] = [_image(images[r["id"]]) for r in by_generation[generation_id][:PREVIEW_IMAGES]
+        card["images"] = [_image(images[r["id"]], kept) for r in by_generation[generation_id][:PREVIEW_IMAGES]
                           if r["id"] in images]
         cards.append(card)
 
@@ -482,6 +508,7 @@ def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
     values = _group_values(db, by, [u["u"] for u in units]) if by else {}
     sections = _group_values(db, section, [u["s"] for u in units]) if section else {}
 
+    kept = _kept_views(db, {r["generation_id"] for rows in previews.values() for r in rows})
     tiles = []
     for key, entry in zip(part, units):
         rows = previews.get(key) or []
@@ -492,7 +519,7 @@ def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
         tile = {
             "kind": kind,
             "generation": {k: generation_row.get(k) for k in TILE_FIELDS},
-            "images": [{**_image(images[r["id"]]), "checkpoint_path": r["checkpoint_path"],
+            "images": [{**_image(images[r["id"]], kept), "checkpoint_path": r["checkpoint_path"],
                         "checkpoint": file_ref(r["checkpoint_path"], known),
                         "loras": [file_ref(p, known) for p in image_loras.get(r["id"], [])]}
                        for r in rows if r["id"] in images],
@@ -861,8 +888,9 @@ def _register(app: FastAPI):
             rows = db.generation_scope_rows(Scope(files=files, generation=generation_id))
             shown, _ = _filtered(rows, hide_nsfw, hide_promptless)
             images = db.get_generation_images([r["id"] for r in shown])
+            kept = _kept_views(db, [generation_id])
             return JSONResponse({"success": True,
-                                 "images": [_image(images[r["id"]]) for r in shown
+                                 "images": [_image(images[r["id"]], kept) for r in shown
                                             if r["id"] in images]})
         except Exception as e:
             say(f"Generation images error: {e}")
@@ -893,6 +921,19 @@ def _register(app: FastAPI):
         if not path or not os.path.isfile(path):
             return JSONResponse({"success": False, "error": "Image not found"}, status_code=404)
         return FileResponse(path)
+
+    @app.get("/model-manager/generations/{generation_id}/input/{name}")
+    @gate("generations")
+    def get_generation_input(generation_id: int, name: str):
+        """
+        A file kept of the images a generation's press started from (#34) -
+        its source or its layer, by Forge's input name. Found only through
+        the generation's own rows: no path comes from the page.
+        """
+        path = get_models_db().generation_input_files(generation_id).get(name)
+        if not path or not os.path.isfile(path):
+            return JSONResponse({"success": False, "error": "Not kept"}, status_code=404)
+        return FileResponse(path, media_type="image/png")
 
     @app.get("/model-manager/generations/images/{image_id}/thumb")
     @gate("generations")
@@ -932,6 +973,7 @@ def _register(app: FastAPI):
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
             remember_kept(db, paths)
             thumbnails.forget(db, paths)
+            generation_inputs.forget(db)
             say(f"Deleted generated image {image_id}"
                   + (" and its file" if deleted else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted), "failed": failed,
@@ -1038,6 +1080,7 @@ def _register(app: FastAPI):
             deleted, failed = _delete_files(list(dict.fromkeys(paths))) if delete_files else ([], [])
             remember_kept(db, paths)
             thumbnails.forget(db, paths)
+            generation_inputs.forget(db)
             say(f"Deleted {images} generated image record(s)"
                   + (f" and {len(deleted)} file(s)" if delete_files else ""))
             return JSONResponse({"success": True, "images": images, "deleted_files": len(deleted),
@@ -1065,6 +1108,7 @@ def _register(app: FastAPI):
             deleted, failed = _delete_files(paths) if delete_files else ([], [])
             remember_kept(db, paths)
             thumbnails.forget(db, paths)
+            generation_inputs.forget(db)
             say(f"Deleted generation {generation_id}"
                   + (f" and {len(deleted)} of its image files" if delete_files else ""))
             return JSONResponse({"success": True, "deleted_files": len(deleted),

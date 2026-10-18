@@ -17,7 +17,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall } = await shared('core.mjs');
-const { goToTab, showTab } = await shared('tabs.mjs');
+const { goToTab, showTab, IMG2IMG_MODES } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
     collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips,
@@ -132,8 +132,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
     };
-    const sourceNotice = () => {
-        if (tab === 'img2img') {
+    // Not when the loader put the source back (#34): the answer says.
+    const sourceNotice = (answer = null) => {
+        if (tab === 'img2img' && answer?.source !== true) {
             showNotice('The settings are in img2img. The image this generation started from '
                        + 'is not kept: drop an image in before generating.');
         }
@@ -145,9 +146,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         if (!answer.error) {
             renamePromptLoras(tab, resources?.renames);
             await applyRecordedModules(plan);
-            showGenerationTab(tab);
+            showGenerationTab(tab, answer.mode);
             showChips();
-            sourceNotice();
+            sourceNotice(answer);
             const kept = [...(answer.skipped || []), ...(answer.notes || [])];
             if (kept.length) {
                 showNotice(`These keep what was on screen, or their defaults: ${kept.join('; ')}.`, { info: true });
@@ -904,7 +905,7 @@ export async function loadTask(taskId) {
         return answer;
     }
     await applyRecordedModules(plan, `Task #${Number(taskId)} was queued with`);
-    showGenerationTab(tab);
+    showGenerationTab(tab, answer.mode);
     const kept = [...(answer.skipped || []), ...(answer.notes || [])];
     if (kept.length) {
         showNotice(`Task #${Number(taskId)} is loaded. These keep what was on screen, or their defaults: `
@@ -1133,11 +1134,16 @@ function galleryFile(model, version) {
 // and the VAE / Text Encoder a send may have just set, to be seen (#263).
 const SENT_TO = { top: 0 };
 
-/** Show txt2img, or img2img on its plain img2img mode - by their ids (shared/tabs.mjs). */
-function showGenerationTab(tab) {
+/**
+ * Show txt2img, or img2img on the mode its record was made in - by their ids
+ * (shared/tabs.mjs). Its plain img2img mode when the record does not say:
+ * a pasted infotext names none. The mode was always the plain one, while the
+ * number Forge reads as the mode said the record's (#34).
+ */
+function showGenerationTab(tab, mode = null) {
     if (tab === 'img2img') {
         const going = goToTab('img2img', SENT_TO);
-        showTab('img2imgMode');
+        showTab(IMG2IMG_MODES[Number(mode)] || 'img2imgMode');
         return going;
     }
     return goToTab('txt2img', SENT_TO);

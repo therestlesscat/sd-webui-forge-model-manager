@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 43
+SCHEMA_VERSION = 44
 
 # How long a call waits for another's write before "database is locked".
 BUSY_SECONDS = 30.0
@@ -480,9 +480,22 @@ class ModelsDatabase:
         return self._generations.library_spelling(paths)
 
     def record_generation(self, generation: Dict[str, Any], images: List[Dict[str, Any]],
-                          files: List[List[str]]) -> int:
-        """Store one generation and its images, in one transaction."""
-        return self._generations.record_generation(generation, images, files)
+                          files: List[List[str]], input_files: Optional[Dict[str, str]] = None) -> int:
+        """Store one generation and its images, in one transaction - with the
+        files kept of the images its press started from (#34)."""
+        return self._generations.record_generation(generation, images, files, input_files)
+
+    def generation_input_files(self, generation_id: int) -> Dict[str, str]:
+        """A generation's kept source and layer files (#34), by Forge's input name."""
+        return self._generations.input_files(generation_id)
+
+    def generation_input_files_of(self, generation_ids) -> Dict[int, Dict[str, str]]:
+        """The kept source and layer files of each of these generations (#34)."""
+        return self._generations.input_files_of(generation_ids)
+
+    def drop_orphan_input_files(self) -> List[str]:
+        """Clear deleted generations' kept-file rows; the files left unnamed (#34)."""
+        return self._generations.drop_orphan_input_files()
 
     def get_generation(self, generation_id: int) -> Optional[Dict[str, Any]]:
         """A generation, with its images and the files each used."""

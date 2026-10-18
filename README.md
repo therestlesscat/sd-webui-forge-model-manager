@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.65 - Send an inpaint back as it was.** An img2img generation now keeps the picture it
+started from and the mask or strokes painted over it. Send puts both back, on the mode the
+generation was made in, and the viewer shows them beside the result. The settings' Generations
+section turns it off.
+
 **0.64 - Large downloads, several times faster.** A large file from Civitai now downloads over
 several connections at once, each fetching a part of it. Civitai holds each connection to about
 60 MB/s, so a fast line gets a checkpoint several times sooner. Download large files in parts, in

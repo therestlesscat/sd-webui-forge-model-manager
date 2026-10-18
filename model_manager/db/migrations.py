@@ -2531,6 +2531,29 @@ def _migrate_to_v43(cursor):
     print("[ModelManager] Migration to v43 complete")
 
 
+def _migrate_to_v44(cursor):
+    """
+    The images an img2img generation started from (#34):
+    `generation_input_files`, one row per file a generation's inputs name -
+    its source and the layer painted over it, under Forge's input name - in
+    a store where one picture is one file, whatever generations started from
+    it. A delete deletes a file only once no row names it. Nothing is changed
+    or dropped: the table starts empty, and the recorder fills it.
+    """
+    print("[ModelManager] Migrating to v44: the images an img2img generation started from...")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generation_input_files (
+            generation_id INTEGER NOT NULL,
+            name          TEXT NOT NULL,
+            path          TEXT NOT NULL,
+            PRIMARY KEY (generation_id, name)
+        ) WITHOUT ROWID
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_generation_input_files_path "
+                   "ON generation_input_files(path COLLATE NOCASE)")
+    print("[ModelManager] Migration to v44 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2558,7 +2581,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
         42: lambda c: _migrate_to_v42(c, db_path, progress),
-        43: _migrate_to_v43,
+        43: _migrate_to_v43, 44: _migrate_to_v44,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

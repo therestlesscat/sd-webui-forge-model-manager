@@ -50,7 +50,7 @@ const {
     setupLazyMedia,
 } = await shared('media.mjs');
 const {
-    selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport, ratingRowHtml,
+    selectBarHtml, bulkDeleteQuestion, deleteManyGenerations, bulkDeleteReport, ratingRowHtml, keptViews,
     generationImageHtml, requestRating, requestImageDelete, requestGenerationDelete, pickRange,
 } = await shared('generations.mjs');
 const {
@@ -2477,6 +2477,7 @@ const generationViewerSource = {
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>`;
     },
+    views: (index) => keptViews((generationViewerImages()[index] || {}).image),
     details: (index) => {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return '';

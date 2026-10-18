@@ -110,8 +110,8 @@ def differences(old, new, columns):
 path, facts, before = library('every_kind')
 db = ModelsDatabase(extension_dir=ROOT, custom_db_path=path)
 raw = sqlite3.connect(path)
-# Migrated to today's schema, through v37: later migrations only add (v38), and
-# name two of its tables for your generations (v41).
+# Migrated to today's schema, through v37: later migrations only add (v38,
+# v44's kept source images), and name two of its tables for your generations (v41).
 check('the database is at today\'s schema, past v37',
       raw.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone(), (str(SCHEMA_VERSION),))
 check('the old tables are gone, and nothing temporary is left',
@@ -119,7 +119,7 @@ check('the old tables are gone, and nothing temporary is left',
                                        "(name LIKE 'generation%' OR name LIKE '%v37' OR name = 'prompts' "
                                        "OR name = 'image_details')")),
       ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
-       'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
+       'generation_input_files', 'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
        'generations'])
 check('backed up first, beside it', any(f.startswith('models.db.backup_') for f in os.listdir(os.path.dirname(path))))
 

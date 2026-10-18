@@ -1,5 +1,44 @@
 [
     {
+        "id": "shared-database-0-65-0",
+        "version": "0.65.0",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version adds a table for the images an img2img generation started from; an older copy cannot open the database any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "storage"
+        },
+        "replaces": [
+            "shared-database-0-61-0"
+        ]
+    },
+    {
+        "id": "img2img-source-kept",
+        "version": "0.65.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "generations"
+        ],
+        "title": "Send an inpaint back as it was",
+        "text": "An img2img generation now keeps the picture it started from and the mask or strokes painted over it. Send puts both back in img2img, on the mode it was made in, and the viewer's Source switch shows them. Generations made before this update kept nothing to bring back. Keep the image an img2img generation started from, in the settings' Generations section, turns it off.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "generations"
+        }
+    },
+    {
         "id": "newer-version-badge",
         "version": "0.63.2",
         "kind": "feature",
