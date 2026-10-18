@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 
 from ..db import get_models_db
 from ..db.gallery_ops import GROUPINGS, NUMBER_KEYS, Scope
+from ..db.images_ops import resource_rows
 from ..gallery import gallery_page_size
 from ..model_dirs import held_here
 from ..nsfw import stamp_levels
@@ -33,6 +34,10 @@ MAX_SEED = 2 ** 31 - 1
 PREVIEWS = 4
 # Group lists kept: one per grouping, seed and switch is plenty.
 _KEPT = 8
+# What an image's ⋯ menu offers of its resources, as the Generations tab's (#298).
+MENU_ROLES = ("checkpoint", "lora")
+# Version ids asked for at a time: the older SQLite takes 999 values a statement.
+_CHUNK = 500
 
 _lock = threading.Lock()
 _groups_kept: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
@@ -80,27 +85,75 @@ def ordered_groups(db, seed: int, group: str, scope: Scope, level) -> List[Dict[
     return groups
 
 
+def _held_files(db, version_ids) -> Dict[int, str]:
+    """
+    Each version's file, as Send takes one - a file this WebUI loads first,
+    else any - for the versions the library holds. Asked 500 ids at a time:
+    the older SQLite takes 999 values a statement, and one image can name
+    hundreds of LoRAs (#298).
+    """
+    wanted = sorted({version_id for version_id in version_ids if version_id is not None})
+    chosen: Dict[int, str] = {}
+    for start in range(0, len(wanted), _CHUNK):
+        for row in db.library_files(version_ids=wanted[start:start + _CHUNK]):
+            version_id, path = row.get("version_id"), row.get("file_path")
+            if version_id is None or not path:
+                continue
+            if version_id not in chosen or (held_here(path) and not held_here(chosen[version_id])):
+                chosen[version_id] = path
+    return chosen
+
+
 def _library_entries(db, version_ids) -> Dict[int, Dict[str, Any]]:
     """
-    Each version's file, as Send needs it - a file this WebUI loads first,
-    else any - with what the file is: Send sets Forge up for the gallery's
-    file as it does from a model's gallery.
+    Each version's file, as Send needs it, with what the file is: Send sets
+    Forge up for the gallery's file as it does from a model's gallery.
     """
-    chosen: Dict[int, str] = {}
-    for row in db.library_files(version_ids=list(version_ids)):
-        version_id, path = row.get("version_id"), row.get("file_path")
-        if version_id is None or not path:
-            continue
-        if version_id not in chosen or (held_here(path) and not held_here(chosen[version_id])):
-            chosen[version_id] = path
     entries = {}
-    for version_id, path in chosen.items():
+    for version_id, path in _held_files(db, version_ids).items():
         entries[version_id] = db.get_version(path) or {"file_path": path}
     return entries
 
 
+def _menu_resources(image: Dict[str, Any], own: Optional[int]) -> List[tuple]:
+    """
+    What an image's ⋯ menu offers (#298): each checkpoint and LoRA its record
+    names, in the record's order, by the rule that fills image_resources -
+    each version once, and not the version whose gallery the image is of,
+    which the tile's Model button opens already.
+    """
+    seen = set()
+    rows = []
+    for row in resource_rows(image):
+        version_id = row[4]
+        if row[1] not in MENU_ROLES or version_id is None or version_id == own or version_id in seen:
+            continue
+        seen.add(version_id)
+        rows.append(row)
+    return rows
+
+
+def image_menu(db, image_id: int, version_id: int) -> Optional[List[Dict[str, Any]]]:
+    """
+    An image's ⋯ menu items, read when ⋯ is pressed (#298): each resource
+    with the file the library holds of it - None when it holds none. None
+    for an image no longer stored under that version.
+    """
+    found = db.gallery_images([(image_id, version_id)])
+    if not found:
+        return None
+    resources = _menu_resources(found[0]["image"], version_id)
+    files = _held_files(db, [row[4] for row in resources])
+    return [{"role": role, "type": kind, "model_id": model_id, "version_id": version,
+             "name": name or "", "version_name": version_name or "", "file_path": files.get(version)}
+            for _, role, kind, model_id, version, _, name, version_name in resources]
+
+
 def image_tiles(db, keys) -> List[Dict[str, Any]]:
-    """The tiles of images: each image, stamped, with its model and version for Send."""
+    """
+    The tiles of images: each image, stamped, with its model and version for
+    Send, and whether it has a ⋯ menu - its items are asked for when pressed.
+    """
     found = db.gallery_images(keys)
     files = _library_entries(db, {entry["version_id"] for entry in found})
     stamp_levels([entry["image"] for entry in found])
@@ -117,6 +170,7 @@ def image_tiles(db, keys) -> List[Dict[str, Any]]:
             "version": {"id": entry["version_id"], "name": entry["version_name"] or "",
                         "file_path": file.get("file_path"), "file_type": file_type,
                         "base_model": entry["base_model"]},
+            "menu": bool(_menu_resources(entry["image"], entry["version_id"])),
         })
     return tiles
 
@@ -245,6 +299,22 @@ def register(app: FastAPI) -> None:
                 db, gallery_seed(db), bool(hide_nsfw), page, group, in_group, in_subgroup, search)})
         except Exception as e:
             return failed(e, "Gallery page error")
+
+    @app.get("/model-manager/gallery/menu")
+    @gate("gallery")
+    def get_gallery_menu(image_id: int, version_id: int):
+        """
+        An image's ⋯ menu (#298): its checkpoints and LoRAs, each with the
+        file the library holds of it, if any - asked when ⋯ is pressed, so
+        what the library holds is as of the press.
+        """
+        try:
+            items = image_menu(get_models_db(), image_id, version_id)
+            if items is None:
+                return JSONResponse({"success": False, "error": "This image is no longer stored"})
+            return JSONResponse({"success": True, "items": items})
+        except Exception as e:
+            return failed(e, "Gallery menu error")
 
     @app.post("/model-manager/gallery/seed")
     @gate("gallery")

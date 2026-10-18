@@ -8,9 +8,11 @@
 // galleries' setting says. An image that names no checkpoint cannot be sent,
 // and says why; Show model opens its version in the Model Manager. Group by
 // goes two deep, "then by" another grouping, and the search asks the server
-// for the images whose prompts hold its words (#283).
+// for the images whose prompts hold its words (#283). An image's ⋯ lists its
+// checkpoints and LoRAs, asked of the server when pressed (#298).
 import { readFileSync } from 'node:fs';
-import { ROOT, act, call, checker, mountTab, press, startTab, tabEntries, tabMarkup, tick } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, press, sharedModule, startTab, tabEntries, tabMarkup,
+         tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
 const { check, waitFor, done } = checker();
@@ -28,6 +30,20 @@ const imageTile = (id, extra = {}) => ({
 const embedding = (id) => ({ ...imageTile(id), model: { id: 41, name: 'An Embedding', civitai_type: 'TextualInversion',
                                                       model_type: 'TextualInversion', base_model: 'SD 1.5' } });
 const STATE = { total: 30, filtered: 24, hidden_nsfw: 6, nsfw_count: 6 };
+
+// An image's ⋯ menu, as api/gallery.image_menu answers it (#298): a held
+// checkpoint, a LoRA the library lacks, and one whose record names no model.
+const menuAsks = [];
+let menuHeld = null;         // a promise each answer waits for, while a check holds them
+const menuOwnHolds = [];     // or, each answer its own: a check lets them go one by one
+let holdEach = false;
+let menuFails = false;
+const menuItems = (id) => [
+    { role: 'checkpoint', type: 'Checkpoint', model_id: 70, version_id: 701, name: `Base ${id}`, version_name: 'v7',
+      file_path: 'C:/models/Stable-diffusion/base.safetensors' },
+    { role: 'lora', type: 'LORA', model_id: 80, version_id: 801, name: 'Style', version_name: 'v8', file_path: null },
+    { role: 'lora', type: 'LORA', model_id: null, version_id: 901, name: 'Nameless', version_name: '', file_path: null },
+];
 
 const browses = [];
 const seeds = [];
@@ -67,9 +83,18 @@ globalThis.fetch = async (url, init = {}) => {
                            scope: { count: 7 }, tiles: [1, 2, 3].map((id) => imageTile(id)) });
         }
         const tiles = page === 1
-            ? [imageTile(1), imageTile(2), imageTile(3, { meta: { prompt: 'no checkpoint named' } })]
+            ? [{ ...imageTile(1), menu: true }, { ...imageTile(2), menu: true },
+               imageTile(3, { meta: { prompt: 'no checkpoint named' } })]
             : [imageTile(4, { width: 1600, height: 900 }), embedding(5)];
         return reply({ success: true, seed, more: page === 1, state: STATE, scope: { count: 30 }, tiles });
+    }
+    if (href.includes('/model-manager/gallery/menu')) {
+        const params = new URL(href, 'http://webui').searchParams;
+        menuAsks.push(params);
+        if (menuHeld) await menuHeld;
+        if (holdEach) await new Promise((resolve) => menuOwnHolds.push(resolve));
+        return reply(menuFails ? { success: false, error: 'Gallery menu error: no database' }
+            : { success: true, items: menuItems(params.get('image_id')) });
     }
     if (href.includes('/model-manager/gallery/seed')) {
         const body = init.body instanceof URLSearchParams ? init.body : new URLSearchParams(String(init.body || ''));
@@ -171,6 +196,8 @@ check('grouped by model: asked so, a tile per group, its count and its name',
        tileEls().map((el) => el.querySelector('.gen-group-name')?.textContent)],
       ['model', ['×7', '×2'], ['A LoRA', 'B LoRA']]);
 check('the button says the grouping', $('gal_group_by')?.textContent, 'Model');
+check('a group\'s tile has no ⋯: its images are of many models (#298)',
+      tileEls().map((el) => !!el.querySelector('.gen-menu-btn')), [false, false]);
 const before = browses.length;
 act('gallery.open', { tile: 0 });
 await waitFor('the group', () => tileEls().length === 3 && browses.length > before);
@@ -260,6 +287,130 @@ await waitFor('everything again', () => browses.length > searched && tileEls().l
 check('its × empties it, and shows everything again: no search asked', lastBrowse()?.get('search') || '', '');
 } catch (error) {
     check('search: the box, what it asks, what it says', String(error), null);
+}
+
+// ------------------------------------------------------------- the ⋯ menu (#298)
+// An image's checkpoints and LoRAs, asked of the server when ⋯ is pressed:
+// each in the Model Manager when the library holds it, in the Civitai Browser
+// when it does not. Each block reports what is missing as a failure.
+const menuEl = () => document.querySelector('.gen-menu');
+const menuButton = (index) => tileEls()[index]?.querySelector('.gen-menu-btn');
+const items = () => [...(menuEl()?.querySelectorAll('button') || [])].map((b) => [b.textContent.trim(), b.disabled]);
+const titles = () => [...(menuEl()?.querySelectorAll('button') || [])].map((b) => b.getAttribute('title'));
+try {
+check('an image the server says has a menu has ⋯; one it does not, none',
+      [0, 1, 2].map((i) => !!menuButton(i)), [true, true, false]);
+let release;
+menuHeld = new Promise((resolve) => { release = resolve; });
+const before = menuAsks.length;
+act('gallery.menu', { tile: 0 });
+check('pressed: the server asked for that image\'s, by the image and its version',
+      [menuAsks.length - before, menuAsks.at(-1)?.get('image_id'), menuAsks.at(-1)?.get('version_id')], [1, '1', '400']);
+check('while it asks, ⋯ is disabled, saying so, and no menu is open',
+      [menuButton(0)?.disabled, menuButton(0)?.getAttribute('title'), menuEl()], [true, 'Looking…', null]);
+act('gallery.menu', { tile: 0 });
+check('pressed again while it asks: nothing more asked', menuAsks.length - before, 1);
+release();
+menuHeld = null;
+await waitFor('the menu', () => menuEl());
+check('then the menu: a held checkpoint in the Model Manager; a LoRA it lacks in the Civitai Browser, greyed '
+      + 'while that tab has not started; one with no model, greyed',
+      items(), [['Show checkpoint Base 1 in Model Manager', false], ['Show LoRA Style in Civitai Browser', true],
+                ['Show LoRA Nameless in Civitai Browser', true]]);
+check('each saying why, and an item its version\'s name',
+      titles(), ['v7', 'The Civitai Browser tab has not started yet', 'Civitai\'s record names no model for it']);
+check('and ⋯ ready again', [menuButton(0)?.disabled, menuButton(0)?.getAttribute('title')], [false, 'More']);
+const shownBefore = shownVersions.length;
+menuEl().querySelectorAll('button')[0].dispatchEvent(new window.Event('click', { bubbles: true }));
+// Read at once: the stand-in Model Manager is no tab Gradio can show, and the place is let go after.
+const noted = localStorage.getItem('gal_scroll_target') || '';
+await waitFor('the Model Manager asked', () => shownVersions.length > shownBefore);
+check('the checkpoint opens in the Model Manager at its version and file, the menu closed',
+      [shownVersions.at(-1), menuEl()], [[701, 'C:/models/Stable-diffusion/base.safetensors'], null]);
+check('the place left noted first: this image, for ↓ Back to image',
+      /image:1\b/.test(noted), true);
+
+// The Civitai Browser started: the LoRA there, by its model and version.
+document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_civitai_browser.py'));
+await startTab('civitaiBrowser');
+const civitaiAsked = [];
+(await tabEntries('civitai_browser.mjs')).showModel = (query) => { civitaiAsked.push(query); };
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu again', () => menuEl());
+menuEl().querySelectorAll('button')[1].dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Civitai Browser asked', () => civitaiAsked.length);
+check('the LoRA the library lacks opens in the Civitai Browser at its model and version',
+      civitaiAsked, ['model:80 version:801']);
+
+// Its own ⋯ again closes it, asking nothing (R4); another tile's opens that one's.
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, to press its ⋯ again', () => menuEl());
+await new Promise((resolve) => setTimeout(resolve, 20));
+const asksBefore = menuAsks.length;
+act('gallery.menu', { tile: 0 });
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('its own ⋯ pressed again: the menu closed, nothing asked', [menuEl(), menuAsks.length - asksBefore], [null, 0]);
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, for another tile', () => menuEl());
+await new Promise((resolve) => setTimeout(resolve, 20));
+act('gallery.menu', { tile: 1 });
+await waitFor('the other tile\'s menu', () => items()[0]?.[0] === 'Show checkpoint Base 2 in Model Manager');
+check('another tile\'s ⋯ with a menu open: that tile\'s menu, alone',
+      [document.querySelectorAll('.gen-menu').length, items()[0]?.[0]], [1, 'Show checkpoint Base 2 in Model Manager']);
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+// Esc, a scroll of the page and a resize of the window each close it; a
+// scroll inside it does not.
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, for Esc', () => menuEl());
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+check('Esc closes it', menuEl(), null);
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, for a scroll', () => menuEl());
+menuEl().dispatchEvent(new window.Event('scroll'));
+check('a scroll inside it leaves it open', !!menuEl(), true);
+window.dispatchEvent(new window.Event('scroll'));
+check('a scroll of the page closes it', menuEl(), null);
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, for a resize', () => menuEl());
+window.dispatchEvent(new window.Event('resize'));
+check('a resize of the window closes it', menuEl(), null);
+
+// A late answer opens nothing: another ⋯ pressed meanwhile has its own. The
+// second answers first; the first's, coming after, must not replace it.
+holdEach = true;
+act('gallery.menu', { tile: 0 });
+act('gallery.menu', { tile: 1 });
+await waitFor('both asked', () => menuOwnHolds.length === 2);
+holdEach = false;
+menuOwnHolds[1]();
+await waitFor('the second image\'s menu', () => menuEl());
+menuOwnHolds[0]();
+await new Promise((resolve) => setTimeout(resolve, 40));
+check('two pressed, the first answering late: only the second\'s menu',
+      [document.querySelectorAll('.gen-menu').length, items()[0]?.[0]], [1, 'Show checkpoint Base 2 in Model Manager']);
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+// A failed request: the menu says so, rather than nothing happening.
+menuFails = true;
+act('gallery.menu', { tile: 0 });
+await waitFor('the failed menu', () => menuEl());
+check('the request failed: one greyed item, saying what failed',
+      [items(), titles()], [[['Could not read its resources', true]], ['Gallery menu error: no database']]);
+menuFails = false;
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+// The tab switched off while it asks: its answer opens nothing.
+menuHeld = new Promise((resolve) => { release = resolve; });
+act('gallery.menu', { tile: 0 });
+const { stopTab } = await sharedModule('loading.mjs');
+stopTab('gallery');
+release();
+menuHeld = null;
+await new Promise((resolve) => setTimeout(resolve, 40));
+check('the tab switched off while it asks: no menu', menuEl(), null);
+} catch (error) {
+    check('the ⋯ menu: its button, what it asks, what it opens, what closes it', String(error), null);
 }
 
 const source = readFileSync(`${ROOT}/javascript/tabs/gallery.mjs`, 'utf8');

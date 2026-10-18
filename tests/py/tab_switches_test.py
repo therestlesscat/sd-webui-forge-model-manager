@@ -146,6 +146,7 @@ SPEC = {
     ('GET', '/model-manager/generations/sync/progress'): 'generations',
     ('POST', '/model-manager/generations/sync/cancel'): 'generations',
     ('GET', '/model-manager/gallery/browse'): 'gallery',
+    ('GET', '/model-manager/gallery/menu'): 'gallery',
     ('POST', '/model-manager/gallery/seed'): 'gallery',
     ('GET', '/model-manager/images/gallery-page'): 'model_manager',
     ('POST', '/model-manager/sync'): 'model_manager',
@@ -206,7 +207,7 @@ SPEC = {
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 94 routes', len(SPEC), 94)
+check('the spec holds 95 routes', len(SPEC), 95)
 
 app = FastAPI()
 api.setup_api(app)

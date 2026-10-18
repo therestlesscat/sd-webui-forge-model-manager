@@ -210,10 +210,115 @@ db.store_images(versions[2], page=3, images=[image(20000 + i, 1) for i in range(
 large = steps(lambda: read(page_keys)) if read else -1
 check('a page\'s rows read the same with 2,000 more images stored', (small > 0, large <= small * 1.5), (True, True))
 
+# ------------------------------------------------------------ the ⋯ menu
+# An image's checkpoints and LoRAs, asked for when ⋯ is pressed (#298): the
+# tile says only whether it has a menu. Its own version is left out - the
+# tile's Model button opens it - and so is any other kind of resource.
+OWN, HELD, OTHER = versions[0], versions[1], versions[2]
+UNHELD = 987654
+
+
+def resource(kind, version, model=55, name='r'):
+    return {'type': kind, 'modelVersionId': version, 'modelId': model, 'name': name, 'modelVersionName': 'v' + name}
+
+
+rich = image(9001, 1)
+rich['meta']['civitaiResources'] = [
+    resource('lora', OWN, name='own'),
+    resource('checkpoint', HELD, model_of[HELD], 'ckpt'),
+    resource('textualinversion', OTHER, name='embedding'),
+    resource('LORA', UNHELD, 56, 'unheld'),
+    resource('lora', HELD, name='again'),
+    {'type': 'lora', 'modelId': 57, 'name': 'no version'},
+    resource('LoCon', OTHER, model_of[OTHER], 'locon'),
+]
+plain = image(9002, 1)
+plain['meta']['civitaiResources'] = [resource('checkpoint', OWN, name='own'), resource('vae', HELD, name='vae')]
+db.store_images(OWN, page=4, images=[rich, plain])
+
+
+def menu(image_id, version_id):
+    answer = client.get('/model-manager/gallery/menu', params={'image_id': image_id, 'version_id': version_id})
+    return answer.json() if answer.status_code == 200 else {'status': answer.status_code}
+
+
+from model_manager.api import gallery as gallery_api      # noqa: E402
+keyed = gallery_api.image_tiles(db, [(9001, OWN), (9002, OWN), (stored[OWN][0], OWN),
+                                     (stored[HELD][0], HELD), (stored[OTHER][0], OTHER)])
+flags = {t['image']['id']: t.get('menu') for t in keyed}
+check('a tile says whether it has a menu: one naming a checkpoint or LoRA besides its own version',
+      (flags.get(9001), flags.get(9002), flags.get(stored[OWN][0])), (True, False, False))
+send_file = {t['version']['id']: t['version']['file_path'] for t in keyed}
+items = menu(9001, OWN).get('items') or []
+check('pressed: each checkpoint and LoRA of the record, in its order, each version once, '
+      'its own version and other kinds left out',
+      [(i.get('role'), i.get('type'), i.get('version_id'), i.get('model_id'), i.get('name'), i.get('version_name'))
+       for i in items],
+      [('checkpoint', 'checkpoint', HELD, model_of[HELD], 'ckpt', 'vckpt'),
+       ('lora', 'LORA', UNHELD, 56, 'unheld', 'vunheld'),
+       ('lora', 'LoCon', OTHER, model_of[OTHER], 'locon', 'vlocon')])
+check('each with the file the library holds, as Send takes it - none for a version it does not hold',
+      [i.get('file_path') for i in items], [send_file.get(HELD), None, send_file.get(OTHER)])
+check('the held files are there to take', all(send_file.get(v) for v in (HELD, OTHER)), True)
+check('an image no longer stored: said so', menu(424242, OWN).get('success'), False)
+
+# Hundreds of LoRAs in one image: asked of the library 500 ids at a time -
+# the older SQLite takes 999 values a statement.
+crowded = image(9003, 1)
+crowded['meta']['civitaiResources'] = ([resource('lora', 300000 + i, name='l%d' % i) for i in range(1200)]
+                                       + [resource('lora', HELD, name='held')])
+db.store_images(OWN, page=5, images=[crowded])
+asked = []
+real_library_files = db.library_files
+def counting_library_files(**kwargs):
+    asked.append(len(kwargs.get('version_ids') or []))
+    return real_library_files(**kwargs)
+db.library_files = counting_library_files
+try:
+    items = menu(9003, OWN).get('items') or []
+finally:
+    db.library_files = real_library_files
+check('1,201 LoRAs: every one answered, the held one with its file',
+      (len(items), [i['file_path'] for i in items if i['version_id'] == HELD]), (1201, [send_file.get(HELD)]))
+check('asked of the library at most 500 ids at a time', (bool(asked), max(asked or [0]) <= 500), (True, True))
+
+# The choice of a version's file, split out for the menu, gives Send what it
+# gave before: HEAD's _library_entries, frozen here.
+from model_manager.model_dirs import held_here           # noqa: E402
+
+
+def entries_before(versions_asked):
+    chosen = {}
+    for row in db.library_files(version_ids=list(versions_asked)):
+        version_id, path = row.get('version_id'), row.get('file_path')
+        if version_id is None or not path:
+            continue
+        if version_id not in chosen or (held_here(path) and not held_here(chosen[version_id])):
+            chosen[version_id] = path
+    return {version_id: db.get_version(path) or {'file_path': path} for version_id, path in chosen.items()}
+
+
+# A version with a second file the other WebUI holds - in no folder this one
+# loads from - listed after its own: the rule takes the one held here.
+with db._cursor() as cursor:
+    cursor.execute('SELECT * FROM files WHERE version_id = ? LIMIT 1', (HELD,))
+    columns = [d[0] for d in cursor.description]
+    row = dict(zip(columns, cursor.fetchone()))
+    row['file_path'] = os.path.join(TESTS, 'work', 'gallery_tab_elsewhere', 'other_webui.safetensors')
+    cursor.execute('INSERT INTO files (%s) VALUES (%s)' % (', '.join(row), ', '.join('?' * len(row))),
+                   list(row.values()))
+check('a version with a file held here and one elsewhere: the menu gives the one held here',
+      [i['file_path'] for i in (menu(9001, OWN).get('items') or []) if i['version_id'] == HELD],
+      [send_file.get(HELD)])
+every_version = set(facts['version_ids']) | {UNHELD}
+check('Send\'s file of each version is as it was', gallery_api._library_entries(db, every_version),
+      entries_before(every_version))
+
 # ------------------------------------------------------------ off
 opts.model_manager_gallery_tab = False
 check('off: its page and its seed refused', (client.get('/model-manager/gallery/browse').status_code,
       client.post('/model-manager/gallery/seed', data={}).status_code), (403, 403))
+check('off: its menu refused', menu(9001, OWN).get('status'), 403)
 
 if fails:
     print('FAIL ' + '\nFAIL '.join(fails))

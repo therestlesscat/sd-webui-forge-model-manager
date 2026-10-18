@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs', 'dialog.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -62,6 +62,8 @@ const {
     openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete,
 } = await shared('viewer.mjs');
 const { dialogShowing, openDialog } = await shared('dialog.mjs');
+// The ⋯ menu, as the Civitai Images tab opens it too (#298).
+const { openMenu, closeMenu, closeMenuOf, tabItem } = await shared('menu.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
@@ -931,7 +933,7 @@ function menuFor(subject) {
     if (checkpoint) {
         items.push(showItem('Show model in Model Manager', checkpoint, subject));
         if (checkpoint.model_id) {
-            items.push(toTab('civitaiBrowser', { label: 'Show model in Civitai Browser',
+            items.push(tabItem('civitaiBrowser', { label: 'Show model in Civitai Browser',
                                                   run: () => showOnCivitai(checkpoint, subject) }));
         }
     }
@@ -943,60 +945,14 @@ function menuFor(subject) {
 
 function showItem(label, file, tile) {
     return file.in_library
-        ? toTab('modelManager', { label, run: () => showModel(file, tile) })
+        ? tabItem('modelManager', { label, run: () => showModel(file, tile) })
         : { label, disabled: true, title: `${file.name} is not in the library: deleted, moved, or never scanned` };
 }
 
-/** An item opening another tab: greyed, saying why, while that tab is not available (#184). */
-function toTab(name, item) {
-    return available(name) ? item : { label: item.label, disabled: true, title: unavailableReason(name) };
-}
-
 function openTileMenu(index, button) {
+    if (closeMenuOf(button)) return;          // its own ⋯ again: closed
     const tile = tiles[index];
-    if (tile) openMenu(button, tileMenu(tile));
-}
-
-let menu = null;
-
-/** The menu, under the button that opened it; a click anywhere else, or Esc, closes it. */
-function openMenu(anchor, items) {
-    closeMenu();
-    if (!items.length) return;
-    const element = document.createElement('div');
-    element.className = 'gen-menu';
-    element.setAttribute('role', 'menu');
-    element.innerHTML = items.map((item, i) => `<button type="button" role="menuitem" data-item="${i}"`
-        + `${item.disabled ? ' disabled' : ''}${item.title ? ` title="${escapeHtml(item.title)}"` : ''}>`
-        + `${escapeHtml(item.label)}</button>`).join('');
-    element.addEventListener('click', (event) => {
-        const chosen = event.target.closest?.('[data-item]');
-        if (!chosen || chosen.disabled) return;
-        closeMenu();
-        items[Number(chosen.getAttribute('data-item'))].run();
-    });
-    const box = anchor.getBoundingClientRect?.() || { right: 0, bottom: 0 };
-    element.style.top = `${Math.round(box.bottom + 4)}px`;
-    element.style.right = `${Math.max(8, Math.round((window.innerWidth || 0) - box.right))}px`;
-    document.body.appendChild(element);
-    const away = (event) => {
-        if (!element.contains(event.target)) closeMenu();
-    };
-    // A moment later, so the click that opened it does not close it - and only
-    // while it is still open: an item clicked at once had closed it, and its
-    // listener stayed, closing the next menu at a click inside it (#184).
-    tabScope.later(() => {
-        if (menu?.away === away) tabScope.listen(document, 'click', away, true);
-    }, 0);
-    menu = { element, away };
-}
-
-function closeMenu() {
-    if (!menu) return false;
-    menu.element.remove();
-    tabScope.unlisten(document, 'click', menu.away, true);
-    menu = null;
-    return true;
+    if (tile) openMenu(tabScope, button, tileMenu(tile));
 }
 
 /**
@@ -1134,12 +1090,13 @@ function viewTile(index, image = 0) {
 }
 
 /**
- * The keys this tab has besides the viewer's: Esc closes the ⋯ menu, or -
- * no viewer open - goes back up a level, while this tab is the one shown.
+ * The keys this tab has besides the viewer's and the ⋯ menu's: Esc closes
+ * the Group by list, or - no viewer open - goes back up a level, while this
+ * tab is the one shown.
  */
 function onKey(event) {
-    if (dialogShowing() && !document.querySelector('.gen-menu')) return;     // a question is open
-    if (event.key === 'Escape' && (closeGroupMenu() || closeMenu())) {
+    if (dialogShowing()) return;     // a question is open, or the ⋯ menu, which Esc closes itself
+    if (event.key === 'Escape' && closeGroupMenu()) {
         event.preventDefault?.();
         event.stopImmediatePropagation?.();
         return;
@@ -1791,7 +1748,7 @@ export async function start(scope) {
     tabScope = scope;
     work.start(scope);
     // A menu open as it stops goes with it: it is on the page's body, not in the tab.
-    tabScope.onStop(() => closeMenu());
+    tabScope.onStop(() => closeMenu(tabScope));
     showNotes('generations', 'gen_notes');
     const order = byId('gen_preserve_order');
     if (order) order.checked = preserveOrder;

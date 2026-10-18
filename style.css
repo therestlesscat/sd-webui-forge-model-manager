@@ -4569,6 +4569,19 @@ textarea.mm-settings-input {
     background: rgba(127, 127, 127, 0.18) !important;
 }
 
+/* The ⋯ menu is sized by what it holds, and capped to the window where that
+   is more (shared/menu.mjs, #298): capped in height, it scrolls; in width,
+   a long name wraps. */
+.gen-menu {
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.gen-menu button {
+    flex-shrink: 0;
+    overflow-wrap: anywhere;
+}
+
 /* An item that cannot be followed - a model no longer in the library - says why on hover. */
 .gen-menu button:disabled {
     opacity: 0.5;

@@ -9,7 +9,9 @@
  * base model, type or size into a tile, its first four images and how many it
  * has; a click opens it in a grid of its own, with Back. A click on an image
  * opens the viewer every gallery uses: Send, Resources, Show model, and its
- * text beside it. The grid scrolls: the next part loads as its end comes near.
+ * text beside it. An image's ⋯ lists the checkpoints and LoRAs it was made
+ * with, each in the Model Manager or the Civitai Browser (#298). The grid
+ * scrolls: the next part loads as its end comes near.
  * Only the NSFW switch hides.
  *
  * The order, the groups and the parts are the server's (api/gallery.py); the
@@ -22,7 +24,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
     'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs',
-    'tiles.mjs', 'previous_position.mjs', 'grouping.mjs', 'dialog.mjs'];
+    'tiles.mjs', 'previous_position.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
@@ -47,6 +49,8 @@ await shared('update_notice.mjs');
 // The image viewer every gallery opens.
 const { openViewer, closeViewer, viewerIsOpen } = await shared('viewer.mjs');
 const { dialogShowing } = await shared('dialog.mjs');
+// The ⋯ menu, as the Generations tab opens it too (#298).
+const { openMenu, closeMenu, closeMenuOf, tabItem } = await shared('menu.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
@@ -401,6 +405,11 @@ function tileHtml(tile, index) {
         actions = `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}</div>`;
     } else {
         media = `<div class="gen-viewable" data-action="gallery.view" data-tile="${index}" title="View">${imageHtml(image)}</div>`;
+        // More, behind ⋯ - while the image names a checkpoint or LoRA besides its own model.
+        if (tile.menu) {
+            media += `<button type="button" class="gen-menu-btn" title="More"
+                              data-action="gallery.menu" data-tile="${index}">⋯</button>`;
+        }
         const blocked = cannotSend(image, tile.model, tile.version);
         actions = `<div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" data-action="gallery.send" data-tile="${index}"
@@ -526,6 +535,66 @@ function showModel(tile) {
     closeViewer();
     previousPlace.remember(placeOf(tile, tile.image));
     return open('modelManager', 'showVersion', tile.version.id, tile.version.file_path);
+}
+
+// ------------------------------------------------------------- the ⋯ menu
+// An image's checkpoints and LoRAs, each in the Model Manager when the
+// library holds it, in the Civitai Browser when it does not (#298). Asked of
+// the server when ⋯ is pressed: what the library holds is as of the press,
+// and a part carries only whether an image has a menu.
+
+const ROLE_NAMES = { checkpoint: 'checkpoint', lora: 'LoRA' };
+// The press whose answer is wanted: one that comes after another, or after
+// the tab stopped, opens nothing.
+let menuAsked = 0;
+
+async function openTileMenu(index, button) {
+    if (closeMenuOf(button)) return;          // its own ⋯ again: closed, nothing asked
+    const tile = tiles[index];
+    if (!tile || tile.kind !== 'image' || !button || button.disabled) return;
+    const asked = ++menuAsked;
+    closeMenu();
+    // Asking: a second press asks nothing more.
+    button.disabled = true;
+    button.setAttribute('title', 'Looking…');
+    let answer;
+    try {
+        answer = await apiCall({ endpoint: '/model-manager/gallery/menu',
+                                 params: { image_id: tile.image.id, version_id: tile.version.id } });
+    } catch (error) {
+        answer = { success: false, error: error?.message || String(error) };
+    }
+    button.disabled = false;
+    button.setAttribute('title', 'More');
+    if (asked !== menuAsked || !tabScope?.live || !button.isConnected) return;
+    const items = answer?.success
+        ? (answer.items || []).map((resource) => resourceItem(resource, tile))
+        : [{ label: 'Could not read its resources', disabled: true, title: answer?.error || 'No answer' }];
+    openMenu(tabScope, button, items);
+}
+
+/** One resource as the menu offers it: held, in the Model Manager; else in the Civitai Browser. */
+function resourceItem(resource, tile) {
+    const what = `Show ${ROLE_NAMES[resource.role] || resource.role} ${resource.name || `version ${resource.version_id}`}`;
+    const title = resource.version_name || '';
+    if (resource.file_path) {
+        return tabItem('modelManager', { label: `${what} in Model Manager`, title,
+                                         run: () => showResource('modelManager', resource, tile) });
+    }
+    if (!resource.model_id) {
+        return { label: `${what} in Civitai Browser`, disabled: true, title: 'Civitai\'s record names no model for it' };
+    }
+    return tabItem('civitaiBrowser', { label: `${what} in Civitai Browser`, title,
+                                       run: () => showResource('civitaiBrowser', resource, tile) });
+}
+
+/** A resource in the Model Manager at its version and file, or in the Civitai Browser at its model and version. */
+function showResource(tab, resource, tile) {
+    closeViewer();
+    previousPlace.remember(placeOf(tile, tile.image));
+    return tab === 'modelManager'
+        ? open('modelManager', 'showVersion', resource.version_id, resource.file_path)
+        : open('civitaiBrowser', 'showModel', `model:${resource.model_id} version:${resource.version_id}`);
 }
 
 // ------------------------------------------------------------- the viewer
@@ -669,6 +738,7 @@ work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
 work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
 work.provide('gallery.send', ({ tile }) => sendTile(tiles[Number(tile)]));
 work.provide('gallery.showModel', ({ tile }) => showModel(tiles[Number(tile)]));
+work.provide('gallery.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
 work.provide('gallery.previousPosition', () => previousPlace.restore());
 work.provide('gallery.closeAbout', () => closeAbout());
 // Not markup's: for code, and tests - grouping, and the next part now.
@@ -682,6 +752,8 @@ work.provide('gallery.loadMore', () => loadNext());
 export async function start(startScope) {
     tabScope = startScope;
     work.start(startScope);
+    // A menu open as it stops goes with it: it is on the page's body, not in the tab.
+    tabScope.onStop(() => closeMenu(tabScope));
     showNotes('gallery', 'gal_notes');
     showAbout();
     showGroupChoice();
