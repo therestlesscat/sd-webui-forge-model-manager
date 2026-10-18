@@ -26,6 +26,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { viewerPageScroll } = await shared('viewer.mjs');
+const { ask } = await shared('dialog.mjs');
 
 /** A place kept in the browser's storage, under `key`_position and `key`_target. */
 function storageStore(key) {
@@ -200,7 +201,15 @@ export function previousPosition({ id, action, row, before = '', storageKey = ''
                 }
                 if (grid.parts() >= SEEK_PARTS && !asked) {
                     asked = true;
-                    if (!window.confirm(keepLooking(count))) {
+                    const answer = await ask({
+                        title: 'Keep loading until it is found?',
+                        message: `The image you left is not in the ${count.toLocaleString()} tiles loaded here. `
+                            + 'Each further part of the grid is a request to the server.',
+                        buttons: [{ label: 'Stop', value: false }, { label: 'Keep loading', value: true, type: 'primary' }],
+                    });
+                    // The page went on meanwhile: Stop pressed, or a new grid.
+                    if (stopping || grid.view() !== view) return;
+                    if (!answer?.value) {
                         grid.status('');
                         return;
                     }
@@ -276,7 +285,3 @@ export const TILE_BUTTON = {
 
 const NOT_FOUND = 'The image you left is not in this view: none of its tiles is it, or holds it.';
 
-function keepLooking(count) {
-    return `The image you left is not in the ${count.toLocaleString()} tiles loaded here. `
-        + 'Keep loading until it is found? Each further part of the grid is a request to the server.';
-}

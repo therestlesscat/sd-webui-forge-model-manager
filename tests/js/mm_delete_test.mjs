@@ -40,8 +40,18 @@ globalThis.fetch = async (url, init = {}) => {
     }
     return reply({ success: true });
 };
+// The Delete question (#292), answered Delete as soon as it opens - as the
+// browser's confirm was, answered yes - its words kept for the checks.
 let confirmText = '';
-window.confirm = globalThis.confirm = (text) => { confirmText = text; return true; };
+const elementProto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div')));
+const showModal = elementProto.showModal;
+elementProto.showModal = function answerDelete() {
+    showModal.call(this);
+    if (!this.classList.contains('mm-model-delete-dialog')) return;
+    confirmText = this.textContent.replace(/\s+/g, ' ');
+    setTimeout(() => this.querySelector('[data-value="true"]')
+        ?.dispatchEvent(new window.Event('click', { bubbles: true })), 0);
+};
 
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
@@ -84,7 +94,7 @@ check('"current" deletes the version on screen - not the grid card\'s', deleted,
 check('and Forge\'s lists are refreshed, once', refreshed, ['checkpoints', 'extra networks']);
 check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
 check('which says the folder its download made goes, once empty (#196)',
-      [confirmText.includes('The folder its download made, once empty'), confirmText.includes('named after')],
+      [confirmText.includes('the folder its download made, once empty'), confirmText.includes('named after')],
       [true, false]);
 
 deleted.length = 0;

@@ -22,6 +22,8 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, formatBytes, holdPage } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
+// The upkeep panel's own `ask` polls the server: the question is askUser here.
+const { ask: askUser } = await shared('dialog.mjs');
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -1004,9 +1006,15 @@ function createSettings() {
         }
     }
 
-    function close() {
+    async function close() {
         const n = changedKeys().length;
-        if (n && !window.confirm(`Discard ${n} unsaved change${n === 1 ? '' : 's'}?`)) return;
+        if (n) {
+            const answer = await askUser({
+                title: `Discard ${n} unsaved change${n === 1 ? '' : 's'}?`,
+                buttons: [{ label: 'Keep editing', value: false }, { label: 'Discard', value: true, type: 'danger' }],
+            });
+            if (!answer?.value) return;
+        }
         root.style.display = 'none';
         holdPage('settings', false);
         upkeep.stop();
@@ -1254,12 +1262,16 @@ function createUpkeep(container) {
         const s = space;
         if (!s?.success) return;
         const seconds = Math.max(5, Math.round(s.kept_bytes * COMPACT_SECONDS_PER_BYTE / 5) * 5);
-        const question = `Compact the database? It rewrites the ${sizeText(s.file_bytes + s.wal_bytes)} file: `
-            + `about ${seconds} seconds on a fast disk, longer on a slow one. `
-            + 'Generations, downloads and syncs in this WebUI wait until it ends.'
-            + (s.custom_database ? ' Another WebUI sharing this file should not generate or sync meanwhile: '
-                + 'its writes give up after 30 seconds.' : '');
-        if (!window.confirm(question)) return;
+        const asked = await askUser({
+            title: 'Compact the database?',
+            message: `It rewrites the ${sizeText(s.file_bytes + s.wal_bytes)} file: `
+                + `about ${seconds} seconds on a fast disk, longer on a slow one. `
+                + 'Generations, downloads and syncs in this WebUI wait until it ends.'
+                + (s.custom_database ? ' Another WebUI sharing this file should not generate or sync meanwhile: '
+                    + 'its writes give up after 30 seconds.' : ''),
+            buttons: [{ label: 'Cancel', value: false }, { label: 'Compact', value: true, type: 'primary' }],
+        });
+        if (!asked?.value) return;
         message = null;
         let answer;
         try {
@@ -1290,11 +1302,15 @@ function createUpkeep(container) {
         const chosen = names === null ? list : list.filter((b) => names.includes(b.name));
         if (!chosen.length) return;
         const bytes = chosen.reduce((sum, b) => sum + b.bytes, 0);
-        const question = chosen.length === 1 && names !== null
-            ? `Delete the backup of ${backupHolds(chosen[0])}, made ${backupMade(chosen[0].made)}? `
-                + `It frees ${sizeText(chosen[0].bytes)}. It cannot be undone.`
-            : `Delete all ${chosen.length} backups? They free ${sizeText(bytes)}. They cannot be undone.`;
-        if (!window.confirm(question)) return;
+        const one = chosen.length === 1 && names !== null;
+        const asked = await askUser({
+            title: one ? `Delete the backup of ${backupHolds(chosen[0])}, made ${backupMade(chosen[0].made)}?`
+                : `Delete all ${chosen.length} backups?`,
+            message: one ? `It frees ${sizeText(chosen[0].bytes)}. It cannot be undone.`
+                : `They free ${sizeText(bytes)}. They cannot be undone.`,
+            buttons: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, type: 'danger' }],
+        });
+        if (!asked?.value) return;
         let answer;
         try {
             answer = await post('/model-manager/database/backups/delete', { names: chosen.map((b) => b.name) });

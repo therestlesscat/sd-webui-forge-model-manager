@@ -147,14 +147,15 @@ check('then its images, and the line is gone', line() === undefined, true);
 // and says so, and that they can still be seen. Either may bring other
 // images. (Resync Images, which asked it of one version, is gone.)
 const question = () => document.querySelector('.mm-image-count-dialog');
-const choice = (value) => question()?.querySelector(`input[value="${value}"]`);
-const said = () => question()?.querySelector('.mm-dialog-notice')?.textContent || '';
+// The choices in the order asked: as many as each has, then the first page.
+const choice = (value) => question()?.querySelectorAll('input[type="radio"]')[value === 'kept' ? 0 : 1];
+const said = () => question()?.querySelector('.mm-question-note')?.textContent || '';
 check('no Resync Images button any more', !!document.querySelector('[data-action="modelManager.resyncImages"]'), false);
 let asking = act('modelManager.syncModel');
 await waitFor('the question', () => !!question());
 check('Sync asks how many images come back, each way costed, as many as each has chosen',
       [choice('kept')?.checked, Array.from(question().querySelectorAll('.mm-dialog-cost')).map((c) => c.textContent),
-       question().querySelector('[data-confirm]')?.textContent.trim()],
+       question().querySelector('[data-value="true"]')?.textContent.trim()],
       [true, ['~16 req', '~5 req'], 'Sync']);
 check('over the model\'s files', estimates.at(-1)?.get('paths'), 'C:/m/a.safetensors');
 check('saying the images may not be these, and deleting nothing',
@@ -164,13 +165,13 @@ choice('first').dispatchEvent(new window.Event('change', { bubbles: true }));
 check('the first page says how many of the model\'s stored images go, and that they can still be seen',
       [said().includes('This deletes 250 of this model\'s stored images'),
        said().includes('Load More fetches them from Civitai again')], [true, true]);
-question().querySelector('[data-close]').dispatchEvent(new window.Event('click', { bubbles: true }));
+question().querySelector('[data-value="false"]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await asking;
 check('Cancel syncs nothing', [!!question(), syncs.length], [false, 0]);
 
 const syncing = act('modelManager.syncModel');
 await waitFor('the question', () => !!question());
-question().querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+question().querySelector('[data-value="true"]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the sync', () => syncs.length === 1);
 check('Sync syncs the model, as many images as each has',
       [syncs[0].get('model_id'), syncs[0].get('keep_image_count')], ['4001', 'true']);
@@ -187,7 +188,7 @@ syncAnswer = { success: true, synced_count: 1, total_versions: 2,
 release = null;
 const again = act('modelManager.syncModel');
 await waitFor('the question', () => !!question());
-question().querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+question().querySelector('[data-value="true"]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the second sync', () => syncs.length === 2);
 await waitFor('the page after it', () => release !== null);
 release();

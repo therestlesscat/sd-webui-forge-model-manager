@@ -109,6 +109,12 @@ is close to a browser and not one:
   proven in headless Edge ("Probes").
 - **No `KeyboardEvent`.** A key press is a plain `Event` with its keys
   assigned (`queue_ask_test.mjs`).
+- **No `<dialog>`, and no focus.** linkedom 0.18.13 has no `showModal()` or
+  `close()`, and its `focus()` does nothing: the harness stands in for both -
+  a stack for the top layer, and `document.activeElement` - and `escape()`
+  delivers Esc as a browser does, a keydown to what has focus, then `cancel`
+  on the top dialog (#292). A suite that answered `confirm()` answers the
+  question instead (`answerQuestions`).
 - **No layout.** Widths and positions are 0 - `getBoundingClientRect` gives
   zeros, so `endIsNear` always says the end is near - and a suite checks the
   stylesheet's rule instead. The tabs' tile grids get one (#240): `gridLayout`

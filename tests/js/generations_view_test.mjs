@@ -235,9 +235,8 @@ const tileIds = () => tileEls().map((t) => `${t.getAttribute('data-generation')}
 const pathText = () => (document.getElementById('gen_path')?.textContent || '').replace(/\s+/g, ' ').trim();
 // Nothing to click is nothing clicked: a menu that did not open fails its check, not the suite.
 const click = (el) => el?.dispatchEvent(new window.Event('click', { bubbles: true }));
-// The question showing - not the hidden dialog put in the page above.
-const dialog = () => Array.from(document.querySelectorAll('.mm-dialog-backdrop'))
-    .filter((d) => d.style.display !== 'none').pop() || null;
+// The question open (#292) - not the hidden dialog put in the page above.
+const dialog = () => document.querySelector('dialog.mm-question[open]');
 const lastAsked = () => asked.at(-1);
 
 await waitFor('the first part', () => tileEls().length === 2);
@@ -467,8 +466,8 @@ const deleting = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
 check('Delete asks first, offering to delete the file too',
       dialog().querySelector('h3')?.textContent, 'Delete this image?');
-dialog().querySelector('[data-files]').checked = true;
-click(dialog().querySelector('[data-confirm]'));
+dialog().querySelector('[data-tick]').checked = true;
+click(dialog().querySelector('[data-value="true"]'));
 await deleting;
 check('an image is deleted alone, with its file when asked',
       [posted.at(-1), tileIds()], [['/generations/images/33/delete', 'delete_files=true'], ['3', '3', '3']]);
@@ -498,16 +497,16 @@ check('an image\'s Delete is red, as every delete is (#105)',
       tileEls()[1].querySelector('[data-action="generations.delete"]')?.classList.contains('danger'), true);
 const cancelled = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
-check('with the setting off, the files box starts unticked', dialog()?.querySelector('[data-files]')?.checked, false);
-click(dialog().querySelector('[data-close]'));
+check('with the setting off, the files box starts unticked', dialog()?.querySelector('[data-tick]')?.checked, false);
+click(dialog().querySelector('[data-value="false"]'));
 await cancelled;
 check('cancelled, nothing is deleted', [posted.length, tileIds()], [1, ['3g', '2', '1g']]);
 
 uiOptionsDown = true;
 const unanswered = act('generations.delete', { tile: 1 });
 await waitFor('the question', () => dialog());
-check('the server not answering, the box starts unticked', dialog()?.querySelector('[data-files]')?.checked, false);
-click(dialog().querySelector('[data-close]'));
+check('the server not answering, the box starts unticked', dialog()?.querySelector('[data-tick]')?.checked, false);
+click(dialog().querySelector('[data-value="false"]'));
 await unanswered;
 uiOptionsDown = false;
 
@@ -517,10 +516,10 @@ const whole = act('generations.delete', { tile: 2 });
 await waitFor('the question', () => dialog());
 check('a batch is deleted whole, and says how many images',
       dialog().querySelector('h3')?.textContent, 'Delete this generation of 3 images?');
-check('with the setting on, the files box starts ticked', dialog()?.querySelector('[data-files]')?.checked, true);
-const box = dialog()?.querySelector('[data-files]');
+check('with the setting on, the files box starts ticked', dialog()?.querySelector('[data-tick]')?.checked, true);
+const box = dialog()?.querySelector('[data-tick]');
 if (box) box.checked = false;
-click(dialog().querySelector('[data-confirm]'));
+click(dialog().querySelector('[data-value="true"]'));
 await whole;
 check('unticked for this one, its records only', posted.at(-1), ['/generations/1/delete', 'delete_files=false']);
 check('and its tile goes', tileIds(), ['3g', '2']);
@@ -530,7 +529,7 @@ await call('generations.view', { tile: 0, image: 1 });
 check('the viewer\'s Delete is red too', viewer()?.querySelector('[data-gen-delete]')?.classList.contains('danger'), true);
 const viewDelete = (async () => { click(viewer().querySelector('[data-gen-delete]')); })();
 await waitFor('the question', () => dialog());
-click(dialog().querySelector('[data-confirm]'));
+click(dialog().querySelector('[data-value="true"]'));
 await viewDelete;
 await waitFor('the next image', () => shownId() === '35');
 check('Delete in the viewer deletes the image shown, and shows the one after it',

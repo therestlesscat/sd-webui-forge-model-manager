@@ -17,7 +17,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs'];
+    'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -61,7 +61,8 @@ const {
 await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
-const { openViewer, cardSource, dialogShowing, viewerIsOpen } = await shared('viewer.mjs');
+const { openViewer, cardSource, viewerIsOpen } = await shared('viewer.mjs');
+const { dialogShowing } = await shared('dialog.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');

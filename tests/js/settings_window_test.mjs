@@ -2,7 +2,7 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, call, checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
+import { ROOT, answerQuestions, call, checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits, shortened (TIMING): the preview's, the restamp's poll, a redraw's.
@@ -190,8 +190,9 @@ document.body.appendChild(page);
 const heard = [];
 ['input', 'change'].forEach((type) => page.addEventListener(type, (e) => heard.push(`${type}:${e.target.closest('[id]').id}`)));
 
+// Each question answered as confirmAnswer says (#292): Discard, or Keep editing.
 let confirmAnswer = true;
-window.confirm = () => confirmAnswer;
+answerQuestions(() => String(confirmAnswer));
 const saved = [];
 window.addEventListener('mm-settings-saved', (e) => saved.push(e.detail.changed));
 

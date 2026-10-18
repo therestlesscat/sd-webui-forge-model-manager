@@ -30,6 +30,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml, holdPage } = await shared('core.mjs');
 const { fetchUiOptions } = await shared('ui_options.mjs');
+const { ask, dialogShowing } = await shared('dialog.mjs');
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -56,17 +57,6 @@ function writePanelClosed(closed) {
     } catch (e) { /* this visit only */ }
 }
 
-
-/**
- * Whether a question or a dialog is showing over the page - one that is
- * shown, not one waiting in the markup: the Model Manager keeps its sync
- * dialog there, hidden, and all three tabs are one page, so asking only
- * whether one exists found them always, and the viewer's keys never worked.
- */
-export function dialogShowing() {
-    return Array.from(document.querySelectorAll('.mm-dialog-backdrop, .mm-modal-overlay, .gen-menu'))
-        .some((element) => element.isConnected && !element.hidden && element.style.display !== 'none');
-}
 
 /**
  * Close this element on Escape, and only it: the key is taken before any
@@ -338,45 +328,15 @@ export function cardSource({ cards, more, loadMore, videoUrl }) {
  */
 export async function askToDelete(question, n = 1) {
     const filesToo = (await fetchUiOptions())?.generations_delete_files === true;
-    return new Promise((resolve) => {
-        let answer = null;
-        const backdrop = document.createElement('div');
-        backdrop.className = 'mm-dialog-backdrop';
-        backdrop.innerHTML = `
-            <div class="mm-dialog mm-delete-dialog">
-                <h3>${escapeHtml(question)}</h3>
-                <label class="mm-delete-files">
-                    <input type="checkbox" data-files${filesToo ? ' checked' : ''}>
-                    Also delete the image file${n === 1 ? '' : 's'} from disk
-                </label>
-                <p class="mm-delete-note">Otherwise only the record goes; the file${n === 1 ? ' stays' : 's stay'} where ${n === 1 ? 'it was' : 'they were'} saved.</p>
-                <div class="mm-dialog-buttons">
-                    <button type="button" class="mm-btn secondary" data-close>Cancel</button>
-                    <button type="button" class="mm-btn danger" data-confirm>Delete</button>
-                </div>
-            </div>`;
-        const close = () => {
-            if (!backdrop.isConnected) return;
-            backdrop.remove();
-            document.removeEventListener('keydown', onEscape, true);
-            resolve(answer);
-        };
-        const onEscape = (event) => {
-            if (event.key !== 'Escape') return;
-            event.stopPropagation();
-            close();
-        };
-        backdrop.addEventListener('click', (event) => {
-            if (event.target.closest?.('[data-confirm]')) {
-                answer = { withFiles: !!backdrop.querySelector('[data-files]')?.checked };
-                close();
-            } else if (event.target === backdrop || event.target.closest?.('[data-close]')) {
-                close();
-            }
-        });
-        document.addEventListener('keydown', onEscape, true);
-        document.body.appendChild(backdrop);
+    const answer = await ask({
+        className: 'mm-delete-dialog',
+        title: question,
+        tick: { label: `Also delete the image file${n === 1 ? '' : 's'} from disk`, checked: filesToo },
+        note: `Otherwise only the record goes; the file${n === 1 ? ' stays' : 's stay'} where ${
+            n === 1 ? 'it was' : 'they were'} saved.`,
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, type: 'danger' }],
     });
+    return answer?.value ? { withFiles: answer.ticked } : null;
 }
 
 /**

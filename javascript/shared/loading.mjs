@@ -32,6 +32,7 @@ const { TIMING, apiCall, escapeHtml, onReady, once, setText } = await shared('co
 const { call, provide, withdraw } = await shared('calls.mjs');
 const { goToTab, panelButton, shownPanel, tabButton, tabShowing } = await shared('tabs.mjs');
 const { uiOptions } = await shared('ui_options.mjs');
+const { ask, showProgress } = await shared('dialog.mjs');
 
 /**
  * Each tab, by the name tabs.mjs knows it by, in the order the WebUI shows
@@ -461,23 +462,14 @@ function waitForReload(name, how) {
     drawReloadPopup();
 }
 
-function reloadPopup() {
-    return typeof document === 'undefined' ? null : document.querySelector('.mm-reload-dialog');
-}
+// The question open, while one is: drawn again as more tabs wait (#292).
+let reloadQuestion = null;
 
 function drawReloadPopup(error = null) {
     if (typeof document === 'undefined') return;
     if (!waiting.size) {
         closeReloadPopup();
         return;
-    }
-    let popup = reloadPopup();
-    if (!popup) {
-        popup = document.createElement('div');
-        popup.className = 'mm-dialog-backdrop mm-reload-dialog';
-        popup.addEventListener('click', onReloadClick);
-        document.body.appendChild(popup);
-        document.addEventListener('keydown', onReloadKey, true);
     }
     const ui = [...waiting.values()].includes('ui');
     // A reload is offered only for what one brings: a new database needs the server started afresh.
@@ -494,26 +486,37 @@ function drawReloadPopup(error = null) {
                                  + 'resume them after.'
                                : `${NOT_RESTARTABLE}.`,
                    ...(reloads ? ['Reloading loses unsaved input, like a typed prompt.'] : [])];
-    popup.innerHTML = `
-        <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_reload_title">
-            <h3 id="mm_reload_title">Restart or reload</h3>
-            <div class="mm-reload-list">${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')}</div>
-            <div class="mm-reload-notes">${notes.map((note) => `<p>${escapeHtml(note)}</p>`).join('\n')}</div>
-            ${error ? `<p class="mm-reload-error">${escapeHtml(error)}</p>` : ''}
-            <div class="mm-dialog-buttons">
-                <button type="button" class="mm-btn ${restartable ? 'primary' : 'secondary'}" data-reload="restart"${
-                    restartable ? '' : ` disabled title="${escapeHtml(NOT_RESTARTABLE)}"`}>Restart WebUI</button>
-                ${reloads ? `<button type="button" class="mm-btn ${restartable ? 'secondary' : 'primary'}" data-reload="${
-                    ui ? 'ui' : 'page'}">${ui ? 'Reload UI' : 'Reload the page'}</button>` : ''}
-                <button type="button" class="mm-btn secondary" data-reload="later">Later</button>
-            </div>
-        </div>`;
+    const parts = {
+        className: 'mm-reload-dialog',
+        title: 'Restart or reload',
+        message: [...lines, ...notes],
+        note: error ? { text: error, error: true } : null,
+        buttons: [
+            { label: 'Restart WebUI', value: 'restart', type: restartable ? 'primary' : 'secondary',
+              disabled: !restartable, reason: restartable ? '' : NOT_RESTARTABLE },
+            ...(reloads ? [{ label: ui ? 'Reload UI' : 'Reload the page', value: ui ? 'ui' : 'page',
+                             type: restartable ? 'secondary' : 'primary' }] : []),
+            { label: 'Later', value: 'later' },
+        ],
+        // Restart WebUI comes first, and ends a running generation and sync:
+        // Enter is Later, as Esc and a click beside it are.
+        focus: 'later',
+        // Acted on as it closes: a switch saved the moment after asks afresh.
+        answered: (answer) => {
+            reloadQuestion = null;
+            onReloadAnswer(answer?.value ?? 'later');
+        },
+    };
+    if (reloadQuestion) {
+        reloadQuestion.redraw(parts);
+        return;
+    }
+    reloadQuestion = ask(parts);
 }
 
 function closeReloadPopup() {
     waiting.clear();
-    reloadPopup()?.remove();
-    if (typeof document !== 'undefined') document.removeEventListener('keydown', onReloadKey, true);
+    reloadQuestion?.close();
 }
 
 /** The tab showing, for the page a reload brings to show again. */
@@ -533,13 +536,10 @@ function goBack() {
     if (button.style.display !== 'none') button.click();
 }
 
-function onReloadClick(event) {
-    const button = event.target.closest?.('[data-reload]');
-    if (!button && event.target !== event.currentTarget) return;
-    if (button?.disabled) return;
-    const how = button?.dataset.reload || 'later';
+// Esc and a click beside it are Later, as the button is.
+function onReloadAnswer(how) {
     if (how === 'restart') {
-        restartWebui(button);
+        restartWebui();
         return;
     }
     closeReloadPopup();
@@ -559,9 +559,8 @@ function onReloadClick(event) {
  * script to start afresh; the page waits for it as the WebUI's own restart
  * does (restart_reload, its ui.js), and loads again.
  */
-async function restartWebui(button) {
-    button.disabled = true;
-    button.textContent = 'Restarting...';
+async function restartWebui() {
+    const progress = showProgress('Restarting...');
     let answer;
     try {
         answer = await (await fetch('/model-manager/restart', { method: 'POST' })).json();
@@ -569,6 +568,7 @@ async function restartWebui(button) {
         answer = { success: false, error: String(error) };
     }
     if (!answer?.success) {
+        progress.close();
         drawReloadPopup(`The WebUI did not restart: ${answer?.error || 'no answer'}`);
         return;
     }
@@ -581,12 +581,6 @@ async function restartWebui(button) {
     const ask = () => fetch('./internal/ping').then((r) => (r.ok ? window.location.reload() : again()), again);
     const again = () => setTimeout(ask, 500);
     setTimeout(ask, 2000);
-}
-
-function onReloadKey(event) {
-    if (event.key !== 'Escape' || !reloadPopup()) return;
-    event.stopPropagation();
-    closeReloadPopup();
 }
 
 /** Each switch, as `value(setting)` says it: one it says nothing of stays as it is. */

@@ -97,10 +97,10 @@ await waitFor('the question', () => document.querySelector('.mm-delete-dialog h3
 check('Delete asks once, counting what the filter hides',
       document.querySelector('.mm-delete-dialog h3')?.textContent,
       'Delete 6 images of 3 generations? (1 of them hidden by the filters)');
-const filesBox = document.querySelector('.mm-delete-dialog [data-files]');
+const filesBox = document.querySelector('.mm-delete-dialog [data-tick]');
 check('the files box starts ticked, as the setting says (#107)', filesBox?.checked, true);
 if (filesBox) filesBox.checked = false;
-document.querySelector('.mm-delete-dialog [data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+document.querySelector('.mm-delete-dialog [data-value="true"]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await deleting;
 check('in one request, the generations whole, the files kept - the box unticked',
       deletes, [{ generation_ids: '1,2,3', image_ids: '', delete_files: 'false' }]);

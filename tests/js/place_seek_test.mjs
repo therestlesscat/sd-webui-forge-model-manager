@@ -10,7 +10,7 @@
 // The grid here is a stand-in, as the tabs hand theirs to the module: tiles
 // by id, in parts of 2. The tabs' own ids and what they note are their place
 // suites'.
-import { checker, mountTab, sharedModule } from './harness.mjs';
+import { answerQuestions, checker, mountTab, sharedModule } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, done } = checker();
@@ -21,10 +21,11 @@ const scrolls = [];
 window.scrollTo = (...args) => { scrolls.push(typeof args[0] === 'object' ? args[0].top : args[1]); };
 const asked = [];
 let answer = false;
-window.confirm = (question) => {
+// The question after 20 parts (#292), answered as `answer` says: Keep loading, or Stop.
+answerQuestions((dialog, question) => {
     asked.push({ question, parts: current?.parts() });
-    return answer;
-};
+    return String(answer);
+});
 let current = null;
 
 /** A grid of `order` - tile ids, in the grid's order - in parts of 2, the first loaded. */
@@ -102,7 +103,8 @@ await place(grid, deep).restore();
 check(`${SEEK_PARTS} parts are looked through, then the person is asked`,
       [SEEK_PARTS, asked.length, asked[0]?.parts], [20, 1, 20]);
 check('the question says how many tiles were looked through',
-      asked[0]?.question.startsWith('The image you left is not in the 40 tiles loaded here.'), true);
+      asked[0]?.question, 'Keep loading until it is found? The image you left is not in the 40 tiles loaded '
+          + 'here. Each further part of the grid is a request to the server.');
 check('told no, it stops there: nothing more loaded, nothing brought into view',
       [grid.loaded, grid.shown, grid.said.at(-1)], [20, [], '']);
 answer = true;

@@ -206,8 +206,8 @@ deleteFilesSetting = true;
 press(viewer().querySelector('[data-gen-delete]'));
 await waitFor('the question', () => deleteDialog());
 check('with the setting on, its question starts with the files box ticked (#107)',
-      deleteDialog()?.querySelector('[data-files]')?.checked, true);
-press(deleteDialog()?.querySelector('[data-close]'));
+      deleteDialog()?.querySelector('[data-tick]')?.checked, true);
+press(deleteDialog()?.querySelector('[data-value="false"]'));
 deleteFilesSetting = false;
 // Its id, to name one image when reporting what it did.
 check('its details say the image\'s id',
@@ -282,7 +282,7 @@ await waitFor('the question', () => deleteDialog());
 check('its Delete asks the delete question, as every gallery of your own images does - not the browser\'s confirm',
       [deleteDialog()?.querySelector('h3')?.textContent, confirms - confirmsBefore],
       ['Delete this generation of 1 image?', 0]);
-press(deleteDialog()?.querySelector('[data-close]'));
+press(deleteDialog()?.querySelector('[data-value="false"]'));
 await cancelled;
 check('cancelled, nothing is asked of the server', deleteBody, null);
 const remaining = cards()[1];
@@ -290,9 +290,9 @@ const remaining = cards()[1];
 if (deleteBody === null) {
     const deleting = act('modelManager.deleteGeneration', { generation: 1 });
     await waitFor('the question', () => deleteDialog());
-    const filesBox = deleteDialog()?.querySelector('[data-files]');
+    const filesBox = deleteDialog()?.querySelector('[data-tick]');
     if (filesBox) filesBox.checked = true;
-    press(deleteDialog()?.querySelector('[data-confirm]'));
+    press(deleteDialog()?.querySelector('[data-value="true"]'));
     await deleting;
 }
 check('Delete, with the box ticked, asks for the files to go too', deleteBody, 'delete_files=true');

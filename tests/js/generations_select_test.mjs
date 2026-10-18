@@ -122,15 +122,14 @@ act('generations.selectAll');
 check('Select all loaded ticks every tile', [ticks().every((b) => b.checked), count()], [true, '9 images selected']);
 
 const deleting = act('generations.deleteSelected');
-// The one shown: Sync images keeps its dialog in the tab's markup, hidden (#233).
-const shownDialog = () => Array.from(document.querySelectorAll('.mm-dialog-backdrop'))
-    .find((d) => d.style.display !== 'none' && !d.hidden);
+// The question open (#292).
+const shownDialog = () => document.querySelector('dialog.mm-question[open]');
 await waitFor('the question', shownDialog);
 const dialog = shownDialog();
 check('Delete asks once: how many images, of how many generations, how many hidden',
       dialog.querySelector('h3')?.textContent, 'Delete 9 images of 3 generations? (1 of them hidden by the filters)');
-check('the files box starts ticked, as the setting says (#107)', dialog.querySelector('[data-files]')?.checked, true);
-dialog.querySelector('[data-confirm]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('the files box starts ticked, as the setting says (#107)', dialog.querySelector('[data-tick]')?.checked, true);
+dialog.querySelector('[data-value="true"]').dispatchEvent(new window.Event('click', { bubbles: true }));
 await deleting;
 check('in one request: the batches whole, the image alone, the files as asked',
       deletes, [{ generation_ids: '3,1', image_ids: '21', delete_files: 'true' }]);

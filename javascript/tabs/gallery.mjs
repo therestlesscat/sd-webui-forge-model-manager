@@ -22,7 +22,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
     'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs',
-    'tiles.mjs', 'previous_position.mjs', 'grouping.mjs'];
+    'tiles.mjs', 'previous_position.mjs', 'grouping.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
@@ -45,7 +45,8 @@ const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, 
 await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
-const { openViewer, closeViewer, viewerIsOpen, dialogShowing } = await shared('viewer.mjs');
+const { openViewer, closeViewer, viewerIsOpen } = await shared('viewer.mjs');
+const { dialogShowing } = await shared('dialog.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');

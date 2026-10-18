@@ -31,7 +31,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs', 'samplers.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs'];
+    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -59,8 +59,9 @@ await shared('update_notice.mjs');
 
 // The image viewer every gallery opens.
 const {
-    openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete, dialogShowing,
+    openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete,
 } = await shared('viewer.mjs');
+const { dialogShowing } = await shared('dialog.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');

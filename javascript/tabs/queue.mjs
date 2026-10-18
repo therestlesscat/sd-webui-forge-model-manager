@@ -44,7 +44,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
-    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -56,6 +56,7 @@ const { showNotes } = await shared('notes.mjs');
 const { renderGridPagination } = await shared('grid.mjs');
 const { selectBarHtml, pickRange } = await shared('generations.mjs');
 const { openMetaModal, closeMetaModal } = await shared('viewer.mjs');
+const { ask } = await shared('dialog.mjs');
 const { loadTask } = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
@@ -459,71 +460,16 @@ function goToPage(which, page) {
 
 // --------------------------------------------------------------- the controls
 
-/**
- * A question with buttons, in the dialog every tab draws: resolves to the
- * value of the button pressed, with the dialog's fields as they were set
- * ({value, fields}: a radio by its name, a checkbox ticked or not) - or
- * null: Esc, or a click beside it.
- */
-function ask(title, bodyHtml, buttons) {
-    return new Promise((resolve) => {
-        let answer = null;
-        const backdrop = document.createElement('div');
-        backdrop.className = 'mm-dialog-backdrop';
-        backdrop.innerHTML = `
-            <div class="mm-dialog queue-dialog">
-                <h3>${escapeHtml(title)}</h3>
-                ${bodyHtml}
-                <div class="mm-dialog-buttons">
-                    ${buttons.map((b, i) => `<button type="button" class="mm-btn ${b.kind || 'secondary'}"
-                        data-answer="${i}">${escapeHtml(b.label)}</button>`).join('')}
-                </div>
-            </div>`;
-        const close = () => {
-            if (!backdrop.isConnected) return;
-            backdrop.remove();
-            tabScope.unlisten(document, 'keydown', onEscape, true);
-            resolve(answer);
-        };
-        const onEscape = (event) => {
-            if (event.key !== 'Escape') return;
-            event.stopPropagation();
-            close();
-        };
-        backdrop.addEventListener('click', (event) => {
-            const button = event.target.closest?.('[data-answer]');
-            if (button) {
-                const fields = {};
-                backdrop.querySelectorAll('input[name]').forEach((input) => {
-                    if (input.type === 'checkbox') fields[input.name] = input.checked;
-                    else if (input.type !== 'radio' || input.checked) fields[input.name] = input.value;
-                });
-                answer = { value: buttons[Number(button.getAttribute('data-answer'))].value, fields };
-                close();
-            } else if (event.target === backdrop) {
-                close();
-            }
-        });
-        tabScope.listen(document, 'keydown', onEscape, true);
-        document.body.appendChild(backdrop);
-    });
-}
-
-/** The tasks Start found using scripts this WebUI no longer has, as a list. */
-function missingHtml(missing) {
-    return `<p>These tasks use extensions this WebUI does not have now.
-        Run anyway, and they run without them.</p>
-        <ul class="queue-missing">${missing.map((m) => `<li><b>#${Number(m.task)}</b>
-            ${escapeHtml(String(m.prompt || '').slice(0, 80))}
-            <span class="queue-missing-names">${escapeHtml((m.missing || []).join(', '))}</span></li>`).join('')}</ul>`;
-}
-
 /** Whether to run tasks without the extensions they used: Cancel runs nothing. */
 async function runAnyway(missing) {
-    const go = await ask('Some tasks need missing extensions', missingHtml(missing), [
-        { label: 'Cancel', value: false },
-        { label: 'Run anyway', value: true, kind: 'primary' },
-    ]);
+    const go = await ask({
+        className: 'queue-dialog',
+        title: 'Some tasks need missing extensions',
+        message: 'These tasks use extensions this WebUI does not have now. Run anyway, and they run without them.',
+        list: missing.map((m) => ({ text: `#${Number(m.task)} ${String(m.prompt || '').slice(0, 80)}`,
+                                    detail: (m.missing || []).join(', ') })),
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Run anyway', value: true, type: 'primary' }],
+    });
     return Boolean(go?.value);
 }
 
@@ -623,18 +569,17 @@ async function cancelTasks(ids) {
 async function retry(ids) {
     if (!ids.length) return;
     const one = ids.length === 1;
-    const answer = await ask(one ? `Retry task #${Number(ids[0])}?` : `Retry ${ids.length} tasks?`, `
-        <p>${one ? 'A copy is' : 'Copies are'} queued at the end of the queue.</p>
-        <label class="queue-choice"><input type="radio" name="seed" value="first" checked>
-            The first run's seed: the same images again</label>
-        <label class="queue-choice"><input type="radio" name="seed" value="random">
-            A random seed</label>
-        <p class="queue-dialog-note">A task that never got a seed keeps the one it was queued with.</p>`, [
-        { label: 'Cancel', value: false },
-        { label: 'Retry', value: true, kind: 'primary' },
-    ]);
+    const answer = await ask({
+        className: 'queue-dialog',
+        title: one ? `Retry task #${Number(ids[0])}?` : `Retry ${ids.length} tasks?`,
+        message: `${one ? 'A copy is' : 'Copies are'} queued at the end of the queue.`,
+        choices: [{ label: "The first run's seed: the same images again", value: 'first', checked: true },
+                  { label: 'A random seed', value: 'random' }],
+        note: 'A task that never got a seed keeps the one it was queued with.',
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Retry', value: true, type: 'primary' }],
+    });
     if (!answer?.value) return;
-    const result = await post('/model-manager/queue/retry', { ids: ids.join(','), seed: answer.fields.seed || 'first' });
+    const result = await post('/model-manager/queue/retry', { ids: ids.join(','), seed: answer.choice || 'first' });
     if (!result?.success) {
         report(`Could not retry: ${result?.error || 'no answer'}`);
         return;
@@ -655,16 +600,18 @@ async function deleteTasks(ids) {
     if (!ids.length) return;
     const images = tasksOf(ids).reduce((n, t) => n + (Number(t.image_count) || 0), 0);
     const one = ids.length === 1;
-    const answer = await ask(one ? `Delete task #${Number(ids[0])}?` : `Delete ${ids.length} tasks?`, `
-        <p>${one ? 'It goes' : 'They go'} for good, with the files ${one ? 'it' : 'they'} kept to run.</p>
-        ${images ? `<label class="queue-choice"><input type="checkbox" name="with_data">
-            Also delete the ${plural(images, 'image')} ${one ? 'its run' : 'their runs'} made, files included</label>
-        <p class="queue-dialog-note">Otherwise the images stay in the Generations tab.</p>` : ''}`, [
-        { label: 'Cancel', value: false },
-        { label: 'Delete', value: true, kind: 'danger' },
-    ]);
+    const answer = await ask({
+        className: 'queue-dialog',
+        title: one ? `Delete task #${Number(ids[0])}?` : `Delete ${ids.length} tasks?`,
+        message: `${one ? 'It goes' : 'They go'} for good, with the files ${one ? 'it' : 'they'} kept to run.`,
+        ...(images ? {
+            tick: { label: `Also delete the ${plural(images, 'image')} ${one ? 'its run' : 'their runs'} made, files included` },
+            note: 'Otherwise the images stay in the Generations tab.',
+        } : {}),
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, type: 'danger' }],
+    });
     if (!answer?.value) return;
-    const withData = Boolean(answer.fields.with_data);
+    const withData = Boolean(images && answer.ticked);
     const result = await post('/model-manager/queue/delete', { ids: ids.join(','), with_data: String(withData) });
     if (!result?.success) {
         report(`Could not delete: ${result?.error || 'no answer'}`);
@@ -684,11 +631,12 @@ async function deleteTasks(ids) {
 async function clearHistory() {
     const total = endedCount();
     if (!total) return;
-    const answer = await ask(`Clear ${plural(total, 'task')} from History?`, `
-        <p>They are hidden, not deleted: the tasks, the images their runs made and their files all stay.</p>`, [
-        { label: 'Cancel', value: false },
-        { label: 'Clear history', value: true, kind: 'primary' },
-    ]);
+    const answer = await ask({
+        className: 'queue-dialog',
+        title: `Clear ${plural(total, 'task')} from History?`,
+        message: 'They are hidden, not deleted: the tasks, the images their runs made and their files all stay.',
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Clear history', value: true, type: 'primary' }],
+    });
     if (!answer?.value) return;
     const result = await post('/model-manager/queue/history/clear', {});
     report(result?.success ? `Hid ${plural(result.hidden, 'task')} from History.`
@@ -994,17 +942,18 @@ function asksFirst(tab, event) {
 /** The question: Generate, Queue or Cancel - and, with either of the first two, not again in this browser. */
 async function askLargeBatch(tab, generate) {
     const { count, size } = batchOf(tab);
-    const answer = await ask(`Generate ${count * size} images?`, `
-        <p>Batch count ${count} × batch size ${size} makes more than ${askAbove} images.</p>
-        <p>Queue it instead, to run later from the Queue tab?</p>
-        <label class="queue-choice"><input type="checkbox" name="never"> Don't ask again in this browser</label>`, [
-        { label: 'Cancel', value: 'cancel' },
-        { label: 'Queue', value: 'queue' },
-        { label: 'Generate', value: 'generate', kind: 'primary' },
-    ]);
+    const answer = await ask({
+        className: 'queue-dialog',
+        title: `Generate ${count * size} images?`,
+        message: [`Batch count ${count} × batch size ${size} makes more than ${askAbove} images.`,
+                  'Queue it instead, to run later from the Queue tab?'],
+        tick: { label: "Don't ask again in this browser" },
+        buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Queue', value: 'queue' },
+                  { label: 'Generate', value: 'generate', type: 'primary' }],
+    });
     const choice = answer?.value;
     if (choice !== 'generate' && choice !== 'queue') return;
-    if (answer.fields.never) {
+    if (answer.ticked) {
         try {
             localStorage.setItem(NEVER_ASK, 'true');
         } catch (e) { /* no storage here: asked again next time */ }

@@ -57,11 +57,11 @@ function press(tab, person = true) {
     if (person) Object.defineProperty(event, 'isTrusted', { value: true });
     byId(`${tab}_generate`).dispatchEvent(event);
 }
-const dialog = () => document.querySelector('.queue-dialog');
+const dialog = () => document.querySelector('dialog.queue-dialog[open]');
 async function answer(label, never = false) {
     await waitFor(`the question, for ${label}`, () => dialog());
     const asked = dialog()?.textContent.replace(/\s+/g, ' ').trim();
-    if (never && dialog()) dialog().querySelector('input[name="never"]').checked = true;
+    if (never && dialog()) dialog().querySelector('[data-tick]').checked = true;
     [...(dialog()?.querySelectorAll('button') || [])].find((b) => b.textContent.trim() === label)?.click();
     await new Promise((resolve) => setTimeout(resolve, 10));
     return asked;

@@ -14,6 +14,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 const { refreshWebUiModelLists } = await shared('downloads.mjs');
+const { ask } = await shared('dialog.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -517,59 +518,19 @@ export function imageCountNotice(options, keep, { one = false } = {}) {
  * of what the choice does. Resolves to { keep }, or null for Cancel.
  * `options` is the estimate's image_options over the model's files.
  */
-export function askImageCount(options) {
-    return new Promise((resolve) => {
-        let answer = null;
-        const cost = (option) => `~${((option?.requests || 0) + (option?.prompts || 0)).toLocaleString()} req`;
-        const backdrop = document.createElement('div');
-        backdrop.className = 'mm-dialog-backdrop';
-        backdrop.innerHTML = `
-            <div class="mm-dialog mm-image-count-dialog" role="dialog" aria-modal="true">
-                <h3>Sync this model</h3>
-                <div class="mm-dialog-section">
-                    <label class="mm-dialog-option">
-                        <input type="radio" name="mm_sync_model_count" value="kept" checked>
-                        <span>As many images as it has now</span>
-                        <span class="mm-dialog-cost">${escapeHtml(cost(options.kept))}</span>
-                    </label>
-                    <label class="mm-dialog-option">
-                        <input type="radio" name="mm_sync_model_count" value="first">
-                        <span>First ${escapeHtml(String(options.page))} images of each version</span>
-                        <span class="mm-dialog-cost">${escapeHtml(cost(options.first))}</span>
-                    </label>
-                </div>
-                <div class="mm-dialog-notice"></div>
-                <div class="mm-dialog-actions">
-                    <button type="button" class="mm-btn secondary" data-close>Cancel</button>
-                    <button type="button" class="mm-btn primary" data-confirm>Sync</button>
-                </div>
-            </div>`;
-        const keep = () => backdrop.querySelector('input[name="mm_sync_model_count"]:checked')?.value !== 'first';
-        const say = () => setText(backdrop.querySelector('.mm-dialog-notice'), imageCountNotice(options, keep(), { one: true }));
-        const close = () => {
-            if (!backdrop.isConnected) return;
-            backdrop.remove();
-            document.removeEventListener('keydown', onEscape, true);
-            resolve(answer);
-        };
-        const onEscape = (event) => {
-            if (event.key !== 'Escape') return;
-            event.stopPropagation();
-            close();
-        };
-        backdrop.addEventListener('change', say);
-        backdrop.addEventListener('click', (event) => {
-            if (event.target.closest?.('[data-confirm]')) {
-                answer = { keep: keep() };
-                close();
-            } else if (event.target === backdrop || event.target.closest?.('[data-close]')) {
-                close();
-            }
-        });
-        document.addEventListener('keydown', onEscape, true);
-        say();
-        document.body.appendChild(backdrop);
+export async function askImageCount(options) {
+    const cost = (option) => `~${((option?.requests || 0) + (option?.prompts || 0)).toLocaleString()} req`;
+    const answer = await ask({
+        className: 'mm-image-count-dialog',
+        title: 'Sync this model',
+        choices: [
+            { label: 'As many images as it has now', value: 'kept', note: cost(options.kept), checked: true },
+            { label: `First ${options.page} images of each version`, value: 'first', note: cost(options.first) },
+        ],
+        note: ({ choice }) => imageCountNotice(options, choice !== 'first', { one: true }),
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Sync', value: true, type: 'primary' }],
     });
+    return answer?.value ? { keep: answer.choice !== 'first' } : null;
 }
 
 /** A window dropdown, each option carrying how many models it would take. */

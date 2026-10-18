@@ -107,13 +107,13 @@ if (input) {
     await waitFor('the save', () => savedPath !== '');
     await new Promise((resolve) => setTimeout(resolve, 50));
 }
-const restart = popup()?.querySelector('[data-reload="restart"]');
+const restart = popup()?.querySelector('[data-value="restart"]');
 check('a new database file saved: Restart WebUI is offered, saying why',
       [savedPath, Boolean(restart), restart?.disabled, /database file/i.test(popup()?.textContent || '')],
       ['F:\\mine\\models2.db', true, false, true]);
 check('with no page reload beside it: the page alone cannot open the file',
-      Boolean(popup()?.querySelector('[data-reload="page"], [data-reload="ui"]')), false);
-popup()?.querySelector('[data-reload="later"]')?.click();
+      Boolean(popup()?.querySelector('[data-value="page"], [data-value="ui"]')), false);
+popup()?.querySelector('[data-value="later"]')?.click();
 window.dispatchEvent(new window.CustomEvent('mm-settings-saved', { detail: {
     changed: ['model_manager_page_size'], settings: { model_manager_page_size: { value: 30 } } } }));
 await new Promise((resolve) => setTimeout(resolve, 50));

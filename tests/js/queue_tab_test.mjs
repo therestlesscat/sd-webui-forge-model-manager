@@ -269,7 +269,7 @@ async function answer(label, setup = () => {}) {
     const dialog = document.querySelector('.queue-dialog');
     if (!dialog) return {};
     const asked = { text: dialog.textContent.replace(/\s+/g, ' ').trim(),
-                    seed: [...dialog.querySelectorAll('input[name="seed"]')].find((r) => r.checked)?.value };
+                    seed: [...dialog.querySelectorAll('input[type="radio"]')].find((r) => r.checked)?.value };
     setup(dialog);
     [...dialog.querySelectorAll('button')].find((b) => b.textContent === label)?.click();
     return asked;
@@ -292,7 +292,7 @@ check('saying how it went', text('queue_report'), 'Queued 1 copy.');
 
 bodies.length = 0;
 doing = act('queue.delete', { task: 14 });
-question = await answer('Delete', (d) => { d.querySelector('input[name="with_data"]').checked = true; });
+question = await answer('Delete', (d) => { d.querySelector('[data-tick]').checked = true; });
 await doing;
 check('Delete asks whether the images its run made go too',
       [question.text.includes('Also delete the 7 images its run made, files included'), bodies[0]],
@@ -490,9 +490,10 @@ await waitFor('the question', () => document.querySelector('.queue-dialog'));
 const dialog = document.querySelector('.queue-dialog');
 if (!dialog) done();
 check('Start asks before running tasks whose extensions are gone',
-      [dialog.querySelector('.queue-missing li b')?.textContent, dialog.querySelector('.queue-missing-names')?.textContent],
-      ['#16', 'Some Extension']);
-check('their prompt as text', dialog.querySelector('.queue-missing b + b'), null);
+      [dialog.querySelector('.mm-question-list li span')?.textContent.startsWith('#16 '),
+       dialog.querySelector('.mm-question-list .mm-question-detail')?.textContent],
+      [true, 'Some Extension']);
+check('their prompt as text', dialog.querySelector('.mm-question-list b'), null);
 [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click();
 await new Promise((resolve) => setTimeout(resolve, 100));
 check('Cancel starts nothing', posted, ['/model-manager/queue/start']);

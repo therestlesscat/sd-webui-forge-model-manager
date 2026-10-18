@@ -289,6 +289,99 @@ function classicGrid() {
 }
 
 /**
+ * The browser's <dialog>, which linkedom (0.18.13) lacks (#292): showModal()
+ * puts it on a stack - the top layer - and close() takes it off, saying so
+ * with a close event. And focus, which linkedom does not track: focus() makes
+ * an element the document's activeElement.
+ */
+function dialogStandIn(window) {
+    const document = window.document;
+    const layer = [];
+    window.__topLayer = layer;
+    const proto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElement('div')));
+    let focused = null;
+    Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        get: () => (focused?.isConnected ? focused : document.body),
+    });
+    proto.focus = function focus() { focused = this; };
+    proto.blur = function blur() { if (focused === this) focused = null; };
+    Object.defineProperty(proto, 'open', {
+        configurable: true,
+        get() { return this.hasAttribute('open'); },
+        set(value) { this.toggleAttribute('open', Boolean(value)); },
+    });
+    proto.showModal = function showModal() {
+        if (this.hasAttribute('open')) throw new Error('InvalidStateError: the dialog is already open');
+        this.setAttribute('open', '');
+        layer.push(this);
+    };
+    proto.close = function close(returnValue) {
+        if (!this.hasAttribute('open')) return;
+        this.removeAttribute('open');
+        if (returnValue !== undefined) this.returnValue = returnValue;
+        const at = layer.indexOf(this);
+        if (at >= 0) layer.splice(at, 1);
+        this.dispatchEvent(new window.Event('close'));
+    };
+}
+
+/**
+ * Esc, as a browser delivers it with a modal dialog open: the key to what has
+ * focus, bubbling; then, unless a listener held it back, cancel on the top
+ * dialog, which closes it unless held back too. Returns the dialog it reached.
+ */
+export function escape() {
+    const window = globalThis.window;
+    const document = window.document;
+    const target = document.activeElement && document.activeElement !== document.body
+        ? document.activeElement : (window.__topLayer?.at(-1) || document.body);
+    const key = new window.Event('keydown', { bubbles: true, cancelable: true });
+    key.key = 'Escape';
+    window.event = key;
+    try {
+        target.dispatchEvent(key);
+    } finally {
+        window.event = undefined;
+    }
+    // The top dialog once the key's listeners have run: one they opened is
+    // the one the press would cancel, as a browser's is.
+    const top = window.__topLayer?.at(-1) ?? null;
+    if (key.defaultPrevented || !top) return top;
+    const cancel = new window.Event('cancel', { cancelable: true });
+    top.dispatchEvent(cancel);
+    if (!cancel.defaultPrevented) top.close();
+    return top;
+}
+
+/**
+ * Answer each question as it opens (#292), where a suite stubbed confirm():
+ * `pick(dialog, words)` returns the value of the button to press - as the
+ * question's buttons carry it, data-value - or undefined to leave it to the
+ * suite. Pressed a moment after it opens, as a person would: the question is
+ * not yet the dialog module's as it shows. Returns the words of every
+ * question asked, its title and message, in order.
+ */
+export function answerQuestions(pick) {
+    const window = globalThis.window;
+    const asked = [];
+    const proto = Object.getPrototypeOf(Object.getPrototypeOf(window.document.createElement('div')));
+    const showModal = proto.showModal;
+    proto.showModal = function answered() {
+        showModal.call(this);
+        if (!this.classList.contains('mm-question')) return;
+        const words = [this.querySelector('h3'), ...this.querySelectorAll('.mm-question-message')]
+            .filter(Boolean).map((e) => e.textContent.replace(/\s+/g, ' ').trim()).join(' ');
+        asked.push(words);
+        const value = pick(this, words);
+        if (value === undefined) return;
+        setTimeout(() => this.querySelector(`[data-value="${value}"]`)
+            ?.dispatchEvent(new window.Event('click', { bubbles: true })), 0);
+    };
+    return asked;
+}
+
+/**
  * Put a tab's markup and the globals it needs in place.
  *
  * @param {string} tabFile - the tab's Python file, relative to the extension.
@@ -309,6 +402,7 @@ export function mountTab(tabFile) {
     globalThis.DOMParser = window.DOMParser;
     globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
     gridLayout(window);
+    dialogStandIn(window);
     globalThis.gradioApp = () => window.document;
     globalThis.onUiLoaded = (cb) => cb();
     globalThis.onAfterUiUpdate = () => {};

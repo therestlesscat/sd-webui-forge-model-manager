@@ -47,8 +47,9 @@ const restart = Array.from(document.querySelectorAll('.mm-reload-dialog button')
 const why = 'This WebUI was not started by webui.bat or webui.sh: a restart would leave it shut down';
 check('Restart WebUI disabled, saying why, on it and under the tabs',
       [restart?.disabled, restart?.title,
-       document.querySelector('.mm-reload-dialog .mm-reload-notes p')?.textContent.trim()], [true, why, `${why}.`]);
+       Array.from(document.querySelectorAll('.mm-reload-dialog .mm-question-message'))
+           .map((p) => p.textContent.trim()).find((p) => p.startsWith('This WebUI'))], [true, why, `${why}.`]);
 check('the lighter way offered first',
-      document.querySelector('.mm-reload-dialog [data-reload="page"]')?.classList.contains('primary'), true);
+      document.querySelector('.mm-reload-dialog [data-value="page"]')?.classList.contains('primary'), true);
 
 done();

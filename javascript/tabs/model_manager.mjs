@@ -17,7 +17,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
     'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'send.mjs',
-    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs'];
+    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -77,6 +77,7 @@ await shared('settings.mjs');
 // page was; the button before Load Models goes back there - or to the image
 // sent. Kept in the browser's storage, so it survives a reload.
 const { previousPosition } = await shared('previous_position.mjs');
+const { ask, showProgress } = await shared('dialog.mjs');
 const previousPlace = previousPosition({ id: 'mm_scroll_restore_btn', action: 'modelManager.restoreScrollPosition',
                                          row: '.filter-buttons-row', before: 'mm_load_btn', storageKey: 'mm_scroll' });
 
@@ -1651,37 +1652,12 @@ function toggleDescription() {
     }
 }
 
-// Show sync loading overlay
-function showSyncOverlay(message) {
-    // Remove existing overlay if any
-    hideSyncOverlay();
-
-    const overlay = document.createElement('div');
-    overlay.className = 'mm-sync-overlay';
-    overlay.id = 'mm_sync_overlay';
-    overlay.innerHTML = `
-        <div class="mm-sync-popup">
-            <div class="mm-sync-spinner"></div>
-            <div class="mm-sync-status">${escapeHtml(message)}</div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-    document.body.style.overflow = 'hidden';
-}
-
-function updateSyncOverlay(message) {
-    const status = document.querySelector('#mm_sync_overlay .mm-sync-status');
-    if (status) {
-        status.textContent = message;
-    }
-}
+// A model's sync under way: the progress popup, while its request runs.
+let syncProgress = null;
 
 function hideSyncOverlay() {
-    const overlay = document.getElementById('mm_sync_overlay');
-    if (overlay) {
-        overlay.remove();
-    }
-    document.body.style.overflow = '';
+    syncProgress?.close();
+    syncProgress = null;
 }
 
 // Force sync model and all versions
@@ -1717,7 +1693,7 @@ async function forceSyncModel() {
     if (!answer) return;
 
     try {
-        showSyncOverlay('Syncing model data...');
+        syncProgress = showProgress('Syncing model data...');
 
         const response = await fetch('/model-manager/models/force-sync', {
             method: 'POST',
@@ -1872,21 +1848,21 @@ async function deleteModel(scope = 'version', file = null) {
     const all = targets.length > 1;
     const versions = versionCount(localFiles());
     const name = (v) => v.version_name || v.file_name || 'this version';
-    const listed = all ? ':\n' + targets.map((v) => `• ${name(v)} (${v.file_name})`).join('\n') : '';
-    const what = (scope === 'file' ? `the file ${shown.file_name} of "${model.display_name}"`
+    const what = scope === 'file' ? `the file ${shown.file_name} of "${model.display_name}"`
         : scope === 'all' && versions > 1 ? `all ${versions} versions of "${model.display_name}"`
         : versions > 1 ? `version "${name(shown)}" of "${model.display_name}"`
-        : `"${model.display_name}"`) + listed;
+        : `"${model.display_name}"`;
 
-    const confirmed = confirm(
-        `Are you sure you want to delete ${what}?\n\n` +
-        `This will delete, for ${all ? 'each' : 'it'}:\n` +
-        `• The model file\n` +
-        `• All metadata files (.civitai.info, .preview.png, etc.)\n` +
-        `• The folder its download made, once empty\n\n` +
-        `This action cannot be undone.`
-    );
-    if (!confirmed) return;
+    const answer = await ask({
+        className: 'mm-model-delete-dialog',
+        title: `Are you sure you want to delete ${what}?`,
+        message: `This will delete, for ${all ? 'each' : 'it'}: the model file, all metadata files `
+            + '(.civitai.info, .preview.png, etc.) and the folder its download made, once empty.',
+        list: all ? targets.map((v) => ({ text: name(v), detail: v.file_name })) : null,
+        note: 'This action cannot be undone.',
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, type: 'danger' }],
+    });
+    if (!answer?.value) return;
 
     setStatus(all ? `Deleting ${targets.length} files...` : 'Deleting model...');
     const failed = [];

@@ -2405,29 +2405,7 @@ body.mm-modal-open {
     background: #047857 !important;
 }
 
-/* Sync loading overlay */
-.mm-sync-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-}
-
-.mm-sync-popup {
-    background: var(--panel-background-fill, #1f2937);
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 8px;
-    padding: 24px 32px;
-    text-align: center;
-    min-width: 250px;
-}
-
+/* The progress popup's turning circle (shared/dialog.mjs, showProgress). */
 .mm-sync-spinner {
     width: 40px;
     height: 40px;
@@ -2440,11 +2418,6 @@ body.mm-modal-open {
 
 @keyframes mm-spin {
     to { transform: rotate(360deg); }
-}
-
-.mm-sync-status {
-    color: var(--body-text-color, #fff);
-    font-size: 0.95em;
 }
 
 /* Scroll to Top Button */
@@ -3149,6 +3122,105 @@ body.mm-modal-open {
 }
 
 /* ============================================================
+   Dialogs (#292, shared/dialog.mjs)
+   The browser's <dialog>, opened as modal: the container clears its own
+   look - border, padding, a white box - so what shows is the dialog's
+   content, and draws the backdrop behind it, once for every dialog. A
+   question lays out its parts on the same box the windows use (.mm-dialog).
+   It sits on the page's body, outside Gradio's container: its controls are
+   the browser's, and it states its own colours.
+   ============================================================ */
+
+.mm-layer {
+    box-sizing: border-box;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--body-text-color, #1f2937);
+    max-width: calc(100vw - 40px);
+    max-height: calc(100vh - 40px);
+    overflow: visible;
+}
+
+.mm-layer::backdrop {
+    background: rgba(0, 0, 0, 0.7);
+}
+
+/* As wide as the questions were on their own backdrops: half the window less
+   its 20 px margins - the window's width without its scrollbar, 100% to a
+   modal dialog - at most 800 px. */
+.mm-question {
+    width: min(calc((100% - 40px) * 0.5), 800px);
+}
+
+/* Its box is the windows' (.mm-dialog), without their half-window cap. */
+.mm-question .mm-question-box {
+    max-width: none;
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+}
+
+.mm-question-message {
+    margin: 0 0 10px;
+    line-height: 1.5;
+}
+
+.mm-question-list {
+    max-height: 40vh;
+    overflow: auto;
+    margin: 0 0 10px;
+    padding-left: 1.2em;
+}
+
+.mm-question-detail {
+    display: block;
+    font-size: 0.9em;
+    color: var(--body-text-color-subdued, #6b7280);
+}
+
+.mm-question-tick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.mm-question-choices {
+    margin: 0 0 8px;
+}
+
+.mm-question-note {
+    margin: 8px 0 0;
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* An error in a note: red that reads on each mode's dialog. */
+.mm-question-error {
+    color: #dc2626;
+}
+
+.dark .mm-question-error {
+    color: #f87171;
+}
+
+/* The progress popup: a turning circle over a line, centred, as the sync's
+   popup was. */
+.mm-progress {
+    width: auto;
+    min-width: 250px;
+}
+
+.mm-progress .mm-question-box {
+    text-align: center;
+    padding: 24px 32px;
+}
+
+.mm-progress .mm-question-message {
+    margin: 0;
+}
+
+/* ============================================================
    Sync dialog
    Which models to refresh, how much of each, and what it costs.
    ============================================================ */
@@ -3304,31 +3376,6 @@ body.mm-modal-open {
 
 .dark .mm-dialog-estimate {
     background: rgba(255, 255, 255, 0.07);
-}
-
-/* The restart-or-reload popup (shared/loading.mjs, #186): what each way
-   costs, under the tabs it is for. Faded rather than coloured, so it reads in
-   either mode. */
-.mm-reload-notes {
-    font-size: 12px;
-    line-height: 1.5;
-    opacity: 0.75;
-    margin: 12px 0 16px;
-}
-
-.mm-reload-notes p {
-    margin: 0 0 4px;
-}
-
-/* A restart the server refused: red that reads on each mode's dialog. */
-.mm-reload-error {
-    color: #dc2626;
-    font-size: 12px;
-    margin: 0 0 12px;
-}
-
-.dark .mm-reload-error {
-    color: #f87171;
 }
 
 .mm-dialog-actions {
@@ -4970,15 +5017,7 @@ textarea.mm-settings-input {
     margin-top: 8px;
 }
 
-.mm-delete-files {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-}
-
 /* A line under a dialog's option saying what it does. */
-.mm-delete-note,
 .mm-dialog-note {
     margin: 8px 0 0;
     font-size: 0.85em;
@@ -5335,20 +5374,6 @@ textarea.mm-settings-input {
     display: none !important;
 }
 
-/* A dialog's choices: Retry's seed, Delete's images. */
-.queue-choice {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 6px 0;
-    cursor: pointer;
-}
-
-.queue-dialog-note {
-    font-size: 0.9em;
-    color: var(--body-text-color-subdued, #6b7280) !important;
-}
-
 /* A task's details: wider than an image's metadata, a section per script. */
 .mm-modal.queue-details {
     max-width: 960px;
@@ -5388,22 +5413,6 @@ textarea.mm-settings-input {
     width: 220px;
     white-space: normal;
     overflow-wrap: anywhere;
-}
-
-/* Start's question: the tasks whose extensions are gone. */
-.queue-missing {
-    max-height: 40vh;
-    margin: 8px 0;
-    overflow: auto;
-}
-
-.queue-missing-names {
-    display: block;
-    color: #b45309 !important;
-}
-
-.dark .queue-missing-names {
-    color: #fbbf24 !important;
 }
 
 /* A file in a folder this WebUI does not load (#195): beside its name in a

@@ -55,8 +55,12 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the Queue tab to start', () => globalThis.__mmOffered?.has('queue.start'));
 
 const popup = () => document.querySelector('.mm-reload-dialog');
-const said = () => popup()?.querySelector('.mm-reload-list')?.textContent.replace(/\s+/g, ' ').trim();
-const notes = () => popup()?.querySelector('.mm-reload-notes')?.textContent.replace(/\s+/g, ' ').trim();
+// The question's message (#292): a line per tab waiting, then what each way costs.
+const NOTE = /^(Restart WebUI starts|Reloading loses|This WebUI was not started)/;
+const paragraphs = () => Array.from(popup()?.querySelectorAll('.mm-question-message') || [])
+    .map((p) => p.textContent.replace(/\s+/g, ' ').trim());
+const said = () => paragraphs().filter((p) => !NOTE.test(p)).join(' ') || undefined;
+const notes = () => paragraphs().filter((p) => NOTE.test(p)).join(' ') || undefined;
 const buttons = () => Array.from(popup()?.querySelectorAll('button') || []).map((b) => b.textContent.trim());
 const button = (label) => Array.from(popup()?.querySelectorAll('button') || []).find((b) => b.textContent.trim() === label);
 const press = (label) => button(label)?.dispatchEvent(new window.Event('click', { bubbles: true }));
@@ -79,6 +83,8 @@ check('what each way costs, said', notes(),
       'Restart WebUI starts the server and the page afresh: the cleanest slate. A running generation and sync '
       + 'end. Downloads come back paused: resume them after. '
       + 'Reloading loses unsaved input, like a typed prompt.');
+check('focus on Later, not on Restart WebUI, which comes first: Enter restarts nothing',
+      document.activeElement?.textContent.trim(), 'Later');
 press('Later');
 check('Later closes it, and reloads nothing', [popup(), reloaded, restarted], [null, 0, 0]);
 
@@ -133,9 +139,9 @@ restartAnswer = { success: false, error: 'This WebUI was not started by webui.ba
 save({ model_manager_queue_enabled: false });
 await waitFor('the popup', () => popup());
 press('Restart WebUI');
-await waitFor('the refusal', () => popup()?.querySelector('.mm-reload-error'));
+await waitFor('the refusal', () => popup()?.querySelector('.mm-question-error'));
 check('refused: the popup stays, says why, and Restart WebUI can be pressed again',
-      [popup()?.querySelector('.mm-reload-error')?.textContent.trim(), button('Restart WebUI')?.disabled, restarted],
+      [popup()?.querySelector('.mm-question-error')?.textContent.trim(), button('Restart WebUI')?.disabled, restarted],
       ['The WebUI did not restart: This WebUI was not started by webui.bat or webui.sh', false, 1]);
 press('Later');
 

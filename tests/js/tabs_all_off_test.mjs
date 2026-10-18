@@ -40,8 +40,8 @@ check('the only hook is what keeps the tabs\' buttons as their switches say', ho
 settingsPageApplied({ model_manager_civitai_browser_enabled: true });
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('a switch turned on on the Settings page: the popup offers Reload UI, asking nothing',
-      [document.querySelector('.mm-reload-dialog .mm-reload-list')?.textContent.trim(),
-       document.querySelector('.mm-reload-dialog [data-reload="ui"]')?.textContent.trim(), asked.length],
+      [document.querySelector('.mm-reload-dialog .mm-question-message')?.textContent.trim(),
+       document.querySelector('.mm-reload-dialog [data-value="ui"]')?.textContent.trim(), asked.length],
       ['The Civitai Browser tab is created by Settings -> Reload UI.', 'Reload UI', 2]);
 
 done();

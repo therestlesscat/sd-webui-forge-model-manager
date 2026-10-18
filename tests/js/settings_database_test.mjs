@@ -2,7 +2,7 @@
 // settings window (#287): the Compact database line in each state, its
 // question, following a compact to its end, Cancel; the backups, each line,
 // Delete's and Delete all's questions, names sent and never paths.
-import { call, checker, mountTab, startTab } from './harness.mjs';
+import { answerQuestions, call, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits, shortened (TIMING): a running compact's poll, the ask
@@ -65,12 +65,9 @@ globalThis.fetch = async (url, init = {}) => {
     return json({ success: true, models: [], total: 0 });
 };
 
-const asked = [];
+// Each question answered as confirmAnswer says (#292): its main button, or Cancel.
 let confirmAnswer = true;
-window.confirm = (text) => {
-    asked.push(text);
-    return confirmAnswer;
-};
+const asked = answerQuestions(() => String(confirmAnswer));
 
 await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
