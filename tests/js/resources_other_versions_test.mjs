@@ -69,7 +69,7 @@ const picker = () => modal()?.querySelector('[data-action="resources.chooseVersi
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
 const note = () => modal()?.querySelector('[data-res-note]')?.textContent || '';
 const versionsAsked = () => asked.filter((h) => h.includes('/other-versions'));
-const close = () => document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 const NOTE = 'The checkpoint this image was made with, A Checkpoint, is not in your library. Download it here, then press Send.';
 
 // ------------------------------------------------- one other version held

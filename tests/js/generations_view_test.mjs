@@ -212,7 +212,7 @@ window.innerHeight = 900;
 // All three tabs are one page, and the Model Manager keeps its sync dialog
 // in its markup, hidden: the keys took it for an open question, and did
 // nothing. One is here too.
-document.body.insertAdjacentHTML('beforeend', '<div class="mm-dialog-backdrop" style="display: none;"></div>');
+document.body.insertAdjacentHTML('beforeend', '<dialog class="mm-window"></dialog>');
 
 // Gradio draws the tab's markup after the page is ready, and the script runs
 // before it: the first load found no grid to draw into, and the tab stayed

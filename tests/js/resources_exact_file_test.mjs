@@ -56,7 +56,7 @@ await startServices('core.mjs', 'calls.mjs', 'downloads.mjs', 'resources.mjs');
 const image = { meta: { resources: [{ type: 'Checkpoint', name: 'CyberRealistic Classic', weight: null, hash: HASH }] } };
 const modal = () => document.querySelector('.mm-resources-modal');
 const row = () => modal()?.querySelector('.mm-resources-table tbody tr');
-const close = () => document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 
 // ------------------------------------------------------- opened from a card
 await showImageResources(image, null);

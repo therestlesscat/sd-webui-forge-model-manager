@@ -119,7 +119,7 @@ await waitFor('the start', () => posted.length);
 check('Start sends the ticked folders, the level and the grouping',
       [posted[0][0], JSON.parse(posted[0][1].folders), posted[0][1].level, posted[0][1].group],
       ['/model-manager/generations/sync', [FORGE, IMG2IMG], 'PG', 'false']);
-await waitFor('the dialog closed and the panel shown', () => dialog.style.display === 'none' && !panel().hidden);
+await waitFor('the dialog closed and the panel shown', () => !dialog.open && !panel().hidden);
 check('the dialog closes, and the panel follows the sync', text('gen_sync_text'), `Looking for new images in ${FORGE}...`);
 
 // ------------------------------------------------- errors, cancel, how it ended

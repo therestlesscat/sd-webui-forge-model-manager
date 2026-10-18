@@ -2027,7 +2027,7 @@ function init() {
 
     // Esc closes the tag suggestions, then the open model - this tab's, while
     // it is the one showing and nothing is open over it. A dialog or a viewer
-    // closes itself (closeOnEscape); this used to close the first modal on
+    // closes itself (shared/dialog.mjs, viewer.mjs); this used to close the first modal on
     // the page whatever tab it was, and the open model with any Escape.
     tabScope.listen(document, 'keydown', (e) => {
         if (e.key !== 'Escape' || dialogShowing() || viewerIsOpen()) return;

@@ -268,9 +268,9 @@ const slow = act('modelManager.showResources', { index: 0 });
 await waitFor('the slow lookup to be in flight', () => resolveCalls.length > 0);
 
 // Meanwhile the panel is closed and a different one opened in its place.
-document.querySelector('.mm-modal-overlay')?.remove();
+document.querySelector('#mm_meta_modal')?.close();
 document.body.insertAdjacentHTML('beforeend',
-    '<div class="mm-modal-overlay"><div class="mm-modal mm-resources-modal" id="newer-panel"></div></div>');
+    '<dialog class="mm-window" id="newer_panel_window"><div class="mm-modal mm-resources-modal" id="newer-panel"></div></dialog>');
 resolver.hold = null;
 await act('modelManager.showResources', { index: 0 });
 const newer = panel();
@@ -318,7 +318,8 @@ const cell = (id) => panel()?.querySelector(`[data-res-download="${id}"]`);
 // The row's own Download, pressed: what it carries is part of what is checked.
 const download = (id) => press(cell(id).querySelector('button'));
 
-document.querySelector('.mm-modal-overlay')?.remove();
+document.querySelector('#mm_meta_modal')?.close();
+document.getElementById('newer_panel_window')?.remove();
 await act('modelManager.showResources', { index: 0 });
 await waitFor('the installed check', () => cell(6002)?.textContent.includes('Installed'));
 check('a version the library has says so, and offers no download',
@@ -359,7 +360,7 @@ check('with no model id to send, none is sent - the server looks it up',
 // A model id the image does carry is passed along, saving that lookup; and a
 // download that fails says so, and can be tried again.
 IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Third', modelVersionId: 6003, modelId: 4103 });
-document.querySelector('.mm-modal-overlay')?.remove();
+document.querySelector('#mm_meta_modal')?.close();
 await act('modelManager.showResources', { index: 0 });
 await waitFor('the panel again', () => !!cell(6003)?.querySelector('button'));
 server.download[6003] = { success: false, error: 'Early access: needs an API key' };
@@ -372,7 +373,7 @@ check('a failed download says so, with the reason on hover, and can be tried aga
 
 // Not found is for good: the version and its whole model are gone.
 IMAGE.meta.civitaiResources.push({ type: 'LORA', name: 'Gone', modelVersionId: 6004, modelId: 4104 });
-document.querySelector('.mm-modal-overlay')?.remove();
+document.querySelector('#mm_meta_modal')?.close();
 await act('modelManager.showResources', { index: 0 });
 await waitFor('the panel again', () => !!cell(6004)?.querySelector('button'));
 server.download[6004] = { status: 404, success: false, error: 'Model not found on Civitai' };

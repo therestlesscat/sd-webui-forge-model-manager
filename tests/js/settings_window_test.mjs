@@ -226,7 +226,7 @@ function pick(el) {
 }
 
 await call('settings.open');
-check('it opens', $('#mm_settings')?.style.display, 'flex');
+check('it opens', $('#mm_settings')?.open, true);
 check('on the page body, outside anything Gradio redraws', $('#mm_settings')?.parentElement, document.body);
 check('asking the server, each time it opens', settingsAsked, 1);
 
@@ -442,7 +442,7 @@ type($('#mm_settings_search'), '');
 // ------------------------------------------------------ closing, saving
 confirmAnswer = false;
 $('[data-act="cancel"]').click();
-check('closing with changes asks, and stays open when told to', $('#mm_settings').style.display, 'flex');
+check('closing with changes asks, and stays open when told to', $('#mm_settings').open, true);
 
 heard.length = 0;
 $('#mm_settings_save').click();
@@ -453,7 +453,7 @@ check('a save sends what changed, and only that', posted[0], {
     model_manager_card_size: '160x224',
     model_manager_nsfw_prompt_model_percent: 3,
 });
-check('the window closes', $('#mm_settings').style.display, 'none');
+check('the window closes', $('#mm_settings').open, false);
 check('and the tabs are told what changed', saved[0].sort(), Object.keys(posted[0]).sort());
 check('the Settings page\'s own fields are set to what was saved',
       Array.from(document.querySelectorAll('#setting_model_manager_page_size input')).map((i) => i.value), ['30', '30']);

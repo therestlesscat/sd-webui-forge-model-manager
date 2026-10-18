@@ -258,7 +258,7 @@ export function showImageMeta(img) {
 
     // Create modal
     const modalHtml = `
-        <div class="mm-modal-overlay" id="mm_meta_modal">
+        <dialog class="mm-window" id="mm_meta_modal">
             <div class="mm-modal">
                 <div class="mm-modal-header">
                     <h3>Image Metadata</h3>
@@ -275,7 +275,7 @@ export function showImageMeta(img) {
                     <button class="mm-btn secondary" data-copy="${escapeHtml(JSON.stringify(meta, null, 2))}">Copy JSON</button>
                 </div>
             </div>
-        </div>
+        </dialog>
     `;
 
     openMetaModal(modalHtml);

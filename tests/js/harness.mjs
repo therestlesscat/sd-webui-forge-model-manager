@@ -294,7 +294,7 @@ function classicGrid() {
  * with a close event. And focus, which linkedom does not track: focus() makes
  * an element the document's activeElement.
  */
-function dialogStandIn(window) {
+export function dialogStandIn(window) {
     const document = window.document;
     const layer = [];
     window.__topLayer = layer;

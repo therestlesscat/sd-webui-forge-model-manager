@@ -187,7 +187,7 @@ await act('modelManager.showGenerationResources', { generation: 1 });
 const modal = document.querySelector('.mm-resources-modal');
 check('which opens the Resources dialog on them, as a Civitai image\'s does',
       Array.from(modal?.querySelectorAll('.mm-res-name') || []).map((n) => n.textContent.trim()), ['Add Detail v1']);
-document.querySelectorAll('.mm-modal-overlay').forEach((overlay) => overlay.remove());
+document.querySelectorAll('#mm_meta_modal').forEach((overlay) => overlay.close());
 
 // The viewer: a click on an image opens it on the images the cards show, each
 // with its own Send, Resources, Delete and rating.

@@ -93,9 +93,8 @@ def create_generations_ui():
                 </div>
                 <div id="gen_grid" class="gen-grid"></div>
                 <!-- Sync images' dialog: the folders, what is new in each, and how -->
-                <div id="gen_sync_dialog" class="mm-dialog-backdrop" style="display: none;"
-                     data-action="generations.syncDialogBackdrop">
-                    <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="gen_sync_dialog_title">
+                <dialog id="gen_sync_dialog" class="mm-window" aria-labelledby="gen_sync_dialog_title">
+                    <div class="mm-dialog">
                         <h3 id="gen_sync_dialog_title">Sync images</h3>
                         <div class="mm-dialog-note">Adds the images already in these folders to this tab, as
                             generations. The files stay where they are. Images already here are left as they are.</div>
@@ -155,7 +154,7 @@ def create_generations_ui():
                                     data-action="generations.startSync">Start</button>
                         </div>
                     </div>
-                </div>
+                </dialog>
                 <div id="gen_status" class="gen-status"></div>
                 <!-- Scrolled near, it loads the next part -->
                 <div id="gen_sentinel" class="gen-sentinel"></div>

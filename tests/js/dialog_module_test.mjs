@@ -164,6 +164,8 @@ check('the check before closing says wait: the window stays', [windowEl.open, cl
 click(windowEl);
 await tick();
 check('a click beside it asks the same', [windowEl.open, closedHow], [true, null]);
+await win.close('cancel');
+check('its own × or Cancel - close(\'cancel\') - asks the same', [windowEl.open, closedHow], [true, null]);
 allow = true;
 escape();
 await tick();
@@ -171,6 +173,52 @@ check('told it closed, and how', [windowEl.open, closedHow], [false, 'escape']);
 check('Esc never reached the page', pageHeardEscape, 0);
 check('the window stays on the page: it is the caller\'s', windowEl.isConnected, true);
 check('the page let go once the last closed', held(), false);
+
+// Focus named on a button that cannot take it yet - Sync images' Start,
+// disabled while its folders load: the dialog itself, which no redraw of its
+// content takes away - not a button in a list drawn again, nor the page.
+const waiting = document.createElement('dialog');
+waiting.innerHTML = '<input type="checkbox"><button id="w_cancel">Cancel</button><button id="w_start" disabled>Start</button>';
+const waitingHandle = openDialog(waiting, { focus: () => waiting.querySelector('#w_start') });
+check('a named button still disabled: focus on the dialog itself', document.activeElement, waiting);
+await waitingHandle.close('code');
+
+// Focus falling out of it to nowhere - the control that had it disabled as
+// the window loads, or drawn again: back to the dialog itself, as a browser
+// leaves focus on the page when a focused control is disabled.
+const losing = document.createElement('dialog');
+losing.innerHTML = '<button id="l_start">Start</button>';
+const losingHandle = openDialog(losing);
+const start = losing.querySelector('#l_start');
+start.disabled = true;
+document.body.focus();   // where a browser leaves it
+start.dispatchEvent(new window.Event('focusout', { bubbles: true }));
+await tick();
+check('focus falling out to nowhere comes back to the dialog itself', document.activeElement, losing);
+await losingHandle.close('code');
+
+// A close the person did not ask for - a save, a stopped tab - is not asked about.
+let askedAbout = 0;
+const saved = openDialog(document.createElement('dialog'), { beforeClose: () => { askedAbout += 1; return false; } });
+await saved.close('code');
+check('close(\'code\') closes without the check', [saved.element.open, askedAbout], [false, 0]);
+
+// A check that answers at once - nothing unsaved - closes it at once: a
+// window opened again on the next line finds it closed.
+const quick = openDialog(document.createElement('dialog'), { beforeClose: () => true });
+quick.close('cancel');
+check('a check that answers at once closes it before the next line', quick.element.open, false);
+
+// A close by code while the check still asks - a save behind its question.
+// Every question the check asks is answered at the end, so nothing waits for good.
+const checksAsked = [];
+const pending = openDialog(document.createElement('dialog'), { beforeClose: () => new Promise((r) => checksAsked.push(r)) });
+const asked = pending.close('cancel');
+// Not awaited: a close by code has nothing to wait for, and is done on return.
+pending.close('code');
+check('a close by code goes ahead while a check still asks', pending.element.open, false);
+checksAsked.forEach((answer) => answer(true));
+check('and that check, answered after, finds it closed: asked once', [await asked, checksAsked.length], [false, 1]);
 
 // Two open: the page held until both close.
 const first = openDialog(document.createElement('dialog'));

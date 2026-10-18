@@ -360,7 +360,7 @@ function renderResourcesModal(resources, pending = 0) {
 
     drawnSendBar = sendAgainButton();
     const modalHtml = `
-        <div class="mm-modal-overlay" id="mm_meta_modal">
+        <dialog class="mm-window" id="mm_meta_modal">
             <div class="mm-modal mm-resources-modal">
                 <div class="mm-modal-header">
                     <h3>Resources</h3>
@@ -384,7 +384,7 @@ function renderResourcesModal(resources, pending = 0) {
                     ${drawnSendBar}
                 </div>
             </div>
-        </div>
+        </dialog>
     `;
 
     openMetaModal(modalHtml);

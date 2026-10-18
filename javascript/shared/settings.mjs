@@ -20,10 +20,10 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, formatBytes, holdPage } = await shared('core.mjs');
+const { TIMING, escapeHtml, formatBytes } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
-const { ask: askUser } = await shared('dialog.mjs');
+const { ask: askUser, openDialog } = await shared('dialog.mjs');
 
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -234,6 +234,7 @@ function createSettings() {
     let secretTyped = null;  // a key typed into the window; null = unchanged
     let errors = {};
     let root = null;
+    let shown = null;               // the window's handle in the dialog container, while open (#292)
     let saving = false;
     // The text encoder and VAE table, by setting: forge_modules' description
     // of each preset this WebUI has, with the window's edits. null when the
@@ -281,13 +282,12 @@ function createSettings() {
 
     // ------------------------------------------------------------- drawing
     function build() {
-        root = document.createElement('div');
+        root = document.createElement('dialog');
         root.id = 'mm_settings';
-        root.className = 'mm-dialog-backdrop mm-settings-backdrop';
-        root.style.display = 'none';
+        root.className = 'mm-window mm-settings-window';
+        root.setAttribute('aria-labelledby', 'mm_settings_title');
         root.innerHTML = `
-            <div class="mm-dialog mm-settings-dialog" role="dialog" aria-modal="true"
-                 aria-labelledby="mm_settings_title">
+            <div class="mm-dialog mm-settings-dialog">
                 <div class="mm-settings-head">
                     <h3 id="mm_settings_title">Model Manager settings</h3>
                     <input type="search" class="mm-settings-search" id="mm_settings_search"
@@ -311,15 +311,6 @@ function createSettings() {
         root.addEventListener('input', onInput);
         root.addEventListener('change', onInput);
         root.querySelector('#mm_settings_search').addEventListener('input', applyVisibility);
-        const onKey = (e) => {
-            if (e.key === 'Escape' && root.style.display !== 'none') {
-                e.stopPropagation();
-                close();
-            }
-        };
-        // On the document: through the service's scope, gone with it (#186).
-        if (settingsScope) settingsScope.listen(document, 'keydown', onKey);
-        else document.addEventListener('keydown', onKey);
     }
 
     function renderBody() {
@@ -874,10 +865,6 @@ function createSettings() {
 
     function onClick(e) {
         const t = e.target.closest('button, [data-act]') || e.target;
-        if (e.target === root) {             // the backdrop
-            close();
-            return;
-        }
         const act = t.dataset?.act;
         if (act === 'cancel') close();
         else if (act === 'save') save();
@@ -981,8 +968,18 @@ function createSettings() {
     async function open({ tab = null, section = null, focus = null } = {}) {
         openedFor = { tab, section, focus };
         if (!root) build();
-        root.style.display = 'flex';
-        holdPage('settings', true);
+        // In the dialog container: Esc, a click beside it, its × and Cancel
+        // ask first if anything is unsaved; a save closes it without asking.
+        if (!shown) {
+            shown = openDialog(root, {
+                beforeClose: discardUnsaved,
+                focus: () => root.querySelector('#mm_settings_search'),
+                onClose: () => {
+                    shown = null;
+                    upkeep.stop();
+                },
+            });
+        }
         const body = root.querySelector('#mm_settings_body');
         body.innerHTML = '<div class="mm-settings-loading">Loading settings...</div>';
         root.querySelector('#mm_settings_search').value = '';
@@ -1006,24 +1003,28 @@ function createSettings() {
         }
     }
 
-    async function close() {
+    /** Its × and Cancel: closed, after the question if anything is unsaved. */
+    function close() {
+        return shown?.close('cancel');
+    }
+
+    /**
+     * Asked before the window closes by the person's hand: false keeps it
+     * open. Nothing unsaved, it answers at once, and the window closes at once.
+     */
+    function discardUnsaved() {
         const n = changedKeys().length;
-        if (n) {
-            const answer = await askUser({
-                title: `Discard ${n} unsaved change${n === 1 ? '' : 's'}?`,
-                buttons: [{ label: 'Keep editing', value: false }, { label: 'Discard', value: true, type: 'danger' }],
-            });
-            if (!answer?.value) return;
-        }
-        root.style.display = 'none';
-        holdPage('settings', false);
-        upkeep.stop();
+        if (!n) return true;
+        return askUser({
+            title: `Discard ${n} unsaved change${n === 1 ? '' : 's'}?`,
+            buttons: [{ label: 'Keep editing', value: false }, { label: 'Discard', value: true, type: 'danger' }],
+        }).then((answer) => answer?.value === true);
     }
 
     /** Gone with the last tab (#186): its routes refuse now, so nothing in it is asked to be kept. */
     function remove() {
+        shown?.close('code');
         upkeep.stop();
-        if (root) holdPage('settings', false);
         root?.remove();
         root = null;
     }
@@ -1056,9 +1057,7 @@ function createSettings() {
             // the server; say how far that has got.
             if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
             take(answer);
-            root.style.display = 'none';
-            holdPage('settings', false);
-            upkeep.stop();
+            shown?.close('code');
             window.dispatchEvent(new CustomEvent('mm-settings-saved', {
                 detail: { changed: answer.changed || [], settings: answer.settings },
             }));
@@ -1067,7 +1066,7 @@ function createSettings() {
             return;
         } finally {
             saving = false;
-            if (meta && root.style.display !== 'none') refresh();
+            if (meta && shown) refresh();
         }
     }
 

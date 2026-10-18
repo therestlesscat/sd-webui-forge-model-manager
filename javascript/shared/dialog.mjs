@@ -33,19 +33,19 @@ const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).sea
 const { escapeHtml, holdPage } = await shared('core.mjs');
 
 const opened = [];    // the container's dialogs open, the last on top
+// The closes a dialog's check before closing is asked about: the person's.
+const ASKED = ['escape', 'outside', 'cancel'];
 let made = 0;         // for each question's title id
 
 /**
- * Whether a question or a dialog is showing over the page - one that is
- * shown, not one waiting in the markup: the Model Manager keeps its sync
- * dialog there, hidden, and all three tabs are one page, so asking only
- * whether one exists found them always, and the viewer's keys never worked.
- * The windows not yet in the container count by their backdrops; a ⋯ menu
- * counts too.
+ * Whether a question or a dialog is showing over the page - one open, not one
+ * waiting in the markup: the Model Manager keeps its sync window there, closed,
+ * and all three tabs are one page, so asking only whether one exists found
+ * them always, and the viewer's keys never worked. A ⋯ menu counts too.
  */
 export function dialogShowing() {
     if (opened.length) return true;
-    return Array.from(document.querySelectorAll('.mm-dialog-backdrop, .mm-modal-overlay, .gen-menu'))
+    return Array.from(document.querySelectorAll('.gen-menu'))
         .some((element) => element.isConnected && !element.hidden && element.style.display !== 'none');
 }
 
@@ -58,8 +58,9 @@ export function dialogShowing() {
  * @param {boolean} [options.escape] - Esc closes it (true).
  * @param {boolean} [options.outside] - a click beside it closes it (true).
  * @param {Function} [options.beforeClose] - asked before Esc, a click beside it
- *   or the caller's close('cancel') closes it, with how; false, or a promise of
- *   false, keeps it open.
+ *   or the caller's close('cancel') - its own × or Cancel - closes it, with how;
+ *   false, or a promise of false, keeps it open. Any other close - a save, a
+ *   stopped tab: close('code') - is not asked.
  * @param {Element|Function} [options.focus] - what takes focus on opening; else the first button.
  * @param {Element|null} [options.returnFocus] - where focus goes on closing; else what had it on opening.
  * @param {Function} [options.onClose] - told it closed, and how: 'escape', 'outside', or the caller's word.
@@ -97,6 +98,21 @@ export function openDialog(element, { escape = true, outside = true, beforeClose
     const onClick = (event) => {
         if (outside && event.target === element) close('outside');
     };
+    // Focus that falls out of it to nowhere - the control that had it
+    // disabled, as Sync images' Start is while its folders load, or drawn
+    // again - comes back to the dialog itself: on the page, Tab walked on and
+    // Esc reached the WebUI's own handler, which interrupts a generation.
+    const onFocusOut = (event) => {
+        if (event.relatedTarget) return;
+        setTimeout(() => {
+            if (closed || element.contains(document.activeElement)) return;
+            focusSelf();
+        }, 0);
+    };
+    const focusSelf = () => {
+        if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+        element.focus?.();
+    };
     // The browser closed it without asking - Chrome may not let a cancel be
     // held back twice in a row: tidy up, or open again one that must stay.
     const onNativeClose = () => {
@@ -108,21 +124,21 @@ export function openDialog(element, { escape = true, outside = true, beforeClose
         finish('escape');
     };
 
-    async function close(how) {
-        if (closed || asking) return false;
-        if (beforeClose && how !== 'answer') {
-            asking = true;
-            let go;
-            try {
-                go = await beforeClose(how);
-            } finally {
-                asking = false;
-            }
-            if (go === false) return false;
-        }
-        if (closed) return false;
-        finish(how);
-        return true;
+    // Closed at once when the check answers at once - nothing unsaved - so a
+    // window opened again straight after finds it closed; awaited only when
+    // the check asks a question. A close by code - a save, a stopped tab -
+    // does not wait for a check still asking: that answer then finds it closed.
+    function close(how) {
+        if (closed || (asking && ASKED.includes(how))) return Promise.resolve(false);
+        const go = beforeClose && ASKED.includes(how) ? beforeClose(how) : true;
+        if (typeof go?.then !== 'function') return Promise.resolve(go === false ? false : (finish(how), true));
+        asking = true;
+        return go.then((answer) => answer, () => false).then((answer) => {
+            asking = false;
+            if (answer === false || closed) return false;
+            finish(how);
+            return true;
+        });
     }
 
     function finish(how) {
@@ -131,6 +147,7 @@ export function openDialog(element, { escape = true, outside = true, beforeClose
         element.removeEventListener('keydown', onKey);
         element.removeEventListener('click', onClick);
         element.removeEventListener('close', onNativeClose);
+        element.removeEventListener('focusout', onFocusOut);
         if (element.open) element.close();
         const at = opened.indexOf(handle);
         if (at >= 0) opened.splice(at, 1);
@@ -144,11 +161,20 @@ export function openDialog(element, { escape = true, outside = true, beforeClose
     element.addEventListener('keydown', onKey);
     element.addEventListener('click', onClick);
     element.addEventListener('close', onNativeClose);
+    element.addEventListener('focusout', onFocusOut);
     element.showModal();
     opened.push(handle);
     holdPage('dialogs', true);
-    const first = typeof focus === 'function' ? focus() : focus;
-    (first || element.querySelector('button:not([disabled])'))?.focus?.();
+    // The caller's choice, unless it cannot take focus yet - Sync images'
+    // Start, disabled while its folders load: then the dialog itself, which
+    // no redraw of its content takes away. A button in the folder list did:
+    // the list was drawn again, and focus fell to the page behind.
+    const named = typeof focus === 'function' ? focus() : focus;
+    if (named?.disabled) {
+        focusSelf();
+    } else {
+        (named || element.querySelector('button:not([disabled])'))?.focus?.();
+    }
     return handle;
 }
 

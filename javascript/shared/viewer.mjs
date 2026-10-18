@@ -30,7 +30,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { escapeHtml, holdPage } = await shared('core.mjs');
 const { fetchUiOptions } = await shared('ui_options.mjs');
-const { ask, dialogShowing } = await shared('dialog.mjs');
+const { ask, dialogShowing, openDialog } = await shared('dialog.mjs');
 
 // The details panel folded away, or not: remembered in this browser.
 const PANEL_KEY = 'mm_viewer_panel_closed';
@@ -57,26 +57,6 @@ function writePanelClosed(closed) {
     } catch (e) { /* this visit only */ }
 }
 
-
-/**
- * Close this element on Escape, and only it: the key is taken before any
- * other listener sees it, so one Escape closes one thing. The tabs used to
- * listen on the page and close the first modal on it, whichever tab had
- * made it - and the Civitai Browser its open model as well.
- */
-export function closeOnEscape(element, close) {
-    const onEscape = (event) => {
-        if (!element.isConnected) {
-            document.removeEventListener('keydown', onEscape, true);
-            return;
-        }
-        if (event.key !== 'Escape') return;
-        event.stopPropagation();
-        document.removeEventListener('keydown', onEscape, true);
-        close();
-    };
-    document.addEventListener('keydown', onEscape, true);
-}
 
 /** Whether a viewer is open - any tab's. */
 export function viewerIsOpen() {
@@ -339,28 +319,67 @@ export async function askToDelete(question, n = 1) {
     return answer?.value ? { withFiles: answer.ticked } : null;
 }
 
+// The window open - an image's metadata, its Resources, a task's details -
+// its handle in the dialog container (#292).
+let metaWindow = null;
+
 /**
- * Show a modal - an image's metadata, or its Resources - in place of the
- * last. Esc, its ×, or a click on the overlay around it closes it: wired
- * here, so the markup names no global - the tab's own and resources.mjs
- * both draw one.
+ * Show a window - an image's metadata, its Resources, a task's details - in
+ * place of the last: its markup, a <dialog id="mm_meta_modal">, opened in the
+ * dialog container, which closes it on Esc and a click beside it. Its × is
+ * wired here, so the markup names no global - three modules draw one.
  */
 export function openMetaModal(modalHtml) {
-    document.getElementById('mm_meta_modal')?.remove();
+    const open = metaWindow?.element;
+    if (open?.isConnected) {
+        redrawMetaModal(open, modalHtml);
+        return;
+    }
+    closeMetaModal();
     document.body.insertAdjacentHTML('beforeend', modalHtml);
-    holdPage('dialog', true);
     const modal = document.getElementById('mm_meta_modal');
     if (!modal) return;
-    closeOnEscape(modal, closeMetaModal);
-    modal.addEventListener('click', (event) => { if (event.target === modal) closeMetaModal(); });
+    const handle = openDialog(modal, {
+        focus: () => modal.querySelector('.mm-modal-close'),
+        onClose: () => {
+            if (metaWindow === handle) metaWindow = null;
+            modal.remove();
+        },
+    });
+    metaWindow = handle;
     modal.querySelector('.mm-modal-close')?.addEventListener('click', closeMetaModal);
 }
 
-// Close metadata modal
+/**
+ * A window drawn again while open - Resources filling in as Civitai answers,
+ * or another window in its place: its content replaced, the <dialog> kept,
+ * and with it its place on top and the page held. Closing it and opening a
+ * new one moved focus at every answer. Focus goes back to the control that
+ * had it, as the new content draws it again, else to the ×.
+ */
+function redrawMetaModal(open, modalHtml) {
+    const had = open.contains(document.activeElement) ? document.activeElement : null;
+    const same = had ? controlKey(had) : null;
+    const holder = document.createElement('div');
+    holder.innerHTML = modalHtml;
+    const fresh = holder.querySelector('#mm_meta_modal');
+    if (!fresh) return;
+    open.replaceChildren(...fresh.childNodes);
+    open.querySelector('.mm-modal-close')?.addEventListener('click', closeMetaModal);
+    if (!had) return;
+    const again = same ? Array.from(open.querySelectorAll(had.tagName)).find((e) => controlKey(e) === same) : null;
+    (again || open.querySelector('.mm-modal-close'))?.focus?.();
+}
+
+/** What a control is, across a redraw: its tag, its data and its class, its words. */
+function controlKey(element) {
+    const data = Array.from(element.attributes || []).filter((a) => a.name.startsWith('data-') || a.name === 'class')
+        .map((a) => `${a.name}=${a.value}`).sort().join(' ');
+    return `${element.tagName} ${data} ${element.textContent.trim()}`;
+}
+
+/** Close the window open, if one is. */
 export function closeMetaModal() {
-    const modal = document.getElementById('mm_meta_modal');
-    if (modal) {
-        modal.remove();
-        holdPage('dialog', false);
-    }
+    metaWindow?.close('code');
+    metaWindow = null;
 }

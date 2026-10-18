@@ -21,8 +21,8 @@ const source = {
     count: () => 1, media: () => ({ url: 'https://example.invalid/1.jpeg' }),
     buttons: () => '', details: () => '', more: () => false,
 };
-const dialog = (title) => `<div class="mm-modal-overlay" id="mm_meta_modal"><div class="mm-modal">
-    <div class="mm-modal-header"><h3>${title}</h3><button class="mm-modal-close">&times;</button></div></div></div>`;
+const dialog = (title) => `<dialog class="mm-window" id="mm_meta_modal"><div class="mm-modal">
+    <div class="mm-modal-header"><h3>${title}</h3><button class="mm-modal-close">&times;</button></div></div></dialog>`;
 
 check('nothing open, the page is free', held(), false);
 openViewer(source, 0);
@@ -40,6 +40,21 @@ openMetaModal(dialog('Image Metadata'));
 check('a window on its own holds it', held(), true);
 closeDialog();
 check('and lets it go', held(), false);
+
+// Drawn again while open - Resources filling in as Civitai answers (#292):
+// the same window, on top, the page held, focus where it was.
+openMetaModal(dialog('Resources'));
+const first = document.getElementById('mm_meta_modal');
+first.querySelector('.mm-modal-close').focus();
+openMetaModal(dialog('Resources, filled in'));
+const again = document.getElementById('mm_meta_modal');
+check('redrawn while open: the same window, its new content, still on top and holding the page',
+      [again === first, again.querySelector('h3')?.textContent, window.__topLayer.at(-1) === first, held()],
+      [true, 'Resources, filled in', true, true]);
+check('and focus kept on its ×, drawn again', document.activeElement, again.querySelector('.mm-modal-close'));
+check('one window on the page', document.querySelectorAll('#mm_meta_modal').length, 1);
+closeDialog();
+check('its × still closes it', [!!document.getElementById('mm_meta_modal'), held()], [false, false]);
 
 // One place sets the class: every module of the page, read for it.
 const files = [...readdirSync(`${ROOT}/javascript`).filter((f) => f.endsWith('.mjs')),

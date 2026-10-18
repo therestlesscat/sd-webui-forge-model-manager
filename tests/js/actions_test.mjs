@@ -77,8 +77,8 @@ let copied = null;
 Object.defineProperty(globalThis, 'navigator', { configurable: true,
     value: { clipboard: { writeText: (text) => { copied = text; return Promise.resolve(); } } } });
 showImageMeta({ id: 1, meta: { prompt: 'a lighthouse', steps: 20 } });
-const copy = document.querySelector('.mm-modal-overlay [data-copy]');
-check('the metadata window\'s markup stops nothing', document.querySelector('.mm-modal-overlay [onclick]'), null);
+const copy = document.querySelector('#mm_meta_modal [data-copy]');
+check('the metadata window\'s markup stops nothing', document.querySelector('#mm_meta_modal [onclick]'), null);
 click(copy);
 check('Copy JSON copies the image\'s data', JSON.parse(copied ?? 'null'), { prompt: 'a lighthouse', steps: 20 });
 

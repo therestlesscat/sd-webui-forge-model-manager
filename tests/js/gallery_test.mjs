@@ -13,7 +13,7 @@
 // second Load More could add images without a page of its own - "PAGE 3"
 // never showed. The whole gallery was drawn again on each Load More too, and
 // every image above came back blank until it reloaded, moving the page.
-import { ROOT, act, checker, mountTab, press, startTab, tick } from './harness.mjs';
+import { ROOT, act, checker, escape, mountTab, press, startTab, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -219,17 +219,18 @@ act('modelManager.restoreScrollPosition');
 check('or, with that card no longer drawn, the page where it was', [intoView.length, scrolls[0]?.top], [1, 1234]);
 
 // Escape closes this tab's own modal, not another tab's (#83): all three tabs
-// are one page, and the first .mm-modal-overlay on it was closed - opening one
-// removed it too - whichever tab had made it.
-const foreign = document.createElement('div');
-foreign.className = 'mm-modal-overlay';
+// are one page, and the first modal on it was closed - opening one removed it
+// too - whichever tab had made it. A window is a <dialog> now (#292), and Esc
+// reaches the top one alone.
+const foreign = document.createElement('dialog');
+foreign.className = 'mm-window';
 foreign.id = 'another_tabs_modal';
 document.body.prepend(foreign);
-const own = () => Array.from(document.querySelectorAll('.mm-modal-overlay')).filter((m) => m.id !== 'another_tabs_modal');
+const own = () => Array.from(document.querySelectorAll('#mm_meta_modal'));
 act('modelManager.showImageMeta', { index: 0 });
 check('the metadata modal opens, leaving another tab\'s in place',
       [own().length, !!document.getElementById('another_tabs_modal')], [1, true]);
-key('Escape');
+escape();
 check('and Esc closes it, and only it', [own().length, !!document.getElementById('another_tabs_modal')], [0, true]);
 foreign.remove();
 

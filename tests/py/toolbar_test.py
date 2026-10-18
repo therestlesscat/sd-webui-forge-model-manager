@@ -122,10 +122,11 @@ check('no handler still reaches for the removed buttons',
       'mm_sync_meta_btn' in JS or 'mm_sync_meta_images_btn' in JS, False)
 
 # --- the dialog the button now opens ----------------------------------------
-dialog = block(UI, '<div id="mm_sync_dialog"')
-check('the dialog starts hidden', 'style="display: none;"' in dialog)
-check('the dialog is a modal to assistive tech', 'role="dialog"' in dialog
-      and 'aria-modal="true"' in dialog)
+dialog = block(UI, '<dialog id="mm_sync_dialog"')
+# The browser's own dialog, opened modal through the dialog container (#292):
+# closed until then, and a modal to assistive tech by being one.
+check('the dialog starts closed: a <dialog> without open', '<dialog id="mm_sync_dialog" class="mm-window"' in dialog
+      and ' open' not in dialog.split('>', 1)[0])
 check('and is labelled by its heading', 'aria-labelledby="mm_sync_dialog_title"' in dialog
       and 'id="mm_sync_dialog_title"' in dialog)
 
@@ -389,7 +390,7 @@ check('the page asks for ui-options in one place', sorted(n for n, s in PAGE.ite
       ['ui_options.mjs'])
 
 # --- the dialog's own styling exists ----------------------------------------
-for rule in ('.mm-dialog-backdrop', '.mm-dialog ', '.mm-dialog-option',
+for rule in ('.mm-layer::backdrop', '.mm-dialog ', '.mm-dialog-option',
              '.mm-dialog-estimate', '.mm-dialog-actions', '.mm-dialog-muted'):
     check('CSS defines %s' % rule.strip(), rule.strip() + ' {' in CSS or rule + '{' in CSS)
 # The dialog has to follow the WebUI's theme, including the parts of it the
@@ -434,9 +435,9 @@ check('the select keeps its chevron under .dark',
       'background-color:' in dialog_block[dialog_block.index('.dark .mm-dialog-select {'):
                                           dialog_block.index('}', dialog_block.index('.dark .mm-dialog-select {'))])
 
-check('the backdrop sits above the other modal',
-      int(re.search(r'\.mm-dialog-backdrop \{[^}]*z-index: (\d+)', CSS).group(1))
-      > int(re.search(r'\.mm-modal-overlay \{[^}]*z-index: (\d+)', CSS).group(1)))
+# Which dialog is on top is the browser's now: the last opened, on its top
+# layer (#292). No dialog sets a stacking number of its own.
+check('no dialog stacks by number', re.search(r'\.mm-(?:layer|window|question)[^{]*\{[^}]*z-index', CSS), None)
 
 # The Civitai Browser's row in two sets (#281): each checkbox with what it
 # shows, boxed while it is ticked. A set sits inside the shared row - not a

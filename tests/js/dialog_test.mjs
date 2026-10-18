@@ -10,7 +10,7 @@ import { parseHTML } from 'linkedom';
 
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { checker, sharedModule, startTab, tabMarkup } from './harness.mjs';
+import { checker, dialogStandIn, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 // The extension, found from this file rather than from a drive letter.
 const ROOT = process.env.MM_ROOT
@@ -35,6 +35,8 @@ globalThis.URL = URL;
 globalThis.Event = window.Event;
 globalThis.MouseEvent = window.MouseEvent ?? window.Event;
 globalThis.CustomEvent = window.CustomEvent;
+// The browser's <dialog>, which linkedom lacks, as every suite has it (#292).
+dialogStandIn(window);
 globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
 globalThis.gradioApp = () => window.document;
 globalThis.onUiLoaded = (cb) => cb();
@@ -230,7 +232,8 @@ globalThis.fetch = async (url, init = {}) => {
 // A step waits for what its checks read, never for a fixed time (#272): 40
 // sleeps of 50 ms were two thirds of the run, and 16 waited for nothing.
 const { fails, check, waitFor } = checker();
-const closeSyncDialogFromTest = () => { $('mm_sync_dialog').style.display = 'none'; };
+// Closed as the browser would, as Esc does: the dialog container tidies up (#292).
+const closeSyncDialogFromTest = () => { $('mm_sync_dialog').close(); };
 const $ = (id) => window.document.getElementById(id);
 const click = (id) => $(id).dispatchEvent(new window.Event('click', { bubbles: true }));
 const change = (el) => el.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -335,11 +338,11 @@ if (hasApiKey) {
 // the three long buttons are gone, replaced by one
 check('old metadata buttons are gone',
     [!!$('mm_sync_meta_btn'), !!$('mm_sync_meta_images_btn')], [false, false]);
-check('dialog starts hidden', $('mm_sync_dialog').style.display, 'none');
+check('dialog starts hidden', $('mm_sync_dialog').open, false);
 
 click('mm_sync_btn');
 await estimated('the estimate the opened dialog asks for');
-check('the button opens the dialog', $('mm_sync_dialog').style.display, 'flex');
+check('the button opens the dialog', $('mm_sync_dialog').open, true);
 
 // The metadata checkbox is the only one with no id: it is never read, only
 // shown ticked and unticked-able.
@@ -554,7 +557,7 @@ click('mm_sync_dialog_start');
 // Start for these results posts once their paths are read, a moment after
 // the click - and only then disables Sync, which the wait below looks at.
 await waitFor('the sync to be posted', () => posts.length > 0);
-check('dialog closes on start', $('mm_sync_dialog').style.display, 'none');
+check('dialog closes on start', $('mm_sync_dialog').open, false);
 check('one request was posted', posts.length, 1);
 const body = new URLSearchParams(posts[0].body);
 check('posted to the metadata sync', posts[0].url, '/model-manager/sync/metadata');
@@ -731,7 +734,7 @@ click('mm_sync_dialog_cancel');
 showSyncDialog({ rereadHeaders: true });
 await estimated("the estimate the note's dialog asks for");
 check('a note\'s button ticks "Read every file\'s header again", never the move',
-      [$('mm_sync_dialog').style.display, $('mm_sync_reread').checked, $('mm_sync_move').checked], ['flex', true, false]);
+      [$('mm_sync_dialog').open, $('mm_sync_reread').checked, $('mm_sync_move').checked], [true, true, false]);
 click('mm_sync_dialog_cancel');
 MISPLACED.length = 0;
 click('mm_sync_btn');

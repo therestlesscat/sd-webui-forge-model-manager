@@ -14,7 +14,7 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 const { refreshWebUiModelLists } = await shared('downloads.mjs');
-const { ask } = await shared('dialog.mjs');
+const { ask, openDialog } = await shared('dialog.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;
 // its grid and the base models listed for it, loaded again once a job has
@@ -626,6 +626,9 @@ function syncDialogDependencies() {
     updateForceModeLabels();
 }
 
+// The Sync window's handle in the dialog container, while it is open.
+let syncWindow = null;
+
 function openSyncDialog() {
     if (isSyncing) return;
     syncResultPaths = null;
@@ -637,7 +640,13 @@ function openSyncDialog() {
     if (reread) reread.checked = false;
     const move = document.getElementById('mm_sync_move');
     if (move) move.checked = false;
-    dialog.style.display = 'flex';
+    // In the dialog container (#292): Esc and a click beside it close it.
+    if (!syncWindow) {
+        syncWindow = openDialog(dialog, {
+            focus: () => document.getElementById('mm_sync_dialog_start'),
+            onClose: () => { syncWindow = null; },
+        });
+    }
     syncDialogDependencies();
     syncDialogResultsScope();
     refreshSyncEstimate();
@@ -666,8 +675,7 @@ export function showSyncDialog({ force = null, rereadHeaders = false } = {}) {
 }
 
 function closeSyncDialog() {
-    const dialog = document.getElementById('mm_sync_dialog');
-    if (dialog) dialog.style.display = 'none';
+    syncWindow?.close('code');
 }
 
 async function startSyncFromDialog() {
@@ -925,13 +933,6 @@ export function bindJobControls() {
                 if (radio) radio.checked = true;
             }
             refreshSyncEstimate();
-        });
-        syncDialog.addEventListener('click', (e) => {
-            if (e.target === syncDialog) closeSyncDialog();
-        });
-        // On the document: through the service's scope, gone with it.
-        jobsScope?.listen(document, 'keydown', (e) => {
-            if (e.key === 'Escape' && syncDialog.style.display !== 'none') closeSyncDialog();
         });
         const dialogCancel = document.getElementById('mm_sync_dialog_cancel');
         if (dialogCancel) dialogCancel.addEventListener('click', closeSyncDialog);

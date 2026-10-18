@@ -343,7 +343,7 @@ plan.preset = 'flux';
 // One the library lacks is the one thing a send cannot go without: nothing
 // is set, and the image's Resources open, saying why.
 const resourcesNote = () => document.querySelector('.mm-resources-modal .mm-banner')?.textContent.replace(/^\s*!\s*/, '').trim();
-const closeResources = () => document.querySelectorAll('.mm-modal-overlay').forEach((m) => m.remove());
+const closeResources = () => document.querySelectorAll('#mm_meta_modal').forEach((m) => m.close());
 plan = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'anima-preview2' } };
 await send();
 check('a checkpoint the library lacks: nothing is set or pasted',
@@ -1097,7 +1097,7 @@ check('a generation whose checkpoint is not in the library is not sent: Resource
        stopped?.querySelector('[data-action="resources.sendAgain"]')?.disabled, events.includes('paste'),
        events.some((e) => e.startsWith('checkpoint'))],
       [true, true, true, false, false]);
-document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 // In the library, but in a folder only the other WebUI loads: said so, as a
 // Civitai image's send says it - not "download it".
 generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'theirs.safetensors',
@@ -1107,7 +1107,7 @@ await sendGeneration(300, { resources: [{ type: 'Checkpoint', name: 'theirs', we
 check('a generation whose checkpoint is in a folder this WebUI does not load: not sent, and said where',
       [(document.querySelector('.mm-resources-modal .mm-banner')?.textContent || '').includes('a folder this WebUI does not load'),
        events.includes('paste')], [true, false]);
-document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: null,
                    target: [], modules_missing: ['qwen_image_vae.safetensors'] };
 await sendGeneration(300);

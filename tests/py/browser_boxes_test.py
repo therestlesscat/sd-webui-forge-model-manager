@@ -27,27 +27,35 @@ def check(label, got, want=True):
 # of something else (a dialog's own .confirm), and not a word in a comment.
 BOX = re.compile(r'(?<![\w.$])(?:window\.|globalThis\.)?(?:confirm|alert|prompt)\s*\(')
 COMMENT = re.compile(r'^\s*(?://|\*|/\*)')
-# The sync's own popup, drawn by hand before it was a progress popup.
-OWN_OVERLAY = re.compile(r'\bmm-sync-overlay\b')
+# A backdrop drawn by hand: the sync's own popup's, and the overlays the
+# questions and the windows drew before the dialog container (#292).
+OWN_OVERLAY = re.compile(r'\b(?:mm-sync-overlay|mm-dialog-backdrop|mm-modal-overlay)\b')
 
 
-def scan(pattern, skip_comments=True):
+def files(where):
+    for base, ends in where:
+        for folder, _, names in os.walk(os.path.join(ROOT, base)):
+            for name in names:
+                if name.endswith(ends):
+                    yield os.path.join(folder, name)
+
+
+def scan(pattern, skip_comments=True, where=(('javascript', ('.mjs', '.js')),)):
     found = []
-    for folder, _, names in os.walk(os.path.join(ROOT, 'javascript')):
-        for name in names:
-            if not name.endswith(('.mjs', '.js')):
+    for path in files(where):
+        for number, line in enumerate(io.open(path, encoding='utf-8'), 1):
+            if skip_comments and COMMENT.match(line):
                 continue
-            path = os.path.join(folder, name)
-            for number, line in enumerate(io.open(path, encoding='utf-8'), 1):
-                if skip_comments and COMMENT.match(line):
-                    continue
-                if pattern.search(line):
-                    found.append('%s:%d' % (os.path.relpath(path, ROOT).replace(os.sep, '/'), number))
+            if pattern.search(line):
+                found.append('%s:%d' % (os.path.relpath(path, ROOT).replace(os.sep, '/'), number))
     return found
 
 
 check('no browser box in the page\'s scripts: each question is the dialog module\'s', scan(BOX), [])
-check('no hand-drawn progress overlay: the sync\'s popup is a progress popup', scan(OWN_OVERLAY), [])
+check('no backdrop drawn by hand: every dialog is in the container, the browser drawing its backdrop',
+      scan(OWN_OVERLAY, where=(('javascript', ('.mjs', '.js')), ('model_manager/ui', ('.py',)))), [])
+check('nor styled: the stylesheet has no rule for one',
+      [line for line in io.open(os.path.join(ROOT, 'style.css'), encoding='utf-8') if OWN_OVERLAY.search(line)], [])
 
 # The check itself: it finds each, and leaves alone what is not one.
 check('the check finds a bare confirm, window.confirm, an alert and a prompt',

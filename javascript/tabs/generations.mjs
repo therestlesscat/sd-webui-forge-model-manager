@@ -61,7 +61,7 @@ await shared('update_notice.mjs');
 const {
     openViewer, closeViewer, showImage, viewerIndex, viewerIsOpen, askToDelete,
 } = await shared('viewer.mjs');
-const { dialogShowing } = await shared('dialog.mjs');
+const { dialogShowing, openDialog } = await shared('dialog.mjs');
 
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
@@ -1398,9 +1398,6 @@ work.provide('generations.syncForce', () => { drawSyncFolders(); showSyncEstimat
 work.provide('generations.syncThumbs', () => { showThumbnailPlace(); showSyncEstimate(); });
 work.provide('generations.syncThumbsPlace', () => showThumbnailPlace());
 work.provide('generations.closeSyncDialog', () => closeSyncDialog());
-work.provide('generations.syncDialogBackdrop', (data, element, event) => {
-    if (event?.target === element) closeSyncDialog();
-});
 work.provide('generations.cancelSync', () => cancelSync());
 work.provide('generations.addSyncFolder', () => addSyncFolder());
 work.provide('generations.askRemoveSyncFolder', ({ path }) => askRemoveSyncFolder(path, true));
@@ -1440,10 +1437,19 @@ async function syncPost(path, fields) {
     }
 }
 
+// Sync images' window, its handle in the dialog container while it is open (#292).
+let syncWindow = null;
+
 async function openSyncDialog() {
     const dialog = byId('gen_sync_dialog');
     if (!dialog) return;
-    dialog.style.display = 'flex';
+    // Esc and a click beside it close it, as every dialog.
+    if (!syncWindow) {
+        syncWindow = openDialog(dialog, {
+            focus: () => byId('gen_sync_start'),
+            onClose: () => { syncWindow = null; },
+        });
+    }
     const box = byId('gen_sync_add_path');
     if (box) box.value = '';
     // Force sync is asked for each time, never kept (#246).
@@ -1660,8 +1666,7 @@ async function removeSyncFolder(path) {
 }
 
 function closeSyncDialog() {
-    const dialog = byId('gen_sync_dialog');
-    if (dialog) dialog.style.display = 'none';
+    syncWindow?.close('code');
 }
 
 async function startSync() {
@@ -1832,7 +1837,6 @@ export async function start(scope) {
     tabScope.afterUpdate(showGroupChoice);
     tabScope.onStop(() => { syncFollowing = null; });
     tabScope.listen(document, 'keydown', (event) => {
-        if (event.key === 'Escape' && byId('gen_sync_dialog')?.style.display === 'flex') closeSyncDialog();
         if (event.key === 'Enter' && event.target?.id === 'gen_sync_add_path') addSyncFolder();
     });
     tabScope.listen(document, 'input', (event) => {

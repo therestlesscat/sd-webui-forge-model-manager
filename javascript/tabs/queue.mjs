@@ -815,7 +815,7 @@ function detailsHtml(task, inputs) {
     }).join('');
     const status = STATUSES[task.status] || task.status;
     return `
-        <div class="mm-modal-overlay" id="mm_meta_modal">
+        <dialog class="mm-window" id="mm_meta_modal">
             <div class="mm-modal queue-details">
                 <div class="mm-modal-header">
                     <h3>Task #${Number(task.id)} · ${escapeHtml(task.mode)} · ${escapeHtml(status)}</h3>
@@ -845,7 +845,7 @@ function detailsHtml(task, inputs) {
                         title="Set ${escapeHtml(task.mode)} up with this task, to change it or run it by hand">Load to UI</button>
                 </div>
             </div>
-        </div>`;
+        </dialog>`;
 }
 
 async function showDetails(taskId) {

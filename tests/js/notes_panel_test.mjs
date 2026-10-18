@@ -75,11 +75,11 @@ check('its button, Dismiss, and the arrows',
 
 click(top().querySelector('[data-note-action]'));
 // Through the loading module, which shows the Model Manager first (#184).
-await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.open === true);
 check('which opens the sync dialog with "Read every file\'s header again" ticked, and the move not',
-      [document.getElementById('mm_sync_dialog')?.style.display, document.getElementById('mm_sync_reread')?.checked,
+      [document.getElementById('mm_sync_dialog')?.open, document.getElementById('mm_sync_reread')?.checked,
        document.getElementById('mm_sync_move')?.checked],
-      ['flex', true, false]);
+      [true, true, false]);
 click(document.getElementById('mm_sync_dialog_cancel'));
 
 click(panel().querySelector('[data-note-step="1"]'));

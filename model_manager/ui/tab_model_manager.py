@@ -228,8 +228,8 @@ def create_ui():
                 </div>
 
                 <!-- Sync dialog: what to refresh, and what that will cost -->
-                <div id="mm_sync_dialog" class="mm-dialog-backdrop" style="display: none;">
-                    <div class="mm-dialog" role="dialog" aria-modal="true" aria-labelledby="mm_sync_dialog_title">
+                <dialog id="mm_sync_dialog" class="mm-window" aria-labelledby="mm_sync_dialog_title">
+                    <div class="mm-dialog">
                         <h3 id="mm_sync_dialog_title">Sync with Civitai</h3>
 
                         <div class="mm-dialog-section">
@@ -321,7 +321,7 @@ def create_ui():
                             <button id="mm_sync_dialog_start" class="mm-btn primary">Start</button>
                         </div>
                     </div>
-                </div>
+                </dialog>
 
                 <!-- Sync Progress -->
                 <div id="mm_sync_progress" class="model-manager-sync-progress" style="display: none;">

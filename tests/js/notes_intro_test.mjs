@@ -46,21 +46,21 @@ check('with a button for each step, and Dismiss',
 
 click(top().querySelector('[data-note-action="sync"]'));
 // Through the loading module, which shows the Model Manager first (#184).
-await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.open === true);
 check('Open Sync opens it as it is - all models, not re-reading every header',
-      [document.getElementById('mm_sync_dialog')?.style.display,
+      [document.getElementById('mm_sync_dialog')?.open,
        document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
        document.getElementById('mm_sync_reread')?.checked],
-      ['flex', 'all', false]);
+      [true, 'all', false]);
 click(document.getElementById('mm_sync_dialog_cancel'));
 
 click(top().querySelector('[data-note-action="sync_unidentified"]'));
-await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.style.display === 'flex');
+await waitFor('the sync dialog', () => document.getElementById('mm_sync_dialog')?.open === true);
 check('Open Force sync opens the sync dialog set to Force sync, on the files Civitai has not identified',
-      [document.getElementById('mm_sync_dialog')?.style.display,
+      [document.getElementById('mm_sync_dialog')?.open,
        document.querySelector('input[name="mm_sync_scope"]:checked')?.value,
        document.getElementById('mm_sync_force_mode')?.value],
-      ['flex', 'force', 'unidentified']);
+      [true, 'force', 'unidentified']);
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('and starts nothing: that is still the reader\'s click',
       posted.filter((u) => u.includes('/sync')), []);

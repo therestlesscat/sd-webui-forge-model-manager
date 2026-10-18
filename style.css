@@ -2019,20 +2019,6 @@ body.mm-modal-open {
 }
 
 /* Metadata Modal */
-.mm-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10000;
-    padding: 20px;
-}
-
 /* Added to the page's body, outside Gradio's container, whose rules colour
    every element in it: the body's own colour is dark grey in both modes, so
    text the modal did not colour itself - the Resources dialog's note, a
@@ -3146,6 +3132,23 @@ body.mm-modal-open {
     background: rgba(0, 0, 0, 0.7);
 }
 
+/* A window - the settings, a Sync, Show All, Resources, a task's details -
+   fills the window as its overlay did, transparent, its box centred inside
+   with 20 px around it: the box sizes and sits exactly as before, and a click
+   on the dialog beside the box is one beside it. Only while open: a closed
+   <dialog> keeps the browser's display: none. */
+.mm-layer.mm-window[open] {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 /* As wide as the questions were on their own backdrops: half the window less
    its 20 px margins - the window's width without its scrollbar, 100% to a
    modal dialog - at most 800 px. */
@@ -3224,17 +3227,6 @@ body.mm-modal-open {
    Sync dialog
    Which models to refresh, how much of each, and what it costs.
    ============================================================ */
-
-.mm-dialog-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10001;
-    padding: 20px;
-}
 
 .mm-dialog {
     background: var(--background-fill-primary, #1f2937);

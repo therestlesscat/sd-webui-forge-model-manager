@@ -88,7 +88,7 @@ check('with its id and every ADetailer setting',
       [said(managerCard()).includes('4242'), said(managerCard()).includes('Inpaint masked: True')], [true, true]);
 
 // ------------------------------------------------------------ Show All
-const shown = () => document.querySelector('.mm-modal-overlay');
+const shown = () => document.querySelector('#mm_meta_modal');
 const windowSays = () => ({
     table: !!shown()?.querySelector('table.mm-meta-table'),
     rows: shown()?.querySelectorAll('table.mm-meta-table tr').length || 0,

@@ -72,7 +72,7 @@ const line = () => (modal()?.querySelector('.mm-res-send-status')?.textContent |
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
 const checkAgain = () => modal()?.querySelector('[data-action="resources.checkAgain"]');
 const download = () => modal()?.querySelector(`[data-action="resources.download"][data-version-id="${CHECKPOINT}"]`);
-const close = () => document.querySelectorAll('.mm-modal-overlay').forEach((n) => n.remove());
+const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 
 // ------------------------------------- not in the library, Download offered
 await showImageResources(image(CHECKPOINT), null, { note: 'The checkpoint is not in your library.',
