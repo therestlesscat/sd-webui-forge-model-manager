@@ -52,10 +52,22 @@ await shared('settings.mjs');
 
 // Previous Position (#250): Send and Show model note where the page was, and
 // the toolbar's button goes back there.
-const { previousPosition } = await shared('previous_position.mjs');
+const { previousPosition, TILE_BUTTON } = await shared('previous_position.mjs');
 const { groupChain: chainOf, groupMenu: makeGroupMenu, startSearchBox } = await shared('grouping.mjs');
+// The grid as Previous Position looks for the tile left in it (#264).
+const placeGrid = {
+    count: () => tiles.length,
+    ids: (index) => tileIds(tiles[index]),
+    parts: () => part,
+    more: () => more,
+    load: () => viewerSource.loadMore(),
+    show: (index) => bringTile(index),
+    status: (text) => setStatus(text),
+    view: () => views,
+};
 const previousPlace = previousPosition({ id: 'gal_scroll_restore_btn', action: 'gallery.previousPosition',
-                                         row: '#gallery_app .gen-toolbar', before: 'gal_refresh_btn' });
+                                         row: '#gallery_app .gen-toolbar', before: 'gal_refresh_btn',
+                                         storageKey: 'gal_scroll', grid: placeGrid, ...TILE_BUTTON });
 
 // What this tab uses that has work of its own: the loading module starts each
 // once for the page, before this tab (#182, #183).
@@ -111,6 +123,7 @@ let title = '';             // the level's title, in the path
 const levels = [];
 let loading = false;
 let request = 0;            // a newer load drops an older one's answer
+let views = 0;              // a new grid - a reload, Back - ends Previous Position's search
 
 function readSetting(key, fallback) {
     try {
@@ -158,11 +171,16 @@ const showGroupChoice = () => groupMenu.showChoice();
 const closeGroupMenu = () => groupMenu.close();
 
 // ------------------------------------------------------------- loading
-/** This level again from its first part: a switch, a seed, Refresh, or opening. */
-async function reload() {
+/**
+ * This level again from its first part: a switch, a seed, Refresh, or
+ * opening. The opening keeps Previous Position (`keepPlace`): the place noted
+ * before the page was reloaded, kept in the browser's storage (#264).
+ */
+async function reload({ keepPlace = false } = {}) {
+    views += 1;
     closeViewer();
     // Previous Position is a height in the grid that goes now.
-    previousPlace.clear();
+    if (!keepPlace) previousPlace.clear();
     tiles = [];
     part = 0;
     more = true;
@@ -281,7 +299,7 @@ function toTop() {
 async function openTile(index) {
     const tile = tiles[index];
     if (!tile || tile.kind !== 'group') return;
-    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll() });
+    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), opened: tileIds(tile) });
     // A group of the first grouping opens onto the second's groups, when there is one.
     const key = String(tile.group.key ?? '');
     at = at.in_group !== undefined ? { in_group: at.in_group, in_subgroup: key } : { in_group: key };
@@ -294,6 +312,7 @@ async function openTile(index) {
 /** Back to the level above, where it was left: the same tiles, drawn again. */
 function goBack() {
     if (!levels.length) return;
+    views += 1;
     closeViewer();
     previousPlace.clear();
     request += 1;
@@ -466,13 +485,37 @@ function renderBanner() {
     });
 }
 
+// ------------------------------------------------------------- Previous Position
+// The place is the tile left, by what it shows (#264): after a reload the
+// grid starts again from its first part, and a sync adds images.
+
+/** What a tile is, for Previous Position: a group or an image. */
+function tileIds(tile) {
+    if (!tile) return [];
+    if (tile.kind === 'group') return [`group:${tile.group.by}:${tile.group.key}`];
+    return tile.image ? [`image:${tile.image.id}`] : [];
+}
+
+/** A tile and its image as a place: the image, its tile, then each group opened to reach it. */
+function placeOf(tile, image) {
+    const ids = [image && `image:${image.id}`, ...tileIds(tile),
+                 ...levels.slice().reverse().flatMap((level) => level.opened || [])];
+    return [...new Set(ids.filter(Boolean))];
+}
+
+/** The tile found, in the middle of the window. */
+function bringTile(index) {
+    if (fast && placed) placed.scrollTo(index, { center: true });
+    else showTile(byId('gal_grid'), index, { center: true });
+}
+
 // ------------------------------------------------------------- the tiles' actions
 function sendTile(tile) {
     if (!tile || tile.kind !== 'image') return undefined;
     closeViewer();
     // Once it has closed: closing brought the image it showed last into
     // view, so the place is the image sent.
-    previousPlace.remember();
+    previousPlace.remember(placeOf(tile, tile.image));
     return sendGalleryImage({ img: tile.image, model: tile.model, version: tile.version });
 }
 
@@ -480,7 +523,7 @@ function sendTile(tile) {
 function showModel(tile) {
     if (!tile?.version?.id) return undefined;
     closeViewer();
-    previousPlace.remember();
+    previousPlace.remember(placeOf(tile, tile.image));
     return open('modelManager', 'showVersion', tile.version.id, tile.version.file_path);
 }
 
@@ -551,7 +594,8 @@ const viewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gal-resources]')) {
-            showImageResources(place.image, tile?.version?.id, { leaving: () => previousPlace.remember() });
+            showImageResources(place.image, tile?.version?.id,
+                               { leaving: () => previousPlace.remember(placeOf(place.tile, place.image)) });
             return true;
         }
         if (event.target.closest?.('[data-gal-model]')) {
@@ -669,5 +713,7 @@ export async function start(startScope) {
     tabScope.afterUpdate(layout);
     tabScope.afterUpdate(showGroupChoice);
     tabScope.afterUpdate(showAbout);
-    await reload();
+    // A place noted before the page was reloaded shows its button.
+    previousPlace.update();
+    await reload({ keepPlace: true });
 }

@@ -641,6 +641,35 @@ body.mm-modal-open {
     display: none;
 }
 
+/* Back to image while it loads the grid's parts (#264): a turning circle,
+   Looking..., and a stop square - pressed, it stops. The page holds it at its
+   width (previous_position.mjs); a flex item would not go below its content. */
+.mm-btn.mm-scroll-restore-btn[aria-busy="true"] {
+    min-width: 0;
+}
+
+/* White, as the button's text is in both modes: Gradio's prose colour would
+   give it the theme's text colour, dark on the grey in light mode. */
+.mm-btn-spinner {
+    box-sizing: border-box;
+    flex: none;
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: mm-spin 0.8s linear infinite;
+}
+
+.mm-btn-stop {
+    box-sizing: border-box;
+    flex: none;
+    width: 0.6em;
+    height: 0.6em;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.9);
+}
+
 /* Checkboxes side by side inside one filter group, rather than stacked. */
 .filter-checkboxes {
     display: flex;

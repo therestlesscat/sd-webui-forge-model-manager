@@ -56,6 +56,7 @@ const pressBack = () => {
 
 check('a place saved before the update shows Previous Position', showing(), true);
 check('before Load Models, as it always was', button()?.nextElementSibling?.id, 'mm_load_btn');
+check('still Previous Position: a card or a height, not a tile found (#264)', button()?.textContent, '↓ Previous Position');
 check('pressed, the page goes back to it', pressBack(), 1500);
 button()?.dispatchEvent(new window.Event('contextmenu', { bubbles: true, cancelable: true }));
 check('a right-click clears it, from the browser\'s storage too',

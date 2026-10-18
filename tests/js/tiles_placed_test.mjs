@@ -140,6 +140,13 @@ check('closing the viewer on it scrolls its row to the view\'s bottom',
       scrolled, expected[far].row * pitch + pitch - GRID_LAYOUT.gap - 1000);
 check('and draws it', placed.isDrawn(far), true);
 
+// Back to image finds a tile far below: its row in the middle of the window (#264).
+const found = 800;
+placed.scrollTo(found, { center: true });
+check('centred: the middle of its row at the middle of the 1,000 px window',
+      scrolled, expected[found].row * pitch + (pitch - GRID_LAYOUT.gap) / 2 - 500);
+check('and drawn', placed.isDrawn(found), true);
+
 // A tile rated: drawn again where it was. Then the one before it deleted:
 // the grid is placed again, and it moves up into that one's spot.
 await scrollTo(0);

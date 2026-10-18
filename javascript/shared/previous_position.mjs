@@ -10,10 +10,15 @@
  * be noted too, and the place kept would be the top. A plain click on the tab
  * bar notes nothing: the person is at the top by then.
  *
- * The Model Manager had this alone, its place in the browser's storage, so it
- * survives a reload. The Generations and Civitai Images tabs keep theirs in
- * the page's memory: a reload starts their grid from its first part, and an
- * old place would land on other images.
+ * Every tab keeps its place in the browser's storage, so it survives a
+ * reload - the Generations and Civitai Images tabs since #264, in the page's
+ * memory before. In those two the place is the tile left, not a height (#264):
+ * the Generations tab lists the newest first, so each batch generated after a
+ * Send pushes every tile down, and after a reload a grid starts again from its
+ * first part. The tile is named by what it shows - the image, its batch, the
+ * groups opened to reach it - and found in whatever grid the tab shows: the
+ * image itself, or the batch or group that holds it. They still forget it as
+ * their grid starts again, but not as the tab starts after a reload.
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -52,9 +57,18 @@ function memoryStore() {
  * @param {string} [options.before] - the id of what it goes before, in that row; else the row's end.
  * @param {string} [options.storageKey] - kept in the browser's storage under this key; else in memory.
  * @param {string} [options.label] - the tab's name in the console's lines.
+ * @param {string} [options.text] - what the button says; [options.tip] its tooltip.
+ * @param {object} [options.grid] - a tab of tiles' grid, where the place is a tile, found by `seek`:
+ *   `count()` tiles loaded, `ids(index)` what a tile is, `parts()` loaded and `more()` to come,
+ *   `load()` the next part, `show(index)` the tile brought into view, `status(text)`, and
+ *   `view()`, which changes when the grid starts again.
  */
-export function previousPosition({ id, action, row, before = '', storageKey = '', label = 'ModelManager' }) {
+export function previousPosition({ id, action, row, before = '', storageKey = '', label = 'ModelManager',
+                                   text = '↓ Previous Position',
+                                   tip = 'Scroll to previous position. Right-click to clear.', grid = null }) {
     const store = storageKey ? storageStore(storageKey) : memoryStore();
+    let seeking = null;     // the search under way, while there is one
+    let stopping = false;   // asked to stop: it ends as its part comes
 
     function update() {
         const pos = store.get('position');
@@ -67,8 +81,8 @@ export function previousPosition({ id, action, row, before = '', storageKey = ''
                     btn.id = id;
                     btn.type = 'button';
                     btn.className = 'mm-btn secondary mm-scroll-restore-btn';
-                    btn.textContent = '↓ Previous Position';
-                    btn.title = 'Scroll to previous position. Right-click to clear.';
+                    btn.textContent = text;
+                    btn.title = tip;
                     btn.dataset.action = action;
                     btn.oncontextmenu = (e) => {
                         e.preventDefault();
@@ -88,12 +102,14 @@ export function previousPosition({ id, action, row, before = '', storageKey = ''
      * where it was when the viewer opened, if it is open, as the page is held
      * still while it is. And `target`, a selector for the image or card sent,
      * which the button brings back into view - from the viewer, the image
-     * shown last, not the one it opened on.
+     * shown last, not the one it opened on. In a tab of tiles, `target` is
+     * the tile's ids instead, the innermost first, for `seek`.
      */
     function remember(target) {
         const pos = viewerPageScroll() ?? (window.scrollY || document.documentElement.scrollTop || 0);
         store.set('position', String(pos));
-        if (target) store.set('target', target);
+        if (Array.isArray(target) && target.length) store.set('target', JSON.stringify(target));
+        else if (typeof target === 'string' && target) store.set('target', target);
         else store.remove('target');
         update();
         console.log(`[${label}] Saved scroll position:`, pos, target || '');
@@ -101,6 +117,15 @@ export function previousPosition({ id, action, row, before = '', storageKey = ''
 
     function restore() {
         const target = store.get('target');
+        const ids = grid ? tileIds(target) : null;
+        if (ids) {
+            if (!seeking) return seek(ids);
+            // Pressed while it looks: the button is Stop. Pressed again before
+            // the part on its way has come: a new search, once that one ends.
+            if (stopping) return seeking.then(() => seek(ids));
+            stop();
+            return undefined;
+        }
         let sent = null;
         try {
             sent = target ? document.querySelector(target) : null;
@@ -126,5 +151,132 @@ export function previousPosition({ id, action, row, before = '', storageKey = ''
         console.log(`[${label}] Cleared scroll position`);
     }
 
+    /** The ids a tab of tiles noted, or null for a selector or a height. */
+    function tileIds(target) {
+        try {
+            const ids = JSON.parse(target || '');
+            return Array.isArray(ids) && ids.length ? ids.map(String) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Bring the tile left into view, loading the grid's parts until it is
+     * there: up to SEEK_PARTS, then on only if the person says so - a part is
+     * a request, and a large library has hundreds. A level shows one kind of
+     * tile - groups, batches or images - so the first tile any id names is
+     * the one: the image where images are shown, else its batch or group. Not
+     * found, the page stays where it is, saying so: a height would land on
+     * other images. A new grid meanwhile - a reload, Back - ends the search.
+     */
+    function seek(ids) {
+        seeking = looking(ids).finally(() => {
+            seeking = null;
+            stopping = false;
+        });
+        return seeking;
+    }
+
+    async function looking(ids) {
+        const wanted = new Set(ids);
+        const view = grid.view();
+        let checked = 0;
+        let asked = false;
+        let busy = false;
+        try {
+            for (;;) {
+                const count = grid.count();
+                for (; checked < count; checked += 1) {
+                    if (!grid.ids(checked).some((tileId) => wanted.has(tileId))) continue;
+                    grid.status('');
+                    grid.show(checked);
+                    console.log(`[${label}] Restored to the tile left:`, ids[0]);
+                    return;
+                }
+                if (!grid.more()) {
+                    grid.status(NOT_FOUND);
+                    return;
+                }
+                if (grid.parts() >= SEEK_PARTS && !asked) {
+                    asked = true;
+                    if (!window.confirm(keepLooking(count))) {
+                        grid.status('');
+                        return;
+                    }
+                }
+                grid.status(`Looking for the image you left: ${count.toLocaleString()} tiles loaded...`);
+                if (!busy) busy = showBusy(true);
+                const parts = grid.parts();
+                await grid.load();
+                // A part that did not come - an error, which the status says - is not asked for again.
+                if (stopping) {
+                    // Said again: the part's own load cleared the status as it came.
+                    grid.status(STOPPED);
+                    return;
+                }
+                if (grid.view() !== view || grid.parts() === parts) return;
+            }
+        } finally {
+            if (busy) showBusy(false);
+        }
+    }
+
+    /** Stop the search, as the button is pressed while it looks: at once on the page, the part on its way let come. */
+    function stop() {
+        stopping = true;
+        showBusy(false);
+        grid.status(STOPPED);
+        console.log(`[${label}] Stopped looking for the tile left`);
+    }
+
+    /**
+     * The button while it loads parts: a turning circle, Looking..., and a
+     * stop square - pressed, it stops. A tile found in the parts loaded needs
+     * none: it comes at once.
+     */
+    function showBusy(on) {
+        const btn = document.getElementById(id);
+        if (!btn) return on;
+        // Held at its width, so what follows in the row stays put.
+        const width = btn.getBoundingClientRect?.().width || 0;
+        btn.style.width = on && width ? `${width}px` : '';
+        btn.setAttribute('aria-busy', String(on));
+        btn.title = on ? BUSY.tip : tip;
+        if (!on) {
+            btn.textContent = text;
+            return on;
+        }
+        const icon = (name) => {
+            const span = document.createElement('span');
+            span.className = name;
+            span.setAttribute('aria-hidden', 'true');
+            return span;
+        };
+        btn.replaceChildren(icon('mm-btn-spinner'), document.createTextNode(BUSY.text), icon('mm-btn-stop'));
+        return on;
+    }
+
     return { remember, update, restore, clear };
+}
+
+/** How many parts Previous Position loads looking for its tile before it asks to go on (#264). */
+export const SEEK_PARTS = 20;
+
+/** What the button says while it loads parts looking for the image: shorter than Back to image, with room for its two icons. */
+const BUSY = { text: 'Looking...', tip: 'Looking for the image you left. Press to stop.' };
+
+const STOPPED = 'Stopped looking for the image you left.';
+
+/** The button in a tab of tiles, where it finds the image left rather than a height (#264). */
+export const TILE_BUTTON = {
+    text: '↓ Back to image',
+    tip: 'Bring the image you left back into view, loading more of the grid if needed. Right-click to clear.',
+};
+
+const NOT_FOUND = 'The image you left is not in this view: none of its tiles is it, or holds it.';
+
+function keepLooking(count) {
+    return `The image you left is not in the ${count.toLocaleString()} tiles loaded here. `
+        + 'Keep loading until it is found? Each further part of the grid is a request to the server.';
 }

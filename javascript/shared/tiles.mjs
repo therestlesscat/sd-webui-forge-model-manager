@@ -139,13 +139,15 @@ export function watchEnd(scope, sentinel, near) {
 }
 
 /**
- * Bring tile `index` of `grid` into view, as little as it takes: the tile
- * itself, not its set. The set is `display: contents` and has no box, so the
- * browser scrolled to nothing for it, and closing the viewer left the grid
- * where it was (#253). Nothing if the tile is not on the page.
+ * Bring tile `index` of `grid` into view, as little as it takes - or, with
+ * `center`, to the middle of the window, as Back to image does (#264): the
+ * tile itself, not its set. The set is `display: contents` and has no box, so
+ * the browser scrolled to nothing for it, and closing the viewer left the
+ * grid where it was (#253). Nothing if the tile is not on the page.
  */
-export function showTile(grid, index) {
-    grid?.querySelector?.(`.gen-set[data-tile="${Number(index)}"] .gen-tile`)?.scrollIntoView?.({ block: 'nearest' });
+export function showTile(grid, index, { center = false } = {}) {
+    grid?.querySelector?.(`.gen-set[data-tile="${Number(index)}"] .gen-tile`)
+        ?.scrollIntoView?.({ block: center ? 'center' : 'nearest' });
 }
 
 /** How far the page is scrolled. */
@@ -566,15 +568,22 @@ export function placedGrid({ scope, grid, app, count, html, imageOf, head = () =
             if (!sameSize(now, size)) replace();
             else schedule();
         },
-        /** Bring a tile into view, as `scrollIntoView` with `nearest` would, and draw it. */
-        scrollTo(index) {
+        /**
+         * Bring a tile into view, as `scrollIntoView` with `nearest` would -
+         * or, with `center`, its row in the middle of the window, as Back to
+         * image does (#264) - and draw it.
+         */
+        scrollTo(index, { center = false } = {}) {
             const el = grid();
             if (!p || !el || !p.spots[index]) return;
             const spot = p.spots[index];
             const top = (el.getBoundingClientRect?.().top || 0) + topOfTile(index);
             const bottom = (el.getBoundingClientRect?.().top || 0) + tops[spot.row] + rowHeight(spot.row);
             const view = window.innerHeight || 0;
-            if (top < 0) window.scrollTo?.(0, currentScroll() + top);
+            if (center) {
+                const middle = (el.getBoundingClientRect?.().top || 0) + tops[spot.row] + rowHeight(spot.row) / 2;
+                window.scrollTo?.(0, Math.max(0, currentScroll() + middle - view / 2));
+            } else if (top < 0) window.scrollTo?.(0, currentScroll() + top);
             else if (bottom > view) window.scrollTo?.(0, currentScroll() + bottom - view);
             draw();
         },

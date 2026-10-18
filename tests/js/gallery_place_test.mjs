@@ -5,6 +5,9 @@
 // Send, from a tile or the viewer, and Show model note where the page is
 // before they switch. The button shows in the toolbar, before Refresh;
 // pressed, the page goes back there; a right-click clears it.
+//
+// Since #264 the place is the tile left, kept in the browser's storage, and
+// the button brings that tile back into view rather than a height.
 import { checker, mountTab, press, startTab, tabEntries, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
@@ -17,13 +20,14 @@ const imageTile = (id) => ({
     model: { id: 40, name: 'A LoRA', civitai_type: 'LORA', model_type: 'LORA', base_model: 'SDXL 1.0' },
     version: { id: 400, name: 'v1', file_path: 'C:/models/Lora/a.safetensors', file_type: 'LORA', base_model: 'SDXL 1.0' },
 });
+let listed = [imageTile(2), imageTile(1)];
 globalThis.onAfterUiUpdate = () => {};
 globalThis.fetch = async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, status: 200, json: async () => body });
     if (href.includes('/model-manager/gallery/browse')) {
         return reply({ success: true, seed: 1, more: false, state: { total: 1, filtered: 1 }, scope: { count: 1 },
-                       tiles: [imageTile(1)] });
+                       tiles: listed });
     }
     // The Classic grid: closing the viewer brings its tile into view by scrollIntoView.
     if (href.includes('/model-manager/ui-options')) {
@@ -37,25 +41,49 @@ document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_mo
 await startTab('modelManager');
 const shownVersions = [];
 (await tabEntries('model_manager.mjs')).showVersion = async (...args) => { shownVersions.push(args); };
+// A place noted before the page was reloaded (#264), at image 1; a sync
+// since added image 2, which the seed's order puts first.
+localStorage.setItem('gal_scroll_position', '9000');
+localStorage.setItem('gal_scroll_target', JSON.stringify(['image:1']));
 await startTab('gallery');
-await waitFor('the grid', () => document.querySelectorAll('#gal_grid .gen-tile').length === 1);
+await waitFor('the grid', () => document.querySelectorAll('#gal_grid .gen-tile').length === 2);
 
 const scrollY = (y) => Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
 const scrolls = [];
+// The tiles brought into view, as `tile N`.
+const shown = [];
+window.HTMLElement.prototype.scrollIntoView = function(options) {
+    const set = this.closest?.('#gal_grid .gen-set');
+    const where = options?.block === 'center' ? ', centred' : '';
+    shown.push(set ? `tile ${set.getAttribute('data-tile')}${where}` : this.id);
+};
 window.scrollTo = (...args) => { scrolls.push(typeof args[0] === 'object' ? args[0].top : args[1]); };
 const button = () => document.getElementById('gal_scroll_restore_btn');
 const showing = () => Boolean(button()) && button().style.display !== 'none';
 // No button, no press: a check fails rather than the suite.
 const pressBack = () => {
     scrolls.length = 0;
+    shown.length = 0;
     scrollY(0);
     if (button()) press(button());
-    return scrolls[0] ?? null;
+    return shown[0] ?? scrolls[0] ?? null;
 };
 const clear = () => button()?.dispatchEvent(new window.Event('contextmenu', { bubbles: true, cancelable: true }));
 // What Send does after the place is noted is not this suite's.
 const quietly = async (run) => { try { await run(); } catch (e) { /* the send's own business */ } };
 
+// ------------------------------------------------------------ after a reload of the page
+// The place is kept in the browser's storage (#264), and the tab's start,
+// which builds its grid again, keeps it.
+check('a place noted before the page was reloaded shows Previous Position', showing(), true);
+check('named for what it finds, the image left (#264)', button()?.textContent, '↓ Back to image');
+check('pressed, its tile comes back into view, below the new one', pressBack(), 'tile 1, centred');
+clear();
+check("a right-click clears it from the browser's storage", localStorage.getItem('gal_scroll_position'), null);
+// The rest with the one image.
+listed = [imageTile(1)];
+await press(document.getElementById('gal_refresh_btn'));
+await waitFor('the one image', () => document.querySelectorAll('#gal_grid .gen-tile').length === 1);
 check('before anything, no Previous Position', showing(), false);
 
 // ------------------------------------------------------------ Send from a tile
@@ -64,7 +92,9 @@ await quietly(() => press(document.querySelector('#gal_grid [data-action="galler
 check('a Send from a tile 20,000 px down shows Previous Position', showing(), true);
 check('in the toolbar, before Refresh',
       [Boolean(button()?.closest('.gen-toolbar')), button()?.nextElementSibling?.id], [true, 'gal_refresh_btn']);
-check('pressed, the page goes back to where it was', pressBack(), 20000);
+check('pressed, the tile sent comes back into view', pressBack(), 'tile 0, centred');
+check("kept in the browser's storage, as the tile and its image",
+      JSON.parse(localStorage.getItem('gal_scroll_target') || 'null'), ['image:1']);
 clear();
 check('a right-click clears it', showing(), false);
 
@@ -80,7 +110,7 @@ document.querySelector('[data-gal-send]').dispatchEvent(new window.Event('click'
 await new Promise((resolve) => setTimeout(resolve, 0));
 window.HTMLElement.prototype.scrollIntoView = intoView;
 check('a Send from the viewer shows Previous Position', showing(), true);
-check('pressed, the page goes back to the image sent, where closing the viewer brought it', pressBack(), 6100);
+check('pressed, the tile of the image sent comes back into view', pressBack(), 'tile 0, centred');
 clear();
 
 // ------------------------------------------------------------ Show model
@@ -88,7 +118,7 @@ scrollY(7000);
 await press(document.querySelector('#gal_grid [data-action="gallery.showModel"][data-tile="0"]'));
 await waitFor('the Model Manager asked', () => shownVersions.length > 0);
 check('Show model shows Previous Position', showing(), true);
-check('pressed, the page goes back to where it was', pressBack(), 7000);
+check('pressed, its tile comes back into view', pressBack(), 'tile 0, centred');
 
 // ------------------------------------------------------------ the grid starting again clears it
 // The place is a height in the grid it was noted in: in another grid it
@@ -96,5 +126,6 @@ check('pressed, the page goes back to where it was', pressBack(), 7000);
 await press(document.getElementById('gal_refresh_btn'));
 await waitFor('the grid again', () => document.querySelectorAll('#gal_grid .gen-tile').length === 1);
 check('Refresh starts the grid again, and clears Previous Position', showing(), false);
+check("and from the browser's storage", localStorage.getItem('gal_scroll_target'), null);
 
 done();

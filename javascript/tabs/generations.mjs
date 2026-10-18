@@ -67,10 +67,22 @@ await shared('settings.mjs');
 
 // Previous Position (#250): Send and the ⋯ menu's links note where the page
 // was, and the toolbar's button goes back there.
-const { previousPosition } = await shared('previous_position.mjs');
+const { previousPosition, TILE_BUTTON } = await shared('previous_position.mjs');
 const { groupChain: chainOf, groupMenu: makeGroupMenu, startSearchBox } = await shared('grouping.mjs');
+// The grid as Previous Position looks for the tile left in it (#264).
+const placeGrid = {
+    count: () => tiles.length,
+    ids: (index) => tileIds(tiles[index]),
+    parts: () => part,
+    more: () => more,
+    load: () => viewerSource.loadMore(),
+    show: (index) => bringTile(index),
+    status: (text) => setStatus(text),
+    view: () => views,
+};
 const previousPlace = previousPosition({ id: 'gen_scroll_restore_btn', action: 'generations.previousPosition',
-                                         row: '#generations_app .gen-toolbar', before: 'gen_sync_btn' });
+                                         row: '#generations_app .gen-toolbar', before: 'gen_sync_btn',
+                                         storageKey: 'gen_scroll', grid: placeGrid, ...TILE_BUTTON });
 
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
@@ -155,6 +167,7 @@ let title = '';          // what the path calls it
 const levels = [];       // the levels above, each as it was left
 let loading = false;
 let request = 0;         // a newer load drops an older one's answer
+let views = 0;           // a new grid - a reload, Back - ends Previous Position's search
 
 function readFlag(key) {
     return readSetting(key, 'false') === 'true';
@@ -177,12 +190,17 @@ function writeFlag(key, value) {
 const byId = (id) => document.getElementById(id);
 
 // ------------------------------------------------------------- loading
-/** This level again from its first part: a switch, Refresh, or opening. */
-async function reload() {
+/**
+ * This level again from its first part: a switch, Refresh, or opening. The
+ * opening keeps Previous Position (`keepPlace`): the place noted before the
+ * page was reloaded, kept in the browser's storage (#264).
+ */
+async function reload({ keepPlace = false } = {}) {
+    views += 1;
     closeViewer();
     clearSelection();
     // Previous Position is a height in the grid that goes now.
-    previousPlace.clear();
+    if (!keepPlace) previousPlace.clear();
     tiles = [];
     part = 0;
     more = true;
@@ -267,7 +285,8 @@ async function openTile(index) {
     clearSelection();
     const tile = tiles[index];
     if (!tile) return;
-    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false });
+    levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false,
+                  opened: [...tileIds(tile), sectionId(tile)].filter(Boolean) });
     if (tile.kind === 'group') {
         // Grouped twice, a group of the first grouping opens onto groups of
         // the second, and one of those onto its batches.
@@ -296,6 +315,7 @@ async function openTile(index) {
 async function goBack() {
     clearSelection();
     if (!levels.length) return;
+    views += 1;
     closeViewer();
     previousPlace.clear();
     request += 1;
@@ -316,6 +336,36 @@ async function goBack() {
 /** Something above this level may have changed: it loads again on Back. */
 function markAboveChanged() {
     for (const level of levels) level.dirty = true;
+}
+
+// ------------------------------------------------------------- Previous Position
+// The place is the tile left, by what it shows (#264): images generated since
+// a Send are added at the top, and push every tile down.
+
+/** What a tile is, for Previous Position: a group, a batch or an image. */
+function tileIds(tile) {
+    if (!tile) return [];
+    if (tile.kind === 'group') return [`group:${tile.group.by}:${tile.group.id}`];
+    if (tile.kind === 'generation') return [`generation:${tile.generation.id}`];
+    return tile.images?.[0] ? [`image:${tile.images[0].id}`] : [];
+}
+
+/** The group of the first grouping a tile is in, in a level grouped twice. */
+function sectionId(tile) {
+    return tile?.section ? `group:${tile.section.by}:${tile.section.id}` : '';
+}
+
+/** A tile and its image as a place: the image, its tile, then each group opened to reach it. */
+function placeOf(tile, image) {
+    const ids = [image && `image:${image.id}`, ...tileIds(tile), sectionId(tile),
+                 ...levels.slice().reverse().flatMap((level) => level.opened || [])];
+    return [...new Set(ids.filter(Boolean))];
+}
+
+/** The tile found, in the middle of the window. */
+function bringTile(index) {
+    if (fast && placed) placed.scrollTo(index, { center: true });
+    else showTile(byId('gen_grid'), index, { center: true });
 }
 
 /** Where the tab starts on the page, to show a new level from its top. */
@@ -562,7 +612,7 @@ function sendHtml(image, mode, attributes) {
 async function sendTile(index) {
     const tile = tiles[index];
     if (!tile?.images?.[0] || tile.kind === 'group') return;
-    previousPlace.remember();
+    previousPlace.remember(placeOf(tile, tile.images[0]));
     await sendImage(tile, tile.images[0]);
 }
 
@@ -878,19 +928,21 @@ function menuFor(subject) {
     const items = [];
     const checkpoint = subject?.checkpoint;
     if (checkpoint) {
-        items.push(showItem('Show model in Model Manager', checkpoint));
+        items.push(showItem('Show model in Model Manager', checkpoint, subject));
         if (checkpoint.model_id) {
             items.push(toTab('civitaiBrowser', { label: 'Show model in Civitai Browser',
-                                                  run: () => showOnCivitai(checkpoint) }));
+                                                  run: () => showOnCivitai(checkpoint, subject) }));
         }
     }
-    for (const lora of subject?.loras || []) items.push(showItem(`Show LoRA ${lora.name} in Model Manager`, lora));
+    for (const lora of subject?.loras || []) {
+        items.push(showItem(`Show LoRA ${lora.name} in Model Manager`, lora, subject));
+    }
     return items;
 }
 
-function showItem(label, file) {
+function showItem(label, file, tile) {
     return file.in_library
-        ? toTab('modelManager', { label, run: () => showModel(file) })
+        ? toTab('modelManager', { label, run: () => showModel(file, tile) })
         : { label, disabled: true, title: `${file.name} is not in the library: deleted, moved, or never scanned` };
 }
 
@@ -950,17 +1002,17 @@ function closeMenu() {
  * This model, in the Model Manager tab - by its version, or by its file where
  * Civitai does not know it - through the loading module (#184).
  */
-function showModel(file) {
+function showModel(file, tile, image) {
     closeViewer();
-    previousPlace.remember();
+    previousPlace.remember(placeOf(tile, image));
     return file.version_id ? open('modelManager', 'showVersion', file.version_id, file.path)
         : open('modelManager', 'showFile', file.path);
 }
 
 /** Its model and version in the Civitai Browser tab, through the loading module (#184). */
-function showOnCivitai(file) {
+function showOnCivitai(file, tile) {
     closeViewer();
-    previousPlace.remember();
+    previousPlace.remember(placeOf(tile));
     return open('civitaiBrowser', 'showModel', file.version_id ? `model:${file.model_id} version:${file.version_id}`
         : `model:${file.model_id}`);
 }
@@ -1027,7 +1079,7 @@ const viewerSource = {
             closeViewer();
             // Once it has closed: closing brought the image it showed last
             // into view, so the place is the image sent.
-            previousPlace.remember();
+            previousPlace.remember(placeOf(tile, image));
             sendImage(tile, image);
             return true;
         }
@@ -1036,11 +1088,11 @@ const viewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
-            showImageResources(image, null, { leaving: () => previousPlace.remember() });
+            showImageResources(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)) });
             return true;
         }
         if (event.target.closest?.('[data-gen-model]')) {
-            if (image.checkpoint?.in_library) showModel(image.checkpoint);
+            if (image.checkpoint?.in_library) showModel(image.checkpoint, tile, image);
             return true;
         }
         return false;
@@ -1789,5 +1841,7 @@ export async function start(scope) {
         showAddButton();
     });
     pickUpSync();
-    await reload();
+    // A place noted before the page was reloaded shows its button.
+    previousPlace.update();
+    await reload({ keepPlace: true });
 }

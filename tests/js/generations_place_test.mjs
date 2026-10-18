@@ -8,6 +8,10 @@
 // button shows in the toolbar, before Sync images; pressed, the page goes
 // back there; a right-click clears it. A plain click on the tab bar notes
 // nothing: the person scrolled to the top to reach it.
+//
+// Since #264 the place is the tile left, kept in the browser's storage, and
+// the button brings that tile back into view rather than a height; how it is
+// looked for is place_seek_test's.
 import { checker, mountTab, press, sendLoaders, startTab, tabEntries, tabMarkup, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
@@ -56,6 +60,12 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
+// A place noted before the page was reloaded (#264), inside the batch at its
+// second image, 12; a batch generated since lists first, above it.
+localStorage.setItem('gen_scroll_position', '9000');
+localStorage.setItem('gen_scroll_target', JSON.stringify(['image:12', 'generation:1']));
+tiles.unshift({ ...tiles[0], generation: { ...generation, id: 2 },
+                images: [{ ...image, id: 21, generation_id: 2, url: '/model-manager/generations/images/21/file' }] });
 await startTab('generations');
 await startTab('modelManager');
 // What the Model Manager would do with the model is not this suite's.
@@ -63,22 +73,42 @@ const entries = await tabEntries('model_manager.mjs');
 const shownInManager = [];
 entries.showVersion = async (...args) => { shownInManager.push(args); };
 entries.showFile = async (...args) => { shownInManager.push(args); };
-await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
+await waitFor('the grid', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
 
 const scrollY = (y) => Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
 const scrolls = [];
+// The tiles brought into view, as `tile N`.
+const shown = [];
+window.HTMLElement.prototype.scrollIntoView = function(options) {
+    const set = this.closest?.('#gen_grid .gen-set');
+    const where = options?.block === 'center' ? ', centred' : '';
+    shown.push(set ? `tile ${set.getAttribute('data-tile')}${where}` : this.id);
+};
 window.scrollTo = (...args) => { scrolls.push(typeof args[0] === 'object' ? args[0].top : args[1]); };
 const button = () => document.getElementById('gen_scroll_restore_btn');
 const showing = () => Boolean(button()) && button().style.display !== 'none';
 // No button, no press: a check fails rather than the suite.
 const pressBack = () => {
     scrolls.length = 0;
+    shown.length = 0;
     scrollY(0);
     if (button()) press(button());
-    return scrolls[0] ?? null;
+    return shown[0] ?? scrolls[0] ?? null;
 };
 const clear = () => button()?.dispatchEvent(new window.Event('contextmenu', { bubbles: true, cancelable: true }));
 
+// ------------------------------------------------------------ after a reload of the page
+// The place is kept in the browser's storage (#264), and the tab's start,
+// which builds its grid again, keeps it.
+check('a place noted before the page was reloaded shows Previous Position', showing(), true);
+check('named for what it finds, the image left (#264)', button()?.textContent, '↓ Back to image');
+check('pressed, the batch holding its image comes into view, below the newer one', pressBack(), 'tile 1, centred');
+clear();
+check("a right-click clears it from the browser's storage", localStorage.getItem('gen_scroll_position'), null);
+// The rest with the one batch.
+tiles.shift();
+await press(document.getElementById('gen_refresh_btn'));
+await waitFor('the one batch', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
 check('before anything, no Previous Position', showing(), false);
 
 // ------------------------------------------------------------ Send from a tile
@@ -89,7 +119,9 @@ await waitFor('the paste', () => pastes.length > before);
 check('a Send from a tile 20,000 px down shows Previous Position', showing(), true);
 check('in the toolbar, before Sync images',
       [button()?.closest('.gen-toolbar') !== null, button()?.nextElementSibling?.id], [true, 'gen_sync_btn']);
-check('pressed, the page goes back to where it was', pressBack(), 20000);
+check('pressed, the tile sent comes back into view', pressBack(), 'tile 0, centred');
+check("kept in the browser's storage, as the tile and its image",
+      JSON.parse(localStorage.getItem('gen_scroll_target') || 'null'), ['image:11', 'generation:1']);
 
 // ------------------------------------------------------------ a right-click clears it
 clear();
@@ -115,7 +147,7 @@ document.querySelector('[data-gen-send]').dispatchEvent(new window.Event('click'
 await waitFor('the paste from the viewer', () => pastes.length > before);
 window.HTMLElement.prototype.scrollIntoView = intoView;
 check('a Send from the viewer shows Previous Position', showing(), true);
-check('pressed, the page goes back to the image sent, where closing the viewer brought it', pressBack(), 6100);
+check('pressed, the tile of the image sent comes back into view', pressBack(), 'tile 0, centred');
 clear();
 
 // ------------------------------------------------------------ the ⋯ menu's link
@@ -128,7 +160,7 @@ check('the menu offers Show model in Model Manager', Boolean(item) && !item.disa
 item?.dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Model Manager asked', () => shownInManager.length > 0);
 check('Show model in Model Manager shows Previous Position', showing(), true);
-check('pressed, the page goes back to where it was', pressBack(), 7000);
+check('pressed, its tile comes back into view', pressBack(), 'tile 0, centred');
 
 // ------------------------------------------------------------ the grid starting again clears it
 // The place is a height in the grid it was noted in: in another grid - a
@@ -142,6 +174,7 @@ const noteBySend = async (y) => {
 await press(document.getElementById('gen_refresh_btn'));
 await waitFor('the grid again', () => document.querySelectorAll('#gen_grid .gen-tile').length === 1);
 check('Refresh starts the grid again, and clears Previous Position', showing(), false);
+check("and from the browser's storage", localStorage.getItem('gen_scroll_target'), null);
 
 await noteBySend(4000);
 const box = document.getElementById('gen_search');
