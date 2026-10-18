@@ -51,6 +51,12 @@ ran first: the viewer, which closes on Send, closes once the click is done.
 
 ## The WebUI's rules, which are not obvious
 
+- **Esc that reaches the page interrupts a generation.** The WebUI's
+  `script.js` (line ~199) listens for Esc on the document and presses
+  Interrupt while one runs - on 7870 it logs "Cannot read properties of null
+  (reading 'style')" when its button is missing. So a dialog stops Esc at
+  itself (`shared/dialog.mjs`) and keeps focus inside: with focus fallen to
+  the page, Esc reached that handler (#292).
 - `javascript/*.js` become classic scripts, `*.mjs` become
   `<script type="module">`, **in filename order**. Subdirectories are not
   scanned: `list_scripts` uses `os.listdir`. So there is one, `loader.mjs`:

@@ -670,7 +670,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   scripted edit, parse every changed file and compare its function count.
   A rename by regex: grep for the old name afterwards, in every quoting - one
   that kept off a JSON key of the same name skipped `_upsert("civitai_versions")`,
-  and 45 suites failed.
+  and 45 suites failed. A template's end is not its first backtick: a nested
+  `${`...`}` ends there. #292's script, turning three windows' outer `<div>`
+  into `<dialog>`, took the first backtick for the end and changed an inner
+  `</div>` in 2 of 3; Resources drew only its header, until the suites caught it.
 - **Compare a round of changes as a whole, after it.** Every refactor of the
   0.44 round passed its suites. Comparing the code before the round (57ae3c0)
   with after it (b529f30), with seven reviewers in parallel, found nine

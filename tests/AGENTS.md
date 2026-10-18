@@ -52,7 +52,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   SQLite error, not an order, and a check that sliced a list by what it
   assumed raised a `ValueError`: both "failed" without showing which check the
   break reached. Compare whole values, and break with a valid alternative -
-  `(1 = 1)` for the order.
+  `(1 = 1)` for the order. Nor hang: the checker prints FAIL lines only at
+  `done()`, so a break that leaves an awaited promise pending ends the suite
+  silently, every failure hidden - two of #292's did, awaiting a close that
+  waited on a check never answered. Await nothing a break could leave
+  pending, and answer every question asked.
 - **A break that fails nothing is a finding.** Of 0.58.3's breaks, two failed
   nothing: one removed a line that turned out redundant - the line went -
   and one hit a guard a second layer covers (the walk never hands a recorded
