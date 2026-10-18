@@ -216,7 +216,11 @@ the code (2026-10-16).
   12 replies said a step was still to come that a call earlier in the same
   turn had done - the test browser closed, a memory note written, the change
   staged, the issue opened. Write what a turn did from its results, read
-  before the summary.
+  before the summary. So is code a plan leans on for a case it never ran:
+  #34 chose keeping the press's inputs because Load to UI "already" set
+  canvases back, never tried for img2img; a side agent flagged it, and a
+  check on 7880 saw it work - and found Load to UI showing img2img's plain
+  mode while the mode Forge reads said Inpaint.
 - **An approved check is never weakened in code.** v37's plan said the
   files each image used must come out of the migration the same set as
   `generation_files`; it was written as a subset - every old row found,
@@ -349,7 +353,9 @@ Where they differ, and what the extension does about it - on the server in
 
 - **Python 3.10 in the original Forge.** Nothing newer than 3.10 syntax or
   library. Check with that install's `system\python\python.exe`, compiling
-  every file.
+  every file - each file's source with `compile(open(p).read(), p, 'exec')`:
+  `py_compile` with `cfile='NUL'` raised on all 16 files of #34, the fault
+  the command's, not the code's.
 - **SQLite 3.37.2 in the original Forge**, 3.50.4 in Neo's venv. An SQL
   feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35;
   `json_each` and `json_extract` run there (#218, checked with that install's
@@ -500,8 +506,11 @@ the stats off on most cards that had it. The owner's screenshot found it.
   0.44 round said 219 lines for 147 and 27 handlers for 28, and had to be
   amended. Stage, read `git diff --cached --shortstat`, then write the number:
   in the 0.48 round three more were amended - +603 for +753, +519 for +512,
-  and "26 new checks" added up from memory. And a message states only what was
-  seen: "wrapped line after line" was never looked at, and was taken out.
+  and "26 new checks" added up from memory. And a message - or a changelog
+  line - states only what was seen: "wrapped line after line" was never
+  looked at, and was taken out; 0.65.0's changelog first said the old Send
+  made Generate "inpaint with a canvas out of sight", read in the code, never
+  seen, until a side agent caught it before the commit.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 - **A stop needs a way back.** A dialog that blocks an action offers that
@@ -674,6 +683,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `${`...`}` ends there. #292's script, turning three windows' outer `<div>`
   into `<dialog>`, took the first backtick for the end and changed an inner
   `</div>` in 2 of 3; Resources drew only its header, until the suites caught it.
+  A hand-formatted JSON file is edited as text, never loaded and dumped:
+  adding two notes to `release_notes.json` through `json.dump` changed 199
+  lines for 39.
 - **Compare a round of changes as a whole, after it.** Every refactor of the
   0.44 round passed its suites. Comparing the code before the round (57ae3c0)
   with after it (b529f30), with seven reviewers in parallel, found nine
@@ -733,7 +745,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   also refuses one that ends in the runner's path - a `cat`, a `grep`, a line
   of a commit message. Put the path in a variable (`F=tests/ru; F=${F}n.py`),
   or run a script file.
-- WSL's shell here is zsh: `noclobber` is on, `cp` asks before overwriting
+- WSL's shell here is zsh: `noclobber` is on - a refused `>` leaves the old
+  file in place to be read: an issue listing read an earlier session's
+  `issues.json` and gave 83 open issues for 65 - `cp` asks before overwriting
   (see `tests/AGENTS.md`, "Make sure the old code is what ran") and `rm`
   before deleting - a chained `rm` waited for an answer that never came,
   until the task was stopped: write `command rm -f` - and `echo`

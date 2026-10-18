@@ -332,6 +332,15 @@ with the last row naming its path - every removal the app makes calls
 unasked: a sync makes them when its box is ticked, the recorder only with
 the setting on.
 
+**Files the extension keeps go beside the database, in two-letter
+subfolders** (#5, #34). Thumbnails (`thumbnails`) and the images an img2img
+press started from (`generation-inputs`) sit beside the database unless a
+setting names a folder, read with quotes stripped, each file under its
+name's first two letters: two WebUIs sharing a database share them, and no
+folder holds them all. #34's plan put its store in each WebUI's folder, all
+files in one, copying `queue-inputs` (a task's files are its install's); the
+owner had it moved (R6).
+
 ## Two WebUIs: everything has to work in both
 
 - **No `blake3` package in the original Forge.** BLAKE3 is never read there
