@@ -60,6 +60,9 @@ dbmod._db_instance = db
 os.makedirs(OUTPUTS, exist_ok=True)
 app = FastAPI()
 api.register(app)
+# The one route for every Send's plan (#302), beside the Queue's own.
+from model_manager.api import webui as webui_api  # noqa: E402
+webui_api.register(app)
 client = TestClient(app)
 
 
@@ -218,7 +221,7 @@ check('nor one that is not there', client.get('/model-manager/queue/tasks/999999
 
 # ------------------------------------------------------------- send plan
 LISTED = {'sdxl\\model.safetensors': os.path.join(WORK, 'models', 'model.safetensors')}
-api.checkpoint_file = lambda name: LISTED.get(name)
+forge_host.checkpoint_file = lambda name: LISTED.get(name)
 forge_host.checkpoint_name = lambda path: 'sdxl\\model.safetensors' if path in LISTED.values() else None
 forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': 'F:\\vae\\sdxl_vae.safetensors'}
 plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
@@ -226,6 +229,8 @@ check("a task's send plan: its mode, checkpoint and modules, as Send sets them",
       {k: plan.get(k) for k in ('mode', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
       {'mode': 'txt2img', 'checkpoint': 'sdxl\\model.safetensors', 'checkpoint_missing': None,
        'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
+check('and the one route for every Send answers the same, with its kind (#302)',
+      client.get('/model-manager/send/plan', params={'kind': 'task', 'task': done}).json(), {**plan, 'kind': 'task'})
 LISTED.clear()
 forge_host.installed_modules = lambda: {}
 plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
@@ -233,6 +238,7 @@ check('a checkpoint or a module this WebUI does not list is named',
       (plan['checkpoint'], plan['checkpoint_missing'], plan['target'], plan['modules_missing']),
       (None, 'sdxl\\model.safetensors', [], ['sdxl_vae.safetensors']))
 check("another install's task has none", client.get(f'/model-manager/queue/tasks/{theirs}/send-plan').status_code, 404)
+check('nor from the one route', client.get('/model-manager/send/plan', params={'kind': 'task', 'task': theirs}).status_code, 404)
 
 # ------------------------------------------------------------- Retry
 textbox = queue('a textbox seed', seed='-1')

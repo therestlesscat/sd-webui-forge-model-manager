@@ -31,6 +31,8 @@ from .images import gallery_switches
 from . import levels
 from .common import failed, gate
 from ..console import say
+# A generation's send plan is Send's, for every source (#302).
+from ..send import generation_plan as send_plan
 from .. import generation_inputs, thumbnails
 
 # The images a card shows before "Show images".
@@ -287,18 +289,6 @@ def _delete_files(paths: List[str]) -> Tuple[List[str], List[Dict[str, str]]]:
     return deleted, failed
 
 
-def _checkpoints_by_hash(db, generation: Dict[str, Any]) -> List[str]:
-    """The library's checkpoint files whose hash is the one the generation
-    names - recorded, or its infotext's `Model hash` - in the library's order."""
-    from ..image_text import line_params
-    hashes = [h for h in (generation.get("checkpoint_hash"),
-                          line_params(generation.get("infotext")).get("Model hash")) if h]
-    if not hashes:
-        return []
-    return [row["file_path"] for row in db.versions_named_by([], hashes)
-            if row.get("file_path") and row.get("file_type") in (None, "Checkpoint")]
-
-
 def remember_kept(db, paths: List[str]) -> int:
     """
     Put each file a delete handed back and left on disk on the removed list -
@@ -318,116 +308,6 @@ def remember_kept(db, paths: List[str]) -> int:
     if entries:
         db.remember_removed_images(entries)
     return len(entries)
-
-
-def send_plan(db, generation_id: int, use_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """
-    What Forge is set up with before a generation of your own is sent back to
-    it: the same as it was made with, from what was recorded - its checkpoint's
-    UI preset, the checkpoint, and exactly the VAE / text encoder files that
-    were loaded, none for a model that loaded none. The same for every kind of
-    model.
-
-    Pasting the infotext does not do it: Forge Neo ignores the checkpoint and
-    the modules an infotext names unless told otherwise ("Ignore the
-    Checkpoint / VAE / Text Encoder when reading infotext", both on by
-    default), and a model that loaded no modules names none to clear.
-
-    Returns:
-        plan_for()'s answer, or None for no such generation.
-    """
-    generation = db.get_generation(generation_id)
-    if not generation:
-        return None
-    path = generation.get("checkpoint_path") or ""
-    modules = generation.get("modules") or []
-    if use_version:
-        # The person chose, in the Resources dialog Send opened, to send with
-        # the file of the image's version the library holds - not the file the
-        # image was made with (#233): the first of them Forge lists.
-        from ..forge_host import checkpoint_name
-        held = next((r["file_path"] for r in db.library_files(version_ids=[int(use_version)])
-                     if checkpoint_name(r["file_path"])), None)
-        if held:
-            plan = plan_for(db, held, modules)
-            plan["instead"] = os.path.basename(held)
-            plan["inputs"] = bool(generation.get("inputs"))
-            return plan
-    plan = plan_for(db, path, modules)
-    if not plan["checkpoint"]:
-        # Forge does not list the file it was made with (#233). The library's
-        # file with the hash the image names - a download from the Resources
-        # dialog Send opened, say - is the one, if Forge lists it. Else Send
-        # stops and says why, as a Civitai image's does (api/webui.py): the
-        # file is in a folder this WebUI does not load - the other WebUI's -
-        # or Forge has not listed it yet, or the library lacks it.
-        from ..forge_host import checkpoint_name
-        from ..model_dirs import loads_here
-        candidates = [p for p in dict.fromkeys(([path] if path else []) + _checkpoints_by_hash(db, generation))
-                      if os.path.isfile(p)]
-        listed = next((p for p in candidates if checkpoint_name(p)), None)
-        if listed:
-            plan = plan_for(db, listed, modules)
-        elif candidates:
-            found = candidates[0]
-            plan["checkpoint_missing"] = os.path.basename(found)
-            plan["checkpoint_problem"] = {"reason": "not_listed" if loads_here(found) else "elsewhere",
-                                          "name": os.path.basename(found), "path": found}
-        else:
-            # Synced from a folder, its text may name a checkpoint by name alone.
-            name = (None if path else db.unheld_checkpoint(generation_id)) or plan["checkpoint_missing"]
-            plan["checkpoint_missing"] = name
-            plan["checkpoint_problem"] = {"reason": "missing", "name": name} if name else None
-    # Whether its Send sets back what the press was sent (#7); a generation
-    # recorded without them has Forge's paste, corrected.
-    plan["inputs"] = bool(generation.get("inputs"))
-    return plan
-
-
-def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
-    """
-    How to set Forge up for a checkpoint file and these VAE / text encoder
-    files: a generation of your own sent back (send_plan), or a queued task
-    loaded into its tab (api/scheduler.py).
-
-    Returns:
-        preset (None if unknown), checkpoint (the name Forge lists it under,
-        None if it does not), checkpoint_missing (its file name, then),
-        target (the module labels to hold), modules_missing (the recorded
-        modules Forge does not offer), embeddings (the kind of embedding the
-        checkpoint loads: forge_host.embedding_kind).
-    """
-    from ..file_identity import identify
-    from ..forge_host import checkpoint_name, embedding_kind, installed_modules
-    from ..identity_store import record_architecture
-
-    preset = None
-    model_class = None
-    if path:
-        # Read as any checkpoint is, once, and stored; a file the library
-        # does not hold is read without storing.
-        spelled = db.library_spelling([path]).get(path, path)
-        try:
-            record_architecture(db, spelled)
-        except Exception as e:
-            say(f"Could not read {os.path.basename(path)}: {e}")
-        row = db.get_version(spelled) or {}
-        preset, model_class = row.get("architecture"), row.get("architecture_class")
-        if not preset and os.path.isfile(path):
-            found = identify(path)
-            preset, model_class = found.preset, found.model_class
-
-    checkpoint = checkpoint_name(path)
-    installed = installed_modules()
-    recorded = [os.path.basename(p) for p in modules if p]
-    return {
-        "preset": preset,
-        "checkpoint": checkpoint,
-        "checkpoint_missing": os.path.basename(path) if path and not checkpoint else None,
-        "target": [m for m in recorded if m in installed],
-        "modules_missing": [m for m in recorded if m not in installed],
-        "embeddings": embedding_kind(model_class, preset),
-    }
 
 
 # What a tile needs of its generation, besides its images.

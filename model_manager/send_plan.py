@@ -97,7 +97,8 @@ _NOT_ASKED = object()
 def plan_model(db, file_path: str = "", base_model: str = "",
                version_ids: List[int] = (), hashes: List[str] = (),
                model_name: str = "",
-               lookup: Callable[[str, str], Optional[dict]] = None) -> SendModel:
+               lookup: Callable[[str, str], Optional[dict]] = None,
+               local: Callable[[], dict] = None) -> SendModel:
     """
     The model a send is for - see the module docstring for the order.
 
@@ -110,14 +111,15 @@ def plan_model(db, file_path: str = "", base_model: str = "",
         model_name: The checkpoint's name in the image's generation data.
         lookup: Asks Civitai about ("v", id) or ("h", hash); stands in for
             the network in tests.
+        local: The library's checkpoint the image names, when the caller
+            looks it up once for this and image_checkpoint() (send.py).
     """
-    version_ids = [int(i) for i in version_ids if str(i).strip().isdigit()]
-    hashes = [h.strip() for h in hashes if h and h.strip()]
+    version_ids, hashes = named_ids(version_ids, hashes)
     gallery = _read(db, file_path) if file_path else {}
     if gallery.get("file_type") == "Checkpoint" and gallery.get("architecture"):
         return _from_row(gallery, "file", base_model)
 
-    row = _local_checkpoint(db, file_path, version_ids, hashes)
+    row = local() if local else local_checkpoint(db, file_path, version_ids, hashes)
     if row:
         return _from_row(row, "image")
 
@@ -138,7 +140,7 @@ def plan_model(db, file_path: str = "", base_model: str = "",
 
 def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashes: List[str] = (),
                      model_name: str = "", lookup: Callable[[str, str], Optional[dict]] = None,
-                     here: Callable[[str], bool] = None) -> Dict[str, Any]:
+                     here: Callable[[str], bool] = None, local: Callable[[], dict] = None) -> Dict[str, Any]:
     """
     The checkpoint an image names, for a send from a gallery that is not a
     checkpoint's (#134) - the one thing such a send cannot go without.
@@ -147,11 +149,11 @@ def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashe
     names one the library lacks - by the name the image gives it, the name
     Civitai gives its file, or its hash; {"not_checkpoint": True} when what
     it names as checkpoints is something else, here or on Civitai (a VAE or
-    a text encoder filed as one); {} when it names none.
+    a text encoder filed as one); {} when it names none. `local`: as
+    plan_model()'s.
     """
-    version_ids = [int(i) for i in version_ids if str(i).strip().isdigit()]
-    hashes = [h.strip() for h in hashes if h and h.strip()]
-    row = _local_checkpoint(db, file_path, version_ids, hashes, here)
+    version_ids, hashes = named_ids(version_ids, hashes)
+    row = local() if local else local_checkpoint(db, file_path, version_ids, hashes, here)
     if row:
         return {"path": row["file_path"]}
     if model_name.strip():
@@ -167,7 +169,13 @@ def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashe
     return {"not_checkpoint": True}
 
 
-def _local_checkpoint(db, file_path: str, version_ids, hashes, here: Callable[[str], bool] = None) -> dict:
+def named_ids(version_ids, hashes) -> Tuple[List[int], List[str]]:
+    """The version ids and hashes an image names, as every lookup of them reads them."""
+    return ([int(i) for i in version_ids if str(i).strip().isdigit()],
+            [h.strip() for h in hashes if h and h.strip()])
+
+
+def local_checkpoint(db, file_path: str, version_ids, hashes, here: Callable[[str], bool] = None) -> dict:
     """
     The library's checkpoint the image names, read as a scan reads it: one in
     this WebUI's folders before another's - a library shared with the other

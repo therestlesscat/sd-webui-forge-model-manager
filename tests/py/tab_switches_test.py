@@ -171,6 +171,7 @@ SPEC = {
     ('GET', '/model-manager/other-versions'): 'send',
     ('GET', '/model-manager/forge-modules'): 'send',
     ('GET', '/model-manager/forge-modules/current'): 'send',
+    ('GET', '/model-manager/send/plan'): 'send',
     ('GET', '/model-manager/queue/status'): 'queue',
     ('POST', '/model-manager/queue/start'): 'queue',
     ('POST', '/model-manager/queue/stop'): 'queue',
@@ -207,7 +208,7 @@ SPEC = {
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 95 routes', len(SPEC), 95)
+check('the spec holds 96 routes', len(SPEC), 96)
 
 app = FastAPI()
 api.setup_api(app)
@@ -390,6 +391,16 @@ check('the page told: on now, and whether this start created it',
 only('generations')
 tabs_callbacks[0]()
 check('built again - Reload UI: what this build created', sorted(tabs.built()), ['generations'])
+
+# ------------------------------------------ Send's one route (#302)
+# A generation's plan while the Generations tab is on, a task's while the
+# Queue is, as their own routes answered them.
+only('gallery')
+plan_of = lambda kind: client.get('/model-manager/send/plan', params={'kind': kind, kind: 1}).status_code
+check("Send's one route, the Generations tab and the Queue off: a generation's plan and a task's refused",
+      (plan_of('generation'), plan_of('task')), (403, 403))
+only('gallery', 'generations', 'queue')
+check('on: asked - none there', (plan_of('generation'), plan_of('task')), (404, 404))
 
 # ------------------------------------------------ Restart WebUI (#186)
 # The WebUI's own restart, stubbed: the real one ends this process.

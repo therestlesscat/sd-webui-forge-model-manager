@@ -742,6 +742,9 @@ if has_fastapi:
               {k: plan[k] for k in ('preset', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
               {'preset': 'sd', 'checkpoint': 'linked/m.safetensors [abc]', 'checkpoint_missing': None,
                'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
+        check('and the one route for every Send answers the same, with its kind (#302)',
+              client.get('/model-manager/send/plan', params={'kind': 'generation', 'generation': generation_id}).json(),
+              {**plan, 'kind': 'generation'})
         sd_models.checkpoints_list = {}
         host.installed_modules = lambda: {}
         plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()

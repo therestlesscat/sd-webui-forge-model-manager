@@ -17,7 +17,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask
 from ..console import say, say_failure
-from .common import gate
+from .common import gate, refused
 
 # Why Restart WebUI is not offered (#186).
 NOT_RESTARTABLE = ("This WebUI was not started by webui.bat or webui.sh: "
@@ -47,72 +47,6 @@ def shared_version() -> str:
                 if name.endswith((".mjs", ".js")):
                     newest = max(newest, os.path.getmtime(os.path.join(root, name)))
     return str(int(newest))
-
-
-def _listed_upscaler(db, file_path: str):
-    """
-    The name Forge lists an upscaler's gallery's file under - or, where it
-    does not list that copy, another copy of it the library holds: by its
-    Civitai file, then its version. Forge reads the folder it was given
-    alone (--esrgan-models-path, else its own), and the same upscaler can
-    be in both: the gallery's card showed the copy in the other, and Send
-    said "not listed" though Forge offered it (#138).
-    """
-    from ..forge_host import upscaler_name
-    name = upscaler_name(file_path)
-    if name:
-        return name
-    row = db.get_version(file_path) or {}
-    file_id, version_id = row.get("civitai_file_id"), row.get("id")
-    copies = (db.library_files(file_ids=[file_id]) if file_id is not None else []) \
-        + (db.library_files(version_ids=[version_id]) if version_id is not None else [])
-    tried = {file_path}
-    for copy in copies:
-        if copy["file_path"] in tried:
-            continue
-        tried.add(copy["file_path"])
-        name = upscaler_name(copy["file_path"])
-        if name:
-            return name
-    return None
-
-
-def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str,
-                      instead: bool = False) -> dict:
-    """
-    The image's checkpoint for a send from a gallery that is not a
-    checkpoint's: {checkpoint: Forge's name for it} or {checkpoint_problem}.
-    `instead`: the version asked for is not the image's own (#278) - the
-    answer names the file sent with, for the page to say. See
-    forge_modules_for().
-    """
-    from ..forge_host import checkpoint_name
-    from ..model_dirs import loads_here
-    from ..send_plan import image_checkpoint
-    try:
-        found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name)
-    except Exception as e:
-        say(f"Could not work out the image's checkpoint: {e}")
-        return {}
-    path = found.get("path")
-    if path:
-        name = checkpoint_name(path)
-        if name:
-            return {"checkpoint": name, "instead": os.path.basename(path)} if instead else {"checkpoint": name}
-        reason = "not_listed" if loads_here(path) else "elsewhere"
-        return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path}}
-    if found.get("missing"):
-        return {"checkpoint_problem": {"reason": "missing", "name": found["missing"]}}
-    if found.get("not_checkpoint"):
-        return {"checkpoint_problem": {"reason": "not_checkpoint"}}
-    return {}
-
-
-def _listed_label(path: str, installed: dict):
-    """The label Forge lists a module file under, by its path; None if it does not list it."""
-    wanted = os.path.normcase(os.path.abspath(path))
-    return next((label for label, listed in installed.items()
-                 if listed and os.path.normcase(os.path.abspath(listed)) == wanted), None)
 
 
 def register(app: FastAPI):
@@ -186,85 +120,40 @@ def register(app: FastAPI):
             Hires fix's; upscaler_not_listed, its file's when Forge does not.
         """
         from ..db import get_models_db
-        from ..file_identity import classify_file
-        from ..forge_host import embedding_kind, installed_modules, saved_modules
-        from ..forge_modules import CLASS_FOR_PRESET, NEEDS, match_module, pick, preferred_modules
-        from ..send_plan import SendModel, plan_model
+        from ..send import civitai_plan
+        return JSONResponse(civitai_plan(get_models_db(), file_path, base_model, version_ids, hashes, model_name,
+                                         vae, module, use_version))
 
-        db = get_models_db()
-        if use_version:
-            # The version picked stands for the image's checkpoint, whatever
-            # the image names: its preset, its modules, the file loaded.
-            version_ids, hashes, model_name = str(use_version), "", ""
+    @app.get("/model-manager/send/plan")
+    @gate("send")
+    def send_plan(kind: str, image: int = 0, file_path: str = "", base_model: str = "", version_ids: str = "",
+                  hashes: str = "", model_name: str = "", generation: int = 0, task: int = 0,
+                  use_version: int = 0):
+        """
+        How to set Forge up before a Send, for any source (#302): see
+        send.plan(). `kind` is civitai - the image's id, the gallery's
+        `file_path` and `base_model`, the checkpoint the page read of the
+        image - generation, or task. A generation's answers while the
+        Generations tab is on, a task's while the Queue is, as their own
+        routes did. A plain `def`: it reads file headers, and may ask Civitai
+        once.
+        """
+        from ..db import get_models_db
+        from ..send import plan
+        from ..tabs import on
+        area = {"generation": "generations", "task": "queue"}.get(kind)
+        if area and not on(area):
+            return refused(area)
         try:
-            found = plan_model(db, file_path, base_model,
-                               version_ids.split(","), hashes.split(","), model_name)
-        except Exception as e:
-            say(f"Could not work out the architecture: {e}")
-            found = SendModel()
-        preset, model_class, source = found.preset, found.model_class, found.source
-        bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
-
-        answer = {"success": True, "preset": preset, "model_class": model_class,
-                  "source": source, "video": found.video,
-                  "manage_modules": preset not in (None, "sd", "xl"),
-                  "embeddings": embedding_kind(model_class, preset),
-                  "select": [], "missing": [], "needed": [], "not_found": [],
-                  "target": [], "modules_not_found": [], "bundled": [],
-                  "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
-                  "upscaler": None, "upscaler_not_listed": None}
-        gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
-        if gallery_type != "Checkpoint":
-            answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name, bool(use_version)))
-        if gallery_type == "Upscaler":
-            answer["upscaler"] = _listed_upscaler(db, file_path)
-            answer["upscaler_not_listed"] = None if answer["upscaler"] else os.path.basename(file_path)
-
-        # The gallery's own VAE or text encoder, as Forge lists it: the
-        # primary, which nothing picked for the image takes the place of.
-        installed = installed_modules()
-        own = None
-        if gallery_type in ("VAE", "Text Encoder"):
-            own = _listed_label(file_path, installed)
-            answer["own_not_listed"] = None if own else os.path.basename(file_path)
-        own_vae = gallery_type == "VAE"
-
-        # The modules the image names, as Forge lists them (#204): its VAE,
-        # and each `Module N` - Forge's own record of what was selected.
-        named, unlisted = [], []
-        for name in dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()):
-            label = match_module(name, installed)
-            if label is None:
-                unlisted.append(name)
-            elif label not in named:
-                named.append(label)
-
-        if not answer["manage_modules"]:
-            # SD and SDXL bring their own: what the image names, if anything;
-            # a VAE's gallery takes the VAE's place.
-            if own and own_vae:
-                named = [label for label in named
-                         if not str(classify_file(installed[label])[0] or "").startswith("vae")]
-            answer["target"] = list(dict.fromkeys(label for label in (*named, own) if label))
-            answer["modules_not_found"] = unlisted
-            return JSONResponse(answer)
-
-        # What the checkpoint brings itself, of what its model needs: seen to
-        # work with nothing selected for Krea 2 (Qwen3-VL 4B) and Flux.1
-        # (CLIP-L, T5-XXL, ae) all-in-one checkpoints in Forge Neo 2.29.1.
-        encoders, vae_kind = NEEDS.get(model_class or CLASS_FOR_PRESET.get(preset or "") or "", ((), None))
-        answer["bundled"] = ((list(encoders) if bundled_te else [])
-                             + ([vae_kind] if vae_kind and bundled_vae else []))
-        modules = {label: classify_file(path) for label, path in installed.items()}
-        answer.update(pick(model_class, preset, bundled_te, bundled_vae,
-                           modules, saved_modules(preset), preferred_modules(preset), own, own_vae,
-                           named))
-        if answer["named_unused"]:
-            say(f"Send: the image names {', '.join(answer['named_unused'])}, which a {preset} model "
-                "does not use; left out")
-        answer["modules_not_found"] = unlisted
-        answer["target"] = list(answer["select"])
-        return JSONResponse(answer)
+            found = plan(get_models_db(), {"kind": kind, "image": image, "file_path": file_path,
+                                           "base_model": base_model, "version_ids": version_ids,
+                                           "hashes": hashes, "model_name": model_name,
+                                           "generation": generation, "task": task, "use_version": use_version})
+        except ValueError as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+        if found is None:
+            return JSONResponse({"success": False, "error": f"No such {kind}"}, status_code=404)
+        return JSONResponse({"success": True, **found})
 
     @app.get("/model-manager/forge-modules/current")
     @gate("send")

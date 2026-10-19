@@ -20,12 +20,12 @@ from fastapi.responses import JSONResponse
 from .. import generation_inputs, thumbnails
 from ..console import say
 from ..db import get_models_db
-from ..forge_host import checkpoint_file
 from ..install import INSTALL_KEY
 from ..scheduler import runner, tasks
 from ..scheduler.values import files
+from ..send import task_plan
 from .common import failed, gate
-from .generations import _delete_files, plan_for, remember_kept
+from .generations import _delete_files, remember_kept
 
 # Tasks a list shows at a time.
 PAGE_SIZE = 20
@@ -206,22 +206,14 @@ def register(app: FastAPI):
     @gate("queue")
     def get_send_plan(task_id: int):
         """
-        How to set Forge up before a task is loaded into its tab (#160): its
-        checkpoint's UI preset, the checkpoint, and its VAE / text encoders,
-        as a generation's Send does - plan_for(). A checkpoint this WebUI
-        does not list is named in checkpoint_missing. A plain `def`: it may
-        read the checkpoint's header.
+        How to set Forge up before a task is loaded into its tab (#160):
+        send.task_plan(). A plain `def`: it may read the checkpoint's header.
         """
         try:
-            db = get_models_db()
-            task = _ours(db, task_id)
-            if task is None:
+            plan = task_plan(get_models_db(), task_id)
+            if plan is None:
                 return JSONResponse({"success": False, "error": "No such task"}, status_code=404)
-            path = checkpoint_file(task.get("checkpoint") or "")
-            plan = plan_for(db, path or "", task.get("modules") or [])
-            if task.get("checkpoint") and not path:
-                plan["checkpoint_missing"] = task["checkpoint"]
-            return JSONResponse({"success": True, "mode": task["mode"], **plan})
+            return JSONResponse({"success": True, **plan})
         except Exception as e:
             return failed(e, "Queue send plan error")
 

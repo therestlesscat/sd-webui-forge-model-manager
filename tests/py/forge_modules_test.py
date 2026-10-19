@@ -440,5 +440,55 @@ del shared.opts.forge_additional_modules
 check('and where there is no such setting, nothing is claimed',
       client.get('/model-manager/forge-modules/current').json()['modules'], None)
 
+# ------------------------------------------------- one plan for every Send (#302)
+from model_manager.send import named_modules            # noqa: E402
+
+# The VAEs an image names, read as the page read them (modulesFromMeta in
+# send.mjs, ported): JavaScript's truth - an empty list is true - its order
+# of fields, and Module N by number.
+check('a VAE field naming the checkpoint\'s own names nothing',
+      named_modules({'VAE': 'Default (model)'}), [])
+check('a VAE named is trimmed', named_modules({'VAE': ' sdxl_vae.safetensors '}), ['sdxl_vae.safetensors'])
+check('the first field that says anything is the one read, as `||` read it: a number there, and none',
+      named_modules({'Vae': 5, 'vae': 'later.safetensors'}), [])
+check('an empty list says something too', named_modules({'VAE': [], 'vae_name': 'later.safetensors'}), [])
+check('else a ComfyUI list\'s first file, else a VAE among the resources',
+      (named_modules({'vaes': ['automatic', 'ae.safetensors']}),
+       named_modules({'resources': [{'type': 'lora', 'name': 'x'}, {'type': 'vae', 'name': 'res_vae'}]})),
+      (['ae.safetensors'], ['res_vae']))
+check('then each Module N by its number, each name once whatever its case',
+      named_modules({'VAE': 'ae', 'Module 10': 'c', 'Module 2': 'b', 'Module 1': 'AE'}), ['ae', 'b', 'c'])
+
+# A Civitai image sent from a LoRA's gallery: the new route reads the image's
+# VAEs from its stored record, and answers what the old one did when the
+# page sent them.
+db.store_images(flux_id, 1, [{'id': 990001, 'url': 'https://image.civitai.com/x/990001.jpeg', 'width': 512,
+                              'height': 512, 'nsfwLevel': 1, 'type': 'image',
+                              'meta': {'prompt': 'a lighthouse', 'vaes': ['ae.safetensors'], 'Module 1': 'clip_l',
+                                       'Module 2': 'gone_te'}}])
+host.checkpoint_name = lambda path: 'flux.safetensors [abcd1234]' if path == flux_path else None
+asked = {'file_path': lora_path, 'base_model': 'Flux.1 D', 'version_ids': str(flux_id)}
+new = client.get('/model-manager/send/plan', params={'kind': 'civitai', 'image': 990001, **asked}).json()
+old = client.get('/model-manager/forge-modules',
+                 params={**asked, 'module': ['ae.safetensors', 'clip_l', 'gone_te']}).json()
+check('a Civitai image\'s plan from the one route is the old route\'s, with its kind',
+      new, {**old, 'kind': 'civitai'})
+check('and it reads the image\'s modules from its record: one this WebUI lacks is named',
+      (new['checkpoint'], new['target'], new['modules_not_found']),
+      ('flux.safetensors [abcd1234]', ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], ['gone_te']))
+check('an image the library has no record of: 404',
+      client.get('/model-manager/send/plan', params={'kind': 'civitai', 'image': 990002, **asked}).status_code, 404)
+check('a kind there is none of: 400',
+      client.get('/model-manager/send/plan', params={'kind': 'painting'}).status_code, 400)
+
+# The library's checkpoint the image names is looked up once a plan: the
+# model to set up for and the checkpoint to load both start from it.
+named_by = db.versions_named_by
+lookups = []
+db.versions_named_by = lambda *args, **kw: lookups.append(args) or named_by(*args, **kw)
+client.get('/model-manager/forge-modules', params=asked)
+db.versions_named_by = named_by
+check('from a LoRA\'s gallery, the image\'s checkpoint looked up once, not once for each', len(lookups), 1)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
