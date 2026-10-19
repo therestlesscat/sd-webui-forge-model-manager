@@ -204,7 +204,10 @@ the code (2026-10-16).
   name `api/common.py` already exports, 41 uses - and inside `common.py` its
   own call recursed; it is `say_failure` (#143). Nor in an issue's text:
   #274 first named `scope.timeout` for the scope's timer, which does not
-  exist; it is `scope.later`. Nor a CSS class: #217's Search modifier was
+  exist; it is `scope.later`. Nor "decided" for "built": #302 says the 3%
+  size rule "is built here", meaning in #302; the 2026-10-19 plan read it as
+  in Send and planned a proving check on it, and 5 images came out with the
+  data's size. Nor a CSS class: #217's Search modifier was
   first `filter-group-half`, already the Tag group's (`max-width: 50%`), and
   Search stopped at half the row until a headless probe measured it. Grep
   `style.css` and the markup for a new class first.
@@ -706,7 +709,23 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   measure it over several loads. #144 said five links dressed as buttons
   looked wrong; measured on 7870, two did - the ones inside Gradio's
   container. And measure again after the change: the owner asks for it, and
-  the second run is what confirmed all five.
+  the second run is what confirmed all five. A difference against data is
+  checked against what this machine has: 21 of 25 "VAE not selected" named
+  files this WebUI lacks, and a side agent caught it before the issue was
+  filed. A copy of the code's rule, run over the library to count, is first
+  checked against what the page showed: Send's sampler matching, copied to
+  count 104,204 images, agreed on 276 of 279 Sends - the 3 it missed were
+  Neo's own `Undefined` fix.
+- **A stress test compares the page with the source data, never with the
+  code's own plan.** The Send test of 2026-10-18 checked Forge against
+  Send's plan: 488 Sends passed, #303's Flux VAE on three Illustrious images
+  among them, found only by reading the log. The test of 2026-10-19 read 14
+  fields against the image's stored data, with Forge's own paste of the
+  file's infotext as a second witness (156 of 200 originals carry one): 406
+  tries, eight kinds of difference, #306-#313. A difference the code makes on
+  purpose is listed too, to be judged. And such a test cannot see data that
+  contradicts itself: #303's images name both the Illustrious checkpoint and
+  the Flux VAE.
 - **A sample drawn through a lookup cannot measure what the lookup
   misses.** #262's 100 random models entered only if a batch returned them,
   so a model every batch leaves out could never enter, and 99 of 100

@@ -110,7 +110,14 @@ line 365). And `, width:` and `, height:` are rewritten to `Size-1` and
 `Size-2` (line 389), so a metadata `width`/`height` that `buildInfotext`
 passes on, as it does every field it has no rule for, overrides its `Size`:
 a 2304 x 1664 picture whose metadata said 512 x 512 went in at 512 x 512
-(#302).
+(#302). Send's own last line holds only `Size` and `ADetailer enable` when
+the data gives nothing else, and becomes prompt text: 948 of one library's
+stored images (#313). A sampler Forge does not know becomes its first, DPM++
+2M, without a word (`get_sampler_and_scheduler`, `modules/sd_samplers.py`):
+6,454 of 102,563 name one Send's matching (`samplers.mjs`) misses (#309).
+Send's notice for what this WebUI lacks covers only what the server's
+`corrections()` checks - the hires checkpoint, the refiner, the hires
+modules (#307).
 
 **A grid placed by the tab (#240) has the browser's habits to reckon with.**
 Fast (`tiles.mjs`, `placedGrid`) keeps only the rows within 3,000 px of the
