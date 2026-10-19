@@ -1331,7 +1331,8 @@ function buildInfotext(meta, { denoisingStrength = null, hiresUpscaler = null } 
     if (sampler) params.push(`Sampler: ${sampler}`);
     if (scheduler) params.push(`Schedule type: ${scheduler}`);
     if (meta.cfgScale) params.push(`CFG scale: ${meta.cfgScale}`);
-    if (meta.seed) params.push(`Seed: ${meta.seed}`);
+    // Seed 0 is a seed; left out, the paste kept the previous image's (#310).
+    if (meta.seed !== null && meta.seed !== undefined && meta.seed !== '') params.push(`Seed: ${meta.seed}`);
     if (meta.Size) params.push(`Size: ${meta.Size}`);
     if (meta.Model) params.push(`Model: ${meta.Model}`);
     if (meta['Model hash']) params.push(`Model hash: ${meta['Model hash']}`);

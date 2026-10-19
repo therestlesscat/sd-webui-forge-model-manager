@@ -542,6 +542,20 @@ delete plan.upscaler_not_listed;
 hires.remove();
 hiresBox.remove();
 
+// ------------------------------------------------------------- the seed
+// Seed 0 is a seed: left out, Forge's paste kept the previous image's (#310).
+const seedBefore = IMAGE.meta.seed;
+MODEL.model_type = 'Checkpoint';
+plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [] };
+IMAGE.meta.seed = 0;
+await send();
+check('an image made with seed 0 pastes it', /(^|, )Seed: 0(,|$)/m.test(pasted()), true);
+IMAGE.meta.seed = 7;
+await send();
+check('any other seed as before', /(^|, )Seed: 7(,|$)/m.test(pasted()), true);
+IMAGE.meta.seed = seedBefore;
+MODEL.model_type = 'LORA';
+
 // ------------------------------------------- an image-to-video model
 // Sent to txt2img it failed in the sampler: an I2V model starts from an
 // image, and txt2img has none to give. It goes to img2img instead, with the
