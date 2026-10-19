@@ -443,6 +443,14 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   `sdxl-vae-fp16-fix .safetensors` became `sdxl-vae-fp16-fix`, which matched
   nothing - Neo's own paste misses it too - and 9 synced generations lost
   their VAE until names were compared trimmed (#246).
+- **"Leave as is" is not nothing in Gradio 4.** For each output an event
+  answers with `gr.update()`, Gradio swaps into the session a copy of that
+  component, rebuilt from its constructor arguments. In Neo a ForgeCanvas
+  copy reads pictures as arrays, and the next picture any event handed it
+  raised a TypeError (`modules_forge/forge_canvas/canvas.py`, line 65) -
+  Forge's own PNG Info -> Send to img2img included, after any of our sends
+  into img2img since 0.56.0. A hidden loader hands a component a value, or
+  leaves it out of its outputs (`scheduler/load.py`, #299).
 
 ### The environment
 

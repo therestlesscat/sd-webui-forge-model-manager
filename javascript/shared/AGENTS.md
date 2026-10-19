@@ -103,6 +103,15 @@ the scheduler - and gives up, the text as it was, when no list opens. A
 suite's stand-in has to behave so: a plain `<input>` stood in for the
 upscaler, and the suites passed while it was never set.
 
+**Forge's paste reads the infotext by its own rules.** The last line is
+read as settings only when it holds 3 or more `key: value` fields;
+otherwise it becomes part of the prompt (Neo's `modules/infotext_utils.py`,
+line 365). And `, width:` and `, height:` are rewritten to `Size-1` and
+`Size-2` (line 389), so a metadata `width`/`height` that `buildInfotext`
+passes on, as it does every field it has no rule for, overrides its `Size`:
+a 2304 x 1664 picture whose metadata said 512 x 512 went in at 512 x 512
+(#302).
+
 **A grid placed by the tab (#240) has the browser's habits to reckon with.**
 Fast (`tiles.mjs`, `placedGrid`) keeps only the rows within 3,000 px of the
 view on the page, and that changed four things the browser's grid never
@@ -139,7 +148,10 @@ showed:
   Anima model with no VAE while the control showed it. So Send patches it -
   takes out only what is extra, adds only what is missing, touches nothing
   when nothing differs - and then asks the server what Forge's setting
-  (`forge_additional_modules`) actually holds.
+  (`forge_additional_modules`) actually holds. It is the patch of several
+  changes that fails: over 488 Civitai sends (2026-10-18), 4 of 13 sends that
+  made 2 or 3 changes ended with Forge holding a state from partway through,
+  against 0 of 88 single changes (#3).
 
 ## Kept elsewhere, and true here too
 

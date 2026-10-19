@@ -715,6 +715,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   button, not Send, which writes; the owner then hit a Send crash and asked
   "did you test this". It was old (#266), but the report had not said Send
   went untested.
+- **A slowdown in a long session: the same action in a fresh tab first.**
+  In 2026-10-18's Send test, sends that kept the preset went from 520 ms to
+  about 880 ms over some 460 sends in one page. A freshly loaded tab took
+  about 800 ms too, with the machine at 36% CPU from another VM, and later
+  rounds came back to about 610 ms: the load, not the page.
 - Writing a check: `tests/AGENTS.md`, "Proving a change". Timing SQL:
   `model_manager/db/AGENTS.md`, "Proving a change". A delay on the page:
   `javascript/AGENTS.md`, "Proving a change".
@@ -766,7 +771,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   process: wait for the port's PID to change, then for
   `/model-manager/asset-version` to answer - a 404 until the extension's
   routes are added. 0.59.2's first live check restarted 7880 onto the old
-  code.
+  code. An extension that fails to load cannot restart itself -
+  `/model-manager/restart` is its own route - but Forge's Extensions ->
+  Apply and restart UI can. Debug code goes in from a file and is parsed
+  before the restart: a heredoc turned a `\n` inside a string into a
+  newline, and 7880's extension failed to load (#299).
 - WSL's git reads a Windows checkout's line endings as changes: 7880's clone
   showed 318 files modified, and 0 with `-c core.autocrlf=true` or Windows'
   `git.exe`. Ask the latter before calling a clone dirty.

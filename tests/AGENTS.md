@@ -40,7 +40,9 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   writes `\r\n` in text mode: a break script that rewrote two files with
   `open(path, 'w')` left them in CRLF. Read and write with `newline=''`, and
   `cmp` against a backup after. It cannot open a script under WSL's `/tmp`
-  either: put one under `tests/work/`.
+  either: put one under `tests/work/`. A tree for breaks is built from `git
+  ls-files` (modified and untracked), never `cp -r tests`: a copy of `tests`
+  into `tests/work/...` copied itself, 3.6 GB, before it was stopped (#299).
 - **A new suite runs on the old code from a copy of HEAD.** `git archive HEAD
   | tar -x -C tests/work/<x>/head`, the suite copied into that tree: its
   paths come from its own place, so HEAD's package runs and the working tree

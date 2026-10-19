@@ -165,6 +165,12 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   Playwright's clicks failed as "not visible" (#229). The bar's text keeps its
   last words ("Syncing: 8/8 - Preparing..."); the sync's end is in
   `mm_status`.
+- **A count of listeners is no leak until it grows.** Neo's window holds
+  234 `scroll` and 234 `resize` listeners from Gradio's bundle from the
+  start: one pair per dropdown, 234 `.gradio-dropdown` (2026-10-18). Group
+  them by the script and line that added them (CDP's
+  `DOMDebugger.getEventListeners`, with `Debugger.scriptParsed` for the
+  scripts), and count again later, before calling one a leak.
 
 ## Kept elsewhere, and true here too
 

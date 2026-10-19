@@ -64,3 +64,9 @@ because that would mean the assumption no longer holds.
   `usageControl` is each version's. Setting it takes a Gold membership or a
   permission (Civitai's `model-version-usage-control.ts`), which is why it is
   rare.
+- **An image's size comes as `Size`, or as `width` and `height`.** Of one
+  library's 120,104 stored images, 17,672 had both, and they always agreed;
+  24,315 had `width`/`height` alone - 14,416 the picture's own size, 8,932
+  the same shape scaled (a Hires fix), 472 another shape, 495 unreadable
+  (read-only, 2026-10-18). They are the metadata's size, not noise; a rule
+  for the size reads both (#302).
