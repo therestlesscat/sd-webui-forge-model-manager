@@ -38,7 +38,7 @@ const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
-const { sendInfotext } = await shared('send.mjs');
+const { sendInfotext, IMG2IMG_SENDS } = await shared('send.mjs');
 const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
 const { nsfwModelNote, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -619,9 +619,11 @@ async function sendTile(index) {
     await sendImage(tile, tile.images[0]);
 }
 
-async function sendImage(tile, image) {
+/** Send an image back to the tab it was made in - or, with `mode`, into that img2img mode (#299). */
+async function sendImage(tile, image, mode = null) {
     if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
-                              generationId: tile.generation.id, imageId: image.id })) {
+                              generationId: tile.generation.id, imageId: image.id,
+                              into: mode === null ? null : { mode, width: image.width, height: image.height } })) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
 }
@@ -915,9 +917,31 @@ async function deleteSelected() {
 // More that can be done with a tile or the image in the viewer, in a menu
 // under its ⋯ - which is not drawn when there is nothing in it.
 
-/** What a tile's menu offers: its checkpoint, if its images share one, and the LoRAs they used. */
+/**
+ * What a tile's menu offers: an image's sends into img2img (#299), then its
+ * checkpoint, if its images share one, and the LoRAs they used.
+ */
 function tileMenu(tile) {
-    return menuFor(tile);
+    return [...img2imgItems(tile), ...menuFor(tile)];
+}
+
+/**
+ * An image tile's sends into img2img's modes (#299), the image's own file
+ * into the mode's canvas: greyed while the file is gone. None for a batch of
+ * several images, nor a group - which image would go?
+ */
+function img2imgItems(tile) {
+    const single = tile?.kind === 'image' || (tile?.kind === 'generation' && tile.matching_count <= 1);
+    const image = single ? tileImage(tile) : null;
+    if (!image?.id) return [];
+    const gone = image.exists === false ? 'The image file is gone: deleted or moved' : '';
+    return IMG2IMG_SENDS.map(({ mode, label }) => (gone ? { label, disabled: true, title: gone }
+        : { label, run: () => sendInto(tile, image, mode) }));
+}
+
+async function sendInto(tile, image, mode) {
+    previousPlace.remember(placeOf(tile, image));
+    await sendImage(tile, image, mode);
 }
 
 /**

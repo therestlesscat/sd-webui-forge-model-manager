@@ -11,7 +11,7 @@
 // for the images whose prompts hold its words (#283). An image's ⋯ lists its
 // checkpoints and LoRAs, asked of the server when pressed (#298).
 import { readFileSync } from 'node:fs';
-import { ROOT, act, call, checker, mountTab, press, sharedModule, startTab, tabEntries, tabMarkup,
+import { ROOT, act, call, checker, mountTab, press, sendLoaders, sharedModule, startTab, tabEntries, tabMarkup,
          tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_gallery.py');
@@ -30,6 +30,7 @@ const imageTile = (id, extra = {}) => ({
 const embedding = (id) => ({ ...imageTile(id), model: { id: 41, name: 'An Embedding', civitai_type: 'TextualInversion',
                                                       model_type: 'TextualInversion', base_model: 'SD 1.5' } });
 const STATE = { total: 30, filtered: 24, hidden_nsfw: 6, nsfw_count: 6 };
+let withVideo = false;    // a video among the first part's tiles (#299)
 
 // An image's ⋯ menu, as api/gallery.image_menu answers it (#298): a held
 // checkpoint, a LoRA the library lacks, and one whose record names no model.
@@ -84,7 +85,8 @@ globalThis.fetch = async (url, init = {}) => {
         }
         const tiles = page === 1
             ? [{ ...imageTile(1), menu: true }, { ...imageTile(2), menu: true },
-               imageTile(3, { meta: { prompt: 'no checkpoint named' } })]
+               imageTile(3, { meta: { prompt: 'no checkpoint named' } }),
+               ...(withVideo ? [imageTile(6, { url: 'https://image.civitai.com/x/original=true/6.mp4', type: 'video' })] : [])]
             : [imageTile(4, { width: 1600, height: 900 }), embedding(5)];
         return reply({ success: true, seed, more: page === 1, state: STATE, scope: { count: 30 }, tiles });
     }
@@ -295,11 +297,15 @@ check('its × empties it, and shows everything again: no search asked', lastBrow
 // when it does not. Each block reports what is missing as a failure.
 const menuEl = () => document.querySelector('.gen-menu');
 const menuButton = (index) => tileEls()[index]?.querySelector('.gen-menu-btn');
-const items = () => [...(menuEl()?.querySelectorAll('button') || [])].map((b) => [b.textContent.trim(), b.disabled]);
-const titles = () => [...(menuEl()?.querySelectorAll('button') || [])].map((b) => b.getAttribute('title'));
+// After the five sends into img2img (#299), which come first: the Show items.
+const SENDS = 5;
+const buttons = () => [...(menuEl()?.querySelectorAll('button') || [])];
+const items = () => buttons().slice(SENDS).map((b) => [b.textContent.trim(), b.disabled]);
+const titles = () => buttons().slice(SENDS).map((b) => b.getAttribute('title'));
+const showItem = (index) => buttons()[SENDS + index];
 try {
-check('an image the server says has a menu has ⋯; one it does not, none',
-      [0, 1, 2].map((i) => !!menuButton(i)), [true, true, false]);
+check('every image tile has ⋯ - its sends into img2img (#299) - whether the server says it has Show items or not',
+      [0, 1, 2].map((i) => !!menuButton(i)), [true, true, true]);
 let release;
 menuHeld = new Promise((resolve) => { release = resolve; });
 const before = menuAsks.length;
@@ -321,7 +327,7 @@ check('each saying why, and an item its version\'s name',
       titles(), ['v7', 'The Civitai Browser tab has not started yet', 'Civitai\'s record names no model for it']);
 check('and ⋯ ready again', [menuButton(0)?.disabled, menuButton(0)?.getAttribute('title')], [false, 'More']);
 const shownBefore = shownVersions.length;
-menuEl().querySelectorAll('button')[0].dispatchEvent(new window.Event('click', { bubbles: true }));
+showItem(0).dispatchEvent(new window.Event('click', { bubbles: true }));
 // Read at once: the stand-in Model Manager is no tab Gradio can show, and the place is let go after.
 const noted = localStorage.getItem('gal_scroll_target') || '';
 await waitFor('the Model Manager asked', () => shownVersions.length > shownBefore);
@@ -337,7 +343,7 @@ const civitaiAsked = [];
 (await tabEntries('civitai_browser.mjs')).showModel = (query) => { civitaiAsked.push(query); };
 act('gallery.menu', { tile: 0 });
 await waitFor('the menu again', () => menuEl());
-menuEl().querySelectorAll('button')[1].dispatchEvent(new window.Event('click', { bubbles: true }));
+showItem(1).dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Civitai Browser asked', () => civitaiAsked.length);
 check('the LoRA the library lacks opens in the Civitai Browser at its model and version',
       civitaiAsked, ['model:80 version:801']);
@@ -399,6 +405,88 @@ check('the request failed: one greyed item, saying what failed',
       [items(), titles()], [[['Could not read its resources', true]], ['Gallery menu error: no database']]);
 menuFails = false;
 document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+// ------------------------------------------------- into img2img's modes (#299)
+// An image tile's ⋯ sends its original into one of img2img's modes: the
+// loader asked with the mode and the original's address, under the progress
+// popup while it fetches - any image, one naming no checkpoint too.
+document.body.insertAdjacentHTML('beforeend', `
+    <div id="tabs"><button id="tab_txt2img-button"></button><button id="tab_img2img-button"></button>
+        <button id="img2img_img2img_sketch_tab-button"></button><button id="img2img_inpaint_tab-button"></button></div>
+    <div id="txt2img_prompt"><textarea></textarea></div><div id="img2img_prompt"><textarea></textarea></div>`);
+const loads = [];
+let loadAnswer = () => ({ pasted: true });
+let canvasAnswer = () => ({ source: true });
+let progressSeen = false;
+sendLoaders(document, { onAsk: (tab, request) => {
+    loads.push({ tab, ...request });
+    progressSeen = progressSeen || !!document.querySelector('.mm-progress');
+}, answer: (tab, request) => loadAnswer(tab, request), canvasAnswer: (mode, request) => canvasAnswer(mode, request),
+    delay: 60 });
+const { originalMediaUrl } = await sharedModule('media.mjs');
+// The settings button's requests, and the canvas buttons' - img2img's canvases set apart.
+const settingsLoads = (from) => loads.slice(from).filter((r) => r.canvas === undefined);
+const canvasLoads = (from) => loads.slice(from).filter((r) => r.canvas !== undefined);
+const sendItem = (label) => buttons().slice(0, SENDS).find((b) => b.textContent.trim() === label);
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu, for its sends', () => menuEl());
+check('an image\'s menu starts with the five sends into img2img, in Forge\'s order, then its Show items',
+      [buttons().slice(0, SENDS).map((b) => [b.textContent.trim(), b.disabled]), items().length > 0],
+      [[['Send to img2img', false], ['Send to Sketch', false], ['Send to Inpaint', false],
+        ['Send to Inpaint sketch', false], ['Send to Inpaint upload', false]], true]);
+let loaded = loads.length;
+sendItem('Send to Sketch').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send into Sketch', () => canvasLoads(loaded).length);
+check('Send to Sketch: img2img\'s settings button asked to paste, with the mode and the image\'s size',
+      settingsLoads(loaded).map(({ tab, paste, into }) => [tab, /a cat 1/.test(paste || ''), into?.mode, into?.width, into?.height]),
+      [['img2img', true, 1, 1024, 1536]]);
+check('then Sketch\'s canvas button, with the original\'s address',
+      canvasLoads(loaded).map(({ canvas, picture }) => [canvas, picture]), [[1, { url: originalMediaUrl(image(1).url) }]]);
+await waitFor('the send to end', () => !document.querySelector('.mm-progress'));
+check('under the progress popup while it fetched, closed once the send ended', progressSeen, true);
+
+// No Show items to ask for: the menu opens at once, asking nothing.
+const asksBefore299 = menuAsks.length;
+act('gallery.menu', { tile: 2 });
+await waitFor('the menu of an image with no Show items', () => menuEl());
+check('an image the server says has no Show items: its five sends at once, nothing asked',
+      [buttons().length, menuAsks.length - asksBefore299], [SENDS, 0]);
+loaded = loads.length;
+sendItem('Send to Inpaint').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send of an image naming no checkpoint', () => canvasLoads(loaded).length);
+check('an image naming no checkpoint - Send cannot send it - goes into Inpaint all the same',
+      [sendOf(2)?.disabled, settingsLoads(loaded).map(({ tab, into }) => [tab, into?.mode]),
+       canvasLoads(loaded).map((r) => r.canvas)], [true, [['img2img', 2]], [2]]);
+await waitFor('that send to end', () => !document.querySelector('.mm-progress'));
+
+// A fetch that fails is said: the canvas button's answer.
+canvasAnswer = () => ({ error: 'Could not fetch the image from Civitai: 404 Not Found' });
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+act('gallery.menu', { tile: 2 });
+await waitFor('the menu, for a failing send', () => menuEl());
+sendItem('Send to img2img').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('a fetch that fails: said, the settings in but the picture not, and the popup closed',
+      [/picture could not be put in: Could not fetch the image from Civitai: 404 Not Found/.test(document.querySelector('.mm-notice')?.textContent || ''),
+       (await waitFor('the popup gone', () => !document.querySelector('.mm-progress')), !document.querySelector('.mm-progress'))],
+      [true, true]);
+canvasAnswer = () => ({ source: true });
+
+// Send's own button asks nothing of the sort.
+loaded = loads.length;
+act('gallery.send', { tile: 0 });
+await waitFor('Send', () => loads.length > loaded);
+await new Promise((resolve) => setTimeout(resolve, 100));
+check('Send\'s own button: into txt2img, no mode or picture, no canvas button',
+      loads.slice(loaded).map(({ tab, into, canvas }) => [tab, into, canvas]), [['txt2img', undefined, undefined]]);
+
+// A video gets no ⋯: the sends take a picture.
+withVideo = true;
+act('gallery.refresh');
+await waitFor('the grid with a video', () => tileEls().some((el) => el.querySelector('video')));
+const videoTile = tileEls().findIndex((el) => el.querySelector('video'));
+check('a video\'s tile has no ⋯', [videoTile >= 0, !!menuButton(videoTile)], [true, false]);
+withVideo = false;
 
 // The tab switched off while it asks: its answer opens nothing.
 menuHeld = new Promise((resolve) => { release = resolve; });

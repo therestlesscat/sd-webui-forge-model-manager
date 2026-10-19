@@ -299,8 +299,8 @@ check('the banner counts what is stored, and what the NSFW switch hides',
 // Manager, when its images share one checkpoint.
 const menuEl = () => document.querySelector('.gen-menu');
 const key = (name) => document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: name }));
-check('a tile whose images share a checkpoint has ⋯; one with no checkpoint recorded has none',
-      tileEls().map((t) => !!t.querySelector('.gen-menu-btn')), [true, false]);
+check('a tile whose images share a checkpoint has ⋯; so has one image with none recorded - its sends into img2img (#299)',
+      tileEls().map((t) => !!t.querySelector('.gen-menu-btn')), [true, true]);
 check('its NSFW badge moved to the left, out of ⋯\'s way: the tab\'s stylesheet says so',
       /\.gen-media \.mm-nsfw-badge \{[^}]*left: 6px/.test(readFileSync(`${ROOT}/style.css`, 'utf8')), true);
 act('generations.menu', { tile: 0 });

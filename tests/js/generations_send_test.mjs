@@ -196,5 +196,118 @@ check('an image with no text: its Send is disabled, saying why; one with text is
 await act('generations.view', { tile: 1 });
 await waitFor('the viewer', () => document.querySelector('[data-gen-send]'));
 check('and in the viewer', document.querySelector('[data-gen-send]')?.disabled, true);
+(await sharedModule('viewer.mjs')).closeViewer();
+
+// ------------------------------------------------- into img2img's modes (#299)
+// An image tile's ⋯ sends its picture into one of img2img's modes: the
+// loader is asked with the mode and the image's own file, the settings as
+// Send sets them - any image, with no infotext too, and a missing checkpoint
+// said rather than a stop.
+for (const id of ['img2img_img2img_tab', 'img2img_img2img_sketch_tab', 'img2img_inpaint_tab',
+                  'img2img_inpaint_sketch_tab', 'img2img_inpaint_upload_tab']) {
+    document.getElementById('tabs').insertAdjacentHTML('beforeend', `<button id="${id}-button"></button>`);
+    document.getElementById(`${id}-button`).addEventListener('click', () => shown.push(`${id}-button`));
+}
+const gone = { ...image, id: 13, exists: false, url: '/model-manager/generations/images/13/file' };
+const batch = { kind: 'generation', generation: { ...generation, id: 4 }, matching_count: 2,
+                images: [{ ...image, id: 41 }, { ...image, id: 42 }], loras: [], level: 1, user_level: null };
+tiles = [...tiles, { kind: 'generation', generation: { ...generation, id: 3 }, matching_count: 1, images: [gone],
+                     loras: [], level: 1, user_level: null }, batch];
+await act('generations.refresh');
+await waitFor('four tiles', () => document.querySelectorAll('#gen_grid .gen-tile').length === 4);
+const menuItems = () => [...document.querySelectorAll('.gen-menu button')].map((b) => [b.textContent.trim(), b.disabled]);
+const menuOf = (n) => document.querySelector(`#gen_grid [data-action="generations.menu"][data-tile="${n}"]`);
+const press = async (n, label) => {
+    await act('generations.menu', { tile: n });
+    const item = [...document.querySelectorAll('.gen-menu button')].find((b) => b.textContent.trim() === label);
+    item?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    return item;
+};
+// What a send asks: the settings button, then - img2img's canvases set apart -
+// the mode's canvas button with the picture.
+const settingsAsked = (from) => loaderAsked.slice(from).filter((r) => r.canvas === undefined);
+const canvasAsked = (from) => loaderAsked.slice(from).filter((r) => r.canvas !== undefined)
+    .map(({ canvas, picture, generation: g, task }) => ({ canvas, ...(picture ? { picture } : {}),
+                                                           ...(g !== undefined ? { generation: g } : {}),
+                                                           ...(task !== undefined ? { task } : {}) }));
+const SEND_LABELS = ['Send to img2img', 'Send to Sketch', 'Send to Inpaint', 'Send to Inpaint sketch',
+                     'Send to Inpaint upload'];
+try {
+check('an image tile\'s menu starts with the five sends into img2img, in Forge\'s order',
+      (await act('generations.menu', { tile: 0 }), menuItems().slice(0, 5)), SEND_LABELS.map((l) => [l, false]));
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+check('a batch of several images has none - which image would go? - nor a ⋯ at all here', !!menuOf(3), false);
+await act('generations.menu', { tile: 2 });
+check('a tile whose file is gone has them greyed, saying so',
+      [menuItems().slice(0, 5).every(([, off]) => off),
+       document.querySelector('.gen-menu button')?.getAttribute('title')], [true, 'The image file is gone: deleted or moved']);
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+planAnswer = { success: false };
+let at = loaderAsked.length;
+await press(0, 'Send to Inpaint');
+await waitFor('the send into Inpaint', () => canvasAsked(at).length);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('Send to Inpaint: img2img\'s settings button asked to paste the infotext, with the mode and the picture\'s size',
+      settingsAsked(at).map(({ tab, paste, generation: g, into }) => [tab, paste, g, into]),
+      [['img2img', INFOTEXT, 1, { mode: 2, picture: { generation_image: 11 }, width: 832, height: 1216 }]]);
+check('then Inpaint\'s canvas button, with the image\'s own file - the canvases are never the settings button\'s',
+      canvasAsked(at), [{ canvas: 2, picture: { generation_image: 11 } }]);
+check('img2img shown, on Inpaint', shown.slice(-2), ['tab_img2img-button', 'img2img_inpaint_tab-button']);
+
+at = loaderAsked.length;
+await press(1, 'Send to Sketch');
+await waitFor('the picture alone', () => canvasAsked(at).length);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('an image with no infotext goes too: nothing to paste - the mode and the picture alone',
+      [settingsAsked(at).map(({ tab, paste, into }) => [tab, paste, into?.mode]), canvasAsked(at)],
+      [[['img2img', undefined, 1]], [{ canvas: 1, picture: { generation_image: 12 } }]]);
+check('and img2img shown on Sketch', shown.slice(-2), ['tab_img2img-button', 'img2img_img2img_sketch_tab-button']);
+
+// A txt2img generation's kept press cannot go into img2img: its infotext is pasted.
+planAnswer = { success: true, inputs: true, preset: null, checkpoint: null, target: [], modules_missing: [] };
+at = loaderAsked.length;
+await press(0, 'Send to img2img');
+await waitFor('the send', () => canvasAsked(at).length);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('a txt2img generation\'s kept press: not replayed into img2img, its infotext pasted',
+      settingsAsked(at).map((r) => [r.paste === undefined ? 'load' : 'paste', r.into?.mode]), [['paste', 0]]);
+
+// An img2img generation's kept press is replayed, with this send's mode and picture.
+generation.mode = 'img2img';
+at = loaderAsked.length;
+await press(0, 'Send to Inpaint upload');
+await waitFor('the replay', () => canvasAsked(at).length);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('an img2img generation\'s kept press: replayed, with the mode, then the picture into Inpaint upload',
+      [settingsAsked(at).map(({ tab, generation: g, image: i, paste, into }) => [tab, g, i, paste, into?.mode]),
+       canvasAsked(at)], [[['img2img', 1, 11, undefined, 4]], [{ canvas: 4, picture: { generation_image: 11 } }]]);
+generation.mode = 'txt2img';
+
+// A checkpoint the library lacks: said, the picture sent with the one loaded - no stop, no Resources.
+planAnswer = { success: true, checkpoint_missing: 'gone_checkpoint.safetensors', preset: null, checkpoint: null,
+               target: [], modules_missing: [] };
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+at = loaderAsked.length;
+await press(0, 'Send to Inpaint sketch');
+await waitFor('the send with the checkpoint missing', () => canvasAsked(at).length);
+check('a missing checkpoint: the send goes on, into Inpaint sketch',
+      [settingsAsked(at).map(({ tab, into }) => [tab, into?.mode]), canvasAsked(at).map((r) => r.canvas)],
+      [[['img2img', 3]], [3]]);
+check('saying which, and opening no Resources',
+      [[...document.querySelectorAll('.mm-notice')].some((n) => /sent with the checkpoint loaded instead of gone_checkpoint/
+       .test(n.textContent)), !!document.querySelector('.mm-resources-modal')], [true, false]);
+planAnswer = { success: false };
+
+// Send's own button asks nothing of the sort.
+at = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('Send', () => loaderAsked.length > at);
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('Send\'s own button: into its own tab, no mode or picture, no canvas button',
+      loaderAsked.slice(at).map(({ tab, into, canvas }) => [tab, into, canvas]), [['txt2img', undefined, undefined]]);
+} catch (error) {
+    check('into img2img\'s modes: the items, what they ask, what they show', String(error), null);
+}
 
 done();

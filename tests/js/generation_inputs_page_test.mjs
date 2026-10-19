@@ -27,9 +27,15 @@ const shown = [];
 document.querySelectorAll('#tabs button, #img2img_modes button')
     .forEach((b) => b.addEventListener('click', () => shown.push(b.id)));
 let loaderAnswer = () => ({ pasted: true });
+// Whether the mode's canvas button put the kept source back (#299: the
+// canvases are no longer the settings button's).
+let canvasSource = true;
 const loaderAsked = [];
 sendLoaders(document, { onAsk: (tab, request) => loaderAsked.push({ tab, ...request }),
-                        answer: (tab, request) => loaderAnswer(tab, request) });
+                        answer: (tab, request) => loaderAnswer(tab, request),
+                        canvasAnswer: () => ({ source: canvasSource }) });
+const canvasAsks = (from) => loaderAsked.slice(from).filter((r) => r.canvas !== undefined)
+    .map(({ canvas, generation, task }) => [canvas, generation ?? null, task ?? null]);
 
 // ------------------------------------------------------------- the server
 const kept = { source: '/model-manager/generations/1/input/init_img_with_mask',
@@ -80,9 +86,12 @@ await new Promise((resolve) => setTimeout(resolve, 80));
 check('Send opens img2img on the mode the press was made in: Inpaint',
       shown.slice(-2), ['tab_img2img-button', 'img2img_inpaint_tab-button']);
 check('and, its source put back, does not say it is not kept', notice().includes('drop an image in'), false);
+check('the press\'s canvases asked of Inpaint\'s own canvas button, by the generation (#299)',
+      canvasAsks(before), [[2, 1, null]]);
 
 // ======================================= Send, its source not put back
 loaderAnswer = () => ({ mode: 4, source: false, skipped: [], notes: [] });
+canvasSource = false;
 before = loaderAsked.length;
 clearNotices();
 await act('generations.send', { tile: 1 });
@@ -94,8 +103,11 @@ check('a press whose source did not come back: its mode, Inpaint upload, and the
 // ======================================================== Load to UI
 const { loadTask } = await sharedModule('send.mjs');
 loaderAnswer = () => ({ mode: 3, skipped: [], notes: [] });
+canvasSource = true;
+before = loaderAsked.length;
 await loadTask(5);
 check('Load to UI opens the task\'s mode too: Inpaint sketch', shown[shown.length - 1], 'img2img_inpaint_sketch_tab-button');
+check('and asks Inpaint sketch\'s canvas button for the task\'s canvases', canvasAsks(before), [[3, null, 5]]);
 
 // ========================================================= the viewer
 const viewer = () => document.querySelector('.mm-viewer');

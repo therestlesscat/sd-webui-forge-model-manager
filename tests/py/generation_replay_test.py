@@ -436,18 +436,18 @@ check("with a generation named, its record corrects the paste: its refiner's CFG
 import gradio as gr                                      # noqa: E402
 generate_count = len(OWN.inputs) - 1
 extras = [OVERRIDE]
-answer = attempt(lambda: load._loader('txt2img', generate_count, extras)(
+answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'paste': 'x\nSteps: 1, Hires checkpoint: gone [1]', 'nonce': 'p1'})))
 check('an infotext is answered for every output, and the files missing named',
       attempt(lambda: (len(answer), json.loads(answer[-1]))),
       (generate_count + len(extras) + 1, {'nonce': 'p1', 'pasted': True, 'missing': ['gone [1]']}))
-answer = attempt(lambda: load._loader('txt2img', generate_count, extras)(
+answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'generation': generation_id, 'image': second['id'], 'nonce': 'g1'})))
 check('a generation\'s image is answered as a task is',
       attempt(lambda: json.loads(answer[-1])),
       {'nonce': 'g1', 'generation': generation_id, 'skipped': [], 'notes': []})
 del PAGE.fns[1]
-answer = attempt(lambda: load._loader('txt2img', generate_count, extras)(json.dumps({'paste': 'x', 'nonce': 'p2'})))
+answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(json.dumps({'paste': 'x', 'nonce': 'p2'})))
 check('with Forge\'s paste not found, nothing is set and the page is told to paste itself',
       attempt(lambda: (answer[:-1] == [gr.update()] * (generate_count + 1), json.loads(answer[-1]).get('no_paste'))),
       (True, True))

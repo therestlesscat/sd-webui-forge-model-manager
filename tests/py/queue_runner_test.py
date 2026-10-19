@@ -589,11 +589,11 @@ for task_id, why in ((theirs, 'No task #%d in this WebUI' % theirs), (other_tab,
     check('only this install\'s tasks of this tab are loaded', raised, why)
 
 import gradio as gr                                      # noqa: E402
-answered = load._loader('txt2img', 9)(json.dumps({'task': loaded, 'nonce': 'n1'}))
+answered = load._loader('txt2img', list(range(9)))(json.dumps({'task': loaded, 'nonce': 'n1'}))
 check('the hidden button answers every output, and its own nonce, with what it skipped',
       (len(answered), answered[0], json.loads(answered[-1])),
       (10, 'to load', {'nonce': 'n1', 'task': loaded, 'skipped': ['ControlNet: 0'], 'notes': []}))
-failed_load = load._loader('txt2img', 9)(json.dumps({'task': theirs, 'nonce': 'n2'}))
+failed_load = load._loader('txt2img', list(range(9)))(json.dumps({'task': theirs, 'nonce': 'n2'}))
 check('a task it cannot load changes nothing, and says why',
       (failed_load[:9] == [gr.update()] * 9, json.loads(failed_load[-1])),
       (True, {'nonce': 'n2', 'task': theirs, 'error': 'No task #%d in this WebUI' % theirs}))

@@ -473,8 +473,29 @@ export function mountTab(tabFile) {
  * a number or a function of the request, holds the answer back that long.
  */
 export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = null,
-                                        answer = () => ({ pasted: true }), delay = 0 } = {}) {
+                                        answer = () => ({ pasted: true }), delay = 0,
+                                        canvasAnswer = () => ({ source: true }) } = {}) {
     const asked = [];
+    // img2img's canvas buttons (#299): one per mode that takes a picture,
+    // sharing one asked box and one answer box. A request reaches onAsk with
+    // `canvas`, the mode.
+    if (tabs.includes('img2img')) {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="mm_load_img2img_canvas_asked"><textarea></textarea></div>
+            <div id="mm_load_img2img_canvas_answer"><textarea></textarea></div>
+            ${[0, 1, 2, 3, 4].map((m) => `<button id="mm_load_img2img_canvas_${m}"></button>`).join('')}`);
+        for (const mode of [0, 1, 2, 3, 4]) {
+            document.getElementById(`mm_load_img2img_canvas_${mode}`).addEventListener('click', () => {
+                const request = JSON.parse(document.querySelector('#mm_load_img2img_canvas_asked textarea').value);
+                asked.push({ tab: 'img2img', canvas: mode, ...request });
+                onAsk?.('img2img', { canvas: mode, ...request });
+                const reply = { nonce: request.nonce, mode, ...(canvasAnswer(mode, request) || {}) };
+                setTimeout(() => {
+                    document.querySelector('#mm_load_img2img_canvas_answer textarea').value = JSON.stringify(reply);
+                }, typeof delay === 'function' ? delay('img2img', request) : delay);
+            });
+        }
+    }
     for (const tab of tabs) {
         document.body.insertAdjacentHTML('beforeend', `
             <div id="mm_load_${tab}_asked"><textarea></textarea></div>

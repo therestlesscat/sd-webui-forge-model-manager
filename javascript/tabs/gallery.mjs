@@ -39,7 +39,7 @@ const {
 const { nsfwBadge } = await shared('nsfw.mjs');
 const { imageDetailsHtml, showImageMeta } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
-const { sendGalleryImage, cannotSend } = await shared('send.mjs');
+const { sendGalleryImage, cannotSend, IMG2IMG_SENDS } = await shared('send.mjs');
 const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
     placedGrid, showTile } = await shared('tiles.mjs');
 
@@ -405,8 +405,8 @@ function tileHtml(tile, index) {
         actions = `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}</div>`;
     } else {
         media = `<div class="gen-viewable" data-action="gallery.view" data-tile="${index}" title="View">${imageHtml(image)}</div>`;
-        // More, behind ⋯ - while the image names a checkpoint or LoRA besides its own model.
-        if (tile.menu) {
+        // More, behind ⋯: its sends into img2img (#299), and its models. Not for a video.
+        if (!isVideoUrl({ url: image.url, type: image.type })) {
             media += `<button type="button" class="gen-menu-btn" title="More"
                               data-action="gallery.menu" data-tile="${index}">⋯</button>`;
         }
@@ -520,13 +520,15 @@ function bringTile(index) {
 }
 
 // ------------------------------------------------------------- the tiles' actions
-function sendTile(tile) {
+/** Send to txt2img - or, with `mode`, the image's original into that img2img mode (#299). */
+function sendTile(tile, mode = null) {
     if (!tile || tile.kind !== 'image') return undefined;
     closeViewer();
     // Once it has closed: closing brought the image it showed last into
     // view, so the place is the image sent.
     previousPlace.remember(placeOf(tile, tile.image));
-    return sendGalleryImage({ img: tile.image, model: tile.model, version: tile.version });
+    return sendGalleryImage({ img: tile.image, model: tile.model, version: tile.version,
+                              into: mode === null ? null : { mode } });
 }
 
 /** Its model in the Model Manager, at the version the image is of, through the loading module (#184). */
@@ -538,10 +540,11 @@ function showModel(tile) {
 }
 
 // ------------------------------------------------------------- the ⋯ menu
-// An image's checkpoints and LoRAs, each in the Model Manager when the
-// library holds it, in the Civitai Browser when it does not (#298). Asked of
-// the server when ⋯ is pressed: what the library holds is as of the press,
-// and a part carries only whether an image has a menu.
+// An image's sends into img2img's modes (#299), its original into the mode's
+// canvas; then its checkpoints and LoRAs, each in the Model Manager when the
+// library holds it, in the Civitai Browser when it does not (#298). Those are
+// asked of the server when ⋯ is pressed, and only when the tile's `menu`
+// says it has any: what the library holds is as of the press.
 
 const ROLE_NAMES = { checkpoint: 'checkpoint', lora: 'LoRA' };
 // The press whose answer is wanted: one that comes after another, or after
@@ -554,6 +557,11 @@ async function openTileMenu(index, button) {
     if (!tile || tile.kind !== 'image' || !button || button.disabled) return;
     const asked = ++menuAsked;
     closeMenu();
+    const sends = IMG2IMG_SENDS.map(({ mode, label }) => ({ label, run: () => sendTile(tile, mode) }));
+    if (!tile.menu) {
+        openMenu(tabScope, button, sends);
+        return;
+    }
     // Asking: a second press asks nothing more.
     button.disabled = true;
     button.setAttribute('title', 'Looking…');
@@ -570,7 +578,7 @@ async function openTileMenu(index, button) {
     const items = answer?.success
         ? (answer.items || []).map((resource) => resourceItem(resource, tile))
         : [{ label: 'Could not read its resources', disabled: true, title: answer?.error || 'No answer' }];
-    openMenu(tabScope, button, items);
+    openMenu(tabScope, button, [...sends, ...items]);
 }
 
 /** One resource as the menu offers it: held, in the Model Manager; else in the Civitai Browser. */

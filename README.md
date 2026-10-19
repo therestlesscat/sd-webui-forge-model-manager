@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.66 - Send any image into img2img.** An image's ⋯ menu, in the Generations and the Civitai
+Images tabs, sends the picture itself into img2img, Sketch, Inpaint, Inpaint sketch or Inpaint
+upload, with its settings, ready to inpaint or redraw. A Civitai image comes at full size.
+
 **0.65 - Send an inpaint back as it was.** An img2img generation now keeps the picture it
 started from and the mask or strokes painted over it. Send puts both back, on the mode the
 generation was made in, and the viewer shows them beside the result. The settings' Generations

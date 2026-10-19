@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.66 - Send any image into img2img
+
+*18 October 2026*
+
+An image's ⋯ menu, in the Generations and the Civitai Images tabs, now sends the picture itself into img2img - img2img, Sketch, Inpaint, Inpaint sketch or Inpaint upload - ready to inpaint or redraw. Its settings go with it and Forge is set up for it as Send sets it up; any image goes, one with no settings too.
+
+- **0.66.0** (build 523) - The picture itself goes into one of img2img's modes from an image tile's ⋯ menu (#299): until now nothing put one of the extension's images into img2img to work from but an image-to-video model's start frame. Five items lead an image tile's menu - Send to img2img, Sketch, Inpaint, Inpaint sketch, Inpaint upload - in the Generations tab (an image, or a generation of one image; greyed while its file is gone) and the Civitai Images tab (every image, not a video); a batch of several and a group have none, and Batch is #300's. The server puts the picture into the mode's canvas through a hidden button of that mode's own, pressed after the settings are in, and empties its strokes or mask - Inpaint upload's mask box too - where a canvas's own upload keeps an old mask over a picture of the same size; no other canvas is touched. A generation's own file is opened where it is; a Civitai original is fetched by the server, from image.civitai.com over https only, within 30 s and 50 MB, under a progress popup (eight originals took 0.21 to 0.73 s, 0.19 to 2.4 MB). The settings: an img2img generation's kept press replayed into the mode, any other image's infotext pasted, and an image with none pasted nothing - Forge's paste of an empty text pastes the last run's settings - but its picture and size. Width and height are the settings', the picture's when they give none. Forge is set up as Send sets it - UI preset, checkpoint, VAE / text encoders where the library holds them - but a checkpoint the library lacks is kept as loaded and said, never a stop; the WebUI's "Ignore the Checkpoint when reading infotext" is not read, as Send does not read it (#301). The video-still route and the new fetch share one rule for Civitai's image server. It also fixes an older fault, from 0.56.0: a Send that put a generation's settings into img2img answered Forge's canvases "leave as they are", which gave the page its own copy of each canvas, one that refuses a picture. The next picture put into one - Forge's own PNG Info → Send to img2img included - failed, and the extension's sends said "Could not send: Forge did not answer." after 20 s. The settings' loader now answers no canvas at all; a mode's canvases are set by its own button, always as values.
+
 ## 0.65 - Send an inpaint back as it was
 
 *18 October 2026*

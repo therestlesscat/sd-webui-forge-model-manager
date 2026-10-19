@@ -10,6 +10,12 @@
  * plan for a model, the sampler and scheduler an image names, its infotext
  * and the paste, and an image-to-video model's start frame. The LoRAs and
  * embeddings a send leaves under the prompt are chips.mjs's.
+ *
+ * Either send can go into one of img2img's modes instead (`into`, #299), the
+ * picture itself with it: the ⋯ menu's Send to img2img, Sketch, Inpaint,
+ * Inpaint sketch and Inpaint upload. Forge is set up as for any send, but a
+ * checkpoint the library lacks is said rather than a stop - any image may be
+ * worked on - and the server puts the picture in the mode's canvas.
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -27,6 +33,20 @@ const { videoFrames, videoSize } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList } = await shared('downloads.mjs');
 const { splitSamplerScheduler } = await shared('samplers.mjs');
+const { showProgress } = await shared('dialog.mjs');
+
+/**
+ * The ⋯ menu's sends into img2img (#299): each mode that takes a picture, by
+ * Forge's number for it, in its order. Batch (5) takes folders and uploads:
+ * #300's, from Select mode.
+ */
+export const IMG2IMG_SENDS = [
+    { mode: 0, label: 'Send to img2img' },
+    { mode: 1, label: 'Send to Sketch' },
+    { mode: 2, label: 'Send to Inpaint' },
+    { mode: 3, label: 'Send to Inpaint sketch' },
+    { mode: 4, label: 'Send to Inpaint upload' },
+];
 
 /**
  * What a send relies on running, started with it by each tab that sends
@@ -63,8 +83,12 @@ export function sendTab(card) {
  * @returns {Promise<boolean>} whether it could be sent
  */
 export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null,
-                                     useKind = 'file' }) {
-    if (!infotext) return false;
+                                     useKind = 'file', into = null }) {
+    // Into img2img (#299), the image's own file with it: any image goes,
+    // with no infotext too.
+    const sending = into ? { mode: Number(into.mode), picture: { generation_image: Number(imageId) },
+                             width: into.width ?? null, height: into.height ?? null } : null;
+    if (!infotext && !sending) return false;
     meta = meta || {};
     let plan = null;
     if (generationId !== null && generationId !== undefined) {
@@ -82,7 +106,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // Civitai image's does (#134); the dialog's Send works once it is there.
     const problem = plan?.checkpoint_problem
         || (plan?.checkpoint_missing ? { reason: 'missing', name: plan.checkpoint_missing } : null);
-    if (problem) {
+    if (problem && sending) {
+        showNotice(keptCheckpointNote(problem), { info: true });
+    } else if (problem) {
         // Why, as a Civitai image's send says it (stopForCheckpoint): not in
         // the library, in a folder only the other WebUI loads, or not listed yet.
         const note = checkpointNote(problem) || checkpointNote({ ...problem, reason: 'missing' });
@@ -113,7 +139,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     if (!scheduler && meta.sampler) scheduler = splitSamplerScheduler(meta.sampler).scheduler;
     const hasHiresFix = meta['Denoising strength'] &&
         (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
-    const tab = sendTab({ mode });
+    const tab = sending ? 'img2img' : sendTab({ mode });
     // An earlier send's chips would stay; this one's come from its own record.
     showResourceChips(tab, []);
     const image = { meta };
@@ -132,23 +158,29 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
     };
-    // Not when the loader put the source back (#34): the answer says.
+    // Not when the loader put the source back (#34), or a picture in (#299): the answer says.
     const sourceNotice = (answer = null) => {
-        if (tab === 'img2img' && answer?.source !== true) {
+        if (tab === 'img2img' && !sending && answer?.source !== true) {
             showNotice('The settings are in img2img. The image this generation started from '
                        + 'is not kept: drop an image in before generating.');
         }
     };
 
-    if (plan?.inputs) {
+    // A press is replayed into the tab it was made in only: into img2img, a
+    // txt2img generation's settings are pasted.
+    if (plan?.inputs && (!sending || mode === 'img2img')) {
         const answer = await pressLoader(tab, { generation: Number(generationId),
-                                                image: imageId === null || imageId === undefined ? null : Number(imageId) });
+                                                image: imageId === null || imageId === undefined ? null : Number(imageId),
+                                                ...(sending ? { into: sending } : {}) });
         if (!answer.error) {
             renamePromptLoras(tab, resources?.renames);
             await applyRecordedModules(plan);
             showGenerationTab(tab, answer.mode);
             showChips();
-            sourceNotice(answer);
+            // The canvases next, through the mode's own button: the picture
+            // sent in (#299), or the press's own (#34).
+            if (sending) await putPicture(sending);
+            else if (tab === 'img2img') sourceNotice(await pressCanvas(answer.mode, { generation: Number(generationId) }));
             const kept = [...(answer.skipped || []), ...(answer.notes || [])];
             if (kept.length) {
                 showNotice(`These keep what was on screen, or their defaults: ${kept.join('; ')}.`, { info: true });
@@ -162,11 +194,46 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         infotext = resources.renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), infotext);
     }
     const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
-    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId })) return false;
-    showGenerationTab(tab);
+    // No infotext: nothing pasted - Forge's paste of an empty text pastes the
+    // last run's settings - the picture and its size alone.
+    if (!infotext) return sendPictureAlone(sending, afterPaste);
+    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId, into: sending })) return false;
+    showGenerationTab(tab, sending?.mode);
     showChips();
     sourceNotice();
     return true;
+}
+
+/** Why a send into img2img goes on with the checkpoint loaded (#299): said, never a stop. */
+function keptCheckpointNote(problem) {
+    const why = CHECKPOINT_WAITS[problem?.reason] || CHECKPOINT_WAITS.missing;
+    const instead = problem?.name ? ` instead of ${problem.name}` : '';
+    return `${why} The picture is sent with the checkpoint loaded${instead}.`;
+}
+
+/** Into img2img with no settings to paste (#299): the loader sets the mode, the picture and its size. */
+async function sendPictureAlone(sending, afterPaste) {
+    sendSettled = (async () => {
+        const answer = await pressLoader('img2img', { into: sending });
+        if (answer.error) {
+            showNotice(`Could not send: ${answer.error}.`);
+            return;
+        }
+        if (afterPaste) await Promise.resolve(afterPaste()).catch(() => {});
+        showGenerationTab('img2img', answer.mode ?? sending.mode);
+        await putPicture(sending);
+    })().catch((error) => console.error('[ModelManager] Send failed:', error));
+    await sendSettled;
+    return true;
+}
+
+/** A picture sent in (#299), into its mode's canvas by that mode's own button; a failure said. */
+async function putPicture(sending) {
+    const answer = await pressCanvas(sending.mode, { picture: sending.picture });
+    if (answer.error) {
+        showNotice(`The settings are in img2img, but the picture could not be put in: ${answer.error}.`);
+    }
+    return answer;
 }
 
 /**
@@ -906,6 +973,8 @@ export async function loadTask(taskId) {
     }
     await applyRecordedModules(plan, `Task #${Number(taskId)} was queued with`);
     showGenerationTab(tab, answer.mode);
+    // Its canvases through the mode's own button (#34, #299).
+    if (tab === 'img2img') await pressCanvas(answer.mode, { task: Number(taskId) });
     const kept = [...(answer.skipped || []), ...(answer.notes || [])];
     if (kept.length) {
         showNotice(`Task #${Number(taskId)} is loaded. These keep what was on screen, or their defaults: `
@@ -921,11 +990,29 @@ export async function loadTask(taskId) {
  * carries this request's nonce, which Gradio writes in the same event as
  * every control. The time limit only says no answer came.
  */
-async function pressLoader(tab, request) {
+function pressLoader(tab, request) {
+    return pressHidden(`mm_load_${tab}_asked`, `mm_load_${tab}_answer`, `mm_load_${tab}`, request);
+}
+
+/**
+ * Ask img2img's canvas button of `mode` (scheduler/load.py, #299) to fill
+ * that mode's canvases - with a picture sent in, `{picture}`, its layer
+ * emptied; or with the canvases a press or a task kept, `{generation}` or
+ * `{task}` (#34) - and wait for its answer. The canvases are never the
+ * settings button's: answering "leave as is" for one broke the next picture
+ * any button handed it, Forge's own Send to img2img among them.
+ */
+function pressCanvas(mode, request) {
+    if (!(Number(mode) >= 0 && Number(mode) <= 4)) return Promise.resolve({ source: null });
+    return pressHidden('mm_load_img2img_canvas_asked', 'mm_load_img2img_canvas_answer',
+                       `mm_load_img2img_canvas_${Number(mode)}`, request);
+}
+
+async function pressHidden(askedId, answerId, buttonId, request) {
     const app = gradioApp();
-    const asked = app.querySelector(`#mm_load_${tab}_asked textarea`);
-    const answered = app.querySelector(`#mm_load_${tab}_answer textarea`);
-    const button = app.querySelector(`#mm_load_${tab}`);
+    const asked = app.querySelector(`#${askedId} textarea`);
+    const answered = app.querySelector(`#${answerId} textarea`);
+    const button = app.querySelector(`#${buttonId}`);
     if (!asked || !answered || !button) return { error: 'its hidden button is not built', no_loader: true };
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     asked.value = JSON.stringify({ ...request, nonce });
@@ -1351,7 +1438,7 @@ function withoutLoraHashes(infotext) {
  *
  * @returns {boolean} whether the paste could be made at all
  */
-function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null } = {}) {
+function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null, into = null } = {}) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
@@ -1361,13 +1448,19 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, gene
 
     sendSettled = (async () => {
         const answer = await pressLoader(tab, { paste: text,
-                                                generation: generationId === null ? null : Number(generationId) });
+                                                generation: generationId === null ? null : Number(generationId),
+                                                ...(into ? { into } : {}) });
         if (answer.no_paste || answer.no_loader) {
             if (!await pasteWithButton(tab, promptTextarea, text)) return;
+            if (into) {
+                showNotice('The settings are in img2img, but the picture could not be put in: '
+                           + 'drop it in before generating.');
+            }
         } else if (answer.error) {
             showNotice(`Could not send: ${answer.error}.`);
             return;
         } else {
+            if (into) await putPicture(into);
             // What the paste button's own click does after it: the prompts' token counts.
             const recount = window[`recalculate_prompts_${tab}`];
             if (typeof recount === 'function') recount();
@@ -1436,16 +1529,32 @@ async function pasteWithButton(tab, promptTextarea, text) {
  * of its own version or another `version` of its model (`useKind`), picked
  * in the Resources dialog (#278).
  */
-export async function sendGalleryImage({ img, model, version, useVersion = null, useKind = 'file' }) {
+export async function sendGalleryImage({ img, model, version, useVersion = null, useKind = 'file', into = null }) {
+    // Into img2img (#299), its original with it: any image goes, whatever
+    // its data lacks, under the progress popup while the server fetches it.
+    const sending = into ? { mode: Number(into.mode), picture: { url: originalMediaUrl(img.url || '') },
+                             width: img.width ?? null, height: img.height ?? null } : null;
+    if (!sending) return sendGalleryImageTo({ img, model, version, useVersion, useKind });
+    const progress = showProgress('Fetching the image from Civitai\u2026');
+    try {
+        await sendGalleryImageTo({ img, model, version, useVersion, useKind, sending });
+        await sendSettled;
+    } finally {
+        progress.close();
+    }
+}
+
+async function sendGalleryImageTo({ img, model, version, useVersion, useKind, sending = null }) {
     // Its Send is disabled; pressed regardless - the viewer's copy of a card
     // drawn before - it is said, and nothing is asked. Before anything reads
     // the image's data: an image with none threw on it here (#266).
-    const blocked = cannotSend(img, model, version);
+    const blocked = sending ? '' : cannotSend(img, model, version);
     if (blocked) {
         showNotice(blocked);
         return;
     }
-    const meta = img.meta;
+    // Into img2img an image with no data goes too (#299), its size as the picture's.
+    const meta = sending ? { ...(img.meta || {}) } : img.meta;
 
     // Debug: log available size-related fields
     console.log('[ModelManager] Image size data:', {
@@ -1475,7 +1584,9 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
         // gallery's image needs its own checkpoint, the one thing a send
         // cannot go without: one Forge cannot load stops it (#134).
         const checkpointGallery = galleryIsCheckpoint(model, version);
-        if (!checkpointGallery && plan?.checkpoint_problem) {
+        if (!checkpointGallery && plan?.checkpoint_problem && sending) {
+            showNotice(keptCheckpointNote(plan.checkpoint_problem), { info: true });
+        } else if (!checkpointGallery && plan?.checkpoint_problem) {
             await stopForCheckpoint(img, model, version, plan.checkpoint_problem);
             return;
         }
@@ -1485,8 +1596,8 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
         // no way to give it - it failed in the sampler - so it goes to
         // img2img, with the image. Fetched meanwhile: the preset takes time.
         const isVideo = isVideoUrl({ url: img.url, type: img.type });
-        const tab = plan && plan.video === 'i2v' ? 'img2img' : 'txt2img';
-        const framing = tab === 'img2img' ? startFrame(img, isVideo) : null;
+        const tab = sending || (plan && plan.video === 'i2v') ? 'img2img' : 'txt2img';
+        const framing = tab === 'img2img' && !sending ? startFrame(img, isVideo) : null;
 
         if (plan && plan.preset) await switchForgePreset(plan.preset);
 
@@ -1519,7 +1630,7 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
 
         // A video model makes a still unless it is told how many frames:
         // Neo reads Batch size as Frames on the Wan preset.
-        let sendMeta = plan && plan.video
+        let sendMeta = plan && plan.video && !sending
             ? await withVideoParams(meta, img, isVideo) : meta;
 
         // The image's LoRAs and embeddings, for the chips; a LoRA its prompt
@@ -1534,8 +1645,13 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
         }
 
         // Build infotext from metadata
-        const infotext = buildInfotext(sendMeta, { denoisingStrength: tab === 'img2img' ? 1 : null,
+        const infotext = buildInfotext(sendMeta, { denoisingStrength: tab === 'img2img' && !sending ? 1 : null,
                                                    hiresUpscaler: tab === 'txt2img' ? plan?.upscaler : null });
+        const modules = () => (plan ? applyPlannedModules(plan, vaePath) : applyVaeSelection(vaePath));
+        if (!infotext && sending) {
+            await sendPictureAlone(sending, modules);
+            return;
+        }
         if (!infotext) {
             console.error('[ModelManager] No infotext to send');
             return;
@@ -1544,6 +1660,7 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
         const pasted = pasteInfotext(tab, infotext, {
             scheduler,
             hasHiresFix,
+            into: sending,
             afterPaste: async () => {
                 updateResourceChipStates(tab);
                 // After the paste: it re-renders much of the page, and it never
@@ -1557,7 +1674,7 @@ export async function sendGalleryImage({ img, model, version, useVersion = null,
         });
         if (!pasted) return;
 
-        showGenerationTab(tab);
+        showGenerationTab(tab, sending?.mode);
         // With the kind of embedding the model loads: a chip says which it skips (#179).
         resourceChipSources[tab] = { img, gallery: galleryFile(model, version), files,
                                      embeddings: plan?.embeddings };

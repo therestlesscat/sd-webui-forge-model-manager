@@ -19,6 +19,12 @@ Instead the button's function hands each control its value, rebuilt as for
 a run (replay.rebuild), as Forge's own paste hands it a pasted one - hidden
 controls too, which a press on the page cannot reach.
 
+img2img's canvases are set apart (#299): its button sets every other control,
+and a button per mode that takes a picture sets that mode's canvases - a
+picture sent in from the ⋯ menu (one of your generations' files, or a Civitai
+original the server fetches), its layer emptied, or a press's or a task's
+kept canvases (#34). `into`, on the first, names the mode a picture goes to.
+
 An infotext goes through Forge's own paste function (capture.paste_click),
 so every key it knows, extensions' included, is set as Forge sets it - in
 the same event, so nothing of the paste lands after what is corrected. What
@@ -45,12 +51,15 @@ tab alone: a Send needs them with the queue off.
 import copy
 import dataclasses
 import enum
+import io
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .. import generation_inputs
+from ..civitai.images import is_image_address
 from ..console import say
 from ..db import get_models_db
 from ..forge_host import (checkpoint_choice, generate_names, installed_modules,
@@ -367,13 +376,105 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
     return [by_component.get(id(o), skip) for o in outputs], missing
 
 
-# -------------------------------------------------------------- the button
+# ------------------------------------------------------- a picture sent in
+
+# A Civitai original fetched for img2img (#299): at most this big, this long.
+PICTURE_LIMIT = 50 * 1024 * 1024
+PICTURE_SECONDS = 30
+
+
+def _picture(asked: Dict[str, Any], get: Optional[Callable] = None):
+    """
+    The picture a send into img2img puts in its mode's canvas (#299): one of
+    your generations' files, by its image's id, or a Civitai original by its
+    address - Civitai's image server alone, over https, within 30 s and 50
+    MB. As RGB, as Forge's own Send buttons hand one. Raises TaskError,
+    saying why, when there is none to be had.
+    """
+    from PIL import Image
+    if asked.get("generation_image") is not None:
+        path = get_models_db().get_generation_image_path(int(asked["generation_image"]))
+        if not path or not os.path.isfile(path):
+            raise replay.TaskError("The image file is gone: deleted or moved")
+        with Image.open(path) as image:
+            image.load()
+            picture = image.copy()
+    else:
+        url = str(asked.get("url") or "")
+        if not is_image_address(url):
+            raise replay.TaskError("Only Civitai's image server is asked for an image")
+        if get is None:
+            import requests
+            get = requests.get
+        until = time.monotonic() + PICTURE_SECONDS
+        body = bytearray()
+        try:
+            with get(url, stream=True, timeout=PICTURE_SECONDS) as response:
+                response.raise_for_status()
+                for chunk in response.iter_content(1 << 16):
+                    body += chunk
+                    if len(body) > PICTURE_LIMIT:
+                        raise replay.TaskError("The image is larger than 50 MB")
+                    if time.monotonic() > until:
+                        raise replay.TaskError(f"Civitai took more than {PICTURE_SECONDS} s to send the image")
+        except replay.TaskError:
+            raise
+        except Exception as e:
+            raise replay.TaskError(f"Could not fetch the image from Civitai: {e}")
+        try:
+            with Image.open(io.BytesIO(bytes(body))) as image:
+                image.load()
+                picture = image.copy()
+        except Exception:
+            raise replay.TaskError("What Civitai sent is not an image")
+    return picture if picture.mode == "RGB" else picture.convert("RGB")
+
+
+def _into(values: List[Any], names: List[Optional[str]], into: Dict[str, Any], sized: bool) -> int:
+    """
+    A send into img2img's mode (#299), over the settings button's values -
+    `names` the input each stands for: `mode` that mode, and width and height
+    the picture's, as the page gives them, when the settings gave none
+    (`sized`). The picture itself goes in through the mode's canvas button.
+    Returns the mode.
+    """
+    mode = int(into.get("mode"))
+    if mode not in generation_inputs.MODE_IMAGES:
+        raise replay.TaskError(f"img2img's mode {mode} takes no picture")
+    at = {name: n for n, name in enumerate(names) if name}
+    values[at["mode"]] = mode
+    if not sized and into.get("width") and into.get("height"):
+        values[at["width"]] = int(into["width"])
+        values[at["height"]] = int(into["height"])
+    return mode
+
+
+# -------------------------------------------------------------- the buttons
+# img2img's canvases are never among the settings button's outputs (#299):
+# for each output it does not set, a button answers "leave as is", and for
+# each such answer Gradio puts a copy of that control into the page's
+# session, rebuilt from what it was made with. A canvas's copy reads
+# pictures as arrays (numpy=True) where Forge made it with numpy=False, and
+# the next picture any event handed it failed in Forge's canvas - this
+# send's, #34's, Forge's own Send to img2img. A picture goes in through a
+# button of its mode's own, which hands each of its canvases a value.
+
+CANVAS_ASKED = "mm_load_img2img_canvas_asked"
+CANVAS_ANSWER = "mm_load_img2img_canvas_answer"
+CANVAS_BUTTON = "mm_load_img2img_canvas_{mode}"
+
+
+def _input_names(tab: str, inputs: List[Any]) -> List[Optional[str]]:
+    """The name of each of Generate's inputs but the first, in order: None for a script's."""
+    names = generate_names(tab)
+    return [names[n] if n < len(names) else None for n in range(1, len(inputs))]
+
 
 def _canvas_answer(tab: str, request: Dict[str, Any]) -> Dict[str, Any]:
     """
-    For img2img, the mode the press was made in - the page shows it - and
-    whether its source came back (#34): Send says the source is not kept
-    only when it did not.
+    For img2img, the mode the press was made in - the page shows it, and
+    asks its canvas button for the press's canvases - and whether its source
+    is kept (#34).
     """
     db = get_models_db()
     if request.get("generation") is not None:
@@ -384,10 +485,62 @@ def _canvas_answer(tab: str, request: Dict[str, Any]) -> Dict[str, Any]:
     return {"mode": generation_inputs.mode_of(fixed), "source": generation_inputs.source_back(tab, named)}
 
 
-def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
-    """The hidden button's function: `count` outputs of Generate's, then `extras`."""
+def canvas_values(mode: int, request: Dict[str, Any]) -> List[Any]:
+    """
+    What a mode's canvases get - its picture, then its layer or mask - from
+    a request to its canvas button: a picture sent in (#299), its layer
+    empty; or the canvases a press of yours or a queued task kept (#34),
+    each nothing where none was kept.
+    """
+    names = generation_inputs.MODE_IMAGES[mode]
+    if request.get("picture") is not None:
+        return [_picture(request["picture"])] + [None] * (len(names) - 1)
+    db = get_models_db()
+    if request.get("generation") is not None:
+        named = (db.get_generation(int(request["generation"])) or {}).get("inputs") or {}
+    else:
+        task = db.get_task(int(request.get("task")))
+        if task is None or task.get("install") != INSTALL_KEY:
+            raise replay.TaskError(f"No task #{request.get('task')} in this WebUI")
+        named = task.get("inputs") or {}
+    opened = generation_inputs.from_files(named.get("fixed") or {}, names)
+    return [opened.get(name) for name in names]
+
+
+def _canvas_loader(mode: int) -> Callable:
+    """A canvas button's function: its mode's canvases, then the answer - never "leave as is"."""
+    count = len(generation_inputs.MODE_IMAGES[mode])
+
+    def load(asked: str):
+        try:
+            request = json.loads(asked or "{}")
+        except ValueError:
+            request = {}
+        answer: Dict[str, Any] = {"nonce": request.get("nonce"), "mode": mode}
+        try:
+            values = canvas_values(mode, request)
+            answer["source"] = values[0] is not None
+            return [*values, json.dumps(answer)]
+        except Exception as e:
+            say(f"Could not put the picture into img2img: {e}")
+            answer["error"] = str(e)
+        return [*([None] * count), json.dumps(answer)]
+
+    return load
+
+
+def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optional[str]] = ()) -> Callable:
+    """
+    The settings button's function: Generate's outputs at `kept` - all of
+    them for txt2img; for img2img all but its canvases - then `extras`.
+    `names` names each kept output.
+    """
     import gradio as gr
     outputs = None
+    count = len(kept)
+
+    def kept_only(values: List[Any]) -> List[Any]:
+        return [values[n] for n in kept]
 
     def load(asked: str):
         nonlocal outputs
@@ -397,14 +550,26 @@ def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
             request = {}
         answer: Dict[str, Any] = {"nonce": request.get("nonce")}
         rest = [gr.update()] * len(extras)
+        into = request.get("into") if tab == "img2img" else None
         try:
+            # Forge's paste of an empty text pastes the last run's settings
+            # (params.txt): an image with no infotext is sent with none (#299)
+            # - an empty text, or no text and no press to replay.
+            empty = request.get("paste") is not None or request.get("generation") is None
+            if into and not request.get("paste") and empty:
+                values = [gr.update()] * count
+                answer.update({"mode": _into(values, list(names), into, False)})
+                return [*values, *rest, json.dumps(answer)]
             if request.get("paste") is not None:
                 if outputs is None:
                     own = capture.generate_click(tab)
-                    outputs = list(own.inputs[1:]) + list(extras)
+                    outputs = kept_only(list(own.inputs[1:])) + list(extras)
                 values, missing = paste_values(tab, request["paste"], request.get("generation"),
                                                outputs, skip=gr.update())
                 answer.update({"pasted": True, "missing": missing})
+                if into:
+                    sized = "Size-1" in parse_generation_parameters(request["paste"])
+                    answer.update({"mode": _into(values, list(names), into, sized)})
                 return [*values, json.dumps(answer)]
             if request.get("generation") is not None:
                 answer["generation"] = request.get("generation")
@@ -413,8 +578,11 @@ def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
             else:
                 answer["task"] = request.get("task")
                 values, skipped, notes = task_values(tab, int(request.get("task")), skip=gr.update())
+            values = kept_only(values)
             answer.update({"skipped": skipped, "notes": notes})
-            if tab == "img2img":
+            if into:
+                answer.update({"mode": _into(values, list(names), into, True)})
+            elif tab == "img2img":
                 answer.update(_canvas_answer(tab, request))
             return [*values, *rest, json.dumps(answer)]
         except NoPaste as e:
@@ -432,16 +600,19 @@ def _loader(tab: str, count: int, extras: List[Any] = ()) -> Callable:
 def wire_load_buttons() -> None:
     """
     For each tab whose Generate was found, the hidden button that sets its
-    controls back: Generate's inputs, then the other controls Forge's paste
-    sets. Called inside a Blocks our tabs build.
+    controls back: Generate's inputs - for img2img, but its canvases - then
+    the other controls Forge's paste sets. For img2img, a canvas button per
+    mode that takes a picture. Called inside a Blocks our tabs build.
     """
     import gradio as gr
     for tab in capture.TABS:
         own = capture.generate_click(tab)
         if own is None:
             continue
-        outputs = list(own.inputs[1:])
-        taken = {id(c) for c in outputs}
+        inputs = list(own.inputs[1:])
+        names = _input_names(tab, list(own.inputs))
+        kept = [n for n, name in enumerate(names) if name not in generation_inputs.CANVASES]
+        taken = {id(c) for c in inputs}
         try:
             extras = [c for c in paste_outputs(tab) if id(c) not in taken]
         except Exception as e:
@@ -450,8 +621,20 @@ def wire_load_buttons() -> None:
         asked = gr.Textbox(visible=False, elem_id=ASKED.format(tab=tab))
         answer = gr.Textbox(visible=False, elem_id=ANSWER.format(tab=tab))
         button = gr.Button(visible=False, elem_id=BUTTON.format(tab=tab))
-        button.click(fn=_loader(tab, len(outputs), extras), inputs=[asked],
-                     outputs=outputs + extras + [answer], show_progress="hidden")
+        button.click(fn=_loader(tab, kept, extras, [names[n] for n in kept]), inputs=[asked],
+                     outputs=[inputs[n] for n in kept] + extras + [answer], show_progress="hidden")
+        if tab != "img2img":
+            continue
+        by_name = {name: inputs[n] for n, name in enumerate(names) if name}
+        canvas_asked = gr.Textbox(visible=False, elem_id=CANVAS_ASKED)
+        canvas_answer = gr.Textbox(visible=False, elem_id=CANVAS_ANSWER)
+        for mode, canvases in generation_inputs.MODE_IMAGES.items():
+            if not all(name in by_name for name in canvases):
+                continue
+            canvas_button = gr.Button(visible=False, elem_id=CANVAS_BUTTON.format(mode=mode))
+            canvas_button.click(fn=_canvas_loader(mode), inputs=[canvas_asked],
+                                outputs=[by_name[name] for name in canvases] + [canvas_answer],
+                                show_progress="hidden")
 
 
 def new_build() -> None:

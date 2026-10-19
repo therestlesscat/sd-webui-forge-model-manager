@@ -1,5 +1,17 @@
 [
     {
+        "id": "send-into-img2img",
+        "version": "0.66.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "generations",
+            "gallery"
+        ],
+        "title": "Send any image into img2img",
+        "text": "An image's \u22ef menu, in the Generations and Civitai Images tabs, now sends the picture itself into img2img, Sketch, Inpaint, Inpaint sketch or Inpaint upload, with its settings, ready to inpaint or redraw. A Civitai image comes at full size, and any image goes, one without its settings too."
+    },
+    {
         "id": "shared-database-0-65-0",
         "version": "0.65.0",
         "kind": "warning",

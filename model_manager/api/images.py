@@ -6,7 +6,6 @@ images from Civitai. Kept apart from models.py because a gallery is paged and
 refreshed on its own schedule, and its endpoints are about pictures rather
 than about the model they belong to.
 """
-from urllib.parse import urlparse
 
 import requests
 from fastapi import FastAPI, Form
@@ -18,6 +17,7 @@ from ..db import get_models_db
 from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
+from ..civitai.images import IMAGE_HOST, is_image_address
 from ..gallery import filter_images, mm_images_page_size
 from .common import failed, gate, streams_status
 from ..console import say
@@ -116,7 +116,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
     }
 
 
-STILL_HOST = "image.civitai.com"
+STILL_HOST = IMAGE_HOST
 STILL_IMAGE_SECONDS = 7 * 24 * 3600
 STILL_NONE_SECONDS = 24 * 3600
 
@@ -129,8 +129,7 @@ def still_answer(url: str, head=requests.head):
     is asked for, or redirected to. Civitai not answering, it is redirected
     to all the same, uncached: the check is a guard, not a gate.
     """
-    parsed = urlparse(url or "")
-    if parsed.scheme != "https" or parsed.hostname != STILL_HOST:
+    if not is_image_address(url):
         return Response(status_code=400)
     try:
         reply = head(url, allow_redirects=True, timeout=15)
