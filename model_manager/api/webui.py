@@ -10,6 +10,7 @@ along here rather than costing a second request at startup.
 And what version of the page's own shared scripts the WebUI is serving,
 which it does not say itself.
 """
+import json
 import os
 from typing import List, Optional
 
@@ -130,7 +131,7 @@ def register(app: FastAPI):
                   hashes: str = "", model_name: str = "", generation: int = 0, task: int = 0,
                   use_version: int = 0, text: int = 0, upscaler: str = "", denoise: Optional[float] = None,
                   video: str = "", frames: int = 0, prompt: Optional[str] = None,
-                  negative_prompt: Optional[str] = None):
+                  negative_prompt: Optional[str] = None, renames: str = "", into: int = 0):
         """
         How to set Forge up before a Send, for any source (#302): see
         send.plan(). `kind` is civitai - the image's id, the gallery's
@@ -140,24 +141,31 @@ def register(app: FastAPI):
         routes did. A plain `def`: it reads file headers, and may ask Civitai
         once.
 
-        With `text`, a Civitai image's settings instead - the infotext, its
-        scheduler, whether it had Hires fix (send.civitai_settings) - for
-        Forge's own paste button where the tab's loader was not built: the
-        source as the page hands the loader, `upscaler` to `negative_prompt`.
+        With `text`, a Civitai image's or a generation's settings instead -
+        the infotext, its scheduler, whether it had Hires fix (send.settings)
+        - for Forge's own paste button where the tab's loader was not built:
+        the source as the page hands the loader, `upscaler` to
+        `negative_prompt` for an image, `renames` (JSON) for a generation.
         """
         from ..db import get_models_db
-        from ..send import civitai_settings, plan
+        from ..send import plan, settings
         from ..tabs import on
-        if text and kind == "civitai":
-            found = civitai_settings(get_models_db(), {
-                "image": image, "upscaler": upscaler or None, "denoise": denoise, "video": video == "true",
-                "frames": frames or None, "prompt": prompt, "negative_prompt": negative_prompt})
-            if found is None:
-                return JSONResponse({"success": False, "error": "The image is not in the library"}, status_code=404)
-            return JSONResponse({"success": True, **found})
         area = {"generation": "generations", "task": "queue"}.get(kind)
         if area and not on(area):
             return refused(area)
+        if text and kind in ("civitai", "generation"):
+            try:
+                pairs = json.loads(renames) if renames else []
+            except ValueError:
+                pairs = []
+            found = settings(get_models_db(), {
+                "kind": kind, "image": image, "upscaler": upscaler or None, "denoise": denoise,
+                "video": video == "true", "frames": frames or None, "prompt": prompt,
+                "negative_prompt": negative_prompt, "generation": generation, "renames": pairs}, bool(into))
+            if found is None:
+                return JSONResponse({"success": False, "error": "The image is not in the library" if kind == "civitai"
+                                     else f"No generation #{generation}"}, status_code=404)
+            return JSONResponse({"success": True, **found})
         try:
             found = plan(get_models_db(), {"kind": kind, "image": image, "file_path": file_path,
                                            "base_model": base_model, "version_ids": version_ids,

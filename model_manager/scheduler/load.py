@@ -578,14 +578,42 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
         rest = [gr.update()] * len(extras)
         into = request.get("into") if tab == "img2img" else None
         try:
-            # A Civitai image's Send (#302): its text is built here, from its
-            # stored record, and pasted - and what the page set after the
-            # paste, the schedule type and Hires fix off, in the same event.
+            # A task's source is its id: set back from what it was queued with.
+            if (request.get("source") or {}).get("kind") == "task":
+                request = {**request, "task": request["source"].get("task")}
+                request.pop("source")
+            # A Civitai image's Send, or a generation's (#302): its text is
+            # built here - a Civitai image's from its stored record, a
+            # generation's its own with the chips' renames - and pasted, and
+            # what the page set after the paste, the schedule type and Hires
+            # fix off, in the same event. A generation's kept press (#7) is
+            # replayed instead, and a replay that fails is pasted.
             if request.get("source") is not None:
-                from ..send import civitai_settings
-                found = civitai_settings(get_models_db(), request["source"])
+                from ..send import renamed, settings
+                source = request["source"]
+                generation_id = int(source["generation"]) if source.get("kind") == "generation" else None
+                found = settings(get_models_db(), source, bool(into))
                 if found is None:
-                    raise replay.TaskError("The image is not in the library")
+                    raise replay.TaskError(f"No generation #{generation_id}" if generation_id is not None
+                                           else "The image is not in the library")
+                if found.get("replay"):
+                    try:
+                        values, skipped, notes = generation_values(tab, generation_id, source.get("image"),
+                                                                   skip=gr.update())
+                        values = kept_only(values)
+                        # The chips' renames, in the prompt the press is set back with.
+                        at = list(names).index("prompt") if "prompt" in names else None
+                        if at is not None and isinstance(values[at], str):
+                            values[at] = renamed(values[at], source.get("renames"))
+                        answer.update({"replayed": True, "generation": generation_id,
+                                       "skipped": skipped, "notes": notes})
+                        if into:
+                            answer.update({"mode": _into(values, list(names), into, True)})
+                        elif tab == "img2img":
+                            answer.update(_canvas_answer(tab, {"generation": generation_id}))
+                        return [*values, *rest, json.dumps(answer)]
+                    except Exception as e:
+                        say(f"Send: generation #{generation_id} could not be set back as it was; pasting: {e}")
                 # For Forge's own paste button, where its paste function is missing.
                 answer.update({"text": found["text"], "scheduler": found["scheduler"], "hires": found["hires"]})
                 if not found["text"]:
@@ -599,7 +627,7 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 if outputs is None:
                     own = capture.generate_click(tab)
                     outputs = kept_only(list(own.inputs[1:])) + list(extras)
-                values, missing = paste_values(tab, found["text"], None, outputs, skip=gr.update())
+                values, missing = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update())
                 after_paste(tab, values, outputs, list(names), found["scheduler"], found["hires"])
                 answer.update({"pasted": True, "missing": missing})
                 if into:

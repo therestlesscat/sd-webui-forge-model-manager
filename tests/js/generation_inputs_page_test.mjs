@@ -63,10 +63,11 @@ globalThis.fetch = async (url) => {
                                 stored_generations: 2 },
                        scope: { count: 2 } });
     }
-    if (href.includes('/queue/tasks/') && href.includes('/send-plan')) {
+    // Send's one plan route (#302): a task's, else a generation's.
+    if (href.includes('/send/plan') && href.includes('kind=task')) {
         return reply({ success: true, mode: 'img2img', preset: null, checkpoint: null, target: [], modules_missing: [] });
     }
-    if (href.includes('/send-plan')) return reply(planAnswer);
+    if (href.includes('/send/plan')) return reply(planAnswer);
     return reply({ success: true });
 };
 
@@ -77,7 +78,7 @@ const notice = () => document.querySelector('.mm-notice')?.textContent || '';
 const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ============================================= Send, its source put back
-loaderAnswer = () => ({ mode: 2, source: true, skipped: [], notes: [] });
+loaderAnswer = () => ({ replayed: true, mode: 2, source: true, skipped: [], notes: [] });
 let before = loaderAsked.length;
 clearNotices();
 await act('generations.send', { tile: 0 });
@@ -90,7 +91,7 @@ check('the press\'s canvases asked of Inpaint\'s own canvas button, by the gener
       canvasAsks(before), [[2, 1, null]]);
 
 // ======================================= Send, its source not put back
-loaderAnswer = () => ({ mode: 4, source: false, skipped: [], notes: [] });
+loaderAnswer = () => ({ replayed: true, mode: 4, source: false, skipped: [], notes: [] });
 canvasSource = false;
 before = loaderAsked.length;
 clearNotices();

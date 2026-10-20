@@ -84,21 +84,26 @@ capture.generate_click = lambda tab: OWN
 at = {name: n - 1 for n, name in enumerate(NAMES) if n}
 
 pasted = []
+pasted_for = []                       # the generation each paste was corrected from
 
 
 def paste_values(tab, infotext, generation_id, outputs, skip=None):
     """Forge's paste: the prompt from the text, everything else as on screen."""
     pasted.append(infotext)
+    pasted_for.append(generation_id)
     values = [skip] * len(outputs)
     values[at['prompt']] = (infotext or '').split('\n')[0]
     return values, []
 
 
 def generation_values(tab, generation_id, image_id, skip=None):
-    """A kept press, replayed: its prompt, its size, its own Inpaint canvases."""
+    """A kept press, replayed: its prompt, its size, its own Inpaint canvases.
+    Generation 14's cannot be: a script it kept is gone."""
+    if generation_id == 14:
+        raise RuntimeError('Script "X" is gone')
     values = [skip] * COUNT
     values[at['mode']] = 2
-    values[at['prompt']] = 'a pressed prompt'
+    values[at['prompt']] = 'a pressed <lora:alias_y:1> prompt' if generation_id == 15 else 'a pressed prompt'
     values[at['init_img_with_mask']] = 'the press\'s picture'
     values[at['init_img_with_mask_fg']] = 'the press\'s mask'
     values[at['width']], values[at['height']] = 512, 768
@@ -272,6 +277,78 @@ check('into a mode: the mode set, the size the text\'s', [value(values, 'mode'),
 values, answer = asked(source={'kind': 'civitai', 'image': 99})
 check('an image the library has no record of: said, nothing pasted', [answer.get('error'), answer.get('pasted')],
       ['The image is not in the library', None])
+
+# ------------------------------------------------- a generation's source (#302)
+# A generation's Send hands the loader the generation as its source: the
+# server replays its kept press (#7) - into img2img only an img2img one's - or
+# pastes its image's own infotext, the chips' renames applied and its Lora
+# hashes left out, corrected from its record; a replay that fails is pasted in
+# the same event. The Model Manager's card sends the generation's own text.
+def gen(mode, inputs, image_text, own_text=None, meta=None):
+    return {'mode': mode, 'inputs': inputs, 'infotext': own_text,
+            'images': [{'id': 5, 'infotext': image_text, 'meta': meta or {}}]}
+generations = {
+    12: gen('img2img', kept_press, 'a kept castle\nSteps: 20'),
+    13: gen('txt2img', None, 'a <lora:alias_x:0.8> tower\nSteps: 20, Lora hashes: "alias_x: abc123"',
+            own_text='the generation\'s own text\nSteps: 20', meta={'Schedule type': 'Karras'}),
+    14: gen('img2img', kept_press, 'a castle whose press is gone\nSteps: 20'),
+    15: gen('img2img', kept_press, 'a pressed castle\nSteps: 20'),
+    16: gen('txt2img', kept_press, 'a txt2img press\nSteps: 20'),
+}
+load.get_models_db = lambda: types.SimpleNamespace(
+    **{**vars(db_before()), 'get_generation': lambda gid: generations.get(gid)})
+
+
+def ask_tab(tab, **request):
+    out = load._loader(tab, KEPT, EXTRAS, KEPT_NAMES)(json.dumps({'nonce': 'n', **request}))
+    return out[:-1], json.loads(out[-1])
+
+
+RENAME_X = [{'from': 'alias_x', 'to': 'file_x'}]
+pasted.clear(), pasted_for.clear(), after.clear()
+out = attempt(lambda: ask_tab('txt2img', source={'kind': 'generation', 'generation': 13, 'image': 5,
+                                                  'renames': RENAME_X}))
+values, answer = out if isinstance(out, tuple) else ([], {'error': out})
+check('a generation pasted: its image\'s text, the LoRA renamed, no Lora hashes, corrected from its record',
+      [pasted[-1:], pasted_for[-1:], answer.get('pasted'), answer.get('replayed')],
+      [['a <lora:file_x:0.8> tower\nSteps: 20'], [13], True, None])
+check('its schedule type and Hires fix set in the same event, as the page read them from the image\'s data',
+      after[-1:], [('Karras', False)])
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 13, 'image': 5, 'whole': True})
+check('the Model Manager\'s card: the generation\'s own text', pasted, ['the generation\'s own text\nSteps: 20'])
+
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 15, 'image': 5,
+                               'renames': [{'from': 'alias_y', 'to': 'file_y'}]})
+check('a kept press replayed, nothing pasted, the renames applied to its prompt, its mode and source said',
+      [pasted, answer.get('replayed'), value(values, 'prompt'), answer.get('mode'), answer.get('source')],
+      [[], True, 'a pressed <lora:file_y:1> prompt', 2, True])
+values, answer = asked(source={'kind': 'generation', 'generation': 12, 'image': 5},
+                       into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
+check('into a mode: an img2img press replayed, with the mode sent', [answer.get('replayed'), answer.get('mode'),
+      value(values, 'mode')], [True, 1, 1])
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 16, 'image': 5},
+                       into={**INTO, 'mode': 2, 'picture': {'generation_image': 7}})
+check('a txt2img generation\'s press into img2img: not replayed, its text pasted',
+      [answer.get('replayed'), pasted], [None, ['a txt2img press\nSteps: 20']])
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 14, 'image': 5})
+check('a replay that fails: pasted in the same event, no error',
+      [answer.get('replayed'), answer.get('pasted'), answer.get('error'), pasted],
+      [None, True, None, ['a castle whose press is gone\nSteps: 20']])
+values, answer = asked(source={'kind': 'generation', 'generation': 99})
+check('no such generation: said, nothing set', [answer.get('error'), answer.get('pasted')], ['No generation #99', None])
+
+# A task's source is its id: set back from what it was queued with, as {task} was.
+tasks_asked = []
+real_task_values = load.task_values
+load.task_values = lambda tab, task_id, skip=None: (tasks_asked.append(task_id), ([skip] * COUNT, [], []))[1]
+values, answer = asked(source={'kind': 'task', 'task': 5})
+check('a task\'s source: the task set back, and named in the answer', [tasks_asked, answer.get('task')], [[5], 5])
+load.task_values = real_task_values
+
 load.get_models_db = db_before
 if real_after:
     load.after_paste = real_after

@@ -159,5 +159,70 @@ values = ['x', True, 'Simple']
 load.after_paste('img2img', values, outputs, names, 'Karras', False)
 check('img2img: Hires fix is txt2img\'s alone, and this is not img2img\'s scheduler', values, ['x', True, 'Simple'])
 
+# ------------------------------------- a generation's renames and settings (#302)
+# The chips' rename (renameLoraTags in chips.mjs), ported: the page sends the
+# pairs, the server applies them. Every LoRA tag of the stored generations is
+# compared with the page's own function by hand (tests/work/r302/, check 1c).
+r = send.rename_lora_tags
+check('a tag renamed, its weight kept', r('a <lora:alias:0.8> tower', 'alias', 'file'), 'a <lora:file:0.8> tower')
+check('in any case, as the page\'s /i', r('<LORA:Alias:1> and <lora:ALIAS>', 'alias', 'file'), '<lora:file:1> and <lora:file>')
+check('only the whole name: a longer one is another LoRA', r('<lora:alias2:1>', 'alias', 'file'), '<lora:alias2:1>')
+check('every tag, not the first alone', r('<lora:a:1>, <lora:a:0.5>', 'a', 'b'), '<lora:b:1>, <lora:b:0.5>')
+check('a name with a regular expression\'s characters is matched as it is',
+      [r('<lora:a.b(1)+:1>', 'a.b(1)+', 'x'), r('<lora:aXb(1)+:1>', 'a.b(1)+', 'x')], ['<lora:x:1>', '<lora:aXb(1)+:1>'])
+# JavaScript reads `$` in a replacement string: $$ a dollar, $& the match,
+# $` what comes before it, $' what comes after; Python's re would read `\`.
+check('$$ in the new name is one dollar', r('<lora:a:1>', 'a', 'x$$y'), '<lora:x$y:1>')
+check('$& is the tag matched', r('<lora:a:1>', 'a', 'x$&'), '<lora:x<lora:a:1>')
+check('$` and $\' are what is before and after it', r('p <lora:a:1> q', 'a', '[$`|$\']'), 'p <lora:[p |:1> q]:1> q')
+check('a lone $, and $1 with no group, stay', r('<lora:a:1>', 'a', 'x$1$'), '<lora:x$1$:1>')
+check('a backslash is a backslash', r('<lora:a:1>', 'a', 'x\\1y'), '<lora:x\\1y:1>')
+# JavaScript's case-blind match without the u flag: a character past ASCII
+# never matches an ASCII one - `ſ` is not `s` there, nor the Kelvin sign `k`;
+# Python's re says they are.
+check('the long s and the Kelvin sign are not s and k, as in JavaScript',
+      [r('<lora:ſun:1>', 'sun', 'x'), r('<lora:Kite:1>', 'kite', 'x')], ['<lora:ſun:1>', '<lora:Kite:1>'])
+check('nothing, an empty name or the same name: the text as it is',
+      [r('', 'a', 'b'), r(None, 'a', 'b'), r('<lora:a:1>', '', 'b'), r('<lora:a:1>', 'a', ''), r('<lora:a:1>', 'a', 'a')],
+      ['', None, '<lora:a:1>', '<lora:a:1>', '<lora:a:1>'])
+check('the pairs in their order, each over the last one\'s text',
+      send.renamed('<lora:a:1>', [{'from': 'a', 'to': 'b'}, {'from': 'b', 'to': 'c'}]), '<lora:c:1>')
+
+g = send.replays
+check('a kept press is replayed into its own tab; into img2img only an img2img one\'s; none kept, none replayed',
+      [g({'inputs': {'x': 1}, 'mode': 'txt2img'}, False), g({'inputs': {'x': 1}, 'mode': 'txt2img'}, True),
+       g({'inputs': {'x': 1}, 'mode': 'img2img'}, True), g({'inputs': None, 'mode': 'img2img'}, False)],
+      [True, False, True, False])
+
+
+class Generations(object):
+    def __init__(self, generations):
+        self.generations = generations
+
+    def get_generation(self, generation_id):
+        return self.generations.get(generation_id)
+
+
+db = Generations({7: {'mode': 'txt2img', 'inputs': None, 'infotext': 'the generation\'s own\nSteps: 20', 'images': [
+    {'id': 70, 'infotext': 'first <lora:alias:1>\nSteps: 20, Lora hashes: "alias: abc"', 'meta': {'sampler': 'Euler'}},
+    {'id': 71, 'infotext': 'second\nSteps: 20, Schedule type: Karras',
+     'meta': {'Schedule type': 'Karras', 'Denoising strength': 0.4, 'Hires upscale': 2}}]},
+                  8: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [{'id': 80, 'infotext': None}]}})
+s = send.generation_settings
+first = s(db, {'generation': 7, 'image': 70, 'renames': [{'from': 'alias', 'to': 'file'}]})
+check('an image\'s own text, renamed, its Lora hashes left out; no schedule type named: Automatic; no Hires fix',
+      [first['text'], first['scheduler'], first['hires'], first['replay']],
+      ['first <lora:file:1>\nSteps: 20', 'Automatic', False, False])
+second = s(db, {'generation': 7, 'image': 71})
+check('another image of it: its own text, its schedule type, its Hires fix',
+      [second['text'].split('\n')[0], second['scheduler'], second['hires']], ['second', 'Karras', True])
+check('the Model Manager\'s card (`whole`): the generation\'s own text',
+      s(db, {'generation': 7, 'image': 70, 'whole': True})['text'], 'the generation\'s own\nSteps: 20')
+check('no image named: the first', s(db, {'generation': 7})['text'].split('\n')[0], 'first <lora:alias:1>')
+check('no text at all: nothing to paste; no such generation: None',
+      [s(db, {'generation': 8, 'whole': True})['text'], s(db, {'generation': 9})], ['', None])
+check('settings() takes a generation\'s source to it', send.settings(db, {'kind': 'generation', 'generation': 7,
+                                                                         'image': 71})['scheduler'], 'Karras')
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -399,8 +399,12 @@ only('gallery')
 plan_of = lambda kind: client.get('/model-manager/send/plan', params={'kind': kind, kind: 1}).status_code
 check("Send's one route, the Generations tab and the Queue off: a generation's plan and a task's refused",
       (plan_of('generation'), plan_of('task')), (403, 403))
+# And a generation's text, for Forge's paste button where the loader is missing (#302).
+text_of = lambda: client.get('/model-manager/send/plan', params={'kind': 'generation', 'generation': 1,
+                                                                 'text': 1}).status_code
+check("a generation's text too, the Generations tab off", text_of(), 403)
 only('gallery', 'generations', 'queue')
-check('on: asked - none there', (plan_of('generation'), plan_of('task')), (404, 404))
+check('on: asked - none there', (plan_of('generation'), plan_of('task'), text_of()), (404, 404, 404))
 
 # ------------------------------------------------ Restart WebUI (#186)
 # The WebUI's own restart, stubbed: the real one ends this process.

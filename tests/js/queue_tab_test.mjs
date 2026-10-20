@@ -59,6 +59,7 @@ const INPUTS = {
 const HIDDEN = task(9, 'completed', { finished_at: '2026-10-05T09:00:00', hidden: 1 });
 const PLAN = { success: true, mode: 'txt2img', preset: null, checkpoint: null, checkpoint_missing: null,
                target: [], modules_missing: [] };
+const planAsked = [];
 let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, completed: 3, stopped: 0, failed: 1 },
                progress: { state: 'running', task_id: 15, job: 'task(mmq-15-1)', completed: 0, failed: 0,
                            stopped: 0, notes: [], error: null } };
@@ -94,8 +95,12 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/internal/progress')) return reply(FORGE);
     if (href.includes('/model-manager/queue/status')) return reply(STATUS);
-    const detail = new URL(href, 'http://webui').pathname.match(/\/model-manager\/queue\/tasks\/(\d+)(\/send-plan)?$/);
-    if (detail?.[2]) return reply(PLAN);
+    // Send's one plan route (#302), for a task.
+    if (href.includes('/model-manager/send/plan')) {
+        planAsked.push(Object.fromEntries(new URL(href, 'http://webui').searchParams));
+        return reply(PLAN);
+    }
+    const detail = new URL(href, 'http://webui').pathname.match(/\/model-manager\/queue\/tasks\/(\d+)$/);
     if (detail) return reply({ success: true, task: LISTS.history.find((t) => t.id === Number(detail[1])), inputs: INPUTS });
     if (href.includes('/model-manager/queue/tasks')) {
         const params = new URL(href).searchParams;
@@ -247,19 +252,33 @@ document.body.insertAdjacentHTML('beforeend', `
 const loads = [];
 document.getElementById('mm_load_txt2img').addEventListener('click', () => {
     const request = JSON.parse(document.querySelector('#mm_load_txt2img_asked textarea').value);
-    loads.push(request.task);
+    loads.push(request.source?.kind === 'task' ? request.source.task : request.task);
     setTimeout(() => {
         document.querySelector('#mm_load_txt2img_answer textarea').value = JSON.stringify(
-            { nonce: request.nonce, task: request.task, skipped: ['ControlNet: 0'], notes: [] });
+            { nonce: request.nonce, task: loads[loads.length - 1], skipped: ['ControlNet: 0'], notes: [] });
     }, 30);
 });
 asked.length = 0;
 await act('queue.load', { task: 14 });
-check('Load to UI asks for the send plan, then the hidden button for the task',
-      [asked.some((a) => a.endsWith('/model-manager/queue/tasks/14/send-plan')), loads], [true, [14]]);
+check('Load to UI asks Send\'s plan route for the task, then the hidden button with the task as its source (#302)',
+      [planAsked.map(({ kind, task }) => [kind, task]), loads], [[['task', '14']], [14]]);
 check('the details close', document.getElementById('mm_meta_modal'), null);
 check('what kept its value is said', document.querySelector('.mm-notice')?.textContent,
       'Task #14 is loaded. These keep what was on screen, or their defaults: ControlNet: 0.');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// A task queued with a checkpoint this WebUI does not list (#314): loaded,
+// with the checkpoint loaded now, and said - it said nothing.
+PLAN.checkpoint_missing = 'sdxl_base.safetensors';
+const loadsBefore = loads.length;
+await (await sharedModule('send.mjs')).loadTask(14);
+await waitFor('the second load', () => loads.length > loadsBefore);
+await waitFor('its notices', () => document.querySelectorAll('.mm-notice').length >= 2);
+check('a task whose checkpoint is not listed is loaded, and says so (#314)',
+      [...document.querySelectorAll('.mm-notice')].map((n) => n.textContent).includes(
+          'Task #14 was queued with sdxl_base.safetensors, which this WebUI does not list: '
+          + 'it is loaded with the checkpoint loaded now.'), true);
+PLAN.checkpoint_missing = null;
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ------------------------------------------- Retry, Delete, Clear history

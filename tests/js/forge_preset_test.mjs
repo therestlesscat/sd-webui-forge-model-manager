@@ -102,6 +102,8 @@ document.body.append(promptBox, paste);
 // A Civitai image's text is the server's (send.civitai_infotext, send_text_test.py):
 // standing in for it, the image's prompts - or those the page renamed a LoRA in.
 const sourceText = (tab, { source }) => {
+    // A generation's: its own infotext (send.generation_settings).
+    if (source.kind === 'generation') return 'a lighthouse at dusk\nSteps: 20';
     const meta = IMAGE.meta || {};
     const prompt = source.prompt ?? meta.prompt ?? '';
     const negative = source.negative_prompt ?? meta.negativePrompt;
@@ -145,13 +147,16 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
         await new Promise((r) => setTimeout(r, eventDelay[fn] ?? forgeDelay));
         return { ok: !eventFails.has(fn), json: async () => ({ data: [] }) };
     }
-    if (href.includes('/send-plan')) return { ok: true, json: async () => generationPlan };
     if (href.includes('/model-manager/forge-modules/current')) {
         return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
     if (href.includes('/model-manager/send/plan') && href.includes('text=1')) {
         return { ok: true, json: async () => ({ success: true, text: 'as the server built it\nSteps: 20',
                                                  scheduler: 'Simple', hires: false }) };
+    }
+    // A generation's plan, on Send's one route (#302).
+    if (href.includes('/model-manager/send/plan') && href.includes('kind=generation')) {
+        return { ok: true, json: async () => generationPlan };
     }
     if (href.includes('/model-manager/send/plan')) {
         planAsked.push(new URL(href, 'http://webui').searchParams);
@@ -576,15 +581,19 @@ check('one Forge does not list is said, and no upscaler goes with the source',
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 // A choice pressed in a hidden dropdown's list: none opens. It gives up, and
 // leaves the text as it was - it used to clear it first, and leave it blank.
-// The page chooses the scheduler for a generation's pasted infotext alone now.
+// The page chooses the scheduler only where Forge's own paste button pasted
+// (#302): Forge's paste function not found, the loader's text taken.
 scheduler.dataset.hidden = '1';
 delete commits.txt2img_scheduler;
 scheduler.querySelector('input').value = 'Beta';
-await sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20, Schedule type: Simple', mode: 'txt2img',
-                     meta: { 'Schedule type': 'Simple' } });
-await whenSendSettled();
+pasteRewrites = true;
+loaderAnswer = (tab, request) => (request.source ? { no_paste: true, text: 'as the server built it\nSteps: 20',
+                                                     scheduler: 'Simple', hires: false } : { pasted: true });
+await send();
 check('a hidden dropdown: nothing chosen, its text left as it was',
       [commits.txt2img_scheduler, scheduler.querySelector('input').value], [undefined, 'Beta']);
+loaderAnswer = () => ({ pasted: true });
+pasteRewrites = false;
 delete scheduler.dataset.hidden;
 MODEL.model_type = 'LORA';
 delete plan.upscaler_not_listed;
@@ -1125,8 +1134,10 @@ commits.txt2img_scheduler = 'Beta';
 await sendGeneration(299);
 check('a generation is sent with the modules it loaded, exactly', selected().sort(),
       ['ae.safetensors', 'clip_l.safetensors']);
-// Its infotext names no scheduler: the paste's own fallback, Automatic (#138).
-check('a generation naming no scheduler: Automatic is chosen', commits.txt2img_scheduler, 'Automatic');
+// Its schedule type - Automatic for one its infotext names none of (#138) - is
+// the loader's, in the paste's own event (#302, send_text_test.py): the page
+// leaves the dropdown as the last Send left it.
+check('a generation\'s schedule type is the loader\'s: the page chooses none', commits.txt2img_scheduler, 'Beta');
 generationPlan = { success: true, preset: 'sd', checkpoint: '_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]',
                    checkpoint_missing: null, target: [], modules_missing: [] };
 await sendGeneration(263);

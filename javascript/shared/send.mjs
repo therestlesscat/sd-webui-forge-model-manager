@@ -32,7 +32,6 @@ const {
 const { videoFrames } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList } = await shared('downloads.mjs');
-const { splitSamplerScheduler } = await shared('samplers.mjs');
 const { showProgress } = await shared('dialog.mjs');
 
 /**
@@ -68,44 +67,42 @@ export function sendTab(card) {
  * one's generation cards both do.
  *
  * Forge is first set up as the generation was made with, from its record
- * (api/generations.send_plan): its checkpoint's UI preset, the checkpoint,
- * and once the controls are set exactly the modules it loaded - the same for
+ * (send.generation_plan): its checkpoint's UI preset, the checkpoint, and
+ * once the controls are set exactly the modules it loaded - the same for
  * every kind of model. The infotext alone did none of it: Forge Neo ignores
  * the checkpoint and modules an infotext names by default, and an SD 1.5
  * image, naming no modules, left an Anima model's in place.
  *
- * A generation whose press was kept (#7) is then set back as Load to UI sets
- * a task: every control Generate takes, hidden ones too - the hires
- * checkpoint, the refiner - with the image's own seed and prompts. One
- * recorded before, or whose load fails, is pasted, corrected from the paths
- * its record kept (pasteInfotext).
+ * Then the tab's loader is handed the generation as its source (#302): the
+ * server sets a kept press (#7) back - every control Generate takes, hidden
+ * ones too, the hires checkpoint, the refiner, with the image's own seed and
+ * prompts - or pastes its infotext, corrected from the paths its record
+ * kept, a replay that fails pasted too; the chips' renames applied to
+ * either, from the pairs sent with it. `whole`: the generation's own
+ * infotext, not its image's - the Model Manager's card sends that.
  *
  * @returns {Promise<boolean>} whether it could be sent
  */
 export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null,
-                                     useKind = 'file', into = null }) {
+                                     useKind = 'file', into = null, whole = false }) {
     // Into img2img (#299), the image's own file with it: any image goes,
     // with no infotext too.
     const sending = into ? { mode: Number(into.mode), picture: { generation_image: Number(imageId) },
                              width: into.width ?? null, height: into.height ?? null } : null;
-    if (!infotext && !sending) return false;
+    if ((!infotext && !sending) || generationId === null || generationId === undefined) return false;
     meta = meta || {};
-    let plan = null;
-    if (generationId !== null && generationId !== undefined) {
-        try {
-            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan`,
-                                           params: { use_version: useVersion } });
-            plan = answer && answer.success ? answer : null;
-        } catch (error) {
-            console.warn('[ModelManager] Could not ask how the generation was made:', error);
-        }
+    const plan = await fetchGenerationPlan(generationId, useVersion);
+    // The server builds what is set (#302): with no plan, there is nothing to send.
+    if (!plan) {
+        showNotice('Could not send: the server did not answer.');
+        return false;
     }
     // Its checkpoint is not in the library - gone since, or a sync found none
     // (#233): sent with whatever Forge has loaded, the image cannot come out
     // as it was. So Send stops, and opens Resources to download it, as a
     // Civitai image's does (#134); the dialog's Send works once it is there.
-    const problem = plan?.checkpoint_problem
-        || (plan?.checkpoint_missing ? { reason: 'missing', name: plan.checkpoint_missing } : null);
+    const problem = plan.checkpoint_problem
+        || (plan.checkpoint_missing ? { reason: 'missing', name: plan.checkpoint_missing } : null);
     if (problem && sending) {
         showNotice(keptCheckpointNote(problem), { info: true });
     } else if (problem) {
@@ -113,32 +110,27 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         // the library, in a folder only the other WebUI loads, or not listed yet.
         const note = checkpointNote(problem) || checkpointNote({ ...problem, reason: 'missing' });
         const check = async () => {
-            const answer = await apiCall({ endpoint: `/model-manager/generations/${Number(generationId)}/send-plan` })
-                .catch(() => null);
-            if (answer?.success && !answer.checkpoint_missing) return '';
+            const answer = await fetchGenerationPlan(generationId);
+            if (answer && !answer.checkpoint_missing) return '';
             return waitReason(answer?.checkpoint_problem || { reason: 'missing' });
         };
         const listing = problem.reason === 'not_listed';
         if (listing) refreshWebUiModelList();
         const send = { why: CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing, check,
                        reason: waitReason(problem), waits: CHECKPOINT_WAITS,
-                       run: () => sendInfotext({ infotext, mode, meta, generationId, imageId }),
+                       run: () => sendInfotext({ infotext, mode, meta, generationId, imageId, whole }),
                        useInstalled: (versionId, kind) => sendInfotext({ infotext, mode, meta, generationId, imageId,
-                                                                         useVersion: versionId, useKind: kind }) };
+                                                                         useVersion: versionId, useKind: kind, whole }) };
         console.log('[ModelManager] Not sent:', note);
         if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
         return false;
     }
-    if (plan?.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
-    if (plan?.preset) await switchForgePreset(plan.preset);
-    if (plan?.checkpoint && typeof selectCheckpoint === 'function') {
+    if (plan.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
+    if (plan.preset) await switchForgePreset(plan.preset);
+    if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
         selectCheckpoint(plan.checkpoint);
     }
-    let scheduler = meta['Schedule type'];
-    if (!scheduler && meta.sampler) scheduler = splitSamplerScheduler(meta.sampler).scheduler;
-    const hasHiresFix = meta['Denoising strength'] &&
-        (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
     const tab = sending ? 'img2img' : sendTab({ mode });
     // An earlier send's chips would stay; this one's come from its own record.
     showResourceChips(tab, []);
@@ -154,7 +146,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     const resources = collectResourceChips(meta, files, null);
     const showChips = () => {
         if (!resources) return;
-        resourceChipSources[tab] = { img: image, gallery: null, files, embeddings: plan?.embeddings };
+        resourceChipSources[tab] = { img: image, gallery: null, files, embeddings: plan.embeddings };
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
     };
@@ -165,43 +157,44 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
                        + 'is not kept: drop an image in before generating.');
         }
     };
-
-    // A press is replayed into the tab it was made in only: into img2img, a
-    // txt2img generation's settings are pasted.
-    if (plan?.inputs && (!sending || mode === 'img2img')) {
-        const answer = await pressLoader(tab, { generation: Number(generationId),
-                                                image: imageId === null || imageId === undefined ? null : Number(imageId),
-                                                ...(sending ? { into: sending } : {}) });
-        if (!answer.error) {
-            renamePromptLoras(tab, resources?.renames);
-            await applyRecordedModules(plan);
-            showGenerationTab(tab, answer.mode);
-            showChips();
-            // The canvases next, through the mode's own button: the picture
-            // sent in (#299), or the press's own (#34).
-            if (sending) await putPicture(sending);
-            else if (tab === 'img2img') sourceNotice(await pressCanvas(answer.mode, { generation: Number(generationId) }));
-            const kept = [...(answer.skipped || []), ...(answer.notes || [])];
-            if (kept.length) {
-                showNotice(`These keep what was on screen, or their defaults: ${kept.join('; ')}.`, { info: true });
-            }
-            return true;
+    const source = { kind: 'generation', generation: Number(generationId),
+                     image: imageId === null || imageId === undefined ? null : Number(imageId),
+                     renames: resources?.renames || [], ...(whole ? { whole: true } : {}) };
+    // A press set back: its modules, the mode it was made in, its canvases
+    // through the mode's own button - the picture sent in (#299), or the
+    // press's own (#34) - and what kept what was on screen.
+    const whenReplayed = async (answer) => {
+        await applyModules(plan);
+        showGenerationTab(tab, answer.mode);
+        if (sending) await putPicture(sending);
+        else if (tab === 'img2img') sourceNotice(await pressCanvas(answer.mode, { generation: Number(generationId) }));
+        const kept = [...(answer.skipped || []), ...(answer.notes || [])];
+        if (kept.length) {
+            showNotice(`These keep what was on screen, or their defaults: ${kept.join('; ')}.`, { info: true });
         }
-        console.warn('[ModelManager] The generation could not be set back as it was; pasting:', answer.error);
-    }
-
-    if (resources) {
-        infotext = resources.renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), infotext);
-    }
-    const afterPaste = plan ? () => applyRecordedModules(plan) : undefined;
-    // No infotext: nothing pasted - Forge's paste of an empty text pastes the
-    // last run's settings - the picture and its size alone.
-    if (!infotext) return sendPictureAlone(sending, afterPaste);
-    if (!pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId, into: sending })) return false;
+    };
+    // Pasted: its modules, and a word where img2img has no picture.
+    const afterPaste = () => {
+        sourceNotice();
+        return applyModules(plan);
+    };
+    if (!pasteInfotext(tab, null, { source, into: sending, afterPaste, whenReplayed })) return false;
     showGenerationTab(tab, sending?.mode);
     showChips();
-    sourceNotice();
     return true;
+}
+
+/** A generation's plan (send.generation_plan), or null if the server cannot say. */
+async function fetchGenerationPlan(generationId, useVersion = null) {
+    try {
+        const answer = await apiCall({ endpoint: '/model-manager/send/plan',
+                                       params: { kind: 'generation', generation: Number(generationId),
+                                                 use_version: useVersion } });
+        return answer && answer.success ? answer : null;
+    } catch (error) {
+        console.warn('[ModelManager] Could not ask how the generation was made:', error);
+        return null;
+    }
 }
 
 /** Why a send into img2img goes on with the checkpoint loaded (#299): said, never a stop. */
@@ -211,22 +204,6 @@ function keptCheckpointNote(problem) {
     return `${why} The picture is sent with the checkpoint loaded${instead}.`;
 }
 
-/** Into img2img with no settings to paste (#299): the loader sets the mode, the picture and its size. */
-async function sendPictureAlone(sending, afterPaste) {
-    sendSettled = (async () => {
-        const answer = await pressLoader('img2img', { into: sending });
-        if (answer.error) {
-            showNotice(`Could not send: ${answer.error}.`);
-            return;
-        }
-        if (afterPaste) await Promise.resolve(afterPaste()).catch(() => {});
-        showGenerationTab('img2img', answer.mode ?? sending.mode);
-        await putPicture(sending);
-    })().catch((error) => console.error('[ModelManager] Send failed:', error));
-    await sendSettled;
-    return true;
-}
-
 /** A picture sent in (#299), into its mode's canvas by that mode's own button; a failure said. */
 async function putPicture(sending) {
     const answer = await pressCanvas(sending.mode, { picture: sending.picture });
@@ -234,22 +211,6 @@ async function putPicture(sending) {
         showNotice(`The settings are in img2img, but the picture could not be put in: ${answer.error}.`);
     }
     return answer;
-}
-
-/**
- * The prompt's LoRA tags renamed to the files they load, once a generation
- * is set back: as its paste would have had them (sendInfotext). Written only
- * when something changes, with the input event Gradio listens for.
- */
-function renamePromptLoras(tab, renames) {
-    if (!renames?.length) return;
-    const textarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
-    if (!textarea) return;
-    const renamed = renames.reduce((text, { from, to }) => renameLoraTags(text, from, to), textarea.value);
-    if (renamed !== textarea.value) {
-        textarea.value = renamed;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    }
 }
 
 // Convert full file path to dropdown-compatible path
@@ -685,15 +646,18 @@ async function fetchSendPlan(model, version, img, useVersion = null) {
 }
 
 /**
- * The text a Civitai image's Send pastes, with its scheduler and whether it
- * had Hires fix, asked of the server where this tab's loader was not built:
- * Forge's own paste button takes it then, and the page sets the rest.
+ * The text a source's Send pastes - a Civitai image's, a generation's - with
+ * its scheduler and whether it had Hires fix, asked of the server where this
+ * tab's loader was not built: Forge's own paste button takes it then, and the
+ * page sets the rest. A generation's renames go as JSON.
  */
-async function fetchSendText(source) {
-    const params = new URLSearchParams({ kind: 'civitai', text: '1' });
+async function fetchSendText(source, into = null) {
+    const params = new URLSearchParams({ text: '1' });
     for (const [key, value] of Object.entries(source)) {
-        if (value !== null && value !== undefined && key !== 'kind') params.set(key, String(value));
+        if (value === null || value === undefined) continue;
+        params.set(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
     }
+    if (into) params.set('into', '1');
     try {
         const answer = await (await fetch('/model-manager/send/plan?' + params.toString())).json();
         return answer?.success ? answer : null;
@@ -872,17 +836,27 @@ const FORGE_PRESET_QUIET_MS = TIMING.presetQuiet;
 const FORGE_PRESET_MAX_MS = TIMING.presetMax;
 
 /**
- * Select the modules the plan picked, and say what it could not find.
- * Called after the paste: it re-renders much of the page but never touches
- * the modules. Every model goes this way, SD and SDXL too - theirs is the
- * image's own VAE, or none.
+ * Select the modules the plan picked, and say what it could not find - for
+ * every source's plan: a Civitai image's, a generation's, a task's (#302;
+ * two functions before, whose checks and words are kept). Called after the
+ * paste: it re-renders much of the page but never touches the modules.
+ * Every model goes this way, SD and SDXL too - theirs is the image's own
+ * VAE, or none. `vaeName`: a Civitai image's VAE, selected by name where
+ * Forge has no VAE / Text Encoder control; `what`: how a generation's or a
+ * task's missing modules are introduced.
  */
-async function applyPlannedModules(plan, vaeName) {
+async function applyModules(plan, { vaeName, what = 'This generation was made with' } = {}) {
     const target = plan.target || plan.select || [];
     if (await patchForgeModules(target)) {
         await checkForgeModules(target);
-    } else if (!plan.manage_modules) {
+    } else if (vaeName !== undefined && !plan.manage_modules) {
         await applyVaeSelection(vaeName);      // no Forge control: the A1111 way
+    }
+    // A generation's or a task's: what was loaded that Forge does not list now.
+    // A missing checkpoint stopped a generation's send before it came here (sendInfotext).
+    if (plan.modules_missing?.length) {
+        showNotice(`${what} ${plan.modules_missing.join(', ')}, which Forge does not list any more: `
+                   + 'the rest is sent, and the current choice is kept for what is missing.');
     }
     const problems = [];
     if (plan.missing && plan.missing.length) {
@@ -924,23 +898,6 @@ async function applyPlannedModules(plan, vaeName) {
     else if (bundled) showNotice(bundled, { info: true });
 }
 
-/**
- * A generation's own modules, after the paste, as applyPlannedModules() does a
- * Civitai image's: patched to exactly what was loaded, checked with Forge, and
- * what is no longer there said.
- */
-async function applyRecordedModules(plan, what = 'This generation was made with') {
-    const target = plan.target || [];
-    if (await patchForgeModules(target)) await checkForgeModules(target);
-    // A missing checkpoint stopped the send before it came here (sendInfotext).
-    const gone = [];
-    if (plan.modules_missing?.length) gone.push(plan.modules_missing.join(', '));
-    if (gone.length) {
-        showNotice(`${what} ${gone.join(' and ')}, which Forge does not list any more: `
-                   + 'the rest is sent, and the current choice is kept for what is missing.');
-    }
-}
-
 // ----------------------------------------------------------- a queued task
 /**
  * Load a queued task into its tab (#160), set up as Send sets Forge up: its
@@ -949,13 +906,14 @@ async function applyRecordedModules(plan, what = 'This generation was made with'
  * as Forge's own selectCheckpoint asks through a hidden textbox and button -
  * then its VAE / text encoders. Not an infotext: Forge ticks Hires fix when
  * a text holds its keys, and a task with it off still holds them. What
- * could not be set keeps what was on screen, and is said. Answers the
- * loader's answer, or null.
+ * could not be set keeps what was on screen, and is said - a checkpoint this
+ * WebUI does not list too: the task is loaded with the one loaded (#314).
+ * Answers the loader's answer, or null.
  */
 export async function loadTask(taskId) {
     let plan = null;
     try {
-        plan = await apiCall({ endpoint: `/model-manager/queue/tasks/${Number(taskId)}/send-plan` });
+        plan = await apiCall({ endpoint: '/model-manager/send/plan', params: { kind: 'task', task: Number(taskId) } });
     } catch (error) {
         plan = { success: false, error: error.message };
     }
@@ -968,12 +926,16 @@ export async function loadTask(taskId) {
     if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint);
     // An earlier send's chips would stay; a task has none.
     showResourceChips(tab, []);
-    const answer = await pressLoader(tab, { task: Number(taskId) });
+    const answer = await pressLoader(tab, { source: { kind: 'task', task: Number(taskId) } });
     if (answer.error) {
         showNotice(`Could not load task #${Number(taskId)}: ${answer.error}`);
         return answer;
     }
-    await applyRecordedModules(plan, `Task #${Number(taskId)} was queued with`);
+    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with` });
+    if (plan.checkpoint_missing) {
+        showNotice(`Task #${Number(taskId)} was queued with ${plan.checkpoint_missing}, which this WebUI does not `
+                   + 'list: it is loaded with the checkpoint loaded now.', { info: true });
+    }
     showGenerationTab(tab, answer.mode);
     // Its canvases through the mode's own button (#34, #299).
     if (tab === 'img2img') await pressCanvas(answer.mode, { task: Number(taskId) });
@@ -1312,16 +1274,18 @@ function withoutLoraHashes(infotext) {
  * the whole infotext there becomes its prompt alone. A time limit only says
  * nothing answered: the steps after it do not run.
  *
- * A Civitai image's Send hands the loader its `source` instead of a text
- * (#302): the server builds the text from the image's stored record, pastes
- * it, and sets the scheduler and Hires fix in the same event; a generation
- * of your own pastes its own infotext, and the page sets those after it.
- * Without the loader, Forge's paste button takes the server's text.
+ * A Civitai image's Send, and a generation's, hand the loader their
+ * `source` instead of a text (#302): the server builds the text - from the
+ * image's stored record, or the generation's own with the chips' renames -
+ * pastes it, and sets the scheduler and Hires fix in the same event; or
+ * sets a generation's kept press back (#7), and then `whenReplayed` runs in
+ * place of what follows a paste. Without the loader, Forge's paste button
+ * takes the server's text.
  *
  * @returns {boolean} whether the paste could be made at all
  */
 function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null, into = null,
-                                        source = null } = {}) {
+                                        source = null, whenReplayed = null } = {}) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
@@ -1335,7 +1299,7 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, gene
         if (answer.no_paste || answer.no_loader) {
             // A source's text, scheduler and Hires fix: in the loader's
             // answer when only Forge's paste was missing, else asked.
-            const pasting = source ? (answer.text !== undefined ? answer : await fetchSendText(source)) : { text };
+            const pasting = source ? (answer.text !== undefined ? answer : await fetchSendText(source, into)) : { text };
             if (!pasting?.text) {
                 showNotice('Could not send: the server did not answer.');
                 return;
@@ -1348,6 +1312,9 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, gene
             }
         } else if (answer.error) {
             showNotice(`Could not send: ${answer.error}.`);
+            return;
+        } else if (answer.replayed && whenReplayed) {
+            await whenReplayed(answer);
             return;
         } else {
             if (into) await putPicture(into);
@@ -1528,7 +1495,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
                 // from an infotext, not the "VAE:" line we write. A model whose
                 // text encoders and VAE are separate gets the ones it needs; an
                 // SD or SDXL one, the image's own VAE.
-                return applyPlannedModules(plan, plan.named_vae);
+                return applyModules(plan, { vaeName: plan.named_vae });
             },
         });
         if (!pasted) return;

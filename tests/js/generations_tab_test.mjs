@@ -65,6 +65,15 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         return reply({ success: true, samplers: [], schedulers: [], has_api_key: true,
                        image_browsing: 'continuous', generations_delete_files: deleteFilesSetting });
     }
+    // Send's text where the tab has no loader, as the server builds it (#302):
+    // the card's own infotext for the Model Manager's card (`whole`), else its image's.
+    if (href.includes('/model-manager/send/plan') && href.includes('text=1')) {
+        const params = new URL(href, 'http://webui').searchParams;
+        const card = CARDS.find((c) => c.id === Number(params.get('generation')));
+        const first = card?.images.find((i) => i.id === Number(params.get('image'))) || card?.images[0];
+        return reply({ success: true, text: (params.get('whole') === 'true' && card?.infotext) || first?.infotext,
+                       scheduler: 'Automatic', hires: false });
+    }
     if (href.includes('/model-manager/generations/page')) {
         const cards = CARDS.filter((c) => !c.deleted);
         const shown = cards.reduce((n, c) => n + c.matching_count, 0);
@@ -245,12 +254,17 @@ pasted.img2img = 0;
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
 await act('modelManager.sendGeneration', { generation: 1 });
+// The text is the server's now (#302): the paste button waits for it.
+await waitFor('the paste into txt2img', () => pasted.txt2img > 0);
 check('Send pastes the generation\'s own infotext, and presses paste',
       [document.querySelector('#txt2img_prompt textarea').value, pasted.txt2img],
       ['a lighthouse 1\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Karras', 1]);
 await act('modelManager.sendGeneration', { generation: 2 });
+await waitFor('the paste into img2img', () => pasted.img2img > 0);
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
+// Said once the paste is in: whether the press was replayed is the server's answer (#302).
+await waitFor('the source notice', () => document.querySelector('.mm-notice'));
 check('saying its source image is not kept',
       document.querySelector('.mm-notice')?.textContent.includes('drop an image in'), true);
 check('and coming back from txt2img or img2img, the gallery is still on your generations, as left',

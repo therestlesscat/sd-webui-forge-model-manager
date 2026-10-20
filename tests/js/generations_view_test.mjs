@@ -123,7 +123,14 @@ globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     const params = new URL(href, 'http://webui').searchParams;
-    if (href.includes('/send-plan')) return reply({ success: false });
+    // Send's one route (#302): a plan with nothing to set up, and - this tab
+    // has no loader - the image's own infotext for Forge's paste button.
+    if (href.includes('/model-manager/send/plan')) {
+        if (params.get('text') !== '1') return reply({ success: true, preset: null, checkpoint: null, target: [] });
+        const id = Number(params.get('image'));
+        return reply({ success: true, text: `prompt ${id}\nSteps: 20, Seed: ${1000 + id}`, scheduler: 'Automatic',
+                       hires: false });
+    }
     if (href.includes('/model-manager/ui-options')) {
         if (uiOptionsDown) throw new Error('no answer');
         return reply({ success: true, gallery_hide_nsfw: true, hide_promptless_images: true,
@@ -458,7 +465,9 @@ check('a click on a batch opens it in a grid of its own: a tile for each of its 
 check('under a header with Back, the way here, and what it is',
       [!!document.querySelector('#gen_path button'), pathText().includes('Generations ›'),
        pathText().includes('4 images'), pathText().includes('anima.safetensors')], [true, true, true, true]);
+let sentBefore2 = sent.length;
 await act('generations.send', { tile: 2 });
+await waitFor('the paste', () => sent.length > sentBefore2);
 check('Send on one of its images sends that image\'s own infotext, to its generation\'s tab',
       [sent.at(-1).infotext, sent.at(-1).mode], ['prompt 34\nSteps: 20, Seed: 1034', 'txt2img']);
 
@@ -487,9 +496,13 @@ await waitFor('the way back', () => pathText() === '');
 check('Esc goes back too, drawing the grid again as it was, without loading it',
       [tileIds(), asked.length], [['3g', '2', '1g'], loadsBefore]);
 
+sentBefore2 = sent.length;
 await act('generations.send', { tile: 0 });
+await waitFor('the paste', () => sent.length > sentBefore2);
 check('Send on a batch sends its first image\'s', sent.at(-1).infotext.startsWith('prompt 31'), true);
+sentBefore2 = sent.length;
 await act('generations.send', { tile: 1 });
+await waitFor('the paste', () => sent.length > sentBefore2);
 check('and a generation made in img2img goes back to img2img', sent.at(-1).mode, 'img2img');
 
 // ---------------------------------------------------------------- deleting

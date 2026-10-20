@@ -2643,7 +2643,7 @@ async function sendGeneration(id) {
     }
     previousPlace.remember(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
     if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id,
-                             imageId: first?.id })) {
+                             imageId: first?.id, whole: true })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
 }

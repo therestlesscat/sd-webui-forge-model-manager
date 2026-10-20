@@ -654,6 +654,122 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+# ------------------------------------------- a generation's settings
+
+def _js_canon(ch: str) -> str:
+    """A character as JavaScript's case-blind match without the u flag reads it
+    (Canonicalize): its upper case, unless that is not one character, or would
+    take a character past ASCII into it - `ſ` does not match `s` there, as it
+    does in Python's re."""
+    upper = ch.upper()
+    if len(upper) != 1 or (ord(ch) >= 128 and ord(upper) < 128):
+        return ch
+    return upper
+
+
+def _js_same(text: str, at: int, wanted: str) -> bool:
+    if at + len(wanted) > len(text):
+        return False
+    return all(_js_canon(text[at + n]) == _js_canon(c) for n, c in enumerate(wanted))
+
+
+def _js_replacement(template: str, text: str, start: int, end: int) -> str:
+    """A JavaScript replacement string, its `$` patterns read as String.replace
+    reads them for a pattern with no groups: `$$`, `$&`, `` $` ``, `$'`."""
+    out, n = [], 0
+    while n < len(template):
+        pair = template[n:n + 2]
+        if pair == "$$":
+            out.append("$")
+        elif pair == "$&":
+            out.append(text[start:end])
+        elif pair == "$`":
+            out.append(text[:start])
+        elif pair == "$'":
+            out.append(text[end:])
+        else:
+            out.append(template[n])
+            n += 1
+            continue
+        n += 2
+    return "".join(out)
+
+
+def rename_lora_tags(prompt: Any, old: Any, new: Any) -> Any:
+    """
+    The chips' rename (`renameLoraTags`, chips.mjs): every `<lora:old` tag
+    followed by `:` or `>`, its name in any case, becomes `<lora:new`. Ported
+    for a generation's Send (#302), whose renames the page sends with the
+    source; JavaScript's case rule and replacement string kept.
+    """
+    if not _truthy(prompt) or not _truthy(old) or not _truthy(new) or old == new:
+        return prompt
+    text, head = str(prompt), "<lora:" + str(old)
+    template = "<lora:" + str(new)
+    out, n = [], 0
+    while n < len(text):
+        if _js_same(text, n, head) and n + len(head) < len(text) and text[n + len(head)] in ":>":
+            out.append(_js_replacement(template, text, n, n + len(head)))
+            n += len(head)
+        else:
+            out.append(text[n])
+            n += 1
+    return "".join(out)
+
+
+def renamed(text: Any, renames: Any) -> Any:
+    """Each rename the page sends, `{from, to}`, in its order, as the page applied them."""
+    for pair in renames or []:
+        if isinstance(pair, dict):
+            text = rename_lora_tags(text, pair.get("from"), pair.get("to"))
+    return text
+
+
+def replays(generation: Dict[str, Any], into: bool) -> bool:
+    """Whether a generation's Send sets its kept press back (#7) rather than
+    pasting its infotext: it kept one, and goes back to its own tab - into
+    img2img (#299) only an img2img generation's press."""
+    return bool(generation.get("inputs")) and (not into or generation.get("mode") == "img2img")
+
+
+def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
+    """
+    What the loader sets a tab with for a generation of your own (#302): the
+    image's own infotext, the chips' renames applied and its Lora hashes left
+    out, as the page pasted it; the schedule type and Hires fix the page set
+    after the paste, read from the image's data as it read them; and whether
+    its kept press is replayed instead (`replays`).
+
+    `source`: `generation`, `image` (its id; else the first image),
+    `renames`, the page's `{from, to}`, and `whole` for the Model Manager's
+    card, which sends the generation's own infotext - its first image's
+    where it has none - as the page did (`card.infotext || first.infotext`:
+    2 of one library's 7,174 differ). None for no such generation.
+    """
+    generation = db.get_generation(int(source.get("generation") or 0))
+    if not generation:
+        return None
+    images = generation.get("images") or []
+    image = next((i for i in images if i.get("id") == source.get("image")), images[0] if images else {})
+    meta = image.get("meta") or {}
+    infotext = (generation.get("infotext") if source.get("whole") else None) or image.get("infotext") or ""
+    samplers, schedulers = forge_lists()
+    return {
+        "text": without_lora_hashes(renamed(infotext, source.get("renames"))) if infotext else "",
+        "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
+        "hires": had_hires(meta),
+        "replay": replays(generation, into),
+        "mode": generation.get("mode"),
+    }
+
+
+def settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
+    """The loader's settings for a source: a Civitai image's or a generation's."""
+    if source.get("kind") == "generation":
+        return generation_settings(db, source, into)
+    return civitai_settings(db, source)
+
+
 # --------------------------------------- a generation's, and a task's, plan
 
 def _checkpoints_by_hash(db, generation: Dict[str, Any]) -> List[str]:
