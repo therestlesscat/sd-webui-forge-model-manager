@@ -311,7 +311,7 @@ pasted_id = db.record_generation(
     {'created_at': '2026-10-09T12:05:00', 'mode': 'txt2img', 'prompt': 'x', 'n_iter': 1, 'batch_size': 1,
      'image_count': 1},
     [{'position': 0, 'iteration': 0, 'path': 'c.png', 'prompt': 'x', 'seed': 1, 'subseed': 1,
-      'negative_prompt': '', 'infotext': 'x\nSteps: 1, Hires checkpoint: gone [1]'}], [[]])
+      'negative_prompt': '', 'infotext': 'x\nSteps: 1, Sampler: DPM2 a, Hires checkpoint: gone [1]'}], [[]])
 
 # ===================================================== Send, for one image
 one = attempt(lambda: load.for_image('txt2img', generation_inputs, second))
@@ -395,6 +395,44 @@ check('a file this WebUI lacks keeps what is on screen, and is named',
       ({'hr_checkpoint': None, 'hr_vae_te': []}, ['gone [123]', 'nope']))
 check('an infotext with none of them corrects nothing',
       attempt(lambda: load.corrections('txt2img', 'x\nSteps: 1, Seed: 2', None, controls)), ({}, []))
+# What a pasted text names that this WebUI does not offer is said, each with
+# its kind, and nothing is set for it: Forge's paste stays as it is (#307).
+from model_manager import send                             # noqa: E402
+held_lists = send.forge_lists
+send.forge_lists = lambda: ([('Euler a', ['euler_ancestral']), ('DPM++ 2M', [])], [('Karras', ['karras']), ('Simple', ['simple'])])
+OFFER = [(c, c) for c in ('None', 'face_yolov8n.pt')]
+OFFERED = {'txt2img_hr_upscaler': Dropdown('Upscaler', 'txt2img_hr_upscaler', choices=[(c, c) for c in ('Latent', '4x-UltraSharp')]),
+           'script_txt2img_adetailer_ad_model': Dropdown('ADetailer Detector', 'script_txt2img_adetailer_ad_model', choices=OFFER),
+           'script_txt2img_adetailer_ad_model_2nd': Dropdown('ADetailer Detector 2nd', 'script_txt2img_adetailer_ad_model_2nd',
+                                                             choices=OFFER)}
+check('each name the text gives that this WebUI does not offer, with its kind',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM2 a, Schedule type: beta57, Hires upscaler: '
+                                       '4x-UltraSharpV2, ADetailer model: face_yolov9c.pt, ADetailer model 2nd: eyes.pt', OFFERED)),
+      [{'name': 'DPM2 a', 'kind': 'sampler'}, {'name': 'beta57', 'kind': 'schedule type'},
+       {'name': '4x-UltraSharpV2', 'kind': 'Hires upscaler'}, {'name': 'face_yolov9c.pt', 'kind': 'ADetailer detector'},
+       {'name': 'eyes.pt', 'kind': 'ADetailer 2nd detector'}])
+check('names it offers - a sampler and schedule type by Send\'s matching (#309) - none',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: euler_ancestral, Schedule type: karras, Hires upscaler: '
+                                       '4x-UltraSharp, ADetailer model: face_yolov8n.pt, ADetailer model 2nd: None', OFFERED)), [])
+check('the original Forge\'s Automatic is no schedule type given: an old-style sampler name splits, and a scheduler '
+      'Civitai\'s data gave is read',
+      attempt(lambda: [load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM++ 2M Karras, Schedule type: Automatic', {}),
+                       load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM++ 2M, Schedule type: Automatic, scheduler: beta57', {})]),
+      [[], [{'name': 'beta57', 'kind': 'schedule type'}]])
+CLASSES = Dropdown('Detector Classes', 'script_txt2img_adetailer_ad_model_classes', choices=[])
+THIRD = Dropdown('ADetailer Detector 3rd', 'script_txt2img_adetailer_ad_model_3rd', choices=OFFER)
+check('every ADetailer tab by its ordinal - and its detector\'s classes are no detector',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: Euler a, ADetailer model classes: face, '
+                                       'ADetailer model 3rd: hand_yolov9c.pt', {**OFFERED, CLASSES.elem_id: CLASSES, THIRD.elem_id: THIRD})),
+      [{'name': 'hand_yolov9c.pt', 'kind': 'ADetailer 3rd detector'}])
+check('Civitai\'s Undefined sampler is Euler to both Forges: not missing',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: Undefined, Schedule type: Karras', {})), [])
+check('a control this WebUI does not draw - no ADetailer here - says nothing for it',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: Euler a, ADetailer model: face_yolov9c.pt', {})), [])
+send.forge_lists = lambda: ([], [])
+check('no samplers to read: nothing said of them',
+      attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM2 a, Schedule type: beta57', {})), [])
+send.forge_lists = held_lists
 OLD = {'hr_checkpoint_path': PATHS['chill'], 'hr_modules': [r'F:\vae\ae.safetensors'], 'refiner_path': PATHS['rv'],
        'params': {'refiner_cfg': 3.0}}
 check('a record\'s own paths win, and its refiner CFG comes back, which no infotext carries',
@@ -446,10 +484,11 @@ extras = [OVERRIDE]
 # sets its kept press back.
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p1'})))
-check('an infotext is answered for every output, and the files missing named',
+check('an infotext is answered for every output, the files missing named, and what else it lacks (#307)',
       attempt(lambda: (len(answer), {k: v for k, v in json.loads(answer[-1]).items()
-                                     if k in ('nonce', 'pasted', 'missing', 'replayed')})),
-      (generate_count + len(extras) + 1, {'nonce': 'p1', 'pasted': True, 'missing': ['gone [1]']}))
+                                     if k in ('nonce', 'pasted', 'missing', 'replayed', 'unavailable')})),
+      (generate_count + len(extras) + 1, {'nonce': 'p1', 'pasted': True, 'missing': ['gone [1]'],
+                                         'unavailable': [{'name': 'DPM2 a', 'kind': 'sampler'}]}))
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': generation_id, 'image': second['id']}, 'nonce': 'g1'})))
 check('a generation\'s image is answered as a task is',

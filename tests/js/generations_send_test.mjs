@@ -201,6 +201,23 @@ await waitFor('the notice', () => document.querySelector('.mm-notice'));
 check('a file the paste names that this WebUI lacks is said',
       document.querySelector('.mm-notice')?.textContent,
       'gone_model [abc123] is not in this WebUI: the current choice is kept for it.');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// A sampler, upscaler or detector this WebUI lacks is said with its kind,
+// promising nothing kept: Forge's paste is left as it is (#307).
+loaderAnswer = () => ({ pasted: true, unavailable: [{ name: 'DPM2 a', kind: 'sampler' }, { name: '4x-UltraSharpV2', kind: 'Hires upscaler' }],
+                        missing: ['sdxl_vae.safetensors'] });
+await act('generations.send', { tile: 0 });
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('names this WebUI lacks, each with its kind, then the files kept as they were - in one notice',
+      [...document.querySelectorAll('.mm-notice')].map((n) => n.textContent),
+      ['DPM2 a (sampler) and 4x-UltraSharpV2 (Hires upscaler) are not in this WebUI. '
+       + 'sdxl_vae.safetensors is not in this WebUI: the current choice is kept for it.']);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+loaderAnswer = () => ({ pasted: true, unavailable: [{ name: 'beta57', kind: 'schedule type' }] });
+await act('generations.send', { tile: 0 });
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('one name alone', document.querySelector('.mm-notice')?.textContent, 'beta57 (schedule type) is not in this WebUI.');
 loaderAnswer = () => ({ pasted: true });
 
 // An image Sync images brought with no generation text (#233): Send has

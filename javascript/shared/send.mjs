@@ -1304,10 +1304,17 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             // What the paste button's own click does after it: the prompts' token counts.
             const recount = window[`recalculate_prompts_${tab}`];
             if (typeof recount === 'function') recount();
+            // What the image names that this WebUI lacks (#307) - a sampler,
+            // an upscaler, a detector - is said, and left as Forge's paste set
+            // it; the files the loader kept the current choice for, after.
+            const lacking = (answer.unavailable || []).map((u) => `${u.name} (${u.kind})`);
+            const said = [];
+            if (lacking.length) said.push(`${listNames(lacking)} ${lacking.length === 1 ? 'is' : 'are'} not in this WebUI.`);
             if (answer.missing?.length) {
-                showNotice(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
-                           + 'this WebUI: the current choice is kept for it.', { info: true });
+                said.push(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
+                          + 'this WebUI: the current choice is kept for it.');
             }
+            if (said.length) showNotice(said.join(' '), { info: true });
         }
         // A source's scheduler and Hires fix were set by the loader, in the
         // paste's own event (#302) - unless Forge's paste button pasted it.

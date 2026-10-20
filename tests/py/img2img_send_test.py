@@ -93,7 +93,7 @@ def paste_values(tab, infotext, generation_id, outputs, skip=None):
     pasted_for.append(generation_id)
     values = [skip] * len(outputs)
     values[at['prompt']] = (infotext or '').split('\n')[0]
-    return values, []
+    return values, [], []
 
 
 def generation_values(tab, generation_id, image_id, skip=None):

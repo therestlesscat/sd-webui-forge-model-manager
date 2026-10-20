@@ -359,7 +359,8 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
     the generation is named.
 
     Returns:
-        (the values, the names of the files this WebUI does not have)
+        (the values, the names of the files this WebUI does not have, and
+        what else the text names that it does not offer - `unavailable`)
     """
     dep = capture.paste_click(tab)
     if dep is None:
@@ -378,7 +379,35 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
     unset = [c for c in pasted if id(c) not in {id(o) for o in outputs}]
     if unset:
         say(f"Send: {len(unset)} of the controls Forge's paste sets on {tab} are not ours to set")
-    return [by_component.get(id(o), skip) for o in outputs], missing
+    return [by_component.get(id(o), skip) for o in outputs], missing, unavailable(tab, infotext, controls)
+
+
+def unavailable(tab: str, infotext: str, controls: Dict[str, Any]) -> List[Dict[str, str]]:
+    """
+    What a pasted infotext names that this WebUI does not offer (#307), each
+    with its kind: the sampler and schedule type by Send's matching
+    (send.missing_names), Hires fix's upscaler and each ADetailer tab's
+    detector by their dropdowns' choices, where this WebUI draws them. Only
+    said: what Forge's paste set stays as it is - each changes the
+    generation, and is the user's to choose.
+    """
+    from .. import send
+    params = parse_generation_parameters(infotext or "")
+    names = send.missing_names(params, *send.forge_lists())
+    upscaler, given = controls.get(f"{tab}_hr_upscaler"), params.get("Hires upscaler")
+    if upscaler is not None and given and not _offers(upscaler, given):
+        names.append({"name": str(given), "kind": "Hires upscaler"})
+    # ADetailer's tabs: `ad_model`, `ad_model_2nd`, ... read from
+    # `ADetailer model`, `ADetailer model 2nd`, ... - an ordinal, not
+    # `ad_model_classes`, its detector's classes.
+    for control_id, control in controls.items():
+        tab_of = re.fullmatch(rf"script_{tab}_adetailer_ad_model(?:_(\d+(?:st|nd|rd|th)))?", control_id or "")
+        if tab_of:
+            nth = tab_of.group(1)
+            given = params.get("ADetailer model" + (f" {nth}" if nth else ""))
+            if given and given != "None" and not _offers(control, given):
+                names.append({"name": str(given), "kind": f"ADetailer {nth} detector" if nth else "ADetailer detector"})
+    return names
 
 
 def _offers(component, label: str) -> bool:
@@ -634,9 +663,9 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 if outputs is None:
                     own = capture.generate_click(tab)
                     outputs = kept_only(list(own.inputs[1:])) + list(extras)
-                values, missing = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update())
+                values, missing, lacking = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update())
                 after_paste(tab, values, outputs, list(names), found["scheduler"], found["hires"])
-                answer.update({"pasted": True, "missing": missing})
+                answer.update({"pasted": True, "missing": missing, "unavailable": lacking})
                 if into:
                     sized = "Size-1" in parse_generation_parameters(found["text"])
                     answer.update({"mode": _into(values, list(names), into, sized)})

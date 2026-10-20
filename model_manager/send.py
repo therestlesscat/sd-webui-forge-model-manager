@@ -548,6 +548,33 @@ def image_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers: List[
     return sampler_and_scheduler(meta, samplers, schedulers)["scheduler"]
 
 
+def missing_names(fields: Dict[str, Any], samplers: List[Any], schedulers: List[Any]) -> List[Dict[str, str]]:
+    """
+    The sampler and schedule type an infotext's fields name that this WebUI
+    has none of by Send's matching (#307): `Sampler`, `Schedule type`, and
+    the `scheduler` Send passes on from Civitai's data. Automatic is none
+    given - the original Forge's parser writes it in where the text has no
+    schedule type; `Undefined` is Euler to both. Nothing where Forge's lists
+    could not be read.
+    """
+    if not samplers:
+        return []
+    given = [v if _truthy(v) and str(v) != "Automatic" else None
+             for v in (fields.get("Schedule type"), fields.get("scheduler"))]
+    # `Undefined`, Civitai's, both Forges paste as Euler.
+    sampler = fields.get("Sampler") if fields.get("Sampler") != "Undefined" else None
+    meta = {"sampler": sampler, "Schedule type": given[0], "scheduler": given[1]}
+    named = sampler_and_scheduler(meta, samplers, schedulers)
+    missing = []
+    if _truthy(meta["sampler"]) and named["sampler"] not in [_label(s) for s in samplers]:
+        missing.append({"name": str(meta["sampler"]), "kind": "sampler"})
+    scheduler = given[0] or given[1]
+    if scheduler and match_scheduler(scheduler, schedulers) is None \
+            and named["scheduler"] not in [_label(s) for s in schedulers]:
+        missing.append({"name": str(scheduler), "kind": "schedule type"})
+    return missing
+
+
 def _field(key: str, value: Any) -> str:
     """A field of the settings line. A value with a line break is quoted as
     Forge quotes it (`quote`, infotext_utils.py), which its paste unquotes:
