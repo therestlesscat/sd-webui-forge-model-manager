@@ -398,11 +398,12 @@ function renderResourcesModal(resources, pending = 0) {
  */
 function sendAgainButton() {
     if (!resourcesSend) return '';
-    const { ready, why, alternative, alternatives, useChecked, chosen } = resourcesSend;
+    const { ready, why, alternative, alternatives, useChecked, chosen, sameFile } = resourcesSend;
     const canUse = !ready && resourcesSend.useInstalled;
-    const offered = canUse && alternative;
-    const listed = canUse && !alternative && alternatives?.length > 1;
-    const enabled = ready || (offered && useChecked) || (listed && chosen);
+    const same = canUse && sameFile;
+    const offered = canUse && !same && alternative;
+    const listed = canUse && !same && !alternative && alternatives?.length > 1;
+    const enabled = ready || same || (offered && useChecked) || (listed && chosen);
     const caution = 'the image may not come out exactly the same';
     const tick = !offered ? ''
         : `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
@@ -418,7 +419,11 @@ function sendAgainButton() {
               Number(v.version_id) === chosen ? ' selected' : ''}>${escapeHtml(versionLabel(v))}</option>`).join('')
           + '</select></label>';
     const status = enabled ? null : sendStatus();
-    const line = status?.text
+    const held = [sameFile?.model_name, sameFile?.version_name].filter(Boolean).join(' / ');
+    const line = same
+        ? `<span class="mm-res-send-status">${escapeHtml(`You have this checkpoint's file, ${sameFile.file_name}, `
+                                                       + `${held ? `as ${held}` : 'in your library'}: Send uses it.`)}</span>`
+        : status?.text
         ? `<span class="mm-res-send-status">${escapeHtml(status.text)}</span>`
           + (status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
                             + 'data-action="resources.checkAgain">Check again</button>' : '')
@@ -506,6 +511,7 @@ function useInstalled(versionId, kind) {
 // with what the library has, when that is what is ticked or picked.
 function sendAgain() {
     const send = resourcesSend;
+    if (!send?.ready && send?.sameFile) return useInstalled(send.sameFile.version_id, 'same');
     if (!send?.ready && send?.alternative && send.useChecked) {
         return useInstalled(send.alternative.versionId, send.alternative.kind || 'file');
     }
@@ -539,6 +545,7 @@ let viewing = null;
  * only on a 404 for the model alone. One request a dialog; answers kept.
  */
 function askCivitaiModels(resources) {
+    offerSameFile(resources);
     const versions = resources.filter((r) => r.versionId && !civitaiModels.has(r.versionId)
                                              && !askingVersions.has(r.versionId))
         .map((r) => ({ version_id: r.versionId, model_id: r.modelId || null }));
@@ -553,8 +560,9 @@ function askCivitaiModels(resources) {
             if (data && data.success) {
                 for (const [id, answer] of Object.entries(data.versions || {})) {
                     civitaiModels.set(Number(id), answer.gone ? { gone: true }
-                                                              : { modelId: safeId(answer.model_id) });
+                                                              : { modelId: safeId(answer.model_id), sameFile: answer.same_file || null });
                 }
+                offerSameFile(resources);
             }
         } catch (error) {
             console.warn('[ModelManager] Could not ask Civitai about the resources\' models:', error);
@@ -567,6 +575,19 @@ function askCivitaiModels(resources) {
     })();
     modelsAsked = Promise.all([modelsAsked, asking]);
     return modelsAsked;
+}
+
+/**
+ * The missing checkpoint, where the library holds its very file under another
+ * Civitai model - matched by the file's hash on the server (#304): the stopped
+ * Send can go with it at once. From what was asked, this dialog or an earlier.
+ */
+function offerSameFile(resources) {
+    if (!resourcesSend || resourcesSend.ready || resourcesSend.sameFile) return;
+    const row = resources.find((r) => /checkpoint/i.test(r.type || '') && civitaiModels.get(r.versionId)?.sameFile);
+    if (!row) return;
+    resourcesSend.sameFile = civitaiModels.get(row.versionId).sameFile;
+    redrawSendBar();
 }
 
 /** A row's View - or, its model deleted from Civitai, the red words in its place. */

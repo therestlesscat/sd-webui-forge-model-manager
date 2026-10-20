@@ -1020,6 +1020,8 @@ function waitReason(problem) {
 
 /** Sent with what the library has, in place of the image's checkpoint: a `file` of its version, or another `version` (#278). */
 function insteadNotice(file, kind) {
+    // The image's own file, held under another Civitai model (#304): the same bytes.
+    if (kind === 'same') return `Sent with ${file}: the checkpoint this image was made with, held in your library under another Civitai model.`;
     const what = kind === 'version' ? 'another version of the model' : 'another file of the version';
     return `Sent with ${file}, ${what} this image was made with: it may not come out exactly the same.`;
 }

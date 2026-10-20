@@ -363,6 +363,22 @@ def _models_by_id(client, model_ids: List[int]) -> Tuple[Dict[int, Dict[str, Any
     return models, gone
 
 
+def same_file(db, file_hash: str) -> Optional[Dict[str, Any]]:
+    """
+    The library's checkpoint that is this very file - its SHA-256, else its
+    AutoV2, stored for the file - held here, filed under whatever Civitai
+    model (#304): one checkpoint uploaded twice. Never by name: a file of the
+    same name can be another file. None for none.
+    """
+    from .model_dirs import held_here
+    for row in db.versions_named_by([], [str(file_hash).lower()]):
+        if row.get("file_type") == "Checkpoint" and row.get("id") and held_here(row.get("file_path")):
+            model = db.get_civitai_model(int(row["model_id"])) if row.get("model_id") else None
+            return {"version_id": row["id"], "file_name": os.path.basename(row.get("file_path") or ""),
+                    "version_name": row.get("version_name") or "", "model_name": (model or {}).get("name") or ""}
+    return None
+
+
 def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
                   civitai: Callable[[], Any]) -> Dict[str, Dict[str, Any]]:
     """
@@ -438,13 +454,24 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             continue
         files = version.get("files") or []
         chosen = files[pick_file_index(files)] if files else {}
+        hashes = {str(k).lower(): str(v) for k, v in (chosen.get("hashes") or {}).items() if v}
         _MISSING_FILES[version_id] = {
             "file_stem": os.path.splitext(chosen.get("name") or "")[0] or None,
             "file_type": model_type, "model_id": model_id,
             "name": model_name, "version_name": version.get("name"),
+            # Its SHA-256, else its AutoV2: what the library's own file is
+            # matched by (#304).
+            "file_hash": hashes.get("sha256") or hashes.get("autov2"),
         }
 
     # Read once each: another request may drop one between asking and reading.
     answers = {str(v): _MISSING_FILES.get(v) for v in model_of}
+    for key, answer in answers.items():
+        if not answer:
+            continue
+        # The hash is the server's, to match by; the page gets what it found.
+        same = same_file(db, answer["file_hash"]) \
+            if answer.get("file_type") == "Checkpoint" and answer.get("file_hash") else None
+        answers[key] = {**{k: v for k, v in answer.items() if k != "file_hash"}, **({"same_file": same} if same else {})}
     return {"versions": {v: answer for v, answer in answers.items() if answer is not None},
             "hashes": by_hash}

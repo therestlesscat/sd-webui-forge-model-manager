@@ -139,5 +139,45 @@ check('without it: the image\'s own checkpoint, missing, as before, and nothing 
       (body.get('checkpoint_problem'), 'instead' in body), ({'reason': 'missing', 'name': 'v3_checkpoint'}, False))
 check('and use_version=0 answers exactly as no use_version', plan(use_version=0), plan())
 
+# The image's checkpoint, missing, may be a file the library holds under
+# another Civitai model - one checkpoint uploaded twice (#304). The Resources
+# dialog's answer about the missing version names it, matched by the file's
+# own hash, never its name.
+SHA = 'AB' * 32
+raw.execute("UPDATE files SET file_hashes = ? WHERE file_path = ?", (json.dumps({'sha256': SHA, 'autov2': SHA[:10]}), P1))
+raw.commit()
+REUPLOAD, ITS_VERSION = 777001, 777002
+
+
+class Civitai(object):
+    def __init__(self, hashes, name='reupload.safetensors'):
+        self.hashes, self.name = hashes, name
+
+    def get_models_by_ids(self, ids, nsfw=True):
+        return {REUPLOAD: {'type': 'Checkpoint', 'name': 'A re-upload', 'modelVersions': [
+            {'id': ITS_VERSION, 'name': 'v1.0', 'files': [{'name': self.name, 'primary': True, 'type': 'Model',
+                                                          'hashes': self.hashes}]}]}}
+
+    def get_model(self, model_id):
+        return None
+
+
+def missing(hashes, name='reupload.safetensors'):
+    resources._MISSING_FILES.clear()
+    answer = resources.missing_files(db, [{'version_id': ITS_VERSION, 'model_id': REUPLOAD}], [],
+                                     lambda: Civitai(hashes, name))
+    return (answer['versions'].get(str(ITS_VERSION)) or {}).get('same_file')
+
+
+same = missing({'SHA256': SHA})
+check('the same SHA-256: the library\'s version and file named, as the dialog\'s Send uses it',
+      [(same or {}).get('version_id'), (same or {}).get('file_name')], [V1, os.path.basename(P1)])
+check('Civitai giving no SHA-256: its AutoV2', (missing({'AutoV2': SHA[:10]}) or {}).get('version_id'), V1)
+check('another hash, the same file name: not the same file', missing({'SHA256': 'CD' * 32}, os.path.basename(P1)), None)
+held = dirs.held_here
+dirs.held_here = lambda path: False
+check('the same file, but not held here: nothing to send with', missing({'SHA256': SHA}), None)
+dirs.held_here = held
+
 print('\n'.join('FAIL ' + f for f in fails) if fails else 'All checks passed.')
 sys.exit(1 if fails else 0)

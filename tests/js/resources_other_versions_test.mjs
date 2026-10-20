@@ -21,6 +21,8 @@ const HASH = 'abcdef0123';     // an AutoV2 of another file of CHECKPOINT
 let versions = [];             // what /other-versions answers
 let otherFiles = {};           // what /image-resources says of another file of the version
 let plan = null;               // what the send plan answers
+let sameFile = null;           // what /missing-resources says of the checkpoint's file, held under another model
+const REUPLOADED = 3072332;    // a checkpoint version whose file the library holds under another model
 const asked = [];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -39,7 +41,8 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/missing-resources')) {
         const wanted = JSON.parse(new URLSearchParams(String(init.body)).get('versions'));
-        return reply({ success: true, versions: Object.fromEntries(wanted.map(({ version_id: id }) => [id, { model_id: MODEL }])) });
+        return reply({ success: true, versions: Object.fromEntries(wanted.map(({ version_id: id }) => [id, {
+            model_id: MODEL, ...(sameFile && [REUPLOADED, globalThis.REUPLOADED_ALSO].includes(Number(id)) ? { same_file: sameFile } : {}) }])) });
     }
     if (href.includes('/ui-options')) return reply({ success: true, samplers: [], schedulers: [], has_api_key: true });
     return reply({ success: true });
@@ -135,6 +138,25 @@ check('nothing of the model held: nothing offered, asked once',
       [Boolean(tick()), Boolean(picker()), versionsAsked().length], [false, false, 1]);
 close();
 
+// ------------------------- the same file, held under another model (#304)
+// One checkpoint uploaded twice: the server matched the missing version's
+// file to the library's by its hash. Send is on at once, saying with what.
+used.length = 0;
+asked.length = 0;
+versions = [];
+sameFile = { version_id: 333, file_name: 'reup.safetensors', model_name: 'A Re-upload', version_name: 'fp8' };
+const reuploaded = { meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: REUPLOADED, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v1.0' }] } };
+await showImageResources(reuploaded, null, { note: NOTE, send: stoppedSend() });
+await waitFor('Send on', () => sendButton() && !sendButton().disabled);
+check('the missing checkpoint held as another model\'s file: Send on at once, the line saying which, nothing to tick',
+      [sendButton()?.disabled, modal()?.querySelector('.mm-res-send-status')?.textContent, Boolean(tick())],
+      [false, "You have this checkpoint's file, reup.safetensors, as A Re-upload / fp8: Send uses it.", false]);
+if (sendButton() && !sendButton().disabled) press(sendButton());
+check('and sends with that version, as the same file', used, [[333, 'same']]);
+close();
+sameFile = null;
+
 // ---------------------------------------------- a Civitai image's Send
 // It stops for the checkpoint; the dialog offers the version held; ticked,
 // Send asks the server again with use_version, and says what it sent with.
@@ -160,5 +182,27 @@ await waitFor('the notice', () => document.querySelector('.mm-notice'));
 check('and the notice says it was another version of the model',
       (document.querySelector('.mm-notice')?.textContent || '').includes(
           'Sent with a_v16.safetensors, another version of the model this image was made with'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+close();
+
+// A Civitai image whose checkpoint the library holds under another model
+// (#304): sent with it, and said to be the image's own - no caution.
+asked.length = 0;
+versions = [];
+const ownFile = { meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: 3072333, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v1.1' }] } };
+sameFile = { version_id: 334, file_name: 'reup2.safetensors', model_name: 'A Re-upload', version_name: 'fp16' };
+const reup = 3072333;
+plan = { success: true, preset: null, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
+globalThis.REUPLOADED_ALSO = reup;
+await sendGalleryImage({ img: ownFile, model: gallery, version: shown });
+await waitFor('Send on, from a Civitai image', () => sendButton() && !sendButton().disabled);
+plan = { success: true, preset: null, checkpoint: 'reup2.safetensors [5678]', checkpoint_problem: null, instead: 'reup2.safetensors' };
+if (sendButton() && !sendButton().disabled) press(sendButton());
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('sent with the same file, and said to be the image\'s own checkpoint',
+      [new URL(asked.find((h) => h.includes('use_version=')) || 'http://x/', 'http://x').searchParams.get('use_version'),
+       document.querySelector('.mm-notice')?.textContent],
+      ['334', 'Sent with reup2.safetensors: the checkpoint this image was made with, held in your library under another Civitai model.']);
 
 done();
