@@ -668,6 +668,24 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   the button: `**/model-manager/civitai/download**` also aborted the
   downloads panel's poll (`download/progress`), and each #217 live check
   logged two console errors, "Download poll error". Route the POST alone.
+- **Two pages side by side share one Forge and one browser.** In #302's
+  paired checks the page left in the background took 3.2 s a Send against
+  the other's 0.7: Chromium slows a background tab's timers. The page that
+  sent first paid for the checkpoint and preset change, and the other found
+  it done; it also fetched a Civitai original the other then found in the
+  shared cache, and one start frame was read before it came. So each page is
+  brought to the front before it sends, the first page alternates, times are
+  compared only between sends in the same place, and a picture is waited for
+  until it changes. Where the old code's clock stopped early - a replay that
+  ran outside `sendSettled` - its times are not compared.
+- **A paired check sends from every place the code is reached from.**
+  0.67.0's check 2 sent its 52 images from the Civitai Images tab alone,
+  whose Send adds nothing of a gallery's own - an upscaler, a video's
+  frames, img2img for an image-to-video model, a LoRA renamed; a side agent
+  caught it after the commit, and check 1b over each extra and 45 sends from
+  the Model Manager's galleries followed. Targets are picked as the tab shows
+  them: 17 of check 2's first 80 were rated above PG, which the tabs hide by
+  default, and a batch has no ⋯ menu.
 - **Read the run's result before committing.** A commit chained after the
   run with `;` went in over "1 failed", and which suite could not be
   recovered. The runner now names failing suites in its last line and keeps

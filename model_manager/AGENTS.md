@@ -451,7 +451,20 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   raised a TypeError (`modules_forge/forge_canvas/canvas.py`, line 65) -
   Forge's own PNG Info -> Send to img2img included, after any of our sends
   into img2img since 0.56.0. A hidden loader hands a component a value, or
-  leaves it out of its outputs (`scheduler/load.py`, #299).
+  leaves it out of its outputs (`scheduler/load.py`, #299). The copies cost
+  less than they look: 285 controls rebuilt in about 106 ms off the WebUI,
+  yet a loader with only the 225 of 316 outputs any of 107,465 stored
+  images' pastes sets saved nothing - 36 ms faster at the median, 5 ms
+  slower on average, a spread of 146 ms, over 51 paired Sends (#302, R10).
+  Fewer outputs is not the way to a faster Send.
+- **A JavaScript string function ported to Python keeps JavaScript's
+  rules.** `String.replace` reads `$&`, `` $` ``, `$'` and `$$` in a
+  replacement string, where Python's `re` reads `\`; `/i` without the `u`
+  flag matches no character past ASCII to an ASCII one - `ſ` is not `s` -
+  where `re.IGNORECASE` does. In #302's port of the chips' rename
+  (`send.rename_lora_tags`), 67,112 of 134,240 renames differed without the
+  `$` handling; the case rule changed none on one library, so its suite's
+  own cases guard it.
 
 ### The environment
 
