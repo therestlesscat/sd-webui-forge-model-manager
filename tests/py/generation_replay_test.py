@@ -306,6 +306,12 @@ generation_id = db.record_generation(
 stored = db.get_generation(generation_id)
 check('a generation keeps the named inputs of its press', attempt(lambda: stored['inputs'] == generation_inputs), True)
 second = stored['images'][1]
+# One recorded with no press kept: Send pastes its infotext.
+pasted_id = db.record_generation(
+    {'created_at': '2026-10-09T12:05:00', 'mode': 'txt2img', 'prompt': 'x', 'n_iter': 1, 'batch_size': 1,
+     'image_count': 1},
+    [{'position': 0, 'iteration': 0, 'path': 'c.png', 'prompt': 'x', 'seed': 1, 'subseed': 1,
+      'negative_prompt': '', 'infotext': 'x\nSteps: 1, Hires checkpoint: gone [1]'}], [[]])
 
 # ===================================================== Send, for one image
 one = attempt(lambda: load.for_image('txt2img', generation_inputs, second))
@@ -436,18 +442,22 @@ check("with a generation named, its record corrects the paste: its refiner's CFG
 import gradio as gr                                      # noqa: E402
 generate_count = len(OWN.inputs) - 1
 extras = [OVERRIDE]
+# The page names the source (#302): the server pastes a generation's text, or
+# sets its kept press back.
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
-    json.dumps({'paste': 'x\nSteps: 1, Hires checkpoint: gone [1]', 'nonce': 'p1'})))
+    json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p1'})))
 check('an infotext is answered for every output, and the files missing named',
-      attempt(lambda: (len(answer), json.loads(answer[-1]))),
+      attempt(lambda: (len(answer), {k: v for k, v in json.loads(answer[-1]).items()
+                                     if k in ('nonce', 'pasted', 'missing', 'replayed')})),
       (generate_count + len(extras) + 1, {'nonce': 'p1', 'pasted': True, 'missing': ['gone [1]']}))
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
-    json.dumps({'generation': generation_id, 'image': second['id'], 'nonce': 'g1'})))
+    json.dumps({'source': {'kind': 'generation', 'generation': generation_id, 'image': second['id']}, 'nonce': 'g1'})))
 check('a generation\'s image is answered as a task is',
       attempt(lambda: json.loads(answer[-1])),
-      {'nonce': 'g1', 'generation': generation_id, 'skipped': [], 'notes': []})
+      {'nonce': 'g1', 'replayed': True, 'generation': generation_id, 'skipped': [], 'notes': []})
 del PAGE.fns[1]
-answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(json.dumps({'paste': 'x', 'nonce': 'p2'})))
+answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
+    json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p2'})))
 check('with Forge\'s paste not found, nothing is set and the page is told to paste itself',
       attempt(lambda: (answer[:-1] == [gr.update()] * (generate_count + 1), json.loads(answer[-1]).get('no_paste'))),
       (True, True))

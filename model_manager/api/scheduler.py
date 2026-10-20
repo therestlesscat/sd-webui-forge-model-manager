@@ -23,7 +23,6 @@ from ..db import get_models_db
 from ..install import INSTALL_KEY
 from ..scheduler import runner, tasks
 from ..scheduler.values import files
-from ..send import task_plan
 from .common import failed, gate
 from .generations import _delete_files, remember_kept
 
@@ -201,21 +200,6 @@ def register(app: FastAPI):
                                  "inputs": tasks.details(task)})
         except Exception as e:
             return failed(e, "Queue task error")
-
-    @app.get("/model-manager/queue/tasks/{task_id}/send-plan")
-    @gate("queue")
-    def get_send_plan(task_id: int):
-        """
-        How to set Forge up before a task is loaded into its tab (#160):
-        send.task_plan(). A plain `def`: it may read the checkpoint's header.
-        """
-        try:
-            plan = task_plan(get_models_db(), task_id)
-            if plan is None:
-                return JSONResponse({"success": False, "error": "No such task"}, status_code=404)
-            return JSONResponse({"success": True, **plan})
-        except Exception as e:
-            return failed(e, "Queue send plan error")
 
     @app.post("/model-manager/queue/run-next")
     @gate("queue")

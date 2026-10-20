@@ -12,9 +12,9 @@ which it does not say itself.
 """
 import json
 import os
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask
 from ..console import say, say_failure
@@ -61,69 +61,6 @@ def register(app: FastAPI):
         """
         return JSONResponse({"success": True, "version": shared_version()},
                             headers={"Cache-Control": "no-store"})
-
-    @app.get("/model-manager/forge-modules")
-    @gate("send")
-    def forge_modules_for(file_path: str = "", base_model: str = "",
-                          version_ids: str = "", hashes: str = "", model_name: str = "",
-                          vae: str = "", module: List[str] = Query(default=[]), use_version: int = 0):
-        """
-        What Send to txt2img should set up in Forge before sending an image.
-
-        The UI preset for the model the image will generate with, and the
-        text encoders and VAE it needs that its file does not bring, picked
-        from what Forge offers. Which model that is: see send_plan.py. A plain
-        `def`: it reads file headers, and may ask Civitai once.
-
-        Args:
-            file_path: The gallery's file - the version shown.
-            base_model: The gallery version's baseModel on Civitai.
-            version_ids: Comma-separated Civitai version ids the image names
-                as checkpoints.
-            hashes: Comma-separated hashes the image names its checkpoint by.
-            model_name: The checkpoint's name in the image's generation data.
-            vae: The VAE the image's generation data names, if any.
-            module: Every module it names - its VAE, then each `Module N`
-                Forge wrote (#204) - once per name.
-            use_version: Send with the library's file of this version, not
-                the checkpoint the image names - another file of its version,
-                or another version of its model, picked in the Resources
-                dialog (#278). The answer's `instead` names the file.
-
-        Returns:
-            preset: Forge's UI preset, or null if unknown. source: how it was
-            decided (send_plan.py). embeddings: the kind of embedding the
-            model loads (forge_host.embedding_kind), for the chips to say
-            which Forge skips (#179). manage_modules: whether modules are this
-            call's business at all - SD and SDXL checkpoints bring their own,
-            and keep the image's VAE as before. select: labels to select;
-            missing: kinds nothing installed is; not_found: file names the
-            settings give that are not installed. target: exactly what the
-            VAE / Text Encoder control should hold once the image is sent -
-            `select` for a model whose modules are managed, else the image's
-            modules as Forge lists them, or nothing - of a managed model, the
-            image's own file of each kind before the plan's pick;
-            modules_not_found: the names the image gives that this install
-            does not have. bundled: the
-            kinds the model needs that the checkpoint carries itself, and so
-            are not selected - for the page to say so, as an empty control
-            otherwise reads as a send that failed.
-
-            From a gallery that is not a checkpoint's (#134): checkpoint, the
-            name Forge lists the image's checkpoint under, to select; or
-            checkpoint_problem, why it cannot be - {reason: missing, name},
-            {reason: elsewhere | not_listed, name, path} for one the library
-            has in a folder this WebUI does not load, or that Forge has not
-            listed yet, {reason: not_checkpoint} - and the page sends nothing.
-            From a VAE's or a text encoder's, that file is in `target` in its
-            kind's place; own_not_listed, its name when Forge does not list it.
-            From an upscaler's, upscaler: the name Forge lists it under, for
-            Hires fix's; upscaler_not_listed, its file's when Forge does not.
-        """
-        from ..db import get_models_db
-        from ..send import civitai_plan
-        return JSONResponse(civitai_plan(get_models_db(), file_path, base_model, version_ids, hashes, model_name,
-                                         vae, module, use_version))
 
     @app.get("/model-manager/send/plan")
     @gate("send")

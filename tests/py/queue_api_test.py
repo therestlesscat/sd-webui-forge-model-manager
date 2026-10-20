@@ -224,21 +224,20 @@ LISTED = {'sdxl\\model.safetensors': os.path.join(WORK, 'models', 'model.safeten
 forge_host.checkpoint_file = lambda name: LISTED.get(name)
 forge_host.checkpoint_name = lambda path: 'sdxl\\model.safetensors' if path in LISTED.values() else None
 forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': 'F:\\vae\\sdxl_vae.safetensors'}
-plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
+task_plan_of = lambda tid: client.get('/model-manager/send/plan', params={'kind': 'task', 'task': tid})
+plan = task_plan_of(done).json()
 check("a task's send plan: its mode, checkpoint and modules, as Send sets them",
       {k: plan.get(k) for k in ('mode', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
       {'mode': 'txt2img', 'checkpoint': 'sdxl\\model.safetensors', 'checkpoint_missing': None,
        'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
-check('and the one route for every Send answers the same, with its kind (#302)',
-      client.get('/model-manager/send/plan', params={'kind': 'task', 'task': done}).json(), {**plan, 'kind': 'task'})
+check('on Send\'s one route, with its kind (#302)', plan['kind'], 'task')
 LISTED.clear()
 forge_host.installed_modules = lambda: {}
-plan = client.get(f'/model-manager/queue/tasks/{done}/send-plan').json()
+plan = task_plan_of(done).json()
 check('a checkpoint or a module this WebUI does not list is named',
       (plan['checkpoint'], plan['checkpoint_missing'], plan['target'], plan['modules_missing']),
       (None, 'sdxl\\model.safetensors', [], ['sdxl_vae.safetensors']))
-check("another install's task has none", client.get(f'/model-manager/queue/tasks/{theirs}/send-plan').status_code, 404)
-check('nor from the one route', client.get('/model-manager/send/plan', params={'kind': 'task', 'task': theirs}).status_code, 404)
+check("another install's task has none", task_plan_of(theirs).status_code, 404)
 
 # ------------------------------------------------------------- Retry
 textbox = queue('a textbox seed', seed='-1')

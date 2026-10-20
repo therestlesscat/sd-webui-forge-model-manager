@@ -56,7 +56,8 @@ globalThis.fetch = async (url) => {
                        state: { total: 1, filtered: 1, hidden_nsfw: 0, nsfw_count: 0, stored_generations: 1 },
                        scope: { count: 1 } });
     }
-    if (href.includes('/send-plan')) return reply({ success: false });
+    // Send's plan (#302): nothing to set up.
+    if (href.includes('/model-manager/send/plan')) return reply({ success: true });
     return reply({ success: true });
 };
 

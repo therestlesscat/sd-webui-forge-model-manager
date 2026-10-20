@@ -741,23 +741,22 @@ if has_fastapi:
     store.needs_check = lambda db_, p: None                     # read already, as stored
     host.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
     try:
-        plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
+        plan_of = lambda gid: client.get('/model-manager/send/plan', params={'kind': 'generation', 'generation': gid})
+        plan = plan_of(generation_id).json()
         check('a generation is sent back set up as it was made: preset, checkpoint as Forge lists it, '
               'exactly its modules',
               {k: plan[k] for k in ('preset', 'checkpoint', 'checkpoint_missing', 'target', 'modules_missing')},
               {'preset': 'sd', 'checkpoint': 'linked/m.safetensors [abc]', 'checkpoint_missing': None,
                'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
-        check('and the one route for every Send answers the same, with its kind (#302)',
-              client.get('/model-manager/send/plan', params={'kind': 'generation', 'generation': generation_id}).json(),
-              {**plan, 'kind': 'generation'})
+        check('on Send\'s one route, with its kind (#302)', plan['kind'], 'generation')
         sd_models.checkpoints_list = {}
         host.installed_modules = lambda: {}
-        plan = client.get('/model-manager/generations/%d/send-plan' % generation_id).json()
+        plan = plan_of(generation_id).json()
         check('what Forge no longer lists is named, and not asked for',
               (plan['checkpoint'], plan['checkpoint_missing'].lower(), plan['target'], plan['modules_missing']),
               (None, os.path.basename(CHECKPOINT).lower(), [], ['sdxl_vae.safetensors']))
         check('a generation nobody recorded has no plan',
-              client.get('/model-manager/generations/999999/send-plan').status_code, 404)
+              plan_of(999999).status_code, 404)
     finally:
         store.needs_check, host.installed_modules = real_check, real_installed
 

@@ -3,15 +3,19 @@ Send's one place (#302): how Forge is set up before a source's settings go
 into its tab - a Civitai image, a generation of your own, a queued task.
 
 One plan for every source (`plan`), asked of one route
-(`/model-manager/send/plan`). Each source had a route and a function of its
-own - `/forge-modules` for a Civitai image, `/generations/{id}/send-plan`,
-`/queue/tasks/{id}/send-plan` - which call the same functions here until the
-page asks this one alone.
+(`/model-manager/send/plan`); each source had a route of its own -
+`/forge-modules` for a Civitai image, `/generations/{id}/send-plan`,
+`/queue/tasks/{id}/send-plan` - until #302. What the tab's loader then sets
+is decided here too (`settings`): a Civitai image's infotext, built from its
+stored record; a generation's own, the chips' renames applied, or its kept
+press replayed; and the schedule type and Hires fix, in the paste's event.
+And an image card's sampler and schedule type (`stamp_readings`).
 
 What the page still reads of a Civitai image itself, it sends with the
 source: the checkpoint the image names (`imageCheckpoint` in send.mjs), which
-also decides whether its Send button is drawn at all. The VAEs it names are
-read here (`named_modules`), from the image's stored record.
+also decides whether its Send button is drawn at all; and the chips'
+renames. The VAEs it names are read here (`named_modules`), from the
+image's stored record.
 """
 import os
 import re

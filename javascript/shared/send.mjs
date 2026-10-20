@@ -177,7 +177,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         sourceNotice();
         return applyModules(plan);
     };
-    if (!pasteInfotext(tab, null, { source, into: sending, afterPaste, whenReplayed })) return false;
+    if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed })) return false;
     showGenerationTab(tab, sending?.mode);
     showChips();
     return true;
@@ -347,7 +347,7 @@ function pressOption(element) {
  * was, when no list opens - a dropdown in a closed accordion is hidden, takes
  * no focus and opens none - or it does not offer `label`. A field Forge's
  * paste knows is set through the paste instead, hidden or not: Hires fix's
- * upscaler is (see buildInfotext).
+ * upscaler is (send.civitai_infotext, on the server).
  */
 async function chooseOption(container, label) {
     const input = container?.querySelector('input');
@@ -1239,27 +1239,10 @@ export function whenSendSettled() {
 }
 
 /**
- * An infotext without its Lora hashes. Forge's paste renames each LoRA they
- * list to its own choice of name for the file - its alias, with "Alias from
- * file" - over the file names Send has given them, which the chips name
- * (sd_forge_lora's infotext_pasted, the same in both WebUIs). Forge's own
- * settings let a paste ignore the field ("Ignore fields when reading
- * infotext"); this does so for a Send. Forge quotes the value - it holds
- * colons - and it is a field of the last line, the settings.
- */
-function withoutLoraHashes(infotext) {
-    const lines = String(infotext || '').split('\n');
-    const last = lines.length - 1;
-    lines[last] = lines[last].replace(/(^|,\s*)Lora hashes: "(?:[^"\\]|\\.)*"(\s*,\s*)?/,
-                                      (match, before, after) => (before && after ? ', ' : ''));
-    return lines.join('\n');
-}
-
-/**
- * Put an infotext into a generation tab as Forge's own paste reads it - run
- * by the tab's hidden button (scheduler/load.py), in one event with what
- * Neo's paste gets wrong set right: the hires checkpoint and VAE / text
- * encoders, the refiner, from `generationId`'s own record when there is one
+ * Put a source's settings into a generation tab as Forge's own paste reads
+ * them - run by the tab's hidden button (scheduler/load.py), in one event
+ * with what Neo's paste gets wrong set right: the hires checkpoint and VAE /
+ * text encoders, the refiner, from a generation's own record
  * (#7). Then what the paste leaves undone: the scheduler, which Forge does
  * not set from it, and hires fix, turned off when the infotext has none.
  * afterPaste runs at that point too, and may return a promise to wait for.
@@ -1283,27 +1266,28 @@ function withoutLoraHashes(infotext) {
  *
  * @returns {boolean} whether the paste could be made at all
  */
-function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null, into = null,
-                                        source = null, whenReplayed = null } = {}) {
+function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null }) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
         return false;
     }
-    const text = source ? null : withoutLoraHashes(infotext);
+    // Set by the loader, in the paste's own event - or, where Forge's paste
+    // button pastes instead, taken from the server's text and set after it.
+    let scheduler = null;
+    let hasHiresFix = false;
 
     sendSettled = (async () => {
-        const answer = await pressLoader(tab, source ? { source, ...(into ? { into } : {}) }
-            : { paste: text, generation: generationId === null ? null : Number(generationId), ...(into ? { into } : {}) });
+        const answer = await pressLoader(tab, { source, ...(into ? { into } : {}) });
         if (answer.no_paste || answer.no_loader) {
             // A source's text, scheduler and Hires fix: in the loader's
             // answer when only Forge's paste was missing, else asked.
-            const pasting = source ? (answer.text !== undefined ? answer : await fetchSendText(source, into)) : { text };
+            const pasting = answer.text !== undefined ? answer : await fetchSendText(source, into);
             if (!pasting?.text) {
                 showNotice('Could not send: the server did not answer.');
                 return;
             }
-            if (source) ({ scheduler, hires: hasHiresFix } = pasting);
+            ({ scheduler, hires: hasHiresFix } = pasting);
             if (!await pasteWithButton(tab, promptTextarea, pasting.text)) return;
             if (into) {
                 showNotice('The settings are in img2img, but the picture could not be put in: '
@@ -1327,7 +1311,7 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, gene
         }
         // A source's scheduler and Hires fix were set by the loader, in the
         // paste's own event (#302) - unless Forge's paste button pasted it.
-        const loaded = source && !(answer.no_paste || answer.no_loader);
+        const loaded = !(answer.no_paste || answer.no_loader);
         if (!loaded) await chooseInDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
         const pending = afterPaste ? afterPaste() : null;
 
@@ -1484,7 +1468,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
             source.negative_prompt = rename(meta.negativePrompt);
         }
 
-        const pasted = pasteInfotext(tab, null, {
+        const pasted = pasteInfotext(tab, {
             source,
             into: sending,
             afterPaste: async () => {

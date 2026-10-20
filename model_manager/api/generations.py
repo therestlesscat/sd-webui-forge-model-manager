@@ -32,7 +32,7 @@ from . import levels
 from .common import failed, gate
 from ..console import say
 # A generation's send plan is Send's, for every source (#302).
-from ..send import generation_plan as send_plan, stamp_readings
+from ..send import stamp_readings
 from .. import generation_inputs, thumbnails
 
 # The images a card shows before "Show images".
@@ -774,23 +774,6 @@ def _register(app: FastAPI):
                                                            if r["id"] in images])})
         except Exception as e:
             say(f"Generation images error: {e}")
-            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
-
-    @app.get("/model-manager/generations/{generation_id}/send-plan")
-    @gate("generations")
-    def get_send_plan(generation_id: int, use_version: Optional[int] = None):
-        """
-        How to set Forge up before sending a generation back: see send_plan().
-        `use_version`: send with the library's file of this version instead of
-        the image's own (#233). A plain `def`: it may read the checkpoint's header.
-        """
-        try:
-            plan = send_plan(get_models_db(), generation_id, use_version)
-            if plan is None:
-                return JSONResponse({"success": False, "error": "No such generation"}, status_code=404)
-            return JSONResponse({"success": True, **plan})
-        except Exception as e:
-            say(f"Send plan error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/generations/images/{image_id}/file")

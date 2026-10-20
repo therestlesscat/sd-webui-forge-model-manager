@@ -130,7 +130,6 @@ SPEC = {
     ('GET', '/model-manager/generations/browse'): 'generations',
     ('GET', '/model-manager/generations/page'): 'generations',
     ('GET', '/model-manager/generations/{generation_id}/images'): 'generations',
-    ('GET', '/model-manager/generations/{generation_id}/send-plan'): 'generations',
     ('GET', '/model-manager/generations/images/{image_id}/file'): 'generations',
     ('GET', '/model-manager/generations/images/{image_id}/thumb'): 'generations',
     ('GET', '/model-manager/generations/{generation_id}/input/{name}'): 'generations',
@@ -169,7 +168,6 @@ SPEC = {
     ('POST', '/model-manager/missing-resources'): 'send',
     ('GET', '/model-manager/image-resources'): 'send',
     ('GET', '/model-manager/other-versions'): 'send',
-    ('GET', '/model-manager/forge-modules'): 'send',
     ('GET', '/model-manager/forge-modules/current'): 'send',
     ('GET', '/model-manager/send/plan'): 'send',
     ('GET', '/model-manager/queue/status'): 'queue',
@@ -179,7 +177,6 @@ SPEC = {
     ('POST', '/model-manager/queue/resume'): 'queue',
     ('GET', '/model-manager/queue/tasks'): 'queue',
     ('GET', '/model-manager/queue/tasks/{task_id}'): 'queue',
-    ('GET', '/model-manager/queue/tasks/{task_id}/send-plan'): 'queue',
     ('POST', '/model-manager/queue/run-next'): 'queue',
     ('POST', '/model-manager/queue/cancel'): 'queue',
     ('POST', '/model-manager/queue/retry'): 'queue',
@@ -208,7 +205,7 @@ SPEC = {
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
 }
-check('the spec holds 96 routes', len(SPEC), 96)
+check('the spec holds 93 routes', len(SPEC), 93)
 
 app = FastAPI()
 api.setup_api(app)

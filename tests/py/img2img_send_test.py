@@ -212,46 +212,6 @@ def size_of(picture):
 
 INTO = {'mode': 2, 'width': 96, 'height': 64}
 
-# ---------------------------------------------------------- the settings button
-values, answer = asked(paste='a castle\nSize: 832x1216', generation=None,
-                       into={**INTO, 'picture': {'generation_image': 7}})
-check('the settings button answers no canvas at all - only the other controls, then the extras',
-      [len(values), answer.get('error')], [len(KEPT) + len(EXTRAS), None])
-check('the infotext pasted, `mode` the chosen mode, its answer saying so',
-      [value(values, 'prompt'), value(values, 'mode'), answer.get('mode')], ['a castle', 2, 2])
-check('the infotext gives a size: width and height left to the paste',
-      [value(values, 'width'), value(values, 'height')], [SKIP, SKIP])
-
-values, answer = asked(paste='no size here', into={**INTO, 'mode': 4, 'picture': {'generation_image': 7}})
-check('an infotext with no size: width and height the picture\'s, as the page gives them',
-      [value(values, 'width'), value(values, 'height'), answer.get('mode')], [96, 64, 4])
-
-pasted.clear()
-values, answer = asked(into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
-check('no infotext: nothing pasted - Forge\'s paste of an empty text pastes the last run\'s settings',
-      [pasted, answer.get('mode')], [[], 1])
-check('only the mode and the picture\'s size set; the rest as on screen',
-      [n for n in KEPT_NAMES if value(values, n) != SKIP], ['mode', 'height', 'width'])
-values, answer = asked(paste='', into={**INTO, 'mode': 0, 'picture': {'generation_image': 7}})
-check('an empty text with `into` is not pasted either', [pasted, answer.get('mode')], [[], 0])
-values, answer = asked(paste='', generation=12, into={**INTO, 'mode': 3, 'picture': {'generation_image': 7}})
-check('nor one naming a generation: the picture alone, no press replayed',
-      [pasted, answer.get('mode'), value(values, 'prompt')], [[], 3, SKIP])
-
-values, answer = asked(generation=12, image=3, into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
-check('a kept press replayed into Sketch: its settings and size, the mode Sketch, no canvas',
-      [value(values, 'prompt'), value(values, 'width'), value(values, 'mode'), len(values), answer.get('mode')],
-      ['a pressed prompt', 512, 1, len(KEPT) + len(EXTRAS), 1])
-
-pasted.clear()
-values, answer = asked(paste='a castle')
-check('without `into`: the paste as it was, and no mode set',
-      [pasted, [n for n in KEPT_NAMES if value(values, n) != SKIP], 'mode' in answer], [['a castle'], ['prompt'], False])
-txt = attempt(lambda: json.loads(load._loader('txt2img', list(range(COUNT)), EXTRAS)(json.dumps(
-    {'nonce': 'n', 'paste': 'a castle', 'into': {**INTO, 'picture': {'generation_image': 7}}}))[-1]))
-check('txt2img takes no picture: its paste is as it was', [txt.get('mode') if isinstance(txt, dict) else txt],
-      [None])
-
 # ----------------------------------------------- a Civitai image's source (#302)
 # The page hands the loader the image's source, not a text: the loader builds
 # the text from the image's stored record (send.civitai_settings), pastes it,
@@ -294,6 +254,9 @@ generations = {
     14: gen('img2img', kept_press, 'a castle whose press is gone\nSteps: 20'),
     15: gen('img2img', kept_press, 'a pressed castle\nSteps: 20'),
     16: gen('txt2img', kept_press, 'a txt2img press\nSteps: 20'),
+    17: gen('img2img', None, ''),
+    18: gen('img2img', None, 'a castle\nSteps: 20'),
+    19: gen('img2img', None, 'a castle\nSize: 832x1216'),
 }
 load.get_models_db = lambda: types.SimpleNamespace(
     **{**vars(db_before()), 'get_generation': lambda gid: generations.get(gid)})
@@ -303,6 +266,42 @@ def ask_tab(tab, **request):
     out = load._loader(tab, KEPT, EXTRAS, KEPT_NAMES)(json.dumps({'nonce': 'n', **request}))
     return out[:-1], json.loads(out[-1])
 
+
+# The settings button, whatever it is asked: no canvas, only the other
+# controls, then the extras (#299); `into` sets the mode and, where the text
+# gives no size, the picture's.
+values, answer = asked(source={'kind': 'generation', 'generation': 19},
+                       into={**INTO, 'picture': {'generation_image': 7}})
+check('the settings button answers no canvas at all - only the other controls, then the extras',
+      [len(values), answer.get('error')], [len(KEPT) + len(EXTRAS), None])
+check('the infotext pasted, `mode` the chosen mode, its answer saying so; a text with a size keeps it',
+      [value(values, 'prompt'), value(values, 'mode'), answer.get('mode'), value(values, 'width')],
+      ['a castle', 2, 2, SKIP])
+values, answer = asked(source={'kind': 'generation', 'generation': 18},
+                       into={**INTO, 'mode': 4, 'picture': {'generation_image': 7}})
+check('an infotext with no size: width and height the picture\'s, as the page gives them',
+      [value(values, 'width'), value(values, 'height'), answer.get('mode')], [96, 64, 4])
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 17},
+                       into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
+check('no infotext: nothing pasted - Forge\'s paste of an empty text pastes the last run\'s settings',
+      [pasted, answer.get('mode')], [[], 1])
+check('only the mode and the picture\'s size set; the rest as on screen',
+      [n for n in KEPT_NAMES if value(values, n) != SKIP], ['mode', 'height', 'width'])
+values, answer = asked(source={'kind': 'generation', 'generation': 12, 'image': 5},
+                       into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
+check('a kept press replayed into Sketch: its settings and size, the mode Sketch, no canvas',
+      [value(values, 'prompt'), value(values, 'width'), value(values, 'mode'), len(values), answer.get('mode')],
+      ['a pressed prompt', 512, 1, len(KEPT) + len(EXTRAS), 1])
+pasted.clear()
+values, answer = asked(source={'kind': 'generation', 'generation': 18})
+check('without `into`: the paste as it was, and no mode set',
+      [pasted, [n for n in KEPT_NAMES if value(values, n) != SKIP], 'mode' in answer],
+      [['a castle\nSteps: 20'], ['prompt'], False])
+txt = attempt(lambda: ask_tab('txt2img', source={'kind': 'generation', 'generation': 13},
+                              into={**INTO, 'picture': {'generation_image': 7}})[1])
+check('txt2img takes no picture: its paste is as it was', [txt.get('mode') if isinstance(txt, dict) else txt],
+      [None])
 
 RENAME_X = [{'from': 'alias_x', 'to': 'file_x'}]
 pasted.clear(), pasted_for.clear(), after.clear()

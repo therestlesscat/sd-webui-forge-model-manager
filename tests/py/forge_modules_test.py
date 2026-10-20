@@ -179,6 +179,17 @@ check('a module file is read and classified, .sft included', fi.classify_file(pa
 db, facts = fixtures.build(WORK)
 dbmod._db_instance = db
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
+
+
+def forge_modules(params=None, **more):
+    """A Civitai image's plan as its own route answered it until #302 removed
+    the route: send.civitai_plan, through JSON, with the modules the page sent."""
+    from model_manager import send
+    p = {**(params or {}), **more}
+    return json.loads(json.dumps(send.civitai_plan(
+        db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
+        p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))))
+
 host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
 host.saved_modules = lambda preset: []
@@ -189,27 +200,27 @@ flux_path = facts['linked_paths'][4]
 db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
 import model_manager.identity_store as store             # noqa: E402
 store.needs_check = lambda db_, p: None                   # already read, as stored
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('for a checkpoint read as Flux: its preset, and what to select, from the file',
       (body['preset'], body['source'], body['manage_modules'], body['select']),
       ('flux', 'file', True, ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
 
 settings['flux'] = 't5xxl_fp8.safetensors, t5xxl_gone.safetensors'
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('the endpoint takes the preset\'s setting, and says which names are not installed',
       (body['select'], body['not_found']),
       (['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'], ['t5xxl_gone.safetensors']))
 settings.clear()
 
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Flux.1 D'}).json()
+body = forge_modules({'base_model': 'Flux.1 D'})
 check('a gallery that is not a checkpoint\'s goes by Civitai\'s baseModel',
       (body['preset'], body['source'], body['select'][:1]), ('flux', 'civitai', ['clip_l.safetensors']))
 
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
+body = forge_modules({'base_model': 'Illustrious'})
 check('SD and SDXL bring their own: modules are left to the image\'s VAE, as before',
       (body['preset'], body['manage_modules'], body['select']), ('xl', False, []))
 
-body = client.get('/model-manager/forge-modules', params={'base_model': 'HiDream'}).json()
+body = forge_modules({'base_model': 'HiDream'})
 check('and with no preset to go by, nothing is set up', (body['preset'], body['manage_modules']),
       (None, False))
 
@@ -217,23 +228,23 @@ check('and with no preset to go by, nothing is set up', (body['preset'], body['m
 # page changes only what differs from it. For a model whose modules are
 # managed, what pick() selects; for SD and SDXL, the image's own VAE as Forge
 # lists it, or nothing.
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('a managed model\'s target is what is picked for it', body['target'], body['select'])
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
-                                                          'vae': 'sdxl_vae'}).json()
+body = forge_modules({'base_model': 'Illustrious',
+                                                          'vae': 'sdxl_vae'})
 check('an SDXL image\'s is its own VAE, found by its bare name',
       (body['target'], body.get('modules_not_found')), (['sdxl_vae.safetensors'], []))
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious',
-                                                          'vae': 'vae_i_do_not_have'}).json()
+body = forge_modules({'base_model': 'Illustrious',
+                                                          'vae': 'vae_i_do_not_have'})
 check('a VAE not installed is said, and nothing is its target',
       (body['target'], body.get('modules_not_found')), ([], ['vae_i_do_not_have']))
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
+body = forge_modules({'base_model': 'Illustrious'})
 check('and an image that names none has nothing to hold', body['target'], [])
 
 # What Forge wrote as `Module 1`, `Module 2` (#204): the only place 4,277
 # stored images name their modules. Each is set up, by its kind.
 def plan(**params):
-    return client.get('/model-manager/forge-modules', params=params).json()
+    return forge_modules(params)
 
 
 body = plan(base_model='Illustrious', module=['sdxl_vae'])
@@ -270,17 +281,17 @@ fi.classify_file = lambda path: MODULES[path]
 # A checkpoint that carries its own text encoders and VAE - an all-in-one
 # Flux.1 or Krea 2 - gets none of them selected, and the page is told which
 # it brings, to say so: an empty control read as a send that had failed.
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('a checkpoint without them brings nothing', body['bundled'], [])
 db.set_architecture(flux_path, 'flux', 'Flux', True, True, '9999', file_type='Checkpoint')
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('an all-in-one Flux.1 brings its text encoders and VAE, and none is selected',
       (body['bundled'], body['select'], body['target']), (['clip_l', 't5xxl', 'vae_ae'], [], []))
 db.set_architecture(flux_path, 'flux', 'Flux', True, False, '9999', file_type='Checkpoint')
-body = client.get('/model-manager/forge-modules', params={'file_path': flux_path}).json()
+body = forge_modules({'file_path': flux_path})
 check('one with its text encoders alone gets only the VAE',
       (body['bundled'], body['select']), (['clip_l', 't5xxl'], ['ae.safetensors']))
-body = client.get('/model-manager/forge-modules', params={'base_model': 'Illustrious'}).json()
+body = forge_modules({'base_model': 'Illustrious'})
 check('and SD or SDXL, which always bring their own, are not said to', body['bundled'], [])
 db.set_architecture(flux_path, 'flux', 'Flux', False, False, '9999', file_type='Checkpoint')
 
@@ -304,7 +315,7 @@ host.checkpoint_name = lambda path: None          # no Forge here to list checkp
 
 
 def sent_from(path, **params):
-    return client.get('/model-manager/forge-modules', params={'file_path': path, **params}).json()
+    return forge_modules({'file_path': path, **params})
 
 
 body = sent_from(own_vae, version_ids=str(flux_id))
@@ -469,9 +480,8 @@ db.store_images(flux_id, 1, [{'id': 990001, 'url': 'https://image.civitai.com/x/
 host.checkpoint_name = lambda path: 'flux.safetensors [abcd1234]' if path == flux_path else None
 asked = {'file_path': lora_path, 'base_model': 'Flux.1 D', 'version_ids': str(flux_id)}
 new = client.get('/model-manager/send/plan', params={'kind': 'civitai', 'image': 990001, **asked}).json()
-old = client.get('/model-manager/forge-modules',
-                 params={**asked, 'module': ['ae.safetensors', 'clip_l', 'gone_te']}).json()
-check('a Civitai image\'s plan from the one route is the old route\'s, with its kind and the VAE it names',
+old = forge_modules({**asked, 'module': ['ae.safetensors', 'clip_l', 'gone_te']})
+check('a Civitai image\'s plan from the one route is civitai_plan\'s with the modules its record names, its kind and its VAE',
       new, {**old, 'kind': 'civitai', 'named_vae': 'ae.safetensors'})
 check('and it reads the image\'s modules from its record: one this WebUI lacks is named',
       (new['checkpoint'], new['target'], new['modules_not_found']),
@@ -486,7 +496,7 @@ check('a kind there is none of: 400',
 named_by = db.versions_named_by
 lookups = []
 db.versions_named_by = lambda *args, **kw: lookups.append(args) or named_by(*args, **kw)
-client.get('/model-manager/forge-modules', params=asked)
+forge_modules(asked)
 db.versions_named_by = named_by
 check('from a LoRA\'s gallery, the image\'s checkpoint looked up once, not once for each', len(lookups), 1)
 

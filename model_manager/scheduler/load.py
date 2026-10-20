@@ -1,15 +1,20 @@
 """
 Setting a tab's controls back from what we keep - one hidden button per tab,
-whose outputs are Generate's own inputs, for three kinds of request:
+whose outputs are Generate's own inputs. The page names a Send's source
+(#302), and the button sets it back:
 
   a task          Load to UI (#160): a queued task, to change it or run it
                   by hand;
   a generation    Send on one of your own generations (#7): what its press
                   was sent, as a task keeps it, with the chosen image's own
-                  seed and prompts;
-  an infotext     Send on a Civitai image, or a generation recorded before
-                  its press was kept (#7): Forge's own paste, run here, with
-                  what Neo's paste gets wrong set right.
+                  seed and prompts - or, recorded before its press was kept
+                  or not set back, its infotext pasted;
+  a Civitai image the infotext the server builds from its stored record
+                  (send.civitai_settings), pasted.
+
+A text is pasted through Forge's own paste function, run here, with what
+Neo's paste gets wrong set right, and the schedule type and Hires fix set
+in the same event (after_paste).
 
 Not by pasting an infotext into the page. Forge sets some controls from which
 keys a text holds - Hires fix is ticked when "Denoising strength" and "Hires
@@ -617,7 +622,9 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 # For Forge's own paste button, where its paste function is missing.
                 answer.update({"text": found["text"], "scheduler": found["scheduler"], "hires": found["hires"]})
                 if not found["text"]:
-                    # Nothing to paste: into img2img the picture alone goes in (#299).
+                    # Nothing to paste - Forge's paste of an empty text pastes the
+                    # last run's settings (params.txt): into img2img the picture
+                    # alone goes in (#299).
                     values = [gr.update()] * count
                     if into:
                         answer.update({"mode": _into(values, list(names), into, False)})
@@ -634,32 +641,9 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                     sized = "Size-1" in parse_generation_parameters(found["text"])
                     answer.update({"mode": _into(values, list(names), into, sized)})
                 return [*values, json.dumps(answer)]
-            # Forge's paste of an empty text pastes the last run's settings
-            # (params.txt): an image with no infotext is sent with none (#299)
-            # - an empty text, or no text and no press to replay.
-            empty = request.get("paste") is not None or request.get("generation") is None
-            if into and not request.get("paste") and empty:
-                values = [gr.update()] * count
-                answer.update({"mode": _into(values, list(names), into, False)})
-                return [*values, *rest, json.dumps(answer)]
-            if request.get("paste") is not None:
-                if outputs is None:
-                    own = capture.generate_click(tab)
-                    outputs = kept_only(list(own.inputs[1:])) + list(extras)
-                values, missing = paste_values(tab, request["paste"], request.get("generation"),
-                                               outputs, skip=gr.update())
-                answer.update({"pasted": True, "missing": missing})
-                if into:
-                    sized = "Size-1" in parse_generation_parameters(request["paste"])
-                    answer.update({"mode": _into(values, list(names), into, sized)})
-                return [*values, json.dumps(answer)]
-            if request.get("generation") is not None:
-                answer["generation"] = request.get("generation")
-                values, skipped, notes = generation_values(tab, int(request["generation"]),
-                                                           request.get("image"), skip=gr.update())
-            else:
-                answer["task"] = request.get("task")
-                values, skipped, notes = task_values(tab, int(request.get("task")), skip=gr.update())
+            # A task, set back from what it was queued with.
+            answer["task"] = request.get("task")
+            values, skipped, notes = task_values(tab, int(request.get("task")), skip=gr.update())
             values = kept_only(values)
             answer.update({"skipped": skipped, "notes": notes})
             if into:

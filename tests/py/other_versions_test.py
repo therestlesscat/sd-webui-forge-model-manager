@@ -8,6 +8,7 @@ Any version of the model, whatever its base model, each naming its own;
 newest first by Civitai's stored order, one Civitai no longer lists last;
 only checkpoint files held here.
 """
+import json
 import os
 import sys
 
@@ -121,7 +122,12 @@ image = {'file_path': LORA, 'version_ids': str(IMAGE_VERSION), 'model_name': 'v3
 
 
 def plan(**params):
-    return client.get('/model-manager/forge-modules', params={**image, **params}).json()
+    """A Civitai image's plan as its own route answered it until #302 removed the route."""
+    from model_manager import send
+    p = {**image, **params}
+    return json.loads(json.dumps(send.civitai_plan(
+        db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
+        p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))))
 
 
 body = plan(use_version=V1)

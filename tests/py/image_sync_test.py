@@ -228,7 +228,7 @@ check('Module 1 is Forge\'s module by that name - Neo writes it without its exte
       [r[2] for r in got if r[0] in ('module', 'vae')], [VAE])
 check('a checkpoint the library lacks is kept by the text\'s name, with no path',
       [(r[1], r[2]) for r in resources(unmatched) if r[0] == 'checkpoint'], [('mystery_model', None)])
-from model_manager.api.generations import send_plan   # noqa: E402
+from model_manager.send import generation_plan as send_plan   # noqa: E402
 gid_unmatched = rows("SELECT generation_id FROM generation_images WHERE path = ?", (unmatched,))[0][0]
 check('Send stops for a checkpoint the library lacks, naming the one the text names, as for a recorded image (#134)',
       send_plan(db, gid_unmatched)['checkpoint_missing'], 'mystery_model')
