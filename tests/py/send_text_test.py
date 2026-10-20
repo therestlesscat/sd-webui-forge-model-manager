@@ -97,6 +97,26 @@ check('as does one quoted only in part', text({**IMAGE, 'prompt': 'a sign readin
 check('seed 0 is a seed (#310)', 'Seed: 0,' in settings(text({**IMAGE, 'seed': 0})), True)
 check('the sampler\'s name read for its schedule type, as Forge names both',
       'Sampler: Euler a, Schedule type: Karras' in settings(text({**IMAGE, 'sampler': 'euler_a_karras'})), True)
+# ComfyUI and Civitai's own generator name the schedule type under a
+# lowercase `scheduler` (#308): 5,226 of 107,469 stored images, with no
+# `Schedule type`. Read, it is Forge's by case and `_ - +` as spaces.
+check('a schedule type under `scheduler`, as Forge lists it',
+      'Sampler: Euler a, Schedule type: Karras' in settings(text({**IMAGE, 'scheduler': 'karras'})), True)
+check('`scheduler` matched with `_` as a space', 'Schedule type: SGM Uniform' in settings(text({**IMAGE, 'scheduler': 'sgm_uniform'})), True)
+check('`scheduler` wins over the one the sampler\'s name ends in; the sampler is still split from it',
+      'Sampler: DPM++ 2M, Schedule type: Simple' in settings(text({**IMAGE, 'sampler': 'DPM++ 2M Karras', 'scheduler': 'simple'})), True)
+check('`Schedule type` wins over `scheduler`',
+      'Schedule type: Simple' in settings(text({**IMAGE, 'Schedule type': 'Simple', 'scheduler': 'karras'})), True)
+check('one Forge does not list: the sampler\'s name read, as before',
+      'Schedule type: Karras' in settings(text({**IMAGE, 'sampler': 'euler_a_karras', 'scheduler': 'beta57'})), True)
+check('one Forge does not list, and none in the sampler\'s name: no schedule type',
+      'Schedule type' in settings(text({**IMAGE, 'scheduler': 'beta57'})), False)
+check('the raw field stays in the settings line, as it was', 'scheduler: karras' in settings(text({**IMAGE, 'scheduler': 'karras'})), True)
+i = lambda meta: send.image_scheduler(meta, SAMPLERS, SCHEDULERS)
+check('the schedule type Send sets after the paste: `scheduler` too, and the same order',
+      [i({'scheduler': 'karras'}), i({'sampler': 'DPM++ 2M Karras', 'scheduler': 'simple'}),
+       i({'Schedule type': 'Simple', 'scheduler': 'karras'}), i({'scheduler': 'beta57'})],
+      ['Karras', 'Simple', 'Simple', None])
 check('numbers written as the page wrote them: 7.0 as 7',
       'CFG scale: 7,' in settings(text({**IMAGE, 'cfgScale': 7.0})), True)
 check('Lora hashes are not pasted: Forge would rename its LoRAs by them',
@@ -235,6 +255,10 @@ check('else the sampler\'s name read for one, as Forge names both', c({'sampler'
       {'mm_sampler': 'Euler a', 'mm_scheduler': 'Uniform'})
 check('a sampler with no schedule type in its name: as given', c({'sampler': 'Euler'}),
       {'mm_sampler': 'Euler', 'mm_scheduler': None})
+check('a schedule type under `scheduler` shown as Forge lists it (#308)', c({'sampler': 'Euler a', 'scheduler': 'karras'}),
+      {'mm_sampler': 'Euler a', 'mm_scheduler': 'Karras'})
+check('`scheduler` wins over the sampler\'s name, which is still split', c({'sampler': 'Euler a Uniform', 'scheduler': 'simple'}),
+      {'mm_sampler': 'Euler a', 'mm_scheduler': 'Simple'})
 check('no data: nothing to show', [c({}), c(None)], [{'mm_sampler': None, 'mm_scheduler': None}] * 2)
 images = [{'meta': {'sampler': 'euler_a_karras'}}, 'not an image', {'meta': None}]
 send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)

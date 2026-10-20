@@ -446,12 +446,27 @@ def had_hires(meta: Dict[str, Any]) -> bool:
         _truthy(meta.get(k)) for k in ("Hires upscale", "Hires upscaler", "Hires resize-1", "Hires resize-2"))
 
 
+def sampler_and_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers: List[str]) -> Dict[str, Any]:
+    """
+    The sampler and schedule type an image names: its `Schedule type`; else
+    its `scheduler` - ComfyUI's and Civitai's generator's lowercase field
+    (#308) - as Forge lists it, by case and `_ - +`; else the one its
+    sampler's name ends in. The sampler is split from that name either way:
+    "DPM++ 2M Karras" with `scheduler` simple is DPM++ 2M and Simple.
+    """
+    sampler, scheduler = meta.get("sampler"), meta.get("Schedule type")
+    if not _truthy(scheduler):
+        named = _normalised(meta.get("scheduler"))
+        scheduler = next((s for s in schedulers if named and _normalised(s) == named), scheduler)
+        if _truthy(sampler):
+            split = split_sampler(sampler, samplers, schedulers)
+            sampler, scheduler = split["sampler"], scheduler or split["scheduler"]
+    return {"sampler": sampler, "scheduler": scheduler}
+
+
 def image_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers: List[str]) -> Any:
-    """The schedule type an image names: its `Schedule type`, else the one its sampler's name ends in."""
-    scheduler = meta.get("Schedule type")
-    if not _truthy(scheduler) and _truthy(meta.get("sampler")):
-        scheduler = split_sampler(meta.get("sampler"), samplers, schedulers)["scheduler"]
-    return scheduler
+    """The schedule type an image names (`sampler_and_scheduler`)."""
+    return sampler_and_scheduler(meta, samplers, schedulers)["scheduler"]
 
 
 def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
@@ -476,11 +491,8 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
     if _truthy(negative):
         infotext += "\nNegative prompt: " + _js_text(negative)
 
-    sampler = meta.get("sampler")
-    scheduler = meta.get("Schedule type")
-    if not _truthy(scheduler) and _truthy(sampler):
-        split = split_sampler(sampler, samplers, schedulers)
-        sampler, scheduler = split["sampler"], split["scheduler"]
+    named = sampler_and_scheduler(meta, samplers, schedulers)
+    sampler, scheduler = named["sampler"], named["scheduler"]
     hires = had_hires(meta)
 
     params = []
@@ -663,18 +675,15 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def card_reading(meta: Any, samplers: List[str], schedulers: List[str]) -> Dict[str, Any]:
     """
     The sampler and schedule type an image's card shows (#302): its
-    `Schedule type`; else its sampler's name read for one, as Forge names
-    both ("Euler a Karras" is Euler a and Karras), the sampler then the one
-    Forge lists - else the sampler as given. Ported from the card's own
+    `Schedule type`; else its `scheduler` (#308); else its sampler's name
+    read for one, as Forge names both ("Euler a Karras" is Euler a and
+    Karras), the sampler then the one Forge lists - else the sampler as
+    given (`sampler_and_scheduler`). Ported from the card's own
     reading (imageTextHtml in image_card.mjs), and written on each image
     beside its level (`stamp_readings`), as the page reads the level.
     """
-    meta = meta if isinstance(meta, dict) else {}
-    sampler, scheduler = meta.get("sampler"), meta.get("Schedule type")
-    if not _truthy(scheduler) and _truthy(sampler):
-        split = split_sampler(sampler, samplers, schedulers)
-        sampler, scheduler = split["sampler"], split["scheduler"]
-    return {"mm_sampler": sampler, "mm_scheduler": scheduler}
+    named = sampler_and_scheduler(meta if isinstance(meta, dict) else {}, samplers, schedulers)
+    return {"mm_sampler": named["sampler"], "mm_scheduler": named["scheduler"]}
 
 
 def stamp_readings(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
