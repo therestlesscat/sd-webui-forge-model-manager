@@ -113,14 +113,22 @@ line 365). And `, width:` and `, height:` are rewritten to `Size-1` and
 as it does every field it has no rule for, overrides its `Size`: a 2304 x
 1664 picture whose metadata said 512 x 512 went in at 512 x 512. Since
 0.67.0 the size rule leaves the data's width and height out where their
-shape is not the picture's (`send.civitai_meta`, #302). Send's own last line holds only `Size` and `ADetailer enable` when
-the data gives nothing else, and becomes prompt text: 948 of one library's
-stored images (#313). A sampler Forge does not know becomes its first, DPM++
-2M, without a word (`get_sampler_and_scheduler`, `modules/sd_samplers.py`):
-6,454 of 102,563 name one Send's matching (`send.match_sampler`) misses (#309).
-Send's notice for what this WebUI lacks covers only what the server's
-`corrections()` checks - the hires checkpoint, the refiner, the hires
-modules (#307).
+shape is not the picture's (`send.civitai_meta`, #302). A line of two
+fields became prompt text, so a short one writes `Size-1` and `Size-2`, and a
+value with a line break is quoted as Forge quotes it (0.67.5, #313). A sampler
+Forge does not know becomes its first, DPM++ 2M, without a word
+(`get_sampler_and_scheduler`): Send matches by Forge's own names - aliases and
+k-diffusion function names (0.67.6, #309) - and names what this WebUI lacks,
+setting nothing (0.67.7, #307). Both parsers turn `Sampler: Undefined` into
+Euler; the original Forge's writes `Schedule type: Automatic` where the text
+gives none - no schedule type given. Neo's drops `Clip skip` from every paste
+(`e447ffe1`, no reason given), where the original Forge makes it an Override
+settings entry, but for Civitai's Flux images. An Override settings entry
+applies to each generation and is put back after (`processing.py`, 802-846):
+setting Forge's Clip Skip itself carried one image's value into later
+generations, other models' included, so Send adds the entry (#318). And Neo's
+Apply settings sends every field the Settings page shows (`run_settings`): a
+setting changed on the server, and not on the page, is written back.
 
 **A grid placed by the tab (#240) has the browser's habits to reckon with.**
 Fast (`tiles.mjs`, `placedGrid`) keeps only the rows within 3,000 px of the

@@ -761,6 +761,18 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `model_manager/db/AGENTS.md`, "Proving a change". A delay on the page:
   `javascript/AGENTS.md`, "Proving a change".
 
+- **A live Send changes Forge's saved state:** the checkpoint, the UI preset,
+  and the VAE / Text Encoder selection (`forge_additional_modules` and its
+  per-preset copy), in `config.json`. #303's old-code run left the Flux VAE
+  selected for SDXL; the reloaded page showed none while Forge held it, and
+  only #3's notice said so. Read `config.json` before a live check, and put
+  back what it leaves through Forge's own control, pressed as Send presses it.
+- **A whole-tab fingerprint is not stable across a restart.** ADetailer's
+  checkpoint box on each tab takes a value per process, and ForgeCanvas names
+  its elements with a uuid per process. #307's old-against-new run differed
+  in 4 of 722 controls; a second process of the same code, in the same 4.
+  Compare control by control, against a second process of the same code.
+
 ### The code
 
 - **Search the page too before saying the extension does not do something.**
@@ -828,6 +840,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   Resource-Exhaustion-Detector (id 2004) named it at 55.1 GB of commit,
   against a 110 GB limit, while another program held 61 GB. Application's id
   1000 has the crash; neither reaches the console.
+- **A script named after a standard module shadows it** for every script in
+  its folder: `tests/work/r313/inspect.py` broke another script there, whose
+  imports reached Python's `inspect`. Name a probe after what it does.
 - Running the tests: `tests/AGENTS.md`, "The environment". Running Neo's
   detector outside the WebUI: `model_manager/AGENTS.md`, "The environment".
 
