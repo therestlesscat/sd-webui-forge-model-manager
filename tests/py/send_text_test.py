@@ -319,6 +319,32 @@ check('no text at all: nothing to paste; no such generation: None',
 check('settings() takes a generation\'s source to it', send.settings(db, {'kind': 'generation', 'generation': 7,
                                                                          'image': 71})['scheduler'], 'Karras')
 
+# ------------------------------------------------------- clip skip (#318)
+# Civitai stores it as `clipSkip` (65,773 of 107,469 images), which went
+# into the text as a field Forge ignores; it is written as Forge's own.
+check('clipSkip written as Forge\'s Clip skip, the raw field gone',
+      ['Clip skip: 2' in settings(text({**IMAGE, 'clipSkip': 2})), 'clipSkip' in text({**IMAGE, 'clipSkip': 2})], [True, False])
+check('CLIP Skip and Clip Skip read alike', ['Clip skip: 3' in settings(text({**IMAGE, k: 3})) for k in ('CLIP Skip', 'Clip Skip')],
+      [True, True])
+check('Clip slip and clipstopatlayer passed on as they were',
+      [settings(text({**IMAGE, 'Clip slip': 2})).endswith(', Clip slip: 2'), 'clipstopatlayer: -2' in settings(text({**IMAGE, 'clipstopatlayer': -2})),
+       'Clip skip' in settings(text({**IMAGE, 'Clip slip': 2, 'clipstopatlayer': -2}))], [True, True, False])
+# What Send sets Forge's Clip Skip to: the image's, a whole 1 to 12; none
+# for Flux, where it changes nothing.
+def clip(meta, base='SD 1.5'):
+    db = type('Db', (), {'stored_records': lambda self, ids: [{'meta': {**IMAGE, **meta}, 'width': 832, 'height': 1216,
+                                                                'baseModel': base}]})()
+    return send.civitai_settings(db, {'image': 1})['clip_skip']
+check('a Civitai image\'s clip skip, SDXL\'s 1 too; none for Flux, for none given, or for one Forge has no setting for',
+      [clip({'clipSkip': 1}), clip({'clipSkip': '2'}), clip({'clipSkip': 1}, 'SDXL 1.0'), clip({'clipSkip': 2}, 'Flux.1 D'),
+       clip({}), clip({'clipSkip': 0}), clip({'clipSkip': 13}), clip({'clipSkip': 'two'})],
+      [1, 2, 1, None, None, None, None, None])
+gen = Generations({20: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [
+    {'id': 200, 'infotext': 'a castle\nSteps: 20, Sampler: Euler, Clip skip: 1', 'meta': {}},
+    {'id': 201, 'infotext': 'a castle\nSteps: 20, Sampler: Euler', 'meta': {}}]}})
+check('a generation\'s clip skip from its own text; none where it gives none',
+      [send.generation_settings(gen, {'generation': 20, 'image': i})['clip_skip'] for i in (200, 201)], [1, None])
+
 # ------------------------------------------------- the card's reading (#302)
 # The sampler and schedule type an image's card shows, read where its level
 # is stamped. The card read them itself; every stored image is compared with

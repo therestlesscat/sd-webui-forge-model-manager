@@ -382,6 +382,36 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
     return [by_component.get(id(o), skip) for o in outputs], missing, unavailable(tab, infotext, controls)
 
 
+def clip_skip_override(tab: str, values: List[Any], outputs: List[Any], value: Optional[int]) -> Dict[str, Any]:
+    """
+    The image's clip skip as an entry of the tab's Override settings (#318),
+    where Send's setting asks it and it differs from Forge's Clip Skip:
+    Forge applies an override to the generations made while it is there and
+    puts the setting back after each (`processing.py`), and the next paste
+    replaces the box - so it never carries over, and the setting is never
+    changed. Neo's paste drops an infotext's `Clip skip`; the original
+    Forge's makes this same entry. Added to what the paste put in the box;
+    returns the answer's `clip_skip`, or nothing where nothing was added.
+    """
+    import gradio as gr
+    from .. import forge_host
+    from ..send import CLIP_SKIP_OPTION, CLIP_SKIP_SETTING
+    at = next((n for n, c in enumerate(outputs) if getattr(c, "elem_id", None) == f"{tab}_override_settings"), None)
+    if value is None or at is None or not forge_host.setting(CLIP_SKIP_SETTING):
+        return {}
+    try:
+        yours = int(forge_host.forge_setting(CLIP_SKIP_OPTION))
+    except (TypeError, ValueError):
+        yours = None
+    if yours == value:
+        return {}
+    pasted = values[at].get("value") if isinstance(values[at], dict) else values[at]
+    entries = [e for e in (pasted if isinstance(pasted, list) else []) if not str(e).startswith("Clip skip:")]
+    entries.append(f"Clip skip: {value}")
+    values[at] = gr.update(value=entries, choices=entries, visible=True)
+    return {"clip_skip": {"value": value, "yours": yours}}
+
+
 def unavailable(tab: str, infotext: str, controls: Dict[str, Any]) -> List[Dict[str, str]]:
     """
     What a pasted infotext names that this WebUI does not offer (#307), each
@@ -666,6 +696,7 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 values, missing, lacking = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update())
                 after_paste(tab, values, outputs, list(names), found["scheduler"], found["hires"])
                 answer.update({"pasted": True, "missing": missing, "unavailable": lacking})
+                answer.update(clip_skip_override(tab, values, outputs, found.get("clip_skip")))
                 if into:
                     sized = "Size-1" in parse_generation_parameters(found["text"])
                     answer.update({"mode": _into(values, list(names), into, sized)})

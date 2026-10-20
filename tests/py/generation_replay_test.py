@@ -311,7 +311,7 @@ pasted_id = db.record_generation(
     {'created_at': '2026-10-09T12:05:00', 'mode': 'txt2img', 'prompt': 'x', 'n_iter': 1, 'batch_size': 1,
      'image_count': 1},
     [{'position': 0, 'iteration': 0, 'path': 'c.png', 'prompt': 'x', 'seed': 1, 'subseed': 1,
-      'negative_prompt': '', 'infotext': 'x\nSteps: 1, Sampler: DPM2 a, Hires checkpoint: gone [1]'}], [[]])
+      'negative_prompt': '', 'infotext': 'x\nSteps: 1, Sampler: DPM2 a, Clip skip: 1, Hires checkpoint: gone [1]'}], [[]])
 
 # ===================================================== Send, for one image
 one = attempt(lambda: load.for_image('txt2img', generation_inputs, second))
@@ -433,6 +433,38 @@ send.forge_lists = lambda: ([], [])
 check('no samplers to read: nothing said of them',
       attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM2 a, Schedule type: beta57', {})), [])
 send.forge_lists = held_lists
+
+# The image's clip skip as an entry of the tab's Override settings, where
+# Send's setting asks it and it differs from Forge's Clip Skip: for the
+# generations made while it is there; the setting itself never changed (#318).
+from model_manager import forge_host                       # noqa: E402
+held_host = (forge_host.forge_setting, forge_host.store_settings)
+clip_state = {'CLIP_stop_at_last_layers': 2}
+stored = []
+forge_host.forge_setting = lambda key: clip_state.get(key)
+forge_host.store_settings = lambda values: stored.append(dict(values)) or list(values)
+BOX = Dropdown('Override settings', 'txt2img_override_settings', value=[])
+OTHER = Dropdown('Sampler', 'txt2img_sampling', value='Euler')
+def override(value, pasted, outputs=None):
+    outputs = outputs or [OTHER, BOX]
+    values = ['Euler', pasted][:len(outputs)]
+    answer = load.clip_skip_override('txt2img', values, outputs, value)
+    shown = values[-1] if outputs[-1] is BOX else None
+    return answer, (shown.get('value'), shown.get('choices'), shown.get('visible')) if isinstance(shown, dict) else shown
+check('the image\'s clip skip added to what the paste put in Override settings, shown; the setting never set',
+      [attempt(lambda: override(1, {'__type__': 'update', 'value': ['VAE/TE: []'], 'choices': ['VAE/TE: []'], 'visible': True})), stored],
+      [({'clip_skip': {'value': 1, 'yours': 2}}, (['VAE/TE: []', 'Clip skip: 1'], ['VAE/TE: []', 'Clip skip: 1'], True)), []])
+check('a Clip skip entry already there is replaced, not doubled; a paste that left the box as it was gets one',
+      [attempt(lambda: override(3, {'__type__': 'update', 'value': ['Clip skip: 1'], 'choices': ['Clip skip: 1']}))[1],
+       attempt(lambda: override(1, {'__type__': 'update'}))[1]],
+      [(['Clip skip: 3'], ['Clip skip: 3'], True), (['Clip skip: 1'], ['Clip skip: 1'], True)])
+check('your setting already the image\'s, or none to add: the box as the paste left it, nothing said',
+      [attempt(lambda: override(2, {'__type__': 'update', 'value': []})), attempt(lambda: override(None, {'__type__': 'update', 'value': []}))],
+      [({}, ([], None, None)), ({}, ([], None, None))])
+check('no Override settings among the outputs: nothing', attempt(lambda: override(1, 'x', [OTHER]))[0], {})
+opts.model_manager_send_clip_skip = False
+check('Send\'s setting off: nothing', attempt(lambda: override(1, {'__type__': 'update', 'value': []}))[0], {})
+opts.model_manager_send_clip_skip = True
 OLD = {'hr_checkpoint_path': PATHS['chill'], 'hr_modules': [r'F:\vae\ae.safetensors'], 'refiner_path': PATHS['rv'],
        'params': {'refiner_cfg': 3.0}}
 check('a record\'s own paths win, and its refiner CFG comes back, which no infotext carries',
@@ -484,11 +516,16 @@ extras = [OVERRIDE]
 # sets its kept press back.
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p1'})))
-check('an infotext is answered for every output, the files missing named, and what else it lacks (#307)',
+check('an infotext is answered for every output, the files missing named, what else it lacks (#307), '
+      'and the clip skip set (#318)',
       attempt(lambda: (len(answer), {k: v for k, v in json.loads(answer[-1]).items()
-                                     if k in ('nonce', 'pasted', 'missing', 'replayed', 'unavailable')})),
+                                     if k in ('nonce', 'pasted', 'missing', 'replayed', 'unavailable', 'clip_skip')})),
       (generate_count + len(extras) + 1, {'nonce': 'p1', 'pasted': True, 'missing': ['gone [1]'],
-                                         'unavailable': [{'name': 'DPM2 a', 'kind': 'sampler'}]}))
+                                         'unavailable': [{'name': 'DPM2 a', 'kind': 'sampler'}],
+                                         'clip_skip': {'value': 1, 'yours': 2}}))
+check('its Override settings - after Generate\'s own inputs, the first extra - hold the image\'s clip skip, and no other output does',
+      attempt(lambda: [n for n, v in enumerate(answer[:-1]) if 'Clip skip: 1' in json.dumps(v, default=str)]), [generate_count])
+forge_host.forge_setting, forge_host.store_settings = held_host
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': generation_id, 'image': second['id']}, 'nonce': 'g1'})))
 check('a generation\'s image is answered as a task is',

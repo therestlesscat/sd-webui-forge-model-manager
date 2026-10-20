@@ -1,5 +1,19 @@
 [
     {
+        "id": "send-clip-skip",
+        "version": "0.67.8",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations",
+            "gallery"
+        ],
+        "title": "Send uses the image's Clip skip",
+        "text": "Where an image gives a clip skip other than your Clip Skip setting, Send now puts it in the tab's Override settings and says so, so the image can be made again as it was; Forge Neo's own paste ignores it. It applies to the generations made while it is there, your setting is not changed, and the next Send replaces it. Not for Flux, where clip skip changes nothing. To turn it off: Settings -> Model Manager -> Send: use the image's Clip skip."
+    },
+    {
         "id": "send-into-img2img",
         "version": "0.66.0",
         "kind": "feature",

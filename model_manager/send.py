@@ -511,9 +511,33 @@ def _unquoted(text: Any) -> Any:
 # Hires fix's keys, written only when the image had it: Forge's paste turns
 # it on from them.
 _HANDLED = ("prompt", "negativePrompt", "steps", "sampler", "Schedule type", "cfgScale", "seed",
-            "Size", "Model", "Model hash", "VAE", "Denoising strength", "Clip skip",
+            "Size", "Model", "Model hash", "VAE", "Denoising strength", "Clip skip", "clipSkip", "CLIP Skip", "Clip Skip",
             "Hires upscale", "Hires upscaler", "Hires steps", "Hires resize-1", "Hires resize-2",
             "resources", "civitaiResources", "Lora hashes")
+
+
+# An image's clip skip (#318): Forge's own field, else Civitai's `clipSkip`
+# (65,773 of one library's 107,469 images) and two spellings of it. Not
+# `Clip slip`, an uploader's typo, nor ComfyUI's `clipstopatlayer`, which
+# counts the other way.
+_CLIP_SKIP_KEYS = ("Clip skip", "clipSkip", "CLIP Skip", "Clip Skip")
+# Forge's Clip Skip setting and its range (shared_options.py, both WebUIs).
+CLIP_SKIP_OPTION = "CLIP_stop_at_last_layers"
+CLIP_SKIP_SETTING = "model_manager_send_clip_skip"
+
+
+def image_clip_skip(meta: Dict[str, Any]) -> Any:
+    """The clip skip an image's data gives, as it gives it; None for none."""
+    return next((meta[k] for k in _CLIP_SKIP_KEYS if _truthy(meta.get(k))), None)
+
+
+def clip_skip_value(value: Any) -> Optional[int]:
+    """A clip skip as Forge's setting takes it: a whole 1 to 12; None else."""
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number.is_integer() and 1 <= number <= 12 else None
 
 
 def had_hires(meta: Dict[str, Any]) -> bool:
@@ -575,6 +599,16 @@ def missing_names(fields: Dict[str, Any], samplers: List[Any], schedulers: List[
     return missing
 
 
+def _text_field(infotext: Any, key: str) -> Any:
+    """A field of an infotext's settings line, as Forge's pattern reads it - a
+    line of three fields or more; None for none."""
+    last = str(infotext or "").strip().split("\n")[-1]
+    fields = _RE_PARAM.findall(last)
+    if len(fields) < 3:
+        return None
+    return next((v.strip() for k, v in fields if k.strip() == key), None)
+
+
 def _field(key: str, value: Any) -> str:
     """A field of the settings line. A value with a line break is quoted as
     Forge quotes it (`quote`, infotext_utils.py), which its paste unquotes:
@@ -624,9 +658,11 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
     # Seed 0 is a seed (#310).
     if meta.get("seed") is not None and meta.get("seed") != "":
         params.append(_field("Seed", meta['seed']))
-    for key in ("Size", "Model", "Model hash", "VAE", "Clip skip"):
+    for key in ("Size", "Model", "Model hash", "VAE"):
         if _truthy(meta.get(key)):
             params.append(_field(key, meta[key]))
+    if image_clip_skip(meta) is not None:
+        params.append(_field("Clip skip", image_clip_skip(meta)))
     denoise = denoising_strength if denoising_strength is not None else (meta.get("Denoising strength") if hires else None)
     if denoise is not None:
         params.append(_field("Denoising strength", denoise))
@@ -831,6 +867,10 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                                  negative_prompt=source.get("negative_prompt"), upscalers=forge_upscalers()),
         "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
+        # For Forge's Clip Skip setting (#318): none for Flux, which takes
+        # only CLIP's final summary and so changes nothing by it.
+        "clip_skip": None if "flux" in str(record.get("baseModel") or "").lower()
+                     else clip_skip_value(image_clip_skip(meta)),
     }
 
 
@@ -965,6 +1005,8 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
         "text": without_lora_hashes(renamed(infotext, source.get("renames"))) if infotext else "",
         "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
+        # Neo writes `Clip skip` into its own text for SD 1.x alone.
+        "clip_skip": clip_skip_value(_text_field(infotext, "Clip skip")),
         "replay": replays(generation, into),
         "mode": generation.get("mode"),
     }

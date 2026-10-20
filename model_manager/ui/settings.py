@@ -699,6 +699,21 @@ def on_ui_settings():
                "0: Generate never asks.")
     )
 
+    # Forge's Clip Skip, set by Send to the image's own (#318).
+    shared.opts.add_option(
+        "model_manager_send_clip_skip",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_send_clip_skip"],
+            label="Send: use the image's Clip skip",
+            component=gr.Checkbox,
+            section=section,
+        ).info("On: where an image gives a clip skip other than your Clip Skip setting, Send adds it "
+               "to the tab's Override settings, and says so - so the image can be made again as it "
+               "was. It applies to the generations made while it is there; your setting is not "
+               "changed, and the next Send replaces it. Not for Flux, where clip skip changes "
+               "nothing. Off: left to Forge's paste, which in Forge Neo ignores it.")
+    )
+
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
         "<b>Send to txt2img: text encoders and VAE.</b> Sending an image from a "

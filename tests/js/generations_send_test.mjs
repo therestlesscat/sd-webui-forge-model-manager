@@ -218,6 +218,16 @@ loaderAnswer = () => ({ pasted: true, unavailable: [{ name: 'beta57', kind: 'sch
 await act('generations.send', { tile: 0 });
 await waitFor('the notice', () => document.querySelector('.mm-notice'));
 check('one name alone', document.querySelector('.mm-notice')?.textContent, 'beta57 (schedule type) is not in this WebUI.');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// The image's clip skip, put in the tab's Override settings by the loader
+// (#318): said, the setting kept.
+loaderAnswer = () => ({ pasted: true, clip_skip: { value: 1, yours: 2 } });
+await act('generations.send', { tile: 0 });
+await waitFor('the notice', () => document.querySelector('.mm-notice'));
+check('the clip skip added is said, and that the setting stays',
+      document.querySelector('.mm-notice')?.textContent,
+      "Clip skip 1, the image's, for this tab's generations (Override settings); your setting stays 2.");
 loaderAnswer = () => ({ pasted: true });
 
 // An image Sync images brought with no generation text (#233): Send has

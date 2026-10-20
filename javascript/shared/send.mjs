@@ -1314,6 +1314,13 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
                 said.push(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
                           + 'this WebUI: the current choice is kept for it.');
             }
+            // The image's clip skip, put in the tab's Override settings by
+            // the loader (#318): for its generations alone, the setting kept.
+            if (answer.clip_skip) {
+                const { value, yours } = answer.clip_skip;
+                said.push(`Clip skip ${value}, the image's, for this tab's generations (Override settings)`
+                          + `${yours == null ? '' : `; your setting stays ${yours}`}.`);
+            }
             if (said.length) showNotice(said.join(' '), { info: true });
         }
         // A source's scheduler and Hires fix were set by the loader, in the
