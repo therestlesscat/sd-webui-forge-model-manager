@@ -388,40 +388,115 @@ def _js_number(x: float) -> str:
     return sign + text
 
 
-def _normalised(text: Any) -> str:
-    """A sampler's name as names are compared: lower case, `_ - +` as spaces."""
-    if not _truthy(text):
-        return ""
-    return re.sub(r"\s+", " ", re.sub(r"[_\-+]", " ", str(text).lower())).strip()
+def _bare(text: Any) -> str:
+    """A name as names are compared (#309): lower case, without spaces or
+    `_ - + .` - `4xUltrasharp` is `4x-UltraSharp`, `SGMUniform` SGM Uniform.
+    No two of Neo's samplers, schedule types or upscalers become one so."""
+    return re.sub(r"[\s_\-+.]", "", str(text).lower()) if _truthy(text) else ""
 
 
-def match_sampler(name: Any, samplers: List[str]) -> Any:
-    """The sampler Forge lists for a name an image gives, by case and `_ - +`;
+def _label(entry: Any) -> str:
+    """A sampler's or schedule type's name as Forge lists it: an entry is the
+    name, or the name with its other names (forge_host.sampler_names)."""
+    return entry if isinstance(entry, str) else entry[0]
+
+
+def _found(key: str, entries: List[Any]) -> Optional[str]:
+    """The entry one of whose names is `key`, compared bare; the first in
+    Forge's order where two share one."""
+    for entry in entries:
+        names = [entry] if isinstance(entry, str) else [entry[0], *entry[1]]
+        if key and any(_bare(n) == key for n in names):
+            return _label(entry)
+    return None
+
+
+def _sampler_named(name: Any, samplers: List[Any]) -> Optional[str]:
+    """The sampler Forge lists for a name an image gives: by its name, its
+    aliases or its k-diffusion function - ComfyUI's name - compared bare, a
+    ComfyUI `_gpu` the same sampler (#309). None for none."""
+    if not _truthy(name) or not samplers:
+        return None
+    if name in [_label(s) for s in samplers]:
+        return name
+    key = _bare(name)
+    return _found(key, samplers) or (_found(key[:-3], samplers) if key.endswith("gpu") else None)
+
+
+def match_sampler(name: Any, samplers: List[Any]) -> Any:
+    """The sampler Forge lists for a name an image gives (`_sampler_named`);
     the name with its underscores as spaces when none matches."""
     if not _truthy(name) or not samplers:
         return name
-    if name in samplers:
-        return name
-    wanted = _normalised(name)
-    for sampler in samplers:
-        if _normalised(sampler) == wanted:
-            return sampler
-    return str(name).replace("_", " ")
+    return _sampler_named(name, samplers) or str(name).replace("_", " ")
 
 
-def split_sampler(text: Any, samplers: List[str], schedulers: List[str]) -> Dict[str, Any]:
+def match_scheduler(name: Any, schedulers: List[Any]) -> Optional[str]:
+    """The schedule type Forge lists for a name, by its label, name or
+    aliases, compared bare (#308, #309). None for none."""
+    return _found(_bare(name), schedulers) if _truthy(name) else None
+
+
+def split_sampler(text: Any, samplers: List[Any], schedulers: List[Any]) -> Dict[str, Any]:
     """
     An image's sampler text read by Forge's samplers and schedulers: "Euler a
     Karras" is the sampler "Euler a" and the schedule type "Karras" (#88).
     `schedulers` as Forge lists them, Automatic left out, in Forge's order.
+    As Forge reads one, the schedule type comes off first: any of a schedule
+    type's names at its end where what is left is a sampler Forge has (#309)
+    - `DPM++ 2M_sgm_uniform` is SGM Uniform, `dpm 2m sgm` being none; else,
+    as before, a schedule type's label after a space, the longest first, so
+    `heunpp2_sgm_uniform` is heunpp2 and SGM Uniform; else the whole is the
+    sampler.
     """
     if not _truthy(text):
         return {"sampler": None, "scheduler": None}
     whole = str(text).replace("_", " ")
-    for scheduler in schedulers:
+    key = _bare(whole)
+    ends = [(_bare(n), _label(e)) for e in schedulers for n in ([e] if isinstance(e, str) else [e[0], *e[1]])]
+    for end, scheduler in ends:
+        if end and key.endswith(end) and len(key) > len(end):
+            rest = _sampler_named(key[:-len(end)], samplers)
+            if rest:
+                return {"sampler": rest, "scheduler": scheduler}
+    for scheduler in sorted((_label(e) for e in schedulers), key=len, reverse=True):
         if whole.endswith(" " + scheduler) or whole.lower().endswith(" " + scheduler.lower()):
             return {"sampler": match_sampler(whole[:-(len(scheduler) + 1)], samplers), "scheduler": scheduler}
     return {"sampler": match_sampler(whole, samplers), "scheduler": None}
+
+
+# A1111's names for its six Real-ESRGAN models, and their files: the original
+# Forge lists them by the name, Neo by the file (#309).
+_REALESRGAN = {"R-ESRGAN 4x+": "RealESRGAN_x4plus", "R-ESRGAN 4x+ Anime6B": "RealESRGAN_x4plus_anime_6B",
+               "R-ESRGAN 2x+": "RealESRGAN_x2plus", "R-ESRGAN General 4xV3": "realesr-general-x4v3",
+               "R-ESRGAN General WDN 4xV3": "realesr-general-wdn-x4v3", "R-ESRGAN AnimeVideo": "realesr-animevideov3"}
+
+
+def _without_extension(name: Any) -> str:
+    return re.sub(r"\.(pth|pt|safetensors|ckpt)$", "", str(name), flags=re.IGNORECASE)
+
+
+def match_upscaler(name: Any, upscalers: List[str]) -> Any:
+    """
+    The Hires upscaler this WebUI lists for one an image names (#309): by
+    case and separators, a file extension aside - `4xUltrasharp` is
+    `4x-UltraSharp` - else by A1111's Real-ESRGAN name for its file, or the
+    file's for the name; else the name as it is.
+    """
+    if not _truthy(name) or not upscalers or name in upscalers:
+        return name
+    listed = {}
+    for upscaler in upscalers:
+        listed.setdefault(_bare(_without_extension(upscaler)), upscaler)
+    key = _bare(_without_extension(name))
+    if key in listed:
+        return listed[key]
+    for a1111, file in _REALESRGAN.items():
+        if key in (_bare(a1111), _bare(file)):
+            for other in (a1111, file):
+                if _bare(other) in listed:
+                    return listed[_bare(other)]
+    return name
 
 
 def _unquoted(text: Any) -> Any:
@@ -451,17 +526,20 @@ def sampler_and_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers:
     """
     The sampler and schedule type an image names: its `Schedule type`; else
     its `scheduler` - ComfyUI's and Civitai's generator's lowercase field
-    (#308) - as Forge lists it, by case and `_ - +`; else the one its
+    (#308) - as Forge lists it (`match_scheduler`); else the one its
     sampler's name ends in. The sampler is split from that name either way:
     "DPM++ 2M Karras" with `scheduler` simple is DPM++ 2M and Simple.
     """
     sampler, scheduler = meta.get("sampler"), meta.get("Schedule type")
     if not _truthy(scheduler):
-        named = _normalised(meta.get("scheduler"))
-        scheduler = next((s for s in schedulers if named and _normalised(s) == named), scheduler)
+        scheduler = match_scheduler(meta.get("scheduler"), schedulers) or scheduler
         if _truthy(sampler):
             split = split_sampler(sampler, samplers, schedulers)
             sampler, scheduler = split["sampler"], scheduler or split["scheduler"]
+    elif _truthy(sampler):
+        # Given beside a Schedule type, a name Forge has is matched too
+        # (#309: `Euler A`); one it does not is left as written.
+        sampler = _sampler_named(sampler, samplers) or sampler
     return {"sampler": sampler, "scheduler": scheduler}
 
 
@@ -480,7 +558,8 @@ def _field(key: str, value: Any) -> str:
 
 
 def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
-                   denoising_strength: Any = None, hires_upscaler: Any = None) -> str:
+                   denoising_strength: Any = None, hires_upscaler: Any = None,
+                   upscalers: Optional[List[str]] = None) -> str:
     """
     A Civitai image's generation data as an infotext Forge's paste reads:
     the prompt, the negative prompt, then a settings line. What Forge's paste
@@ -488,7 +567,8 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
     a video's frames. `denoising_strength`: img2img always takes one - an
     image-to-video model needs 1 - and txt2img only as part of Hires fix,
     where it would otherwise turn Hires fix on. `hires_upscaler`: an
-    upscaler's gallery's own, over the image's (#134).
+    upscaler's gallery's own, over the image's (#134). `upscalers`: Hires
+    fix's, as this WebUI lists them, the image's matched to one (#309).
     """
     if not _truthy(meta):
         return ""
@@ -527,7 +607,7 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
         if _truthy(meta.get("Hires upscale")):
             params.append(_field("Hires upscale", meta['Hires upscale']))
         if _truthy(meta.get("Hires upscaler")) and not _truthy(hires_upscaler):
-            params.append(_field("Hires upscaler", meta['Hires upscaler']))
+            params.append(_field("Hires upscaler", match_upscaler(meta['Hires upscaler'], upscalers or [])))
         if _truthy(meta.get("Hires steps")):
             params.append(_field("Hires steps", meta['Hires steps']))
     if _truthy(hires_upscaler):
@@ -662,7 +742,8 @@ def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False
 
 def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: List[str], *,
                      denoising_strength: Any = None, hires_upscaler: Any = None, frames: Any = None,
-                     video: bool = False, prompt: Any = None, negative_prompt: Any = None) -> str:
+                     video: bool = False, prompt: Any = None, negative_prompt: Any = None,
+                     upscalers: Optional[List[str]] = None) -> str:
     """
     The infotext a Send of a Civitai image pastes: civitai_meta(), with the
     page's prompts where it renamed a LoRA tag to the library's file (the
@@ -675,17 +756,27 @@ def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: Li
         meta["negativePrompt"] = negative_prompt
         # The page's copy, renamed, still holds the line civitai_meta read.
         _read_settings_line(meta)
-    return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler))
+    return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler, upscalers))
 
 
 def forge_lists() -> tuple:
-    """Forge's samplers, and its schedulers but Automatic, as the page's sampler reading took them."""
-    from .forge_host import samplers, schedulers
+    """Forge's samplers, and its schedulers but Automatic, each with the
+    other names Forge knows it by (#309)."""
+    from .forge_host import sampler_names, scheduler_names
     try:
-        return list(samplers()), [s for s in schedulers() if s and s != "Automatic"]
+        return sampler_names(), [s for s in scheduler_names() if s[0] and s[0] != "Automatic"]
     except Exception as e:
         say(f"Send: Forge's samplers could not be read: {e}")
         return [], []
+
+
+def forge_upscalers() -> List[str]:
+    """Hires fix's upscalers as this WebUI lists them; none where they cannot be read."""
+    from .forge_host import hires_upscalers
+    try:
+        return hires_upscalers()
+    except Exception:
+        return []
 
 
 def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -710,7 +801,7 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "text": civitai_infotext(record, samplers, schedulers, denoising_strength=source.get("denoise"),
                                  hires_upscaler=source.get("upscaler"), frames=source.get("frames"),
                                  video=bool(source.get("video")), prompt=source.get("prompt"),
-                                 negative_prompt=source.get("negative_prompt")),
+                                 negative_prompt=source.get("negative_prompt"), upscalers=forge_upscalers()),
         "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
     }

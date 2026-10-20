@@ -148,6 +148,45 @@ send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
 plan =send.civitai_settings(type('Db', (), {'stored_records': lambda self, ids: [{'meta': INNER, 'width': 832, 'height': 1216}]})(),
                              {'image': 1})
 check('the loader sets the line\'s schedule type and leaves its Hires fix on', [plan['scheduler'], plan['hires']], ['Karras', True])
+# Names Forge has under another spelling (#309): ComfyUI's, by the sampler's
+# k-diffusion function and Forge's aliases, case and separators aside.
+NAMED = [('DPM++ 2M', ['k_dpmpp_2m', 'dpmpp_2m']), ('Euler a', ['k_euler_a', 'euler_ancestral']), ('Euler', ['k_euler', 'euler']),
+         ('DPM++ 2M SDE', ['k_dpmpp_2m_sde', 'dpmpp_2m_sde']), ('DPM2', ['k_dpm_2', 'dpm_2'])]
+NAMED_SCHEDULERS = [('Karras', ['karras']), ('Uniform', ['uniform']), ('SGM Uniform', ['sgm_uniform', 'SGMUniform']), ('Simple', ['simple']),
+                    ('FlowMatchEulerDiscrete', ['flow_match'])]
+UPSCALERS = ['Latent', 'None', '4x-UltraSharp', 'RealESRGAN_x4plus', 'R-ESRGAN 4x+ Anime6B']
+
+
+def named(meta, **kw):
+    return settings(send.civitai_infotext({'meta': {**IMAGE, **meta}, 'width': 832, 'height': 1216},
+                                          NAMED, NAMED_SCHEDULERS, upscalers=UPSCALERS, **kw))
+
+
+check('ComfyUI\'s name: the sampler Forge runs', 'Sampler: Euler a, CFG' in named({'sampler': 'euler_ancestral'}), True)
+check('with a schedule type after it', 'Sampler: Euler a, Schedule type: Karras,' in named({'sampler': 'euler_ancestral_karras'}), True)
+check('ComfyUI\'s _gpu: the same sampler', 'Sampler: DPM++ 2M SDE, CFG' in named({'sampler': 'dpmpp_2m_sde_gpu'}), True)
+check('the longest schedule type first: SGM Uniform, not Uniform with sgm left',
+      'Sampler: DPM++ 2M, Schedule type: SGM Uniform,' in named({'sampler': 'DPM++ 2M_sgm_uniform'}), True)
+check('a schedule type by its alias, no space', 'Sampler: DPM++ 2M, Schedule type: SGM Uniform,' in named({'sampler': 'DPM++ 2M SGMUniform'}), True)
+check('a sampler matched where the image gives Schedule type too',
+      'Sampler: Euler a, Schedule type: Karras,' in named({'sampler': 'Euler A', 'Schedule type': 'Karras'}), True)
+check('one not found, with a Schedule type: as written', 'Sampler: euler_max, Schedule type: Karras,' in named({'sampler': 'euler_max', 'Schedule type': 'Karras'}), True)
+check('`scheduler` by Forge\'s alias (#308)', 'Schedule type: SGM Uniform,' in named({'scheduler': 'SGMUniform'}), True)
+check('`scheduler` by Forge\'s name for it, not its label', 'Schedule type: FlowMatchEulerDiscrete,' in named({'scheduler': 'flow_match'}), True)
+check('a sampler Forge does not have: the longest schedule type\'s label first, as written otherwise',
+      'Sampler: heunpp2, Schedule type: SGM Uniform,' in named({'sampler': 'heunpp2_sgm_uniform'}), True)
+check('a matched sampler is never split: KDPM2 is DPM2', 'Sampler: DPM2, CFG' in named({'sampler': 'KDPM2'}), True)
+UP = {'Denoising strength': 0.4, 'Hires upscale': 2}
+check('a Hires upscaler by case and separators, its extension aside',
+      ['Hires upscaler: 4x-UltraSharp,' in named({**UP, 'Hires upscaler': u}) for u in ('4xUltrasharp', '4x-UltraSharp.pth', '4x_ultrasharp')],
+      [True] * 3)
+check('A1111\'s Real-ESRGAN name for the file this WebUI lists', 'Hires upscaler: RealESRGAN_x4plus,' in named({**UP, 'Hires upscaler': 'R-ESRGAN 4x+'}), True)
+check('and the file\'s name for A1111\'s', 'Hires upscaler: R-ESRGAN 4x+ Anime6B,' in named({**UP, 'Hires upscaler': 'RealESRGAN_x4plus_anime_6B.pth'}), True)
+check('one this WebUI does not have: as written', 'Hires upscaler: 4x-UltraSharpV2,' in named({**UP, 'Hires upscaler': '4x-UltraSharpV2'}), True)
+check('an upscaler\'s gallery\'s own over the image\'s, as it was (#134)',
+      'Hires upscaler: mine' in named({**UP, 'Hires upscaler': '4xUltrasharp'}, hires_upscaler='mine'), True)
+check('the card shows the matched name', send.card_reading({'sampler': 'euler_ancestral_karras'}, NAMED, NAMED_SCHEDULERS),
+      {'mm_sampler': 'Euler a', 'mm_scheduler': 'Karras'})
 i = lambda meta: send.image_scheduler(meta, SAMPLERS, SCHEDULERS)
 check('the schedule type Send sets after the paste: `scheduler` too, and the same order',
       [i({'scheduler': 'karras'}), i({'sampler': 'DPM++ 2M Karras', 'scheduler': 'simple'}),

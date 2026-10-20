@@ -117,8 +117,40 @@ check('an upscaler is named as Forge lists it, found by its file, case aside',
       host.upscaler_name(ultrasharp.upper()), '4x-UltraSharp')
 check('one Forge does not list has no name',
       host.upscaler_name(os.path.join(TESTS, 'work', 'ESRGAN', 'added-since.pth')), None)
+shared.latent_upscale_modes = {'Latent': {}, 'Latent (nearest)': {}}
+check('Hires fix\'s upscalers as its dropdown lists them: the latent modes, then every upscaler (#309)',
+      host.hires_upscalers(), ['Latent', 'Latent (nearest)', 'None', 'Lanczos', 'R-ESRGAN 4x+', '4x-UltraSharp'])
+del shared.latent_upscale_modes
 del shared.sd_upscalers
 check('nor does any, with no list to ask', host.upscaler_name(ultrasharp), None)
+
+# A sampler and a schedule type by the other names Forge knows them by
+# (#309): ComfyUI's name for a sampler is the k-diffusion function it runs,
+# without `sample_`. Both WebUIs define them so.
+import types                                             # noqa: E402
+samplers_mod, schedulers_mod = sys.modules['modules.sd_samplers'], sys.modules['modules.sd_schedulers']
+held_samplers, held_schedulers = samplers_mod.all_samplers, schedulers_mod.schedulers
+class Entry(object):
+    def __init__(self, name, aliases=None, label=None):
+        self.name, self.aliases, self.label = name, aliases, label or name
+samplers_mod.all_samplers = [Entry('Euler a', ['k_euler_a', 'k_euler_ancestral']), Entry('Euler a CFG++', ['euler_ancestral_cfg_pp']),
+                             Entry('DPM++ 2M SDE', ['k_dpmpp_2m_sde']), Entry('DPM++ 2M SDE Heun', ['k_dpmpp_2m_sde_heun'])]
+schedulers_mod.schedulers = [Entry('automatic', None, 'Automatic'), Entry('sgm_uniform', ['SGMUniform'], 'SGM Uniform')]
+kdiffusion = types.ModuleType('modules.sd_samplers_kdiffusion')
+kdiffusion.samplers_k_diffusion = [('Euler a', 'sample_euler_ancestral', ['k_euler_a', 'k_euler_ancestral'], {}),
+                                   ('DPM++ 2M SDE', 'sample_dpmpp_2m_sde', ['k_dpmpp_2m_sde'], {}),
+                                   ('DPM++ 2M SDE Heun', 'sample_dpmpp_2m_sde', ['k_dpmpp_2m_sde_heun'], {}),
+                                   ('Restart', object(), ['restart'], {})]
+sys.modules['modules.sd_samplers_kdiffusion'] = kdiffusion
+check('each sampler with its aliases and its k-diffusion function without sample_',
+      host.sampler_names(), [('Euler a', ['k_euler_a', 'k_euler_ancestral', 'euler_ancestral']),
+                             ('Euler a CFG++', ['euler_ancestral_cfg_pp']), ('DPM++ 2M SDE', ['k_dpmpp_2m_sde', 'dpmpp_2m_sde']),
+                             ('DPM++ 2M SDE Heun', ['k_dpmpp_2m_sde_heun', 'dpmpp_2m_sde'])])
+check('each schedule type by its label, with its name and aliases', host.scheduler_names(),
+      [('Automatic', ['automatic']), ('SGM Uniform', ['sgm_uniform', 'SGMUniform'])])
+del sys.modules['modules.sd_samplers_kdiffusion']
+check('no table of functions: the aliases alone', host.sampler_names()[0], ('Euler a', ['k_euler_a', 'k_euler_ancestral']))
+samplers_mod.all_samplers, schedulers_mod.schedulers = held_samplers, held_schedulers
 
 # ----------------------------------------------------- every name asked for
 # setting(KEY) with KEY a literal, or a module constant holding one. A name

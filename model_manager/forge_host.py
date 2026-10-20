@@ -24,7 +24,7 @@ can answer raises, as it did where it was asked before.
 import importlib.util
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from .console import say
 
 # Every setting the extension registers, and its default: what it reads as
@@ -425,6 +425,44 @@ def schedulers() -> List[str]:
     """The schedulers Forge offers, by label."""
     from modules import sd_schedulers
     return [s.label for s in sd_schedulers.schedulers]
+
+
+def sampler_names() -> List[Tuple[str, List[str]]]:
+    """
+    Each sampler Forge offers, by name, with the other names it is known by
+    (#309): its aliases (`k_euler_a`), and the k-diffusion function it runs
+    without `sample_` - ComfyUI's name for the same sampler
+    (`euler_ancestral`). Both WebUIs define them in
+    sd_samplers_kdiffusion.samplers_k_diffusion; two samplers running one
+    function both name it, and a match takes the first.
+    """
+    from modules import sd_samplers
+    functions: Dict[str, str] = {}
+    try:
+        from modules import sd_samplers_kdiffusion
+        for entry in sd_samplers_kdiffusion.samplers_k_diffusion:
+            label, function = entry[0], entry[1]
+            if isinstance(function, str) and function.startswith("sample_"):
+                functions.setdefault(label, function[len("sample_"):])
+    except Exception:
+        pass
+    return [(s.name, [*(getattr(s, "aliases", None) or []), *([functions[s.name]] if s.name in functions else [])])
+            for s in sd_samplers.all_samplers]
+
+
+def scheduler_names() -> List[Tuple[str, List[str]]]:
+    """Each schedule type Forge offers, by label, with its name and aliases
+    (`SGM Uniform`: `sgm_uniform`, `SGMUniform`) - #309."""
+    from modules import sd_schedulers
+    return [(s.label, [n for n in (getattr(s, "name", None), *(getattr(s, "aliases", None) or [])) if n])
+            for s in sd_schedulers.schedulers]
+
+
+def hires_upscalers() -> List[str]:
+    """Hires fix's upscalers, as its dropdown lists them in both WebUIs
+    (ui.py): the latent modes, then every upscaler Forge read at startup."""
+    from modules import shared
+    return [*shared.latent_upscale_modes, *[x.name for x in shared.sd_upscalers]]
 
 
 # ------------------------------------------------------- the generation queue
