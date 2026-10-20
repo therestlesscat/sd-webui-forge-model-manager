@@ -327,6 +327,20 @@ delete IMAGE.meta['Module 2'];
 plan = { ...plan, modules_not_found: [] };
 IMAGE.meta.VAE = 'sdxl_vae';
 
+// A VAE of another family the plan left out is said with its kind (#303).
+plan = { ...plan, modules_unfit: [{ name: 'ae.safetensors', kind: 'vae_ae' }] };
+await send();
+check('a VAE this model cannot use is said, with its kind', notices_().map((n) => n.textContent).pop(),
+      'This image names ae.safetensors, a Flux VAE (ae), which this model cannot use, so it is not selected.');
+notices_().forEach((n) => n.remove());
+plan = { ...plan, modules_unfit: [{ name: 'ae.safetensors', kind: 'vae_ae' }, { name: 'wan_2.1_vae.safetensors', kind: 'vae_wan21' }] };
+await send();
+check('two, each with its kind', notices_().map((n) => n.textContent).pop(),
+      'This image names ae.safetensors, a Flux VAE (ae), and wan_2.1_vae.safetensors, a Qwen-Image / Wan VAE, '
+      + 'which this model cannot use, so they are not selected.');
+notices_().forEach((n) => n.remove());
+plan = { ...plan, modules_unfit: [] };
+
 plan = { success: true, preset: 'flux', manage_modules: true, source: 'file',
          select: ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'],
          target: ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], missing: [] };

@@ -216,7 +216,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
               "manage_modules": preset not in (None, "sd", "xl"),
               "embeddings": embedding_kind(model_class, preset),
               "select": [], "missing": [], "needed": [], "not_found": [],
-              "target": [], "modules_not_found": [], "bundled": [],
+              "target": [], "modules_not_found": [], "modules_unfit": [], "bundled": [],
               "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
               "upscaler": None, "upscaler_not_listed": None}
     gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
@@ -247,7 +247,15 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
 
     if not answer["manage_modules"]:
         # SD and SDXL bring their own: what the image names, if anything;
-        # a VAE's gallery takes the VAE's place.
+        # a VAE's gallery takes the VAE's place. A VAE of another family, by
+        # the file's own tensors, is left out and said (#303): 85 of one
+        # library's SDXL images named the Flux VAE (16 latent channels, where
+        # SD and SDXL decode 4) or a Wan one. One whose kind cannot be read
+        # stays, as named.
+        kinds = {label: classify_file(installed[label])[0] for label in named}
+        unfit = [label for label in named if str(kinds[label] or "").startswith("vae") and kinds[label] != "vae_sd"]
+        answer["modules_unfit"] = [{"name": label, "kind": kinds[label]} for label in unfit]
+        named = [label for label in named if label not in unfit]
         if own and own_vae:
             named = [label for label in named
                      if not str(classify_file(installed[label])[0] or "").startswith("vae")]

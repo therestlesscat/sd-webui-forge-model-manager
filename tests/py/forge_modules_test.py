@@ -241,6 +241,26 @@ check('a VAE not installed is said, and nothing is its target',
 body = forge_modules({'base_model': 'Illustrious'})
 check('and an image that names none has nothing to hold', body['target'], [])
 
+# A VAE of another family, read from the file's own tensors, is left out and
+# said (#303): an Illustrious image naming `VAE: ae` had the Flux VAE selected,
+# whose 16 latent channels cannot decode an SD or SDXL model's 4.
+body = forge_modules({'base_model': 'Illustrious', 'vae': 'ae'})
+check('an SDXL image naming the Flux VAE: not its target, said with its kind',
+      (body['target'], body.get('modules_unfit'), body.get('modules_not_found')),
+      ([], [{'name': 'ae.safetensors', 'kind': 'vae_ae'}], []))
+body = forge_modules({'base_model': 'SD 1.5', 'vae': 'wan_2.1_vae', 'module': ['sdxl_vae', 'qwen_image_vae']})
+check('an SD image: each VAE of another family out, an SD/SDXL VAE kept',
+      (body['target'], [u['name'] for u in body.get('modules_unfit') or []]),
+      (['sdxl_vae.safetensors'], ['wan_2.1_vae.safetensors', 'qwen_image_vae.safetensors']))
+check('nothing left out where nothing is of another family', forge_modules({'base_model': 'Illustrious', 'vae': 'sdxl_vae'}).get('modules_unfit'), [])
+unread = {**MODULES, 'mystery.safetensors': (None, 0)}
+host.installed_modules = lambda: {label: label for label in unread}
+fi.classify_file = lambda path: unread[path]
+check('a file whose kind cannot be read: selected as named',
+      forge_modules({'base_model': 'Illustrious', 'vae': 'mystery'})['target'], ['mystery.safetensors'])
+host.installed_modules = lambda: {label: label for label in MODULES}
+fi.classify_file = lambda path: MODULES[path]
+
 # What Forge wrote as `Module 1`, `Module 2` (#204): the only place 4,277
 # stored images name their modules. Each is set up, by its kind.
 def plan(**params):

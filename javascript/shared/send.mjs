@@ -882,6 +882,14 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
         problems.push(`This image was made with ${listNames(missing)}, which Forge does not list, `
                       + `so ${missing.length === 1 ? 'it is' : 'they are'} not selected.`);
     }
+    // A VAE of another family, left out by the plan (#303): each with its
+    // kind, which already carries a comma - so the last joins with ", and".
+    if (plan.modules_unfit?.length) {
+        const named = plan.modules_unfit.map((u) => `${u.name}, a ${MODULE_KIND_NAMES[u.kind] || u.kind}`);
+        const list = named.length > 1 ? `${named.slice(0, -1).join(', ')}, and ${named[named.length - 1]}` : named[0];
+        problems.push(`This image names ${list}, which this model cannot use, `
+                      + `so ${named.length === 1 ? 'it is' : 'they are'} not selected.`);
+    }
     // A checkpoint that carries its own text encoders or VAE gets none of
     // those selected - Forge uses the checkpoint's - and says so: an empty
     // "VAE / Text Encoder" read as a send that had failed.
