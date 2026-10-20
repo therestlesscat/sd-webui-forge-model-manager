@@ -33,15 +33,14 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `nsfw` | an image's level as the server stamped it, its badge, and the levels one can rate; the page's one table of levels and their names (`NSFW_LEVELS`), a copy of `nsfw.py`'s held to it by `page_constants_test.py` |
 | `media` | Civitai's images and videos: the copy for a width - or an image's upload, where the settings say so (`asUploaded`, #192; a video stays a copy) - the fallback, loading them as they come into view |
 | `grid` | cards, the grid and its page strip, its rows kept even, and the card size the server gave a tab (`createCardSize`) |
-| `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text; the card's text, `imageDetailsHtml`, which the Civitai Images viewer draws too (#267) |
-| `samplers` | Forge's samplers and schedulers, from the one ui-options answer, and an image's sampler text read by them |
+| `image_card` | a Civitai image's card and its Show All window, the same in both tabs; your generations' cards show its text; the card's text, `imageDetailsHtml`, which the Civitai Images viewer draws too (#267); its sampler and schedule type as the server stamps them beside the level (`mm_sampler`, `mm_scheduler`, `send.stamp_readings`, #302) |
 | `gallery` | a gallery's loading bar, filter banner and page notes, and its pages - kept, drawn and paged through by one object per gallery (`createPagedGallery`), each tab keeping only how it fetches a page; and scrolling to a gallery's top |
 | `filters` | what both filter bars share: base models in order, the size boxes, a saved search and Save Search's flash, the checkpoint-type filter greyed while Type is not Checkpoint |
 | `tiles` | the tile grid the Generations and Civitai Images tabs draw (#209): a wide image's columns, a level's header and Back, the next part as the end nears; and how the tiles are placed, a setting per tab (#240) - Classic, the browser's grid, or Fast, the default: the tab places each tile by the browser's own dense rule (`placeTiles`) and keeps on the page only the rows within 3,000 px of the view (`placedGrid`) |
 | `grouping` | Group by and search for the tabs of tiles, the Generations and the Civitai Images tabs alike (#283): what a Group by value groups by, one grouping or two; its menu, each grouping with what to group its groups by then; the search box as it starts. Each tab says its groupings and what a choice does; neither imports the other's script |
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
 | `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and stops with the last; Send's Resources and chips offer Download only while it runs |
-| `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset and the server's send plan, samplers, the infotext and the paste, an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`); and, with `into`, the picture itself into one of img2img's modes (#299, `IMG2IMG_SENDS`, the ⋯ menu's items) - put in by a canvas button of the mode's own, never the settings' loader (an answer that leaves a canvas as it is breaks it for the session: `scheduler/load.py`), its layer emptied, a missing checkpoint said rather than a stop |
+| `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset, the one send plan (`/model-manager/send/plan`, `send.py`) and the source it hands the tab's loader, which builds the infotext on the server and sets the schedule type and Hires fix in the paste's own event (#302), an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`); and, with `into`, the picture itself into one of img2img's modes (#299, `IMG2IMG_SENDS`, the ⋯ menu's items) - put in by a canvas button of the mode's own, never the settings' loader (an answer that leaves a canvas as it is breaks it for the session: `scheduler/load.py`), its layer emptied, a missing checkpoint said rather than a stop |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
 | `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
 | `wan` | a video's frames and size as Wan makes them |
@@ -94,12 +93,15 @@ list: writing its text and firing its events changes nothing, and Gradio
 puts the text back once the field loses focus. A control in a closed
 accordion is hidden, takes no focus and opens no list - Hires fix's upscaler
 sits in one, and pressed there it was never set, the text left blank. So a
-field the paste knows goes in the infotext (`buildInfotext`: the upscaler,
-ADetailer's switch, a video's frames), which sets it hidden or not, and
-turns Hires fix on only with `Denoising strength` too. Send presses an
-option itself (`chooseOption`) only for a control the paste does not cover
-and that is always shown - the UI preset, the VAE / Text Encoder control,
-the scheduler - and gives up, the text as it was, when no list opens. A
+field the paste knows goes in the infotext the server builds
+(`send.civitai_infotext`: the upscaler, ADetailer's switch, a video's
+frames), which sets it hidden or not, and turns Hires fix on only with
+`Denoising strength` too. Send presses an option itself (`chooseOption`)
+only for a control the paste does not cover and that is always shown - the
+UI preset, the VAE / Text Encoder control - and gives up, the text as it
+was, when no list opens. The schedule type the loader sets in the paste's
+own event (#302); the page presses it only where Forge's own paste button
+pasted instead. A
 suite's stand-in has to behave so: a plain `<input>` stood in for the
 upscaler, and the suites passed while it was never set.
 
@@ -107,14 +109,15 @@ upscaler, and the suites passed while it was never set.
 read as settings only when it holds 3 or more `key: value` fields;
 otherwise it becomes part of the prompt (Neo's `modules/infotext_utils.py`,
 line 365). And `, width:` and `, height:` are rewritten to `Size-1` and
-`Size-2` (line 389), so a metadata `width`/`height` that `buildInfotext`
-passes on, as it does every field it has no rule for, overrides its `Size`:
-a 2304 x 1664 picture whose metadata said 512 x 512 went in at 512 x 512
-(#302). Send's own last line holds only `Size` and `ADetailer enable` when
+`Size-2` (line 389), so a metadata `width`/`height` the infotext passes on,
+as it does every field it has no rule for, overrides its `Size`: a 2304 x
+1664 picture whose metadata said 512 x 512 went in at 512 x 512. Since
+0.67.0 the size rule leaves the data's width and height out where their
+shape is not the picture's (`send.civitai_meta`, #302). Send's own last line holds only `Size` and `ADetailer enable` when
 the data gives nothing else, and becomes prompt text: 948 of one library's
 stored images (#313). A sampler Forge does not know becomes its first, DPM++
 2M, without a word (`get_sampler_and_scheduler`, `modules/sd_samplers.py`):
-6,454 of 102,563 name one Send's matching (`samplers.mjs`) misses (#309).
+6,454 of 102,563 name one Send's matching (`send.match_sampler`) misses (#309).
 Send's notice for what this WebUI lacks covers only what the server's
 `corrections()` checks - the hires checkpoint, the refiner, the hires
 modules (#307).

@@ -36,6 +36,7 @@ have files of their own; read them too before working there.
 | `architecture.py` | reading headers (safetensors, GGUF, and pickles without running them) and asking Forge's detector about checkpoints |
 | `forge_modules.py` | the text encoders and VAE a model needs, picked from what Forge offers |
 | `send_plan.py` | which model Send to txt2img sets Forge up for, and the image's checkpoint a send from any other gallery cannot go without (#134) |
+| `send.py` | Send's one place (#302): the plan for every source - a Civitai image, a generation of your own, a queued task - on one route (`/model-manager/send/plan`); what the tab's loader sets for it (`settings`): a Civitai image's infotext built from its stored record, a generation's own with the chips' renames applied or its kept press replayed, and the schedule type and Hires fix in the paste's event; an image card's sampler and schedule type, stamped beside its level (`stamp_readings`) |
 | `resources.py` | which local file, or which version on Civitai, an image's resources are: for the chips under a prompt (the library alone, and Forge's rule for which file `<lora:name>` loads), the Resources dialog, and what a missing one will be called once downloaded |
 | `payload_rows.py` | what a Civitai payload says about a model and a version, as database rows - for both kinds of sync, and a sidecar read for a model Civitai no longer has |
 | `storage.py` | reading and writing `.civitai.info` |
