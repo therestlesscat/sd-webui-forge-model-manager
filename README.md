@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.67 - Send, decided in one place.** What Send sets for an image is moving to one place on the
+server, starting with Civitai's images. Such an image now goes in at its picture's size when its
+data gives another shape, and a Send that changes Forge's UI preset is about half a second quicker.
+
 **0.66 - Send any image into img2img.** An image's ⋯ menu, in the Generations and the Civitai
 Images tabs, sends the picture itself into img2img, Sketch, Inpaint, Inpaint sketch or Inpaint
 upload, with its settings, ready to inpaint or redraw. A Civitai image comes at full size.

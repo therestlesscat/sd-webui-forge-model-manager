@@ -247,6 +247,35 @@ txt = attempt(lambda: json.loads(load._loader('txt2img', list(range(COUNT)), EXT
 check('txt2img takes no picture: its paste is as it was', [txt.get('mode') if isinstance(txt, dict) else txt],
       [None])
 
+# ----------------------------------------------- a Civitai image's source (#302)
+# The page hands the loader the image's source, not a text: the loader builds
+# the text from the image's stored record (send.civitai_settings), pastes it,
+# and sets the scheduler and Hires fix in the same event (load.after_paste).
+records = {41: {'id': 41, 'width': 96, 'height': 64, 'meta': {'prompt': 'a stored castle', 'steps': 20, 'Size': '96x64'}}}
+db_before = load.get_models_db
+load.get_models_db = lambda: types.SimpleNamespace(
+    **vars(db_before()), stored_records=lambda ids: [records[i] for i in ids if i in records])
+after = []
+real_after = getattr(load, 'after_paste', None)
+if real_after:
+    load.after_paste = lambda *args: (after.append(args[4:]), real_after(*args))[1]
+pasted.clear()
+values, answer = asked(source={'kind': 'civitai', 'image': 41})
+check('a source\'s text built from the image\'s stored record, pasted, and handed back for Forge\'s paste button',
+      [(pasted or [''])[-1].split('\n')[0], value(values, 'prompt'), answer.get('pasted'),
+       (answer.get('text') or '').split('\n')[0]], ['a stored castle', 'a stored castle', True, 'a stored castle'])
+check('and its scheduler and Hires fix set in the same event: none named, Automatic; none had, off',
+      [after, answer.get('scheduler'), answer.get('hires')], [[('Automatic', False)], 'Automatic', False])
+values, answer = asked(source={'kind': 'civitai', 'image': 41}, into={**INTO, 'picture': {'url': 'x'}})
+check('into a mode: the mode set, the size the text\'s', [value(values, 'mode'), value(values, 'width'), answer.get('mode')],
+      [2, SKIP, 2])
+values, answer = asked(source={'kind': 'civitai', 'image': 99})
+check('an image the library has no record of: said, nothing pasted', [answer.get('error'), answer.get('pasted')],
+      ['The image is not in the library', None])
+load.get_models_db = db_before
+if real_after:
+    load.after_paste = real_after
+
 # ---------------------------------------------------------- a mode's canvas button
 values, answer = canvas(2, picture={'generation_image': 7})
 check('Inpaint\'s canvas button: its picture the file\'s, as RGB, its mask emptied - values, never "leave as is"',

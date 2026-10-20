@@ -469,10 +469,12 @@ export function mountTab(tabFile) {
  * paste - is kept in the list returned, `onAsk(tab, request)` runs, and the
  * answer carries the request's nonce with what `answer(tab, request)` adds.
  * A paste leaves the prompts as Forge's paste does: the prompt and the
- * negative prompt alone, the settings line read into their controls. `delay`,
- * a number or a function of the request, holds the answer back that long.
+ * negative prompt alone, the settings line read into their controls. A
+ * Civitai image's `source` (#302), whose text the server builds, is pasted as
+ * `sourceText(tab, request)` gives it, where a suite stands in for that.
+ * `delay`, a number or a function of the request, holds the answer back that long.
  */
-export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = null,
+export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = null, sourceText = null,
                                         answer = () => ({ pasted: true }), delay = 0,
                                         canvasAnswer = () => ({ source: true }) } = {}) {
     const asked = [];
@@ -504,8 +506,10 @@ export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = n
         document.getElementById(`mm_load_${tab}`).addEventListener('click', () => {
             const request = JSON.parse(document.querySelector(`#mm_load_${tab}_asked textarea`).value);
             asked.push({ tab, ...request });
-            if (request.paste !== undefined) {
-                const lines = String(request.paste).split('\n');
+            const pasted = request.paste !== undefined ? request.paste
+                : request.source !== undefined && sourceText ? sourceText(tab, request) : undefined;
+            if (pasted !== undefined) {
+                const lines = String(pasted).split('\n');
                 if (lines.length > 1 && /^Steps: /.test(lines[lines.length - 1])) lines.pop();
                 const at = lines.findIndex((line) => line.startsWith('Negative prompt: '));
                 const prompt = document.querySelector(`#${tab}_prompt textarea`);

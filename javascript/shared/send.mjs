@@ -29,7 +29,7 @@ const {
     collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips,
     showResourceChips, lookUpMissingChips, updateResourceChipStates,
 } = await shared('chips.mjs');
-const { videoFrames, videoSize } = await shared('wan.mjs');
+const { videoFrames } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList } = await shared('downloads.mjs');
 const { splitSamplerScheduler } = await shared('samplers.mjs');
@@ -589,75 +589,6 @@ async function applyForgeModules(names) {
     return true;
 }
 
-/**
- * The VAE an image was made with, whatever Civitai called the field.
- *
- * Counted over 67,458 stored images, a VAE name turns up under several
- * spellings, and they do not overlap:
- *
- *   VAE       11,304   the usual A1111 field
- *   vaes       2,392   a list, from ComfyUI workflows Civitai normalised.
- *                      Every one of these has no VAE field at all, so
- *                      reading only VAE misses them entirely
- *   vae_name      62   ComfyUI's own node field, when it survives
- *   Vae / vae     13   case, as written by whatever made the image
- *
- * "VAE hash" is deliberately not read: it identifies a file we cannot
- * name, and a hash in the dropdown would match nothing.
- */
-/**
- * Does this name a file, or is it a way of saying "no separate VAE"?
- *
- * Seen in the library: "Default (model)" 131, "automatic" 30, "Default"
- * 14, "Baked VAE" 5. All of them mean the checkpoint's own VAE, which is
- * what an empty selection already gives, so they must not be searched for
- * in the dropdown.
- */
-function isVaeFileName(value) {
-    const name = String(value || '').trim();
-    if (!name) return false;
-    return !/^(automatic|none|null|default.*|baked vae|use same vae)$/i.test(name);
-}
-
-function vaeFromMeta(meta) {
-    if (!meta) return null;
-
-    const direct = meta.VAE || meta.Vae || meta.vae || meta.vae_name;
-    if (typeof direct === 'string' && isVaeFileName(direct)) return direct.trim();
-
-    // ComfyUI workflows arrive with a list, newest-normalised first.
-    const listed = Array.isArray(meta.vaes)
-        ? meta.vaes.find(v => typeof v === 'string' && isVaeFileName(v))
-        : null;
-    if (listed) return listed.trim();
-
-    const resource = (meta.resources || []).find(r => r && r.type === 'vae');
-    if (resource && resource.name) return resource.name;
-
-    return null;
-}
-
-/**
- * Every module an image names, for the server to set up (#204): its VAE as
- * above, then each `Module N` - how Forge writes the VAE / Text Encoder
- * selection into an image's data, the only place many images name them -
- * in order, each once. Read for every kind of model: an SDXL image's VAE,
- * an Anima image's VAE and text encoder.
- */
-function modulesFromMeta(meta) {
-    if (!meta) return [];
-    const numbered = Object.keys(meta)
-        .map((key) => [key, /^Module (\d+)$/.exec(key)])
-        .filter(([, found]) => found)
-        .sort(([, a], [, b]) => Number(a[1]) - Number(b[1]))
-        .map(([key]) => meta[key]);
-    const names = [vaeFromMeta(meta), ...numbered]
-        .filter((name) => typeof name === 'string' && isVaeFileName(name))
-        .map((name) => name.trim());
-    const seen = new Set();
-    return names.filter((name) => !seen.has(name.toLowerCase()) && seen.add(name.toLowerCase()));
-}
-
 // ------------------------------------------------ Forge Neo UI preset + modules
 // An image's generation data never names a Flux model's CLIP-L and T5-XXL, or
 // a Qwen-Image model's Qwen2.5-VL - whoever made it had them loaded. So
@@ -723,31 +654,50 @@ function imageCheckpoint(img) {
 }
 
 /**
- * What to set up in Forge for an image: its UI preset, and the modules to
- * select. Which model that is for - the gallery's checkpoint, the image's
- * own, a LoRA's, Civitai's say - the server works out (send_plan.py).
- * `useVersion`: the library's version to send with in place of the image's
- * checkpoint, picked in the Resources dialog (#278). null if the server
- * cannot say.
+ * How to set Forge up for a Civitai image, from the one route for every
+ * Send's plan (#302): its UI preset, its checkpoint or why it cannot be had,
+ * its VAE / text encoders. Which model that is for - the gallery's
+ * checkpoint, the image's own, a LoRA's, Civitai's say - the server works out
+ * (send_plan.py), from the image's stored record and the checkpoint the page
+ * reads of it (imageCheckpoint). `useVersion`: the library's version to send
+ * with in place of the image's checkpoint, picked in the Resources dialog
+ * (#278). null if the server cannot say.
  */
-async function fetchForgePlan(model, version, img, modules = [], useVersion = null) {
+async function fetchSendPlan(model, version, img, useVersion = null) {
     if (!model) return null;
     const checkpoint = imageCheckpoint(img);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams({ kind: 'civitai', image: String(img.id) });
     if (version.file_path) params.set('file_path', version.file_path);
     const baseModel = version.base_model || model.base_model;
     if (baseModel) params.set('base_model', baseModel);
     if (checkpoint.versionIds.length) params.set('version_ids', checkpoint.versionIds.join(','));
     if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
     if (checkpoint.name) params.set('model_name', checkpoint.name);
-    for (const name of modules || []) params.append('module', name);
     if (useVersion) params.set('use_version', String(useVersion));
     try {
-        const response = await fetch('/model-manager/forge-modules?' + params.toString());
+        const response = await fetch('/model-manager/send/plan?' + params.toString());
         const plan = await response.json();
         return plan && plan.success ? plan : null;
     } catch (e) {
-        console.warn('[ModelManager] Could not work out the model\'s architecture:', e);
+        console.warn('[ModelManager] Could not ask how to set Forge up:', e);
+        return null;
+    }
+}
+
+/**
+ * The text a Civitai image's Send pastes, with its scheduler and whether it
+ * had Hires fix, asked of the server where this tab's loader was not built:
+ * Forge's own paste button takes it then, and the page sets the rest.
+ */
+async function fetchSendText(source) {
+    const params = new URLSearchParams({ kind: 'civitai', text: '1' });
+    for (const [key, value] of Object.entries(source)) {
+        if (value !== null && value !== undefined && key !== 'kind') params.set(key, String(value));
+    }
+    try {
+        const answer = await (await fetch('/model-manager/send/plan?' + params.toString())).json();
+        return answer?.success ? answer : null;
+    } catch (e) {
         return null;
     }
 }
@@ -784,6 +734,7 @@ async function switchForgePreset(preset) {
     if (currentForgePreset() === preset) return true;
     watchForgeCalls();
     const callsBefore = forgeCalls.started;
+    const doneBefore = forgeCalls.done.length;
 
     // The original Forge's radio buttons: press the one for the preset. The
     // dropdown path below would type into a radio's value - which it did,
@@ -796,22 +747,23 @@ async function switchForgePreset(preset) {
             return false;
         }
         radio.click();
-        return await presetTaken(preset, callsBefore);
+        return await presetTaken(preset, callsBefore, doneBefore);
     }
 
     if (!(await chooseOption(container, preset))) {
         console.warn(`[ModelManager] Forge offers no "${preset}" preset; left as it was`);
         return false;
     }
-    return await presetTaken(preset, callsBefore);
+    return await presetTaken(preset, callsBefore, doneBefore);
 }
 
 /**
  * The calls Gradio makes to the server for a control's events. They go to
  * <root>/run/<event> through the page's fetch - in both WebUIs' Gradio 4.40 -
- * so wrapping fetch sees each one start and finish.
+ * so wrapping fetch sees each one start and finish: `done`, in order, each
+ * that came back - its event (`fn_index`), and whether it answered `ok`.
  */
-const forgeCalls = { started: 0, inFlight: 0, last: 0 };
+const forgeCalls = { started: 0, inFlight: 0, last: 0, done: [] };
 
 function watchForgeCalls() {
     if (globalThis.fetch?.mmWatched) return;
@@ -826,9 +778,17 @@ function watchForgeCalls() {
         forgeCalls.started++;
         forgeCalls.inFlight++;
         forgeCalls.last = Date.now();
-        const settle = () => { forgeCalls.inFlight--; forgeCalls.last = Date.now(); };
+        let fn = null;
+        try {
+            fn = JSON.parse(rest[0]?.body ?? '{}').fn_index ?? null;
+        } catch { /* a body that is not JSON: an event we cannot name */ }
+        const settle = (ok) => {
+            forgeCalls.inFlight--;
+            forgeCalls.last = Date.now();
+            if (fn !== null) forgeCalls.done.push({ fn, ok });
+        };
         const call = original.call(this, resource, ...rest);
-        call.then(settle, settle);
+        call.then((response) => settle(response?.ok !== false), () => settle(false));
         return call;
     };
     watched.mmWatched = true;
@@ -836,8 +796,42 @@ function watchForgeCalls() {
 }
 
 /**
+ * The events a UI preset change runs on the server that set the page's
+ * fields (#302), read from Gradio's own config of the page: the preset
+ * control's change, and what follows it, on success or after. In Neo, its
+ * change and the call that loads the preset's checkpoint and modules; in the
+ * original Forge, its change alone. A step that runs a script alone - Neo's
+ * LoRA list refresh - has no server call of its own, and the refresh it
+ * presses sets no field Send sets. [] where the config cannot say.
+ */
+function presetEvents() {
+    const config = window.gradio_config;
+    const preset = (config?.components || []).find((c) => c?.props?.elem_id === 'forge_ui_preset');
+    if (!preset) return [];
+    const events = (config.dependencies || []).map((dependency, at) => ({ ...dependency, fn: dependency.id ?? at }));
+    const fired = new Set(events.filter((d) => (d.targets || []).some((target) => (Array.isArray(target)
+        ? target[0] === preset.id && target[1] === 'change' : target === preset.id))).map((d) => d.fn));
+    if (!fired.size) return [];
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const d of events) {
+            if (d.trigger_after !== null && d.trigger_after !== undefined && fired.has(d.trigger_after) && !fired.has(d.fn)) {
+                fired.add(d.fn);
+                grew = true;
+            }
+        }
+    }
+    return events.filter((d) => fired.has(d.fn) && d.backend_fn).map((d) => d.fn);
+}
+
+/**
  * Wait for a preset change to show, then for Forge to finish answering it.
  *
+ * Where Gradio's config names the events the change runs (presetEvents),
+ * until each of them has come back - or one has failed, after which what
+ * follows on success never runs. A detected end, not a quiet spell: the
+ * 400 ms waited after the last call was most of a switch (step 1 of #302).
+ * Where it cannot name them, as before:
  * Forge answers from the server, with no progress shown: the preset's
  * sampler, scheduler, steps, size and CFG, then - chained on that - its
  * checkpoint and modules. Each lands when the server is done. A fixed 600 ms
@@ -847,10 +841,18 @@ function watchForgeCalls() {
  * none has started for a moment - the chained one starts as the first ends.
  * A switch that makes no call at all is given the old 600 ms.
  */
-async function presetTaken(preset, callsBefore = forgeCalls.started) {
+async function presetTaken(preset, callsBefore = forgeCalls.started, doneBefore = forgeCalls.done.length) {
     const start = Date.now();
     for (let i = 0; i < 30 && currentForgePreset() !== preset; i++) await nextFrame(TIMING.presetFrame);
+    const wanted = presetEvents();
     while (Date.now() - start < FORGE_PRESET_MAX_MS) {
+        if (wanted.length) {
+            const came = forgeCalls.done.slice(doneBefore);
+            const failed = came.some((call) => !call.ok && wanted.includes(call.fn));
+            if (failed || wanted.every((fn) => came.some((call) => call.fn === fn))) break;
+            await nextFrame(TIMING.frame);
+            continue;
+        }
         const called = forgeCalls.started > callsBefore;
         if (called && forgeCalls.inFlight === 0 && Date.now() - forgeCalls.last >= FORGE_PRESET_QUIET_MS) break;
         if (!called && Date.now() - start >= FORGE_PRESET_SETTLE_MS) break;
@@ -1081,7 +1083,7 @@ async function stopForCheckpoint(img, model, version, problem) {
     const send = {
         why: CHECKPOINT_WAITS[problem.reason], reason: problem.reason, waits: CHECKPOINT_WAITS,
         check: problem.reason === 'not_checkpoint' ? null
-            : async () => waitReason((await fetchForgePlan(model, version, img, modulesFromMeta(img.meta))
+            : async () => waitReason((await fetchSendPlan(model, version, img)
                                       || { checkpoint_problem: problem }).checkpoint_problem),
         run: () => sendGalleryImage({ img, model, version }),
         // Another file of the image's version, or another version of its
@@ -1114,24 +1116,14 @@ function listNames(names) {
 }
 
 /**
- * An image's generation data with a video's frames and size added: Civitai
+ * A video's frames as Wan makes them, for an image-to-video model: Civitai
  * keeps neither its length nor its frame rate, so they are read from the
  * video itself. A copy is read rather than the upload - the upload can be a
  * GIF under an .mp4 name (sizedMediaUrl), whose length a video element
- * cannot read. What cannot be read is left to the preset, and said.
+ * cannot read. null when it cannot be read: left to the preset, and said.
  */
-async function withVideoParams(meta, img, isVideo = true) {
-    const params = { ...meta };
-    const [w, h] = String(meta.Size || '').split('x').map(Number);
-    if ((w || img.width) && (h || img.height)) {
-        const size = videoSize(w || img.width, h || img.height);
-        params.Size = `${size.width}x${size.height}`;
-    }
-    if (!isVideo) return params;
-    const frames = videoFrames(await videoDuration(videoCopyUrl(img)));
-    if (frames) params['Batch size'] = frames;
-    else showNotice('Could not read this video\'s length: Frames are left as the Wan preset has them.');
-    return params;
+async function videoFramesOf(img) {
+    return videoFrames(await videoDuration(videoCopyUrl(img)));
 }
 
 /**
@@ -1275,120 +1267,6 @@ async function applyVaeSelection(vaeName) {
 }
 
 
-/**
- * A prompt without the double quotes around the whole of it. Some tools
- * write the prompt to Civitai as a quoted string, and pasted as it is, a
- * model reading prompts as instructions took it all as one quotation: a
- * Krea 2 model drew noise from 35 such prompts. Only a pair around the
- * whole, with no other quote inside - '"a" and "b"' is two quotations.
- * Of 84,677 prompts in one library, 60 were wrapped; 56 of them so.
- */
-function unquotePrompt(text) {
-    const trimmed = String(text ?? '').trim();
-    const inner = trimmed.slice(1, -1);
-    return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"') && !inner.includes('"')
-        ? inner.trim() : text;
-}
-
-// Build infotext string from image metadata (A1111 format)
-function buildInfotext(meta, { denoisingStrength = null, hiresUpscaler = null } = {}) {
-    if (!meta) return '';
-
-    let infotext = '';
-
-    // Prompt
-    const prompt = unquotePrompt(meta.prompt);
-    if (prompt) {
-        infotext += prompt;
-    }
-
-    // Negative prompt
-    const negativePrompt = unquotePrompt(meta.negativePrompt);
-    if (negativePrompt) {
-        infotext += '\nNegative prompt: ' + negativePrompt;
-    }
-
-    // Split sampler if it contains scheduler
-    let sampler = meta.sampler;
-    let scheduler = meta['Schedule type'];
-
-    // If no explicit scheduler, try to extract from combined sampler string
-    if (!scheduler && sampler) {
-        const split = splitSamplerScheduler(sampler);
-        sampler = split.sampler;
-        scheduler = split.scheduler;
-    }
-
-    // Check if this has actual hires fix data (need all required fields)
-    // Only include Denoising strength and hires fields if there's a complete hires setup
-    const hasHiresFix = meta['Denoising strength'] &&
-        (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
-
-    // Build parameters line
-    const params = [];
-
-    if (meta.steps) params.push(`Steps: ${meta.steps}`);
-    if (sampler) params.push(`Sampler: ${sampler}`);
-    if (scheduler) params.push(`Schedule type: ${scheduler}`);
-    if (meta.cfgScale) params.push(`CFG scale: ${meta.cfgScale}`);
-    // Seed 0 is a seed; left out, the paste kept the previous image's (#310).
-    if (meta.seed !== null && meta.seed !== undefined && meta.seed !== '') params.push(`Seed: ${meta.seed}`);
-    if (meta.Size) params.push(`Size: ${meta.Size}`);
-    if (meta.Model) params.push(`Model: ${meta.Model}`);
-    if (meta['Model hash']) params.push(`Model hash: ${meta['Model hash']}`);
-    if (meta.VAE) params.push(`VAE: ${meta.VAE}`);
-    if (meta['Clip skip']) params.push(`Clip skip: ${meta['Clip skip']}`);
-
-    // img2img always takes one - an image-to-video model needs 1 - and
-    // txt2img only as part of a hires fix, where it would otherwise turn
-    // hires on for an image that had none.
-    const denoise = denoisingStrength ?? (hasHiresFix ? meta['Denoising strength'] : null);
-    if (denoise !== null && denoise !== undefined) params.push(`Denoising strength: ${denoise}`);
-
-    // Only include hires-related fields if there's a complete hires fix setup
-    // This prevents paste from enabling hires when image doesn't have hires data
-    if (hasHiresFix) {
-        if (meta['Hires upscale']) params.push(`Hires upscale: ${meta['Hires upscale']}`);
-        if (meta['Hires upscaler'] && !hiresUpscaler) params.push(`Hires upscaler: ${meta['Hires upscaler']}`);
-        if (meta['Hires steps']) params.push(`Hires steps: ${meta['Hires steps']}`);
-    }
-    // An upscaler's gallery's own, over the image's (#134): Forge's paste sets
-    // the dropdown even in Hires fix's closed accordion, where a choice pressed
-    // in its list never opened (#138); it turns Hires fix on only with
-    // "Denoising strength" too, which an image without hires fix is not sent.
-    if (hiresUpscaler) params.push(`Hires upscaler: ${hiresUpscaler}`);
-
-    // Add any other parameters from meta that we haven't explicitly handled
-    // Lora hashes are not pasted: see withoutLoraHashes().
-    const handledKeys = ['prompt', 'negativePrompt', 'steps', 'sampler', 'Schedule type', 'cfgScale', 'seed',
-                        'Size', 'Model', 'Model hash', 'VAE', 'Denoising strength', 'Clip skip',
-                        'Hires upscale', 'Hires upscaler', 'Hires steps', 'Hires resize-1', 'Hires resize-2',
-                        'resources', 'civitaiResources', 'Lora hashes'];
-
-    // Check if ADetailer fields exist - toggle "ADetailer enable" accordingly
-    // This is required for ADetailer's paste handler to auto-enable/disable the checkbox
-    const hasADetailer = Object.keys(meta).some(key => key.startsWith('ADetailer '));
-    if (hasADetailer) {
-        params.push('ADetailer enable: True');
-    } else {
-        params.push('ADetailer enable: False');
-    }
-
-    for (const [key, value] of Object.entries(meta)) {
-        if (!handledKeys.includes(key) && value !== null && value !== undefined && value !== '') {
-            if (typeof value !== 'object') {
-                params.push(`${key}: ${value}`);
-            }
-        }
-    }
-
-    if (params.length > 0) {
-        infotext += '\n' + params.join(', ');
-    }
-
-    return infotext;
-}
-
 // Send image generation params to txt2img using paste button
 // The last send's work after the paste - scheduler, modules, hires - which
 // runs on after a gallery's Send returns. Resolved once all of it is done.
@@ -1434,25 +1312,36 @@ function withoutLoraHashes(infotext) {
  * the whole infotext there becomes its prompt alone. A time limit only says
  * nothing answered: the steps after it do not run.
  *
- * Used by both Sends: a Civitai image's, whose infotext is built from its
- * generation data, and one of your own generations', whose is its own.
+ * A Civitai image's Send hands the loader its `source` instead of a text
+ * (#302): the server builds the text from the image's stored record, pastes
+ * it, and sets the scheduler and Hires fix in the same event; a generation
+ * of your own pastes its own infotext, and the page sets those after it.
+ * Without the loader, Forge's paste button takes the server's text.
  *
  * @returns {boolean} whether the paste could be made at all
  */
-function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null, into = null } = {}) {
+function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, generationId = null, into = null,
+                                        source = null } = {}) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
         return false;
     }
-    const text = withoutLoraHashes(infotext);
+    const text = source ? null : withoutLoraHashes(infotext);
 
     sendSettled = (async () => {
-        const answer = await pressLoader(tab, { paste: text,
-                                                generation: generationId === null ? null : Number(generationId),
-                                                ...(into ? { into } : {}) });
+        const answer = await pressLoader(tab, source ? { source, ...(into ? { into } : {}) }
+            : { paste: text, generation: generationId === null ? null : Number(generationId), ...(into ? { into } : {}) });
         if (answer.no_paste || answer.no_loader) {
-            if (!await pasteWithButton(tab, promptTextarea, text)) return;
+            // A source's text, scheduler and Hires fix: in the loader's
+            // answer when only Forge's paste was missing, else asked.
+            const pasting = source ? (answer.text !== undefined ? answer : await fetchSendText(source)) : { text };
+            if (!pasting?.text) {
+                showNotice('Could not send: the server did not answer.');
+                return;
+            }
+            if (source) ({ scheduler, hires: hasHiresFix } = pasting);
+            if (!await pasteWithButton(tab, promptTextarea, pasting.text)) return;
             if (into) {
                 showNotice('The settings are in img2img, but the picture could not be put in: '
                            + 'drop it in before generating.');
@@ -1470,12 +1359,15 @@ function pasteInfotext(tab, infotext, { scheduler, hasHiresFix, afterPaste, gene
                            + 'this WebUI: the current choice is kept for it.', { info: true });
             }
         }
-        await chooseInDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
+        // A source's scheduler and Hires fix were set by the loader, in the
+        // paste's own event (#302) - unless Forge's paste button pasted it.
+        const loaded = source && !(answer.no_paste || answer.no_loader);
+        if (!loaded) await chooseInDropdown(`${tab}_scheduler`, scheduler || 'Automatic');
         const pending = afterPaste ? afterPaste() : null;
 
         // Reset hires fix if the infotext has no hires data. InputAccordion
         // uses a hidden checkbox - its value is set and events dispatched.
-        if (!hasHiresFix && tab === 'txt2img') {
+        if (!loaded && !hasHiresFix && tab === 'txt2img') {
             const hiresContainer = gradioApp().querySelector('#txt2img_hr-checkbox');
             const hiresCheckbox = hiresContainer?.querySelector('input[type="checkbox"]');
             if (hiresCheckbox && hiresCheckbox.checked) {
@@ -1554,113 +1446,80 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         showNotice(blocked);
         return;
     }
-    // Into img2img an image with no data goes too (#299), its size as the picture's.
-    const meta = sending ? { ...(img.meta || {}) } : img.meta;
-
-    // Debug: log available size-related fields
-    console.log('[ModelManager] Image size data:', {
-        'meta.Size': meta.Size,
-        'img.width': img.width,
-        'img.height': img.height,
-        'meta.width': meta.width,
-        'meta.height': meta.height
-    });
-
-    // Ensure Size is set - try multiple sources
-    if (!meta.Size) {
-        if (img.width && img.height) {
-            meta.Size = `${img.width}x${img.height}`;
-        } else if (meta.width && meta.height) {
-            meta.Size = `${meta.width}x${meta.height}`;
-        }
-    }
+    // Into img2img an image with no data goes too (#299): the server makes
+    // its size the picture's. Its data is read here for the chips alone.
+    const meta = img.meta || {};
 
     try {
         // Forge's UI preset first: changing it resets what the image is about
-        // to set. Anything failing here leaves the send as it was before.
+        // to set. The chips' resources are asked meanwhile.
         const filesAsked = fetchImageFiles(img);
-        const plan = await fetchForgePlan(model, version, img, modulesFromMeta(meta), useVersion);
+        const plan = await fetchSendPlan(model, version, img, useVersion);
+        // The server builds what is pasted (#302): with no plan, there is
+        // nothing to send - where the page once built a text of its own.
+        if (!plan) {
+            showNotice('Could not send: the server did not answer.');
+            return;
+        }
 
         // The gallery's own file is loaded when it is a checkpoint. Any other
         // gallery's image needs its own checkpoint, the one thing a send
         // cannot go without: one Forge cannot load stops it (#134).
         const checkpointGallery = galleryIsCheckpoint(model, version);
-        if (!checkpointGallery && plan?.checkpoint_problem && sending) {
+        if (!checkpointGallery && plan.checkpoint_problem && sending) {
             showNotice(keptCheckpointNote(plan.checkpoint_problem), { info: true });
-        } else if (!checkpointGallery && plan?.checkpoint_problem) {
+        } else if (!checkpointGallery && plan.checkpoint_problem) {
             await stopForCheckpoint(img, model, version, plan.checkpoint_problem);
             return;
         }
-        if (plan?.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
+        if (plan.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
 
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to
         // img2img, with the image. Fetched meanwhile: the preset takes time.
         const isVideo = isVideoUrl({ url: img.url, type: img.type });
-        const tab = sending || (plan && plan.video === 'i2v') ? 'img2img' : 'txt2img';
+        const tab = sending || plan.video === 'i2v' ? 'img2img' : 'txt2img';
         const framing = tab === 'img2img' && !sending ? startFrame(img, isVideo) : null;
 
-        if (plan && plan.preset) await switchForgePreset(plan.preset);
+        if (plan.preset) await switchForgePreset(plan.preset);
 
         // After the preset, which brings back a checkpoint of its own: the
         // gallery's, or the image's by the name Forge lists it under.
         const checkpointPath = checkpointGallery
-            ? getDropdownPath(version.file_path, 'Checkpoint') : plan?.checkpoint || null;
-
-        const vaePath = vaeFromMeta(meta);
-
-        // Set checkpoint if available
+            ? getDropdownPath(version.file_path, 'Checkpoint') : plan.checkpoint || null;
         if (checkpointPath && typeof selectCheckpoint === 'function') {
             console.log('[ModelManager] Setting checkpoint:', checkpointPath);
             selectCheckpoint(checkpointPath);
         }
 
-        // Extract scheduler from metadata or sampler string
-        let scheduler = meta['Schedule type'];
-        if (!scheduler && meta.sampler) {
-            const split = splitSamplerScheduler(meta.sampler);
-            scheduler = split.scheduler;
-        }
-        // Default to Automatic if no scheduler found
-        scheduler = scheduler || 'Automatic';
-
-        // Check if image has hires fix data (must match what paste button checks)
-        // Paste enables hires if: "Denoising strength" AND ("Hires upscale" OR "Hires upscaler" OR "Hires resize-1")
-        const hasHiresFix = meta['Denoising strength'] &&
-            (meta['Hires upscale'] || meta['Hires upscaler'] || meta['Hires resize-1'] || meta['Hires resize-2']);
-
         // A video model makes a still unless it is told how many frames:
-        // Neo reads Batch size as Frames on the Wan preset.
-        let sendMeta = plan && plan.video && !sending
-            ? await withVideoParams(meta, img, isVideo) : meta;
+        // Neo reads Batch size as Frames on the Wan preset. The server makes
+        // the size Wan's; the frames are read here, where the video plays.
+        const video = Boolean(plan.video) && !sending;
+        let frames = null;
+        if (video && isVideo) {
+            frames = await videoFramesOf(img);
+            if (!frames) showNotice('Could not read this video\'s length: Frames are left as the Wan preset has them.');
+        }
 
-        // The image's LoRAs and embeddings, for the chips; a LoRA its prompt
-        // names under another name than the file here is renamed to it.
+        // What the server builds the text from (send.civitai_settings). The
+        // image's LoRAs and embeddings, for the chips; a LoRA its prompt
+        // names under another name than the file here is renamed to it - the
+        // chips' rule, so the renamed prompts go with the source.
         const files = await filesAsked;
         const resources = collectResourceChips(meta, files, galleryFile(model, version));
+        const source = { kind: 'civitai', image: img.id, video, frames,
+                         upscaler: tab === 'txt2img' ? plan.upscaler || null : null,
+                         denoise: tab === 'img2img' && !sending ? 1 : null };
         if (resources.renames.length) {
             const rename = (text) => resources.renames
                 .reduce((out, { from, to }) => renameLoraTags(out, from, to), text);
-            sendMeta = { ...sendMeta, prompt: rename(sendMeta.prompt),
-                         negativePrompt: rename(sendMeta.negativePrompt) };
+            source.prompt = rename(meta.prompt);
+            source.negative_prompt = rename(meta.negativePrompt);
         }
 
-        // Build infotext from metadata
-        const infotext = buildInfotext(sendMeta, { denoisingStrength: tab === 'img2img' && !sending ? 1 : null,
-                                                   hiresUpscaler: tab === 'txt2img' ? plan?.upscaler : null });
-        const modules = () => (plan ? applyPlannedModules(plan, vaePath) : applyVaeSelection(vaePath));
-        if (!infotext && sending) {
-            await sendPictureAlone(sending, modules);
-            return;
-        }
-        if (!infotext) {
-            console.error('[ModelManager] No infotext to send');
-            return;
-        }
-
-        const pasted = pasteInfotext(tab, infotext, {
-            scheduler,
-            hasHiresFix,
+        const pasted = pasteInfotext(tab, null, {
+            source,
             into: sending,
             afterPaste: async () => {
                 updateResourceChipStates(tab);
@@ -1668,9 +1527,8 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
                 // touches the modules itself - Neo reads "Module 1"/"Module 2"
                 // from an infotext, not the "VAE:" line we write. A model whose
                 // text encoders and VAE are separate gets the ones it needs; an
-                // SD or SDXL one, the image's own VAE. With no plan - the
-                // server did not answer - the image's VAE, the old way.
-                return plan ? applyPlannedModules(plan, vaePath) : applyVaeSelection(vaePath);
+                // SD or SDXL one, the image's own VAE.
+                return applyPlannedModules(plan, plan.named_vae);
             },
         });
         if (!pasted) return;
@@ -1678,7 +1536,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         showGenerationTab(tab, sending?.mode);
         // With the kind of embedding the model loads: a chip says which it skips (#179).
         resourceChipSources[tab] = { img, gallery: galleryFile(model, version), files,
-                                     embeddings: plan?.embeddings };
+                                     embeddings: plan.embeddings };
         showResourceChips(tab, arrangeChips(resources.chips, resourceChipSources[tab]));
         lookUpMissingChips(tab);
 
@@ -1695,15 +1553,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
             }
         }
 
-        console.log(`[ModelManager] Sent to ${tab} via paste:`, {
-            infotextLength: infotext.length,
-            prompt: meta.prompt?.substring(0, 50) + '...',
-            checkpoint: checkpointPath,
-            vae: vaePath,
-            scheduler: scheduler,
-            hasHiresFix: !!hasHiresFix,
-            fullInfotext: infotext
-        });
+        console.log(`[ModelManager] Sent to ${tab}:`, { image: img.id, checkpoint: checkpointPath, source });
 
     } catch (error) {
         console.error('[ModelManager] Error sending to txt2img:', error);

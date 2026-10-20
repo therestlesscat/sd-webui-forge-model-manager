@@ -8,7 +8,7 @@
 import { ROOT, checker } from './harness.mjs';
 
 const { check, done } = checker();
-const { videoFrames, videoSize, WAN_FPS, WAN_MAX_FRAMES } =
+const { videoFrames, WAN_FPS, WAN_MAX_FRAMES } =
     await import(`file:///${ROOT}/javascript/shared/wan.mjs`);
 
 check('Wan makes 16 frames a second', WAN_FPS, 16);
@@ -25,8 +25,6 @@ check('an unknown length is null, not a guess',
       [videoFrames(NaN), videoFrames(Infinity), videoFrames(0), videoFrames(undefined)],
       [null, null, null, null]);
 
-check('a size Wan can make is kept', videoSize(832, 480), { width: 832, height: 480 });
-check('any other goes to the nearest 16', videoSize(1080, 1920), { width: 1088, height: 1920 });
-check('never below 16', videoSize(3, 5), { width: 16, height: 16 });
+// A video's size as Wan makes it is the server's (#302): send_text_test.py.
 
 done();

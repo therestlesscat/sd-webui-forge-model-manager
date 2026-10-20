@@ -91,11 +91,28 @@ promptBox.id = 'txt2img_prompt';
 promptBox.innerHTML = '<textarea></textarea>';
 const paste = document.createElement('button');
 paste.id = 'paste';
-paste.addEventListener('click', () => events.push('paste'));
+paste.addEventListener('click', () => {
+    events.push('paste');
+    // Forge's paste button: the box's text read, its prompt left in it.
+    if (pasteRewrites) promptBox.querySelector('textarea').value = promptBox.querySelector('textarea').value.split('\n')[0];
+});
+let pasteRewrites = false;
 document.body.append(promptBox, paste);
 // Send pastes through each tab's hidden button, which runs Forge's paste.
-const loaderAsked = sendLoaders(document, { onAsk: (tab, request) => {
-    if (request.paste !== undefined) events.push(tab === 'txt2img' ? 'paste' : 'paste:img2img');
+// A Civitai image's text is the server's (send.civitai_infotext, send_text_test.py):
+// standing in for it, the image's prompts - or those the page renamed a LoRA in.
+const sourceText = (tab, { source }) => {
+    const meta = IMAGE.meta || {};
+    const prompt = source.prompt ?? meta.prompt ?? '';
+    const negative = source.negative_prompt ?? meta.negativePrompt;
+    return negative ? `${prompt}\nNegative prompt: ${negative}` : prompt;
+};
+// What the loader answers: a paste, unless a section says otherwise.
+let loaderAnswer = () => ({ pasted: true });
+const loaderAsked = sendLoaders(document, { sourceText, answer: (tab, request) => loaderAnswer(tab, request),
+                                            onAsk: (tab, request) => {
+    // A Civitai image's Send hands the loader its source, which the server pastes (#302).
+    if (request.paste !== undefined || request.source !== undefined) events.push(tab === 'txt2img' ? 'paste' : 'paste:img2img');
 } });
 window.selectCheckpoint = globalThis.selectCheckpoint = (name) => events.push(`checkpoint:${name}`);
 Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });   // the send saves it
@@ -117,17 +134,26 @@ let generationPlan = null;               // a generation of your own's send plan
 // What Forge's setting holds, asked after the modules are set: as a rule what
 // the control shows. A section that wants Forge to disagree sets it.
 let forgeHolds = () => selected();
-globalThis.fetch = withGalleryPages(async (url) => {
+// A Gradio call's own wait and outcome, by its event (fn_index), where a section sets one.
+const eventDelay = {};
+const eventFails = new Set();
+globalThis.fetch = withGalleryPages(async (url, init) => {
     const href = String(url);
     if (href.includes('/run/')) {
-        await new Promise((r) => setTimeout(r, forgeDelay));
-        return { ok: true, json: async () => ({ data: [] }) };
+        let fn;
+        try { fn = JSON.parse(init?.body ?? '{}').fn_index; } catch (e) { fn = undefined; }
+        await new Promise((r) => setTimeout(r, eventDelay[fn] ?? forgeDelay));
+        return { ok: !eventFails.has(fn), json: async () => ({ data: [] }) };
     }
     if (href.includes('/send-plan')) return { ok: true, json: async () => generationPlan };
     if (href.includes('/model-manager/forge-modules/current')) {
         return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
-    if (href.includes('/model-manager/forge-modules')) {
+    if (href.includes('/model-manager/send/plan') && href.includes('text=1')) {
+        return { ok: true, json: async () => ({ success: true, text: 'as the server built it\nSteps: 20',
+                                                 scheduler: 'Simple', hires: false }) };
+    }
+    if (href.includes('/model-manager/send/plan')) {
         planAsked.push(new URL(href, 'http://webui').searchParams);
         if (plan === 'fail') throw new Error('server down');
         return { ok: true, json: async () => plan };
@@ -186,14 +212,32 @@ check('nothing is missing, so nothing is said', document.querySelector('.mm-noti
 await send();
 check('a preset already right is left alone', events.filter((e) => e.startsWith('preset')), []);
 
-// The scheduler, after the paste: the image's, or Automatic when it names
-// none - chosen in the list, as Gradio takes it. Its text alone was put back
-// (#138): an image naming none left the last generation's.
-check('an image naming no scheduler: Automatic is chosen', commits.txt2img_scheduler, 'Automatic');
-IMAGE.meta['Schedule type'] = 'Simple';
-await send();
-check('one naming its scheduler: that one is chosen', commits.txt2img_scheduler, 'Simple');
-delete IMAGE.meta['Schedule type'];
+// The scheduler is the loader's for a Civitai image (#302): set in the
+// paste's own event, the image's or Automatic (send_text_test.py). The page
+// chooses none, and asks the loader with the image as its source.
+const sourceAsked = () => [...loaderAsked].reverse().find((r) => r.source !== undefined)?.source;
+check('a Civitai image\'s scheduler is the loader\'s: the page chooses none, and hands it the image',
+      [commits.txt2img_scheduler, sourceAsked()?.kind, sourceAsked()?.image], [undefined, 'civitai', IMAGE.id]);
+
+// Forge's paste function not found: the loader answers the server's text,
+// scheduler and Hires fix, and the page presses Forge's own paste button and
+// sets the rest, as it did. The loader not built: the page asks for them.
+const box = () => promptBox.querySelector('textarea');
+pasteRewrites = true;
+for (const [label, answer] of [
+    ['Forge\'s paste not found: the loader\'s text', { no_paste: true, text: 'as the server built it\nSteps: 20',
+                                                        scheduler: 'Simple', hires: false }],
+    ['the loader not built: the text asked of the plan\'s route', { no_loader: true }]]) {
+    loaderAnswer = (tab, request) => (request.source ? answer : { pasted: true });
+    delete commits.txt2img_scheduler;
+    box().value = '';
+    events.length = 0;
+    await send();
+    check(`${label}, through Forge's paste button, and the scheduler set after it`,
+          [events.includes('paste'), box().value, commits.txt2img_scheduler], [true, 'as the server built it', 'Simple']);
+}
+loaderAnswer = () => ({ pasted: true });
+pasteRewrites = false;
 
 // ---------------------------------------------- a module not installed
 plan = { ...plan, preset: 'qwen', select: ['ae.safetensors'], missing: ['qwen25_7b'] };
@@ -250,7 +294,11 @@ const changes = () => events.filter((e) => e.startsWith('module'));
 IMAGE.meta.VAE = 'sdxl_vae';
 plan = { ...plan, target: ['sdxl_vae.safetensors'] };
 await send();
-check('the image\'s VAE is sent for the server to find', planAsked[0]?.getAll('module'), ['sdxl_vae']);
+// The VAEs an image names are read by the server, from its stored record
+// (send.named_modules, #302): the plan is asked with the image, not them.
+check('the plan is asked with the image, for the server to read the VAEs it names',
+      [planAsked[0]?.get('kind'), planAsked[0]?.get('image'), planAsked[0]?.getAll('module')],
+      ['civitai', String(IMAGE.id), []]);
 check('and the file it found is selected, in one change', [selected(), changes()],
       [['sdxl_vae.safetensors'], ['module+:sdxl_vae.safetensors']]);
 await send();
@@ -262,8 +310,8 @@ check('a second image needing the same leaves the control untouched', changes(),
 delete IMAGE.meta.VAE;
 Object.assign(IMAGE.meta, { 'Module 2': 'clipG_ill', 'Module 1': 'sdxl_vae' });
 await send();
-check('every module an image names as Module N is sent, in order',
-      planAsked[0]?.getAll('module'), ['sdxl_vae', 'clipG_ill']);
+check('an image naming its modules as Module N: the plan is asked with the image alone',
+      [planAsked[0]?.get('image'), planAsked[0]?.getAll('module')], [String(IMAGE.id), []]);
 plan = { ...plan, modules_not_found: ['clipG_ill'] };
 await send();
 check('one Forge does not list is said', notices_().map((n) => n.textContent).pop(),
@@ -300,10 +348,15 @@ document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 delete IMAGE.meta.VAE;
 
 // ------------------------------------------------------- the server failing
+// The server builds what is pasted (#302): with no plan, nothing is sent,
+// and it is said - where the page once pasted a text of its own.
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 plan = 'fail';
 await send();
-check('with no plan, the send goes on as it did before',
-      [events.includes('paste'), events.some((e) => e.startsWith('preset'))], [true, false]);
+check('with no plan, nothing is sent, and it is said',
+      [events.includes('paste'), events.some((e) => e.startsWith('preset')),
+       document.querySelector('.mm-notice')?.textContent], [false, false, 'Could not send: the server did not answer.']);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ---------------------------------------------------------- a LoRA's gallery
 // Which model the image is for is the server's to work out (send_plan.py):
@@ -487,10 +540,11 @@ await sendButton();
 // An upscaler's gallery: that upscaler goes in as Hires fix's, by the name
 // the server says Forge lists it under - through Forge's paste, which sets the
 // dropdown hidden or not: in Hires fix's closed accordion, a choice pressed in
-// its list never opened, and the field was left blank (#138). Without
-// "Denoising strength" the paste leaves Hires fix off; it stays as the image
-// had it.
-// The infotext the last Send handed Forge's paste.
+// its list never opened, and the field was left blank (#138). The server
+// writes it into the text it pastes, and turns Hires fix off for an image
+// made without it, in the paste's own event (#302, send_text_test.py): the
+// page hands it with the image's source, and leaves Hires fix alone.
+// The infotext the last Send handed Forge's paste: your generations' still.
 const pasted = () => [...loaderAsked].reverse().find((r) => r.paste !== undefined)?.paste || '';
 const hires = dropdown('txt2img_hr_upscaler', ['Latent', 'Lanczos', '4x-UltraSharp'], false,
                        (label) => { commits.txt2img_hr_upscaler = label; });
@@ -505,35 +559,30 @@ MODEL.model_type = 'Upscaler';
 plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [],
          checkpoint: 'anima-preview2.safetensors [635cf338]', upscaler: '4x-UltraSharp' };
 await send();
-check('an upscaler\'s gallery pastes it as Hires fix\'s upscaler, and loads the image\'s checkpoint',
-      [/Hires upscaler: 4x-UltraSharp(,|$)/m.test(pasted()), events.includes('checkpoint:anima-preview2.safetensors [635cf338]')],
-      [true, true]);
-check('with no Denoising strength, so the paste does not turn Hires fix on', /Denoising strength/.test(pasted()), false);
+check('an upscaler\'s gallery hands its upscaler with the source, for Hires fix\'s, and loads the image\'s checkpoint',
+      [sourceAsked()?.upscaler, events.includes('checkpoint:anima-preview2.safetensors [635cf338]')],
+      ['4x-UltraSharp', true]);
 check('and the hidden dropdown is not touched: its text as it was', hires.querySelector('input').value, 'Latent');
-check('Hires fix stays as the image had it: off, as it used none', hiresBox.querySelector('input').checked, false);
+check('Hires fix is the loader\'s to turn off, in the paste\'s event: the page leaves it',
+      hiresBox.querySelector('input').checked, true);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 hires.querySelector('input').value = 'Latent';
 delete commits.txt2img_hr_upscaler;
 plan = { ...plan, upscaler: null, upscaler_not_listed: '4x-UltraSharp.pth' };
 await send();
-check('one Forge does not list is said, and Hires fix\'s left as the paste set it',
+check('one Forge does not list is said, and no upscaler goes with the source',
       [document.querySelector('.mm-notice')?.textContent.includes('4x-UltraSharp.pth'),
-       /Hires upscaler/.test(pasted()), hires.querySelector('input').value], [true, false, 'Latent']);
+       sourceAsked()?.upscaler, hires.querySelector('input').value], [true, null, 'Latent']);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
-// An image made with Hires fix: the gallery's upscaler in place of its own.
-Object.assign(IMAGE.meta, { 'Denoising strength': 0.4, 'Hires upscale': 2, 'Hires upscaler': 'Latent' });
-plan = { ...plan, upscaler: '4x-UltraSharp', upscaler_not_listed: null };
-await send();
-check('an image with Hires fix: the gallery\'s upscaler in place of the image\'s, once',
-      [(pasted().match(/Hires upscaler: [^,\n]+/g) || []), /Denoising strength: 0.4/.test(pasted())],
-      [['Hires upscaler: 4x-UltraSharp'], true]);
-for (const key of ['Denoising strength', 'Hires upscale', 'Hires upscaler']) delete IMAGE.meta[key];
 // A choice pressed in a hidden dropdown's list: none opens. It gives up, and
 // leaves the text as it was - it used to clear it first, and leave it blank.
+// The page chooses the scheduler for a generation's pasted infotext alone now.
 scheduler.dataset.hidden = '1';
 delete commits.txt2img_scheduler;
 scheduler.querySelector('input').value = 'Beta';
-await send();
+await sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20, Schedule type: Simple', mode: 'txt2img',
+                     meta: { 'Schedule type': 'Simple' } });
+await whenSendSettled();
 check('a hidden dropdown: nothing chosen, its text left as it was',
       [commits.txt2img_scheduler, scheduler.querySelector('input').value], [undefined, 'Beta']);
 delete scheduler.dataset.hidden;
@@ -542,19 +591,8 @@ delete plan.upscaler_not_listed;
 hires.remove();
 hiresBox.remove();
 
-// ------------------------------------------------------------- the seed
-// Seed 0 is a seed: left out, Forge's paste kept the previous image's (#310).
-const seedBefore = IMAGE.meta.seed;
-MODEL.model_type = 'Checkpoint';
-plan = { success: true, preset: 'flux', manage_modules: true, select: [], target: [], missing: [] };
-IMAGE.meta.seed = 0;
-await send();
-check('an image made with seed 0 pastes it', /(^|, )Seed: 0(,|$)/m.test(pasted()), true);
-IMAGE.meta.seed = 7;
-await send();
-check('any other seed as before', /(^|, )Seed: 7(,|$)/m.test(pasted()), true);
-IMAGE.meta.seed = seedBefore;
-MODEL.model_type = 'LORA';
+// Seed 0 (#310), the denoising strength and the rest of the text: the
+// server's (send_text_test.py).
 
 // ------------------------------------------- an image-to-video model
 // Sent to txt2img it failed in the sampler: an I2V model starts from an
@@ -649,9 +687,10 @@ check('and img2img is shown, on its img2img mode',
 await waitFor('the landing', () => scrolls.length > 1);
 check('landing at the page\'s top, where the checkpoint and modules a send set are seen (#263): the tab bar, then 0',
       scrolls, [120, 0]);
-check('with a denoising strength of 1', infotext().includes('Denoising strength: 1'), true);
-check('its frames from the video\'s length, its size in Wan\'s steps',
-      [infotext().includes('Batch size: 81'), infotext().includes('Size: 1088x1920')], [true, true]);
+// Its text is the server's (send_text_test.py): Denoising strength 1, Wan's
+// size, the frames as Batch size. The page hands what only it can read.
+check('with a denoising strength of 1, and its frames from the video\'s length, as a video for Wan',
+      [sourceAsked()?.denoise, sourceAsked()?.frames, sourceAsked()?.video], [1, 81, true]);
 check('its first frame is loaded into img2img\'s image, as a PNG',
       [given.length, given[0]?.type, given[0]?.name], [1, 'image/png', 'civitai-1.png']);
 check('drawn from the original, at full size', loaded.includes(`${C}/original=true/8c0dc66f.mp4`), true);
@@ -1168,6 +1207,48 @@ check('a slow preset change is waited out: its defaults and modules land before 
 forgeAnswersPreset = null;
 forgeDelay = 0;
 
+// Where Gradio's config names the events a preset change runs, Send waits
+// for exactly those (#302): Neo's change and the call that follows it on
+// success - not the LoRA lists' refresh a script step presses after them,
+// which sets no field Send sets, nor a quiet spell. 400 ms of quiet was most
+// of a switch's 0.94 s.
+window.gradio_config = { components: [{ id: 11, props: { elem_id: 'forge_ui_preset' } }, { id: 50, props: {} }],
+                         dependencies: [
+    { id: 0, targets: [[11, 'change']], backend_fn: true, trigger_after: null },                // on_preset_change
+    { id: 1, targets: [], backend_fn: true, trigger_after: 0, trigger_only_on_success: true },  // the preset's checkpoint and modules
+    { id: 2, targets: [], backend_fn: false, trigger_after: 1 },                                // clickLoraRefresh, a script
+    { id: 3, targets: [[50, 'click']], backend_fn: true, trigger_after: null }] };             // the refresh it presses
+const call = (fn) => globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: fn }) });
+Object.assign(eventDelay, { 0: 100, 1: 100, 3: 1500 });
+forgeAnswersPreset = () => {
+    call(0).then((answer) => {
+        events.push('forge:defaults');
+        if (!answer.ok) return null;
+        return call(1).then(() => {
+            events.push('forge:modules');
+            call(3).then(() => events.push('forge:refreshed'));
+        });
+    });
+};
+preset.querySelector('input').value = 'sd';
+await send();
+check('Forge\'s own events for the preset waited for, and no more: the LoRA lists still refreshing as the image goes in',
+      events.filter((e) => /^(preset|forge|paste)/.test(e)), ['preset:flux', 'forge:defaults', 'forge:modules', 'paste']);
+await new Promise((r) => setTimeout(r, 1600));
+// The preset's change failing: what follows on success never runs, and the
+// wait ends with it rather than at its limit.
+eventFails.add(0);
+preset.querySelector('input').value = 'sd';
+let started = Date.now();
+await send();
+check('a failed preset change ends the wait at once, not at its limit',
+      [events.filter((e) => /^(preset|forge|paste)/.test(e)), Date.now() - started < window.mmTiming.presetMax],
+      [['preset:flux', 'forge:defaults', 'paste'], true]);
+eventFails.clear();
+for (const fn of Object.keys(eventDelay)) delete eventDelay[fn];
+forgeAnswersPreset = null;
+delete window.gradio_config;
+
 // The extension runs in the original Forge too, whose UI preset is a row of
 // radio buttons (sd, xl, flux, all) rather than Neo's dropdown. The send
 // typed into it as if it were a dropdown, clearing the first radio's value.
@@ -1265,24 +1346,6 @@ check('with one that loads none, each says it is not used', note('negativeXL_D')
 delete library.names;
 delete library.embeddings;
 
-// Some tools give Civitai the prompt as a quoted string. Pasted as it is, a
-// model reading prompts as instructions took the whole as one quotation and
-// drew noise; the quotes around the whole go, and only those.
-// (Read from what the Send handed Forge's paste.)
-const sendPrompts = async (prompt, negativePrompt) => {
-    IMAGE.meta = { prompt, negativePrompt, steps: 20 };
-    const before = loaderAsked.length;
-    await send();
-    const written = loaderAsked.slice(before).find((r) => r.paste !== undefined)?.paste || '';
-    return written.split('\n').filter((line) => !line.startsWith('Steps:'));
-};
-check('a prompt and a negative prompt quoted whole are sent without the quotes',
-      await sendPrompts(' "a lighthouse at dusk, (fog:1.2)" ', '"blurry"'),
-      ['a lighthouse at dusk, (fog:1.2)', 'Negative prompt: blurry']);
-check('a prompt with quotes of its own inside keeps every one',
-      await sendPrompts('"a sign" reading "open"', 'text'),
-      ['"a sign" reading "open"', 'Negative prompt: text']);
-check('as does one quoted only in part',
-      await sendPrompts('a sign reading "open"', ''), ['a sign reading "open"']);
+// A prompt Civitai stored in quotes is the server's to unquote (#302): send_text_test.py.
 
 done();

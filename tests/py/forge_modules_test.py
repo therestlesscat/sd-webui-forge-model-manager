@@ -471,8 +471,8 @@ asked = {'file_path': lora_path, 'base_model': 'Flux.1 D', 'version_ids': str(fl
 new = client.get('/model-manager/send/plan', params={'kind': 'civitai', 'image': 990001, **asked}).json()
 old = client.get('/model-manager/forge-modules',
                  params={**asked, 'module': ['ae.safetensors', 'clip_l', 'gone_te']}).json()
-check('a Civitai image\'s plan from the one route is the old route\'s, with its kind',
-      new, {**old, 'kind': 'civitai'})
+check('a Civitai image\'s plan from the one route is the old route\'s, with its kind and the VAE it names',
+      new, {**old, 'kind': 'civitai', 'named_vae': 'ae.safetensors'})
 check('and it reads the image\'s modules from its record: one this WebUI lacks is named',
       (new['checkpoint'], new['target'], new['modules_not_found']),
       ('flux.safetensors [abcd1234]', ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], ['gone_te']))

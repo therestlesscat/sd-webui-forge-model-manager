@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.67 - Send, decided in one place
+
+*19 October 2026*
+
+Send is being moved into one place on the server: what it sets for an image, and how, decided once for every kind of image. Civitai's images come first. They now go in at their picture's size when their data gives another shape, and a Send that changes Forge's UI preset is about half a second quicker.
+
+- **0.67.0** (build 528) - A Civitai image's Send is decided on the server (#302): the text Forge pastes, the VAE and modules the image names, its size, a video's frames - all built in the page until now, beside the server's plan for the same send - come from one request, and the paste's own event sets the schedule type and turns Hires fix off for an image made without it, where the page pressed them after. Built from every one of one library's 107,469 stored Civitai images with settings, the server's text is the page's, character for character, but for one change: an image whose data gives a size of another shape than the picture, by more than 3%, goes in at the picture's size, without the data's width and height - which Forge read over the size, so a 2304 x 1664 picture whose data said 512 x 512 went in at 512 x 512. That is 1,525 of those images: 494 whose data gives width and height, 1,031 a size alone. Sent from the Civitai Images tab, old code and new side by side on 52 images, 30 came out the same in every field and 19 differed in size alone, each at the picture's; the other 3 differed in a notice or the order of the VAE / Text Encoder files, on whichever page sent first, and Forge loads the same files. A Send that changes the UI preset now waits for Forge's own events of the change, not for a quiet time after it: 1,256 ms where it took 1,729 (medians of 21), and 759 where it took 811 with the preset kept (19). A Send whose request fails says "Could not send: the server did not answer." and sets nothing.
+
 ## 0.66 - Send any image into img2img
 
 *18 October 2026*

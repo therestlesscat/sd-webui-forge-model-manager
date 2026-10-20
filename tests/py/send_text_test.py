@@ -1,0 +1,163 @@
+"""
+What a Civitai image's Send pastes, built on the server (#302): the VAEs an
+image names, the infotext, its size, and what the loader sets in the paste's
+own event.
+
+All of it was the page's until #302 (vaeFromMeta, modulesFromMeta,
+buildInfotext, unquotePrompt, the Size filled in sendGalleryImageTo,
+withVideoParams), and these checks were the page's suites' - vae_meta_test.js
+and forge_preset_test.mjs's reading of the pasted text. Every stored image's
+text is compared with the page's old code by hand (tests/work/r302/, check 1).
+"""
+import os
+import sys
+import types
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(HERE)
+ROOT = os.path.dirname(TESTS)
+for _p in (ROOT, TESTS):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import webui_stub                                        # noqa: E402
+
+webui_stub.install()
+
+from model_manager import send                           # noqa: E402
+from model_manager.scheduler import load                 # noqa: E402
+
+fails = []
+def check(label, got, want=True):
+    if got != want:
+        fails.append('%s\n   got  %r\n   want %r' % (label, got, want))
+
+
+# ------------------------------------------------------- the VAE an image names
+# Every spelling Civitai uses for a VAE, and every placeholder that only looks
+# like one. Counts from 67,458 stored images.
+v = send.named_vae
+check('VAE, the usual field (11,304 images)', v({'VAE': 'blessed2.vae'}), 'blessed2.vae')
+check('vaes, a ComfyUI list (2,392 images, none of which have VAE)',
+      v({'vaes': ['qwen_image_vae.safetensors']}), 'qwen_image_vae.safetensors')
+check('vae, lowercase', v({'vae': 'aaaAnimeSDXLVAE_v15'}), 'aaaAnimeSDXLVAE_v15')
+check('vae_name, a real one', v({'vae_name': 'sdxl_vae.safetensors'}), 'sdxl_vae.safetensors')
+check('resources, a VAE among them', v({'resources': [{'type': 'vae', 'name': 'x.safetensors'}]}), 'x.safetensors')
+for label, meta in (('Default (model), 131 images', {'VAE': 'Default (model)'}), ('Default, 14 images', {'VAE': 'Default'}),
+                    ('Baked VAE, 5 images', {'VAE': 'Baked VAE'}), ('Baked VAE under Vae', {'Vae': 'Baked VAE'}),
+                    ('automatic, 30 images', {'vae_name': 'automatic'}), ('None', {'VAE': 'None'}),
+                    ('a placeholder inside the list', {'vaes': ['automatic']}),
+                    ('VAE hash alone is not a name', {'VAE hash': '235745af8d'}), ('empty data', {}),
+                    ('no data at all', None), ('an empty list', {'vaes': []}), ('a blank string', {'VAE': '   '}),
+                    ('ADetailer fields are not the main VAE', {'ADetailer VAE': 'vae-ft-mse-840000-ema-pruned.ckpt'})):
+    check(f'no VAE: {label}', v(meta), None)
+check('VAE outranks the list', v({'VAE': 'a.safetensors', 'vaes': ['b.safetensors']}), 'a.safetensors')
+check('a placeholder in VAE falls through to the list', v({'VAE': 'Default', 'vaes': ['b.safetensors']}), 'b.safetensors')
+check('surrounding whitespace is trimmed', v({'VAE': '  c.safetensors  '}), 'c.safetensors')
+
+# Forge writes its VAE / Text Encoder selection as Module 1, Module 2, ...:
+# 4,277 stored images name their modules only so (#204).
+m = send.named_modules
+check('an image naming its VAE only as Module 1 gives it', m({'Module 1': 'sdxl_vae'}), ['sdxl_vae'])
+check('every Module N, in order of its number, after the VAE key',
+      m({'VAE': 'ae', 'Module 2': 'qwen_3_06b_base', 'Module 10': 'x', 'Module 1': 'qwen_image_vae'}),
+      ['ae', 'qwen_image_vae', 'qwen_3_06b_base', 'x'])
+check('each once, whatever its case', m({'VAE': 'sdxl_vae', 'Module 1': 'SDXL_VAE'}), ['sdxl_vae'])
+check('a placeholder is no module', m({'Module 1': 'Automatic'}), [])
+check('an image naming none gives none', m({'prompt': 'x'}), [])
+
+# ------------------------------------------------------------- the infotext
+SAMPLERS = ['Euler a', 'Euler', 'DPM++ 2M']
+SCHEDULERS = ['Karras', 'Simple', 'SGM Uniform']
+
+
+def text(meta, width=832, height=1216, **kw):
+    return send.civitai_infotext({'meta': meta, 'width': width, 'height': height}, SAMPLERS, SCHEDULERS, **kw)
+
+
+def settings(t):
+    return t.split('\n')[-1]
+
+
+IMAGE = {'prompt': 'a lighthouse at dusk', 'negativePrompt': 'blurry', 'steps': 20, 'sampler': 'Euler a',
+         'cfgScale': 7, 'seed': 1, 'Size': '832x1216'}
+check('the prompt, the negative prompt, then the settings line',
+      text(IMAGE), 'a lighthouse at dusk\nNegative prompt: blurry\n'
+      'Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1, Size: 832x1216, ADetailer enable: False')
+# Some tools give Civitai the prompt as a quoted string. Pasted as it is, a
+# model reading prompts as instructions took the whole as one quotation and
+# drew noise; the quotes around the whole go, and only those.
+check('a prompt and a negative prompt quoted whole go in without the quotes',
+      text({**IMAGE, 'prompt': ' "a lighthouse at dusk, (fog:1.2)" ', 'negativePrompt': '"blurry"'}).split('\n')[:2],
+      ['a lighthouse at dusk, (fog:1.2)', 'Negative prompt: blurry'])
+check('a prompt with quotes of its own inside keeps every one',
+      text({**IMAGE, 'prompt': '"a sign" reading "open"'}).split('\n')[0], '"a sign" reading "open"')
+check('as does one quoted only in part', text({**IMAGE, 'prompt': 'a sign reading "open"'}).split('\n')[0],
+      'a sign reading "open"')
+check('seed 0 is a seed (#310)', 'Seed: 0,' in settings(text({**IMAGE, 'seed': 0})), True)
+check('the sampler\'s name read for its schedule type, as Forge names both',
+      'Sampler: Euler a, Schedule type: Karras' in settings(text({**IMAGE, 'sampler': 'euler_a_karras'})), True)
+check('numbers written as the page wrote them: 7.0 as 7',
+      'CFG scale: 7,' in settings(text({**IMAGE, 'cfgScale': 7.0})), True)
+check('Lora hashes are not pasted: Forge would rename its LoRAs by them',
+      'Lora hashes' in text({**IMAGE, 'Lora hashes': '"a: 1234, b: 5678"', 'Version': 'neo'}), False)
+check('ADetailer turned on by the image naming its fields',
+      'ADetailer enable: True' in text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt'}), True)
+check('the page\'s renamed prompt over the image\'s (the chips\' rule)',
+      text(IMAGE, prompt='a <lora:local_file:1> lighthouse').split('\n')[0], 'a <lora:local_file:1> lighthouse')
+
+HIRES = {**IMAGE, 'Denoising strength': 0.4, 'Hires upscale': 2, 'Hires upscaler': 'Latent'}
+check('an image with no Hires fix: no Denoising strength, so the paste does not turn it on',
+      'Denoising strength' in text(IMAGE), False)
+check('an upscaler\'s gallery\'s own upscaler, as Hires fix\'s, and no Denoising strength',
+      ('Hires upscaler: 4x-UltraSharp' in text(IMAGE, hires_upscaler='4x-UltraSharp'),
+       'Denoising strength' in text(IMAGE, hires_upscaler='4x-UltraSharp')), (True, False))
+check('an image with Hires fix: the gallery\'s upscaler in place of the image\'s, once',
+      settings(text(HIRES, hires_upscaler='4x-UltraSharp')).count('Hires upscaler'), 1)
+check('and its Denoising strength', 'Denoising strength: 0.4' in text(HIRES), True)
+check('img2img for an image-to-video model: a denoising strength of 1',
+      'Denoising strength: 1,' in settings(text(IMAGE, denoising_strength=1)), True)
+check('an image-to-video model: Wan\'s size and the video\'s frames',
+      ('Size: 1088x1920' in text({**IMAGE, 'Size': '1080x1920'}, 1080, 1920, video=True, frames=81),
+       'Batch size: 81' in text(IMAGE, video=True, frames=81)), (True, True))
+
+check('a size Wan can make is kept', send.video_size(832, 480), {'width': 832, 'height': 480})
+check('any other goes to the nearest 16', send.video_size(1080, 1920), {'width': 1088, 'height': 1920})
+check('never below 16', send.video_size(3, 5), {'width': 16, 'height': 16})
+check('halves rounded up, as the page rounded them', send.video_size(8, 24), {'width': 16, 'height': 32})
+
+# ------------------------------------------------- the size (#299, R8)
+check('no Size in the data: the picture\'s', 'Size: 832x1216' in text({k: v for k, v in IMAGE.items() if k != 'Size'}), True)
+check('the same shape, scaled - Hires fix\'s picture: the data\'s size',
+      'Size: 832x1216' in text(IMAGE, 1664, 2432), True)
+check('Size alone, of another shape than the picture: the picture\'s',
+      'Size: 1536x1024' in text({**IMAGE, 'Size': '512x512'}, 1536, 1024), True)
+other = text({**{k: v for k, v in IMAGE.items() if k != 'Size'}, 'width': 512, 'height': 512}, 2304, 1664)
+check('width and height of another shape: the picture\'s Size, and neither of them, which Forge reads over it',
+      ('Size: 2304x1664' in other, 'width:' in other, 'height:' in other), (True, False, False))
+kept = text({**{k: v for k, v in IMAGE.items() if k != 'Size'}, 'width': 416, 'height': 608}, 832, 1216)
+check('width and height of the same shape: passed on as they are',
+      ('width: 416' in kept, 'height: 608' in kept), (True, True))
+check('within 3%: the data\'s', 'Size: 832x1216' in text(IMAGE, 840, 1216), True)
+
+# ----------------------------------- what the loader sets in the paste's event
+def control(elem_id, choices=None):
+    return types.SimpleNamespace(elem_id=elem_id, choices=choices or [])
+
+
+outputs = [control('txt2img_prompt'), control(None), control('txt2img_scheduler', [('Automatic', 'Automatic'),
+                                                                                    ('Karras', 'Karras')])]
+names = ['prompt', 'enable_hr']
+values = ['x', True, 'Simple']
+load.after_paste('txt2img', values, outputs, names, 'Karras', False)
+check('the image\'s schedule type, and Hires fix off for an image made without it', values, ['x', False, 'Karras'])
+values = ['x', True, 'Simple']
+load.after_paste('txt2img', values, outputs, names, 'Exponential', True)
+check('a schedule type the dropdown does not offer leaves the paste\'s; Hires fix kept for an image with it',
+      values, ['x', True, 'Simple'])
+values = ['x', True, 'Simple']
+load.after_paste('img2img', values, outputs, names, 'Karras', False)
+check('img2img: Hires fix is txt2img\'s alone, and this is not img2img\'s scheduler', values, ['x', True, 'Simple'])
+
+print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
+sys.exit(1 if fails else 0)

@@ -44,6 +44,9 @@ def plan(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                               source.get("version_ids") or "", source.get("hashes") or "",
                               source.get("model_name") or "", "", named_modules(record.get("meta")),
                               int(source.get("use_version") or 0))
+        # The VAE the image names, for a WebUI without Forge's VAE / Text
+        # Encoder control: the page selects it by name, as it always did.
+        answer["named_vae"] = named_vae(record.get("meta"))
     elif kind == "generation":
         answer = generation_plan(db, int(source.get("generation") or 0), source.get("use_version") or None)
     elif kind == "task":
@@ -332,6 +335,323 @@ def named_modules(meta: Any) -> List[str]:
              if isinstance(name, str) and _is_file_name(name)]
     seen = set()
     return [name for name in names if not (name.lower() in seen or seen.add(name.lower()))]
+
+
+# ------------------------- a Civitai image's settings, as Forge's paste reads them
+# Ported from the page (#302): buildInfotext and unquotePrompt in send.mjs,
+# the sampler reading in samplers.mjs, videoSize in wan.mjs. The page built
+# this text from the same stored record; check 1 holds the two to the same
+# text for every stored image (tests/work/r302/).
+
+def _js_text(value: Any) -> str:
+    """A value as the page's JavaScript wrote it into a template: 7.0 as "7",
+    1e-07 as "1e-7", True as "true"."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return _js_number(value)
+    return str(value)
+
+
+def _js_number(x: float) -> str:
+    """Number::toString, from Python's shortest round-trip digits."""
+    from decimal import Decimal
+    if x != x:
+        return "NaN"
+    if x in (float("inf"), float("-inf")):
+        return "Infinity" if x > 0 else "-Infinity"
+    if x == 0:
+        return "0"
+    sign = "-" if x < 0 else ""
+    digits_t, exponent = Decimal(repr(abs(x))).normalize().as_tuple()[1:]
+    digits = "".join(str(d) for d in digits_t)
+    k = len(digits)
+    n = exponent + k
+    if k <= n <= 21:
+        text = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        text = digits[:n] + "." + digits[n:]
+    elif -6 < n <= 0:
+        text = "0." + "0" * (-n) + digits
+    else:
+        e = n - 1
+        text = (digits if k == 1 else digits[0] + "." + digits[1:]) + "e" + ("+" if e >= 0 else "-") + str(abs(e))
+    return sign + text
+
+
+def _normalised(text: Any) -> str:
+    """A sampler's name as names are compared: lower case, `_ - +` as spaces."""
+    if not _truthy(text):
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"[_\-+]", " ", str(text).lower())).strip()
+
+
+def match_sampler(name: Any, samplers: List[str]) -> Any:
+    """The sampler Forge lists for a name an image gives, by case and `_ - +`;
+    the name with its underscores as spaces when none matches."""
+    if not _truthy(name) or not samplers:
+        return name
+    if name in samplers:
+        return name
+    wanted = _normalised(name)
+    for sampler in samplers:
+        if _normalised(sampler) == wanted:
+            return sampler
+    return str(name).replace("_", " ")
+
+
+def split_sampler(text: Any, samplers: List[str], schedulers: List[str]) -> Dict[str, Any]:
+    """
+    An image's sampler text read by Forge's samplers and schedulers: "Euler a
+    Karras" is the sampler "Euler a" and the schedule type "Karras" (#88).
+    `schedulers` as Forge lists them, Automatic left out, in Forge's order.
+    """
+    if not _truthy(text):
+        return {"sampler": None, "scheduler": None}
+    whole = str(text).replace("_", " ")
+    for scheduler in schedulers:
+        if whole.endswith(" " + scheduler) or whole.lower().endswith(" " + scheduler.lower()):
+            return {"sampler": match_sampler(whole[:-(len(scheduler) + 1)], samplers), "scheduler": scheduler}
+    return {"sampler": match_sampler(whole, samplers), "scheduler": None}
+
+
+def _unquoted(text: Any) -> Any:
+    """A prompt Civitai stored in quotes, without them; any other as it is."""
+    trimmed = ("" if text is None else str(text)).strip()
+    inner = trimmed[1:-1]
+    if len(trimmed) >= 2 and trimmed.startswith('"') and trimmed.endswith('"') and '"' not in inner:
+        return inner.strip()
+    return text
+
+
+# Hires fix's keys, written only when the image had it: Forge's paste turns
+# it on from them.
+_HANDLED = ("prompt", "negativePrompt", "steps", "sampler", "Schedule type", "cfgScale", "seed",
+            "Size", "Model", "Model hash", "VAE", "Denoising strength", "Clip skip",
+            "Hires upscale", "Hires upscaler", "Hires steps", "Hires resize-1", "Hires resize-2",
+            "resources", "civitaiResources", "Lora hashes")
+
+
+def had_hires(meta: Dict[str, Any]) -> bool:
+    """Whether an image's data says it was made with Hires fix, as Forge's paste reads it."""
+    return _truthy(meta.get("Denoising strength")) and any(
+        _truthy(meta.get(k)) for k in ("Hires upscale", "Hires upscaler", "Hires resize-1", "Hires resize-2"))
+
+
+def image_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers: List[str]) -> Any:
+    """The schedule type an image names: its `Schedule type`, else the one its sampler's name ends in."""
+    scheduler = meta.get("Schedule type")
+    if not _truthy(scheduler) and _truthy(meta.get("sampler")):
+        scheduler = split_sampler(meta.get("sampler"), samplers, schedulers)["scheduler"]
+    return scheduler
+
+
+def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
+                   denoising_strength: Any = None, hires_upscaler: Any = None) -> str:
+    """
+    A Civitai image's generation data as an infotext Forge's paste reads:
+    the prompt, the negative prompt, then a settings line. What Forge's paste
+    sets a control from goes in it (#138): the upscaler, ADetailer's switch,
+    a video's frames. `denoising_strength`: img2img always takes one - an
+    image-to-video model needs 1 - and txt2img only as part of Hires fix,
+    where it would otherwise turn Hires fix on. `hires_upscaler`: an
+    upscaler's gallery's own, over the image's (#134).
+    """
+    if not _truthy(meta):
+        return ""
+    meta = meta if isinstance(meta, dict) else {}
+    infotext = ""
+    prompt = _unquoted(meta.get("prompt"))
+    if _truthy(prompt):
+        infotext += _js_text(prompt)
+    negative = _unquoted(meta.get("negativePrompt"))
+    if _truthy(negative):
+        infotext += "\nNegative prompt: " + _js_text(negative)
+
+    sampler = meta.get("sampler")
+    scheduler = meta.get("Schedule type")
+    if not _truthy(scheduler) and _truthy(sampler):
+        split = split_sampler(sampler, samplers, schedulers)
+        sampler, scheduler = split["sampler"], split["scheduler"]
+    hires = had_hires(meta)
+
+    params = []
+    if _truthy(meta.get("steps")):
+        params.append(f"Steps: {_js_text(meta['steps'])}")
+    if _truthy(sampler):
+        params.append(f"Sampler: {_js_text(sampler)}")
+    if _truthy(scheduler):
+        params.append(f"Schedule type: {_js_text(scheduler)}")
+    if _truthy(meta.get("cfgScale")):
+        params.append(f"CFG scale: {_js_text(meta['cfgScale'])}")
+    # Seed 0 is a seed (#310).
+    if meta.get("seed") is not None and meta.get("seed") != "":
+        params.append(f"Seed: {_js_text(meta['seed'])}")
+    for key in ("Size", "Model", "Model hash", "VAE", "Clip skip"):
+        if _truthy(meta.get(key)):
+            params.append(f"{key}: {_js_text(meta[key])}")
+    denoise = denoising_strength if denoising_strength is not None else (meta.get("Denoising strength") if hires else None)
+    if denoise is not None:
+        params.append(f"Denoising strength: {_js_text(denoise)}")
+    if hires:
+        if _truthy(meta.get("Hires upscale")):
+            params.append(f"Hires upscale: {_js_text(meta['Hires upscale'])}")
+        if _truthy(meta.get("Hires upscaler")) and not _truthy(hires_upscaler):
+            params.append(f"Hires upscaler: {_js_text(meta['Hires upscaler'])}")
+        if _truthy(meta.get("Hires steps")):
+            params.append(f"Hires steps: {_js_text(meta['Hires steps'])}")
+    if _truthy(hires_upscaler):
+        params.append(f"Hires upscaler: {_js_text(hires_upscaler)}")
+    # ADetailer's paste turns its tab on or off by this switch.
+    params.append("ADetailer enable: True" if any(k.startswith("ADetailer ") for k in meta) else "ADetailer enable: False")
+    # Every other field as it is, in the page's order: JavaScript's object
+    # order puts a key that reads as an array index first, by number.
+    keys = sorted((k for k in meta if re.fullmatch(r"0|[1-9]\d*", k) and int(k) < 2 ** 32 - 1), key=int) \
+        + [k for k in meta if not (re.fullmatch(r"0|[1-9]\d*", k) and int(k) < 2 ** 32 - 1)]
+    for key in keys:
+        value = meta[key]
+        if key not in _HANDLED and value is not None and value != "" and not isinstance(value, (dict, list)):
+            params.append(f"{key}: {_js_text(value)}")
+    if params:
+        infotext += "\n" + ", ".join(params)
+    return infotext
+
+
+def without_lora_hashes(infotext: str) -> str:
+    """
+    The infotext with no `Lora hashes` field: Forge's LoRA paste renames each
+    <lora:> tag by it - to the name its file had on the uploader's disk, or
+    an alias - over the file names Send has given them, which the chips name.
+    Forge quotes the value, which holds colons; it is a field of the last line.
+    """
+    lines = str(infotext or "").split("\n")
+    lines[-1] = re.sub(r'(^|,\s*)Lora hashes: "(?:[^"\\]|\\.)*"(\s*,\s*)?',
+                       lambda m: ", " if m.group(1) and m.group(2) else "", lines[-1], count=1)
+    return "\n".join(lines)
+
+
+def video_size(width: Any, height: Any) -> Dict[str, int]:
+    """A video's size as Wan can make it: its 2x2 patches of 8x latents, 16 px."""
+    snap = lambda v: max(16, int(_js_round(float(v) / 16)) * 16)  # noqa: E731
+    return {"width": snap(width), "height": snap(height)}
+
+
+def _js_round(x: float) -> float:
+    """Math.round: halves up, never to even."""
+    import math
+    return math.floor(x + 0.5)
+
+
+# A Civitai image's size is its data's, unless the picture's shape differs
+# from it by more than this: then the picture's (#299). One library's 472 of
+# 120,104 stored images were sent squashed or stretched at their data's size.
+SHAPE_TOLERANCE = 0.03
+
+
+def _size_of(text: Any) -> Optional[tuple]:
+    match = re.fullmatch(r"\s*(\d+)\s*x\s*(\d+)\s*", str(text or ""))
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False) -> Dict[str, Any]:
+    """
+    A Civitai image's data as Send reads it: its own, with a `Size` when it
+    gives none - the picture's, else its width and height - and the picture's
+    size where the data's shape differs from it by more than 3% (#299). For
+    an image-to-video model, its size as Wan makes it and its frames.
+    """
+    meta = dict(record.get("meta") or {})
+    width, height = record.get("width"), record.get("height")
+    if not _truthy(meta.get("Size")):
+        if _truthy(width) and _truthy(height):
+            meta["Size"] = f"{_js_text(width)}x{_js_text(height)}"
+        elif _truthy(meta.get("width")) and _truthy(meta.get("height")):
+            meta["Size"] = f"{_js_text(meta['width'])}x{_js_text(meta['height'])}"
+    # The size Forge's paste ends with: `width` and `height`, which it reads
+    # after `Size`, else `Size`.
+    passed = lambda v: v is not None and v != "" and not isinstance(v, (dict, list))  # noqa: E731
+    if passed(meta.get("width")) and passed(meta.get("height")):
+        given = _size_of(f"{_js_text(meta['width'])}x{_js_text(meta['height'])}")
+    else:
+        given = _size_of(meta.get("Size"))
+    try:
+        picture = (int(width), int(height)) if _truthy(width) and _truthy(height) else None
+    except (TypeError, ValueError):
+        picture = None
+    if given and picture and all(given) and all(picture) \
+            and abs((given[0] / given[1]) / (picture[0] / picture[1]) - 1) > SHAPE_TOLERANCE:
+        # Without `width` and `height`, which Forge's paste would read over `Size`.
+        meta["Size"] = f"{picture[0]}x{picture[1]}"
+        meta.pop("width", None)
+        meta.pop("height", None)
+    if video:
+        size = _size_of(meta.get("Size"))
+        w = (size[0] if size and size[0] else None) or width
+        h = (size[1] if size and size[1] else None) or height
+        if _truthy(w) and _truthy(h):
+            snapped = video_size(w, h)
+            meta["Size"] = f"{snapped['width']}x{snapped['height']}"
+        if _truthy(frames):
+            meta["Batch size"] = int(frames)
+    return meta
+
+
+def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: List[str], *,
+                     denoising_strength: Any = None, hires_upscaler: Any = None, frames: Any = None,
+                     video: bool = False, prompt: Any = None, negative_prompt: Any = None) -> str:
+    """
+    The infotext a Send of a Civitai image pastes: civitai_meta(), with the
+    page's prompts where it renamed a LoRA tag to the library's file (the
+    chips' rule), built (build_infotext), its Lora hashes left out.
+    """
+    meta = civitai_meta(record, frames, video)
+    if prompt is not None:
+        meta["prompt"] = prompt
+    if negative_prompt is not None:
+        meta["negativePrompt"] = negative_prompt
+    return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler))
+
+
+def forge_lists() -> tuple:
+    """Forge's samplers, and its schedulers but Automatic, as the page's sampler reading took them."""
+    from .forge_host import samplers, schedulers
+    try:
+        return list(samplers()), [s for s in schedulers() if s and s != "Automatic"]
+    except Exception as e:
+        say(f"Send: Forge's samplers could not be read: {e}")
+        return [], []
+
+
+def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    What the loader sets a tab with for a Civitai image's source (#302): the
+    infotext Forge's paste reads, and what the page set after the paste and
+    now goes in the same event - the schedule type (the image's, else
+    Automatic) and whether Hires fix stays off.
+
+    `source`, as the page sends it: `image` (its id), `upscaler` (an
+    upscaler's gallery's own, for Hires fix), `denoise` (img2img's for an
+    image-to-video model), `video` and `frames`, and `prompt` /
+    `negative_prompt` where the chips renamed a LoRA tag. None for no such
+    image.
+    """
+    record = next(iter(db.stored_records([int(source.get("image") or 0)])), None)
+    if record is None:
+        return None
+    samplers, schedulers = forge_lists()
+    meta = civitai_meta(record, source.get("frames"), bool(source.get("video")))
+    return {
+        "text": civitai_infotext(record, samplers, schedulers, denoising_strength=source.get("denoise"),
+                                 hires_upscaler=source.get("upscaler"), frames=source.get("frames"),
+                                 video=bool(source.get("video")), prompt=source.get("prompt"),
+                                 negative_prompt=source.get("negative_prompt")),
+        "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
+        "hires": had_hires(meta),
+    }
 
 
 # --------------------------------------- a generation's, and a task's, plan

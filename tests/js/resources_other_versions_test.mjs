@@ -20,7 +20,7 @@ const MODEL = 11;
 const HASH = 'abcdef0123';     // an AutoV2 of another file of CHECKPOINT
 let versions = [];             // what /other-versions answers
 let otherFiles = {};           // what /image-resources says of another file of the version
-let plan = null;               // what /forge-modules answers
+let plan = null;               // what the send plan answers
 const asked = [];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -28,7 +28,7 @@ globalThis.fetch = async (url, init = {}) => {
     const reply = (body) => ({ ok: true, status: 200, json: async () => structuredClone(body) });
     if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: [] });
     if (href.includes('/other-versions')) return reply({ success: true, versions });
-    if (href.includes('/forge-modules')) return reply(plan);
+    if (href.includes('/model-manager/send/plan')) return reply(plan);
     if (href.includes('/image-resources')) {
         return reply({ success: true, versions: { 222: { version_id: 222 } }, hashes: {}, other_files: otherFiles,
                        names: {}, embeddings: [] });

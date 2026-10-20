@@ -1,6 +1,6 @@
 /**
- * A video as Wan makes it - its frames and its size - for the Model
- * Manager's Send of a video.
+ * A video as Wan makes it - its frames - for the Model Manager's Send of a
+ * video. Its size as Wan makes it is the server's (send.video_size, #302).
  */
 
 // Wan generates at 16 frames a second, and Forge Neo's Frames slider stops at
@@ -19,10 +19,4 @@ export function videoFrames(seconds) {
     if (!Number.isFinite(seconds) || seconds <= 0) return null;
     const frames = 4 * Math.round((seconds * WAN_FPS - 1) / 4) + 1;
     return Math.min(Math.max(frames, 1), WAN_MAX_FRAMES);
-}
-
-/** A video's size as Wan can make it: its 2x2 patches of 8x latents, 16 px. */
-export function videoSize(width, height) {
-    const snap = (v) => Math.max(16, Math.round(v / 16) * 16);
-    return { width: snap(width), height: snap(height) };
 }

@@ -437,9 +437,9 @@ check('an image\'s menu starts with the five sends into img2img, in Forge\'s ord
 let loaded = loads.length;
 sendItem('Send to Sketch').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the send into Sketch', () => canvasLoads(loaded).length);
-check('Send to Sketch: img2img\'s settings button asked to paste, with the mode and the image\'s size',
-      settingsLoads(loaded).map(({ tab, paste, into }) => [tab, /a cat 1/.test(paste || ''), into?.mode, into?.width, into?.height]),
-      [['img2img', true, 1, 1024, 1536]]);
+check('Send to Sketch: img2img\'s settings button asked with the image as its source, the mode and the image\'s size',
+      settingsLoads(loaded).map(({ tab, source, into }) => [tab, source?.kind, source?.image, into?.mode, into?.width, into?.height]),
+      [['img2img', 'civitai', image(1).id, 1, 1024, 1536]]);
 check('then Sketch\'s canvas button, with the original\'s address',
       canvasLoads(loaded).map(({ canvas, picture }) => [canvas, picture]), [[1, { url: originalMediaUrl(image(1).url) }]]);
 await waitFor('the send to end', () => !document.querySelector('.mm-progress'));

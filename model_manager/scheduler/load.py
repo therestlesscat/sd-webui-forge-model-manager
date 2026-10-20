@@ -376,6 +376,32 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
     return [by_component.get(id(o), skip) for o in outputs], missing
 
 
+def _offers(component, label: str) -> bool:
+    """Whether a dropdown offers this choice, by its label or its value."""
+    for choice in getattr(component, "choices", None) or []:
+        pair = choice if isinstance(choice, (list, tuple)) else (choice, choice)
+        if label in pair[:2]:
+            return True
+    return False
+
+
+def after_paste(tab: str, values: List[Any], outputs: List[Any], names: List[Optional[str]],
+                scheduler: str, hires: bool) -> None:
+    """
+    What a Civitai image's Send set after Forge's paste, set in the paste's
+    own event (#302): the schedule type - the image's, else Automatic, where
+    the dropdown offers it, as the page chose one only from its list - and,
+    in txt2img, Hires fix off for an image made without it, which the paste
+    leaves as it was on screen. `values` stands for `outputs`; `names` names
+    the first of them, Generate's own.
+    """
+    at = next((n for n, c in enumerate(outputs) if getattr(c, "elem_id", None) == f"{tab}_scheduler"), None)
+    if at is not None and _offers(outputs[at], scheduler):
+        values[at] = scheduler
+    if tab == "txt2img" and not hires and "enable_hr" in names:
+        values[names.index("enable_hr")] = False
+
+
 # ------------------------------------------------------- a picture sent in
 
 # A Civitai original fetched for img2img (#299): at most this big, this long.
@@ -552,6 +578,34 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
         rest = [gr.update()] * len(extras)
         into = request.get("into") if tab == "img2img" else None
         try:
+            # A Civitai image's Send (#302): its text is built here, from its
+            # stored record, and pasted - and what the page set after the
+            # paste, the schedule type and Hires fix off, in the same event.
+            if request.get("source") is not None:
+                from ..send import civitai_settings
+                found = civitai_settings(get_models_db(), request["source"])
+                if found is None:
+                    raise replay.TaskError("The image is not in the library")
+                # For Forge's own paste button, where its paste function is missing.
+                answer.update({"text": found["text"], "scheduler": found["scheduler"], "hires": found["hires"]})
+                if not found["text"]:
+                    # Nothing to paste: into img2img the picture alone goes in (#299).
+                    values = [gr.update()] * count
+                    if into:
+                        answer.update({"mode": _into(values, list(names), into, False)})
+                    else:
+                        answer["empty"] = True
+                    return [*values, *rest, json.dumps(answer)]
+                if outputs is None:
+                    own = capture.generate_click(tab)
+                    outputs = kept_only(list(own.inputs[1:])) + list(extras)
+                values, missing = paste_values(tab, found["text"], None, outputs, skip=gr.update())
+                after_paste(tab, values, outputs, list(names), found["scheduler"], found["hires"])
+                answer.update({"pasted": True, "missing": missing})
+                if into:
+                    sized = "Size-1" in parse_generation_parameters(found["text"])
+                    answer.update({"mode": _into(values, list(names), into, sized)})
+                return [*values, json.dumps(answer)]
             # Forge's paste of an empty text pastes the last run's settings
             # (params.txt): an image with no infotext is sent with none (#299)
             # - an empty text, or no text and no press to replay.
