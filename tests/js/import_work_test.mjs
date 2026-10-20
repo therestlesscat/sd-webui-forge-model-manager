@@ -88,7 +88,6 @@ const STARTED = {
                       'provide downloads.dismissFinished'],
     'chips.mjs': [],
     'resources.mjs': [],
-    'samplers.mjs': [],
 };
 // Each started as a tab starts it, through the loading module (#186): with a
 // scope of its own, once for the page however many tabs use it.
@@ -131,13 +130,5 @@ check('no tab\'s script does anything as it is imported',
 check('each offers start(scope), and what it uses that has a start()',
       tabFiles.filter((name) => typeof tabModules[name].start !== 'function' || !Array.isArray(tabModules[name].STARTS)),
       []);
-
-// What the samplers do once started is read the ui-options answer: the
-// scheduler at the end of an image's sampler text is told apart.
-current = '';
-const { splitSamplerScheduler } = modules['samplers.mjs'];
-await waitFor('the samplers', () => splitSamplerScheduler('Euler a Karras').scheduler);
-check('the samplers, read from ui-options once started', splitSamplerScheduler('Euler a Karras'),
-      { sampler: 'Euler a', scheduler: 'Karras' });
 
 done();

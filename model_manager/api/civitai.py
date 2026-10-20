@@ -31,6 +31,7 @@ from ..civitai.licensing import versions_on_site_only
 from .annotations import (annotate_image_levels, annotate_local_ownership, annotate_paid_access,
                           held_model_ids, ownership)
 from ..nsfw import stamp_levels
+from ..send import stamp_readings
 from ..gallery import cb_images_page_size
 from ..gallery import filter_images
 from .images import PAGE_FETCHES
@@ -571,7 +572,7 @@ def register(app: FastAPI):
             shown, counts = filter_images(images, hide_nsfw_images, hide_promptless_images)
             return JSONResponse({
                 "success": True,
-                "images": stamp_levels(shown),
+                "images": stamp_readings(stamp_levels(shown)),
                 "page": {
                     "number": page,
                     "size": size,

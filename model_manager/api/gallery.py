@@ -24,6 +24,7 @@ from ..db.images_ops import resource_rows
 from ..gallery import gallery_page_size
 from ..model_dirs import held_here
 from ..nsfw import stamp_levels
+from ..send import stamp_readings
 from . import levels
 from .common import failed, gate
 from .images import gallery_switches
@@ -156,7 +157,7 @@ def image_tiles(db, keys) -> List[Dict[str, Any]]:
     """
     found = db.gallery_images(keys)
     files = _library_entries(db, {entry["version_id"] for entry in found})
-    stamp_levels([entry["image"] for entry in found])
+    stamp_readings(stamp_levels([entry["image"] for entry in found]))
     tiles = []
     for entry in found:
         file = files.get(entry["version_id"]) or {}

@@ -53,12 +53,22 @@ facts = generation_fixture.varied(connection, WORK)
 def thumbs_aside(answer):
     """An answer with each image's thumbnail address taken out, which v36
     never had (#5). None is made here, so each is None: one that is not is
-    left in, to fail the comparison."""
+    left in, to fail the comparison. And its card's sampler and schedule
+    type (#302), nor those: taken out where they are the image's data read
+    as the card reads it (send.card_reading), left in to fail where not."""
+    from model_manager import send
+    samplers, schedulers = send.forge_lists()
     answer = copy.deepcopy(answer)
     for holder in answer.get('tiles', []) + answer.get('generations', []):
         for image in holder.get('images', []):
             if image.get('thumb', 'absent') is None:
                 image.pop('thumb')
+            reading = send.card_reading(image.get('meta'), samplers, schedulers)
+            if all(k in image and image[k] == v for k, v in reading.items()):
+                for k in reading:
+                    image.pop(k)
+            elif not any(k in image for k in reading):
+                image['mm_sampler'] = 'not stamped'     # fails the comparison, as a wrong reading does
     return answer
 
 

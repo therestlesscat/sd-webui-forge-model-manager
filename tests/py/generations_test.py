@@ -342,7 +342,8 @@ if has_fastapi:
           [i['position'] for i in card['images']], [0, 1, 2, 3])
     check('each with what a card draws', sorted(card['images'][0]) == sorted(
         ['id', 'generation_id', 'position', 'iteration', 'seed', 'width', 'height', 'meta',
-         'infotext', 'url', 'exists', 'thumb', 'mm_level', 'mm_level_from_prompt', 'user_level']), True)
+         'infotext', 'url', 'exists', 'thumb', 'mm_level', 'mm_level_from_prompt', 'user_level',
+         'mm_sampler', 'mm_scheduler']), True)
     check('and the file is there', card['images'][0]['exists'], True)
     # Its LoRAs and embeddings as a Civitai image lists them, for Send's chips:
     # the LoRAs Forge loaded for its own iteration, at their weight.
@@ -390,6 +391,8 @@ if has_fastapi:
                       params={'path': CHECKPOINT, 'hide_nsfw_images': 'false'}).json()
     check('"Show all" brings every image of the generation the gallery shows',
           [i['position'] for i in body['images']], [0, 1, 2, 3])
+    check('each with its card\'s sampler and schedule type, as the cards\' are (#302)',
+          all('mm_sampler' in i and 'mm_scheduler' in i for i in body['images']), True)
 
     first = card['images'][0]
     served = client.get(first['url'])
@@ -602,6 +605,8 @@ if has_fastapi:
     check('one image rated X is X, as rated, not as its prompt says',
           (body['rated'], body['image']['mm_level'], body['image']['user_level'],
            body['image']['mm_level_from_prompt']), (1, 8, 8, False))
+    check('its card drawn again with its sampler and schedule type (#302)',
+          ('mm_sampler' in body['image'], 'mm_scheduler' in body['image']), (True, True))
     check('and with the NSFW switch on, is said to be hidden now', body['visible'], False)
     body = rate(image_id=first_id, level='', hide_nsfw_images='true').json()
     check('a rating cleared, it goes back to its prompt\'s level, and shows again',

@@ -166,6 +166,8 @@ code, body = get('/model-manager/images/gallery-page', version_id=first_version,
                  hide_nsfw_images='false', hide_promptless_images='false')
 check('its gallery\'s images judged here, for the browser to read',
       bool(body.get('images')) and all('mm_level' in i for i in body['images']), True)
+check('and their card\'s sampler and schedule type read here too (#302)',
+      bool(body.get('images')) and all('mm_sampler' in i and 'mm_scheduler' in i for i in body['images']), True)
 
 # A file with a .civitai.info and no row: the sidecar is no source - a sync
 # reads one only for a model Civitai does not have. It used to fill the
@@ -574,6 +576,7 @@ check('its note: 100 images, 80 shown, 20 hidden as NSFW, and more after it',
       {'number': 1, 'size': 100, 'count': 100, 'shown': 80, 'hidden_nsfw': 20, 'more': True})
 check('judged for the browser, as every image it is sent is',
       all('mm_level' in i for i in body['images']), True)
+check('and read for its card (#302)', all('mm_sampler' in i and 'mm_scheduler' in i for i in body['images']), True)
 check('with the banner\'s totals over every page',
       (body['images_state']['total_count'], body['images_state']['filtered_count']), (250, 200))
 check('a page is the same slice whatever the switches say',
@@ -674,6 +677,8 @@ try:
     check('with no cursor, the first click passes over the batch already stored',
           civitai_pages.asked, [None, 'c1'])
     check('and brings the new ones', body['downloaded_count'], 3)
+    check('each judged and read for its card, as a page\'s are (#302)',
+          bool(body['images']) and all('mm_level' in i and 'mm_sampler' in i and 'mm_scheduler' in i for i in body['images']), True)
     check('leaving the stored images on their page',
           [i['id'] for i in db.get_images(SYNCED, page=1)], FIRST)
     check('and filing only the new ones on the next',

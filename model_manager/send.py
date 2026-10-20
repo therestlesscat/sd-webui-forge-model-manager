@@ -654,6 +654,36 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+# ------------------------------------------------- the card's reading
+
+def card_reading(meta: Any, samplers: List[str], schedulers: List[str]) -> Dict[str, Any]:
+    """
+    The sampler and schedule type an image's card shows (#302): its
+    `Schedule type`; else its sampler's name read for one, as Forge names
+    both ("Euler a Karras" is Euler a and Karras), the sampler then the one
+    Forge lists - else the sampler as given. Ported from the card's own
+    reading (imageTextHtml in image_card.mjs), and written on each image
+    beside its level (`stamp_readings`), as the page reads the level.
+    """
+    meta = meta if isinstance(meta, dict) else {}
+    sampler, scheduler = meta.get("sampler"), meta.get("Schedule type")
+    if not _truthy(scheduler) and _truthy(sampler):
+        split = split_sampler(sampler, samplers, schedulers)
+        sampler, scheduler = split["sampler"], split["scheduler"]
+    return {"mm_sampler": sampler, "mm_scheduler": scheduler}
+
+
+def stamp_readings(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    """Write each image's card reading on it, in place - where every image
+    the page draws a card of is stamped with its level (nsfw.stamp_levels)."""
+    if images:
+        samplers, schedulers = forge_lists()
+        for image in images:
+            if isinstance(image, dict):
+                image.update(card_reading(image.get("meta"), samplers, schedulers))
+    return images
+
+
 # ------------------------------------------- a generation's settings
 
 def _js_canon(ch: str) -> str:

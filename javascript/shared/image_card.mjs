@@ -16,15 +16,14 @@ const { IMAGE_PLACEHOLDER_SVG, isVideoUrl, mediaFallback, mediaShape, originalMe
 const { nsfwBadge } = await shared('nsfw.mjs');
 const { renderResource } = await shared('chips.mjs');
 const { resourceButtonLabel } = await shared('resources.mjs');
-const { splitSamplerScheduler } = await shared('samplers.mjs');
 const { openMetaModal } = await shared('viewer.mjs');
 
 /**
  * What a card relies on running, started with it by each tab that draws one
- * (#182, #186): the Resources dialog its button opens, and Forge's samplers
- * to read the image's by. The loading module starts these.
+ * (#182, #186): the Resources dialog its button opens. The loading module
+ * starts it.
  */
-export const STARTS = ['resources.mjs', 'samplers.mjs'];
+export const STARTS = ['resources.mjs'];
 
 /**
  * The text of an image card: its prompt, negative prompt, settings, hires and
@@ -36,15 +35,11 @@ export function imageTextHtml(img) {
     const prompt = meta.prompt || '';
     const negPrompt = meta.negativePrompt || '';
 
-    // Split sampler if it contains scheduler
-    let displaySampler = meta.sampler;
-    let displayScheduler = meta['Schedule type'];
-
-    if (!displayScheduler && displaySampler) {
-        const split = splitSamplerScheduler(displaySampler);
-        displaySampler = split.sampler;
-        displayScheduler = split.scheduler;
-    }
+    // The sampler and schedule type as the server read them, beside the
+    // image's level (send.card_reading, #302): its Schedule type, else the
+    // one its sampler's name ends in.
+    const displaySampler = img.mm_sampler;
+    const displayScheduler = img.mm_scheduler;
 
     // Get size (prefer meta.Size which is generation size, not final image size after hires)
     let sizeStr = meta.Size;

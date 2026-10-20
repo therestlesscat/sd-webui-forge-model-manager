@@ -131,6 +131,8 @@ check('an image stored under two versions shows once, under the lower version',
       [t['version']['id'] for t in shared], [TWO[0]])
 check('every image carries its level, judged on the server',
       all('mm_level' in t['image'] for t in tiles) and bool(tiles), True)
+check('and its card\'s sampler and schedule type, read there too (#302)',
+      all('mm_sampler' in t['image'] and 'mm_scheduler' in t['image'] for t in tiles) and bool(tiles), True)
 check('and what Send needs: its model, and its version\'s file',
       all(t['model']['id'] == model_of[t['version']['id']] and t['version']['file_path'] for t in tiles)
       and bool(tiles), True)

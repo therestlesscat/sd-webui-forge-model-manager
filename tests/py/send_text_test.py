@@ -224,5 +224,22 @@ check('no text at all: nothing to paste; no such generation: None',
 check('settings() takes a generation\'s source to it', send.settings(db, {'kind': 'generation', 'generation': 7,
                                                                          'image': 71})['scheduler'], 'Karras')
 
+# ------------------------------------------------- the card's reading (#302)
+# The sampler and schedule type an image's card shows, read where its level
+# is stamped. The card read them itself; every stored image is compared with
+# its code by hand (tests/work/r302/, check 1e).
+c = lambda meta: send.card_reading(meta, SAMPLERS + ['Euler a Uniform'], ['Uniform', 'Karras', 'Simple'])
+check('a Schedule type is shown as it is, the sampler too', c({'sampler': 'Euler a', 'Schedule type': 'Karras'}),
+      {'mm_sampler': 'Euler a', 'mm_scheduler': 'Karras'})
+check('else the sampler\'s name read for one, as Forge names both', c({'sampler': 'Euler a Uniform'}),
+      {'mm_sampler': 'Euler a', 'mm_scheduler': 'Uniform'})
+check('a sampler with no schedule type in its name: as given', c({'sampler': 'Euler'}),
+      {'mm_sampler': 'Euler', 'mm_scheduler': None})
+check('no data: nothing to show', [c({}), c(None)], [{'mm_sampler': None, 'mm_scheduler': None}] * 2)
+images = [{'meta': {'sampler': 'euler_a_karras'}}, 'not an image', {'meta': None}]
+send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
+check('stamped on each image in place, beside its level', send.stamp_readings(images)[0],
+      {'meta': {'sampler': 'euler_a_karras'}, 'mm_sampler': 'Euler a', 'mm_scheduler': 'Karras'})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -37,7 +37,9 @@ const image = (id, generation, extra = {}) => ({
     meta: { prompt: `a lighthouse ${id}`, negativePrompt: 'blurry', steps: '30',
             sampler: 'DPM++ 2M', 'Schedule type': 'Karras', seed: String(1000 + id) },
     infotext: `a lighthouse ${id}`, url: `/model-manager/generations/images/${id}/file`,
-    exists: true, mm_level: 1, mm_level_from_prompt: false, ...extra,
+    exists: true, mm_level: 1, mm_level_from_prompt: false,
+    // The card's sampler and schedule type, as the server stamps them beside the level (#302).
+    mm_sampler: 'DPM++ 2M', mm_scheduler: 'Karras', ...extra,
 });
 const CARDS = [
     { id: 1, created_at: '2026-09-28T15:30:13', mode: 'txt2img', image_count: 1, matching_count: 1,

@@ -17,7 +17,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'samplers.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'dialog.mjs'];
+    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {

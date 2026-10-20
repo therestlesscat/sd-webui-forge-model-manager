@@ -49,12 +49,11 @@ export const IMG2IMG_SENDS = [
 
 /**
  * What a send relies on running, started with it by each tab that sends
- * (#182, #186): the chips kept under the prompt, the Resources dialog a
- * stopped send opens, and Forge's samplers to read an image's by. Not the
- * downloads list: that runs with the tabs that download. The loading module
- * starts these.
+ * (#182, #186): the chips kept under the prompt, and the Resources dialog a
+ * stopped send opens. Not the downloads list: that runs with the tabs that
+ * download. The loading module starts these.
  */
-export const STARTS = ['chips.mjs', 'resources.mjs', 'samplers.mjs'];
+export const STARTS = ['chips.mjs', 'resources.mjs'];
 
 /** Where a generation's settings go: back to the tab it was made in. */
 export function sendTab(card) {

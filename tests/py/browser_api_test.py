@@ -631,10 +631,13 @@ civitai(models={'items': [remote(90201, 90202, images=[
 status, body = get('/model-manager/civitai/models', query='judged')
 check('a search result\'s showcase images carry the server\'s verdict',
       [i.get('mm_level') for i in body['models'][0]['modelVersions'][0]['images']], [1, 16])
+check('and their card\'s sampler and schedule type (#302)',
+      all('mm_sampler' in i and 'mm_scheduler' in i for i in body['models'][0]['modelVersions'][0]['images']), True)
 civitai(model=remote(90203, 90204, images=[{'id': 8, 'url': 'u8', 'browsingLevel': 4}]))
 status, body = get('/model-manager/civitai/models/90203')
 check('so does a model looked up by id',
       body['model']['modelVersions'][0]['images'][0].get('mm_level'), 4)
+check('and its card\'s reading', 'mm_sampler' in body['model']['modelVersions'][0]['images'][0], True)
 
 # ----------------------------------------------------------------- the gallery
 # A page is the next page-size images of Civitai's, after the cursor the last
@@ -684,6 +687,7 @@ check('page 1 is Civitai\'s first page-size images, from the start',
 check('with the cursor to the page after it', (body['next_cursor'], body['page']['more']), ('2', True))
 check('each judged here, for the browser to read - it does not judge',
       [('mm_level' in i, 'mm_level_from_prompt' in i) for i in body['images']], [(True, True)] * 2)
+check('and read for its card here, as it does not read (#302)', all('mm_sampler' in i and 'mm_scheduler' in i for i in body['images']), True)
 
 gallery.asked = []
 status, body = get('/model-manager/civitai/versions/90080/images', page=2, cursor='2')

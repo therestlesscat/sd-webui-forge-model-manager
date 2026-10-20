@@ -18,6 +18,9 @@ document.body.insertAdjacentHTML('beforeend', tabMarkup('model_manager/ui/tab_mo
 const IMAGE = {
     id: 4242, url: 'https://example.invalid/4242.jpeg', width: 512, height: 768, nsfwLevel: 1, browsingLevel: 1,
     mm_level: 1, mm_level_from_prompt: false,
+    // Its sampler and schedule type as the server reads them, beside its
+    // level (send.card_reading, #302) - from the data's one text below.
+    mm_sampler: 'Euler a', mm_scheduler: 'Uniform',
     meta: {
         prompt: 'a lighthouse at dusk', negativePrompt: 'blurry', steps: 20, cfgScale: 7, seed: 9,
         // A scheduler Forge has and the browser's six did not.
@@ -35,7 +38,9 @@ globalThis.fetch = async (url) => {
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, gallery_hide_nsfw: false, hide_promptless_images: false, has_api_key: true,
                        samplers: ['Euler', 'Euler a', 'DPM++ 2M'],
-                       schedulers: ['Automatic', 'Uniform', 'Karras', 'Exponential', 'SGM Uniform'] });
+                       // No Uniform: the card reads the server's stamp (#302), not these lists -
+                       // a card splitting the data's text itself could not find it.
+                       schedulers: ['Automatic', 'Karras', 'Exponential', 'SGM Uniform'] });
     }
     // The Model Manager, showing the model whose image this is.
     if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions: [MODEL], civitai_versions: [] });
@@ -82,7 +87,7 @@ await act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('its gallery', () => browserCard(), 40);
 
 check('the same image says the same in both tabs', said(browserCard()), said(managerCard()));
-check('its sampler and scheduler read apart, by Forge\'s schedulers',
+check('its sampler and scheduler as the server read them apart, not the data\'s one text',
       [said(managerCard()).includes('Sampler: Euler a'), said(managerCard()).includes('Scheduler: Uniform')], [true, true]);
 check('with its id and every ADetailer setting',
       [said(managerCard()).includes('4242'), said(managerCard()).includes('Inpaint masked: True')], [true, true]);

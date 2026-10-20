@@ -32,7 +32,7 @@ from . import levels
 from .common import failed, gate
 from ..console import say
 # A generation's send plan is Send's, for every source (#302).
-from ..send import generation_plan as send_plan
+from ..send import generation_plan as send_plan, stamp_readings
 from .. import generation_inputs, thumbnails
 
 # The images a card shows before "Show images".
@@ -224,8 +224,8 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
         card = dict(generations.get(generation_id) or {"id": generation_id})
         card["matching_count"] = len(by_generation[generation_id])
         card.update(shared_levels(by_generation[generation_id]))
-        card["images"] = [_image(images[r["id"]], kept) for r in by_generation[generation_id][:PREVIEW_IMAGES]
-                          if r["id"] in images]
+        card["images"] = stamp_readings([_image(images[r["id"]], kept) for r in by_generation[generation_id][:PREVIEW_IMAGES]
+                                         if r["id"] in images])
         cards.append(card)
 
     return {
@@ -770,8 +770,8 @@ def _register(app: FastAPI):
             images = db.get_generation_images([r["id"] for r in shown])
             kept = _kept_views(db, [generation_id])
             return JSONResponse({"success": True,
-                                 "images": [_image(images[r["id"]], kept) for r in shown
-                                            if r["id"] in images]})
+                                 "images": stamp_readings([_image(images[r["id"]], kept) for r in shown
+                                                           if r["id"] in images])})
         except Exception as e:
             say(f"Generation images error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
@@ -915,7 +915,7 @@ def _register(app: FastAPI):
             if image_id is not None:
                 row = db.get_generation_images([image_id]).get(image_id)
                 if row:
-                    answer["image"] = _image(row)
+                    answer["image"] = stamp_readings([_image(row)])[0]
                     level_now = answer["image"]["mm_level"]
                     answer["visible"] = not hide_nsfw_images or (level_now is not None and level_now <= SFW_MAX)
             return JSONResponse(answer)

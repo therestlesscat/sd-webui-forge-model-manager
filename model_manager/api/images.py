@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 from ..db import get_models_db
 from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
+from ..send import stamp_readings
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..civitai.images import IMAGE_HOST, is_image_address
 from ..gallery import filter_images, mm_images_page_size
@@ -100,7 +101,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
     rows = db.get_image_page(version_id, (page - 1) * size, size)
     shown, counts = filter_images(rows, hide_nsfw, hide_promptless)
     return {
-        "images": stamp_levels(shown),
+        "images": stamp_readings(stamp_levels(shown)),
         "page": {
             "number": page,
             "size": size,
@@ -238,7 +239,7 @@ def download_more(db, version: Dict[str, Any]) -> Dict[str, Any]:
           f"(page {page_number}, has_more: {next_cursor is not None})")
 
     return {
-        "images": stamp_levels(new_images),
+        "images": stamp_readings(stamp_levels(new_images)),
         "next_cursor": next_cursor,
         "downloaded_count": len(new_images),
     }
