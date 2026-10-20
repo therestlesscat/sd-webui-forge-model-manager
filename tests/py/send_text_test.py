@@ -112,6 +112,42 @@ check('one Forge does not list: the sampler\'s name read, as before',
 check('one Forge does not list, and none in the sampler\'s name: no schedule type',
       'Schedule type' in settings(text({**IMAGE, 'scheduler': 'beta57'})), False)
 check('the raw field stays in the settings line, as it was', 'scheduler: karras' in settings(text({**IMAGE, 'scheduler': 'karras'})), True)
+# Forge's paste reads the last line as settings only with three fields or
+# more (`re_param`, the same rule in both WebUIs); else it is prompt text
+# (#313): 2,846 of 107,469 stored images give a prompt and nothing else.
+check('a line of two fields: the size as Size-1 and Size-2, three fields Forge reads as settings',
+      text({'prompt': 'a lighthouse', 'civitaiResources': [{'type': 'checkpoint'}]}, 1152, 2016),
+      'a lighthouse\nSize-1: 1152, Size-2: 2016, ADetailer enable: False')
+check('into the negative prompt the same', settings(text({'prompt': 'a', 'negativePrompt': 'blurry'}, 1152, 2016)),
+      'Size-1: 1152, Size-2: 2016, ADetailer enable: False')
+check('three fields or more: Size as it was', 'Size: 832x1216' in settings(text({'prompt': 'a', 'steps': 20})), True)
+# A value with a line break split the line, and what came before it was
+# prompt text (#313: 88 images; Template, Hires prompt, ADetailer prompt).
+check('a value with a line break is quoted as Forge writes it, the line kept whole',
+      settings(text({**IMAGE, 'Template': 'a red\nlighthouse'})).endswith(', Template: "a red\\nlighthouse"'), True)
+check('one without is written as it is', settings(text({**IMAGE, 'Template': 'a red lighthouse'})).endswith(', Template: a red lighthouse'), True)
+# Some tools store the image's whole settings line inside its negative prompt
+# (#313: 138 images), with no settings of the data's own: it is read as the
+# image's data, where the data gives none, and the negative prompt is without it.
+INNER = {'prompt': 'a lighthouse', 'negativePrompt': 'blurry, lowres\nSteps: 30, Sampler: DPM++ 2M Karras, CFG scale: 6, '
+         'Seed: 42, Size: 832x1216, Denoising strength: 0.4, Hires upscale: 2, Lora hashes: "a: 1, b: 2", Hires CFG Scale: 5'}
+check('a settings line inside the negative prompt is the image\'s settings, read as its data',
+      text(INNER), 'a lighthouse\nNegative prompt: blurry, lowres\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Karras, '
+      'CFG scale: 6, Seed: 42, Size: 832x1216, Denoising strength: 0.4, Hires upscale: 2, ADetailer enable: False, Hires CFG Scale: 5')
+check('the data\'s own field wins over the line\'s', 'Steps: 20,' in settings(text({**INNER, 'steps': 20})), True)
+check('text after the line stays in the negative prompt',
+      text({**INNER, 'negativePrompt': INNER['negativePrompt'] + '\nworst quality'}).split('\n')[1:3],
+      ['Negative prompt: blurry, lowres', 'worst quality'])
+check('a line that only holds Steps further on is negative prompt text',
+      text({'prompt': 'a', 'negativePrompt': 'hairy, Steps: 40, Sampler: Euler, Seed: 1'}).split('\n')[1],
+      'Negative prompt: hairy, Steps: 40, Sampler: Euler, Seed: 1')
+check('the page\'s renamed negative prompt holds the line too: it is read out of that as well',
+      text(INNER, negative_prompt=INNER['negativePrompt'].replace('blurry', '<lora:file:1> blurry')).split('\n')[1:],
+      settings(text(INNER)) and ['Negative prompt: <lora:file:1> blurry, lowres', settings(text(INNER))])
+send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
+plan =send.civitai_settings(type('Db', (), {'stored_records': lambda self, ids: [{'meta': INNER, 'width': 832, 'height': 1216}]})(),
+                             {'image': 1})
+check('the loader sets the line\'s schedule type and leaves its Hires fix on', [plan['scheduler'], plan['hires']], ['Karras', True])
 i = lambda meta: send.image_scheduler(meta, SAMPLERS, SCHEDULERS)
 check('the schedule type Send sets after the paste: `scheduler` too, and the same order',
       [i({'scheduler': 'karras'}), i({'sampler': 'DPM++ 2M Karras', 'scheduler': 'simple'}),

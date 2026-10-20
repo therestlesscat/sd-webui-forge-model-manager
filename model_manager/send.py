@@ -17,6 +17,7 @@ also decides whether its Send button is drawn at all; and the chips'
 renames. The VAEs it names are read here (`named_modules`), from the
 image's stored record.
 """
+import json
 import os
 import re
 from typing import Any, Callable, Dict, List, Optional
@@ -469,6 +470,15 @@ def image_scheduler(meta: Dict[str, Any], samplers: List[str], schedulers: List[
     return sampler_and_scheduler(meta, samplers, schedulers)["scheduler"]
 
 
+def _field(key: str, value: Any) -> str:
+    """A field of the settings line. A value with a line break is quoted as
+    Forge quotes it (`quote`, infotext_utils.py), which its paste unquotes:
+    written as it is, the break split the line, and what came before it was
+    prompt text (#313)."""
+    text = _js_text(value)
+    return f"{key}: {json.dumps(text, ensure_ascii=False) if chr(10) in text else text}"
+
+
 def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
                    denoising_strength: Any = None, hires_upscaler: Any = None) -> str:
     """
@@ -497,41 +507,47 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
 
     params = []
     if _truthy(meta.get("steps")):
-        params.append(f"Steps: {_js_text(meta['steps'])}")
+        params.append(_field("Steps", meta['steps']))
     if _truthy(sampler):
-        params.append(f"Sampler: {_js_text(sampler)}")
+        params.append(_field("Sampler", sampler))
     if _truthy(scheduler):
-        params.append(f"Schedule type: {_js_text(scheduler)}")
+        params.append(_field("Schedule type", scheduler))
     if _truthy(meta.get("cfgScale")):
-        params.append(f"CFG scale: {_js_text(meta['cfgScale'])}")
+        params.append(_field("CFG scale", meta['cfgScale']))
     # Seed 0 is a seed (#310).
     if meta.get("seed") is not None and meta.get("seed") != "":
-        params.append(f"Seed: {_js_text(meta['seed'])}")
+        params.append(_field("Seed", meta['seed']))
     for key in ("Size", "Model", "Model hash", "VAE", "Clip skip"):
         if _truthy(meta.get(key)):
-            params.append(f"{key}: {_js_text(meta[key])}")
+            params.append(_field(key, meta[key]))
     denoise = denoising_strength if denoising_strength is not None else (meta.get("Denoising strength") if hires else None)
     if denoise is not None:
-        params.append(f"Denoising strength: {_js_text(denoise)}")
+        params.append(_field("Denoising strength", denoise))
     if hires:
         if _truthy(meta.get("Hires upscale")):
-            params.append(f"Hires upscale: {_js_text(meta['Hires upscale'])}")
+            params.append(_field("Hires upscale", meta['Hires upscale']))
         if _truthy(meta.get("Hires upscaler")) and not _truthy(hires_upscaler):
-            params.append(f"Hires upscaler: {_js_text(meta['Hires upscaler'])}")
+            params.append(_field("Hires upscaler", meta['Hires upscaler']))
         if _truthy(meta.get("Hires steps")):
-            params.append(f"Hires steps: {_js_text(meta['Hires steps'])}")
+            params.append(_field("Hires steps", meta['Hires steps']))
     if _truthy(hires_upscaler):
-        params.append(f"Hires upscaler: {_js_text(hires_upscaler)}")
+        params.append(_field("Hires upscaler", hires_upscaler))
     # ADetailer's paste turns its tab on or off by this switch.
     params.append("ADetailer enable: True" if any(k.startswith("ADetailer ") for k in meta) else "ADetailer enable: False")
-    # Every other field as it is, in the page's order: JavaScript's object
+    # Every other field as it is (but `_field`), in the page's order: JavaScript's object
     # order puts a key that reads as an array index first, by number.
     keys = sorted((k for k in meta if re.fullmatch(r"0|[1-9]\d*", k) and int(k) < 2 ** 32 - 1), key=int) \
         + [k for k in meta if not (re.fullmatch(r"0|[1-9]\d*", k) and int(k) < 2 ** 32 - 1)]
     for key in keys:
         value = meta[key]
         if key not in _HANDLED and value is not None and value != "" and not isinstance(value, (dict, list)):
-            params.append(f"{key}: {_js_text(value)}")
+            params.append(_field(key, value))
+    # Forge's paste reads the last line as settings only with three fields
+    # or more (`re_param`, both WebUIs), else as prompt text (#313): a size
+    # written as its two halves, which Forge reads as it reads `Size`, makes
+    # three of Size and ADetailer's switch.
+    if len(params) < 3:
+        params = [re.sub(r"^Size: (\d+)x(\d+)$", r"Size-1: \1, Size-2: \2", p) for p in params]
     if params:
         infotext += "\n" + ", ".join(params)
     return infotext
@@ -573,6 +589,33 @@ def _size_of(text: Any) -> Optional[tuple]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
+# Forge's pattern for a field of the settings line (`re_param`, Neo's
+# infotext_utils.py), and the image data's names for the line's own.
+_RE_PARAM = re.compile(r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
+_DATA_NAMES = {"Steps": "steps", "Sampler": "sampler", "CFG scale": "cfgScale", "Seed": "seed"}
+
+
+def _read_settings_line(meta: Dict[str, Any]) -> None:
+    """
+    An image whose tool stored its whole settings line inside its negative
+    prompt (#313: 138 images of one library): the line - one that starts
+    with `Steps:` and holds three fields - read as the image's data where the
+    data gives no such field, in place, and the negative prompt without it.
+    Pasted as text, its settings were never set; read so, the schedule type,
+    Hires fix and the size rule follow from it as from any image's data.
+    """
+    lines = str(meta.get("negativePrompt") or "").split("\n")
+    at = next((n for n in range(len(lines) - 1, -1, -1)
+               if lines[n].lstrip().startswith("Steps:") and len(_RE_PARAM.findall(lines[n])) >= 3), None)
+    if at is None:
+        return
+    for key, value in _RE_PARAM.findall(lines[at]):
+        key = _DATA_NAMES.get(key.strip(), key.strip())
+        if meta.get(key) is None or meta.get(key) == "":
+            meta[key] = value.strip()
+    meta["negativePrompt"] = "\n".join(lines[:at] + lines[at + 1:]).rstrip()
+
+
 def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False) -> Dict[str, Any]:
     """
     A Civitai image's data as Send reads it: its own, with a `Size` when it
@@ -581,6 +624,7 @@ def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False
     an image-to-video model, its size as Wan makes it and its frames.
     """
     meta = dict(record.get("meta") or {})
+    _read_settings_line(meta)
     width, height = record.get("width"), record.get("height")
     if not _truthy(meta.get("Size")):
         if _truthy(width) and _truthy(height):
@@ -629,6 +673,8 @@ def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: Li
         meta["prompt"] = prompt
     if negative_prompt is not None:
         meta["negativePrompt"] = negative_prompt
+        # The page's copy, renamed, still holds the line civitai_meta read.
+        _read_settings_line(meta)
     return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler))
 
 
