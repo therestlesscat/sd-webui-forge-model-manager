@@ -617,13 +617,23 @@ def _text_field(infotext: Any, key: str) -> Any:
     return next((v.strip() for k, v in fields if k.strip() == key), None)
 
 
+# A value Forge's pattern reads as one quoted value (`re_param`), and unquotes.
+_QUOTED = re.compile(r'"(?:\\.|[^\\"])+"')
+
+
 def _field(key: str, value: Any) -> str:
-    """A field of the settings line. A value with a line break is quoted as
-    Forge quotes it (`quote`, infotext_utils.py), which its paste unquotes:
-    written as it is, the break split the line, and what came before it was
-    prompt text (#313)."""
+    """A field of the settings line, its value quoted as Forge quotes one
+    (`quote`, infotext_utils.py) - with a comma, a colon or a line break -
+    which its paste unquotes. Written as it is, a comma cut the value there
+    (#316: 1,611 of 107,469 stored images; Hires prompt and ADetailer's
+    prompts are pasted into their boxes), and a line break split the line,
+    what came before it read as prompt text (#313). A value the data holds
+    quoted already is Forge's own, and goes as it is: its paste unquotes it,
+    as it would the original file's."""
     text = _js_text(value)
-    return f"{key}: {json.dumps(text, ensure_ascii=False) if chr(10) in text else text}"
+    if _QUOTED.fullmatch(text) or not any(c in text for c in ",:\n"):
+        return f"{key}: {text}"
+    return f"{key}: {json.dumps(text, ensure_ascii=False)}"
 
 
 def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],

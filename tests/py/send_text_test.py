@@ -9,7 +9,9 @@ withVideoParams), and these checks were the page's suites' - vae_meta_test.js
 and forge_preset_test.mjs's reading of the pasted text. Every stored image's
 text is compared with the page's old code by hand (tests/work/r302/, check 1).
 """
+import json
 import os
+import re
 import sys
 import types
 
@@ -126,6 +128,29 @@ check('three fields or more: Size as it was', 'Size: 832x1216' in settings(text(
 check('a value with a line break is quoted as Forge writes it, the line kept whole',
       settings(text({**IMAGE, 'Template': 'a red\nlighthouse'})).endswith(', Template: "a red\\nlighthouse"'), True)
 check('one without is written as it is', settings(text({**IMAGE, 'Template': 'a red lighthouse'})).endswith(', Template: a red lighthouse'), True)
+# A value with a comma was cut at it: Forge splits the line at every comma
+# outside quotes (#316: 1,611 images; ADetailer prompt 268, Hires prompt 185).
+# It is quoted as Forge quotes one - a comma, a colon or a line break - and
+# read back here as Forge's paste reads the line: its pattern, then unquote.
+RE_PARAM = re.compile(r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
+
+
+def pasted(t):
+    unquote = lambda v: json.loads(v) if len(v) > 1 and v[0] == v[-1] == '"' else v  # noqa: E731
+    return {k.strip(): unquote(v) for k, v in RE_PARAM.findall(settings(t))}
+
+
+COMMAS = {**IMAGE, 'Hires prompt': 'a red lighthouse, fog', 'ADetailer prompt': 'a face, smiling', 'ADetailer model': 'face_yolov8n.pt'}
+check('a Hires prompt with a comma reaches Forge whole', pasted(text(COMMAS)).get('Hires prompt'), 'a red lighthouse, fog')
+check('an ADetailer prompt with a comma reaches ADetailer whole', pasted(text(COMMAS)).get('ADetailer prompt'), 'a face, smiling')
+check('the field after it is still its own', pasted(text(COMMAS)).get('ADetailer model'), 'face_yolov8n.pt')
+check('a value with a colon is quoted, as Forge writes it',
+      settings(text({**IMAGE, 'Template': 'style: red'})).endswith(', Template: "style: red"'), True)
+check('a value the data holds quoted already goes as it is, and Forge unquotes it',
+      [settings(text({**IMAGE, 'Template': '"a red, lighthouse"'})).endswith(', Template: "a red, lighthouse"'),
+       pasted(text({**IMAGE, 'Template': '"a red, lighthouse"'})).get('Template')], [True, 'a red, lighthouse'])
+check('one that only starts with a quote is quoted whole',
+      pasted(text({**IMAGE, 'Template': '"a red", lighthouse'})).get('Template'), '"a red", lighthouse')
 # Some tools store the image's whole settings line inside its negative prompt
 # (#313: 138 images), with no settings of the data's own: it is read as the
 # image's data, where the data gives none, and the negative prompt is without it.
