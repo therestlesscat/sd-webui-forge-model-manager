@@ -175,6 +175,25 @@ def forge_setting(key: str) -> Any:
     return getattr(opts, key, None)
 
 
+def adetailer_tabs() -> int:
+    """
+    How many tabs ADetailer draws (#311): its "Max Tabs" as both ADetailers
+    read it to draw them - the saved value, else 2
+    (`opts.data.get("ad_max_models", 2)`), not the 4 they register, which
+    counts only once Forge has saved its settings. A change counts at the
+    next Reload UI.
+    """
+    try:
+        from modules import shared
+    except ImportError:
+        return 2
+    data = getattr(getattr(shared, "opts", None), "data", None)
+    try:
+        return int((data if isinstance(data, dict) else {}).get("ad_max_models", 2))
+    except (TypeError, ValueError):
+        return 2
+
+
 def registered_options() -> Dict[str, Any]:
     """Every setting registered with the WebUI, the extension's and everyone
     else's: key -> its OptionInfo, in the order they were registered."""

@@ -370,6 +370,72 @@ gen = Generations({20: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'im
 check('a generation\'s clip skip from its own text; none where it gives none',
       [send.generation_settings(gen, {'generation': 20, 'image': i})['clip_skip'] for i in (200, 201)], [1, None])
 
+# ------------------------------------------------- ADetailer's tabs (#311)
+# ADetailer leaves each tab's switch out of what it writes, and Forge's paste
+# leaves a field the text lacks as it is on screen: Neo's tabs past the 1st
+# stayed off (3,629 of 122,323 images use one), and a tab an earlier Send
+# turned on kept its detector. The text says every tab, on or off.
+from model_manager import forge_host                     # noqa: E402
+# How many tabs ADetailer draws: its saved "Max Tabs", else 2 - as both
+# ADetailers read it to draw them, not the 4 they register.
+_opts = sys.modules['modules.shared'].opts
+_tabs = []
+for _data in (None, {}, {'ad_max_models': 4}, {'ad_max_models': '6'}, {'ad_max_models': 'many'}):
+    if _data is None:
+        _opts.__dict__.pop('data', None)
+    else:
+        _opts.data = _data
+    _tabs.append(getattr(forge_host, 'adetailer_tabs', lambda: None)())
+_opts.__dict__.pop('data', None)
+check('ADetailer\'s tabs: none saved 2, the saved value, else 2', _tabs, [2, 2, 4, 6, 2])
+forge_host.adetailer_tabs = lambda: 4
+switches = lambda t: {k: v for k, v in pasted(t).items() if k.startswith('ADetailer tab enable')}  # noqa: E731
+OFF4 = {'ADetailer tab enable 3rd': 'False', 'ADetailer tab enable 4th': 'False'}
+check('two tabs used, 4 drawn: both on, the other two off',
+      switches(text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt', 'ADetailer model 2nd': 'hand_yolov8s.pt'})),
+      {'ADetailer tab enable': 'True', 'ADetailer tab enable 2nd': 'True', **OFF4})
+check('the 1st tab alone: on, every other off',
+      switches(text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt'})),
+      {'ADetailer tab enable': 'True', 'ADetailer tab enable 2nd': 'False', **OFF4})
+check('only the 2nd tab named: the 1st off, so its old detector does not run',
+      switches(text({**IMAGE, 'ADetailer model 2nd': 'hand_yolov8s.pt'})),
+      {'ADetailer tab enable': 'False', 'ADetailer tab enable 2nd': 'True', **OFF4})
+check('a detector given as None: that tab off',
+      switches(text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt', 'ADetailer model 2nd': 'None'})).get('ADetailer tab enable 2nd'),
+      'False')
+check('a tab past the ones drawn: every tab up to it written, in ADetailer\'s ordinals',
+      switches(text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt', 'ADetailer model 12th': 'face_yolov8m.pt'})),
+      {'ADetailer tab enable': 'True', **{f'ADetailer tab enable {n}': 'False' for n in
+       ('2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th')}, 'ADetailer tab enable 12th': 'True'})
+check('no ADetailer field: ADetailer off, and no switch',
+      [switches(text(IMAGE)), pasted(text(IMAGE)).get('ADetailer enable')], [{}, 'False'])
+forge_host.adetailer_tabs = lambda: 2
+check('2 tabs drawn: the 1st and the 2nd written',
+      switches(text({**IMAGE, 'ADetailer model': 'face_yolov8n.pt'})),
+      {'ADetailer tab enable': 'True', 'ADetailer tab enable 2nd': 'False'})
+forge_host.adetailer_tabs = lambda: 4
+check('a short line whose image has ADetailer: read as settings, its size as it was',
+      [settings(text({'prompt': 'a', 'ADetailer model': 'face_yolov8n.pt'}, 1152, 2016)).split(', ')[0],
+       len(pasted(text({'prompt': 'a', 'ADetailer model': 'face_yolov8n.pt'}, 1152, 2016))) >= 3],
+      ['Size: 1152x2016', True])
+# A generation's text is Forge's own, which holds neither the switches nor
+# ADetailer's on/off box (0 of 11,109 that used ADetailer): sent back, it
+# left ADetailer as the page had it.
+ad = Generations({30: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [
+    {'id': 300, 'meta': {}, 'infotext': 'a castle\nSteps: 20, Sampler: Euler, ADetailer model: face_yolov8n.pt, '
+                                        'ADetailer prompt: "a face, smiling", ADetailer model 2nd: hand_yolov8n.pt'},
+    {'id': 301, 'meta': {}, 'infotext': 'a castle\nSteps: 20, Sampler: Euler, Seed: 1'},
+    {'id': 302, 'meta': {}, 'infotext': 'a castle'}]}})
+g = lambda i: send.generation_settings(ad, {'generation': 30, 'image': i})['text']  # noqa: E731
+check('a generation with two tabs: ADetailer on, both tabs on, the other two off, the line otherwise as Forge wrote it',
+      [g(300).startswith('a castle\nSteps: 20, Sampler: Euler, ADetailer model: face_yolov8n.pt, '
+                         'ADetailer prompt: "a face, smiling", ADetailer model 2nd: hand_yolov8n.pt, '),
+       pasted(g(300)).get('ADetailer enable'), switches(g(300)), pasted(g(300)).get('ADetailer prompt')],
+      [True, 'True', {'ADetailer tab enable': 'True', 'ADetailer tab enable 2nd': 'True', **OFF4}, 'a face, smiling'])
+check('a generation without ADetailer: ADetailer off, no switch',
+      [g(301), switches(g(301))], ['a castle\nSteps: 20, Sampler: Euler, Seed: 1, ADetailer enable: False', {}])
+check('a text with no settings line is left as it is', g(302), 'a castle')
+
 # ------------------------------------------------- the card's reading (#302)
 # The sampler and schedule type an image's card shows, read where its level
 # is stamped. The card read them itself; every stored image is compared with

@@ -693,8 +693,14 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
             params.append(_field("Hires steps", meta['Hires steps']))
     if _truthy(hires_upscaler):
         params.append(_field("Hires upscaler", hires_upscaler))
-    # ADetailer's paste turns its tab on or off by this switch.
-    params.append("ADetailer enable: True" if any(k.startswith("ADetailer ") for k in meta) else "ADetailer enable: False")
+    # ADetailer's paste turns its tab on or off by this switch, and each of
+    # its own tabs by theirs (#311).
+    if any(k.startswith("ADetailer ") for k in meta):
+        from .forge_host import adetailer_tabs
+        params.append("ADetailer enable: True")
+        params.extend(adetailer_switches(meta, adetailer_tabs()))
+    else:
+        params.append("ADetailer enable: False")
     # Every other field as it is (but `_field`), in the page's order: JavaScript's object
     # order puts a key that reads as an array index first, by number.
     keys = sorted((k for k in meta if re.fullmatch(r"0|[1-9]\d*", k) and int(k) < 2 ** 32 - 1), key=int) \
@@ -712,6 +718,61 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
     if params:
         infotext += "\n" + ", ".join(params)
     return infotext
+
+
+# `ADetailer model`, `ADetailer model 2nd`, ...: the detector of each of
+# ADetailer's tabs, an ordinal after the 1st.
+_ADETAILER_MODEL = re.compile(r"ADetailer model(?: (\d+)(?:st|nd|rd|th))?")
+
+
+def _tab_suffix(n: int) -> str:
+    """ADetailer's name for its nth tab's fields: nothing for the 1st, else
+    its ordinal (`suffix` in both ADetailers' ui.py)."""
+    if n == 1:
+        return ""
+    return f" {n}" + ("th" if 11 <= n % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+
+
+def adetailer_switches(fields: Dict[str, Any], tabs: int) -> List[str]:
+    """
+    ADetailer's tab switches for a settings line (#311): `ADetailer tab
+    enable`, `ADetailer tab enable 2nd`, ... - True for each tab the fields
+    name a detector for, False for every other, from the 1st up to `tabs`
+    (how many ADetailer draws) or the highest tab named, whichever is more.
+
+    ADetailer leaves the switch out of what it writes, and Forge's paste
+    leaves a field the text lacks as it is on screen: Neo's tabs past the
+    1st stayed off, and a tab an earlier Send turned on kept its detector
+    for an image that never had it.
+    """
+    named = set()
+    for key, value in fields.items():
+        found = _ADETAILER_MODEL.fullmatch(str(key).strip())
+        if found and _truthy(value) and str(value).strip() not in ("", "None"):
+            named.add(int(found.group(1) or 1))
+    last = max([tabs, *named])
+    return [f"ADetailer tab enable{_tab_suffix(n)}: {n in named}" for n in range(1, last + 1)]
+
+
+def with_adetailer_switches(infotext: str) -> str:
+    """
+    A generation's own infotext with ADetailer's switches on its settings
+    line (#311): `ADetailer enable` and each tab's, as a Civitai image's
+    text has them. Forge writes neither - 0 of one library's 11,109
+    generations that used ADetailer - so a generation sent back left
+    ADetailer, and each of its tabs, as the page had them. A text with no
+    settings line, or one that already says, is left as it is.
+    """
+    from .forge_host import adetailer_tabs
+    from .image_text import line_params
+    params = line_params(infotext)
+    if not params or "ADetailer enable" in params:
+        return infotext
+    if any(key.startswith("ADetailer ") for key in params):
+        added = ["ADetailer enable: True", *adetailer_switches(params, adetailer_tabs())]
+    else:
+        added = ["ADetailer enable: False"]
+    return infotext.rstrip() + ", " + ", ".join(added)
 
 
 def without_lora_hashes(infotext: str) -> str:
@@ -1001,7 +1062,7 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
     """
     What the loader sets a tab with for a generation of your own (#302): the
     image's own infotext, the chips' renames applied and its Lora hashes left
-    out, as the page pasted it; the schedule type and Hires fix the page set
+    out, as the page pasted it, with ADetailer's switches (#311); the schedule type and Hires fix the page set
     after the paste, read from the image's data as it read them; and whether
     its kept press is replayed instead (`replays`).
 
@@ -1020,7 +1081,7 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
     infotext = (generation.get("infotext") if source.get("whole") else None) or image.get("infotext") or ""
     samplers, schedulers = forge_lists()
     return {
-        "text": without_lora_hashes(renamed(infotext, source.get("renames"))) if infotext else "",
+        "text": with_adetailer_switches(without_lora_hashes(renamed(infotext, source.get("renames")))) if infotext else "",
         "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
         # Neo writes `Clip skip` into its own text for SD 1.x alone.
