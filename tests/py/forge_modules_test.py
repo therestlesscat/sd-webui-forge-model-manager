@@ -186,9 +186,13 @@ def forge_modules(params=None, **more):
     the route: send.civitai_plan, through JSON, with the modules the page sent."""
     from model_manager import send
     p = {**(params or {}), **more}
-    return json.loads(json.dumps(send.civitai_plan(
-        db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
-        p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))))
+    args = (db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
+            p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))
+    try:
+        answer = send.civitai_plan(*args, **({'vae_keys': p['vae_keys']} if 'vae_keys' in p else {}))
+    except TypeError:                                    # before #326, which added the keys
+        answer = send.civitai_plan(*args)
+    return json.loads(json.dumps(answer))
 
 host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
@@ -489,6 +493,79 @@ check('else a ComfyUI list\'s first file, else a VAE among the resources',
       (['ae.safetensors'], ['res_vae']))
 check('then each Module N by its number, each name once whatever its case',
       named_modules({'VAE': 'ae', 'Module 10': 'c', 'Module 2': 'b', 'Module 1': 'AE'}), ['ae', 'b', 'c'])
+
+# An image's VAE named another way (#326): with a folder in front (927 of one
+# library's images), another extension (500), a Civitai version (554 AIR ids,
+# 1,245 civitaiResources entries) or a hash (97 resources entries, 287 A1111
+# `VAE hash`). Forge lists a file by its name alone.
+mm = getattr(fm, 'match_module', None)
+check('a name with a folder in front, either slash, or an AIR id\'s Hugging Face path: its file',
+      [mm(n, labels) for n in ('Wan\\ae.safetensors', 'SDXL/sdxl_vae', 'qwen\\vae-ft-mse-840000',
+                              'urn:air:other:vae:huggingface:Comfy-Org/x@main/split_files/vae/ae.safetensors')],
+      ['ae.safetensors', 'sdxl_vae.safetensors', 'vae-ft-mse-840000-ema-pruned.safetensors', 'ae.safetensors'])
+check('a name in another model format: the same name in the format listed',
+      [mm('sdxl_vae.ckpt', labels), mm('XL\\sdxl_vae.pt', labels), mm('sdxl_vae.vae.pt', labels)],
+      ['sdxl_vae.safetensors', 'sdxl_vae.safetensors', None])
+check('of two formats of one name, the .safetensors file; of neither, the first Forge lists',
+      [mm('vae-ft.pt', ['vae-ft.ckpt', 'vae-ft.safetensors']), mm('b.bin', ['b.pt', 'b.ckpt'])],
+      ['vae-ft.safetensors', 'b.ckpt'])
+check('a name that is no file here still matches nothing', [mm('Wan\\nope.safetensors', labels), mm('nope.ckpt', labels)],
+      [None, None])
+
+from model_manager import send as send_mod             # noqa: E402
+keys = getattr(send_mod, 'vae_keys', lambda meta: None)
+check('the hashes an image gives for its VAE, and the VAE versions civitaiResources lists',
+      keys({'VAE': 'renamed.safetensors', 'VAE hash': '735e4c3a44',
+            'resources': [{'type': 'vae', 'name': 'other', 'hash': 'aaaa'}, {'type': 'lora', 'name': 'l', 'hash': 'bbbb'}],
+            'civitaiResources': [{'type': 'VAE', 'modelVersionId': 88156}, {'type': 'LORA', 'modelVersionId': 1}]}),
+      {'name': 'renamed.safetensors', 'hashes': ['735e4c3a44'], 'versions': [88156]})
+check('a resources entry\'s hash is its VAE\'s, where that entry names it',
+      keys({'resources': [{'type': 'vae', 'name': 'Concepts/SDXL_VAE', 'hash': 'f723fec0b7d3'}]}),
+      {'name': 'Concepts/SDXL_VAE', 'hashes': ['f723fec0b7d3'], 'versions': []})
+check('no data, nothing', keys(None), {'name': None, 'hashes': [], 'versions': []})
+
+sd_own_version = db.get_version(own_sd_vae)['id']
+db.store_file_hashes(own_sd_vae, {'SHA256': '735E4C3A447A' + '0' * 52, 'AutoV2': '735E4C3A44', 'AutoV3': 'F723FEC0B7D3'}, None)
+host.installed_modules = lambda: dict(listed)          # the library's own SD VAE among Forge's list
+fi.classify_file = lambda path: kinds[path]
+ill = {'base_model': 'Illustrious'}
+by = lambda **kw: forge_modules({**ill, **kw})          # noqa: E731
+body = by(vae='renamed_copy.safetensors', module=['renamed_copy.safetensors'],
+          vae_keys={'name': 'renamed_copy.safetensors', 'hashes': ['735e4c3a44'], 'versions': []})
+check('a VAE named by no file here, found by its A1111 hash: selected, not said missing',
+      (body['target'], body.get('modules_not_found')), (['sd_own.safetensors'], []))
+body = by(module=['Concepts/Styles/SDXL_VAE_-_SDXL-VAE'],
+          vae_keys={'name': 'Concepts/Styles/SDXL_VAE_-_SDXL-VAE', 'hashes': ['F723FEC0B7D3'], 'versions': []})
+check('or by its resources entry\'s AutoV3', (body['target'], body.get('modules_not_found')), (['sd_own.safetensors'], []))
+body = by(module=['sdxl_vae'], vae_keys={'name': 'sdxl_vae', 'hashes': ['735e4c3a44'], 'versions': []})
+check('a name that finds a file wins over the hash: A1111\'s VAE hash named the other family 277 times in 449',
+      body['target'], ['sdxl_vae.safetensors'])
+body = by(module=['sdxl_vae'], vae_keys={'name': 'sdxl_vae', 'hashes': ['0123456789'], 'versions': []})
+check('a hash no file here has: the name, as before', body['target'], ['sdxl_vae.safetensors'])
+air = f'urn:air:sdxl:vae:civitai:1@{sd_own_version}'
+body = by(module=[air], vae_keys={'name': air, 'hashes': [], 'versions': []})
+check('a Civitai AIR id: the library\'s file of that version', (body['target'], body.get('modules_not_found')),
+      (['sd_own.safetensors'], []))
+body = by(module=['urn:air:sdxl:vae:civitai:1@99999999'], vae_keys={'name': 'urn:air:sdxl:vae:civitai:1@99999999', 'hashes': [], 'versions': []})
+check('one of a version the library lacks: said missing, as before', (body['target'], body.get('modules_not_found')),
+      ([], ['urn:air:sdxl:vae:civitai:1@99999999']))
+body = by(vae_keys={'name': None, 'hashes': [], 'versions': [sd_own_version]})
+check('no VAE named, its version in civitaiResources: the library\'s file of it',
+      (body['target'], body.get('modules_not_found')), (['sd_own.safetensors'], []))
+body = by(module=['sdxl_vae'], vae_keys={'name': 'sdxl_vae', 'hashes': [], 'versions': [sd_own_version]})
+check('a VAE found by its name wins over civitaiResources', body['target'], ['sdxl_vae.safetensors'])
+body = by(module=['gone_vae'], vae_keys={'name': 'gone_vae', 'hashes': [], 'versions': [sd_own_version]})
+check('a name found nowhere: civitaiResources\' version, the name not said missing',
+      (body['target'], body.get('modules_not_found')), (['sd_own.safetensors'], []))
+db.store_images(flux_id, 1, [{'id': 990003, 'url': 'https://image.civitai.com/x/990003.jpeg', 'width': 512, 'height': 512,
+                              'nsfwLevel': 1, 'type': 'image',
+                              'meta': {'prompt': 'a lighthouse',
+                                       'civitaiResources': [{'type': 'VAE', 'modelVersionId': sd_own_version}]}}])
+check('the route reads them from the image\'s stored record',
+      client.get('/model-manager/send/plan', params={'kind': 'civitai', 'image': 990003, **ill}).json().get('target'),
+      ['sd_own.safetensors'])
+host.installed_modules = lambda: {label: label for label in MODULES}
+fi.classify_file = lambda path: MODULES[path]
 
 # A Civitai image sent from a LoRA's gallery: the new route reads the image's
 # VAEs from its stored record, and answers what the old one did when the

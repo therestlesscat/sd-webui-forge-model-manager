@@ -48,7 +48,7 @@ def plan(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         answer = civitai_plan(db, source.get("file_path") or "", source.get("base_model") or "",
                               source.get("version_ids") or "", source.get("hashes") or "",
                               source.get("model_name") or "", "", named_modules(record.get("meta")),
-                              int(source.get("use_version") or 0))
+                              int(source.get("use_version") or 0), vae_keys(record.get("meta")))
         # The VAE the image names, for a WebUI without Forge's VAE / Text
         # Encoder control: the page selects it by name, as it always did.
         answer["named_vae"] = named_vae(record.get("meta"))
@@ -130,8 +130,27 @@ def _listed_label(path: str, installed: dict):
                  if listed and os.path.normcase(os.path.abspath(listed)) == wanted), None)
 
 
+# A Civitai AIR id: `urn:air:<ecosystem>:<type>:civitai:<model>@<version>`.
+_AIR_CIVITAI = re.compile(r"urn:air:[^:]+:[^:]+:civitai:\d+@(\d+)", re.IGNORECASE)
+
+
+def _held_label(db, installed: dict, hashes: List[str] = (), versions: List[int] = ()) -> Optional[str]:
+    """
+    The library's module file Forge lists, by a hash an image gives for it,
+    else by its Civitai version (#326); of several, preferred_label()'s. A
+    file Forge does not list - another of its name shadows it - is none.
+    """
+    from .forge_modules import preferred_label
+    if not hashes and not versions:
+        return None
+    rows = db.versions_named_by(list(versions), list(hashes))
+    return preferred_label({label for label in (_listed_label(row["file_path"], installed)
+                                                for row in rows if row.get("file_path")) if label})
+
+
 def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str = "", hashes: str = "",
-                 model_name: str = "", vae: str = "", module: List[str] = (), use_version: int = 0) -> Dict[str, Any]:
+                 model_name: str = "", vae: str = "", module: List[str] = (), use_version: int = 0,
+                 vae_keys: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     What Send to txt2img should set up in Forge before sending a Civitai image.
 
@@ -150,6 +169,10 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         vae: The VAE the image's generation data names, if any.
         module: Every module it names - its VAE, then each `Module N` Forge
             wrote (#204) - once per name.
+        vae_keys: What else says which VAE it used (vae_keys()): its VAE's
+            name among `module`, the hashes it gives for it, the Civitai
+            versions civitaiResources lists as one - for a VAE no name finds
+            (#326).
         use_version: Send with the library's file of this version, not the
             checkpoint the image names - another file of its version, or
             another version of its model, picked in the Resources dialog
@@ -236,14 +259,36 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
     own_vae = gallery_type == "VAE"
 
     # The modules the image names, as Forge lists them (#204): its VAE,
-    # and each `Module N` - Forge's own record of what was selected.
-    named, unlisted = [], []
-    for name in dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()):
+    # and each `Module N` - Forge's own record of what was selected. By name
+    # first; a Civitai AIR id by its version; and a VAE no name finds by a
+    # hash the image gives for it, else the version civitaiResources lists
+    # (#326). Not the hash first: where a name found a file, A1111's `VAE
+    # hash` named a VAE of the other family - SD 1.5 for SDXL, or the
+    # reverse - 277 times in 449 on one library, the name 7 in 9,416.
+    keys = vae_keys or {}
+    vae_name = keys.get("name")
+    by_hash = _held_label(db, installed, hashes=keys.get("hashes") or [])
+    names = list(dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()))
+
+    def by_name(name: str) -> Optional[str]:
         label = match_module(name, installed)
+        air = None if label else _AIR_CIVITAI.fullmatch(name)
+        return _held_label(db, installed, versions=[int(air.group(1))]) if air else label
+
+    named, unlisted = [], []
+    for name in names:
+        if name == vae_name:
+            label = by_name(name) or by_hash or _held_label(db, installed, versions=keys.get("versions") or [])
+        else:
+            label = by_name(name)
         if label is None:
             unlisted.append(name)
         elif label not in named:
             named.append(label)
+    if vae_name not in names:
+        label = by_hash or _held_label(db, installed, versions=keys.get("versions") or [])
+        if label and label not in named:
+            named.insert(0, label)
 
     if not answer["manage_modules"]:
         # SD and SDXL bring their own: what the image names, if anything;
@@ -331,6 +376,32 @@ def named_vae(meta: Any) -> Optional[str]:
     if resource and _truthy(resource.get("name")):
         return resource["name"]
     return None
+
+
+def vae_keys(meta: Any) -> Dict[str, Any]:
+    """
+    What besides a name says which VAE an image used (#326): `name`, the
+    VAE named_vae() reads; `hashes` its data gives for it - the `resources`
+    entry naming it, A1111's `VAE hash` - and `versions`, the Civitai
+    versions its `civitaiResources` lists as a VAE. Of one library's
+    images, 97 and 287 gave a hash a file here has, and 1,245 their VAE
+    only as such a version.
+    """
+    if not isinstance(meta, dict):
+        return {"name": None, "hashes": [], "versions": []}
+    name = named_vae(meta)
+    name = name.strip() if isinstance(name, str) else name
+    resources = meta.get("resources") if isinstance(meta.get("resources"), list) else []
+    hashes = [str(r["hash"]).strip() for r in resources
+              if isinstance(r, dict) and r.get("type") == "vae" and _truthy(r.get("hash"))
+              and (name is None or str(r.get("name") or "").strip() == name)]
+    if isinstance(meta.get("VAE hash"), str) and meta["VAE hash"].strip():
+        hashes.append(meta["VAE hash"].strip())
+    listed = meta.get("civitaiResources") if isinstance(meta.get("civitaiResources"), list) else []
+    versions = [int(r["modelVersionId"]) for r in listed
+                if isinstance(r, dict) and str(r.get("type") or "").lower() == "vae"
+                and str(r.get("modelVersionId") or "").isdigit()]
+    return {"name": name, "hashes": list(dict.fromkeys(hashes)), "versions": list(dict.fromkeys(versions))}
 
 
 def named_modules(meta: Any) -> List[str]:

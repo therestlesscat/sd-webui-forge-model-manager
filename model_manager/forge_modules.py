@@ -22,6 +22,7 @@ What Forge offers, holds and remembers is asked through forge_host.py; the
 rest is worked out here, so the tests can hand it any of those.
 """
 import os
+import re
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from .architecture import PRESET_BY_CLASS
@@ -169,6 +170,23 @@ NAME_HINTS = {
 }
 
 
+# A model file's extension, of those Forge lists modules with (refresh_models,
+# modules_forge/main_entry.py).
+_MODEL_EXT = re.compile(r"\.(?:ckpt|pt|pth|bin|safetensors|sft|gguf)$", re.IGNORECASE)
+
+
+def preferred_label(labels) -> Optional[str]:
+    """
+    Of several files that are one module to an image - one name in two
+    formats, one Civitai version's files - the one Send selects (#326): a
+    .safetensors file, which loads without running pickled code, else the
+    first Forge lists. None of none.
+    """
+    ordered = sorted(labels)
+    return next((label for label in ordered if label.lower().endswith(".safetensors")),
+                ordered[0] if ordered else None)
+
+
 def match_module(name: str, labels) -> Optional[str]:
     """
     The installed module an image names means, as Forge lists it - its VAE,
@@ -177,17 +195,38 @@ def match_module(name: str, labels) -> Optional[str]:
     Generation data usually carries the bare name while Forge lists the file,
     so "vae-ft-mse-840000" has to find "vae-ft-mse-840000-ema-pruned.safetensors":
     the file itself first, then one named the same without its extension, then
-    one whose name starts with it. Case does not matter.
+    one whose name starts with it. Case does not matter. Forge lists a file by
+    its name alone, so a name with a folder in front - `Wan\\wan_2.1_vae.safetensors`,
+    an AIR id's Hugging Face path - is matched the same way without it; then a
+    file of the same name in another model format (`kl-f8-anime2.ckpt` finds
+    `kl-f8-anime2.safetensors`), of two the one preferred_label() gives
+    (#326: 927 and 500 of one library's images).
     """
     if not name:
         return None
     labels = list(labels)
+    found = _match_name(name, labels)
+    if found:
+        return found
+    base = re.split(r"[\\/]", name.strip())[-1]
+    if base and base != name.strip():
+        found = _match_name(base, labels)
+        if found:
+            return found
+    stem = _MODEL_EXT.sub("", base).lower()
+    if not stem or stem == base.lower():
+        return None
+    return preferred_label([label for label in labels if _MODEL_EXT.sub("", label).lower() == stem])
+
+
+def _match_name(name: str, labels: List[str]) -> Optional[str]:
+    """A name as Forge lists the file: itself, less its extension, or the start of one."""
     if name in labels:
         return name
-    wanted = name.lower()
     exact = _match(name, labels)
     if exact:
         return exact
+    wanted = name.lower()
     return next((label for label in labels if label.lower().startswith(wanted)), None)
 
 
