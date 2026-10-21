@@ -530,6 +530,50 @@ export function sendLoaders(document, { tabs = ['txt2img', 'img2img'], onAsk = n
     return asked;
 }
 
+/**
+ * Forge's two refresh buttons (#193, #321), behaving as Gradio makes them in
+ * both WebUIs: the checkpoint refresh posts its event to <root>/run/predict
+ * through the page's fetch, `delay` ms after the press - none at all with
+ * `answer` false, a Forge that never answers. The extra networks refresh
+ * posts its event to the queue at once and, `delay` ms on, the step Forge
+ * chains after it (`ui_extra_networks.py`) - none with `chained` false. Their
+ * events are entered in window.gradio_config as Gradio's config names them.
+ * Returns the presses, in order: 'checkpoints', 'extra networks'. A suite
+ * that replaces fetch after the page started takes the watcher off with it.
+ */
+export const FORGE_REFRESH_EVENTS = { checkpoints: 9100, extraNetworks: 9101, chained: 9102 };
+
+export function forgeRefreshButtons(document, window, { delay = 5, answer = true, chained = true } = {}) {
+    const pressed = [];
+    const config = window.gradio_config || (window.gradio_config = {});
+    config.components = [...(config.components || []),
+        { id: 9001, props: { elem_id: 'forge_refresh_checkpoint' } },
+        { id: 9002, props: { elem_id: 'txt2img_lora_extra_refresh_internal' } }];
+    const { checkpoints, extraNetworks, chained: next } = FORGE_REFRESH_EVENTS;
+    config.dependencies = [...(config.dependencies || []),
+        { id: checkpoints, targets: [[9001, 'click']], backend_fn: true, trigger_after: null, queue: false },
+        { id: extraNetworks, targets: [[9002, 'click']], backend_fn: true, trigger_after: null },
+        { id: next, targets: [], backend_fn: true, trigger_after: extraNetworks }];
+    const post = (path, fn) => globalThis.fetch(`${window.location.origin}${path}`,
+                                                 { method: 'POST', body: JSON.stringify({ fn_index: fn }) });
+    for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'],
+                              ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
+        const button = document.createElement('button');
+        button.id = id;
+        button.addEventListener('click', () => {
+            pressed.push(name);
+            if (name === 'checkpoints') {
+                if (answer) setTimeout(() => post('/run/predict', checkpoints), delay);
+                return;
+            }
+            post('/queue/join', extraNetworks);
+            if (chained) setTimeout(() => post('/queue/join', next), delay);
+        });
+        document.body.appendChild(button);
+    }
+    return pressed;
+}
+
 // The most tries a wait may ask for: 400 tries of 50 ms, 20 seconds. Seven
 // waits once asked for 4,000-6,000, up to 300 s each, and a broken one held a
 // run for minutes before it said anything (#145). A suite waits in seconds.

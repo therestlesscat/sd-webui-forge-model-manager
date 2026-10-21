@@ -88,6 +88,8 @@ const STARTED = {
                       'provide downloads.dismissFinished'],
     'chips.mjs': [],
     'resources.mjs': [],
+    // Its work wraps the page's fetch, which nothing here counts: forge_refresh_test.mjs.
+    'forge.mjs': [],
 };
 // Each started as a tab starts it, through the loading module (#186): with a
 // scope of its own, once for the page however many tabs use it.

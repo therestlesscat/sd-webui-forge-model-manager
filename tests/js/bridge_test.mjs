@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { parseHTML } from 'linkedom';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { act, browserGalleryAnswer, checker, startTab, tabMarkup, tick, openTab, sharedModule } from './harness.mjs';
+import { act, browserGalleryAnswer, checker, forgeRefreshButtons, startTab, tabMarkup, tick, openTab, sharedModule } from './harness.mjs';
 
 const ROOT = process.env.MM_ROOT
     ? process.env.MM_ROOT.replace(/\\/g, '/')
@@ -153,13 +153,8 @@ window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 300
                     scrollSettle: 20 };
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
-const refreshed = [];
-for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
-    const button = document.createElement('button');
-    button.id = id;
-    button.addEventListener('click', () => refreshed.push(name));
-    document.body.appendChild(button);
-}
+// Pressed one at a time, each waited for (#321): the stand-in answers as Forge does.
+const refreshed = forgeRefreshButtons(document, window);
 await startTab('civitaiBrowser');
 window.document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
@@ -411,6 +406,7 @@ check('Complete, and the button by the server\'s answer, arrive together', [badg
 // refresh of Forge's lists would come with it: a poll and a half, the half
 // for Windows' timer tick (#272).
 await new Promise((r) => setTimeout(r, window.mmTiming.poll * 1.5));
+await waitFor('Forge\'s two refreshes, one after the other', () => refreshed.length >= 2);
 check('the batch landed: Forge\'s lists refreshed, extra networks too, once', refreshed, ['checkpoints', 'extra networks']);
 
 done();

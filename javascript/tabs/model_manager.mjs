@@ -17,7 +17,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
     'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs',
-    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs', 'dialog.mjs'];
+    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs', 'dialog.mjs', 'forge.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -55,8 +55,8 @@ const {
 } = await shared('generations.mjs');
 const {
     paidAccessLabel, isPaid, onSiteOnly, ON_SITE_ONLY, primaryFileIndex, renderDownloadControls, showChosenFile, downloads,
-    refreshWebUiModelLists,
 } = await shared('downloads.mjs');
+const { refreshWebUiModelLists } = await shared('forge.mjs');
 const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount, showSyncDialog } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
@@ -84,7 +84,7 @@ const previousPlace = previousPosition({ id: 'mm_scroll_restore_btn', action: 'm
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs', 'media.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+    'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'forge.mjs'];
 
 // What this tab does once started, declared where it belongs below and done by
 // start(scope) through the scope (shared/loading.mjs, #183): nothing runs as

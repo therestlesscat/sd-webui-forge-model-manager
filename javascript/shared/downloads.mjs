@@ -9,6 +9,10 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, formatBytes, formatDay } = await shared('core.mjs');
 const { apiKeyIsMissing, ignoredTag } = await shared('ui_options.mjs');
+const { refreshWebUiModelLists } = await shared('forge.mjs');
+
+/** Forge's lists are refreshed in line, as each batch lands (#321): through forge.mjs. */
+export const STARTS = ['forge.mjs'];
 
 // ------------------------------------------------------ a version to download
 // Both tabs show a version that is not in the library the same way: what it
@@ -220,49 +224,6 @@ export function showChosenFile(controls, modelId, version, file) {
 // see how it is going. So there is one list, polled once, and each tab draws
 // it in a panel of its own: a download started in either shows in both.
 // The tabs share this module's one copy (#53), so the list is its own.
-
-/**
- * Tell the WebUI about newly downloaded files.
- *
- * Downloading writes the file but the WebUI has already listed its model
- * directories, so a new checkpoint does not appear in the native dropdown
- * until something re-scans. Click the refresh control next to that
- * dropdown - the same one a user would press. Forge and Forge Neo both
- * expose it as #forge_refresh_checkpoint, and both hand back only new
- * choices, so the current selection is left alone.
- */
-export function refreshWebUiModelList() {
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const refreshButton = root.querySelector('#forge_refresh_checkpoint');
-
-    if (refreshButton) {
-        refreshButton.click();
-        console.log('[ModelManager] Refreshed the WebUI model list');
-    } else {
-        console.warn('[ModelManager] Could not find the checkpoint refresh button; '
-            + 'the new model may need a manual refresh');
-    }
-}
-
-/**
- * Tell the WebUI its model files changed - downloaded, moved, forgotten,
- * deleted (#193): its checkpoint and VAE / text encoder lists, as above, and
- * its extra networks - LoRAs, embeddings - through their hidden refresh,
- * which rescans every page on the server, the LoRAs a prompt's <lora:...>
- * loads included. A downloaded or moved LoRA was not loadable until then.
- * The same buttons in both WebUIs. Nothing refreshes upscalers: Forge reads
- * them once, at startup.
- */
-export function refreshWebUiModelLists() {
-    refreshWebUiModelList();
-    const root = (typeof gradioApp === 'function') ? gradioApp() : document;
-    const extraNetworks = root.querySelector('#txt2img_lora_extra_refresh_internal');
-    if (extraNetworks) {
-        extraNetworks.click();
-    } else {
-        console.warn('[ModelManager] Could not find the extra networks refresh; LoRAs may need a manual refresh');
-    }
-}
 
 /** Bytes a second as a person reads them: "12.4 MB", "800 KB" - one decimal, none when it is 0. */
 function formatSpeed(bytes) {

@@ -13,7 +13,10 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
-const { refreshWebUiModelLists } = await shared('downloads.mjs');
+const { refreshWebUiModelLists } = await shared('forge.mjs');
+
+/** A sync that changed files refreshes Forge's lists in line (#321): through forge.mjs. */
+export const STARTS = ['forge.mjs'];
 const { ask, openDialog } = await shared('dialog.mjs');
 
 // What the Model Manager connects the jobs to (connectJobs): its status line;

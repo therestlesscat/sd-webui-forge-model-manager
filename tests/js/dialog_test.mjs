@@ -10,7 +10,7 @@ import { parseHTML } from 'linkedom';
 
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { checker, dialogStandIn, sharedModule, startTab, tabMarkup } from './harness.mjs';
+import { checker, dialogStandIn, forgeRefreshButtons, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 // The extension, found from this file rather than from a drive letter.
 const ROOT = process.env.MM_ROOT
@@ -183,7 +183,9 @@ globalThis.fetch = async (url, init = {}) => {
             has_api_key: hasApiKey }) };
     }
     if (init.method === 'POST') {
-        posts.push({ url: href, body: init.body });
+        // The extension's own: Forge's refresh buttons post too (#321), and
+        // one landing late was read as the sync's on a slower machine.
+        if (href.includes('/model-manager/')) posts.push({ url: href, body: init.body });
         return { ok: true, json: async () => ({ success: true }) };
     }
     if (href.includes('/sync/progress')) {
@@ -276,13 +278,8 @@ const syncEnd = () => [...statusSeen].reverse().find((text) => /^Sync (complete|
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10, drawRetry: 10 };
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
-const refreshed = [];
-for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
-    const button = document.createElement('button');
-    button.id = id;
-    button.addEventListener('click', () => refreshed.push(name));
-    document.body.appendChild(button);
-}
+// Pressed one at a time, each waited for (#321): the stand-in answers as Forge does.
+const refreshed = forgeRefreshButtons(document, window);
 
 await startTab('modelManager');
 const { showSyncDialog } = await import(`file:///${ROOT}/javascript/shared/jobs.mjs`);
@@ -598,6 +595,7 @@ const walkBody = new URLSearchParams(posts[0]?.body || '');
 check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
 check('every sync so far changed no file, whatever was ticked: Forge\'s lists not refreshed', refreshed, []);
 await waitFor('that sync to finish', () => $('mm_sync_btn').disabled === false);
+await waitFor('Forge\'s two refreshes, one after the other', () => refreshed.length >= 2);
 check('one that added, forgot or moved files refreshes Forge\'s lists, once', refreshed, ['checkpoints', 'extra networks']);
 refreshed.length = 0;
 check('the status says what the walk did to the library',

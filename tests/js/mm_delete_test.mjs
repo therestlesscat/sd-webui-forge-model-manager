@@ -6,7 +6,7 @@
 // Model" for a model with one version here, and for one with several,
 // "Delete Current Model Version" - the version shown - and "Delete All Model
 // Versions".
-import { ROOT, act, checker, mountTab, press, startTab } from './harness.mjs';
+import { ROOT, act, checker, forgeRefreshButtons, mountTab, press, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -55,13 +55,8 @@ elementProto.showModal = function answerDelete() {
 
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
-const refreshed = [];
-for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
-    const button = document.createElement('button');
-    button.id = id;
-    button.addEventListener('click', () => refreshed.push(name));
-    document.body.appendChild(button);
-}
+// Pressed one at a time, each waited for (#321): the stand-in answers as Forge does.
+const refreshed = forgeRefreshButtons(document, window);
 
 await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -91,6 +86,7 @@ check('and nothing is left at the foot of the panel',
 await act('modelManager.selectPill', { index: 1 });
 await pressLabelled('Delete Current Model Version');
 check('"current" deletes the version on screen - not the grid card\'s', deleted, ['C:/models/v2.safetensors']);
+await waitFor('Forge\'s two refreshes, one after the other', () => refreshed.length >= 2);
 check('and Forge\'s lists are refreshed, once', refreshed, ['checkpoints', 'extra networks']);
 check('having named it in the confirmation', confirmText.includes('version "v2"'), true);
 check('which says the folder its download made goes, once empty (#196)',

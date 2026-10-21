@@ -31,7 +31,7 @@ const {
 } = await shared('chips.mjs');
 const { videoFrames } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
-const { refreshWebUiModelList } = await shared('downloads.mjs');
+const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 
 /**
@@ -49,11 +49,12 @@ export const IMG2IMG_SENDS = [
 
 /**
  * What a send relies on running, started with it by each tab that sends
- * (#182, #186): the chips kept under the prompt, and the Resources dialog a
- * stopped send opens. Not the downloads list: that runs with the tabs that
- * download. The loading module starts these.
+ * (#182, #186): the chips kept under the prompt, the Resources dialog a
+ * stopped send opens, and the watcher of Forge's calls its preset waits
+ * read (forge.mjs, #321). Not the downloads list: that runs with the tabs
+ * that download. The loading module starts these.
  */
-export const STARTS = ['chips.mjs', 'resources.mjs'];
+export const STARTS = ['chips.mjs', 'resources.mjs', 'forge.mjs'];
 
 /** Where a generation's settings go: back to the tab it was made in. */
 export function sendTab(card) {
@@ -695,7 +696,6 @@ async function switchForgePreset(preset) {
     const input = container?.querySelector('input');
     if (!input || !preset) return false;
     if (currentForgePreset() === preset) return true;
-    watchForgeCalls();
     const callsBefore = forgeCalls.started;
     const doneBefore = forgeCalls.done.length;
 
@@ -718,44 +718,6 @@ async function switchForgePreset(preset) {
         return false;
     }
     return await presetTaken(preset, callsBefore, doneBefore);
-}
-
-/**
- * The calls Gradio makes to the server for a control's events. They go to
- * <root>/run/<event> through the page's fetch - in both WebUIs' Gradio 4.40 -
- * so wrapping fetch sees each one start and finish: `done`, in order, each
- * that came back - its event (`fn_index`), and whether it answered `ok`.
- */
-const forgeCalls = { started: 0, inFlight: 0, last: 0, done: [] };
-
-function watchForgeCalls() {
-    if (globalThis.fetch?.mmWatched) return;
-    const original = globalThis.fetch;
-    const watched = function(resource, ...rest) {
-        let path = '';
-        try {
-            path = new URL(typeof resource === 'string' ? resource : resource?.url || String(resource),
-                           window.location.origin).pathname;
-        } catch { /* not a URL we can read: not one of Gradio's */ }
-        if (!path.includes('/run/')) return original.call(this, resource, ...rest);
-        forgeCalls.started++;
-        forgeCalls.inFlight++;
-        forgeCalls.last = Date.now();
-        let fn = null;
-        try {
-            fn = JSON.parse(rest[0]?.body ?? '{}').fn_index ?? null;
-        } catch { /* a body that is not JSON: an event we cannot name */ }
-        const settle = (ok) => {
-            forgeCalls.inFlight--;
-            forgeCalls.last = Date.now();
-            if (fn !== null) forgeCalls.done.push({ fn, ok });
-        };
-        const call = original.call(this, resource, ...rest);
-        call.then((response) => settle(response?.ok !== false), () => settle(false));
-        return call;
-    };
-    watched.mmWatched = true;
-    globalThis.fetch = watched;
 }
 
 /**

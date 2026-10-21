@@ -6,7 +6,7 @@
 // there is something to pause or resume.
 // Each asks the server (/download/control) and takes the list it answers.
 // The server's side: download_test.py.
-import { ROOT, act, checker, mountTab, press, sharedModule, startTab } from './harness.mjs';
+import { ROOT, act, checker, forgeRefreshButtons, mountTab, press, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 20 };
@@ -56,13 +56,8 @@ panelBox.remove();
 
 // Forge's refresh buttons (#193): the checkpoint and VAE / text encoder
 // lists', and the extra networks' hidden one - LoRAs, embeddings.
-const refreshed = [];
-for (const [id, name] of [['forge_refresh_checkpoint', 'checkpoints'], ['txt2img_lora_extra_refresh_internal', 'extra networks']]) {
-    const button = document.createElement('button');
-    button.id = id;
-    button.addEventListener('click', () => refreshed.push(name));
-    document.body.appendChild(button);
-}
+// Pressed one at a time, each waited for (#321): the stand-in answers as Forge does.
+const refreshed = forgeRefreshButtons(document, window);
 
 await startTab('modelManager');
 const { downloads } = await sharedModule('downloads.mjs');     // the tab's copy
