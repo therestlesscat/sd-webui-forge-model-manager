@@ -43,6 +43,15 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   either: put one under `tests/work/`. A tree for breaks is built from `git
   ls-files` (modified and untracked), never `cp -r tests`: a copy of `tests`
   into `tests/work/...` copied itself, 3.6 GB, before it was stopped (#299).
+  A break runner puts each file back in a `finally`: #321's, stopped at its
+  time limit, left a break in the copy's `forge.mjs` - `cmp` showed it - and
+  the next run would have taken the break for the fix. From WSL, `timeout`
+  stops neither a Windows `node.exe` nor a `python.exe`.
+- **The checker compares values as JSON.** `check()` (`harness.mjs`) compares
+  `JSON.stringify` of both, and a function becomes nothing: `check(label,
+  globalThis.fetch, standIn)` passes whatever `fetch` is. #321's two such
+  checks passed a break that left the watcher on; compared as booleans
+  (`globalThis.fetch === standIn`), the break failed one.
 - **A new suite runs on the old code from a copy of HEAD.** `git archive HEAD
   | tar -x -C tests/work/<x>/head`, the suite copied into that tree: its
   paths come from its own place, so HEAD's package runs and the working tree

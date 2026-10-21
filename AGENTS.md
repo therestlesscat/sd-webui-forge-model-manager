@@ -767,6 +767,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   selected for SDXL; the reloaded page showed none while Forge held it, and
   only #3's notice said so. Read `config.json` before a live check, and put
   back what it leaves through Forge's own control, pressed as Send presses it.
+  So does loading a fresh page (#322): Forge's saved preset went from `xl` to
+  `krea`, the one the process started with, after 3 of the 5 runs that loaded
+  fresh pages on 2026-10-20, and the page showed `krea`. Read `config.json`
+  after a check that loads pages, too.
 - **A whole-tab fingerprint is not stable across a restart.** ADetailer's
   checkpoint box on each tab takes a value per process, and ForgeCanvas names
   its elements with a uuid per process. #307's old-against-new run differed

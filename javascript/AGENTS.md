@@ -171,6 +171,15 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   them by the script and line that added them (CDP's
   `DOMDebugger.getEventListeners`, with `Debugger.scriptParsed` for the
   scripts), and count again later, before calling one a leak.
+- **A dropdown's choices are read from Forge's answer, not by typing into
+  it.** Typed into, Gradio filters the list, and an opened box holding a
+  value shows a filtered one: `juggernautXL_v8` typed found nothing on a page
+  that listed it, and an opened Checkpoint box counted 0 and 1 options. The
+  answer of Forge's checkpoint refresh (`/run/predict`, `data[0].choices`,
+  read from the network) showed what the page was given: 42, 67 and 21 of 313
+  (#321). And reading the box a few times does not clear a race: three such
+  tries called #321 not reproduced, until the owner asked "are you sure way
+  you check it is correct?".
 
 ## Kept elsewhere, and true here too
 
