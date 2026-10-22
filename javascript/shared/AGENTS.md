@@ -120,12 +120,19 @@ value with a line break is quoted as Forge quotes it (0.67.5, #313). A sampler
 Forge does not know becomes its first, DPM++ 2M, without a word
 (`get_sampler_and_scheduler`): Send matches by Forge's own names - aliases and
 k-diffusion function names (0.67.6, #309) - and names what this WebUI lacks,
-setting nothing (0.67.7, #307). Both parsers turn `Sampler: Undefined` into
-Euler; the original Forge's writes `Schedule type: Automatic` where the text
-gives none - no schedule type given. Neo's drops `Clip skip` from every paste
+setting nothing (0.67.7, #307). Neo's parser turns `Sampler: Undefined` into
+Euler and Simple whatever the text (`infotext_utils.py`, line 388); the
+original Forge's only in a text naming both `Civitai` and `FLUX` (line 286),
+else it is a sampler like any unknown one and becomes DPM++ 2M - a Flux
+image's Send there showed DPM++ 2M (2026-10-22, #306). The original Forge's
+parser writes `Schedule type: Automatic` where the text gives none - no
+schedule type given. Neo's drops `Clip skip` from every paste
 (`e447ffe1`, no reason given), where the original Forge makes it an Override
-settings entry, but for Civitai's Flux images. An Override settings entry
-applies to each generation and is put back after (`processing.py`, 802-846):
+settings entry - except in a text naming both `Civitai` and `FLUX` (line 286,
+the same check as for `Sampler: Undefined`), which Send's text for a Flux
+image does not: there the entry is made too, harmless as Flux takes no clip
+skip (2026-10-22, #306). An Override settings entry applies to each
+generation and is put back after (`processing.py`, 802-846):
 setting Forge's Clip Skip itself carried one image's value into later
 generations, other models' included, so Send adds the entry (#318). And Neo's
 Apply settings sends every field the Settings page shows (`run_settings`): a
