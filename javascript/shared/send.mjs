@@ -1288,7 +1288,12 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             }
             // The image's clip skip, put in the tab's Override settings by
             // the loader (#318): for its generations alone, the setting kept.
-            if (answer.clip_skip) {
+            // Above the setting's highest, left out (#339).
+            if (answer.clip_skip?.highest != null) {
+                const { value, yours, highest } = answer.clip_skip;
+                said.push(`The image's Clip skip ${value} is above your highest of ${highest} (Settings), so `
+                          + `${yours == null ? 'your Clip Skip applies' : `your Clip Skip ${yours} applies`}.`);
+            } else if (answer.clip_skip) {
                 const { value, yours } = answer.clip_skip;
                 said.push(`Clip skip ${value}, the image's, for this tab's generations (Override settings)`
                           + `${yours == null ? '' : `; your setting stays ${yours}`}.`);

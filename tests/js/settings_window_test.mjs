@@ -51,6 +51,8 @@ const SETTINGS = {
     model_manager_modules_qwen: setting('text', ''),
     model_manager_civitai_sfw_fill_page: setting('bool', false),
     model_manager_something_new: setting('bool', false, { label: 'A setting added later' }),
+    model_manager_send_clip_skip: setting('bool', true),
+    model_manager_send_clip_skip_max: setting('number', 6, { minimum: 1, maximum: 12, step: 1 }),
 };
 const ORDER = Object.keys(SETTINGS);
 const posted = [];
@@ -322,6 +324,19 @@ check('the switch off: the connections hidden, their value kept', [shown(CONNECT
       [false, '4']);
 tickTab(IN_PARTS, true);
 check('on again: shown', shown(CONNECTIONS), true);
+
+// Send's highest clip skip (#339): shown only while Send takes the image's,
+// its value kept while hidden.
+const CLIP_SKIP = 'model_manager_send_clip_skip';
+const CLIP_SKIP_MAX = 'model_manager_send_clip_skip_max';
+const highestSlider = () => field(CLIP_SKIP_MAX)?.querySelector('input[type="range"]');
+check('the highest clip skip: a slider from 1 to 12, at 6, shown while Send takes the image\'s',
+      [highestSlider()?.getAttribute('min'), highestSlider()?.getAttribute('max'), highestSlider()?.value,
+       shown(CLIP_SKIP_MAX)], ['1', '12', '6', true]);
+tickTab(CLIP_SKIP, false);
+check('the switch off: hidden, its value kept', [shown(CLIP_SKIP_MAX), highestSlider()?.value], [false, '6']);
+tickTab(CLIP_SKIP, true);
+check('on again: shown', shown(CLIP_SKIP_MAX), true);
 
 // -------------------------------------------------------- what is shown
 check('requests per second is hidden without an API key',

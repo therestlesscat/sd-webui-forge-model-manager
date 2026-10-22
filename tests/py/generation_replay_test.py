@@ -465,6 +465,21 @@ check('no Override settings among the outputs: nothing', attempt(lambda: overrid
 opts.model_manager_send_clip_skip = False
 check('Send\'s setting off: nothing', attempt(lambda: override(1, {'__type__': 'update', 'value': []}))[0], {})
 opts.model_manager_send_clip_skip = True
+# Above the setting's highest, 6 unless changed, none is added (#339): from 8
+# up the picture comes out unusable.
+check('above the highest: nothing added, the box as the paste left it; the answer names the highest',
+      attempt(lambda: override(10, {'__type__': 'update', 'value': ['VAE/TE: []'], 'choices': ['VAE/TE: []']})),
+      ({'clip_skip': {'value': 10, 'yours': 2, 'highest': 6}}, (['VAE/TE: []'], ['VAE/TE: []'], None)))
+check("the original Forge's paste made its own entry above the highest: taken out, the rest kept; alone, the box hidden",
+      [attempt(lambda: override(10, {'__type__': 'update', 'value': ['VAE/TE: []', 'Clip skip: 10']}))[1],
+       attempt(lambda: override(11, {'__type__': 'update', 'value': ['Clip skip: 11']}))[1]],
+      [(['VAE/TE: []'], ['VAE/TE: []'], True), ([], [], False)])
+check('at the highest it is added; set to 12, so is 10',
+      [attempt(lambda: override(6, {'__type__': 'update', 'value': []})),
+       [setattr(opts, 'model_manager_send_clip_skip_max', 12), attempt(lambda: override(10, {'__type__': 'update', 'value': []}))][1]],
+      [({'clip_skip': {'value': 6, 'yours': 2}}, (['Clip skip: 6'], ['Clip skip: 6'], True)),
+       ({'clip_skip': {'value': 10, 'yours': 2}}, (['Clip skip: 10'], ['Clip skip: 10'], True))])
+del opts.model_manager_send_clip_skip_max
 OLD = {'hr_checkpoint_path': PATHS['chill'], 'hr_modules': [r'F:\vae\ae.safetensors'], 'refiner_path': PATHS['rv'],
        'params': {'refiner_cfg': 3.0}}
 check('a record\'s own paths win, and its refiner CFG comes back, which no infotext carries',

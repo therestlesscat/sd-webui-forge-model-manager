@@ -392,10 +392,15 @@ def clip_skip_override(tab: str, values: List[Any], outputs: List[Any], value: O
     changed. Neo's paste drops an infotext's `Clip skip`; the original
     Forge's makes this same entry. Added to what the paste put in the box;
     returns the answer's `clip_skip`, or nothing where nothing was added.
+
+    Above the setting's highest none is added, and the paste's own entry is
+    taken out (#339): from 8 up the picture comes out unusable, and most
+    such values are A1111's on SDXL, where it never applied them. The
+    answer then names the highest, for the notice.
     """
     import gradio as gr
     from .. import forge_host
-    from ..send import CLIP_SKIP_OPTION, CLIP_SKIP_SETTING
+    from ..send import CLIP_SKIP_MAX_SETTING, CLIP_SKIP_OPTION, CLIP_SKIP_SETTING
     at = next((n for n, c in enumerate(outputs) if getattr(c, "elem_id", None) == f"{tab}_override_settings"), None)
     if value is None or at is None or not forge_host.setting(CLIP_SKIP_SETTING):
         return {}
@@ -407,6 +412,11 @@ def clip_skip_override(tab: str, values: List[Any], outputs: List[Any], value: O
         return {}
     pasted = values[at].get("value") if isinstance(values[at], dict) else values[at]
     entries = [e for e in (pasted if isinstance(pasted, list) else []) if not str(e).startswith("Clip skip:")]
+    highest = int(forge_host.setting(CLIP_SKIP_MAX_SETTING))
+    if value > highest:
+        if isinstance(pasted, list) and len(entries) < len(pasted):
+            values[at] = gr.update(value=entries, choices=entries, visible=bool(entries))
+        return {"clip_skip": {"value": value, "yours": yours, "highest": highest}}
     entries.append(f"Clip skip: {value}")
     values[at] = gr.update(value=entries, choices=entries, visible=True)
     return {"clip_skip": {"value": value, "yours": yours}}

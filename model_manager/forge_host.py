@@ -127,8 +127,10 @@ DEFAULTS = {
     # turned off; the folder, empty for generation-inputs beside the database.
     "model_manager_generations_keep_inputs": True,
     "model_manager_generations_inputs_dir": "",
-    # Send puts the image's clip skip in Override settings (#318): on unless turned off.
+    # Send puts the image's clip skip in Override settings (#318): on unless turned off;
+    # none above this, where the picture comes out unusable (#339).
     "model_manager_send_clip_skip": True,
+    "model_manager_send_clip_skip_max": 6,
 }
 
 

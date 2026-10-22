@@ -603,6 +603,7 @@ _CLIP_SKIP_KEYS = ("Clip skip", "clipSkip", "CLIP Skip", "Clip Skip")
 # Forge's Clip Skip setting and its range (shared_options.py, both WebUIs).
 CLIP_SKIP_OPTION = "CLIP_stop_at_last_layers"
 CLIP_SKIP_SETTING = "model_manager_send_clip_skip"
+CLIP_SKIP_MAX_SETTING = "model_manager_send_clip_skip_max"
 
 
 def image_clip_skip(meta: Dict[str, Any]) -> Any:

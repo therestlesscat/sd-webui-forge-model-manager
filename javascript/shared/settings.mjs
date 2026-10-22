@@ -58,6 +58,8 @@ const K = {
     generationsGrid: 'model_manager_generations_grid',
     generationsReading: 'model_manager_generations_reading',
     galleryGrid: 'model_manager_gallery_grid',
+    sendClipSkip: 'model_manager_send_clip_skip',
+    sendClipSkipMax: 'model_manager_send_clip_skip_max',
     syncLevel: 'model_manager_image_sync_level',
     groupNoText: 'model_manager_group_no_text',
     thumbnails: 'model_manager_thumbnails',
@@ -204,6 +206,8 @@ const SHOWN_WHEN = {
     // Nothing is queued while the queue is off.
     [K.queueInputs]: (s) => s.value(K.queueEnabled) !== false,
     [K.queueAskAbove]: (s) => s.value(K.queueEnabled) !== false,
+    // Send's highest clip skip, only while it takes the image's (#339).
+    [K.sendClipSkipMax]: (s) => s.value(K.sendClipSkip) !== false,
 };
 
 /** Controls that suit a setting better than its kind's default one. */

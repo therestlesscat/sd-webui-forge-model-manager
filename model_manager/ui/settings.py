@@ -713,6 +713,18 @@ def on_ui_settings():
                "changed, and the next Send replaces it. Not for Flux, where clip skip changes "
                "nothing. Off: left to Forge's paste, which in Forge Neo ignores it.")
     )
+    # From 8 up the picture comes out unusable (#339).
+    shared.opts.add_option(
+        "model_manager_send_clip_skip_max",
+        shared.OptionInfo(
+            default=DEFAULTS["model_manager_send_clip_skip_max"],
+            label="Send: highest Clip skip taken from an image",
+            component=gr.Slider,
+            component_args={"minimum": 1, "maximum": 12, "step": 1},
+            section=section,
+        ).info("An image's clip skip above this is left out of Override settings, and your Clip Skip "
+               "applies; Send's notice says so. Most models are made for 1 or 2.")
+    )
 
     # The text encoders and VAE Send to txt2img selects, per Forge Neo preset
     explanation = shared.OptionHTML(
