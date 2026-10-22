@@ -56,8 +56,8 @@ def create_gallery_ui():
                             title="A new seed, at random: the images in a new order">New seed</button>
                     <!-- Search: Enter searches; emptied, it shows everything again (#283) -->
                     <input type="search" id="gal_search" class="gen-search" data-action="gallery.search"
-                           placeholder="Search prompts" aria-label="Search Civitai's images"
-                           title="Every word must be in an image's prompt or negative prompt; a &quot;quoted phrase&quot; as one.">
+                           placeholder="Search prompts, or image:12 version:345 model:67" aria-label="Search Civitai's images"
+                           title="Every word must be in an image's prompt or negative prompt; a &quot;quoted phrase&quot; as one. image:12,13 - those Civitai images. version:345 - the images made with that Civitai version, as any resource, or shown in its gallery; model:67 - of any version of that model. Several ids: any of them; words and keys together: all.">
                     <!-- Group by: a menu, each grouping with a "then by" list beside
                          it, filled by gallery.mjs -->
                     <span class="gen-view-switch gen-group-menu" title="Gather the images that share something">

@@ -32,8 +32,8 @@ def create_generations_ui():
                 <div class="gen-toolbar">
                     <!-- Search: Enter searches; emptied, it shows everything again -->
                     <input type="search" id="gen_search" class="gen-search" data-action="generations.search"
-                           placeholder="Search prompts, or task:17" aria-label="Search your generations"
-                           title="Every word must be in an image's prompt or negative prompt; a &quot;quoted phrase&quot; as one. task:17 - the images task 17 of the Queue made.">
+                           placeholder="Search prompts, or image:12 version:345 model:67 task:17" aria-label="Search your generations"
+                           title="Every word must be in an image's prompt or negative prompt; a &quot;quoted phrase&quot; as one. image:12,13 - those images. version:345 - the images made with a file of that Civitai version, as any resource; model:67 - of any version of that model. task:17 - the images task 17 of the Queue made. Several ids: any of them; words and keys together: all.">
                     <!-- Group by: a menu, each grouping with a "then by" list beside
                          it, filled by generations.mjs -->
                     <span class="gen-view-switch gen-group-menu" title="Gather images that share something, whatever generation they are of">

@@ -83,11 +83,24 @@ def images_of(*generations):
 everything = images_of(lighthouse, fox, cat)
 
 # ------------------------------------------------------------ the terms
+def terms(text):
+    """What a search asks for, as plain values: words, task, images, versions, models."""
+    found = api.search_terms(text)
+    return tuple(getattr(found, k, None) for k in ('words', 'task', 'images', 'versions', 'models'))
+
+
 check('words, a quoted phrase as one, and a task',
-      api.search_terms('lighthouse "at dusk" task:12'), (['lighthouse', 'at dusk'], 12))
-check('task: in any case', api.search_terms('TASK:3'), ([], 3))
-check("a prompt's own colon is a word", api.search_terms('(red:1.2) task:x'), (['(red:1.2)', 'task:x'], None))
-check('nothing, for an empty search', api.search_terms('   '), ([], None))
+      terms('lighthouse "at dusk" task:12')[:2], (['lighthouse', 'at dusk'], 12))
+check('task: in any case', terms('TASK:3')[:2], ([], 3))
+check("a prompt's own colon is a word", terms('(red:1.2) task:x')[:2], (['(red:1.2)', 'task:x'], None))
+check('nothing, for an empty search', terms('   '), ([], None, [], [], []))
+# The ids (#336).
+check('image:, version: and model: take a list, in any case',
+      terms('IMAGE:5,7 version:300 Model:11,12'), ([], None, [5, 7], [300], [11, 12]))
+check('a key again adds to its list', terms('version:1 version:2,3')[3], [1, 2, 3])
+check('a key without whole ids is a word', terms('image:abc version:1,,2 model: image:5')[:3],
+      (['image:abc', 'version:1,,2', 'model:'], None, [5]))
+check('task: takes one id: a list is a word', terms('task:1,2')[:2], (['task:1,2'], None))
 
 # ------------------------------------------------------------ searching
 check('no search shows every image', found(''), everything)
@@ -116,6 +129,52 @@ answer = client.post('/model-manager/generations/rate', data={
 check('rating a batch rates only what the search shows', answer['rated'], 1)
 levels = {r['id']: r['user_level'] for r in db.generation_scope_rows(Scope(generation=lighthouse))}
 check('the image the search found', [levels[i] for i in images_of(lighthouse)], [None, 4])
+
+# ------------------------------------------------------------ by id (#336)
+# A model with two versions the library holds: one file each.
+conn = db._get_connection()
+version_file = dict(zip(facts['version_ids'], facts['linked_paths']))
+model_of = dict(conn.execute('SELECT id, model_id FROM versions'))
+by_model = {}
+for version in facts['version_ids']:
+    by_model.setdefault(model_of[version], []).append(version)
+twin = next(vs for vs in by_model.values() if len(vs) >= 2)
+CK, CK2 = twin[:2]
+LORA, OTHER = [v for v in facts['version_ids'] if v not in twin][:2]
+
+
+def made_with(typed, checkpoint, images, created):
+    """A generation with a checkpoint, its images each (prompt, LoRA version or None)."""
+    rows = [{'position': i, 'path': os.path.join(WORK, f'{typed[:12]}-{i}.png'), 'prompt': p, 'negative_prompt': '',
+             'prompt_nsfw_level': PG,
+             'loras': [{'name': 'x', 'path': version_file[lora]}] if lora else []} for i, (p, lora) in enumerate(images)]
+    used = [[version_file[checkpoint]] + ([version_file[lora]] if lora else []) for _, lora in images]
+    return db.record_generation({'created_at': created, 'mode': 'txt2img', 'prompt': typed, 'negative_prompt': '',
+                                 'image_count': len(rows), 'checkpoint_path': version_file[checkpoint]}, rows, used)
+
+
+barn = made_with('a red barn', CK, [('a red barn', LORA), ('a red barn, hay', None)], '2026-10-05T12:20:00')
+mill = made_with('an old mill', CK2, [('an old mill', None)], '2026-10-05T12:30:00')
+# Made with another model's checkpoint: no key below names it.
+made_with('a stone bridge', OTHER, [('a stone bridge', None)], '2026-10-05T12:40:00')
+check('image: those images, from any generation', found(f'image:{images_of(barn)[1]},{images_of(fox)[0]}'),
+      sorted([images_of(barn)[1], images_of(fox)[0]]))
+check('image: again adds; an id nothing has finds nothing',
+      (found(f'image:{images_of(cat)[0]} image:{images_of(mill)[0]}'), found('image:99999999')),
+      (sorted(images_of(cat) + images_of(mill)), []))
+check("version: a LoRA's version finds the images that used it, not the batch",
+      found(f'version:{LORA}'), images_of(barn)[:1])
+check("version: a checkpoint's finds every image made with it", found(f'version:{CK}'), images_of(barn))
+check('version: a list is any of them', found(f'version:{LORA},{CK2}'), sorted(images_of(barn)[:1] + images_of(mill)))
+check('model: any version of the model', found(f'model:{model_of[CK]}'), sorted(images_of(barn) + images_of(mill)))
+check('a key and a word: both', found(f'version:{CK} hay'), images_of(barn)[1:])
+check('two keys: both', found(f'model:{model_of[CK]} version:{LORA}'), images_of(barn)[:1])
+check('a version nothing used finds nothing', found('version:99999999'), [])
+by_id = client.get('/model-manager/generations/browse', params={
+    'search': f'model:{model_of[CK]}', 'group': 'prompt_written', 'hide_nsfw_images': 'false'}).json()
+check('a key narrows a grouped level: only the groups holding a match, each counting its matches',
+      sorted((t['group']['value'], t['matching_count']) for t in by_id['tiles']),
+      [('a red barn', 2), ('an old mill', 1)])
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

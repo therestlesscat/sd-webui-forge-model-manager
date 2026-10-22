@@ -73,7 +73,8 @@ def group_rank(seed: int, group: str, key: Any) -> bytes:
 
 def ordered_groups(db, seed: int, group: str, scope: Scope, level) -> List[Dict[str, Any]]:
     """A grouping's groups within a level (read by `level`), in the seed's order, kept until the images change."""
-    kept = (group, seed, bool(scope.hide_nsfw), tuple(scope.words), tuple(scope.opened), db.gallery_signature())
+    kept = (group, seed, bool(scope.hide_nsfw), tuple(scope.words), tuple(scope.opened), tuple(scope.images),
+            tuple(scope.versions), tuple(scope.models), db.gallery_signature())
     with _lock:
         if kept in _groups_kept:
             return _groups_kept[kept]
@@ -224,13 +225,14 @@ def browse_page(db, seed: int, hide_nsfw: bool, page: int, group: str = "",
     page = max(int(page or 1), 1)
     offset = (page - 1) * size
     chain = levels.grouping_chain(group, GROUPINGS)
-    words, _ = levels.search_terms(search, tasks=False)
+    terms = levels.search_terms(search, tasks=False)
     opened = []
     for grouping, text in zip(chain, (in_group, in_subgroup)):
         if text == "":
             break
         opened.append((grouping, group_key(grouping, text)))
-    scope = Scope(bool(hide_nsfw), words, opened)
+    scope = Scope(bool(hide_nsfw), terms.words, opened, images=terms.images,
+                  versions=terms.versions, models=terms.models)
     grouping = chain[len(opened)] if len(opened) < len(chain) else None
     # The level read once, its counts and its page or groups from it (#283).
     with db.gallery_level(seed, scope) as read:

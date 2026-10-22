@@ -183,6 +183,29 @@ for a, b in (('prompt', 'loras'), ('loras', 'day'), ('day', 'model'), ('model', 
         sums[key] = (sum(c for _, c in sub.values()), count)
     check(f'two deep, {a} then {b}: each group\'s subgroups add up to it', all(s == c for s, c in sums.values()) and bool(sums))
 
+# ------------------------------------------------------------ by id (#336)
+# The LoRAs' model, 50 (501 // 10), is no model the library holds; each
+# gallery's version's is.
+GALLERY = {V0: [1001, 1002, 1003], V1: [1002, 1004, 1005], V2: [1006]}
+model_of = dict(db._get_connection().execute('SELECT id, model_id FROM versions'))
+check('image: those images; again adds; an id not stored finds nothing',
+      (found(search='image:1001,1004')[0], found(search='image:1003 image:1006')[0], found(search='image:999')[0]),
+      ([1001, 1004], [1003, 1006], []))
+check("version: a LoRA's version finds the images whose resources name it", found(search='version:502')[0], [1002, 1004])
+check('version: a gallery\'s version finds what its gallery shows, resources or not',
+      (found(search=f'version:{V2}')[0], found(search=f'version:{V1}')[0]), (GALLERY[V2], GALLERY[V1]))
+check('version: a list is any of them', found(search=f'version:502,{V2}')[0], [1002, 1004, 1006])
+check('model: a model the library never synced, by its resources', found(search='model:50')[0], [1001, 1002, 1004, 1005])
+check("model: a held model, by its versions' galleries", found(search=f'model:{model_of[V2]}')[0],
+      sorted({i for v, shown in GALLERY.items() if model_of[v] == model_of[V2] for i in shown}))
+check('a key and a word: both', found(search='version:501 snow')[0], [1001, 1005])
+check('a key without whole ids is a word', found(search='image:abc')[0], [])
+check('task: is a word here', found(search='task:1')[0], [])
+grouping('prompt')
+check('a key narrows a grouped level: only the groups holding a match, each counting its matches - '
+      'the groups kept for the same grouping unsearched are not reused',
+      sorted(grouping('prompt', search=f'version:{V2}').values()), [('', 1)])
+
 # ------------------------------------------------------------ one record per image
 def record(image_id):
     rows = db.stored_records([image_id])

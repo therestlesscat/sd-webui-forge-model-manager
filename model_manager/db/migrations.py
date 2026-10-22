@@ -2554,6 +2554,22 @@ def _migrate_to_v44(cursor):
     print("[ModelManager] Migration to v44 complete")
 
 
+def _migrate_to_v45(cursor):
+    """
+    Civitai's images by the versions and the models their resources name, for
+    the search's version: and model: keys (#336). Without an index each search
+    read every resource row: 43 ms warm on 476,403 rows, but cold on a hard
+    disk 6.6 to 310 s on made-up files of that size, by how scattered their
+    pages were; 0.2 to 0.7 s through an index. Nothing is changed or dropped.
+    """
+    print("[ModelManager] Migrating to v45: Civitai's images by version and by model...")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_resources_version "
+                   "ON image_resources(version_id, image_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_image_resources_model "
+                   "ON image_resources(model_id, image_id)")
+    print("[ModelManager] Migration to v45 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2581,7 +2597,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
         42: lambda c: _migrate_to_v42(c, db_path, progress),
-        43: _migrate_to_v43, 44: _migrate_to_v44,
+        43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 44
+SCHEMA_VERSION = 45
 
 # How long a call waits for another's write before "database is locked".
 BUSY_SECONDS = 30.0

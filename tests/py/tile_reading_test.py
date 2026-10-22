@@ -113,7 +113,9 @@ for hide in (False, True):
                     if batch['kind'] == 'generation':
                         same(f'{label}, a batch in a group', hide_nsfw=hide, group=group,
                              in_group=tile['group']['id'], generation=batch['generation']['id'])
-for search in ('cat', '"red fox"', 'nothing-matches', f'task:{facts["task"]}'):
+# The ids (#336): a checkpoint's version, LoRAs' with a word, a model, images.
+for search in ('cat', '"red fox"', 'nothing-matches', f'task:{facts["task"]}',
+               'version:1', 'version:10,11 cat', 'model:2', 'image:1,2,3,40'):
     for group in ('', 'prompt', 'base_model', 'model>prompt_written'):
         same(f'search {search!r}, grouped by {group or "nothing"}', hide_nsfw=False, group=group, search=search)
 check('every grouping and pair was compared both ways, with what lies inside', compared >= 2 * len(chains) * 2,

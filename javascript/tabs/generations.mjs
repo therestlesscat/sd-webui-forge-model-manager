@@ -11,7 +11,9 @@
  * beside it. Each image sends its own infotext back to the tab it was made
  * in, or is deleted. The grid scrolls: the next part loads as its end comes
  * near. A search narrows it to the images whose prompt or negative prompt
- * holds its words, or that a task of the Queue made (task:17). Only the NSFW
+ * holds its words, or to those images, versions or models it names by id
+ * (image:12, version:345, model:67), or that a task of the Queue made
+ * (task:17). Only the NSFW
  * switch hides; nothing is hidden here for its prompt.
  *
  * The server does the filtering, the grouping and the parts
@@ -156,7 +158,7 @@ const selected = new Set();
 let lastPicked = -1;
 let groupBy = groupChain(readSetting(GROUP_BY_KEY, '')).length ? readSetting(GROUP_BY_KEY, '') : '';
 let hideNsfw = true;
-// What the images must match: words in their prompts, or task:<id>. Not remembered.
+// What the images must match: words in their prompts, ids (image:, version:, model:), or task:<id>. Not remembered.
 let search = '';
 // The level shown: its tiles, as loaded, and where it is. The levels above it
 // are kept whole in `levels`, so Back draws them again as they were left.

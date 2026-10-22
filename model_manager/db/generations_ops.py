@@ -231,8 +231,9 @@ class Scope:
     """
     Which of your images a read is about, read from the request once: a
     model's gallery (`files`), one generation or a page of them, the groups
-    opened - each (grouping, group id) - the search's words, and the Queue's
-    task.
+    opened - each (grouping, group id) - the search's words, the Queue's
+    task, and the images, Civitai versions and models a search names (#336),
+    an empty list naming none.
     """
     files: Optional[List[str]] = None
     generation: Optional[int] = None
@@ -240,6 +241,9 @@ class Scope:
     opened: List[Tuple[str, str]] = field(default_factory=list)
     words: List[str] = field(default_factory=list)
     task: Optional[int] = None
+    images: List[int] = field(default_factory=list)
+    versions: List[int] = field(default_factory=list)
+    models: List[int] = field(default_factory=list)
 
 
 def _unit_columns(unit: str, section: Optional[str]) -> List[str]:
@@ -759,6 +763,22 @@ class GenerationsOps:
         if scope.task is not None:
             where.append("gi.generation_id IN (SELECT generation_id FROM task_generations WHERE task_id = ?)")
             args_where.append(scope.task)
+        # A list is one JSON value: the older SQLite takes 999 values a statement (#336).
+        if scope.images:
+            where.append("gi.id IN (SELECT value FROM json_each(?))")
+            args_where.append(json.dumps(scope.images))
+        # Any resource the image used whose library file is of one of the
+        # versions - or of the models: `generation_resources` holds the
+        # library's spelling of a path, as `scope.files` reads it.
+        if scope.versions:
+            where.append("gi.id IN (SELECT image_id FROM generation_resources WHERE file_path IN "
+                         "(SELECT file_path FROM files WHERE version_id IN (SELECT value FROM json_each(?))))")
+            args_where.append(json.dumps(scope.versions))
+        if scope.models:
+            where.append("gi.id IN (SELECT image_id FROM generation_resources WHERE file_path IN "
+                         "(SELECT file_path FROM files WHERE version_id IN "
+                         "(SELECT id FROM versions WHERE model_id IN (SELECT value FROM json_each(?)))))")
+            args_where.append(json.dumps(scope.models))
         for index, word in enumerate(scope.words):
             # A word is matched as typed, ignoring case: % and _ mean themselves.
             ctes.append(PROMPTS.match(f"hit{index}"))

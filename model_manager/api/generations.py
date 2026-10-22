@@ -334,8 +334,8 @@ def grouping_chain(group: str) -> List[str]:
     return levels.grouping_chain(group, GROUPINGS)
 
 
-def search_terms(text: str) -> Tuple[List[str], Optional[int]]:
-    """What a Generations search asks for: its words, and task:<number> (api/levels.py)."""
+def search_terms(text: str) -> levels.Search:
+    """What a Generations search asks for: its words, its ids and task:<number> (api/levels.py)."""
     return levels.search_terms(text, tasks=True)
 
 
@@ -347,8 +347,9 @@ def _scope(group: str = "", in_group: str = "", generation: Optional[int] = None
     search finds.
     """
     chain = grouping_chain(group)
-    words, task = search_terms(search)
-    return Scope(generation=generation, words=words, task=task,
+    terms = search_terms(search)
+    return Scope(generation=generation, words=terms.words, task=terms.task, images=terms.images,
+                 versions=terms.versions, models=terms.models,
                  opened=[(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g])
 
 

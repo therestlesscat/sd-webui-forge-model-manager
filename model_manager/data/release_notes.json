@@ -1,5 +1,40 @@
 [
     {
+        "id": "search-by-id",
+        "version": "0.67.15",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "generations",
+            "gallery"
+        ],
+        "title": "Find images by id",
+        "text": "The search box of the Generations and Civitai Images tabs now takes ids: image:12,13 shows those images; version:345 the images made with that Civitai version, checkpoint, LoRA or VAE alike - in Civitai Images also those its gallery shows; model:67 the same for any version of that model. Several ids find any of them, and keys and words together must all match: version:345 portrait."
+    },
+    {
+        "id": "shared-database-0-67-15",
+        "version": "0.67.15",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version adds two indexes, so a search of Civitai's images by version or model stays quick; an older copy cannot open the database any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "storage"
+        },
+        "replaces": [
+            "shared-database-0-65-0"
+        ]
+    },
+    {
         "id": "send-clip-skip",
         "version": "0.67.8",
         "kind": "feature",

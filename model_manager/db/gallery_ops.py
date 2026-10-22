@@ -100,12 +100,26 @@ def day_range(day: str) -> Tuple[str, str]:
 @dataclass
 class Scope:
     """
-    The images a level holds: the NSFW switch, a search's words, and the
-    groups opened above it, each (grouping, key).
+    The images a level holds: the NSFW switch, a search's words, the groups
+    opened above it, each (grouping, key), and the images, versions and
+    models a search names (#336) - an empty list naming none.
     """
     hide_nsfw: bool = False
     words: List[str] = field(default_factory=list)
     opened: List[Tuple[str, Any]] = field(default_factory=list)
+    images: List[int] = field(default_factory=list)
+    versions: List[int] = field(default_factory=list)
+    models: List[int] = field(default_factory=list)
+
+
+# The images whose resources name one of a list's versions, or models, or
+# that one of those versions' galleries shows (#336). A list is one JSON
+# value: the older SQLite takes 999 values a statement.
+_BY_VERSIONS = """(p.id IN (SELECT image_id FROM image_resources WHERE version_id IN (SELECT value FROM json_each(:versions)))
+    OR p.id IN (SELECT image_id FROM image_galleries WHERE version_id IN (SELECT value FROM json_each(:versions))))"""
+_BY_MODELS = """(p.id IN (SELECT image_id FROM image_resources WHERE model_id IN (SELECT value FROM json_each(:models)))
+    OR p.id IN (SELECT image_id FROM image_galleries WHERE version_id IN
+        (SELECT id FROM versions WHERE model_id IN (SELECT value FROM json_each(:models)))))"""
 
 
 def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any], bool]:
@@ -116,6 +130,15 @@ def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any]
         ctes += ",\n    " + IMAGE_PROMPTS.match(f"hit{n}", f":w{n}")
         args[f"w{n}"] = like_pattern(word)
         where.append(f"(i.prompt_id IN hit{n} OR i.negative_id IN hit{n})")
+    if scope.images:
+        where.append("p.id IN (SELECT value FROM json_each(:images))")
+        args["images"] = json.dumps(scope.images)
+    if scope.versions:
+        where.append(_BY_VERSIONS)
+        args["versions"] = json.dumps(scope.versions)
+    if scope.models:
+        where.append(_BY_MODELS)
+        args["models"] = json.dumps(scope.models)
     combo = False
     for n, (grouping, key) in enumerate(scope.opened):
         name = f"o{n}"
