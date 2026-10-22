@@ -112,7 +112,11 @@ otherwise it becomes part of the prompt (Neo's `modules/infotext_utils.py`,
 line 365). And `, width:` and `, height:` are rewritten to `Size-1` and
 `Size-2` (line 389), so a metadata `width`/`height` the infotext passes on,
 as it does every field it has no rule for, overrides its `Size`: a 2304 x
-1664 picture whose metadata said 512 x 512 went in at 512 x 512. Since
+1664 picture whose metadata said 512 x 512 went in at 512 x 512. That rewrite
+is Neo's alone: the original Forge's paste ignores `width` and `height`, and
+`Size` wins - an image whose data gives its size only as width and height
+comes out there at the picture's size (#333: 11 of 151 Civitai Sends in the
+original Forge, 2026-10-22; 9,000 stored images). Since
 0.67.0 the size rule leaves the data's width and height out where their
 shape is not the picture's (`send.civitai_meta`, #302). A line of two
 fields became prompt text, so a short one writes `Size-1` and `Size-2`, and a
@@ -167,6 +171,8 @@ showed:
   of radio buttons (`sd`, `xl`, `flux`, `all`). `switchForgePreset`
   (`send.mjs`) presses the matching radio; typing into it as a dropdown
   cleared the first radio's value.
+- **The Checkpoint box.** Neo's is `#setting_sd_model_checkpoint`; the
+  original Forge's has no id, and is found by its label in the quick settings.
 - **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
   the original Forge's has none, and is found by its label. Every change to
   it is a request of Forge's own carrying the whole selection, and they can
@@ -177,7 +183,13 @@ showed:
   (`forge_additional_modules`) actually holds. It is the patch of several
   changes that fails: over 488 Civitai sends (2026-10-18), 4 of 13 sends that
   made 2 or 3 changes ended with Forge holding a state from partway through,
-  against 0 of 88 single changes (#3).
+  against 0 of 88 single changes (#3). The control can also be stale
+  before Send acts, so a patch with nothing to change leaves Forge holding
+  something else: a page loaded fresh draws it as the UI was built, while
+  Forge keeps the last selection, and a switch to the flux preset brings
+  back that preset's saved list (`forge_additional_modules_flux`). Over 397
+  Sends on Neo (2026-10-21), 9 ended so: 4 after a fresh page, 4 after the
+  flux switch, 1 of two changes.
 
 ## Kept elsewhere, and true here too
 

@@ -191,6 +191,12 @@ the code (2026-10-16).
   that does not reproduce, or works again with no commit shown to fix it, is
   not closed: it gets a comment - what was tested, on which version, what
   would settle it - and the labels `investigate` and `low-priority`.
+- **A finding goes on the issue that already holds it.** Before an issue is
+  drafted, every issue's title and body is searched, and the history's
+  "Fixes #N", unpushed commits included. Of the 2026-10-21 stress test's
+  eight drafts, three belonged to existing issues (#297, #207, and a case
+  #309 listed itself), and #309 had an unpushed "Fixes #309": a comment there
+  would land on an issue about to close. The owner had to ask both times.
 
 ### Getting it right
 
@@ -741,7 +747,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   fields against the image's stored data, with Forge's own paste of the
   file's infotext as a second witness (156 of 200 originals carry one): 406
   tries, eight kinds of difference, #306-#313. A difference the code makes on
-  purpose is listed too, to be judged. And such a test cannot see data that
+  purpose is listed too, to be judged - as an outcome of its own, "on
+  purpose", counted toward the stop rule and never marked "same": marked
+  "same", eight such kinds dropped out of the 2026-10-21 run's new-kind count
+  until a side agent caught it. A check after the Resources dialog reads the
+  file the dialog offered, not any checkpoint. And such a test cannot see data that
   contradicts itself: #303's images name both the Illustrious checkpoint and
   the Flux VAE.
 - **A sample drawn through a lookup cannot measure what the lookup
