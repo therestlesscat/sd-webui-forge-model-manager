@@ -3816,21 +3816,18 @@ button.mm-banner-link {
     opacity: 0.85;
 }
 
-/* A tab's gear opens on that tab's settings, beside All settings (#320). */
+/* A tab's gear opens on that tab's settings, beside All settings (#320).
+   Part of the toolbar, not a notice: a line under it, no fill, so the
+   pressed button is its one orange (#342). */
 .mm-settings-band {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 10px;
-    margin: 10px 0 4px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--primary-500, #3b82f6) 10%, transparent);
+    margin: 4px 0;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
     font-weight: 500;
-}
-
-.dark .mm-settings-band {
-    background: color-mix(in srgb, var(--primary-500, #3b82f6) 16%, transparent);
 }
 
 .mm-settings-band[hidden] {
