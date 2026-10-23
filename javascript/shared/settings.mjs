@@ -97,7 +97,9 @@ function createSettings() {
     // anywhere else, no band. And whether only those off their default show.
     let band = null;
     let changedOnly = false;
-    // A group pressed on the left, shown alone - or 'whats-new'; null, all.
+    // The group the list shows, picked on the left - or 'whats-new'. Always
+    // one: the list of every group added nothing the left pane does not say
+    // (#344). Null only until the window is drawn.
     let picked = null;
     let groupCounts = {};            // each group's settings shown now, for the left pane
     // The text encoder and VAE table, by setting: forge_modules' description
@@ -228,8 +230,7 @@ function createSettings() {
         root.addEventListener('input', onInput);
         root.addEventListener('change', onInput);
         root.querySelector('#mm_settings_search').addEventListener('input', () => {
-            // A search looks through every group, as the left pane's counts say.
-            picked = null;
+            // A search keeps the group; the left pane's counts are of them all.
             applyVisibility();
             refreshFilters();
         });
@@ -240,7 +241,6 @@ function createSettings() {
         body.innerHTML = '<div class="mm-settings-band" id="mm_settings_band" hidden></div>'
             + whatsNewSection() + sectionsWithKeys().map((section) => `
             <section class="mm-settings-section" data-section="${escapeHtml(section.id)}">
-                <h4 class="mm-settings-group-title">${escapeHtml(section.title)}</h4>
                 <div class="mm-settings-fields">
                     ${headed(section).map(([heading, keys]) => (heading
         ? `<div class="mm-settings-subheading">${escapeHtml(heading)}</div>` : '')
@@ -252,7 +252,8 @@ function createSettings() {
             </section>`).join('')
             + '<div class="mm-settings-empty" id="mm_settings_empty" hidden>'
             + 'No setting matches. Try fewer words, or clear the filters.</div>';
-        // A note's button shows its group alone; a link, its setting's (#320).
+        // A note's button shows its group; a link, its setting's (#320); else
+        // the first with a setting shown (applyVisibility).
         picked = openedFor.section || meta.settings[openedFor.focus]?.group || null;
         refresh();
         loadWhatsNew();
@@ -318,7 +319,6 @@ function createSettings() {
     function whatsNewSection() {
         return `
             <section class="mm-settings-section" data-whats-new>
-                <h4 class="mm-settings-group-title">What's new</h4>
                 <div class="mm-settings-fields" id="mm_settings_notes">Loading...</div>
             </section>`;
     }
@@ -806,16 +806,12 @@ function createSettings() {
     function applyVisibility() {
         const words = searchWords();
         // A setting is shown while a tab it needs is on, as the window holds
-        // them now; then as the band, Changed and the search narrow it. A
-        // group pressed on the left shows alone; the counts are of them all.
+        // them now; then as the band, Changed and the search narrow it. The
+        // picked group shows alone; the counts are of them all.
         const switchOf = tabSwitches();
         groupCounts = {};
-        let anyShown = false;
-        root.querySelectorAll('.mm-settings-section').forEach((section) => {
-            if (section.hasAttribute('data-whats-new')) {
-                section.hidden = picked !== 'whats-new';
-                return;
-            }
+        const sections = Array.from(root.querySelectorAll('.mm-settings-section[data-section]'));
+        sections.forEach((section) => {
             let count = 0;
             section.querySelectorAll('.mm-settings-field').forEach((field) => {
                 const key = field.dataset.key;
@@ -846,11 +842,28 @@ function createSettings() {
                 intros.forEach((intro) => { intro.hidden = !shownBelow; });
             });
             groupCounts[section.dataset.section] = count;
-            section.hidden = !count || (picked !== null && picked !== section.dataset.section);
+        });
+        // A picked group with nothing left to show gives way to the first
+        // that has (#344): "queue folder" typed on Tabs shows Files and
+        // folders. What's new holds no setting, so a search or Changed
+        // leaves it too.
+        const empty = (id) => (id === 'whats-new' ? Boolean(words.length) || changedOnly : !groupCounts[id]);
+        if (picked === null || empty(picked)) {
+            const first = sections.find((s) => groupCounts[s.dataset.section]);
+            if (first && first.dataset.section !== picked) {
+                picked = first.dataset.section;
+                root.querySelector('#mm_settings_body').scrollTop = 0;
+            }
+        }
+        let anyShown = false;
+        sections.forEach((section) => {
+            section.hidden = !groupCounts[section.dataset.section] || picked !== section.dataset.section;
             anyShown = anyShown || !section.hidden;
         });
-        const empty = root.querySelector('#mm_settings_empty');
-        if (empty) empty.hidden = anyShown || picked === 'whats-new';
+        const whatsNew = root.querySelector('[data-whats-new]');
+        if (whatsNew) whatsNew.hidden = picked !== 'whats-new';
+        const nothing = root.querySelector('#mm_settings_empty');
+        if (nothing) nothing.hidden = anyShown || picked === 'whats-new';
     }
 
     function refreshFooter() {
@@ -928,11 +941,10 @@ function createSettings() {
         else if (act === 'band' || act === 'changed') {
             if (act === 'band') band = t.dataset.band;
             else changedOnly = t.dataset.changed === 'true';
-            picked = null;
             refresh();
         } else if (act === 'group') {
-            // Pressed, the group alone; pressed again, all of them (#320).
-            picked = picked === t.dataset.group ? null : t.dataset.group;
+            // Pressed, the group alone; pressed again, it stays (#344).
+            picked = t.dataset.group;
             refresh();
             root.querySelector('#mm_settings_body').scrollTop = 0;
         }
@@ -1028,12 +1040,13 @@ function createSettings() {
     /**
      * @param {{tab?: string, section?: string, focus?: string}} [options] - tab: the tab
      *     whose gear it is ("queue", "generations", "gallery", "model_manager",
-     *     "civitai_browser"): the band shows the settings tagged with it, their
-     *     groups open, beside All settings (#320); section: one group's id
-     *     (settings_registry.GROUPS), the only one opened, scrolled to - a
-     *     note's button. Neither: every section collapsed. focus: a setting's
-     *     key, its group opened, scrolled to, marked for a moment and focused
-     *     - a link to it (#320), the database notice's button (#136).
+     *     "civitai_browser"): the band shows the settings tagged with it,
+     *     beside All settings (#320); section: one group's id
+     *     (settings_registry.GROUPS), shown, scrolled to - a note's button.
+     *     Neither: the first group with a setting shown (#344). focus: a
+     *     setting's key, its group shown, the setting scrolled to, marked for
+     *     a moment and focused - a link to it (#320), the database notice's
+     *     button (#136).
      */
     async function open({ tab = null, section = null, focus = null } = {}) {
         openedFor = { tab, section, focus };

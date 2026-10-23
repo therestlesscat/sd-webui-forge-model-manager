@@ -3839,16 +3839,6 @@ button.mm-banner-link {
     font-weight: 500;
 }
 
-.mm-settings-group-title {
-    margin: 22px 0 4px;
-    font-size: 15px;
-    font-weight: 600;
-}
-
-.mm-settings-section:first-of-type .mm-settings-group-title {
-    margin-top: 8px;
-}
-
 .mm-settings-empty {
     padding: 30px 10px;
     opacity: 0.7;
@@ -3868,12 +3858,15 @@ button.mm-banner-link {
    on the left; the control on the right - or, too wide for that, across the
    row under the description. A setting changed and not yet saved: a bar down
    its left edge. Rows are parted by their space, not a line; the one under
-   the pointer is tinted, to match its control to its name (#343). */
+   the pointer is tinted, to match its control to its name (#343). Its text
+   lines up with the band's "Showing", the tint and the bar in the margin
+   to its left (#344). */
 .mm-settings-field {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     gap: 4px 18px;
+    margin: 0 -10px 0 -12px;
     padding: 11px 10px;
     border-left: 2px solid transparent;
     border-radius: 6px;
@@ -3932,7 +3925,7 @@ button.mm-banner-link {
    description - a row of their own, though no setting (#320). */
 .mm-settings-subheading.mm-settings-presets-head {
     margin: 0;
-    padding: 12px 10px 4px 12px;
+    padding: 12px 0 4px;
     border-bottom: 0;
     font-size: 14px;
     font-weight: 500;
@@ -3947,7 +3940,7 @@ button.mm-banner-link {
 
 .mm-settings-fields > .mm-settings-intro {
     margin: 0;
-    padding: 0 10px 12px 12px;
+    padding: 0 0 12px;
     font-size: 13px;
 }
 
@@ -4092,7 +4085,7 @@ button.mm-banner-link {
 /* #320: a tab's heading inside a group, the tabs a setting acts in, and a
    setting under its switch - indented, and greyed while it does nothing. */
 .mm-settings-subheading {
-    margin: 10px 0 2px 12px;
+    margin: 10px 0 2px;
     font-size: 14px;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -4128,11 +4121,11 @@ button.mm-banner-link {
 }
 
 .mm-settings-field.mm-settings-child-1 {
-    margin-left: 26px;
+    margin-left: 14px;
 }
 
 .mm-settings-field.mm-settings-child-2 {
-    margin-left: 52px;
+    margin-left: 40px;
 }
 
 .mm-settings-field.mm-settings-child.mm-settings-changed {

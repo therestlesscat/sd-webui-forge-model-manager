@@ -178,10 +178,10 @@ SETTINGS: Tuple[Setting, ...] = (
             (MM, CB, SEND), args={"placeholder": "_{baseModel}/{modelName}"}, needs=()),
 
     # -------------------------------------------------- Pages and cards
-    Setting("model_manager_card_originals", "pages_and_cards", "checkbox", "Full-size images on cards",
+    Setting("model_manager_card_originals", "pages_and_cards", "checkbox", "Full-size images on model cards",
             "Load model cards' images full size, not resized",
             _ORIGINALS + " For the cards of both tabs' grids.", (MM, CB)),
-    Setting("model_manager_card_videos_play", "pages_and_cards", "checkbox", "Play videos on cards",
+    Setting("model_manager_card_videos_play", "pages_and_cards", "checkbox", "Play videos on model cards",
             "Play videos on model cards",
             "On, a model card whose cover is a video plays it. Off, the card shows the video's still, with a play "
             "button in its corner; the video loads only when pressed. Galleries and the viewer are not changed.",

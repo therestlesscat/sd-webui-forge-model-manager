@@ -214,7 +214,7 @@ export function renderModelCard({ index, action, name, media, classes = [], data
     const shown = full.length > CARD_NAME_LENGTH ? full.substring(0, CARD_NAME_LENGTH) + '...' : full;
     const title = (item) => (item.title ? ` title="${escapeHtml(item.title)}"` : '');
     const src = media?.src || '';
-    // "Play videos on cards" off (#220): the still, the video kept for
+    // "Play videos on model cards" off (#220): the still, the video kept for
     // the play button - which loads it only when pressed.
     const still = () => `<img class="mm-card-still" src="${escapeHtml(media.poster || CARD_PLACEHOLDER)}" alt="${
         escapeHtml(full)}" loading="lazy" ${mediaFallback('', CARD_PLACEHOLDER)}${

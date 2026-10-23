@@ -233,7 +233,7 @@ export function cardVideoTag(src, original) {
 }
 
 /**
- * A model card's play button pressed, with "Play videos on cards" off
+ * A model card's play button pressed, with "Play videos on model cards" off
  * (#220): its still gives way to the video, playing; pressed again, the
  * video goes and the still is back. The video loads only now.
  */

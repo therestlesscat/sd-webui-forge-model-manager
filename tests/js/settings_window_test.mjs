@@ -202,14 +202,16 @@ check('it opens', $('#mm_settings')?.open, true);
 check('on the page body, outside anything Gradio redraws', $('#mm_settings')?.parentElement, document.body);
 check('asking the server, each time it opens', settingsAsked, 1);
 
-const titles = Array.from(document.querySelectorAll('.mm-settings-section > .mm-settings-group-title'))
+const titles = Array.from(document.querySelectorAll('#mm_settings_nav [data-act="group"] > span:first-child'))
     .map((s) => s.textContent);
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
 check('grouped as the registry groups them, in its order - What\'s new first, then Tabs (#320)',
       titles, ["What's new", 'Tabs', 'Civitai account', 'Downloads', 'Pages and cards', 'What is hidden', 'Send',
                'Generations', 'Files and folders', 'Sync and queue', 'Updates']);
+check('no group title above the list: the left pane says which group shows (#344)',
+      document.querySelectorAll('.mm-settings-group-title, #mm_settings_body h4').length, 0);
 // The window as the proof of concept drew it (#320): the groups on the left,
-// each with its count, What's new first; every group listed on the right.
+// each with its count, What's new first; one group on the right (#344).
 const navEntries = () => Array.from(document.querySelectorAll('#mm_settings_nav [data-act="group"]'))
     .map((b) => [b.querySelector('span')?.textContent, b.querySelector('.mm-settings-count')?.textContent ?? null,
                  b.getAttribute('aria-current')]);
@@ -217,18 +219,20 @@ const shownSections = () => Array.from(document.querySelectorAll('.mm-settings-s
     .filter((s) => !s.hidden).map((s) => s.dataset.section);
 const countOf = (id) => Array.from(document.querySelectorAll(`.mm-settings-section[data-section="${id}"] .mm-settings-field`))
     .filter((f) => !f.hidden).length;
-check('two panes: the groups on the left, What\'s new first, each group with the count it shows; none picked',
+const labelOf = (id) => ANSWER.groups.find((g) => g.id === id)?.label;
+check('two panes: the groups on the left, What\'s new first, each group with the count it shows; the first picked',
       [Boolean($('.mm-settings-panes #mm_settings_nav')), navEntries()],
       [true, [["What's new", null, 'false'], ...Array.from(document.querySelectorAll('.mm-settings-section[data-section]'))
-          .map((s) => [s.querySelector('.mm-settings-group-title')?.textContent, String(countOf(s.dataset.section)), 'false'])]]);
-check('every group listed on the right, Send\'s table too; What\'s new is not',
-      [shownSections().includes('send'), $('[data-whats-new]')?.hidden], [true, true]);
+          .map((s) => [labelOf(s.dataset.section), String(countOf(s.dataset.section)),
+                       String(s.dataset.section === 'tabs')])]]);
+check('opened with nothing named: the first group alone on the right, not every group (#344)',
+      [shownSections(), $('[data-whats-new]')?.hidden], [['tabs'], true]);
 const pressGroup = (id) => $(`#mm_settings_nav [data-group="${id}"]`)?.click();
 pressGroup('pages_and_cards');
 check('a group pressed: it alone, marked current', [shownSections(), navEntries().find(([, , c]) => c === 'true')?.[0]],
       [['pages_and_cards'], 'Pages and cards']);
 pressGroup('pages_and_cards');
-check('pressed again: all of them', shownSections().length > 5, true);
+check('pressed again: it stays, not every group (#344)', shownSections(), ['pages_and_cards']);
 // A row: name, badges and tags, the description under it, the control on
 // the right - or, too wide for that, across the row.
 const inCtl = (key, sel) => Boolean(field(key)?.querySelector(`.mm-settings-ctl ${sel}`));
@@ -260,7 +264,8 @@ check('Tabs holds the five switches, in the order of the tabs, each named "X Tab
       [TAB_KEYS, ['Queue Tab', 'Generations Tab', 'Civitai Images Tab', 'Model Manager Tab', 'Civitai Browser Tab']]);
 // A setting shows while a tab it needs is on, and a group while one of its
 // settings does: switched off in the window, they go at once; the rest stay.
-const sectionShown = (id) => { const s = $(`.mm-settings-section[data-section="${id}"]`); return Boolean(s) && !s.hidden; };
+// A group with a setting shown, as the left pane counts it: one alone is on the right.
+const sectionShown = (id) => Number($(`#mm_settings_nav [data-group="${id}"] .mm-settings-count`)?.textContent) > 0;
 const SECTION_IDS = ANSWER.groups.map((g) => g.id);
 const tickTab = (key, on) => {
     const box = field(key).querySelector('input[type="checkbox"]');
@@ -279,6 +284,8 @@ check('Files hashed at once goes with the Model Manager; Images kept per version
 tickTab('model_manager_record_generations', false);
 check('Generations off too: the groups with nothing left go',
       SECTION_IDS.filter(sectionShown), ['tabs', 'civitai_account', 'downloads', 'send', 'files', 'sync_and_queue', 'updates']);
+check('the picked group, Pages and cards, emptied: the first with a setting shown instead (#344)',
+      [shownSections(), navEntries().find(([, , c]) => c === 'true')?.[0]], [['tabs'], 'Tabs']);
 tickTab('model_manager_gallery_tab', true);
 check('the Civitai Images tab on: its pages, cards and hidden images come back, and how many of its images load at once',
       [SECTION_IDS.filter(sectionShown).includes('pages_and_cards'), SECTION_IDS.filter(sectionShown).includes('hidden'),
@@ -424,7 +431,7 @@ check('the two image-size settings are in Pages and cards, shared, with their na
       ['model_manager_gallery_originals', 'model_manager_card_originals'].map((key) =>
           [field(key)?.closest('.mm-settings-section')?.dataset.section, headingOf(key), nameOf(key)]),
       [['pages_and_cards', 'Shared across tabs', 'Full-size images in galleries'],
-       ['pages_and_cards', 'Shared across tabs', 'Full-size images on cards']]);
+       ['pages_and_cards', 'Shared across tabs', 'Full-size images on model cards']]);
 recording().checked = false;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 check('hidden when they are not', shown(GEN_NSFW), false);
@@ -809,7 +816,7 @@ await reopen();
 const band = () => $('#mm_settings_band');
 const bandButtons = () => Array.from(band()?.querySelectorAll('[data-act="band"]') || [])
     .map((b) => [b.textContent.trim(), b.getAttribute('aria-pressed')]);
-check('opened with nothing named, every group listed, and no band', [shownSections(), band()?.hidden], [present(), true]);
+check('opened with nothing named, the first group, and no band', [shownSections(), band()?.hidden], [['tabs'], true]);
 // A tab's gear (#320): the band, on that tab's settings - those tagged with
 // it - their groups open; All settings beside it, with each count.
 const drawn = () => ORDER.filter((k) => field(k));
@@ -820,9 +827,9 @@ const byTabs = () => drawn().filter((k) => k !== 'model_manager_gallery_grid');
 for (const [tab, label] of [['model_manager', 'Model Manager Tab'], ['civitai_browser', 'Civitai Browser Tab'],
                             ['generations', 'Generations Tab'], ['queue', 'Queue Tab']]) {
     await reopen({ tab });
-    check(`from the ${tab} tab's gear: its settings alone, their groups open, the band on it`,
+    check(`from the ${tab} tab's gear: its settings alone, the first of their groups shown, the band on it`,
           [drawn().filter(shown), shownSections(), band()?.hidden, bandButtons()],
-          [taggedWith(tab), groupsOf(taggedWith(tab)), false,
+          [taggedWith(tab), groupsOf(taggedWith(tab)).slice(0, 1), false,
            [[`${label} settings ${taggedWith(tab).length}`, 'true'], [`All settings ${byTabs().length}`, 'false']]]);
 }
 check('the Queue Tab\'s: its switch, its two settings, the database file and the update check',
@@ -832,10 +839,12 @@ check('the Queue Tab\'s: its switch, its two settings, the database file and the
 check('What\'s new and Send, with the text encoder table, never open from a gear',
       [$('[data-whats-new]').hidden, shownSections().includes('send')], [true, false]);
 band()?.querySelector('[data-band="all"]')?.click();
-check('All settings: every setting, every group collapsed, All pressed',
-      [drawn().filter(shown), shownSections(), bandButtons().map(([, on]) => on)], [byTabs(), present(), ['false', 'true']]);
+check('All settings: every setting, the same group still shown, All pressed',
+      [drawn().filter(shown), shownSections(), bandButtons().map(([, on]) => on)], [byTabs(), ['tabs'], ['false', 'true']]);
 type($('#mm_settings_search'), 'folder');
 check('a search keeps the band', [band()?.hidden, drawn().filter(shown).length > 1], [false, true]);
+check('and, none matching in Tabs, shows the first group that has (#344)',
+      [shownSections(), groupsOf(drawn().filter(shown)).length > 1], [groupsOf(drawn().filter(shown)).slice(0, 1), true]);
 band()?.querySelector('[data-band="tab"]')?.click();
 check('and narrows the tab\'s settings: its folder, and the database file\'s', drawn().filter(shown),
       ['model_manager_database_path', 'model_manager_queue_inputs_dir']);
@@ -854,10 +863,10 @@ check('Changed counts the settings off their default', [changedButton()?.textCon
 type(field('model_manager_hash_threads').querySelector('input[type="number"]'), '5');
 changedButton()?.click();
 const offNow = ORDER.filter((k) => [...SAVED_OFF, 'model_manager_hash_threads'].includes(k));
-check('pressed: only those, the unsaved one too, their groups open, What\'s new hidden',
+check('pressed: only those, the unsaved one too, the first of their groups shown, What\'s new hidden',
       [drawn().filter(shown), shownSections(), whatsNew().hidden, changedButton()?.textContent,
        changedButton()?.getAttribute('aria-pressed')],
-      [offNow, groupsOf(offNow), true, `Changed (${offNow.length})`, 'true']);
+      [offNow, groupsOf(offNow).slice(0, 1), true, `Changed (${offNow.length})`, 'true']);
 field('model_manager_hash_threads')?.querySelector('[data-reset]')?.click();
 check('reset to its default, it goes', [shown('model_manager_hash_threads'), changedButton()?.textContent],
       [false, `Changed (${SAVED_OFF.length})`]);
@@ -878,6 +887,11 @@ check('cleared: the line goes', $('#mm_settings_empty')?.hidden, true);
 pressGroup('whats-new');
 check('What\'s new pressed: it alone', [whatsNew()?.hidden, shownSections()], [false, []]);
 pressGroup('whats-new');
+check('pressed again: it stays (#344)', [whatsNew()?.hidden, shownSections()], [false, []]);
+type($('#mm_settings_search'), 'folder');
+check('a search there: the first group that has a match, as What\'s new holds no setting (#344)',
+      [whatsNew()?.hidden, shownSections()], [true, groupsOf(drawn().filter(shown)).slice(0, 1)]);
+type($('#mm_settings_search'), '');
 
 // A link to a setting (#320): no band, its group open, scrolled to, marked.
 const scrolled = [];
@@ -921,7 +935,7 @@ tickTab('model_manager_record_generations', true);
 // "Your generations" is a model's section in the Model Manager. The settings
 // for the Generations tab and the recorder say "Generations", in the window
 // and on the WebUI's own Settings page.
-const sectionTitle = $('[data-section="your_generations"]')?.querySelector('.mm-settings-group-title')?.textContent.trim();
+const sectionTitle = $('#mm_settings_nav [data-group="your_generations"] > span')?.textContent.trim();
 const recordLabel = $('[data-key="model_manager_record_generations"]')?.textContent.replace(/\s+/g, ' ').trim();
 // Forge's names are the registry's page names now (#320).
 const forgeLabels = Object.values(ANSWER.settings).map((s) => s.label);
