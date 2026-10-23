@@ -5,7 +5,11 @@
 // the WebUI's Extensions tab, and open our settings window at the database
 // path, starting that window alone. The Queue buttons beside Generate hide.
 // The server's side: newer_database_test.py.
-import { bootPage, checker, mountTab, press, tabMarkup, tabsAnswer } from './harness.mjs';
+import { readFileSync } from 'fs';
+import { ROOT, bootPage, checker, mountTab, press, tabMarkup, tabsAnswer } from './harness.mjs';
+
+// The database setting as the server describes it: the registry's answer (#320).
+const ANSWER = JSON.parse(readFileSync(`${ROOT}/tests/js/settings_answer.json`, 'utf8'));
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -46,8 +50,9 @@ globalThis.fetch = async (url, init = {}) => {
             changed = ['model_manager_database_path'];
         }
         return reply({ success: true, order: ['model_manager_database_path'], database_in_use: null, changed,
-                       settings: { model_manager_database_path: { label: 'Database file', info: '', kind: 'text',
-                                                                   value: savedPath, default: '' } } });
+                       groups: ANSWER.groups, tag_labels: ANSWER.tag_labels, badge_labels: ANSWER.badge_labels,
+                       settings: { model_manager_database_path: { ...ANSWER.settings.model_manager_database_path,
+                                                                   value: savedPath } } });
     }
     return reply({ success: true, notes: [], presets: [] });
 };

@@ -3789,8 +3789,77 @@ body.mm-modal-open {
     padding: 1px 6px;
     border-radius: 4px;
     background: rgba(245, 158, 11, 0.18);
-    color: #f59e0b !important;
+    color: #92400e !important;
     font-size: 11px;
+}
+
+/* Amber on white is 2.2:1; a darker amber in light mode, 6.2:1 on the tint. */
+.dark .mm-settings-badge {
+    color: #f59e0b !important;
+}
+
+/* #320: a tab's heading inside a group, the tabs a setting acts in, and a
+   setting under its switch - indented, and greyed while it does nothing. */
+.mm-settings-subheading {
+    margin: 4px 0 -6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #6b7280 !important;
+}
+
+.mm-settings-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.05);
+    color: #6b7280 !important;
+    font-size: 11px;
+    font-weight: 400;
+}
+
+.dark .mm-settings-tag {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* The theme's subdued grey is too pale on white: light mode says its own,
+   dark mode keeps the theme's. */
+.dark .mm-settings-subheading,
+.dark .mm-settings-tag {
+    color: var(--body-text-color-subdued, #9ca3af) !important;
+}
+
+.mm-settings-check-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.mm-settings-field.mm-settings-child-1 {
+    margin-left: 18px;
+}
+
+.mm-settings-field.mm-settings-child-2 {
+    margin-left: 36px;
+}
+
+.mm-settings-field.mm-settings-off > :not(.mm-settings-under) {
+    opacity: 0.5;
+}
+
+.mm-settings-under {
+    margin-top: 4px;
+    font-size: 12px;
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.mm-settings-under:empty {
+    display: none;
 }
 
 /* Inputs take the dialog's colour through a translucent tint, as the Sync

@@ -175,8 +175,9 @@ def post(values):
 
 
 # ------------------------------------------------------------- what is described
+# Each group is a section of its own (#320): model_manager_<group>.
 ours = [k for k, i in opts.data_labels.items()
-        if i.section and i.section[0] == 'model_manager' and not i.do_not_save]
+        if i.section and str(i.section[0]).startswith('model_manager') and not i.do_not_save]
 answer = get()
 check('it answers', answer.get('success'), True)
 check('with every Model Manager setting, in the order they were registered', answer['order'], ours)
@@ -233,9 +234,9 @@ check('a key can be saved', code, 200)
 check('trimmed', opts.data[KEY], SECRET)
 text = client.get('/model-manager/settings').text
 check('and it is never sent back', SECRET in text, False)
-check('only that there is one', get()['settings'][KEY], {
-    'label': 'Civitai API Key', 'info': s[KEY]['info'], 'kind': 'secret', 'default': '',
-    'has_value': True})
+told = get()['settings'][KEY]
+check('only that there is one', ({k: told.get(k) for k in ('label', 'kind', 'default', 'has_value')}, 'value' in told),
+      ({'label': 'Civitai API key', 'kind': 'secret', 'default': '', 'has_value': True}, False))
 check('not even in the answer to the save', SECRET in json.dumps(answer), False)
 code, answer = post({KEY: ''})
 check('and an empty one removes it', (opts.data[KEY], answer['settings'][KEY]['has_value']), ('', False))

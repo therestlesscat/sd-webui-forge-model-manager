@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.68 - Settings named by what they do.** Every setting now has a name that says what it
+does, in ten groups by what the settings are for. Inside a group, a setting for one tab sits
+under that tab's heading, and one that depends on a switch sits under it, greyed while the
+switch is off. Forge's Settings page lists them in the same groups, under Model Manager.
+
 **0.67 - Send, decided in one place.** What Send sets for an image is moving to one place on the
 server, starting with Civitai's images. Such an image now goes in at its picture's size when its
 data gives another shape, and a Send that changes Forge's UI preset is about half a second quicker.
@@ -392,45 +397,120 @@ starting either.
 
 ## Settings
 
-In the settings window - the gear at the top right of each tab - grouped by what they
-are for, or under **Settings -> Model Manager**. Both edit the same values. Each tab's
-switch comes first, in the window's Tabs section: a tab switched off does nothing at all,
-and the window shows only the sections of the tabs that are on. One switched back on that
+In the settings window - the gear at the top right of each tab - or under **Settings ->
+Model Manager**, in ten groups by what the settings are for. Both edit the same values; each
+setting is named there by what it does, and on Forge's page by a name that stands alone.
+Inside a group, a setting for one tab sits under that tab's heading, and one that depends
+on a switch sits under it, greyed while the switch is off. Each tab's switch comes first,
+in the Tabs group: a tab switched off does nothing at all, and the window shows only the
+settings of the tabs that are on. One switched back on that
 needs a page reload or Reload UI to return says so, and offers it - beside **Restart WebUI**,
 which starts the server and the page afresh for the cleanest slate, where the WebUI was
 started by its own script. With every tab off, the window goes with them: the switches come
 first under **Settings -> Model Manager** too.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Queue | on | A Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, a running queue stops, and from the next start neither is created. The tasks are kept |
-| Your generations | on | Records every txt2img and img2img result saved to disk, for the Generations tab and each model's Your generations. Off: nothing is recorded, both are hidden at once, and the Generations tab is not created from the next start. What was recorded is kept |
-| Model Manager tab | on | Your models, their details and galleries, and the sync with Civitai. Off: the tab is hidden at once and stops, and from the next start it is not created at all; a sync already running finishes. Your library is kept, and downloads still add to it |
-| Civitai Browser tab | on | Searching Civitai, and downloading from it. Off: the tab is hidden at once and stops, and from the next start it is not created at all; downloads already running finish |
-| Civitai API Key | empty | Optional. Higher rate limits for Civitai API requests; without one, image prompts cannot be fetched and some models refuse to download |
-| Model Manager: Models per page | 20 | Model Manager page size (5-50) |
-| Custom Database Path | empty | Full path to the database file. Empty uses the extension folder. Requires restart |
-| Model Manager: card thumbnail is the least explicit image | on | Off shows the most recent image instead |
-| Shared: hide explicit images by default | on | How Civitai's images open: a model's image gallery in both tabs, and the Civitai Images tab. The Show NSFW switch above the images shows them for that model |
-| Civitai Browser: Models per page | 20 | Civitai Browser page size (5-50) |
-| Model galleries: hide images with no prompt by default | on | Hides images with no prompt to read or reuse. Can be turned back on per model from the banner above the images. The Civitai Images tab shows every image |
-| Queue: folder for the images a task needs | empty | Where a queued task keeps the images it was given - an img2img source and mask, ControlNet's images - one folder per task, until the task is deleted. Empty: `queue-inputs` in the WebUI's folder, beside `outputs` |
-| Queue: ask "Generate N images?" above this many images | 0 | Batch count times batch size. Above it, Generate asks whether to generate, queue the run instead, or cancel; each browser can be told not to ask again. 0: Generate never asks |
-| Shared: images per page | 100 | How many stored images each page of a gallery takes (10-200), before the NSFW and prompt filters. Load More adds the next page, fetched from Civitai when the library holds too few. Shared by both tabs, your generations, and the Civitai Images tab as it scrolls |
-| Galleries and Civitai Images: load as uploaded, not resized | off | Model galleries and the Civitai Images tab load the upload instead of a copy the size they are drawn: sharper on a large screen, and much larger - in one measurement 3.6 MB an image against 54 KB - but often quicker the first time a gallery is opened: Civitai seldom has a copy ready, and takes about half a second to make each. Videos stay copies, which always play. The image viewer shows the upload either way |
-| Model cards: load as uploaded, not resized | off | The same for the cards in both tabs' grids |
-| Civitai Browser: Download folder template | `_{baseModel}/{modelName}` | Placeholders: `{baseModel}`, `{modelName}`, `{creator}`, `{modelId}` |
-| Civitai: Requests per second | 6 | API call rate when an API key is set (1-10). Applies to the next search, download or sync |
-| Sync: Hashing threads | 4 | Files hashed at once when identifying them (1-16). Raise for fast NVMe, lower for a spinning disk |
-| Civitai Browser: Minimum images with usable prompt | 1 | How many of a model's first 20 images need a usable prompt for "Only with usable prompts" |
-| Civitai Browser: Fill every page with 'Only Show Models with SFW images' | off | Not recommended. Keeps searching until the page is full instead of stopping after a few dozen checks; one page can take hundreds of requests |
-| Model Manager: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
-| Civitai Browser: Card size | `200x280` | Card size in pixels, `WIDTHxHEIGHT` |
-| NSFW: extra prompt words | empty | Words added to the bundled list. An image rated PG or PG-13 whose prompt uses one is treated as X. Stored images are judged again in the background when this changes |
-| NSFW detection | Trained model | What finds explicit images Civitai rates PG or PG-13: the trained model, which catches more and is sometimes wrong, or the word list alone. While the model is in use, the galleries' filter banner and "Only Show Models with SFW images" say so. Stored images are judged again in the background when this changes |
-| NSFW: trained model - % of PG/PG-13 prompts to treat as X | 2 | How far the prompt model goes (0-20). 2 caught about 94% of X/XXX prompts on a library the model had never seen; 1 is stricter, higher catches more at more cost, 0 turns it off. Stored images are judged again in the background when this changes |
-| Check for a new version | on | After the WebUI starts, and every 12 hours, reads `version.json` on this repository's GitHub - the version it holds, nothing else - and each tab's header says when a newer one is out. Off: GitHub is never asked |
-| Send to txt2img: *model* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
+**Tabs**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Queue Tab | on | On: a Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, and a running queue stops; from the next start neither is created at all. The tasks are kept, and come back when this is on again. |
+| Generations Tab | on | On: every txt2img and img2img result saved to disk is recorded with all its settings, and shown in the Generations tab and the gallery of each model it used. Off: nothing is recorded, and the Generations tab and each model's Your generations are hidden at once; from the next start the Generations tab is not created at all. What was recorded is kept, and comes back when this is on again. |
+| Civitai Images Tab | off | On: the Civitai Images tab - the Civitai images stored for the models in your library, in an order its seed picks. Off: the tab is hidden at once and stops, and from the next start it is not created at all. |
+| Model Manager Tab | on | On: the Model Manager tab - your models, their details and galleries, and the sync with Civitai. Off: the tab is hidden at once and stops, and from the next start it is not created at all; a sync already running finishes. Your library is kept, and downloads still add to it. |
+| Civitai Browser Tab | on | On: the Civitai Browser tab - searching Civitai, and downloading from it. Off: the tab is hidden at once and stops, and from the next start it is not created at all; downloads already running finish. |
+
+**Civitai account**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| API key | empty | Optional. Gives higher rate limits for requests to Civitai's API. |
+| Requests per second | 6 | How fast to call Civitai's API when an API key is set. Higher is faster but more likely to be rate limited. Applies to the next search, download or sync; one already running keeps its rate. Applies once an API key is set. |
+| Images loading at once | 64 | How many of Civitai's images the galleries load at once; the rest wait until one has loaded, nearest the screen first. Civitai makes resized copies at about 10 to 16 a second and queues the rest, and images asked for hundreds at once failed to load. Not a page size: a page still holds as many images as its tab's setting says. |
+
+**Downloads**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Downloads at once | 2 | How many downloads run at the same time; the rest wait their turn in the queue. A fast connection may want more; a hard disk, a network drive or a slow connection may want 1. Start now still starts a waiting download over this number. Applies at once: a lower number lets the running downloads finish, and starts no new one until fewer run. |
+| Download large files in parts | on | Fetches a large file from Civitai over several connections at once, each fetching a part of it. Civitai's storage holds each connection to about 60 MB/s, so a faster line gets large files sooner. Off, every file downloads over one connection, as before. Applies to the next download, and to a paused one when it resumes. |
+| Connections per file | 4 | How many connections a large file is fetched over. A part is at least 32 MB, so smaller files use fewer. Applies to the next download, and to a paused one when it resumes. |
+| Download folder | `_{baseModel}/{modelName}` | The folder a download is filed into, inside its type's folder. Placeholders: {baseModel}, {modelName}, {creator}, {modelId}. |
+
+**Pages and cards**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Full-size images on cards | off | Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. For the cards of both tabs' grids. |
+| Play videos on cards | on | On, a model card whose cover is a video plays it. Off, the card shows the video's still, with a play button in its corner; the video loads only when pressed. Galleries and the viewer are not changed. |
+| Full-size images in galleries | off | Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. The image viewer shows the upload either way. For model galleries and the Civitai Images tab. |
+| Tiles kept on the page (Generations Tab) | Only those near the view | Only those near the view: draws only the rows near what you see, and stays smooth at 75,000 images. All of them: puts every tile on the page. The browser's find then sees them all, but a grid of thousands freezes for seconds. |
+| Read tiles in one pass (Generations Tab) *Alpha* | on | How the Generations tab reads your images for each set of tiles. On: reads them once, into a temporary table in memory, and builds every tile from it - grouped by base model, 75,684 images took 0.28 s instead of 1.47. Off: reads them again for each tile's previews, checkpoint and LoRAs, as before. If tiles look wrong or a level does not load, turn it off and report it. |
+| Tiles kept on the page (Civitai Images Tab) | Only those near the view | Only those near the view: draws only the rows near what you see, and stays smooth at 75,000 images. All of them: puts every tile on the page. The browser's find then sees them all, but a grid of thousands freezes for seconds. |
+| Models per page (Model Manager Tab) | 20 | How many models a page of the Model Manager shows. |
+| Civitai images per page (Model Manager Tab) | 100 | How many images Load More adds in a model's Civitai images - counted before the NSFW and prompt switches. |
+| Generations per page (Model Manager Tab) | 100 | How many generations Load More adds in a model's Your generations. Not used by the Generations tab: it loads as you scroll. |
+| Card size (Model Manager Tab) | 200x280 | The size of the model cards, as width x height in pixels. |
+| Least explicit image as cover (Model Manager Tab) | on | On: each card shows the model's least explicit image. Off: its most recent one. Whether galleries hide explicit images is a setting of its own: Hide explicit images at first. |
+| Models per page (Civitai Browser Tab) | 20 | How many models a page of the Civitai Browser shows. |
+| Images per page (Civitai Browser Tab) | 100 | How many images Load More adds in a model's images, fetched from Civitai - counted before the NSFW and prompt switches. |
+| Card size (Civitai Browser Tab) | 200x280 | The size of the model cards, as width x height in pixels. |
+
+**What is hidden**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Hide explicit images at first | on | How Civitai's images open: a model's image gallery, in the Model Manager and the Civitai Browser, and the Civitai Images tab - and a model's Your generations; the Generations tab has its own. The Show NSFW switch above the images shows them there. The Civitai Browser's Include NSFW models decides which models are listed, not which of their images are shown. |
+| Find explicit PG images with | Trained model | The trained model reads each image's prompts and the resources it used, and catches most of the explicit images Civitai under-rates - but it judges by what it learned, and sometimes raises an image that is fine or misses one that is not. The word list treats an image as X only when its prompt uses one of the words: nothing else, and nothing you cannot check. Stored images are judged again in the background when this changes. |
+| Share treated as X | 2.0 | Civitai rates some explicit images PG or PG-13. A model trained on image prompts - their words, word pairs, negative, ADetailer and hires prompts, and the resources used - finds them, and this is how far it goes: the share of PG and PG-13 prompts it may treat as X, in percent. 2 (default) caught about 94% of X/XXX prompts on a library it had never seen. 1 is stricter, 3 or more catches more at more cost. 0 turns the model off, leaving only the words. Stored images are judged again in the background when this changes. |
+| Extra NSFW words | empty | An image Civitai rates PG or PG-13 whose prompt uses one of these words is treated as X everywhere - hidden from the grid previews, the galleries and the SFW filters. Whole words, any case. These add to the list that comes with the extension, in model_manager/data/nsfw_prompt_words.txt. Stored images are judged again in the background when this changes. |
+| Hide images with no prompt at first | on | About a tenth of Civitai's images carry no prompt at all, and they cannot be read or reused. Can be turned back on per model from the panel above the images. Model galleries only, in the Model Manager and the Civitai Browser: the Civitai Images tab shows every image. |
+| Hide explicit images at first (Generations Tab) | on | How the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images at first, in Shared across tabs. |
+| Images with a prompt a model needs (Civitai Browser Tab) | 1 | For the Only with usable prompts filter: a model must have at least this many images, of its first 20, carrying a prompt and its steps, sampler and CFG. |
+| Fill pages while hiding NSFW models (Civitai Browser Tab) *Not recommended* | off | Normally a page with Only Show Models with SFW images stops after checking a few dozen models and can come back short. With this on, it keeps searching until the page holds the full Models per page. Most Civitai models have NSFW images, so one page can take hundreds of requests and several minutes, and makes Civitai's rate limit likely. A page still stops if Civitai starts refusing requests. |
+| Mark on-site-only versions (Civitai Browser Tab) | off | Marks the versions whose creator allows them only for generating on Civitai - Civitai refuses their download - on the cards and in a model's panel. Asks Civitai once per page and once per model opened; its answer is often under a megabyte, and can be a few. The Model Manager marks them whatever this says, from what a sync stored. |
+
+**Send**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Use the image's Clip skip | on | On: where an image gives a clip skip other than your Clip Skip setting, Send adds it to the tab's Override settings, and says so - so the image can be made again as it was. It applies to the generations made while it is there; your setting is not changed, and the next Send replaces it. Not for Flux, where clip skip changes nothing. Off: left to Forge's paste, which in Forge Neo ignores it. |
+| Highest Clip skip | 6 | An image's clip skip above this is left out of Override settings, and your Clip Skip applies; Send's notice says so. Most models are made for 1 or 2. |
+| *Preset* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
+
+**Generations**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Tick "also delete the files" | off | Ticks the box in the delete question. It can still be unticked for one delete. |
+| Keep img2img start images (Generations Tab) | on | On: each img2img generation recorded keeps the picture in its mode's canvas and what was painted over it - the mask, or the strokes - so Send puts them back and the viewer shows them. One file per picture, however many generations started from it, deleted with the last of them. Off: nothing more is kept; what was kept stays. |
+| NSFW level for images without infotext (Generations Tab) | Unknown | What the Sync images dialog starts from. The level picked there is given to the images without infotext that sync brings, and kept with them. A rating you give an image wins. |
+| Group images without infotext by name (Generations Tab) | on | What the Sync images dialog starts from. Images in one folder whose file names say the same settings, saved close together, become one batch, as one press of Generate made them. |
+
+**Files and folders**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Database file *Needs restart* | empty | Full path to the database file, with its name. Empty: the default, in the extension's folder. Two WebUIs can share one. |
+| Make thumbnails | on | Ticks Make thumbnails in the Sync images dialog, and makes one for each image you generate. A sync with it ticked makes one for every image without one. Tiles then load a small copy, 450 pixels tall, instead of the full file; the viewer still shows the full file. An image without one shows its full file. |
+| Where thumbnails are kept | In a folder | In a folder: the Thumbnail folder below. Beside each image: in a .thumbnails folder next to it, which Sync images skips. A change applies to thumbnails made from then on; those made before keep working where they are. |
+| Thumbnail folder | empty | Its full path. Empty: a folder named thumbnails beside the database, which two WebUIs sharing the database share too. Deleting it is safe: a sync makes them again. |
+| Thumbnails made at once | 0 | 0: as many as the machine has processors - making one is mostly processor work. Lower it for a hard disk or a network drive, or to keep the machine free while a sync makes them. |
+| Folder for queued tasks' images (Queue Tab) | empty | A queued task keeps the images it was given here - an img2img source and mask, ControlNet's images - until it is deleted, one folder per task. Empty: queue-inputs in the WebUI's folder, beside outputs. Tasks keep their files' full paths, so a change applies to tasks queued after it. |
+| Folder for start images (Generations Tab) | empty | Its full path. Empty: a folder named generation-inputs beside the database, which two WebUIs sharing the database share too. Generations keep their files' full paths, so a change applies to generations recorded after it. |
+
+**Sync and queue**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Ask before generating more than (Queue Tab) | 0 | Batch count times batch size. Above it, Generate asks whether to generate, queue it instead, or cancel; the question can be turned off in each browser. 0: Generate never asks. |
+| Files hashed at once (Model Manager Tab) | 4 | How many model files to hash at once when a sync identifies them. Each file is read in full, so the drive usually sets the pace. Hard disk or network drive: 1-2 - more make it slower. SATA SSD: 2-4. NVMe: 4-8, or more on a CPU with many cores. Lower it if a sync makes the machine slow. |
+| Images kept per version | 100 | How many of each version's Civitai images a sync fetches and keeps - from the sync dialog, a model's Sync, a download. The dialog's "First N images" is this number. A model's NSFW level counts its worst stored image, and the Civitai Images tab shows stored images only: fewer kept, less to judge and show. |
+
+**Updates**
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Check for a new version | on | On: after the WebUI starts, and every 12 hours, the extension reads the version.json file on its GitHub repository - the version it holds, nothing else - and each tab's header says when a newer one is out. Off: GitHub is never asked. |
 
 ### Text encoders and VAEs for newer models
 

@@ -727,7 +727,7 @@ async function offerDatabaseActions() {
     provide('database.openExtensions', () => goToTab('extensions'));
     provide('database.openSettings', async () => {
         if (await useServices(['settings.mjs'], 'database')) {
-            call('settings.open', { section: 'storage', focus: 'model_manager_database_path' });
+            call('settings.open', { section: 'files', focus: 'model_manager_database_path' });
         }
     });
 }

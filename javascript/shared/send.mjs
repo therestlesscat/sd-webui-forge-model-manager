@@ -826,8 +826,8 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
                       + 'Add it to Forge\'s VAE or text_encoder folder, or select it in "VAE / Text Encoder".');
     }
     if (plan.not_found && plan.not_found.length) {
-        problems.push(`The settings (\u2699 at the top right of the tab, under "Send to txt2img: text encoders `
-                      + `and VAE") name ${plan.not_found.join(', ')} for ${plan.preset} models, but Forge does not `
+        problems.push(`The settings (\u2699 at the top right of the tab, in Send's text encoders `
+                      + `and VAE) name ${plan.not_found.join(', ')} for ${plan.preset} models, but Forge does not `
                       + 'list it: check the name, or put the file in Forge\'s VAE or text_encoder folder.');
     }
     if (plan.upscaler_not_listed) {

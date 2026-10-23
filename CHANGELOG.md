@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.68 - Settings named by what they do
+
+*22 October 2026*
+
+Every setting has a name that says what it does, in ten groups by what the settings are for,
+both in the settings window and on Forge's Settings page. Inside a group, a setting for one
+tab sits under that tab's heading, and one that depends on a switch sits under it. Each
+setting is declared once, so its names cannot drift apart again.
+
+- **0.68.0** (build 551) - Settings named by what they do (#320). 45 of Forge's 53 names began with one of 18 prefixes ("Generations: grid", "Shared:", "Model galleries:"), and 32 of the window's 45 names differed from Forge's: each setting was spelled in five places, which drifted. Each is now declared once, with a name for the window and one for Forge's page, its group, the tabs it acts in and the switch it sits under. The window shows ten groups, a tab heading inside a group where its settings belong to different tabs, each setting's tabs and a badge for its state; a setting under a switch is greyed while the switch is off and says why, where it was hidden. A setting is shown while a tab it acts in is on, where its group decided: the Civitai API key and the download settings now show with only the Queue tab on, as Send downloads from any tab, and Files hashed at once only with the Model Manager tab, whose sync alone hashes several files at once. Choices say what they do ("Only those near the view" / "All of them" for Fast / Classic), saved as before. Forge's page lists the same groups as sections under a Model Manager heading. In light mode the window's badges (Alpha, Not recommended, Needs restart) were amber on white at 2.2:1 and hard to read; they are a darker amber, 6.2:1. Every key and every saved value is kept.
+
 ## 0.67 - Send, decided in one place
 
 *19 October 2026*

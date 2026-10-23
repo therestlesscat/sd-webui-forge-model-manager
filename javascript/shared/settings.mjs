@@ -25,194 +25,33 @@ const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
 
+// The settings this window draws a control of its own for, or acts on. Every
+// setting's name, group, tab heading, tags, badges and the setting it sits
+// under come from the server's answer: the registry, one entry a setting
+// (model_manager/settings_registry.py, #320). The window kept its own tables
+// of names, groups and nesting, and they drifted from Forge's.
 const K = {
     apiKey: 'model_manager_civitai_api_key',
-    rate: 'model_manager_civitai_requests_per_second',
-    downloadsAtOnce: 'model_manager_downloads_at_once',
-    inParts: 'model_manager_download_in_parts',
-    connectionsPerFile: 'model_manager_connections_per_file',
-    imagesAtOnce: 'model_manager_civitai_images_at_once',
-    mmPageSize: 'model_manager_page_size',
     mmCardSize: 'model_manager_card_size',
-    thumbnail: 'model_manager_preview_least_nsfw',
-    cbPageSize: 'model_manager_civitai_page_size',
     cbCardSize: 'model_manager_civitai_card_size',
     folder: 'model_manager_civitai_folder_template',
-    minPrompts: 'model_manager_civitai_min_prompt_images',
-    fillPage: 'model_manager_civitai_sfw_fill_page',
-    onSiteMarks: 'model_manager_civitai_on_site_marks',
-    galleryNsfw: 'model_manager_gallery_hide_nsfw',
-    promptless: 'model_manager_hide_promptless_images',
-    // Each tab with pages pages by its own, and a sync keeps its own (#230).
-    mmImagesPerPage: 'model_manager_mm_images_per_page',
-    mmGenerationsPerPage: 'model_manager_mm_generations_per_page',
-    cbImagesPerPage: 'model_manager_cb_images_per_page',
-    syncImages: 'model_manager_sync_images_per_version',
-    galleryOriginals: 'model_manager_gallery_originals',
-    cardOriginals: 'model_manager_card_originals',
-    cardVideos: 'model_manager_card_videos_play',
-    recordGenerations: 'model_manager_record_generations',
-    galleryTab: 'model_manager_gallery_tab',
-    generationsNsfw: 'model_manager_generations_hide_nsfw',
-    generationsDeleteFiles: 'model_manager_generations_delete_files',
-    generationsGrid: 'model_manager_generations_grid',
-    generationsReading: 'model_manager_generations_reading',
-    galleryGrid: 'model_manager_gallery_grid',
-    sendClipSkip: 'model_manager_send_clip_skip',
-    sendClipSkipMax: 'model_manager_send_clip_skip_max',
-    syncLevel: 'model_manager_image_sync_level',
-    groupNoText: 'model_manager_group_no_text',
-    thumbnails: 'model_manager_thumbnails',
-    thumbnailsPlace: 'model_manager_thumbnails_place',
-    thumbnailsFolder: 'model_manager_thumbnails_folder',
-    thumbnailThreads: 'model_manager_thumbnail_threads',
-    keepInputs: 'model_manager_generations_keep_inputs',
-    inputsFolder: 'model_manager_generations_inputs_dir',
-    queueEnabled: 'model_manager_queue_enabled',
-    mmEnabled: 'model_manager_model_manager_enabled',
-    cbEnabled: 'model_manager_civitai_browser_enabled',
-    queueInputs: 'model_manager_queue_inputs_dir',
-    queueAskAbove: 'model_manager_queue_ask_above',
     detection: 'model_manager_nsfw_detection',
     percent: 'model_manager_nsfw_prompt_model_percent',
     words: 'model_manager_nsfw_prompt_words',
-    threads: 'model_manager_hash_threads',
     database: 'model_manager_database_path',
-    checkUpdates: 'model_manager_check_updates',
 };
 const MODULES_PREFIX = 'model_manager_modules_';
-
-/**
- * The sections, in order. A setting the server has that no section names is
- * shown under "Other", so a new setting is never missing from the window.
- */
-// Every section starts collapsed; opened from a tab's gear, the ones that tab
-// uses are open (`tabs`), and a note's button opens the one it is about, by
-// its id (`section` in model_manager/data/release_notes.json). A section is
-// shown while a tab it serves is on (`shownWith`; none: always, #185) - not
-// its `tabs`: the connection serves Generations' Send too, and how many of
-// the Civitai Images tab's images load at once (#213); storage holds the database
-// every tab uses.
-const SECTIONS = [
-    { id: 'tabs', title: 'Tabs', tabs: [], keys: [K.queueEnabled, K.recordGenerations, K.galleryTab, K.mmEnabled, K.cbEnabled] },
-    { id: 'connection', title: 'Civitai connection', tabs: ['model_manager', 'civitai_browser'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.apiKey, K.rate, K.downloadsAtOnce, K.inParts, K.connectionsPerFile, K.imagesAtOnce] },
-    { id: 'model_manager', title: 'Model Manager', tabs: ['model_manager'], shownWith: ['model_manager'],
-      keys: [K.mmPageSize, K.mmImagesPerPage, K.mmGenerationsPerPage, K.mmCardSize, K.thumbnail] },
-    { id: 'civitai_browser', title: 'Civitai Browser', tabs: ['civitai_browser'], shownWith: ['civitai_browser'],
-      keys: [K.cbPageSize, K.cbImagesPerPage, K.cbCardSize, K.folder, K.minPrompts, K.onSiteMarks] },
-    { id: 'gallery', title: 'Shared (Model Manager, Civitai Browser and Civitai Images)', tabs: ['model_manager', 'civitai_browser', 'gallery'],
-      shownWith: ['model_manager', 'civitai_browser', 'gallery'], keys: [K.galleryNsfw, K.promptless, K.galleryOriginals, K.cardOriginals, K.cardVideos] },
-    { id: 'civitai_images', title: 'Civitai Images', tabs: ['gallery'], shownWith: ['gallery'], keys: [K.galleryGrid] },
-    { id: 'generations', title: 'Generations', tabs: ['model_manager', 'generations'],
-      shownWith: ['generations'], keys: [K.generationsNsfw, K.generationsDeleteFiles, K.generationsGrid, K.generationsReading, K.syncLevel, K.groupNoText,
-                                      K.thumbnails, K.thumbnailsPlace, K.thumbnailsFolder, K.thumbnailThreads,
-                                      K.keepInputs, K.inputsFolder] },
-    { id: 'queue', title: 'Queue', tabs: ['queue'], shownWith: ['queue'], keys: [K.queueInputs, K.queueAskAbove] },
-    { id: 'nsfw', title: 'NSFW detection', tabs: ['model_manager', 'civitai_browser', 'generations', 'gallery'],
-      shownWith: ['model_manager', 'civitai_browser', 'generations', 'gallery'], keys: [K.detection, K.percent, K.words] },
-    { id: 'storage', title: 'Sync and storage', tabs: ['model_manager'], keys: [K.threads, K.syncImages, K.database] },
-    { id: 'modules', title: 'Send to txt2img: text encoders and VAE', tabs: [], prefix: MODULES_PREFIX,
-      intro: 'Automatic is what Send to txt2img picks by itself. Choose a file to use that one '
-             + 'instead. A file chosen for one model is filled in for the others that use it, '
-             + 'where nothing is chosen yet.' },
-    { id: 'updates', title: 'Updates', tabs: [], keys: [K.checkUpdates] },
-    { id: 'advanced', title: 'Advanced', tabs: ['civitai_browser'], shownWith: ['civitai_browser'], keys: [K.fillPage] },
-];
-
-// Each tab's switch, by the name the sections give it.
-const TAB_SWITCHES = { queue: K.queueEnabled, generations: K.recordGenerations, gallery: K.galleryTab,
-                       model_manager: K.mmEnabled, civitai_browser: K.cbEnabled };
-
-/** Shorter labels than the Settings page's, which have to say which tab. */
-const LABELS = {
-    [K.apiKey]: 'API key',
-    [K.rate]: 'Requests per second',
-    [K.downloadsAtOnce]: 'Downloads at once',
-    [K.inParts]: 'Download large files in parts',
-    [K.connectionsPerFile]: 'Connections per file',
-    [K.imagesAtOnce]: 'Civitai images loading at once, at most',
-    [K.mmPageSize]: 'Models per page',
-    [K.mmCardSize]: 'Card size',
-    [K.thumbnail]: 'Card thumbnail',
-    [K.cbPageSize]: 'Models per page',
-    [K.cbCardSize]: 'Card size',
-    [K.folder]: 'Download folder',
-    [K.minPrompts]: 'Only with usable prompts: images needed',
-    [K.fillPage]: "Fill every page with 'Only Show Models with SFW images'",
-    [K.onSiteMarks]: 'Mark on-site-only versions',
-    [K.galleryNsfw]: 'Hide explicit images by default',
-    [K.promptless]: 'Model galleries: hide images with no prompt by default',
-    [K.mmImagesPerPage]: 'Civitai images per page',
-    [K.mmGenerationsPerPage]: 'Your generations per page',
-    [K.cbImagesPerPage]: 'Images per page',
-    [K.syncImages]: 'Images a sync keeps per version',
-    [K.galleryOriginals]: 'Galleries and Civitai Images: load as uploaded, not resized',
-    [K.cardOriginals]: 'Model cards: load as uploaded, not resized',
-    [K.cardVideos]: 'Model cards: play videos',
-    [K.recordGenerations]: 'Generations: record the images you generate, and show them',
-    [K.generationsNsfw]: 'Generations: hide explicit images by default',
-    [K.generationsDeleteFiles]: 'Delete: also delete the image files, by default',
-    [K.generationsGrid]: 'Generations: grid',
-    [K.generationsReading]: 'Generations: how tiles are read (alpha)',
-    [K.galleryGrid]: 'Civitai Images: grid',
-    [K.syncLevel]: 'Sync images: default NSFW level for images without infotext',
-    [K.groupNoText]: 'Sync images: group images without infotext with similar file names into one batch',
-    [K.keepInputs]: 'img2img: keep the image a generation started from, and its mask',
-    [K.inputsFolder]: 'Folder for the images a generation started from',
-    [K.queueEnabled]: 'Queue: the Queue button beside Generate, and the Queue tab',
-    [K.galleryTab]: 'Civitai Images tab',
-    [K.mmEnabled]: 'Model Manager tab',
-    [K.cbEnabled]: 'Civitai Browser tab',
-    [K.queueInputs]: 'Folder for the images a task needs',
-    [K.queueAskAbove]: 'Ask "Generate N images?" above this many images',
-    [K.detection]: 'What finds explicit images Civitai rates PG or PG-13',
-    [K.percent]: 'Trained model: share of PG/PG-13 prompts to treat as X (%)',
-    [K.words]: 'Extra prompt words',
-    [K.threads]: 'Hashing threads',
-    [K.database]: 'Database file',
-    [K.checkUpdates]: 'Check for a new version',
-};
-
-/**
- * When a setting is shown. One that does nothing under the others' current
- * values is hidden - its value is kept, and a change to it still counts.
- */
-const SHOWN_WHEN = {
-    // Without a key the client runs at Civitai's anonymous rate, whatever
-    // this says.
-    [K.rate]: (s) => s.hasKey(),
-    // How many parts only while files are fetched in parts (#282).
-    [K.connectionsPerFile]: (s) => s.value(K.inParts) !== false,
-    [K.percent]: (s) => s.value(K.detection) === 'model',
-    // No Generations tab while nothing is recorded.
-    [K.generationsNsfw]: (s) => s.value(K.recordGenerations) !== false,
-    [K.generationsDeleteFiles]: (s) => s.value(K.recordGenerations) !== false,
-    [K.generationsGrid]: (s) => s.value(K.recordGenerations) !== false,
-    // Nor a Civitai Images tab while it is off.
-    [K.galleryGrid]: (s) => s.value(K.galleryTab) !== false,
-    [K.syncLevel]: (s) => s.value(K.recordGenerations) !== false,
-    [K.groupNoText]: (s) => s.value(K.recordGenerations) !== false,
-    // Where and how many thumbnails are made, only while they are; a folder
-    // only for thumbnails kept in one.
-    [K.thumbnails]: (s) => s.value(K.recordGenerations) !== false,
-    [K.thumbnailsPlace]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false,
-    [K.thumbnailsFolder]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false
-        && s.value(K.thumbnailsPlace) !== 'Beside each image',
-    [K.thumbnailThreads]: (s) => s.value(K.recordGenerations) !== false && s.value(K.thumbnails) !== false,
-    // Where an img2img generation's source is kept, only while it is (#34).
-    [K.keepInputs]: (s) => s.value(K.recordGenerations) !== false,
-    [K.inputsFolder]: (s) => s.value(K.recordGenerations) !== false && s.value(K.keepInputs) !== false,
-    // Nothing is queued while the queue is off.
-    [K.queueInputs]: (s) => s.value(K.queueEnabled) !== false,
-    [K.queueAskAbove]: (s) => s.value(K.queueEnabled) !== false,
-    // Send's highest clip skip, only while it takes the image's (#339).
-    [K.sendClipSkipMax]: (s) => s.value(K.sendClipSkip) !== false,
-};
+const MODULES_INTRO = 'Automatic is what Send picks by itself. Choose a file to use that one instead. A file '
+    + 'chosen for one model is filled in for the others that use it, where nothing is chosen yet.';
+// The Tabs group's switches are named by their tabs; nothing in it is put
+// under a tab's heading.
+const TABS_GROUP = 'tabs';
+const SHARED_HEADING = 'Shared across tabs';
+// Send's tag: no tab, it goes from any of them.
+const SEND_TAG = 'send';
 
 /** Controls that suit a setting better than its kind's default one. */
 const CONTROLS = {
-    [K.thumbnail]: { kind: 'choice', choices: [['The least explicit image', true], ['The most recent image', false]] },
     [K.mmCardSize]: { kind: 'cardsize' },
     [K.cbCardSize]: { kind: 'cardsize' },
     [K.folder]: { kind: 'folder' },
@@ -276,20 +115,43 @@ function createSettings() {
         });
     }
 
+    /**
+     * The groups, in the registry's order, each with its settings and the
+     * tabs whose gear opens it: those its settings act in - not the Tabs
+     * group, nor a setting of every tab (the database file, the update
+     * check), which would open for each. A preset this WebUI does not have is
+     * left out, not offered.
+     */
     function sectionsWithKeys() {
-        const placed = new Set();
-        const sections = SECTIONS.map((section) => {
-            let keys = section.prefix
-                ? meta.order.filter((k) => k.startsWith(section.prefix))
-                : section.keys.filter((k) => k in meta.settings);
-            keys.forEach((k) => placed.add(k));
-            // A preset this WebUI does not have is left out, not offered.
-            if (section.prefix === MODULES_PREFIX && modules) keys = keys.filter((k) => k in modules);
-            return { ...section, keys };
-        });
-        const rest = meta.order.filter((k) => !placed.has(k));
-        if (rest.length) sections.push({ id: 'other', title: 'Other', tabs: [], keys: rest });
-        return sections.filter((s) => s.keys.length);
+        const tabIds = Object.keys(meta.tag_labels).filter((tag) => tag !== SEND_TAG);
+        return meta.groups.map((group) => {
+            const keys = meta.order.filter((k) => meta.settings[k].group === group.id
+                && !(k.startsWith(MODULES_PREFIX) && modules && !(k in modules)));
+            const tabs = group.id === TABS_GROUP ? [] : [...new Set(keys.flatMap((k) => {
+                const own = (meta.settings[k].tags || []).filter((tag) => tabIds.includes(tag));
+                return own.length === tabIds.length ? [] : own;
+            }))];
+            return { id: group.id, title: group.label, tabs, keys };
+        }).filter((s) => s.keys.length);
+    }
+
+    /**
+     * A group's settings under a heading per tab, where they act in different
+     * tabs (#320): those shared across tabs first, then each tab in the
+     * WebUI's order. None in the Tabs group, nor where all fall under one.
+     */
+    function headed(section) {
+        const headingOf = (k) => meta.settings[k].heading || SHARED_HEADING;
+        const headings = new Set(section.keys.map(headingOf));
+        if (section.id === TABS_GROUP || headings.size < 2) return [[null, section.keys]];
+        return [SHARED_HEADING, ...Object.values(meta.tag_labels)].filter((h) => headings.has(h))
+            .map((h) => [h, section.keys.filter((k) => headingOf(k) === h)]);
+    }
+
+    /** The heading a setting is drawn under in its group, if the group has them. */
+    function headingFor(key) {
+        const section = sectionsWithKeys().find((s) => s.keys.includes(key));
+        return section ? headed(section).find(([, keys]) => keys.includes(key))[0] : null;
     }
 
     // ------------------------------------------------------------- drawing
@@ -332,9 +194,11 @@ function createSettings() {
         body.innerHTML = whatsNewSection() + sectionsWithKeys().map((section) => `
             <details class="mm-settings-section" data-section="${escapeHtml(section.id)}" ${shown(section) ? 'open' : ''}>
                 <summary class="mm-dialog-heading">${escapeHtml(section.title)}</summary>
-                ${section.intro && modules ? `<div class="mm-settings-help">${escapeHtml(section.intro)}</div>` : ''}
                 <div class="mm-settings-fields">
-                    ${section.keys.map(renderField).join('')}
+                    ${headed(section).map(([heading, keys]) => (heading
+        ? `<div class="mm-settings-subheading">${escapeHtml(heading)}</div>` : '')
+        + keys.map((key) => (modules?.[key] && key === keys.find((k) => modules?.[k])
+            ? `<div class="mm-settings-help">${escapeHtml(MODULES_INTRO)}</div>` : '') + renderField(key)).join('')).join('')}
                 </div>
             </details>`).join('');
         refresh();
@@ -388,19 +252,24 @@ function createSettings() {
         if (modules?.[key]) return renderModules(key);
         const s = meta.settings[key];
         const control = { ...s, ...(CONTROLS[key] || {}) };
-        const label = LABELS[key] || s.label;
+        const label = s.name || s.label;
         const id = `mms_${key}`;
-        const inline = control.kind === 'bool';
+        const marks = markings(key, headingFor(key));
+        const inline = control.kind === 'bool' || control.switch;
         const head = inline ? '' : `
             <div class="mm-settings-label-row">
-                <label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>
+                <span><label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>${marks}</span>
                 ${resetButton(key)}
             </div>`;
+        const tags = (s.tags || []).map((tag) => meta.tag_labels[tag] || tag);
+        const depth = depthOf(key);
         return `
-            <div class="mm-settings-field" data-key="${escapeHtml(key)}"
-                 data-search="${escapeHtml((label + ' ' + s.label + ' ' + (s.info || '')).toLowerCase())}">
+            <div class="mm-settings-field${depth ? ` mm-settings-child mm-settings-child-${Math.min(depth, 2)}` : ''}"
+                 data-key="${escapeHtml(key)}"
+                 data-search="${escapeHtml([label, s.label, s.info || '', ...tags].join(' ').toLowerCase())}">
                 ${head}
-                ${renderControl(key, control, id, label)}
+                ${renderControl(key, control, id, label, marks)}
+                ${s.under ? `<div class="mm-settings-under" data-under="${escapeHtml(key)}"></div>` : ''}
                 <div class="mm-settings-extra" data-extra="${escapeHtml(key)}"></div>
                 ${key === K.database ? '<div class="mm-upkeep" id="mm_settings_upkeep"></div>' : ''}
                 ${s.info ? `<div class="mm-settings-help">${escapeHtml(s.info)}</div>` : ''}
@@ -408,23 +277,68 @@ function createSettings() {
             </div>`;
     }
 
+    /** A setting's badges, then the tabs it acts in - but the one its heading names. */
+    function markings(key, heading) {
+        const s = meta.settings[key];
+        const badges = (s.badges || []).map((b) => `<span class="mm-settings-badge">${
+            escapeHtml(meta.badge_labels?.[b] || b)}</span>`);
+        const tags = s.group === TABS_GROUP ? [] : (s.tags || []).map((tag) => meta.tag_labels[tag] || tag)
+            .filter((tag) => tag !== heading).map((tag) => `<span class="mm-settings-tag">${escapeHtml(tag)}</span>`);
+        return [...badges, ...tags].join('');
+    }
+
+    /** How many settings deep it sits under switches. */
+    function depthOf(key) {
+        const under = meta.settings[key]?.under;
+        return under && meta.settings[under[0]] ? 1 + depthOf(under[0]) : 0;
+    }
+
+    /** Whether the setting it sits under holds the value that turns it on - a key set, for the API key. */
+    function holds(key) {
+        const [parent, value] = meta.settings[key].under;
+        const now = meta.settings[parent]?.kind === 'secret' ? state.hasKey() : state.value(parent);
+        return value === true ? Boolean(now) : same(now, value);
+    }
+
+    /**
+     * Why a setting does nothing now, from the nearest switch that is not as
+     * it needs - or '' when every one is. Greyed, not hidden (#320): hidden, a
+     * person cannot learn it exists.
+     */
+    function idleBecause(key) {
+        const under = meta.settings[key]?.under;
+        if (!under || !meta.settings[under[0]]) return '';
+        if (holds(key)) return idleBecause(under[0]);
+        const parent = meta.settings[under[0]];
+        if (parent.kind === 'secret') return 'Applies once an API key is set.';
+        const name = parent.name || parent.label;
+        if (under[1] === true) return `Applies while \u201c${name}\u201d is on.`;
+        const words = (parent.choices || []).find(([, v]) => same(v, under[1]))?.[0] ?? String(under[1]);
+        return `Applies while \u201c${name}\u201d is ${words}.`;
+    }
+
     function resetButton(key) {
         return `<button type="button" class="mm-settings-reset" data-reset="${escapeHtml(key)}"
                         title="Back to the default">Reset</button>`;
     }
 
-    function renderControl(key, c, id, label) {
+    function renderControl(key, c, id, label, marks = '') {
         const v = draft[key];
-        switch (c.kind) {
-        case 'bool':
-            return `
+        const check = (on) => `
                 <div class="mm-settings-label-row">
-                    <label class="mm-settings-check">
-                        <input type="checkbox" id="${id}" data-key="${escapeHtml(key)}" ${v ? 'checked' : ''}>
-                        <span class="mm-settings-label">${escapeHtml(label)}</span>
-                    </label>
+                    <span class="mm-settings-check-row">
+                        <label class="mm-settings-check">
+                            <input type="checkbox" id="${id}" data-key="${escapeHtml(key)}" ${on ? 'checked' : ''}>
+                            <span class="mm-settings-label">${escapeHtml(label)}</span>
+                        </label>${marks}
+                    </span>
                     ${resetButton(key)}
                 </div>`;
+        // A choice of two the window draws as a switch: on is its first (#320).
+        if (c.switch) return check(same(v, c.switch[0]));
+        switch (c.kind) {
+        case 'bool':
+            return check(v);
         case 'choice':
             return `<div class="mm-settings-choices" role="radiogroup" id="${id}">
                 ${c.choices.map(([text, value], i) => `
@@ -790,21 +704,40 @@ function createSettings() {
 
     function applyVisibility() {
         const query = (root.querySelector('#mm_settings_search').value || '').trim().toLowerCase();
+        // Each tab's switch, from the Tabs group: a setting is shown while a
+        // tab it needs is on, as the window holds them now.
+        const switchOf = {};
+        meta.order.forEach((k) => {
+            if (meta.settings[k].group === TABS_GROUP) switchOf[meta.settings[k].tags[0]] = k;
+        });
+        const tabOn = (tab) => !switchOf[tab] || state.value(switchOf[tab]) !== false;
         root.querySelectorAll('.mm-settings-section').forEach((section) => {
             if (section.hasAttribute('data-whats-new')) {
                 section.hidden = Boolean(query);
                 return;
             }
-            // Every tab it serves off, as the window holds them now: not shown.
-            const served = SECTIONS.find((s) => s.id === section.dataset.section)?.shownWith;
-            const tabOn = !served || served.some((tab) => state.value(TAB_SWITCHES[tab]) !== false);
             let any = false;
             section.querySelectorAll('.mm-settings-field').forEach((field) => {
-                const rule = SHOWN_WHEN[field.dataset.key];
-                const shown = tabOn && (!rule || rule(state))
+                const s = meta.settings[field.dataset.key] || {};
+                const needs = s.shown_with || [];
+                const shown = (!needs.length || needs.some(tabOn))
                     && (!query || field.dataset.search.includes(query));
                 field.hidden = !shown;
                 any = any || shown;
+                const why = idleBecause(field.dataset.key);
+                field.classList.toggle('mm-settings-off', Boolean(why));
+                const note = field.querySelector(':scope > .mm-settings-under');
+                if (note && note.textContent !== why) note.textContent = why;
+            });
+            // A tab's heading goes with the last of its settings.
+            section.querySelectorAll('.mm-settings-subheading').forEach((heading) => {
+                let next = heading.nextElementSibling;
+                let shownBelow = false;
+                while (next && !next.classList.contains('mm-settings-subheading')) {
+                    shownBelow = shownBelow || (next.classList.contains('mm-settings-field') && !next.hidden);
+                    next = next.nextElementSibling;
+                }
+                heading.hidden = !shownBelow;
             });
             section.hidden = !any;
             if (query && any) section.open = true;
@@ -856,6 +789,8 @@ function createSettings() {
         if (s.kind === 'secret') {
             secretTyped = t.value;
             showKeyTest('', '');
+        } else if (s.switch) {
+            draft[key] = t.checked ? s.switch[0] : s.switch[1];
         } else if (s.kind === 'bool') {
             draft[key] = t.checked;
         } else if (s.kind === 'choice') {
@@ -972,8 +907,9 @@ function createSettings() {
     /**
      * @param {{tab?: string, section?: string, focus?: string}} [options] - tab: the tab
      *     whose gear it is ("model_manager", "civitai_browser",
-     *     "generations"), whose sections are opened; section: one section's
-     *     id, the only one opened, scrolled to - a note's button. Neither:
+     *     "generations", "gallery"), whose groups are opened: those holding a
+     *     setting that acts in it; section: one group's id (settings_registry.GROUPS),
+     *     the only one opened, scrolled to - a note's button. Neither:
      *     every section collapsed. focus: a setting's key, its field
      *     focused - the database notice's button (#136).
      */

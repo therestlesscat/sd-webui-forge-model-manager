@@ -22,7 +22,6 @@ from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
 from .common import failed, gate
 
-SECTION_ID = "model_manager"
 SECRET = "model_manager_civitai_api_key"
 DATABASE_PATH = "model_manager_database_path"
 
@@ -76,33 +75,49 @@ def _kind(info) -> Tuple[str, Dict[str, Any]]:
 
 
 def _ours() -> List[Tuple[str, Any]]:
-    """This extension's settings, in the order they were registered."""
+    """This extension's settings Forge holds, in the registry's order (#320)."""
     from ..forge_host import registered_options
-    found = []
-    for key, info in registered_options().items():
-        section = getattr(info, "section", None) or ()
-        if not section or section[0] != SECTION_ID or getattr(info, "do_not_save", False):
-            continue
-        found.append((key, info))
-    return found
+    from ..settings_registry import all_settings
+    options = registered_options()
+    return [(s.key, options[s.key]) for s in all_settings()
+            if s.key in options and not getattr(options[s.key], "do_not_save", False)]
 
 
-def _describe() -> Dict[str, Any]:
+def _placed(s) -> Dict[str, Any]:
+    """Where the window draws a setting, and what it calls it (#320): from the registry."""
+    return {"name": s.name, "group": s.group, "heading": s.heading, "tags": list(s.tags),
+            "shown_with": list(s.shown_with), "under": list(s.under) if s.under else None,
+            "badges": list(s.badges), "switch": list(s.switch) if s.switch else None}
+
+
+def described() -> Dict[str, Any]:
+    """
+    Every setting as the settings window draws it, with the groups and the
+    words for its tags and badges: what the window is told, but the files in
+    use. The suites' stand-in answer is made from it (tools/settings_answer.py).
+    """
     from ..forge_host import setting
+    from ..settings_registry import BADGES, GROUPS, TAG_LABELS, by_key
+    registry = by_key()
     settings = {}
     for key, info in _ours():
         kind, extra = _kind(info)
         value = setting(key)
         entry = {"label": info.label, "info": _plain(getattr(info, "comment_after", "")),
-                 "kind": kind, "default": info.default, **extra}
+                 "kind": kind, "default": info.default, **extra, **_placed(registry[key])}
         if kind == "secret":
             entry["has_value"] = bool(str(value or "").strip())
             entry["default"] = ""
         else:
             entry["value"] = value
         settings[key] = entry
+    return {"settings": settings, "order": list(settings),
+            "groups": [{"id": g.id, "label": g.label} for g in GROUPS],
+            "tag_labels": TAG_LABELS, "badge_labels": BADGES}
 
-    answer = {"success": True, "settings": settings, "order": list(settings)}
+
+def _describe() -> Dict[str, Any]:
+    answer = {"success": True, **described()}
     # The file in use now. The setting names the one the next start will
     # open; the window says so when the two differ.
     try:

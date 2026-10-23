@@ -2,7 +2,8 @@
 // settings window (#287): the Compact database line in each state, its
 // question, following a compact to its end, Cancel; the backups, each line,
 // Delete's and Delete all's questions, names sent and never paths.
-import { answerQuestions, call, checker, mountTab, startTab } from './harness.mjs';
+import { readFileSync } from 'fs';
+import { ROOT, answerQuestions, call, checker, mountTab, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits, shortened (TIMING): a running compact's poll, the ask
@@ -13,11 +14,13 @@ const { check, waitFor, done } = checker();
 
 const MB = 1048576;
 const GB = 1073741824;
+// As the server describes them: the registry's answer (#320), two of them.
+const ANSWER = JSON.parse(readFileSync(`${ROOT}/tests/js/settings_answer.json`, 'utf8'));
 const SETTINGS = {
-    model_manager_hash_threads: { label: 'Hashing threads', info: '', kind: 'number', value: 4, default: 4,
-                                  minimum: 1, maximum: 32, step: 1 },
-    model_manager_database_path: { label: 'Database file', info: '', kind: 'text', value: '', default: '' },
+    model_manager_hash_threads: { ...ANSWER.settings.model_manager_hash_threads, value: 4 },
+    model_manager_database_path: { ...ANSWER.settings.model_manager_database_path, value: '' },
 };
+const PLACING = { groups: ANSWER.groups, tag_labels: ANSWER.tag_labels, badge_labels: ANSWER.badge_labels };
 const ORDER = Object.keys(SETTINGS);
 
 // The server's answers, as db/upkeep.py gives them.
@@ -60,7 +63,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/notes')) return json({ success: true, notes: [] });
     if (href.includes('/model-manager/settings/modules')) return json({ success: false });
     if (href.includes('/model-manager/settings')) {
-        return json({ success: true, settings: SETTINGS, order: ORDER, database_in_use: 'C:\\m\\models.db' });
+        return json({ success: true, settings: SETTINGS, order: ORDER, ...PLACING, database_in_use: 'C:\\m\\models.db' });
     }
     return json({ success: true, models: [], total: 0 });
 };

@@ -14,47 +14,17 @@ globalThis.MutationObserver = window.MutationObserver;
 const { check, waitFor, done } = checker();
 
 // ------------------------------------------------ the server's settings
-const setting = (kind, value, extra = {}) => ({ label: extra.label || 'A setting', info: '',
-                                                 kind, value, default: value, ...extra });
-const SETTINGS = {
-    model_manager_civitai_api_key: { label: 'Civitai API Key', info: '', kind: 'secret',
-                                     default: '', has_value: false },
-    model_manager_civitai_requests_per_second: setting('number', 6, { minimum: 1, maximum: 10, step: 1 }),
-    model_manager_downloads_at_once: setting('number', 2, { minimum: 1, maximum: 10, step: 1 }),
-    model_manager_download_in_parts: setting('bool', true),
-    model_manager_connections_per_file: setting('number', 4, { minimum: 2, maximum: 16, step: 1 }),
-    model_manager_civitai_images_at_once: setting('number', 64, { minimum: 1, step: 1 }),
-    model_manager_page_size: setting('number', 20, { minimum: 5, maximum: 50, step: 5,
-                                                     label: 'Model Manager: Models per page' }),
-    model_manager_card_size: setting('text', '200x280'),
-    model_manager_preview_least_nsfw: setting('bool', true),
-    model_manager_gallery_hide_nsfw: setting('bool', true),
-    model_manager_gallery_originals: setting('bool', false),
-    model_manager_card_originals: setting('bool', false),
-    model_manager_record_generations: setting('bool', true),
-    model_manager_gallery_tab: setting('bool', false),
-    model_manager_queue_enabled: setting('bool', true),
-    model_manager_model_manager_enabled: setting('bool', true),
-    model_manager_civitai_browser_enabled: setting('bool', true),
-    model_manager_generations_hide_nsfw: setting('bool', true),
-    model_manager_generations_delete_files: setting('bool', false),
-    model_manager_nsfw_detection: setting('choice', 'words', { default: 'model', choices: [
-        ['Trained model', 'model'], ['Word list', 'words']] }),
-    model_manager_nsfw_prompt_model_percent: setting('number', 2, { minimum: 0, maximum: 20, step: 0.25 }),
-    model_manager_nsfw_prompt_words: setting('text', '', { lines: 2 }),
-    model_manager_civitai_folder_template: setting('text', '_{baseModel}/{modelName}'),
-    model_manager_modules_flux: setting('text', 'old_t5.safetensors'),
-    model_manager_modules_klein: setting('text', ''),
-    model_manager_modules_lumina: setting('text', 'ae_fp8.safetensors'),
-    model_manager_modules_zit: setting('text', ''),
-    model_manager_modules_wan: setting('text', ''),
-    model_manager_modules_qwen: setting('text', ''),
-    model_manager_civitai_sfw_fill_page: setting('bool', false),
-    model_manager_something_new: setting('bool', false, { label: 'A setting added later' }),
-    model_manager_send_clip_skip: setting('bool', true),
-    model_manager_send_clip_skip_max: setting('number', 6, { minimum: 1, maximum: 12, step: 1 }),
-};
-const ORDER = Object.keys(SETTINGS);
+// As the server describes them (#320): the registry's answer at every default
+// (settings_answer.json, written by tools/settings_answer.py and held to the
+// registry by settings_registry_test.py), with the values this suite starts
+// from: the word list chosen, and two presets naming files.
+const ANSWER = JSON.parse(readFileSync(`${ROOT}/tests/js/settings_answer.json`, 'utf8'));
+const SETTINGS = structuredClone(ANSWER.settings);
+SETTINGS.model_manager_nsfw_detection.value = 'words';
+SETTINGS.model_manager_modules_flux.value = 'old_t5.safetensors';
+SETTINGS.model_manager_modules_lumina.value = 'ae_fp8.safetensors';
+const ORDER = [...ANSWER.order];
+const PLACING = { groups: ANSWER.groups, tag_labels: ANSWER.tag_labels, badge_labels: ANSWER.badge_labels };
 const posted = [];
 
 // The text encoder and VAE table, as the server describes it: this WebUI has
@@ -164,11 +134,11 @@ globalThis.fetch = async (url, init = {}) => {
                 if (SETTINGS[key].kind === 'secret') SETTINGS[key].has_value = Boolean(values[key]);
                 else SETTINGS[key].value = values[key];
             });
-            return { ok: true, json: async () => ({ success: true, settings: SETTINGS, order: ORDER,
+            return { ok: true, json: async () => ({ success: true, settings: SETTINGS, order: ORDER, ...PLACING,
                                                     changed, database_in_use: 'C:/models.db' }) };
         }
         settingsAsked += 1;
-        return { ok: true, json: async () => ({ success: true, settings: SETTINGS, order: ORDER,
+        return { ok: true, json: async () => ({ success: true, settings: SETTINGS, order: ORDER, ...PLACING,
                                                 database_in_use: 'C:/models.db', bundled_nsfw_words: 99 }) };
     }
     if (href.includes('/model-manager/models?') && href.includes('page_size=')) {
@@ -234,24 +204,29 @@ check('asking the server, each time it opens', settingsAsked, 1);
 
 const titles = Array.from(document.querySelectorAll('.mm-settings-section > summary')).map((s) => s.textContent);
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
-check('grouped into sections, in order, with a setting no section names under Other - What\'s new first, then Tabs',
-      titles, ["What's new", 'Tabs',
-    'Civitai connection', 'Model Manager', 'Civitai Browser', 'Shared (Model Manager, Civitai Browser and Civitai Images)', 'Generations', 'NSFW detection',
-    'Send to txt2img: text encoders and VAE', 'Advanced', 'Other']);
-check('the text encoders collapsed', $('.mm-settings-section[data-section="modules"]')?.hasAttribute('open'), false);
+check('grouped as the registry groups them, in its order - What\'s new first, then Tabs (#320)',
+      titles, ["What's new", 'Tabs', 'Civitai account', 'Downloads', 'Pages and cards', 'What is hidden', 'Send',
+               'Generations', 'Files and folders', 'Sync and queue', 'Updates']);
+check('Send, with the text encoders, collapsed', $('.mm-settings-section[data-section="send"]')?.hasAttribute('open'), false);
+// Each setting in one group, and none left over: a setting the registry has
+// no group for cannot be declared (settings_registry_test).
+check('every setting drawn once, in a group', ORDER.filter((k) => !k.startsWith('model_manager_modules_'))
+    .every((k) => document.querySelectorAll(`.mm-settings-section .mm-settings-field[data-key="${k}"]`).length === 1), true);
 
 // ------------------------------------------------------------- the tabs
-// Each tab's switch, in one section, first, in the WebUI's tab order (#185).
+// Each tab's switch, in one group, first, in the WebUI's tab order (#185),
+// named "X Tab" (#320).
 const TAB_KEYS = ['model_manager_queue_enabled', 'model_manager_record_generations', 'model_manager_gallery_tab',
                   'model_manager_model_manager_enabled', 'model_manager_civitai_browser_enabled'];
-check('Tabs holds the five switches, in the order of the tabs',
-      Array.from(document.querySelectorAll('.mm-settings-section[data-section="tabs"] .mm-settings-field'))
-          .map((f) => f.dataset.key), TAB_KEYS);
-// A section shows while a tab that uses it is on: switched off in the
-// window, a tab's sections go at once; the rest stay.
+const nameOf = (key) => field(key)?.querySelector('.mm-settings-label')?.textContent;
+check('Tabs holds the five switches, in the order of the tabs, each named "X Tab"',
+      [Array.from(document.querySelectorAll('.mm-settings-section[data-section="tabs"] .mm-settings-field'))
+          .map((f) => f.dataset.key), TAB_KEYS.map(nameOf)],
+      [TAB_KEYS, ['Queue Tab', 'Generations Tab', 'Civitai Images Tab', 'Model Manager Tab', 'Civitai Browser Tab']]);
+// A setting shows while a tab it needs is on, and a group while one of its
+// settings does: switched off in the window, they go at once; the rest stay.
 const sectionShown = (id) => { const s = $(`.mm-settings-section[data-section="${id}"]`); return Boolean(s) && !s.hidden; };
-const SECTION_IDS = ['tabs', 'connection', 'model_manager', 'civitai_browser', 'gallery', 'generations', 'nsfw',
-                     'modules', 'advanced', 'other'];
+const SECTION_IDS = ANSWER.groups.map((g) => g.id);
 const tickTab = (key, on) => {
     const box = field(key).querySelector('input[type="checkbox"]');
     box.checked = on;
@@ -259,16 +234,22 @@ const tickTab = (key, on) => {
 };
 tickTab('model_manager_model_manager_enabled', false);
 tickTab('model_manager_civitai_browser_enabled', false);
-check('the Model Manager and the Civitai Browser off: theirs go - the connection stays, for Generations\' Send',
-      SECTION_IDS.filter(sectionShown), ['tabs', 'connection', 'generations', 'nsfw', 'modules', 'other']);
+check('the Model Manager and the Civitai Browser off: every group stays, for Generations, the Queue and Send',
+      SECTION_IDS.filter(sectionShown), SECTION_IDS);
+check('but their own settings go', shown('model_manager_page_size'), false);
+// Only a sync started in the Model Manager hashes several files at once;
+// every download's sync keeps a version's images, Send's too (#320, R6).
+check('Files hashed at once goes with the Model Manager; Images kept per version stays, for every download',
+      [shown('model_manager_hash_threads'), shown('model_manager_sync_images_per_version')], [false, true]);
 tickTab('model_manager_record_generations', false);
-check('Generations off too: the connection and the NSFW detection go with it',
-      SECTION_IDS.filter(sectionShown), ['tabs', 'modules', 'other']);
+check('Generations off too: the groups with nothing left go',
+      SECTION_IDS.filter(sectionShown), ['tabs', 'civitai_account', 'downloads', 'send', 'files', 'sync_and_queue', 'updates']);
 tickTab('model_manager_gallery_tab', true);
-check('the Civitai Images tab alone: the connection is shown, for how many of its images load at once',
-      SECTION_IDS.filter(sectionShown).includes('connection'), true);
+check('the Civitai Images tab on: its pages, cards and hidden images come back, and how many of its images load at once',
+      [SECTION_IDS.filter(sectionShown).includes('pages_and_cards'), SECTION_IDS.filter(sectionShown).includes('hidden'),
+       shown('model_manager_civitai_images_at_once')], [true, true, true]);
 TAB_KEYS.forEach((key) => tickTab(key, true));
-check('all on again: every section', SECTION_IDS.filter(sectionShown), SECTION_IDS);
+check('all on again: every group', SECTION_IDS.filter(sectionShown), SECTION_IDS);
 // The Gallery's switch back to off, as it was: the counts below are of other changes.
 tickTab('model_manager_gallery_tab', false);
 
@@ -281,102 +262,134 @@ check('What\'s new lists the notes by version, newest first, dismissed ones too,
        Array.from($('#mm_settings_notes').querySelectorAll('.mm-settings-notes-version')).map((v) => v.textContent),
        Array.from($('#mm_settings_notes').querySelectorAll('[data-settings-note] strong')).map((t) => t.textContent)],
       [false, ['0.40.13', '0.40.11'], ['Pin the models you come back to', 'Run Scan Disk once']]);
-check('with a short label', field('model_manager_page_size').querySelector('.mm-settings-label').textContent,
-      'Models per page');
+check('with its window name, not Forge\'s', nameOf('model_manager_page_size'), 'Models per page');
 
-// How many of Civitai's images load at once (#213): in the connection,
+// Tab headings inside a group (#320): settings for several tabs first, then
+// each tab's; a row's tag that repeats its heading is left out.
+const headingOf = (key) => {
+    let at = field(key)?.previousElementSibling;
+    while (at && !at.classList.contains('mm-settings-subheading')) at = at.previousElementSibling;
+    return at?.textContent ?? null;
+};
+const tagsOf = (key) => Array.from(field(key)?.querySelectorAll('.mm-settings-tag') || []).map((t) => t.textContent);
+const subheadings = (id) => Array.from(document.querySelectorAll(
+    `.mm-settings-section[data-section="${id}"] .mm-settings-subheading`)).map((h) => h.textContent);
+check('Pages and cards: shared across tabs first, then each tab in the WebUI\'s order',
+      subheadings('pages_and_cards'),
+      ['Shared across tabs', 'Generations Tab', 'Civitai Images Tab', 'Model Manager Tab', 'Civitai Browser Tab']);
+check('the two "Models per page" under their tabs\' headings, no tag repeating it',
+      [headingOf('model_manager_page_size'), headingOf('model_manager_civitai_page_size'),
+       tagsOf('model_manager_page_size'), tagsOf('model_manager_civitai_page_size')],
+      ['Model Manager Tab', 'Civitai Browser Tab', [], []]);
+check('a shared setting says the tabs it acts in', tagsOf('model_manager_card_videos_play'),
+      ['Model Manager Tab', 'Civitai Browser Tab']);
+check('no headings where every setting falls under one, nor in Tabs', [subheadings('downloads'), subheadings('tabs')], [[], []]);
+check('a state is a badge, not part of the name',
+      [nameOf('model_manager_civitai_sfw_fill_page'),
+       field('model_manager_civitai_sfw_fill_page')?.querySelector('.mm-settings-badge')?.textContent],
+      ['Fill pages while hiding NSFW models', 'Not recommended']);
+
+// How many of Civitai's images load at once (#213): in the account group,
 // shown with or without a key, a box with no slider.
 const AT_ONCE = 'model_manager_civitai_images_at_once';
-check('Civitai images at once: in the connection, with its label, shown without a key',
-      [field(AT_ONCE)?.closest('.mm-settings-section')?.dataset.section,
-       field(AT_ONCE)?.querySelector('.mm-settings-label')?.textContent, shown(AT_ONCE)],
-      ['connection', 'Civitai images loading at once, at most', true]);
+const greyed = (key) => Boolean(field(key)?.classList.contains('mm-settings-off'));
+const why = (key) => field(key)?.querySelector('.mm-settings-under')?.textContent ?? '';
+check('Civitai images at once: in Civitai account, with its name, shown without a key',
+      [field(AT_ONCE)?.closest('.mm-settings-section')?.dataset.section, nameOf(AT_ONCE), shown(AT_ONCE), greyed(AT_ONCE)],
+      ['civitai_account', 'Images loading at once', true, false]);
 check('a number box, no slider', [!!field(AT_ONCE)?.querySelector('input[type="number"]'),
                                   !!field(AT_ONCE)?.querySelector('input[type="range"]')], [true, false]);
 
-// How many downloads run at once (#279): in the connection, right after
-// Requests per second, shown without a key - a download needs none - a slider.
+// How many downloads run at once (#279): first in Downloads, shown without a
+// key - a download needs none - a slider.
 const DOWNLOADS = 'model_manager_downloads_at_once';
-const connection = () => Array.from(document.querySelectorAll(
-    '.mm-settings-section[data-section="connection"] .mm-settings-field')).map((f) => f.dataset.key);
-check('Downloads at once: in the connection, after Requests per second, with its label, shown without a key',
-      [connection().indexOf(DOWNLOADS) - connection().indexOf('model_manager_civitai_requests_per_second'),
-       field(DOWNLOADS)?.querySelector('.mm-settings-label')?.textContent, shown(DOWNLOADS)],
-      [1, 'Downloads at once', true]);
+const groupKeys = (id) => Array.from(document.querySelectorAll(
+    `.mm-settings-section[data-section="${id}"] .mm-settings-field`)).map((f) => f.dataset.key);
+check('Downloads at once: first in Downloads, with its name, shown without a key',
+      [groupKeys('downloads')[0], nameOf(DOWNLOADS), shown(DOWNLOADS)], [DOWNLOADS, 'Downloads at once', true]);
 check('a slider from 1 to 10', ['min', 'max'].map((a) => field(DOWNLOADS)?.querySelector('input[type="range"]')?.getAttribute(a)),
       ['1', '10']);
 
 // A file in parts (#282): the switch after Downloads at once, then how many
-// connections - a slider from 2, the switch being the only off - shown only
-// while the switch is on, its value kept while hidden.
+// connections, under it - a slider from 2, the switch being the only off -
+// greyed while the switch is off, saying why, its value kept (#320).
 const IN_PARTS = 'model_manager_download_in_parts';
 const CONNECTIONS = 'model_manager_connections_per_file';
-check('in parts: after Downloads at once, the switch, then the connections, with their labels',
-      [connection().slice(connection().indexOf(DOWNLOADS) + 1, connection().indexOf(DOWNLOADS) + 3),
-       [IN_PARTS, CONNECTIONS].map((k) => field(k)?.querySelector('.mm-settings-label')?.textContent)],
-      [[IN_PARTS, CONNECTIONS], ['Download large files in parts', 'Connections per file']]);
+check('in parts: after Downloads at once, the switch, then the connections under it, with their names',
+      [groupKeys('downloads').slice(1, 3), [IN_PARTS, CONNECTIONS].map(nameOf),
+       field(CONNECTIONS)?.classList.contains('mm-settings-child')],
+      [[IN_PARTS, CONNECTIONS], ['Download large files in parts', 'Connections per file'], true]);
 const connectionsSlider = () => field(CONNECTIONS)?.querySelector('input[type="range"]');
-check('the connections: a slider from 2 to 16, at 4, shown while the switch is on',
+check('the connections: a slider from 2 to 16, at 4, live while the switch is on',
       [connectionsSlider()?.getAttribute('min'), connectionsSlider()?.getAttribute('max'), connectionsSlider()?.value,
-       shown(CONNECTIONS)], ['2', '16', '4', true]);
+       shown(CONNECTIONS), greyed(CONNECTIONS), why(CONNECTIONS)], ['2', '16', '4', true, false, '']);
 tickTab(IN_PARTS, false);
-check('the switch off: the connections hidden, their value kept', [shown(CONNECTIONS), connectionsSlider()?.value],
-      [false, '4']);
+check('the switch off: the connections greyed, not hidden, saying why, their value kept',
+      [shown(CONNECTIONS), greyed(CONNECTIONS), why(CONNECTIONS), connectionsSlider()?.value],
+      [true, true, 'Applies while “Download large files in parts” is on.', '4']);
 tickTab(IN_PARTS, true);
-check('on again: shown', shown(CONNECTIONS), true);
+check('on again: live', [greyed(CONNECTIONS), why(CONNECTIONS)], [false, '']);
 
-// Send's highest clip skip (#339): shown only while Send takes the image's,
-// its value kept while hidden.
+// Send's highest clip skip (#339): under its switch, greyed while Send takes
+// no clip skip, its value kept.
 const CLIP_SKIP = 'model_manager_send_clip_skip';
 const CLIP_SKIP_MAX = 'model_manager_send_clip_skip_max';
 const highestSlider = () => field(CLIP_SKIP_MAX)?.querySelector('input[type="range"]');
-check('the highest clip skip: a slider from 1 to 12, at 6, shown while Send takes the image\'s',
+check('the highest clip skip: a slider from 1 to 12, at 6, live while Send takes the image\'s',
       [highestSlider()?.getAttribute('min'), highestSlider()?.getAttribute('max'), highestSlider()?.value,
-       shown(CLIP_SKIP_MAX)], ['1', '12', '6', true]);
+       shown(CLIP_SKIP_MAX), greyed(CLIP_SKIP_MAX)], ['1', '12', '6', true, false]);
 tickTab(CLIP_SKIP, false);
-check('the switch off: hidden, its value kept', [shown(CLIP_SKIP_MAX), highestSlider()?.value], [false, '6']);
+check('the switch off: greyed, its value kept', [shown(CLIP_SKIP_MAX), greyed(CLIP_SKIP_MAX), highestSlider()?.value],
+      [true, true, '6']);
 tickTab(CLIP_SKIP, true);
-check('on again: shown', shown(CLIP_SKIP_MAX), true);
+check('on again: live', greyed(CLIP_SKIP_MAX), false);
+
+// The tile reading, a choice of two saved as words, drawn as a switch.
+const READING = 'model_manager_generations_reading';
+check('reading tiles: a switch, on for Single pass, with its Alpha badge',
+      [field(READING)?.querySelector('input[type="checkbox"]')?.checked, nameOf(READING),
+       field(READING)?.querySelector('.mm-settings-badge')?.textContent], [true, 'Read tiles in one pass', 'Alpha']);
 
 // -------------------------------------------------------- what is shown
-check('requests per second is hidden without an API key',
-      shown('model_manager_civitai_requests_per_second'), false);
+check('requests per second is greyed without an API key, saying why',
+      [shown('model_manager_civitai_requests_per_second'), greyed('model_manager_civitai_requests_per_second'),
+       why('model_manager_civitai_requests_per_second')], [true, true, 'Applies once an API key is set.']);
 type(field('model_manager_civitai_api_key').querySelector('input'), 'a-new-key');
-check('and shown once one is typed', shown('model_manager_civitai_requests_per_second'), true);
+check('and live once one is typed', greyed('model_manager_civitai_requests_per_second'), false);
 
-check('with the word list, the trained model\'s share is hidden',
-      shown('model_manager_nsfw_prompt_model_percent'), false);
-check('the words are shown', shown('model_manager_nsfw_prompt_words'), true);
+check('with the word list, the trained model\'s share is greyed, saying for what',
+      [greyed('model_manager_nsfw_prompt_model_percent'), why('model_manager_nsfw_prompt_model_percent')],
+      [true, 'Applies while “Find explicit PG images with” is Trained model.']);
+check('the words are live', [shown('model_manager_nsfw_prompt_words'), greyed('model_manager_nsfw_prompt_words')],
+      [true, false]);
 pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'));
-check('with the trained model, its share is shown', shown('model_manager_nsfw_prompt_model_percent'), true);
-check('and the words still, since they apply with it too', shown('model_manager_nsfw_prompt_words'), true);
+check('with the trained model, its share is live', greyed('model_manager_nsfw_prompt_model_percent'), false);
+check('and the words still, since they apply with it too', greyed('model_manager_nsfw_prompt_words'), false);
 
-// The Generations tab's own explicit-images setting, under Your generations -
-// shown only while generations are recorded, there being no tab otherwise.
+// The Generations tab's own explicit-images setting, in What is hidden under
+// its tab's heading - shown only while generations are recorded, there being
+// no tab otherwise.
 const GEN_NSFW = 'model_manager_generations_hide_nsfw';
 const recording = () => field('model_manager_record_generations').querySelector('input[type="checkbox"]');
-check('the Generations tab\'s setting is in Your generations, with its label',
-      [field(GEN_NSFW)?.closest('.mm-settings-section')?.dataset.section,
-       field(GEN_NSFW)?.querySelector('.mm-settings-label')?.textContent],
-      ['generations', 'Generations: hide explicit images by default']);
+check('the Generations tab\'s setting is in What is hidden, under its tab, with its name',
+      [field(GEN_NSFW)?.closest('.mm-settings-section')?.dataset.section, headingOf(GEN_NSFW), nameOf(GEN_NSFW)],
+      ['hidden', 'Generations Tab', 'Hide explicit images at first']);
 check('shown while generations are recorded', shown(GEN_NSFW), true);
-// Whether a delete takes the files too, to begin with (#107): under it.
+// Whether a delete takes the files too, to begin with (#107): in
+// Generations, shared by the Generations tab and a model's Your generations.
 const GEN_DELETE = 'model_manager_generations_delete_files';
-const sectionKeys = (id) => Array.from(document.querySelectorAll(
-    `.mm-settings-section[data-section="${id}"] .mm-settings-field`)).map((f) => f.dataset.key);
-check('the delete setting is in Your generations, under the explicit-images one, with its label',
-      [sectionKeys('generations').slice(-2), field(GEN_DELETE)?.querySelector('.mm-settings-label')?.textContent],
-      [[GEN_NSFW, GEN_DELETE], 'Delete: also delete the image files, by default']);
+check('the delete setting is in Generations, shared across tabs, with its name and tabs',
+      [field(GEN_DELETE)?.closest('.mm-settings-section')?.dataset.section, headingOf(GEN_DELETE), nameOf(GEN_DELETE),
+       tagsOf(GEN_DELETE)],
+      ['your_generations', 'Shared across tabs', 'Tick "also delete the files"', ['Generations Tab', 'Model Manager Tab']]);
 check('shown while generations are recorded, too', shown(GEN_DELETE), true);
 
-// Images as uploaded, not resized (#192): both in Shared, which every tab
-// that shows Civitai's images opens.
-check('the two image-size settings are in Shared, with their labels',
+// Images as uploaded, not resized (#192): both in Pages and cards, shared.
+check('the two image-size settings are in Pages and cards, shared, with their names',
       ['model_manager_gallery_originals', 'model_manager_card_originals'].map((key) =>
-          [field(key)?.closest('.mm-settings-section')?.dataset.section,
-           field(key)?.querySelector('.mm-settings-label')?.textContent]),
-      [['gallery', 'Galleries and Civitai Images: load as uploaded, not resized'],
-       ['gallery', 'Model cards: load as uploaded, not resized']]);
+          [field(key)?.closest('.mm-settings-section')?.dataset.section, headingOf(key), nameOf(key)]),
+      [['pages_and_cards', 'Shared across tabs', 'Full-size images in galleries'],
+       ['pages_and_cards', 'Shared across tabs', 'Full-size images on cards']]);
 recording().checked = false;
 recording().dispatchEvent(new window.Event('change', { bubbles: true }));
 check('hidden when they are not', shown(GEN_NSFW), false);
@@ -390,10 +403,10 @@ check('each marked', ['model_manager_civitai_api_key', 'model_manager_nsfw_detec
     .every((k) => field(k).classList.contains('mm-settings-changed')), true);
 type(field('model_manager_nsfw_prompt_model_percent').querySelector('input[type="number"]'), '3');
 pick(field('model_manager_nsfw_detection').querySelector('input[data-index="1"]'));
-check('a hidden setting\'s change still counts', status(), '2 unsaved changes');
-check('as it would: it is hidden, and changed',
-      [shown('model_manager_nsfw_prompt_model_percent'),
-       field('model_manager_nsfw_prompt_model_percent').classList.contains('mm-settings-changed')], [false, true]);
+check('a greyed setting\'s change still counts', status(), '2 unsaved changes');
+check('as it would: it is greyed, and changed',
+      [greyed('model_manager_nsfw_prompt_model_percent'),
+       field('model_manager_nsfw_prompt_model_percent').classList.contains('mm-settings-changed')], [true, true]);
 
 const size = field('model_manager_page_size');
 type(size.querySelector('input[type="range"]'), '30');
@@ -448,10 +461,14 @@ check('Hide preview hides it', row().hidden, true);
 field('model_manager_card_size').querySelector('[data-w="160"]').click();
 
 // --------------------------------------------------------------- search
-type($('#mm_settings_search'), 'thumbnail');
+type($('#mm_settings_search'), 'least explicit');
 check('What\'s new is not a setting: a search leaves it out', whatsNew().hidden, true);
-check('searching shows only what matches',
-      ORDER.filter(shown), ['model_manager_preview_least_nsfw']);
+check('searching shows only what matches', ORDER.filter(shown), ['model_manager_preview_least_nsfw']);
+// A tab's name finds the settings that act in it, by their tags (#320).
+type($('#mm_settings_search'), 'queue tab');
+check('a tab\'s name finds what acts in it', ORDER.filter(shown),
+      ['model_manager_queue_enabled', 'model_manager_database_path', 'model_manager_queue_inputs_dir',
+       'model_manager_queue_ask_above', 'model_manager_check_updates']);
 type($('#mm_settings_search'), '');
 
 // ------------------------------------------------------ closing, saving
@@ -734,50 +751,50 @@ const reopen = async (options) => {
 };
 await reopen();
 check('opened with nothing named, every section is collapsed', openSections(), []);
+// The groups holding a setting that acts in the tab (#320): not Tabs, nor
+// the database file and the update check, which act in every tab.
 const TAB_SECTIONS = {
-    model_manager: ['connection', 'model_manager', 'gallery', 'generations', 'nsfw', 'storage'],
-    civitai_browser: ['connection', 'civitai_browser', 'gallery', 'nsfw', 'advanced'],
-    generations: ['generations', 'nsfw'],
+    model_manager: ['civitai_account', 'downloads', 'pages_and_cards', 'hidden', 'your_generations', 'files',
+                    'sync_and_queue'],
+    civitai_browser: ['civitai_account', 'downloads', 'pages_and_cards', 'hidden', 'sync_and_queue'],
+    generations: ['pages_and_cards', 'hidden', 'your_generations', 'files'],
 };
 for (const [tab, sections] of Object.entries(TAB_SECTIONS)) {
     await reopen({ tab });
     check(`from the ${tab} tab's gear, its sections are open, the rest collapsed`,
           openSections(), present().filter((id) => sections.includes(id)));
 }
-check('What\'s new and the text encoder table never open from a gear',
-      [$('[data-whats-new]').hasAttribute('open'), openSections().includes('modules')], [false, false]);
+check('What\'s new and Send, with the text encoder table, never open from a gear',
+      [$('[data-whats-new]').hasAttribute('open'), openSections().includes('send')], [false, false]);
 const scrolled = [];
 window.HTMLElement.prototype.scrollIntoView = function() { scrolled.push(this.dataset.section); };
-await reopen({ section: 'nsfw' });
-check('from a note\'s button, only the section it is about, scrolled to', [openSections(), scrolled],
-      [['nsfw'], ['nsfw']]);
+await reopen({ section: 'hidden' });
+check('from a note\'s button, only the group it is about, scrolled to', [openSections(), scrolled],
+      [['hidden'], ['hidden']]);
 
-// Thumbnails (#5): where and how many, only while they are made; the folder
-// only for thumbnails kept in one. The server now has the four.
-const PLACES = [['In a folder', 'In a folder'], ['Beside each image', 'Beside each image']];
-Object.assign(SETTINGS, {
-    model_manager_thumbnails: setting('bool', true),
-    model_manager_thumbnails_place: setting('choice', 'In a folder', { choices: PLACES }),
-    model_manager_thumbnails_folder: setting('text', ''),
-    model_manager_thumbnail_threads: setting('number', 0, { minimum: 0, maximum: 64, step: 1 }),
-});
+// Thumbnails (#5): where and how many, under the switch that makes them; the
+// folder under keeping them in one - greyed while that is not so, saying why
+// (#320), and none of them while nothing is recorded.
 const THUMBS = ['model_manager_thumbnails', 'model_manager_thumbnails_place', 'model_manager_thumbnails_folder',
                 'model_manager_thumbnail_threads'];
-ORDER.push(...THUMBS);
 await reopen({ tab: 'generations' });
 const tickThumbs = (on) => {
     const box = field('model_manager_thumbnails').querySelector('input[type="checkbox"]');
     box.checked = on;
     box.dispatchEvent(new window.Event('change', { bubbles: true }));
 };
-check('making thumbnails, in a folder: all four shown', THUMBS.map(shown), [true, true, true, true]);
+check('making thumbnails, in a folder: all four shown, none greyed', [THUMBS.map(shown), THUMBS.map(greyed)],
+      [[true, true, true, true], [false, false, false, false]]);
 pick(field('model_manager_thumbnails_place').querySelector('input[data-index="1"]'));
-check('beside each image: the folder hidden, the rest shown', THUMBS.map(shown), [true, true, false, true]);
+check('beside each image: the folder greyed, saying why', [THUMBS.map(greyed), why('model_manager_thumbnails_folder')],
+      [[false, false, true, false], 'Applies while \u201cWhere thumbnails are kept\u201d is In a folder.']);
 pick(field('model_manager_thumbnails_place').querySelector('input[data-index="0"]'));
 tickThumbs(false);
-check('not making them: only the switch shown', THUMBS.map(shown), [true, false, false, false]);
+check('not making them: the three under it greyed, the folder saying the switch is why',
+      [THUMBS.map(greyed), why('model_manager_thumbnails_folder')],
+      [[false, true, true, true], 'Applies while \u201cMake thumbnails\u201d is on.']);
 tickThumbs(true);
-check('ticked again: all four back', THUMBS.map(shown), [true, true, true, true]);
+check('ticked again: all four live', THUMBS.map(greyed), [false, false, false, false]);
 tickTab('model_manager_record_generations', false);
 check('nothing recorded: none of the four', THUMBS.map(shown), [false, false, false, false]);
 tickTab('model_manager_record_generations', true);
@@ -785,10 +802,10 @@ tickTab('model_manager_record_generations', true);
 // "Your generations" is a model's section in the Model Manager. The settings
 // for the Generations tab and the recorder say "Generations", in the window
 // and on the WebUI's own Settings page.
-const sectionTitle = $('[data-section="generations"]')?.querySelector('summary')?.textContent.trim();
+const sectionTitle = $('[data-section="your_generations"]')?.querySelector('summary')?.textContent.trim();
 const recordLabel = $('[data-key="model_manager_record_generations"]')?.textContent.replace(/\s+/g, ' ').trim();
-const forgeLabels = [...readFileSync(`${ROOT}/model_manager/ui/settings.py`, 'utf8').matchAll(/label="([^"]*)"/g)]
-    .map((m) => m[1]);
+// Forge's names are the registry's page names now (#320).
+const forgeLabels = Object.values(ANSWER.settings).map((s) => s.label);
 check('the window names the section and its first setting "Generations"',
       [sectionTitle?.startsWith('Generations'), recordLabel?.startsWith('Generations')], [true, true]);
 check('no label on the Settings page says "Your generations"',

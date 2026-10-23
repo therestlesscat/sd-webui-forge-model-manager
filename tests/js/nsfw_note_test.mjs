@@ -50,7 +50,7 @@ $('mm_sfw_only').checked = true;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 check('   ticked, a banner says a trained model decides, and where to switch',
       [$('mm_sfw_only_banner').style.display,
-       $('mm_sfw_only_banner').textContent.includes('NSFW detection, in the settings (\u2699 at the top right of the tab)')],
+       $('mm_sfw_only_banner').textContent.includes('"Find explicit PG images with", in the settings (\u2699 at the top right of the tab)')],
       ['flex', true]);
 $('mm_sfw_only').checked = false;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));

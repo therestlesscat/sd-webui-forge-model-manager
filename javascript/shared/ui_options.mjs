@@ -235,7 +235,7 @@ export function start(scope) {
 // Text, not markup: some pages set it as textContent. So it says where the
 // setting is rather than linking to it.
 export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. '
-    + 'NSFW detection, in the settings (\u2699 at the top right of the tab), switches to a simple word list.';
+    + '"Find explicit PG images with", in the settings (\u2699 at the top right of the tab), switches to a simple word list.';
 
 let nsfwDetection = null;
 let nsfwDetectionAsked = null;

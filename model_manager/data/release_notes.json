@@ -1,5 +1,24 @@
 [
     {
+        "id": "settings-named",
+        "version": "0.68.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "queue",
+            "generations",
+            "gallery",
+            "model_manager",
+            "civitai_browser"
+        ],
+        "title": "Settings named by what they do",
+        "text": "Every setting now has a name that says what it does, in ten groups: Tabs, Civitai account, Downloads, Pages and cards, What is hidden, Send, Generations, Files and folders, Sync and queue, Updates. Inside a group, a setting for one tab sits under that tab's heading, and one that depends on a switch sits under it, greyed while the switch is off. Forge's Settings page lists them in the same groups, under Model Manager. Every setting keeps its value.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings"
+        }
+    },
+    {
         "id": "search-by-id",
         "version": "0.67.15",
         "kind": "feature",
@@ -28,7 +47,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         },
         "replaces": [
             "shared-database-0-65-0"
@@ -77,7 +96,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         },
         "replaces": [
             "shared-database-0-61-0"
@@ -96,7 +115,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "generations"
+            "section": "your_generations"
         }
     },
     {
@@ -138,7 +157,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         }
     },
     {
@@ -173,7 +192,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         },
         "replaces": [
             "shared-database-0-60-0"
@@ -207,7 +226,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         },
         "replaces": [
             "shared-database-0-59-10"
@@ -230,7 +249,7 @@
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "storage"
+            "section": "files"
         },
         "replaces": [
             "shared-database-0-58-9"
@@ -256,11 +275,11 @@
             "generations"
         ],
         "title": "Generations loads faster",
-        "text": "Each set of tiles now reads your images once instead of four times: grouped by base model, about five times faster. This is new and marked alpha. If tiles look wrong or a level does not load, set \"Generations: how tiles are read\" to Classic, and report it.",
+        "text": "Each set of tiles now reads your images once instead of four times: grouped by base model, about five times faster. This is new and marked alpha. If tiles look wrong or a level does not load, turn off \"Read tiles in one pass\", under Pages and cards, and report it.",
         "action": {
             "id": "settings",
             "label": "Open settings",
-            "section": "generations"
+            "section": "pages_and_cards"
         }
     },
   {
@@ -280,7 +299,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-58-4"
@@ -318,7 +337,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-58-1"
@@ -356,7 +375,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-58"
@@ -379,7 +398,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-56"
@@ -418,7 +437,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-52"
@@ -440,7 +459,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-50"
@@ -479,7 +498,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "queue"
+      "section": "sync_and_queue"
     }
   },
   {
@@ -509,7 +528,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-48"
@@ -545,7 +564,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-46"
@@ -566,7 +585,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database-0-45"
@@ -628,7 +647,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     },
     "replaces": [
       "shared-database"
@@ -689,7 +708,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "connection"
+      "section": "civitai_account"
     }
   },
   {
@@ -701,11 +720,11 @@
       "generations"
     ],
     "title": "This tab has its own setting for hiding explicit images",
-    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Generations: hide explicit images by default”, under Generations - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
+    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Hide explicit images at first”, under What is hidden, Generations Tab - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "generations"
+      "section": "hidden"
     }
   },
   {
@@ -740,7 +759,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "connection"
+      "section": "civitai_account"
     }
   },
   {
@@ -758,7 +777,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "storage"
+      "section": "files"
     }
   },
   {
@@ -837,7 +856,7 @@
     "action": {
       "id": "settings",
       "label": "Open settings",
-      "section": "generations"
+      "section": "your_generations"
     }
   }
 ]

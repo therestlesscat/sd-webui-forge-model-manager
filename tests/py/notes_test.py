@@ -75,9 +75,10 @@ notes_js = open(os.path.join(ROOT, 'javascript', 'shared', 'notes.mjs'), encodin
 block = re.search(r'const NOTE_ACTIONS = \{(.*?)\n\};', notes_js, re.S).group(1)
 check('the page knows every action a note can name, and no other',
       sorted(re.findall(r'^\s+(\w+):', block, re.M)), sorted(rn.ACTIONS))
-settings_js = open(os.path.join(ROOT, 'javascript', 'shared', 'settings.mjs'), encoding='utf-8').read()
-section_ids = set(re.findall(r"\{ id: '(\w+)', title:", settings_js))
-check('the settings window\'s sections have ids', len(section_ids) >= 8)
+# The window's groups are the registry's (#320).
+from model_manager.settings_registry import GROUPS                     # noqa: E402
+section_ids = {g.id for g in GROUPS}
+check('the settings window\'s groups have ids', len(section_ids) >= 8)
 for note in shipped:
     section = (note.get('action') or {}).get('section')
     check(f'{note["id"]}: opens a section the settings window has, if any', not section or section in section_ids)

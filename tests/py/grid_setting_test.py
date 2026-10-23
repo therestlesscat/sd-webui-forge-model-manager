@@ -108,18 +108,21 @@ try:
     ui_settings.on_ui_settings()
 finally:
     shared.opts, shared.OptionInfo, shared.OptionHTML = saved
-for key, label in ((GEN, 'Generations: grid'), (GAL, 'Civitai Images: grid')):
+# Named as the registry names them on Forge's page (#320).
+for key, label in ((GEN, 'Tiles the Generations Tab keeps on the page'),
+                   (GAL, 'Tiles the Civitai Images Tab keeps on the page')):
     info = registry.options.get(key)
     check('%s is registered' % key, info is not None)
     if info is None:
         continue
     check('%s: its label' % key, info.label, label)
-    check('%s: a dropdown of the two choices' % key,
+    check('%s: a dropdown of the two choices, each in words with its saved value' % key,
           (getattr(info.component, '__name__', ''), list((info.component_args or {}).get('choices', []))),
-          ('Dropdown', ['Fast', 'Classic']))
+          ('Dropdown', [('Only those near the view', 'Fast'), ('All of them', 'Classic')]))
     check('%s: its default is Fast' % key, info.default, 'Fast')
     check('%s: its line says what each choice does' % key,
-          ('Fast draws only the rows near the view' in info.text, 'Classic puts every tile on the page' in info.text),
+          ('Only those near the view: draws only the rows near' in info.text,
+           'All of them: puts every tile on the page' in info.text),
           (True, True))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
