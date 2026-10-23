@@ -9,7 +9,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING } = await shared('core.mjs');
+const { TIMING, settingLink } = await shared('core.mjs');
 
 /**
  * Show a tab's "no Civitai API key" banner, once both halves exist.
@@ -232,10 +232,10 @@ export function start(scope) {
 // wherever it decides what is hidden, the page says so and where to switch.
 // The word list says nothing: it does exactly what it says.
 
-// Text, not markup: some pages set it as textContent. So it says where the
-// setting is rather than linking to it.
-export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. '
-    + '"Find explicit PG images with", in the settings (\u2699 at the top right of the tab), switches to a simple word list.';
+// Markup: the setting it names is a link to it in the settings window
+// (#320), so every page puts it in as markup (setHtml, a banner's noteHtml).
+export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. For a simple word list, '
+    + `set ${settingLink('model_manager_nsfw_detection', 'Find explicit PG images with')} to Word list.`;
 
 let nsfwDetection = null;
 let nsfwDetectionAsked = null;
@@ -265,7 +265,7 @@ export async function galleryDefaults() {
              galleryFast: data?.gallery_grid !== 'Classic' };
 }
 
-/** The note, while the trained model is in force; '' otherwise, or before the answer. */
-export function nsfwModelNote() {
+/** The note, as markup, while the trained model is in force; '' otherwise, or before the answer. */
+export function nsfwModelNoteHtml() {
     return nsfwDetection === 'model' ? NSFW_MODEL_NOTE : '';
 }

@@ -233,9 +233,12 @@ document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 loaderAnswer = () => ({ pasted: true, clip_skip: { value: 10, yours: 2, highest: 6 } });
 await act('generations.send', { tile: 0 });
 await waitFor('the notice', () => document.querySelector('.mm-notice'));
-check('a clip skip above the highest: said left out, with the highest and the setting that applies',
-      document.querySelector('.mm-notice')?.textContent,
-      "The image's Clip skip 10 is above your highest of 6 (Settings), so your Clip Skip 2 applies.");
+const highestLink = document.querySelector('.mm-notice [data-action="settings.open"]');
+check('a clip skip above the highest: said left out, with the highest - a link to its setting (#320) - '
+      + 'and the setting that applies',
+      [document.querySelector('.mm-notice')?.textContent, highestLink?.textContent, highestLink?.dataset.focus],
+      ["The image's Clip skip 10 is above your Highest Clip skip of 6, so your Clip Skip 2 applies.",
+       'Highest Clip skip', 'model_manager_send_clip_skip_max']);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 loaderAnswer = () => ({ pasted: true });
 

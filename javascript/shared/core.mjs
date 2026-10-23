@@ -175,6 +175,14 @@ export function setText(element, text) {
     if (element && element.textContent !== text) element.textContent = text;
 }
 
+/** Markup, as setText: written only when it differs from what this last wrote. */
+export function setHtml(element, html) {
+    if (element && element.dataset.html !== html) {
+        element.innerHTML = html;
+        element.dataset.html = html;
+    }
+}
+
 export function setTitle(element, title) {
     if (element && element.title !== title) element.title = title;
 }
@@ -191,6 +199,16 @@ export function escapeHtml(text) {
  * data-action reads (shared/calls.mjs). A key is written as dataset reads it
  * back - versionId is data-version-id - and a value left out is not written.
  */
+/**
+ * Words that name a setting, as markup: a link that opens the settings
+ * window at it, scrolled to and marked (#320). A button, drawn as the words
+ * around it (`mm-banner-link`), so a middle click opens nothing.
+ */
+export function settingLink(key, words) {
+    return `<button type="button" class="mm-banner-link" data-action="settings.open"${
+        dataAttributes({ focus: key })}>${escapeHtml(words)}</button>`;
+}
+
 export function dataAttributes(data = {}) {
     return Object.entries(data)
         .filter(([, value]) => value !== undefined)

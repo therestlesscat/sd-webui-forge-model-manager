@@ -148,9 +148,9 @@ export function renderFilterBanner({ matching, total, onScreen, word = 'stored',
         + ` · ${matching} match the filters (${onScreen} shown)`
         + (clauses.length ? ` · ${clauses.join(', ')}` : '');
     // A switch can carry a note on what decides it: the NSFW one, while a
-    // trained model does.
-    const notes = offered.map((s) => s.note).filter(Boolean);
-    const sentence = counted + notes.map((n) => `<small class="filter-banner-note">${escapeHtml(n)}</small>`).join('');
+    // trained model does - markup, linking to its setting (#320).
+    const notes = offered.map((s) => s.noteHtml).filter(Boolean);
+    const sentence = counted + notes.map((n) => `<small class="filter-banner-note">${n}</small>`).join('');
 
     const controls = offered.length
         ? `<div class="filter-banner-switches">${offered.map((s) => `

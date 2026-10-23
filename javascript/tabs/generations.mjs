@@ -42,7 +42,7 @@ const { tabWork, available, open, unavailableReason } = await shared('loading.mj
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext, IMG2IMG_SENDS } = await shared('send.mjs');
 const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
-const { nsfwModelNote, galleryDefaults, shownPath } = await shared('ui_options.mjs');
+const { nsfwModelNoteHtml, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
@@ -591,7 +591,7 @@ function renderBanner() {
         switches: [{
             id: 'gen_show_nsfw', label: 'Show NSFW', reason: 'NSFW filter',
             showing: !hideNsfw, hidden: state.hidden_nsfw || 0, count: state.nsfw_count || 0,
-            action: 'generations.showNsfw', note: nsfwModelNote(),
+            action: 'generations.showNsfw', noteHtml: nsfwModelNoteHtml(),
         }],
     });
 }

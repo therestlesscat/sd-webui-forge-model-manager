@@ -18,6 +18,9 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 does, in ten groups by what the settings are for. Inside a group, a setting for one tab sits
 under that tab's heading, and one that depends on a switch sits under it, greyed while the
 switch is off. Forge's Settings page lists them in the same groups, under Model Manager.
+The window lists the groups beside the settings, each with its count; a tab's gear opens on
+that tab's settings, Changed lists what differs from its default, the search finds a setting
+by any of its words, and a notice that names a setting opens the window at it.
 
 **0.67 - Send, decided in one place.** What Send sets for an image is moving to one place on the
 server, starting with Civitai's images. Such an image now goes in at its picture's size when its
@@ -35,7 +38,7 @@ section turns it off.
 **0.64 - Large downloads, several times faster.** A large file from Civitai now downloads over
 several connections at once, each fetching a part of it. Civitai holds each connection to about
 60 MB/s, so a fast line gets a checkpoint several times sooner. Download large files in parts, in
-the settings' Civitai connection, turns it off; Connections per file says how many.
+the settings' Downloads, turns it off; Connections per file says how many.
 
 **0.63 - Hide the models you already have.** In the Civitai Browser, Hide models in my library,
 under Post-processing Options, leaves out every model marked Owned and fills the page from the
@@ -401,7 +404,11 @@ In the settings window - the gear at the top right of each tab - or under **Sett
 Model Manager**, in ten groups by what the settings are for. Both edit the same values; each
 setting is named there by what it does, and on Forge's page by a name that stands alone.
 Inside a group, a setting for one tab sits under that tab's heading, and one that depends
-on a switch sits under it, greyed while the switch is off. Each tab's switch comes first,
+on a switch sits under it, greyed while the switch is off. The window lists the groups on
+the left, each with the count of settings it shows; pressing one shows it alone. A tab's gear
+opens on that tab's settings, beside All settings; All / Changed lists only the settings
+that differ from their default, each with Reset; the search finds a setting by every word
+typed, in its names, its description and its tabs. Each tab's switch comes first,
 in the Tabs group: a tab switched off does nothing at all, and the window shows only the
 settings of the tabs that are on. One switched back on that
 needs a page reload or Reload UI to return says so, and offers it - beside **Restart WebUI**,

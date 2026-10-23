@@ -400,7 +400,7 @@ ok, progress = download(FakeResponse(error=http_error(401, LOGIN)))
 check('one asking for a login, with no key set, says so, and where a key goes', progress.error,
       'Civitai refused the download: The creator of this asset requires you to be logged in to download it. '
       'An API key logs you in. Add one in the settings (⚙ at the top right of the Model Manager or '
-      'Civitai Browser tab), under Civitai connection.')
+      'Civitai Browser tab), under Civitai account.')
 
 opts.model_manager_civitai_api_key = 'test-key'
 ok, progress = download(FakeResponse(error=http_error(401, LOGIN)))

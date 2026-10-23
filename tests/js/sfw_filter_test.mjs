@@ -110,12 +110,12 @@ await new Promise((r) => setTimeout(r, 50));
 check('with the word list judging, the banner says nothing of a trained model',
       $('cb_sfw_only_banner_model')?.textContent, '');
 check('and where to find the setting that fills every page, and that it is not recommended',
-      [settingNote.includes("Fill every page with 'Only Show Models with SFW images'"),
-       settingNote.includes('in the settings, under Advanced'), settingNote.includes('not recommended')],
-      [true, true, true]);
-check('with a link that opens the settings window there',
-      ['action', 'section'].map((key) => $('cb_sfw_only_banner_setting')?.querySelector('.mm-banner-link')?.dataset[key]),
-      ['settings.open', 'advanced']);
+      [settingNote.includes('Fill pages while hiding NSFW models in the settings, under What is hidden'),
+       settingNote.includes('not recommended')],
+      [true, true]);
+check('the setting a link that opens the settings window at it (#320)',
+      ['action', 'focus'].map((key) => $('cb_sfw_only_banner_setting')?.querySelector('.mm-banner-link')?.dataset[key]),
+      ['settings.open', 'model_manager_civitai_sfw_fill_page']);
 toggle('cb_sfw_only', false);
 check('unticking it takes the banner down', bannerShown(), false);
 

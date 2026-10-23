@@ -3585,12 +3585,24 @@ body.mm-modal-open {
     margin-top: 4px;
 }
 
-/* A banner's way to what it is about: "Set one in the settings". */
+/* A banner's way to what it is about: "Set one in the settings". A
+   <button> too, for a link to a setting (#320): drawn as the words around it. */
 .mm-banner-link {
     color: inherit;
     font-weight: 600;
     text-decoration: underline;
     cursor: pointer;
+}
+
+button.mm-banner-link {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    line-height: inherit;
 }
 
 .mm-banner-note:empty {
@@ -3637,9 +3649,10 @@ body.mm-modal-open {
    ============================================================ */
 
 .mm-dialog.mm-settings-dialog {
-    width: 60vw;
+    width: 80vw;
     min-width: min(560px, 100%);
-    max-width: 100%;
+    max-width: min(1100px, 100%);
+    height: 86vh;
     max-height: 86vh;
     padding: 0;
     display: flex;
@@ -3676,8 +3689,172 @@ body.mm-modal-open {
 
 .mm-settings-body {
     overflow-y: auto;
-    padding: 6px 20px 12px;
+    padding: 6px 18px 18px;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* #320: the window as the proof of concept drew it - the groups on the left,
+   each with its count, the settings on the right. */
+.mm-settings-panes {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
     flex: 1;
+    min-height: 0;
+}
+
+.mm-settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 6px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-color-primary, #374151);
+}
+
+.mm-settings-nav button {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--body-text-color, #1f2937);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mm-settings-nav button:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.dark .mm-settings-nav button:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.mm-settings-nav button[aria-current="true"] {
+    background: color-mix(in srgb, var(--primary-500, #3b82f6) 14%, transparent);
+    font-weight: 600;
+}
+
+.dark .mm-settings-nav button[aria-current="true"] {
+    background: color-mix(in srgb, var(--primary-500, #3b82f6) 24%, transparent);
+}
+
+.mm-settings-nav button[disabled] {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.mm-settings-count {
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.dark .mm-settings-count {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* Segmented: All / Changed, the band's two, a choice's options. */
+.mm-settings-seg {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.mm-settings-seg > button,
+.mm-settings-seg-option > span {
+    display: block;
+    margin: 0;
+    padding: 5px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--body-text-color, #1f2937);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.mm-settings-seg > button + button,
+.mm-settings-seg-option + .mm-settings-seg-option {
+    border-left: 1px solid var(--border-color-primary, #374151);
+}
+
+.mm-settings-seg-option {
+    position: relative;
+    display: block;
+    margin: 0;
+}
+
+.mm-settings-seg-option > input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mm-settings-seg > button[aria-pressed="true"],
+.mm-settings-seg-option > input:checked + span {
+    background: var(--primary-500, #3b82f6);
+    color: #fff !important;
+}
+
+.mm-settings-seg-option > input:focus-visible + span {
+    outline: 2px solid var(--primary-500, #3b82f6);
+    outline-offset: -2px;
+}
+
+.mm-settings-seg > button[aria-pressed="true"] .mm-settings-count {
+    color: inherit;
+    opacity: 0.85;
+}
+
+/* A tab's gear opens on that tab's settings, beside All settings (#320). */
+.mm-settings-band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0 4px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--primary-500, #3b82f6) 10%, transparent);
+    font-weight: 500;
+}
+
+.dark .mm-settings-band {
+    background: color-mix(in srgb, var(--primary-500, #3b82f6) 16%, transparent);
+}
+
+.mm-settings-band[hidden] {
+    display: none;
+}
+
+.mm-settings-seg-big > button {
+    padding: 7px 14px;
+    font-weight: 500;
+}
+
+.mm-settings-group-title {
+    margin: 16px 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.mm-settings-section:first-of-type .mm-settings-group-title {
+    margin-top: 8px;
+}
+
+.mm-settings-empty {
+    padding: 30px 10px;
+    opacity: 0.7;
 }
 
 .mm-settings-loading {
@@ -3685,60 +3862,162 @@ body.mm-modal-open {
     opacity: 0.7;
 }
 
-.mm-settings-section {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border-color-primary, #374151);
-}
-
-.mm-settings-section:last-child {
-    border-bottom: none;
-}
-
-.mm-settings-section > summary {
-    cursor: pointer;
-    margin: 0;
-    padding: 4px 0;
-}
-
 .mm-settings-fields {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 8px 0 4px;
 }
 
-/* A setting changed and not yet saved: a bar down its left edge. */
+/* A row (#320): the name, its badges and tags, and the description under it
+   on the left; the control on the right - or, too wide for that, across the
+   row under the description. A setting changed and not yet saved: a bar down
+   its left edge. */
 .mm-settings-field {
-    padding-left: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 18px;
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
     border-left: 2px solid transparent;
+}
+
+.mm-settings-field[hidden] {
+    display: none;
+}
+
+.mm-settings-name {
+    grid-column: 1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.mm-settings-name > .mm-settings-badge,
+.mm-settings-name > .mm-settings-tag {
+    margin-left: 0;
+}
+
+.mm-settings-badge[hidden] {
+    display: none;
+}
+
+.mm-settings-ctl {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.mm-settings-wide > .mm-settings-ctl {
+    grid-row: 1;
+}
+
+.mm-settings-field > .mm-settings-help,
+.mm-settings-field > .mm-settings-under {
+    grid-column: 1;
+    margin-top: 0;
+}
+
+/* Send's presets: their name and explanation drawn as a setting's name and
+   description - a row of their own, though no setting (#320). */
+.mm-settings-subheading.mm-settings-presets-head {
+    margin: 0;
+    padding: 12px 10px 4px 12px;
+    border-bottom: 0;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--body-text-color, #1f2937) !important;
+}
+
+.dark .mm-settings-subheading.mm-settings-presets-head {
+    color: var(--body-text-color, #f3f4f6) !important;
+}
+
+.mm-settings-fields > .mm-settings-intro {
+    margin: 0;
+    padding: 0 10px 12px 12px;
+    border-bottom: 1px solid var(--border-color-primary, #374151);
+    font-size: 13px;
+}
+
+/* The proof of concept's sizes: a name at 14 px, its description at 13. */
+.mm-settings-name > .mm-settings-label {
+    font-size: 14px;
+}
+
+.mm-settings-field > .mm-settings-help {
+    font-size: 13px;
+}
+
+.mm-settings-field > .mm-settings-wide-ctl,
+.mm-settings-field > .mm-settings-extra,
+.mm-settings-field > .mm-settings-error,
+.mm-settings-field > .mm-upkeep {
+    grid-column: 1 / -1;
+}
+
+.mm-settings-wide-ctl {
+    margin-top: 4px;
+}
+
+.mm-settings-ctl > .mm-settings-input {
+    width: 260px;
+}
+
+.mm-settings-ctl > .mm-settings-number {
+    flex-wrap: nowrap;
+}
+
+.mm-settings-ctl .mm-settings-range {
+    flex: none;
+    width: 140px;
+    min-width: 0;
+}
+
+.mm-settings-switch {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--primary-500, #3b82f6);
+}
+
+/* Changed: off its default, saved or not (#320). */
+.mm-settings-badge.mm-settings-badge-changed {
+    background: #e1f5ea;
+    color: #0b7a4b !important;
+}
+
+.dark .mm-settings-badge.mm-settings-badge-changed {
+    background: #13301f;
+    color: #5fd39a !important;
 }
 
 .mm-settings-field.mm-settings-changed {
     border-left-color: var(--primary-500, #3b82f6);
 }
 
-.mm-settings-label-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 6px;
+/* The setting a link opened the window at, for a moment (#320). */
+.mm-settings-field {
+    transition: background-color 0.6s;
+}
+
+.mm-settings-field.mm-settings-marked {
+    background-color: #fff4c2;
+}
+
+.dark .mm-settings-field.mm-settings-marked {
+    background-color: #3a3412;
 }
 
 .mm-settings-label {
     font-size: 13px;
     font-weight: 500;
-}
-
-.mm-settings-check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-}
-
-.mm-settings-check input {
-    margin: 0;
 }
 
 /* Reset is a text link, not a third button competing with Save; so is a
@@ -3804,7 +4083,7 @@ body.mm-modal-open {
     margin: 4px 0 -6px;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--border-color-primary, #374151);
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 600;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -3833,18 +4112,21 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af) !important;
 }
 
-.mm-settings-check-row {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: center;
+.mm-settings-field.mm-settings-child {
+    padding-left: 14px;
+    border-left-color: var(--border-color-primary, #374151);
 }
 
 .mm-settings-field.mm-settings-child-1 {
-    margin-left: 18px;
+    margin-left: 26px;
 }
 
 .mm-settings-field.mm-settings-child-2 {
-    margin-left: 36px;
+    margin-left: 52px;
+}
+
+.mm-settings-field.mm-settings-child.mm-settings-changed {
+    border-left-color: var(--primary-500, #3b82f6);
 }
 
 .mm-settings-field.mm-settings-off > :not(.mm-settings-under) {
@@ -3860,6 +4142,32 @@ body.mm-modal-open {
 
 .mm-settings-under:empty {
     display: none;
+}
+
+/* Under 720 px the groups wrap above the list, and a row's control goes
+   under its description (#320). */
+@media (max-width: 720px) {
+    .mm-settings-panes {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .mm-settings-nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-color-primary, #374151);
+    }
+
+    .mm-settings-field {
+        grid-template-columns: 1fr;
+    }
+
+    .mm-settings-ctl {
+        grid-column: 1;
+        grid-row: auto;
+        justify-content: flex-start;
+    }
 }
 
 /* Inputs take the dialog's colour through a translucent tint, as the Sync
@@ -3959,11 +4267,6 @@ textarea.mm-settings-input {
     display: none;
 }
 
-.mm-settings-choices {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
 
 .mm-settings-chips {
     display: flex;
@@ -4009,11 +4312,9 @@ textarea.mm-settings-input {
     font-size: 13px;
 }
 
-/* The base model a block is for: above its rows, and told apart from them. */
+/* A preset's name: a setting's name like any other (#320). */
 .mm-settings-module-title {
     font-size: 14px;
-    font-weight: 600;
-    color: var(--primary-500, #3b82f6);
 }
 
 .mm-settings-module-for {

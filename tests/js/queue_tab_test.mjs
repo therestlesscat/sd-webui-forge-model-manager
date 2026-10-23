@@ -421,6 +421,13 @@ runNextAnswers = [{ success: true, first: [], after: null, skipped: [], missing:
 if (runNextOf(19)) await act('queue.runNext', { task: 19 });
 check('not while the queue is stopping, and says so', text('queue_report'),
       'The queue is stopping: press Run next once it has stopped.');
+// The queue switched off meanwhile: its switch named as a link to it (#320).
+runNextAnswers = [{ success: true, first: [], after: null, skipped: [], missing: [], off: true }];
+if (runNextOf(19)) await act('queue.runNext', { task: 19 });
+const offLink = document.getElementById('queue_report')?.querySelector('[data-action="settings.open"]');
+check('the queue off: said, its switch a link opening the settings at it',
+      [text('queue_report'), offLink?.tagName, offLink?.dataset.focus],
+      ['The queue is off: Queue Tab, in the settings.', 'BUTTON', 'model_manager_queue_enabled']);
 
 LISTS.active = [task(16, 'running'), task(18, 'pending', { ahead: true }), task(19, 'pending')];
 STATUS = { ...STATUS, counts: { ...STATUS.counts, pending: 3 } };

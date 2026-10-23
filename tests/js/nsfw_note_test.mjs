@@ -48,10 +48,12 @@ await waitFor('the page to know which judges', () => $('mm_sfw_only_banner_model
 check('1. with the SFW filter off, no banner', $('mm_sfw_only_banner').style.display, 'none');
 $('mm_sfw_only').checked = true;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
-check('   ticked, a banner says a trained model decides, and where to switch',
+const switchLink = (where) => where?.querySelector('[data-action="settings.open"]');
+check('   ticked, a banner says a trained model decides, and where to switch - a link to the setting (#320)',
       [$('mm_sfw_only_banner').style.display,
-       $('mm_sfw_only_banner').textContent.includes('"Find explicit PG images with", in the settings (\u2699 at the top right of the tab)')],
-      ['flex', true]);
+       $('mm_sfw_only_banner').textContent.includes('For a simple word list, set Find explicit PG images with to Word list.'),
+       switchLink($('mm_sfw_only_banner'))?.dataset.focus],
+      ['flex', true, 'model_manager_nsfw_detection']);
 $('mm_sfw_only').checked = false;
 $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 check('   and it goes when the box is unticked', $('mm_sfw_only_banner').style.display, 'none');
@@ -69,8 +71,10 @@ await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card'
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the gallery', () => document.querySelector('#mm_images .mm-nsfw-warning'));
 const banner = document.querySelector('#mm_images .mm-nsfw-warning');
-check('2. the gallery\'s filter banner says it too, under the count',
+check('2. the gallery\'s filter banner says it too, under the count, the setting a link',
       [banner?.textContent.includes('2 hidden due to NSFW filter'),
-       banner?.querySelector('.filter-banner-note')?.textContent.includes(NOTE)], [true, true]);
+       banner?.querySelector('.filter-banner-note')?.textContent.includes(NOTE),
+       switchLink(banner?.querySelector('.filter-banner-note'))?.dataset.focus],
+      [true, true, 'model_manager_nsfw_detection']);
 
 done();

@@ -191,5 +191,33 @@ check('every saved value read as it was saved', [k for k in keys if after[k] != 
 check('every saved choice is one of its choices',
       [k for k in keys if choice_values[k] and after[k] not in choice_values[k]], [])
 
+# ------------------------------------------------- links into the window
+# Every group and setting the page opens the window at - a link's
+# data-section or data-focus, a call's section or focus, a note's section, a
+# setting a text links to - is the registry's. 0.68.0 renamed the groups, and
+# three links in the tabs' markup kept the old ids: they opened nothing (#320).
+import glob                                             # noqa: E402
+import re                                               # noqa: E402
+
+NAMED = [(r'data-section="([a-z_]+)"', 'group'), (r'data-focus="([a-z_]+)"', 'key'),
+         (r"settings\.open', \{[^}]*\bsection: '([a-z_]+)'", 'group'),
+         (r"settings\.open', \{[^}]*\bfocus: '([a-z_]+)'", 'key'),
+         (r'"section": "([a-z_]+)"', 'group'), (r"settingLink\('([a-z_]+)'", 'key'),
+         (r"_SETTING = '([a-z_]+)'", 'key')]
+sources = sorted(glob.glob(os.path.join(ROOT, 'model_manager', 'ui', '*.py'))
+                 + glob.glob(os.path.join(ROOT, 'javascript', '**', '*.mjs'), recursive=True)
+                 + [os.path.join(ROOT, 'model_manager', 'data', 'release_notes.json')])
+named, unknown = 0, []
+for path in sources:
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    for pattern, kind in NAMED:
+        for value in re.findall(pattern, text):
+            named += 1
+            if value not in (group_ids if kind == 'group' else keys):
+                unknown.append('%s: %s %s' % (os.path.relpath(path, ROOT), kind, value))
+check('every group and setting a link or a note opens the window at is the registry\'s', unknown, [])
+check('and the search found them: the three banners\' links, the notes, the links in text', named > 30, True)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -12,7 +12,7 @@
             "civitai_browser"
         ],
         "title": "Settings named by what they do",
-        "text": "Every setting now has a name that says what it does, in ten groups: Tabs, Civitai account, Downloads, Pages and cards, What is hidden, Send, Generations, Files and folders, Sync and queue, Updates. Inside a group, a setting for one tab sits under that tab's heading, and one that depends on a switch sits under it, greyed while the switch is off. Forge's Settings page lists them in the same groups, under Model Manager. Every setting keeps its value.",
+        "text": "Every setting now has a name that says what it does, in ten groups: Tabs, Civitai account, Downloads, Pages and cards, What is hidden, Send, Generations, Files and folders, Sync and queue, Updates. Inside a group, a setting for one tab sits under that tab's heading, and one that depends on a switch sits under it, greyed while the switch is off. Forge's Settings page lists them in the same groups, under Model Manager. The window lists the groups beside the settings: a tab's \u2699 opens on that tab's settings, Changed lists what differs from its default, and the search finds a setting by any of its words. Every setting keeps its value.",
         "action": {
             "id": "settings",
             "label": "Open settings"

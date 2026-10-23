@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, formatBytes } = await shared('core.mjs');
+const { TIMING, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
@@ -41,14 +41,19 @@ const K = {
     database: 'model_manager_database_path',
 };
 const MODULES_PREFIX = 'model_manager_modules_';
+// Send's presets, after its other settings under a name of their own, drawn
+// as a setting's, with the explanation as its description (#320).
+const MODULES_HEADING = 'Text encoders and VAE';
 const MODULES_INTRO = 'Automatic is what Send picks by itself. Choose a file to use that one instead. A file '
     + 'chosen for one model is filled in for the others that use it, where nothing is chosen yet.';
 // The Tabs group's switches are named by their tabs; nothing in it is put
 // under a tab's heading.
 const TABS_GROUP = 'tabs';
 const SHARED_HEADING = 'Shared across tabs';
-// Send's tag: no tab, it goes from any of them.
-const SEND_TAG = 'send';
+// How long a setting a link opened at stays marked (#320).
+const MARKED_MS = 2000;
+// Controls too wide for the row's right-hand column, drawn across it (#320).
+const WIDE_KINDS = ['cardsize', 'folder', 'secret', 'database', 'words'];
 
 /** Controls that suit a setting better than its kind's default one. */
 const CONTROLS = {
@@ -87,6 +92,14 @@ function createSettings() {
     let root = null;
     let shown = null;               // the window's handle in the dialog container, while open (#292)
     let saving = false;
+    // What the list shows (#320): 'tab' - the settings tagged with the tab
+    // whose gear opened it - or 'all', with the band; null, opened from
+    // anywhere else, no band. And whether only those off their default show.
+    let band = null;
+    let changedOnly = false;
+    // A group pressed on the left, shown alone - or 'whats-new'; null, all.
+    let picked = null;
+    let groupCounts = {};            // each group's settings shown now, for the left pane
     // The text encoder and VAE table, by setting: forge_modules' description
     // of each preset this WebUI has, with the window's edits. null when the
     // server could not describe them, and the settings show as text instead.
@@ -116,23 +129,44 @@ function createSettings() {
     }
 
     /**
-     * The groups, in the registry's order, each with its settings and the
-     * tabs whose gear opens it: those its settings act in - not the Tabs
-     * group, nor a setting of every tab (the database file, the update
-     * check), which would open for each. A preset this WebUI does not have is
-     * left out, not offered.
+     * The groups, in the registry's order, each with its settings. A preset
+     * this WebUI does not have is left out, not offered.
      */
     function sectionsWithKeys() {
-        const tabIds = Object.keys(meta.tag_labels).filter((tag) => tag !== SEND_TAG);
         return meta.groups.map((group) => {
             const keys = meta.order.filter((k) => meta.settings[k].group === group.id
                 && !(k.startsWith(MODULES_PREFIX) && modules && !(k in modules)));
-            const tabs = group.id === TABS_GROUP ? [] : [...new Set(keys.flatMap((k) => {
-                const own = (meta.settings[k].tags || []).filter((tag) => tabIds.includes(tag));
-                return own.length === tabIds.length ? [] : own;
-            }))];
-            return { id: group.id, title: group.label, tabs, keys };
+            return { id: group.id, title: group.label, keys };
         }).filter((s) => s.keys.length);
+    }
+
+    /** Whether a setting is at its default - a key unset, for the API key. */
+    function atDefault(key) {
+        const s = meta.settings[key];
+        return s.kind === 'secret' ? !state.hasKey() : same(draft[key], s.default);
+    }
+
+    /** Each tab's switch, from the Tabs group. */
+    function tabSwitches() {
+        const switchOf = {};
+        meta.order.forEach((k) => {
+            if (meta.settings[k].group === TABS_GROUP) switchOf[meta.settings[k].tags[0]] = k;
+        });
+        return switchOf;
+    }
+
+    /** Whether a setting shows with the tabs on as the window holds them: one it is shown with is on. */
+    function shownByTabs(key, switchOf = tabSwitches()) {
+        const needs = meta.settings[key]?.shown_with || [];
+        return !needs.length || needs.some((tab) => !switchOf[tab] || state.value(switchOf[tab]) !== false);
+    }
+
+    /** The settings drawn, as the band would count them: the tab's, or all. */
+    function countFor(which) {
+        const switchOf = tabSwitches();
+        return [...root.querySelectorAll('.mm-settings-field[data-key]')].map((f) => f.dataset.key)
+            .filter((k) => shownByTabs(k, switchOf)
+                && (which !== 'tab' || (meta.settings[k].tags || []).includes(openedFor.tab))).length;
     }
 
     /**
@@ -165,11 +199,20 @@ function createSettings() {
                 <div class="mm-settings-head">
                     <h3 id="mm_settings_title">Model Manager settings</h3>
                     <input type="search" class="mm-settings-search" id="mm_settings_search"
-                           placeholder="Search settings" aria-label="Search settings">
+                           placeholder="Search settings: names, descriptions, tabs" aria-label="Search settings">
+                    <div class="mm-settings-seg" role="group" aria-label="Which settings">
+                        <button type="button" data-act="changed" data-changed="false" id="mm_settings_all"
+                                aria-pressed="true">All</button>
+                        <button type="button" data-act="changed" data-changed="true" id="mm_settings_changed"
+                                aria-pressed="false" title="Only the settings that differ from their default">Changed</button>
+                    </div>
                     <button type="button" class="mm-modal-close" data-act="cancel"
                             title="Close" aria-label="Close">&times;</button>
                 </div>
-                <div class="mm-settings-body" id="mm_settings_body"></div>
+                <div class="mm-settings-panes">
+                    <nav class="mm-settings-nav" id="mm_settings_nav" aria-label="Groups"></nav>
+                    <div class="mm-settings-body" id="mm_settings_body"></div>
+                </div>
                 <div class="mm-settings-foot">
                     <span class="mm-settings-status" id="mm_settings_status"></span>
                     <div class="mm-dialog-actions">
@@ -184,34 +227,88 @@ function createSettings() {
         root.addEventListener('click', onClick);
         root.addEventListener('input', onInput);
         root.addEventListener('change', onInput);
-        root.querySelector('#mm_settings_search').addEventListener('input', applyVisibility);
+        root.querySelector('#mm_settings_search').addEventListener('input', () => {
+            // A search looks through every group, as the left pane's counts say.
+            picked = null;
+            applyVisibility();
+            refreshFilters();
+        });
     }
 
     function renderBody() {
         const body = root.querySelector('#mm_settings_body');
-        const shown = (section) => (openedFor.section ? section.id === openedFor.section
-            : (section.tabs || []).includes(openedFor.tab));
-        body.innerHTML = whatsNewSection() + sectionsWithKeys().map((section) => `
-            <details class="mm-settings-section" data-section="${escapeHtml(section.id)}" ${shown(section) ? 'open' : ''}>
-                <summary class="mm-dialog-heading">${escapeHtml(section.title)}</summary>
+        body.innerHTML = '<div class="mm-settings-band" id="mm_settings_band" hidden></div>'
+            + whatsNewSection() + sectionsWithKeys().map((section) => `
+            <section class="mm-settings-section" data-section="${escapeHtml(section.id)}">
+                <h4 class="mm-settings-group-title">${escapeHtml(section.title)}</h4>
                 <div class="mm-settings-fields">
                     ${headed(section).map(([heading, keys]) => (heading
         ? `<div class="mm-settings-subheading">${escapeHtml(heading)}</div>` : '')
         + keys.map((key) => (modules?.[key] && key === keys.find((k) => modules?.[k])
-            ? `<div class="mm-settings-help">${escapeHtml(MODULES_INTRO)}</div>` : '') + renderField(key)).join('')).join('')}
+            ? `<div class="mm-settings-subheading mm-settings-presets-head">${escapeHtml(MODULES_HEADING)}</div>
+               <div class="mm-settings-help mm-settings-intro">${escapeHtml(MODULES_INTRO)}</div>` : '')
+            + renderField(key)).join('')).join('')}
                 </div>
-            </details>`).join('');
+            </section>`).join('')
+            + '<div class="mm-settings-empty" id="mm_settings_empty" hidden>'
+            + 'No setting matches. Try fewer words, or clear the filters.</div>';
+        // A note's button shows its group alone; a link, its setting's (#320).
+        picked = openedFor.section || meta.settings[openedFor.focus]?.group || null;
         refresh();
         loadWhatsNew();
         upkeep.start();
         if (openedFor.section) body.querySelector(`[data-section="${openedFor.section}"]`)?.scrollIntoView?.({ block: 'start' });
         if (openedFor.focus) {
-            const field = body.querySelector(['input', 'textarea', 'select']
-                .map((tag) => `${tag}[data-key="${openedFor.focus}"]`).join(', '));
-            field?.closest('details')?.setAttribute('open', '');
+            const field = body.querySelector(`.mm-settings-field[data-key="${openedFor.focus}"]`);
             field?.scrollIntoView?.({ block: 'center' });
-            field?.focus?.();
+            // Marked for a moment, so the eye finds it - a link's setting (#320).
+            field?.classList.add('mm-settings-marked');
+            setTimeout(() => field?.classList.remove('mm-settings-marked'), MARKED_MS);
+            field?.querySelector(['input', 'textarea', 'select']
+                .map((tag) => `${tag}[data-key="${openedFor.focus}"]`).join(', '))?.focus?.();
         }
+    }
+
+    /**
+     * The band, All / Changed and the left pane, as the list now is (#320).
+     * The band and the pane are drawn again only when what they say changes.
+     */
+    function refreshFilters() {
+        const bar = root.querySelector('#mm_settings_band');
+        if (bar) {
+            bar.hidden = !band;
+            const label = meta.tag_labels?.[openedFor.tab] || openedFor.tab;
+            const button = (which, text) => `<button type="button" data-act="band" data-band="${which}"
+                    aria-pressed="${band === which}">${escapeHtml(text)} <span class="mm-settings-count">${
+                    countFor(which)}</span></button>`;
+            const html = band ? `<span>Showing</span><div class="mm-settings-seg mm-settings-seg-big" role="group"
+                    aria-label="Which settings to show">${button('tab', `${label} settings`)}${
+                    button('all', 'All settings')}</div>` : '';
+            if (bar.dataset.drawn !== html) {
+                bar.innerHTML = html;
+                bar.dataset.drawn = html;
+            }
+        }
+        const n = meta.order.filter((k) => root.querySelector(`.mm-settings-field[data-key="${k}"]`)
+            && !atDefault(k)).length;
+        setText(root.querySelector('#mm_settings_changed'), `Changed (${n})`);
+        root.querySelector('#mm_settings_changed').setAttribute('aria-pressed', String(changedOnly));
+        root.querySelector('#mm_settings_all').setAttribute('aria-pressed', String(!changedOnly));
+        const nav = root.querySelector('#mm_settings_nav');
+        const entry = (id, title, count) => `<button type="button" data-act="group" data-group="${escapeHtml(id)}"
+                aria-current="${picked === id}"${count === 0 ? ' disabled' : ''}><span>${escapeHtml(title)}</span>${
+                count === null ? '' : `<span class="mm-settings-count">${count}</span>`}</button>`;
+        const html = entry('whats-new', "What's new", null) + sectionsWithKeys()
+            .map((section) => entry(section.id, section.title, groupCounts[section.id] || 0)).join('');
+        if (nav.dataset.drawn !== html) {
+            nav.innerHTML = html;
+            nav.dataset.drawn = html;
+        }
+    }
+
+    /** What is typed in the search, word by word (#320): a setting shows when it holds every one. */
+    function searchWords() {
+        return (root.querySelector('#mm_settings_search').value || '').toLowerCase().split(/\s+/).filter(Boolean);
     }
 
     // "What's new": every note to the user that applies here, dismissed or
@@ -220,10 +317,10 @@ function createSettings() {
     // it out.
     function whatsNewSection() {
         return `
-            <details class="mm-settings-section" data-whats-new>
-                <summary class="mm-dialog-heading">What's new</summary>
+            <section class="mm-settings-section" data-whats-new>
+                <h4 class="mm-settings-group-title">What's new</h4>
                 <div class="mm-settings-fields" id="mm_settings_notes">Loading...</div>
-            </details>`;
+            </section>`;
     }
 
     async function loadWhatsNew() {
@@ -248,43 +345,52 @@ function createSettings() {
                 </div>`).join('')}`).join('') || 'Nothing yet.';
     }
 
+    /**
+     * A row, as the proof of concept drew it (#320): the name, its badges and
+     * tags, the description under it, and the control on the right - or, for
+     * a control too wide for that column, across the row under the
+     * description.
+     */
     function renderField(key) {
         if (modules?.[key]) return renderModules(key);
         const s = meta.settings[key];
         const control = { ...s, ...(CONTROLS[key] || {}) };
         const label = s.name || s.label;
         const id = `mms_${key}`;
-        const marks = markings(key, headingFor(key));
-        const inline = control.kind === 'bool' || control.switch;
-        const head = inline ? '' : `
-            <div class="mm-settings-label-row">
-                <span><label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>${marks}</span>
-                ${resetButton(key)}
-            </div>`;
+        const wide = WIDE_KINDS.includes(control.kind);
         const tags = (s.tags || []).map((tag) => meta.tag_labels[tag] || tag);
         const depth = depthOf(key);
+        const drawn = renderControl(key, control, id, label);
         return `
-            <div class="mm-settings-field${depth ? ` mm-settings-child mm-settings-child-${Math.min(depth, 2)}` : ''}"
+            <div class="mm-settings-field${depth ? ` mm-settings-child mm-settings-child-${Math.min(depth, 2)}` : ''}${
+                wide ? ' mm-settings-wide' : ''}"
                  data-key="${escapeHtml(key)}"
                  data-search="${escapeHtml([label, s.label, s.info || '', ...tags].join(' ').toLowerCase())}">
-                ${head}
-                ${renderControl(key, control, id, label, marks)}
+                <div class="mm-settings-name">
+                    <label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>${markings(key, headingFor(key))}
+                </div>
+                <div class="mm-settings-ctl">${wide ? '' : drawn}${resetButton(key)}</div>
+                ${s.info ? `<div class="mm-settings-help">${escapeHtml(s.info)}</div>` : ''}
                 ${s.under ? `<div class="mm-settings-under" data-under="${escapeHtml(key)}"></div>` : ''}
+                ${wide ? `<div class="mm-settings-wide-ctl">${drawn}</div>` : ''}
                 <div class="mm-settings-extra" data-extra="${escapeHtml(key)}"></div>
                 ${key === K.database ? '<div class="mm-upkeep" id="mm_settings_upkeep"></div>' : ''}
-                ${s.info ? `<div class="mm-settings-help">${escapeHtml(s.info)}</div>` : ''}
                 <div class="mm-settings-error" data-error="${escapeHtml(key)}"></div>
             </div>`;
     }
 
-    /** A setting's badges, then the tabs it acts in - but the one its heading names. */
+    /**
+     * A setting's badges, Changed while it differs from its default, then the
+     * tabs it acts in - but the one its heading names.
+     */
     function markings(key, heading) {
         const s = meta.settings[key];
         const badges = (s.badges || []).map((b) => `<span class="mm-settings-badge">${
             escapeHtml(meta.badge_labels?.[b] || b)}</span>`);
+        const changed = '<span class="mm-settings-badge mm-settings-badge-changed" hidden>Changed</span>';
         const tags = s.group === TABS_GROUP ? [] : (s.tags || []).map((tag) => meta.tag_labels[tag] || tag)
             .filter((tag) => tag !== heading).map((tag) => `<span class="mm-settings-tag">${escapeHtml(tag)}</span>`);
-        return [...badges, ...tags].join('');
+        return [...badges, changed, ...tags].join('');
     }
 
     /** How many settings deep it sits under switches. */
@@ -322,27 +428,21 @@ function createSettings() {
                         title="Back to the default">Reset</button>`;
     }
 
-    function renderControl(key, c, id, label, marks = '') {
+    function renderControl(key, c, id, label) {
         const v = draft[key];
-        const check = (on) => `
-                <div class="mm-settings-label-row">
-                    <span class="mm-settings-check-row">
-                        <label class="mm-settings-check">
-                            <input type="checkbox" id="${id}" data-key="${escapeHtml(key)}" ${on ? 'checked' : ''}>
-                            <span class="mm-settings-label">${escapeHtml(label)}</span>
-                        </label>${marks}
-                    </span>
-                    ${resetButton(key)}
-                </div>`;
+        const check = (on) => `<input type="checkbox" class="mm-settings-switch" id="${id}"
+                                      data-key="${escapeHtml(key)}" ${on ? 'checked' : ''}>`;
         // A choice of two the window draws as a switch: on is its first (#320).
         if (c.switch) return check(same(v, c.switch[0]));
         switch (c.kind) {
         case 'bool':
             return check(v);
         case 'choice':
-            return `<div class="mm-settings-choices" role="radiogroup" id="${id}">
+            // Segmented, on one line (#320).
+            return `<div class="mm-settings-seg mm-settings-choices" role="radiogroup" id="${id}"
+                         aria-label="${escapeHtml(label)}">
                 ${c.choices.map(([text, value], i) => `
-                    <label class="mm-dialog-option">
+                    <label class="mm-settings-seg-option">
                         <input type="radio" name="${id}" data-key="${escapeHtml(key)}" data-index="${i}"
                                ${same(value, v) ? 'checked' : ''}>
                         <span>${escapeHtml(text)}</span>
@@ -458,17 +558,19 @@ function createSettings() {
                                aria-label="Remove ${escapeHtml(k.name)}">&times;</button>
                    </span>`).join('')}</div>` : ''}`;
         return `
-            <div class="mm-settings-field mm-settings-modules" data-key="${escapeHtml(key)}" data-search="${escapeHtml(search)}">
-                <div class="mm-settings-label-row">
-                    <span class="mm-settings-label mm-settings-module-title">${escapeHtml(m.label)}</span>
-                    <span>
-                        <button type="button" class="mm-settings-link" data-modules-text="${escapeHtml(key)}">${
-                            m.text ? 'Use the table' : 'Edit as text'}</button>
-                        ${resetButton(key)}
-                    </span>
+            <div class="mm-settings-field mm-settings-modules mm-settings-wide" data-key="${escapeHtml(key)}"
+                 data-search="${escapeHtml(search)}">
+                <div class="mm-settings-name">
+                    <span class="mm-settings-label mm-settings-module-title">${escapeHtml(m.label)}</span>${
+                        markings(key, headingFor(key))}
+                </div>
+                <div class="mm-settings-ctl">
+                    <button type="button" class="mm-settings-link" data-modules-text="${escapeHtml(key)}">${
+                        m.text ? 'Use the table' : 'Edit as text'}</button>
+                    ${resetButton(key)}
                 </div>
                 ${m.note ? `<div class="mm-settings-help">${escapeHtml(m.note)}</div>` : ''}
-                ${body}
+                <div class="mm-settings-wide-ctl">${body}</div>
                 <div class="mm-settings-extra">${escapeHtml(m.message)}</div>
                 <div class="mm-settings-error" data-error="${escapeHtml(key)}"></div>
             </div>`;
@@ -691,11 +793,10 @@ function createSettings() {
         root.querySelectorAll('.mm-settings-field').forEach((field) => {
             const key = field.dataset.key;
             const s = meta.settings[key];
-            const atDefault = s.kind === 'secret'
-                ? !state.hasKey()
-                : same(draft[key], s.default);
             const reset = field.querySelector('.mm-settings-reset');
-            if (reset) reset.hidden = atDefault || s.kind === 'secret';
+            if (reset) reset.hidden = atDefault(key) || s.kind === 'secret';
+            const changed = field.querySelector('.mm-settings-badge-changed');
+            if (changed) changed.hidden = atDefault(key);
             field.classList.toggle('mm-settings-changed', changedKeys().includes(key));
             const error = field.querySelector('.mm-settings-error');
             error.textContent = errors[key] || '';
@@ -703,45 +804,53 @@ function createSettings() {
     }
 
     function applyVisibility() {
-        const query = (root.querySelector('#mm_settings_search').value || '').trim().toLowerCase();
-        // Each tab's switch, from the Tabs group: a setting is shown while a
-        // tab it needs is on, as the window holds them now.
-        const switchOf = {};
-        meta.order.forEach((k) => {
-            if (meta.settings[k].group === TABS_GROUP) switchOf[meta.settings[k].tags[0]] = k;
-        });
-        const tabOn = (tab) => !switchOf[tab] || state.value(switchOf[tab]) !== false;
+        const words = searchWords();
+        // A setting is shown while a tab it needs is on, as the window holds
+        // them now; then as the band, Changed and the search narrow it. A
+        // group pressed on the left shows alone; the counts are of them all.
+        const switchOf = tabSwitches();
+        groupCounts = {};
+        let anyShown = false;
         root.querySelectorAll('.mm-settings-section').forEach((section) => {
             if (section.hasAttribute('data-whats-new')) {
-                section.hidden = Boolean(query);
+                section.hidden = picked !== 'whats-new';
                 return;
             }
-            let any = false;
+            let count = 0;
             section.querySelectorAll('.mm-settings-field').forEach((field) => {
-                const s = meta.settings[field.dataset.key] || {};
-                const needs = s.shown_with || [];
-                const shown = (!needs.length || needs.some(tabOn))
-                    && (!query || field.dataset.search.includes(query));
+                const key = field.dataset.key;
+                const s = meta.settings[key] || {};
+                const shown = shownByTabs(key, switchOf)
+                    && (band !== 'tab' || (s.tags || []).includes(openedFor.tab))
+                    && (!changedOnly || !atDefault(key))
+                    && words.every((word) => field.dataset.search.includes(word));
                 field.hidden = !shown;
-                any = any || shown;
+                if (shown) count += 1;
                 const why = idleBecause(field.dataset.key);
                 field.classList.toggle('mm-settings-off', Boolean(why));
                 const note = field.querySelector(':scope > .mm-settings-under');
                 if (note && note.textContent !== why) note.textContent = why;
             });
-            // A tab's heading goes with the last of its settings.
+            // A heading goes with the last of its settings, and the text
+            // under it - Send's explanation of its presets - with it.
             section.querySelectorAll('.mm-settings-subheading').forEach((heading) => {
                 let next = heading.nextElementSibling;
                 let shownBelow = false;
+                const intros = [];
                 while (next && !next.classList.contains('mm-settings-subheading')) {
                     shownBelow = shownBelow || (next.classList.contains('mm-settings-field') && !next.hidden);
+                    if (next.classList.contains('mm-settings-intro')) intros.push(next);
                     next = next.nextElementSibling;
                 }
                 heading.hidden = !shownBelow;
+                intros.forEach((intro) => { intro.hidden = !shownBelow; });
             });
-            section.hidden = !any;
-            if (query && any) section.open = true;
+            groupCounts[section.dataset.section] = count;
+            section.hidden = !count || (picked !== null && picked !== section.dataset.section);
+            anyShown = anyShown || !section.hidden;
         });
+        const empty = root.querySelector('#mm_settings_empty');
+        if (empty) empty.hidden = anyShown || picked === 'whats-new';
     }
 
     function refreshFooter() {
@@ -755,6 +864,7 @@ function createSettings() {
         refreshExtras();
         refreshModified();
         applyVisibility();
+        refreshFilters();
         refreshFooter();
     }
 
@@ -815,6 +925,17 @@ function createSettings() {
         const act = t.dataset?.act;
         if (act === 'cancel') close();
         else if (act === 'save') save();
+        else if (act === 'band' || act === 'changed') {
+            if (act === 'band') band = t.dataset.band;
+            else changedOnly = t.dataset.changed === 'true';
+            picked = null;
+            refresh();
+        } else if (act === 'group') {
+            // Pressed, the group alone; pressed again, all of them (#320).
+            picked = picked === t.dataset.group ? null : t.dataset.group;
+            refresh();
+            root.querySelector('#mm_settings_body').scrollTop = 0;
+        }
         else if (act === 'reveal') {
             const input = t.parentElement.querySelector('input');
             input.type = input.type === 'password' ? 'text' : 'password';
@@ -906,15 +1027,19 @@ function createSettings() {
 
     /**
      * @param {{tab?: string, section?: string, focus?: string}} [options] - tab: the tab
-     *     whose gear it is ("model_manager", "civitai_browser",
-     *     "generations", "gallery"), whose groups are opened: those holding a
-     *     setting that acts in it; section: one group's id (settings_registry.GROUPS),
-     *     the only one opened, scrolled to - a note's button. Neither:
-     *     every section collapsed. focus: a setting's key, its field
-     *     focused - the database notice's button (#136).
+     *     whose gear it is ("queue", "generations", "gallery", "model_manager",
+     *     "civitai_browser"): the band shows the settings tagged with it, their
+     *     groups open, beside All settings (#320); section: one group's id
+     *     (settings_registry.GROUPS), the only one opened, scrolled to - a
+     *     note's button. Neither: every section collapsed. focus: a setting's
+     *     key, its group opened, scrolled to, marked for a moment and focused
+     *     - a link to it (#320), the database notice's button (#136).
      */
     async function open({ tab = null, section = null, focus = null } = {}) {
         openedFor = { tab, section, focus };
+        band = tab ? 'tab' : null;
+        changedOnly = false;
+        picked = null;
         if (!root) build();
         // In the dialog container: Esc, a click beside it, its × and Cancel
         // ask first if anything is unsaved; a save closes it without asking.
@@ -930,6 +1055,9 @@ function createSettings() {
         }
         const body = root.querySelector('#mm_settings_body');
         body.innerHTML = '<div class="mm-settings-loading">Loading settings...</div>';
+        const nav = root.querySelector('#mm_settings_nav');
+        nav.innerHTML = '';
+        nav.dataset.drawn = '';
         root.querySelector('#mm_settings_search').value = '';
         // The table reads file headers, the first time; the settings do not
         // wait for it, but the window draws once both have answered.

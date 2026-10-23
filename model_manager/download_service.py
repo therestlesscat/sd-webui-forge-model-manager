@@ -63,7 +63,7 @@ _clock = time.monotonic
 ON_ITS_WAY = ("pending", "downloading", "finishing", "paused")
 
 _ADD_A_KEY = ("Add one in the settings (⚙ at the top right of the Model Manager or Civitai Browser tab), "
-              "under Civitai connection.")
+              "under Civitai account.")
 
 
 def _civitai_message(body: str) -> str:
@@ -617,7 +617,7 @@ class DownloadService:
             return None
         if not api_key_from_settings():
             return ("This version is paid on Civitai. With an API key set (the settings, "
-                    "Civitai connection), a version you have bought downloads here.")
+                    "Civitai account), a version you have bought downloads here.")
         bought = (owned_versions([version_id]) or {}).get(version_id)
         if bought is False:
             return (("This version is paid on Civitai" if paid["permanent"] else

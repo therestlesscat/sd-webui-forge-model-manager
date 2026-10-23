@@ -29,7 +29,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
 const { tabWork, open } = await shared('loading.mjs');
-const { galleryDefaults, nsfwModelNote, asUploaded } = await shared('ui_options.mjs');
+const { galleryDefaults, nsfwModelNoteHtml, asUploaded } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
 const {
@@ -490,7 +490,7 @@ function renderBanner() {
         switches: [{
             id: 'gal_show_nsfw', label: 'Show NSFW', reason: 'NSFW filter',
             showing: !hideNsfw, hidden: state.hidden_nsfw || 0, count: state.nsfw_count || 0,
-            action: 'gallery.showNsfw', note: nsfwModelNote(),
+            action: 'gallery.showNsfw', noteHtml: nsfwModelNoteHtml(),
         }],
     });
 }

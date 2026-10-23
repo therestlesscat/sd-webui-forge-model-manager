@@ -47,7 +47,7 @@ const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_
     'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
-const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, setText, settingLink } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabShowing } = await shared('tabs.mjs');
 const { tabWork, queueEnabled, linkTo, open } = await shared('loading.mjs');
@@ -483,11 +483,14 @@ async function startQueue() {
     await refresh();
 }
 
+// The Queue Tab's switch, which Run next's "the queue is off" links to (#320).
+const QUEUE_SETTING = 'model_manager_queue_enabled';
+
 /** What Run next did: "Task #12 runs next, after task #10." */
 function runNextText(answer) {
     const skipped = skippedText(answer.skipped);
     const not = skipped ? ` Not run: ${skipped}.` : '';
-    if (answer.off) return 'The queue is off, in the settings.';
+    if (answer.off) return { html: `The queue is off: ${settingLink(QUEUE_SETTING, 'Queue Tab')}, in the settings.` };
     if (answer.stopping) return `The queue is stopping: press Run next once it has stopped.${not}`;
     const first = answer.first || [];
     if (!first.length) return `Nothing to run.${not}`;
@@ -526,9 +529,11 @@ async function control(action) {
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** How the last action went, under the status line. */
+/** What a press did, in the line above the list: text, or { html } where it links to a setting (#320). */
 function report(text) {
     const line = byId('queue_report');
-    setText(line, text);
+    if (text?.html !== undefined) line.innerHTML = text.html;
+    else setText(line, text);
     setShown(line, Boolean(text));
 }
 

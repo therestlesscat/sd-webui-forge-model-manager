@@ -97,9 +97,11 @@ if (button('Database settings')) {
 }
 window.HTMLElement.prototype.focus = realFocus;
 const field = document.querySelector('[data-key="model_manager_database_path"]');
-check('Database settings opens our settings window at the database path, its section open, the field focused',
-      [Boolean(field), field?.closest('details')?.hasAttribute('open'), focused.includes('model_manager_database_path')],
-      [true, true, true]);
+const section = field?.closest('.mm-settings-section');
+check('Database settings opens our settings window at the database path, its group shown alone (#320), the field focused',
+      [Boolean(field), section?.dataset.section, section?.hidden, document.querySelectorAll('.mm-settings-section[data-section]:not([hidden])').length,
+       focused.includes('model_manager_database_path')],
+      [true, 'files', false, 1, true]);
 
 // Saved with another file: the server opens it only at startup, so the
 // Restart WebUI is offered - the popup a tab switch offers (#186).

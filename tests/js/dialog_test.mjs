@@ -325,10 +325,10 @@ if (hasApiKey) {
     const bannerText = $('mm_api_key_warning').textContent;
     check('it says what is missing', bannerText.includes('No Civitai API key'), true);
     const link = $('mm_api_key_warning').querySelector('.mm-banner-link');
-    check('and exactly where to set it: a link opening the settings window there',
-        [bannerText.includes('Set one in the settings, under Civitai connection'), link?.dataset.action,
-         link?.dataset.section],
-        [true, 'settings.open', 'connection']);
+    check('and exactly where to set it: a link opening the settings window at the key (#320)',
+        [bannerText.includes('Set one in the settings, under Civitai account'), link?.tagName, link?.dataset.action,
+         link?.dataset.focus],
+        [true, 'BUTTON', 'settings.open', 'model_manager_civitai_api_key']);
     check('and what it costs', /0\.5 per second|image prompts/.test(bannerText), true);
 }
 

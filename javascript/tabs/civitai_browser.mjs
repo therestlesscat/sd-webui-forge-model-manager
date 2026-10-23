@@ -22,13 +22,13 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
     apiCall, apiCallTelling, readEvents, escapeHtml, dataAttributes, safeId, sanitizeHtml,
-    formatNumber, formatBytes: formatFileSize, formatDay: formatDate, setText, setTitle,
+    formatNumber, formatBytes: formatFileSize, formatDay: formatDate, setText, setHtml, setTitle,
 } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, galleryDefaults, refreshUiOptions, uiOptions, asUploaded, cardVideos,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNoteHtml, galleryDefaults, refreshUiOptions, uiOptions, asUploaded, cardVideos,
     ignoredTag, onSiteMarks,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -301,7 +301,7 @@ function syncSfwOnlyEnabled() {
         banner.style.display = sfwOnlyEnabled() ? 'flex' : 'none';
     }
     const note = document.getElementById('cb_sfw_only_banner_model');
-    setText(note, nsfwModelNote());
+    setHtml(note, nsfwModelNoteHtml());
 }
 
 // Is the prompt filter currently on?
@@ -1287,7 +1287,7 @@ function imagesBannerHtml() {
             { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: showAllNsfwImages, hidden: counts.hidden_nsfw || 0,
               count: counts.nsfw_count || 0,
-              action: 'civitaiBrowser.showAllImages', note: nsfwModelNote() },
+              action: 'civitaiBrowser.showAllImages', noteHtml: nsfwModelNoteHtml() },
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: showPromptlessImages, hidden: counts.hidden_promptless || 0,

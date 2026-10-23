@@ -22,7 +22,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, settingLink } = await shared('core.mjs');
 const { goToTab, showTab, IMG2IMG_MODES } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
@@ -33,6 +33,9 @@ const { videoFrames } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
+
+// The highest Clip skip Send takes from an image (#339), which its notice links to (#320).
+const CLIP_SKIP_MAX_SETTING = 'model_manager_send_clip_skip_max';
 
 /**
  * The ⋯ menu's sends into img2img (#299): each mode that takes a picture, by
@@ -1034,13 +1037,15 @@ async function stopForCheckpoint(img, model, version, problem) {
  * A notice in the corner, for twelve seconds. `info` is something to know
  * rather than something wrong: drawn and logged as such.
  */
-function showNotice(text, { info = false } = {}) {
+function showNotice(text, { info = false, html = null } = {}) {
     const notice = document.createElement('div');
     notice.className = info ? 'mm-notice mm-notice-info' : 'mm-notice';
-    notice.textContent = text;
+    // Markup, where it links to a setting (#320); the console gets its words.
+    if (html === null) notice.textContent = text;
+    else notice.innerHTML = html;
     document.body.appendChild(notice);
     setTimeout(() => notice.remove(), 12000);
-    (info ? console.log : console.warn)('[ModelManager]', text);
+    (info ? console.log : console.warn)('[ModelManager]', notice.textContent);
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -1280,25 +1285,28 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             // an upscaler, a detector - is said, and left as Forge's paste set
             // it; the files the loader kept the current choice for, after.
             const lacking = (answer.unavailable || []).map((u) => `${u.name} (${u.kind})`);
-            const said = [];
-            if (lacking.length) said.push(`${listNames(lacking)} ${lacking.length === 1 ? 'is' : 'are'} not in this WebUI.`);
+            const said = [];   // markup: the names escaped, a setting a link to it (#320)
+            if (lacking.length) {
+                said.push(escapeHtml(`${listNames(lacking)} ${lacking.length === 1 ? 'is' : 'are'} not in this WebUI.`));
+            }
             if (answer.missing?.length) {
-                said.push(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
-                          + 'this WebUI: the current choice is kept for it.');
+                said.push(escapeHtml(`${listNames(answer.missing)} ${answer.missing.length === 1 ? 'is' : 'are'} not in `
+                                     + 'this WebUI: the current choice is kept for it.'));
             }
             // The image's clip skip, put in the tab's Override settings by
             // the loader (#318): for its generations alone, the setting kept.
             // Above the setting's highest, left out (#339).
             if (answer.clip_skip?.highest != null) {
                 const { value, yours, highest } = answer.clip_skip;
-                said.push(`The image's Clip skip ${value} is above your highest of ${highest} (Settings), so `
-                          + `${yours == null ? 'your Clip Skip applies' : `your Clip Skip ${yours} applies`}.`);
+                said.push(`${escapeHtml(`The image's Clip skip ${value} is above your `)}${
+                    settingLink(CLIP_SKIP_MAX_SETTING, 'Highest Clip skip')}${escapeHtml(` of ${highest}, so `
+                    + `${yours == null ? 'your Clip Skip applies' : `your Clip Skip ${yours} applies`}.`)}`);
             } else if (answer.clip_skip) {
                 const { value, yours } = answer.clip_skip;
-                said.push(`Clip skip ${value}, the image's, for this tab's generations (Override settings)`
-                          + `${yours == null ? '' : `; your setting stays ${yours}`}.`);
+                said.push(escapeHtml(`Clip skip ${value}, the image's, for this tab's generations (Override settings)`
+                                     + `${yours == null ? '' : `; your setting stays ${yours}`}.`));
             }
-            if (said.length) showNotice(said.join(' '), { info: true });
+            if (said.length) showNotice(null, { info: true, html: said.join(' ') });
         }
         // A source's scheduler and Hires fix were set by the loader, in the
         // paste's own event (#302) - unless Forge's paste button pasted it.

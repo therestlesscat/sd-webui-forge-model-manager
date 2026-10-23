@@ -22,13 +22,13 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
     apiCall, apiCallTelling, escapeHtml, dataAttributes, safeId, sanitizeHtml, formatNumber, formatBytes,
-    formatDay, setText,
+    formatDay, setText, setHtml,
 } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
-    showApiKeyBanner, loadNsfwDetection, nsfwModelNote, refreshUiOptions, shownPath, uiOptions, asUploaded, cardVideos,
+    showApiKeyBanner, loadNsfwDetection, nsfwModelNoteHtml, refreshUiOptions, shownPath, uiOptions, asUploaded, cardVideos,
     ignoredTag,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
@@ -1960,7 +1960,7 @@ function imagesBannerHtml() {
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
-              action: 'modelManager.showNsfwImages', note: nsfwModelNote() },
+              action: 'modelManager.showNsfwImages', noteHtml: nsfwModelNoteHtml() },
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
@@ -2399,7 +2399,7 @@ function generationsBannerHtml() {
         switches: [
             { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
               showing: !hideNsfwImages, hidden: state.hidden_nsfw, count: state.nsfw_count,
-              action: 'modelManager.showNsfwImages', note: nsfwModelNote() },
+              action: 'modelManager.showNsfwImages', noteHtml: nsfwModelNoteHtml() },
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: state.hidden_promptless,
@@ -3117,8 +3117,8 @@ function syncSfwOnlyBanner() {
     const banner = document.getElementById('mm_sfw_only_banner');
     const note = document.getElementById('mm_sfw_only_banner_model');
     if (!banner || !note) return;
-    const text = nsfwModelNote();
-    setText(note, text);
+    const text = nsfwModelNoteHtml();
+    setHtml(note, text);
     banner.style.display = text && document.getElementById('mm_sfw_only')?.checked ? 'flex' : 'none';
 }
 
