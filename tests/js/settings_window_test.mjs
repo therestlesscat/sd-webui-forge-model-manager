@@ -415,7 +415,7 @@ const GEN_NSFW = 'model_manager_generations_hide_nsfw';
 const recording = () => field('model_manager_record_generations').querySelector('input[type="checkbox"]');
 check('the Generations tab\'s setting is in What is hidden, under its tab, with its name',
       [field(GEN_NSFW)?.closest('.mm-settings-section')?.dataset.section, headingOf(GEN_NSFW), nameOf(GEN_NSFW)],
-      ['hidden', 'Generations Tab', 'Hide explicit images at first']);
+      ['hidden', 'Generations Tab', 'Hide explicit images by default']);
 check('shown while generations are recorded', shown(GEN_NSFW), true);
 // Whether a delete takes the files too, to begin with (#107): in
 // Generations, shared by the Generations tab and a model's Your generations.

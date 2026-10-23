@@ -720,7 +720,7 @@
       "generations"
     ],
     "title": "This tab has its own setting for hiding explicit images",
-    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Hide explicit images at first”, under What is hidden, Generations Tab - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
+    "text": "Whether the Generations tab opens with explicit images hidden is now a setting of its own - “Hide explicit images by default”, under What is hidden, Generations Tab - instead of following the image gallery's. It started from what that one said, so nothing has changed until you change it.",
     "action": {
       "id": "settings",
       "label": "Open settings",

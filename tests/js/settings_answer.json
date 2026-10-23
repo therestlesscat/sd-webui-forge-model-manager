@@ -485,7 +485,7 @@
   },
   "model_manager_preview_least_nsfw": {
    "label": "Use a model's least explicit image as its card's cover",
-   "info": "On: each card shows the model's least explicit image. Off: its most recent one. Whether galleries hide explicit images is a setting of its own: Hide explicit images at first.",
+   "info": "On: each card shows the model's least explicit image. Off: its most recent one. Whether galleries hide explicit images is a setting of its own: Hide explicit images by default.",
    "kind": "bool",
    "default": true,
    "name": "Least explicit image as cover",
@@ -571,7 +571,7 @@
    "info": "How Civitai's images open: a model's image gallery, in the Model Manager and the Civitai Browser, and the Civitai Images tab - and a model's Your generations; the Generations tab has its own. The Show NSFW switch above the images shows them there. The Civitai Browser's Include NSFW models decides which models are listed, not which of their images are shown.",
    "kind": "bool",
    "default": true,
-   "name": "Hide explicit images at first",
+   "name": "Hide explicit images by default",
    "group": "hidden",
    "heading": "Shared across tabs",
    "tags": [
@@ -687,7 +687,7 @@
    "info": "About a tenth of Civitai's images carry no prompt at all, and they cannot be read or reused. Can be turned back on per model from the panel above the images. Model galleries only, in the Model Manager and the Civitai Browser: the Civitai Images tab shows every image.",
    "kind": "bool",
    "default": true,
-   "name": "Hide images with no prompt at first",
+   "name": "Hide images with no prompt by default",
    "group": "hidden",
    "heading": "Shared across tabs",
    "tags": [
@@ -705,10 +705,10 @@
   },
   "model_manager_generations_hide_nsfw": {
    "label": "Hide explicit images when the Generations Tab opens",
-   "info": "How the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images at first, in Shared across tabs.",
+   "info": "How the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, in Shared across tabs.",
    "kind": "bool",
    "default": true,
-   "name": "Hide explicit images at first",
+   "name": "Hide explicit images by default",
    "group": "hidden",
    "heading": "Generations Tab",
    "tags": [

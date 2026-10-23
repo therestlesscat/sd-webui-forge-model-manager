@@ -218,7 +218,7 @@ SETTINGS: Tuple[Setting, ...] = (
     Setting("model_manager_preview_least_nsfw", "pages_and_cards", "checkbox", "Least explicit image as cover",
             "Use a model's least explicit image as its card's cover",
             "On: each card shows the model's least explicit image. Off: its most recent one. Whether galleries hide "
-            "explicit images is a setting of its own: Hide explicit images at first.", (MM,)),
+            "explicit images is a setting of its own: Hide explicit images by default.", (MM,)),
     Setting("model_manager_civitai_page_size", "pages_and_cards", "slider", "Models per page",
             "Models per page in the Civitai Browser Tab", "How many models a page of the Civitai Browser shows.",
             (CB,), args={"minimum": 5, "maximum": 50, "step": 5}),
@@ -231,7 +231,7 @@ SETTINGS: Tuple[Setting, ...] = (
             (CB,), args={"placeholder": "200x280"}),
 
     # --------------------------------------------------- What is hidden
-    Setting("model_manager_gallery_hide_nsfw", "hidden", "checkbox", "Hide explicit images at first",
+    Setting("model_manager_gallery_hide_nsfw", "hidden", "checkbox", "Hide explicit images by default",
             "Hide explicit images when a gallery opens",
             "How Civitai's images open: a model's image gallery, in the Model Manager and the Civitai Browser, and the "
             "Civitai Images tab - and a model's Your generations; the Generations tab has its own. The Show NSFW switch "
@@ -260,15 +260,15 @@ SETTINGS: Tuple[Setting, ...] = (
             "list that comes with the extension, in model_manager/data/nsfw_prompt_words.txt. Stored images are judged "
             "again in the background when this changes.",
             (MM, CB, CI, GEN), args={"placeholder": "comma-separated words", "lines": 2}),
-    Setting("model_manager_hide_promptless_images", "hidden", "checkbox", "Hide images with no prompt at first",
+    Setting("model_manager_hide_promptless_images", "hidden", "checkbox", "Hide images with no prompt by default",
             "Hide images with no prompt when a gallery opens",
             "About a tenth of Civitai's images carry no prompt at all, and they cannot be read or reused. Can be turned "
             "back on per model from the panel above the images. Model galleries only, in the Model Manager and the "
             "Civitai Browser: the Civitai Images tab shows every image.", (MM, CB)),
-    Setting("model_manager_generations_hide_nsfw", "hidden", "checkbox", "Hide explicit images at first",
+    Setting("model_manager_generations_hide_nsfw", "hidden", "checkbox", "Hide explicit images by default",
             "Hide explicit images when the Generations Tab opens",
             "How the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened "
-            "again. A model's Your generations, in the Model Manager, follows the other Hide explicit images at first, "
+            "again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, "
             "in Shared across tabs.", (GEN,)),
     Setting("model_manager_civitai_min_prompt_images", "hidden", "slider", "Images with a prompt a model needs",
             "Images with a usable prompt a model needs to be shown",
@@ -432,7 +432,7 @@ _BARE_TAB = re.compile(r"\b(Queue|Generations|Civitai Images|Model Manager|Civit
 _PROPER = re.compile(r"\b(Queue Tab|Generations Tab|Civitai Images Tab|Model Manager Tab|Civitai Browser Tab|Civitai|"
                      r"Forge|Generate|Send|Clip Skip|Clip skip|API|NSFW|PG-13|PG|SFW|VAE|X|Model Manager|"
                      r"Flux\.1|Chroma|Flux\.2|Klein|Lumina|Image|Z-Image|Anima|Wan|Qwen-Image|Krea|ERNIE-Image|"
-                     r"PiD|Your generations|Sync images|Hide explicit images at first)\b")
+                     r"PiD|Your generations|Sync images|Hide explicit images by default)\b")
 
 
 def naming_problems(setting: Setting) -> List[str]:
