@@ -529,7 +529,21 @@ the stats off on most cards that had it. The owner's screenshot found it.
   part's code.** The restart popup said downloads "pause, and resume after";
   `restore()` brought them back paused, and forgot one never started (#187).
   A side agent's review found it after the commit, and two patches (0.51.7,
-  0.51.8) followed - the first one's wording unclear in turn.
+  0.51.8) followed - the first one's wording unclear in turn. So is a
+  setting's own text, in both places that draw it: a setting with `switch`
+  is an on/off box in the settings window and a dropdown of its choices on
+  Forge's Settings page. #346's agreed description of Read tiles in one pass
+  told the user to choose "Per tile", which the window never shows; found
+  while building, it became on/off before the commit.
+- **What the user reads is whole sentences, each with a start, an end and a
+  meaning.** #320's settings were written as notes - "On: ... Off: ...",
+  "Empty: a folder named ...", "0: as many as the machine has processors",
+  one opening "Its full path." - and the owner asked for text "human
+  readable, not machine": 48 of 62 descriptions and 17 names were rewritten
+  (#346, 0.68.8). A rule worth stating comes with an example: "Spaces and
+  characters a folder name cannot hold become underscores" drew "what does
+  this mean"; it became the base model SDXL 1.0 becoming the folder
+  SDXL_1.0.
 
 ## Versions
 

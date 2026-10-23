@@ -180,6 +180,12 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   (#321). And reading the box a few times does not clear a race: three such
   tries called #321 not reproduced, until the owner asked "are you sure way
   you check it is correct?".
+- **The settings window hides the settings of tabs that are off.** On 7870
+  it showed 30 of 62, the Send group disabled, and a first measurement of
+  name wrapping missed the longest name, 62 characters. Each name written
+  into one visible row's label, measured and put back covered all 62 without
+  changing a setting (#346: 416 px at most, against a 547 px column at a
+  1024 px screen).
 
 ## Kept elsewhere, and true here too
 
