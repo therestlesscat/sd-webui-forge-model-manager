@@ -92,7 +92,7 @@ BREAKS = {
     'a parenthesis': replace(base, page_name='Card size (WIDTHxHEIGHT)'),
     'Title Case': replace(base, name='Models Per Page'),
     'a tab named without "Tab"': replace(base, page_name='Models per page in the Model Manager tab'),
-    'a window name over 40 characters': replace(base, name='Models per page ' + 'x' * 30),
+    'a window name over 65 characters': replace(base, name='Models per page ' + 'x' * 55),
     'a page name over 60 characters': replace(base, page_name='Models per page in the Model Manager Tab ' + 'x' * 30),
 }
 for rule, broken in BREAKS.items():
@@ -159,7 +159,7 @@ check('each by its page name', [k for k in keys if page.options[k].label != reg.
 check('with its description', [k for k in keys if not k.startswith('model_manager_modules_')
                                and page.options[k].text != reg.by_key()[k].description], [])
 check('a choice in words, saved by its value', page.options['model_manager_generations_grid'].component_args['choices'],
-      [('Only those near the view', 'Fast'), ('All of them', 'Classic')])
+      [('Smooth: only nearby tiles', 'Fast'), ('Keep every tile', 'Classic')])
 check('the presets\' explanation heads Send\'s section', (
     page.options['model_manager_modules_explanation'].section,
     list(page.options).index('model_manager_modules_explanation')

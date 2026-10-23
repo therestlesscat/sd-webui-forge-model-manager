@@ -1446,7 +1446,7 @@ check('the retried one\'s turn asks Civitai again, then it downloads',
 civitai_pkg.CivitaiClient = real_client
 
 # ------------------------------------------ how many run at once, a setting (#279)
-# Downloads at once: 1 to 10, the same top as Civitai's requests per second.
+# How many downloads in parallel: 1 to 10, the same top as Civitai's requests per second.
 # The queue is made with it, and follows a change at once: a higher number
 # starts waiting downloads now; a lower one stops nothing, and starts none
 # until fewer than it run. It was 2, fixed in the code.

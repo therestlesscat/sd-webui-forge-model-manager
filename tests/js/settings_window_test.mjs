@@ -293,7 +293,7 @@ check('the Model Manager and the Civitai Browser off: every group stays, for Gen
 check('but their own settings go', shown('model_manager_page_size'), false);
 // Only a sync started in the Model Manager hashes several files at once;
 // every download's sync keeps a version's images, Send's too (#320, R6).
-check('Files hashed at once goes with the Model Manager; Images kept per version stays, for every download',
+check('Files hashed at once goes with the Model Manager; Number of images stored per version stays, for every download',
       [shown('model_manager_hash_threads'), shown('model_manager_sync_images_per_version')], [false, true]);
 tickTab('model_manager_record_generations', false);
 check('Generations off too: the groups with nothing left go',
@@ -343,7 +343,7 @@ check('no headings where every setting falls under one, nor in Tabs', [subheadin
 check('a state is a badge, not part of the name',
       [nameOf('model_manager_civitai_sfw_fill_page'),
        field('model_manager_civitai_sfw_fill_page')?.querySelector('.mm-settings-badge')?.textContent],
-      ['Fill pages while hiding NSFW models', 'Not recommended']);
+      ['Fill each page with models when hiding NSFW models', 'Not recommended']);
 
 // How many of Civitai's images load at once (#213): in the account group,
 // shown with or without a key, a box with no slider.
@@ -352,7 +352,7 @@ const greyed = (key) => Boolean(field(key)?.classList.contains('mm-settings-off'
 const why = (key) => field(key)?.querySelector('.mm-settings-under')?.textContent ?? '';
 check('Civitai images at once: in Civitai account, with its name, shown without a key',
       [field(AT_ONCE)?.closest('.mm-settings-section')?.dataset.section, nameOf(AT_ONCE), shown(AT_ONCE), greyed(AT_ONCE)],
-      ['civitai_account', 'Images loading at once', true, false]);
+      ['civitai_account', 'How many gallery images load in parallel', true, false]);
 check('a number box, no slider', [!!field(AT_ONCE)?.querySelector('input[type="number"]'),
                                   !!field(AT_ONCE)?.querySelector('input[type="range"]')], [true, false]);
 
@@ -361,17 +361,17 @@ check('a number box, no slider', [!!field(AT_ONCE)?.querySelector('input[type="n
 const DOWNLOADS = 'model_manager_downloads_at_once';
 const groupKeys = (id) => Array.from(document.querySelectorAll(
     `.mm-settings-section[data-section="${id}"] .mm-settings-field`)).map((f) => f.dataset.key);
-check('Downloads at once: first in Downloads, with its name, shown without a key',
-      [groupKeys('downloads')[0], nameOf(DOWNLOADS), shown(DOWNLOADS)], [DOWNLOADS, 'Downloads at once', true]);
+check('How many downloads in parallel: first in Downloads, with its name, shown without a key',
+      [groupKeys('downloads')[0], nameOf(DOWNLOADS), shown(DOWNLOADS)], [DOWNLOADS, 'How many downloads in parallel', true]);
 check('a slider from 1 to 10', ['min', 'max'].map((a) => field(DOWNLOADS)?.querySelector('input[type="range"]')?.getAttribute(a)),
       ['1', '10']);
 
-// A file in parts (#282): the switch after Downloads at once, then how many
+// A file in parts (#282): the switch after How many downloads in parallel, then how many
 // connections, under it - a slider from 2, the switch being the only off -
 // greyed while the switch is off, saying why, its value kept (#320).
 const IN_PARTS = 'model_manager_download_in_parts';
 const CONNECTIONS = 'model_manager_connections_per_file';
-check('in parts: after Downloads at once, the switch, then the connections under it, with their names',
+check('in parts: after How many downloads in parallel, the switch, then the connections under it, with their names',
       [groupKeys('downloads').slice(1, 3), [IN_PARTS, CONNECTIONS].map(nameOf),
        field(CONNECTIONS)?.classList.contains('mm-settings-child')],
       [[IN_PARTS, CONNECTIONS], ['Download large files in parts', 'Connections per file'], true]);
@@ -415,7 +415,7 @@ check('and live once one is typed', greyed('model_manager_civitai_requests_per_s
 
 check('with the word list, the trained model\'s share is greyed, saying for what',
       [greyed('model_manager_nsfw_prompt_model_percent'), why('model_manager_nsfw_prompt_model_percent')],
-      [true, 'Applies while “Find explicit PG images with” is Trained model.']);
+      [true, 'Applies while “How to catch explicit images rated PG” is Trained model.']);
 check('the words are live', [shown('model_manager_nsfw_prompt_words'), greyed('model_manager_nsfw_prompt_words')],
       [true, false]);
 pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'));
@@ -437,7 +437,7 @@ const GEN_DELETE = 'model_manager_generations_delete_files';
 check('the delete setting is in Generations, shared across tabs, with its name and tabs',
       [field(GEN_DELETE)?.closest('.mm-settings-section')?.dataset.section, headingOf(GEN_DELETE), nameOf(GEN_DELETE),
        tagsOf(GEN_DELETE)],
-      ['your_generations', 'Shared across tabs', 'Tick "also delete the files"', ['Generations Tab', 'Model Manager Tab']]);
+      ['your_generations', 'Shared across tabs', 'Delete files by default when deleting generations', ['Generations Tab', 'Model Manager Tab']]);
 check('shown while generations are recorded, too', shown(GEN_DELETE), true);
 
 // Images as uploaded, not resized (#192): both in Pages and cards, shared.
@@ -522,8 +522,8 @@ check('What\'s new is not a setting: a search leaves it out', whatsNew().hidden,
 check('searching shows only what matches', ORDER.filter(shown), ['model_manager_preview_least_nsfw']);
 // A tab's name finds the settings that act in it, by their tags (#320).
 type($('#mm_settings_search'), 'queue tab');
-// Word by word, two more hold both words apart: Images loading at once
-// ("queues the rest", "its tab's setting"), and Downloads at once ("in the
+// Word by word, two more hold both words apart: How many gallery images load in parallel
+// ("queues the rest", "the Civitai Images tab"), and How many downloads in parallel ("in the
 // queue", and "Tab" in its tags).
 check('a tab\'s name finds what acts in it', ORDER.filter(shown),
       ['model_manager_queue_enabled', 'model_manager_civitai_images_at_once', 'model_manager_downloads_at_once',
@@ -751,13 +751,13 @@ await waitFor('the save', () => saved.length === 5);
 check('ticked and saved, the delete setting is sent by its key', posted.at(-1),
       { model_manager_generations_delete_files: true });
 
-// Downloads at once, slid to 4 and saved (#279).
+// How many downloads in parallel, slid to 4 and saved (#279).
 await call('settings.open');
 const downloadsSlider = field(DOWNLOADS)?.querySelector('input[type="range"]');
 if (downloadsSlider) type(downloadsSlider, '4');
 $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 6);
-check('Downloads at once, saved as a number by its key', posted.at(-1), { model_manager_downloads_at_once: 4 });
+check('How many downloads in parallel, saved as a number by its key', posted.at(-1), { model_manager_downloads_at_once: 4 });
 
 // ------------------------------------------- from the WebUI's Settings page
 // Apply there saves through the same opts.set(), so the same pass runs. Its
@@ -939,7 +939,7 @@ pick(field('model_manager_thumbnails_place').querySelector('input[data-index="0"
 tickThumbs(false);
 check('not making them: the three under it greyed, the folder saying the switch is why',
       [THUMBS.map(greyed), why('model_manager_thumbnails_folder')],
-      [[false, true, true, true], 'Applies while \u201cMake thumbnails\u201d is on.']);
+      [[false, true, true, true], 'Applies while \u201cMake thumbnails by default\u201d is on.']);
 tickThumbs(true);
 check('ticked again: all four live', THUMBS.map(greyed), [false, false, false, false]);
 tickTab('model_manager_record_generations', false);

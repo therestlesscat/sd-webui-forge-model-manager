@@ -221,7 +221,7 @@ check('a box is a number with no maximum',
       {k: s.get('model_manager_civitai_images_at_once', {}).get(k) for k in ('kind', 'minimum', 'maximum', 'step', 'value')},
       {'kind': 'number', 'minimum': 1, 'maximum': None, 'step': 1, 'value': 64})
 check('the help text is the Settings page\'s, without its markup',
-      s['model_manager_hash_threads']['info'].startswith('How many model files to hash at once'), True)
+      s['model_manager_hash_threads']['info'].startswith('How many model files a sync hashes at the same time'), True)
 check('and no help text keeps a tag', any('<' in e['info'] for e in s.values()), False)
 check('the database in use is named', answer.get('database_in_use'), db.db_path)
 check('and how many words ship with the extension', isinstance(answer.get('bundled_nsfw_words'), int)

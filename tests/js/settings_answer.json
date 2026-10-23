@@ -2,7 +2,7 @@
  "settings": {
   "model_manager_queue_enabled": {
    "label": "Show the Queue Tab and its button beside Generate",
-   "info": "On: a Queue button beside Generate, in txt2img and img2img, keeps the generation as a task, and the Queue tab runs the tasks. Off: the tab and the buttons are hidden at once, and a running queue stops; from the next start neither is created at all. The tasks are kept, and come back when this is on again.",
+   "info": "When on, a Queue button appears beside Generate in txt2img and img2img. It saves the generation as a task instead of running it, and the Queue tab runs the saved tasks. When off, the tab and the buttons disappear at once and a running queue stops; from the next start of the WebUI they are not created at all. Your saved tasks are kept, and come back when you turn this on again.",
    "kind": "bool",
    "default": true,
    "name": "Queue Tab",
@@ -19,7 +19,7 @@
   },
   "model_manager_record_generations": {
    "label": "Record your generations and show the Generations Tab",
-   "info": "On: every txt2img and img2img result saved to disk is recorded with all its settings, and shown in the Generations tab and the gallery of each model it used. Off: nothing is recorded, and the Generations tab and each model's Your generations are hidden at once; from the next start the Generations tab is not created at all. What was recorded is kept, and comes back when this is on again.",
+   "info": "When on, every txt2img and img2img image saved to disk is recorded with all the settings that made it. Recorded images show in the Generations tab, and in the gallery of each model they used. When off, nothing new is recorded, and the Generations tab and each model's Your generations disappear at once; from the next start of the WebUI the Generations tab is not created at all. What was recorded is kept, and comes back when you turn this on again.",
    "kind": "bool",
    "default": true,
    "name": "Generations Tab",
@@ -36,7 +36,7 @@
   },
   "model_manager_gallery_tab": {
    "label": "Show the Civitai Images Tab",
-   "info": "On: the Civitai Images tab - the Civitai images stored for the models in your library, in an order its seed picks. Off: the tab is hidden at once and stops, and from the next start it is not created at all.",
+   "info": "When on, the Civitai Images tab shows the Civitai images stored for the models in your library, in an order set by its seed. When off, the tab disappears at once and stops, and from the next start of the WebUI it is not created at all.",
    "kind": "bool",
    "default": false,
    "name": "Civitai Images Tab",
@@ -53,7 +53,7 @@
   },
   "model_manager_model_manager_enabled": {
    "label": "Show the Model Manager Tab",
-   "info": "On: the Model Manager tab - your models, their details and galleries, and the sync with Civitai. Off: the tab is hidden at once and stops, and from the next start it is not created at all; a sync already running finishes. Your library is kept, and downloads still add to it.",
+   "info": "When on, the Model Manager tab shows your models with their details and galleries, and syncs them with Civitai. When off, the tab disappears at once and stops, and from the next start of the WebUI it is not created at all. A sync that is already running finishes. Your library is kept, and downloads still add to it.",
    "kind": "bool",
    "default": true,
    "name": "Model Manager Tab",
@@ -70,7 +70,7 @@
   },
   "model_manager_civitai_browser_enabled": {
    "label": "Show the Civitai Browser Tab",
-   "info": "On: the Civitai Browser tab - searching Civitai, and downloading from it. Off: the tab is hidden at once and stops, and from the next start it is not created at all; downloads already running finish.",
+   "info": "When on, the Civitai Browser tab lets you search Civitai and download from it. When off, the tab disappears at once and stops, and from the next start of the WebUI it is not created at all. Downloads that are already running finish.",
    "kind": "bool",
    "default": true,
    "name": "Civitai Browser Tab",
@@ -87,10 +87,10 @@
   },
   "model_manager_civitai_api_key": {
    "label": "Civitai API key",
-   "info": "Optional. Gives higher rate limits for requests to Civitai's API.",
+   "info": "Optional. With your Civitai API key, Civitai allows more requests to its API before it starts turning them away.",
    "kind": "secret",
    "default": "",
-   "name": "API key",
+   "name": "Civitai API key",
    "group": "civitai_account",
    "heading": "Shared across tabs",
    "tags": [
@@ -106,7 +106,7 @@
   },
   "model_manager_civitai_requests_per_second": {
    "label": "Requests to Civitai per second",
-   "info": "How fast to call Civitai's API when an API key is set. Higher is faster but more likely to be rate limited. Applies to the next search, download or sync; one already running keeps its rate.",
+   "info": "How many requests per second the extension sends to Civitai's API while an API key is set. A higher number is faster, but makes it more likely that Civitai turns requests away. A change applies to the next search, download or sync; one already running keeps its speed.",
    "kind": "number",
    "default": 6,
    "minimum": 1,
@@ -130,13 +130,13 @@
    "value": 6
   },
   "model_manager_civitai_images_at_once": {
-   "label": "Civitai images loading at once",
-   "info": "How many of Civitai's images the galleries load at once; the rest wait until one has loaded, nearest the screen first. Civitai makes resized copies at about 10 to 16 a second and queues the rest, and images asked for hundreds at once failed to load. Not a page size: a page still holds as many images as its tab's setting says.",
+   "label": "How many gallery images load in parallel",
+   "info": "When a model's gallery or the Civitai Images tab shows Civitai's images, your browser fetches each picture or video from Civitai's image server. This sets how many it fetches at the same time. The others wait their turn, and those nearest the screen go first. Civitai makes its resized copies at about 10 to 16 a second and queues the rest; when hundreds were asked for at once, many failed to load. It does not change how many images a page holds: each tab has its own setting for that.",
    "kind": "number",
    "default": 64,
    "minimum": 1,
    "step": 1,
-   "name": "Images loading at once",
+   "name": "How many gallery images load in parallel",
    "group": "civitai_account",
    "heading": "Shared across tabs",
    "tags": [
@@ -155,14 +155,14 @@
    "value": 64
   },
   "model_manager_downloads_at_once": {
-   "label": "Downloads running at once",
-   "info": "How many downloads run at the same time; the rest wait their turn in the queue. A fast connection may want more; a hard disk, a network drive or a slow connection may want 1. Start now still starts a waiting download over this number. Applies at once: a lower number lets the running downloads finish, and starts no new one until fewer run.",
+   "label": "How many downloads in parallel",
+   "info": "How many downloads run at the same time. The others wait their turn in the queue. A fast connection may want more; a hard disk, a network drive or a slow connection may want 1. Start now still starts a waiting download, even above this number. A change applies at once: a lower number lets the running downloads finish, and starts no new one until fewer are running.",
    "kind": "number",
    "default": 2,
    "minimum": 1,
    "maximum": 10,
    "step": 1,
-   "name": "Downloads at once",
+   "name": "How many downloads in parallel",
    "group": "downloads",
    "heading": "Shared across tabs",
    "tags": [
@@ -178,7 +178,7 @@
   },
   "model_manager_download_in_parts": {
    "label": "Download large files in parts",
-   "info": "Fetches a large file from Civitai over several connections at once, each fetching a part of it. Civitai's storage holds each connection to about 60 MB/s, so a faster line gets large files sooner. Off, every file downloads over one connection, as before. Applies to the next download, and to a paused one when it resumes.",
+   "info": "When on, a large file is downloaded from Civitai over several connections at once, each fetching a part of it. Civitai's storage limits each connection to about 60 MB/s, so a faster line gets large files sooner. When off, every file downloads over one connection. A change applies to the next download, and to a paused one when it resumes.",
    "kind": "bool",
    "default": true,
    "name": "Download large files in parts",
@@ -197,7 +197,7 @@
   },
   "model_manager_connections_per_file": {
    "label": "Connections per file, for files downloaded in parts",
-   "info": "How many connections a large file is fetched over. A part is at least 32 MB, so smaller files use fewer. Applies to the next download, and to a paused one when it resumes.",
+   "info": "How many connections a large file is downloaded over. Each part is at least 32 MB, so a smaller file uses fewer connections. A change applies to the next download, and to a paused one when it resumes.",
    "kind": "number",
    "default": 4,
    "minimum": 2,
@@ -222,7 +222,7 @@
   },
   "model_manager_civitai_folder_template": {
    "label": "Folder a download is filed into",
-   "info": "The folder a download is filed into, inside its type's folder. Placeholders: {baseModel}, {modelName}, {creator}, {modelId}.",
+   "info": "Where a downloaded model is saved, inside the folder Forge uses for its type: Stable-diffusion for checkpoints, Lora for LoRAs, and so on. Write a path, and add any of these to fill in the model's details: {baseModel} for its base model, {modelName} for its name, {creator} for its creator's user name and {modelId} for its Civitai id. A model's details can contain spaces, or characters Windows does not allow in a folder name, such as : or ?. Each of those becomes an underscore: the base model SDXL 1.0 becomes the folder SDXL_1.0. The default, _{baseModel}/{modelName}, saves an SDXL LoRA named My Style in Lora/_SDXL_1.0/My_Style. Leave it empty to save every model straight into its type's folder.",
    "kind": "text",
    "default": "_{baseModel}/{modelName}",
    "placeholder": "_{baseModel}/{modelName}",
@@ -242,7 +242,7 @@
   },
   "model_manager_card_originals": {
    "label": "Load model cards' images full size, not resized",
-   "info": "Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. For the cards of both tabs' grids.",
+   "info": "When on, model cards load each picture as it was uploaded to Civitai, instead of a copy Civitai's image server resizes to the card. Uploads are much larger: on 20 images, a card-sized copy was 54 KB on average and the upload 3.6 MB, 66 times as much. Even so, a copy is often slower the first time, because Civitai seldom has it ready: in one test it had 1 copy in 34, against 15 uploads in 33, and took about half a second to make each copy. Videos always load as copies, because an upload can be a GIF that cannot play. This applies to the cards in both the Model Manager and the Civitai Browser.",
    "kind": "bool",
    "default": false,
    "name": "Full-size images on model cards",
@@ -263,7 +263,7 @@
   },
   "model_manager_card_videos_play": {
    "label": "Play videos on model cards",
-   "info": "On, a model card whose cover is a video plays it. Off, the card shows the video's still, with a play button in its corner; the video loads only when pressed. Galleries and the viewer are not changed.",
+   "info": "When on, a model card whose cover is a video plays it. When off, the card shows a still from the video with a play button in its corner, and the video loads only when you press it. Galleries and the image viewer are not affected.",
    "kind": "bool",
    "default": true,
    "name": "Play videos on model cards",
@@ -284,7 +284,7 @@
   },
   "model_manager_gallery_originals": {
    "label": "Load gallery images full size, not resized",
-   "info": "Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But a copy is usually slower the first time a gallery is opened: Civitai seldom has it ready (1 image in 34, against 15 in 33 uploads, in one test) and takes about half a second to make each. Videos load as copies whatever this says: an upload can be a GIF that cannot play. The image viewer shows the upload either way. For model galleries and the Civitai Images tab.",
+   "info": "When on, galleries load each image as it was uploaded to Civitai, instead of a copy Civitai's image server resizes to fit. Uploads are much larger: on 20 images, a card-sized copy was 54 KB on average and the upload 3.6 MB, 66 times as much. Even so, a copy is often slower the first time, because Civitai seldom has it ready: in one test it had 1 copy in 34, against 15 uploads in 33, and took about half a second to make each copy. Videos always load as copies, because an upload can be a GIF that cannot play. The image viewer shows the upload either way. This applies to model galleries and the Civitai Images tab.",
    "kind": "bool",
    "default": false,
    "name": "Full-size images in galleries",
@@ -306,21 +306,21 @@
    "value": false
   },
   "model_manager_generations_grid": {
-   "label": "Tiles the Generations Tab keeps on the page",
-   "info": "Either way, tiles load 100 at a time as you scroll toward the end. Only those near the view: keeps on the page only the rows within about 3,000 px of what you see, and draws the others again as they come near; scrolled to the end of 75,685 images, it never froze over 50 ms. All of them: keeps every tile loaded so far on the page, so the browser's find sees them all, but the browser places the whole grid again as each 100 arrive, and the page grows slower the further you scroll - at the end of 75,684 images it froze for up to 42 s at a time.",
+   "label": "Scrolling in long grids of the Generations Tab",
+   "info": "How the Generations tab handles a long grid of tiles as you scroll. Either way, tiles load 100 at a time as you near the end. Smooth, the default, keeps on the page only the tiles within about 3,000 px of what you see, and draws the others again as you scroll back to them: scrolling to the end of 75,685 images never froze for more than 50 ms. Keep every tile leaves all the tiles loaded so far on the page, so the browser's Find (Ctrl+F) can search them all, but the page gets slower the further you scroll: at the end of 75,684 images it froze for up to 42 seconds at a time.",
    "kind": "choice",
    "default": "Fast",
    "choices": [
     [
-     "Only those near the view",
+     "Smooth: only nearby tiles",
      "Fast"
     ],
     [
-     "All of them",
+     "Keep every tile",
      "Classic"
     ]
    ],
-   "name": "Tiles kept on the page",
+   "name": "Scrolling in long grids",
    "group": "pages_and_cards",
    "heading": "Generations Tab",
    "tags": [
@@ -336,7 +336,7 @@
   },
   "model_manager_generations_reading": {
    "label": "Read Generations Tab tiles in one pass, alpha",
-   "info": "How the Generations tab reads your images for each set of tiles. On: reads them once, into a temporary table in memory, and builds every tile from it - grouped by base model, 75,684 images took 0.28 s instead of 1.47. Off: reads them again for each tile's previews, checkpoint and LoRAs, as before. If tiles look wrong or a level does not load, turn it off and report it.",
+   "info": "How the Generations tab reads your images to build its tiles. When on, it reads them once, into a temporary table in memory, and builds every tile from it: grouped by base model, 75,684 images took 0.28 s instead of 1.47 s. When off, it reads them again for each tile's previews, checkpoint and LoRAs, as it did before. This is still being tested: if tiles look wrong or a set of tiles does not load, turn it off and report it.",
    "kind": "choice",
    "default": "Single pass",
    "choices": [
@@ -369,21 +369,21 @@
    "value": "Single pass"
   },
   "model_manager_gallery_grid": {
-   "label": "Tiles the Civitai Images Tab keeps on the page",
-   "info": "Either way, tiles load 100 at a time as you scroll toward the end. Only those near the view: keeps on the page only the rows within about 3,000 px of what you see, and draws the others again as they come near; scrolled to the end of 75,685 images, it never froze over 50 ms. All of them: keeps every tile loaded so far on the page, so the browser's find sees them all, but the browser places the whole grid again as each 100 arrive, and the page grows slower the further you scroll - at the end of 75,684 images it froze for up to 42 s at a time.",
+   "label": "Scrolling in long grids of the Civitai Images Tab",
+   "info": "How the Civitai Images tab handles a long grid of tiles as you scroll. Either way, tiles load 100 at a time as you near the end. Smooth, the default, keeps on the page only the tiles within about 3,000 px of what you see, and draws the others again as you scroll back to them: scrolling to the end of 75,685 images never froze for more than 50 ms. Keep every tile leaves all the tiles loaded so far on the page, so the browser's Find (Ctrl+F) can search them all, but the page gets slower the further you scroll: at the end of 75,684 images it froze for up to 42 seconds at a time.",
    "kind": "choice",
    "default": "Fast",
    "choices": [
     [
-     "Only those near the view",
+     "Smooth: only nearby tiles",
      "Fast"
     ],
     [
-     "All of them",
+     "Keep every tile",
      "Classic"
     ]
    ],
-   "name": "Tiles kept on the page",
+   "name": "Scrolling in long grids",
    "group": "pages_and_cards",
    "heading": "Civitai Images Tab",
    "tags": [
@@ -421,7 +421,7 @@
   },
   "model_manager_mm_images_per_page": {
    "label": "Civitai images per page in a model's gallery",
-   "info": "How many images Load More adds in a model's Civitai images - counted before the NSFW and prompt switches.",
+   "info": "How many images each press of Load More adds to a model's Civitai images. The count includes the images the NSFW and prompt switches then hide.",
    "kind": "number",
    "default": 100,
    "minimum": 5,
@@ -443,7 +443,7 @@
   },
   "model_manager_mm_generations_per_page": {
    "label": "Generations per page in a model's Your generations",
-   "info": "How many generations Load More adds in a model's Your generations. Not used by the Generations tab: it loads as you scroll.",
+   "info": "How many images each press of Load More adds to a model's Your generations. The Generations tab does not use it, because it loads more as you scroll.",
    "kind": "number",
    "default": 100,
    "minimum": 5,
@@ -485,7 +485,7 @@
   },
   "model_manager_preview_least_nsfw": {
    "label": "Use a model's least explicit image as its card's cover",
-   "info": "On: each card shows the model's least explicit image. Off: its most recent one. Whether galleries hide explicit images is a setting of its own: Hide explicit images by default.",
+   "info": "When on, each model card shows the model's least explicit image as its cover. When off, it shows the most recent one. Whether galleries hide explicit images is a separate setting, Hide explicit images by default.",
    "kind": "bool",
    "default": true,
    "name": "Least explicit image as cover",
@@ -526,7 +526,7 @@
   },
   "model_manager_cb_images_per_page": {
    "label": "Images per page in the Civitai Browser Tab",
-   "info": "How many images Load More adds in a model's images, fetched from Civitai - counted before the NSFW and prompt switches.",
+   "info": "How many images each press of Load More adds to a model's images in the Civitai Browser, fetched from Civitai. The count includes the images the NSFW and prompt switches then hide.",
    "kind": "number",
    "default": 100,
    "minimum": 5,
@@ -568,7 +568,7 @@
   },
   "model_manager_gallery_hide_nsfw": {
    "label": "Hide explicit images when a gallery opens",
-   "info": "How Civitai's images open: a model's image gallery, in the Model Manager and the Civitai Browser, and the Civitai Images tab - and a model's Your generations; the Generations tab has its own. The Show NSFW switch above the images shows them there. The Civitai Browser's Include NSFW models decides which models are listed, not which of their images are shown.",
+   "info": "Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows it too; the Generations tab has its own setting. The Show NSFW switch above the images shows them in that gallery. The Civitai Browser's Include NSFW models is separate: it decides which models are listed, not which of their images are shown.",
    "kind": "bool",
    "default": true,
    "name": "Hide explicit images by default",
@@ -590,8 +590,8 @@
    "value": true
   },
   "model_manager_nsfw_detection": {
-   "label": "How to find explicit images Civitai rated PG or PG-13",
-   "info": "The trained model reads each image's prompts and the resources it used, and catches most of the explicit images Civitai under-rates - but it judges by what it learned, and sometimes raises an image that is fine or misses one that is not. The word list treats an image as X only when its prompt uses one of the words: nothing else, and nothing you cannot check. Stored images are judged again in the background when this changes.",
+   "label": "How to catch explicit images rated PG",
+   "info": "Civitai rates some explicit images PG or PG-13. This chooses how the extension finds them. The trained model reads each image's prompts and the resources it used, and catches most of them, but it judges by what it has learned: now and then it flags an image that is fine, or misses one that is not. The word list treats an image as X only when its prompt uses one of the listed words, so every decision can be checked. When this changes, your stored images are judged again in the background.",
    "kind": "choice",
    "default": "model",
    "choices": [
@@ -604,7 +604,7 @@
      "words"
     ]
    ],
-   "name": "Find explicit PG images with",
+   "name": "How to catch explicit images rated PG",
    "group": "hidden",
    "heading": "Shared across tabs",
    "tags": [
@@ -625,14 +625,14 @@
    "value": "model"
   },
   "model_manager_nsfw_prompt_model_percent": {
-   "label": "Share of PG and PG-13 prompts the trained model treats as X",
-   "info": "Civitai rates some explicit images PG or PG-13. A model trained on image prompts - their words, word pairs, negative, ADetailer and hires prompts, and the resources used - finds them, and this is how far it goes: the share of PG and PG-13 prompts it may treat as X, in percent. 2 (default) caught about 94% of X/XXX prompts on a library it had never seen. 1 is stricter, 3 or more catches more at more cost. 0 turns the model off, leaving only the words. Stored images are judged again in the background when this changes.",
+   "label": "PG images the model may flag, in %",
+   "info": "How readily the trained model flags images. The number is the percentage of PG and PG-13 images the model may treat as X, measured on the images it was trained on. A higher number catches more explicit images, and wrongly hides more that are fine; a lower one hides fewer, and misses more. At 2, the default, it caught about 94 in 100 X and XXX prompts in a library it had never seen, and flagged 2.2% of that library's PG and PG-13 images. 0 turns the model off, and only the word list is used. When this changes, your stored images are judged again in the background.",
    "kind": "number",
    "default": 2.0,
    "minimum": 0,
    "maximum": 20,
    "step": 0.25,
-   "name": "Share treated as X",
+   "name": "PG images the model may flag, in %",
    "group": "hidden",
    "heading": "Shared across tabs",
    "tags": [
@@ -656,13 +656,13 @@
    "value": 2.0
   },
   "model_manager_nsfw_prompt_words": {
-   "label": "Extra words that mark a prompt explicit",
-   "info": "An image Civitai rates PG or PG-13 whose prompt uses one of these words is treated as X everywhere - hidden from the grid previews, the galleries and the SFW filters. Whole words, any case. These add to the list that comes with the extension, in model_manager/data/nsfw_prompt_words.txt. Stored images are judged again in the background when this changes.",
+   "label": "Additional words to detect NSFW prompts",
+   "info": "Words that mark a prompt as explicit, separated by commas. An image Civitai rates PG or PG-13 whose prompt uses one of them is treated as X everywhere: hidden from grid previews, galleries and the SFW filters. Words match whole, in any case. They add to the list that comes with the extension, in model_manager/data/nsfw_prompt_words.txt. When this changes, your stored images are judged again in the background.",
    "kind": "text",
    "default": "",
    "lines": 2,
    "placeholder": "comma-separated words",
-   "name": "Extra NSFW words",
+   "name": "Additional words to detect NSFW prompts",
    "group": "hidden",
    "heading": "Shared across tabs",
    "tags": [
@@ -684,7 +684,7 @@
   },
   "model_manager_hide_promptless_images": {
    "label": "Hide images with no prompt when a gallery opens",
-   "info": "About a tenth of Civitai's images carry no prompt at all, and they cannot be read or reused. Can be turned back on per model from the panel above the images. Model galleries only, in the Model Manager and the Civitai Browser: the Civitai Images tab shows every image.",
+   "info": "Whether images with no prompt are hidden when a model's gallery opens, in the Model Manager and the Civitai Browser. About a tenth of Civitai's images carry no prompt at all, so they cannot be read or made again. You can show them for one model with the switch above its images. The Civitai Images tab always shows every image.",
    "kind": "bool",
    "default": true,
    "name": "Hide images with no prompt by default",
@@ -705,7 +705,7 @@
   },
   "model_manager_generations_hide_nsfw": {
    "label": "Hide explicit images when the Generations Tab opens",
-   "info": "How the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, in Shared across tabs.",
+   "info": "Whether explicit images are hidden when the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, under Shared across tabs.",
    "kind": "bool",
    "default": true,
    "name": "Hide explicit images by default",
@@ -723,14 +723,14 @@
    "value": true
   },
   "model_manager_civitai_min_prompt_images": {
-   "label": "Images with a usable prompt a model needs to be shown",
-   "info": "For the Only with usable prompts filter: a model must have at least this many images, of its first 20, carrying a prompt and its steps, sampler and CFG.",
+   "label": "Images with a prompt a model needs to count as usable",
+   "info": "Used by the Civitai Browser's Only with usable prompts filter. A model is listed only if at least this many of its first 20 images have a usable prompt: a prompt with its steps, sampler and CFG scale.",
    "kind": "number",
    "default": 1,
    "minimum": 1,
    "maximum": 20,
    "step": 1,
-   "name": "Images with a prompt a model needs",
+   "name": "How many images with a prompt a model needs to count as usable",
    "group": "hidden",
    "heading": "Civitai Browser Tab",
    "tags": [
@@ -745,11 +745,11 @@
    "value": 1
   },
   "model_manager_civitai_sfw_fill_page": {
-   "label": "Fill each page while only SFW models show, not recommended",
-   "info": "Normally a page with Only Show Models with SFW images stops after checking a few dozen models and can come back short. With this on, it keeps searching until the page holds the full Models per page. Most Civitai models have NSFW images, so one page can take hundreds of requests and several minutes, and makes Civitai's rate limit likely. A page still stops if Civitai starts refusing requests.",
+   "label": "Fill each page with models when hiding NSFW models",
+   "info": "Used when Only Show Models with SFW images is ticked in the Civitai Browser. Normally a page stops after checking a few dozen models, and can come back with fewer than a full page. When this is on, it keeps searching until the page is full. Most Civitai models have NSFW images, so one page can take hundreds of requests and several minutes, and Civitai is likely to start turning requests away. A page still stops when Civitai does.",
    "kind": "bool",
    "default": false,
-   "name": "Fill pages while hiding NSFW models",
+   "name": "Fill each page with models when hiding NSFW models",
    "group": "hidden",
    "heading": "Civitai Browser Tab",
    "tags": [
@@ -767,7 +767,7 @@
   },
   "model_manager_civitai_on_site_marks": {
    "label": "Mark versions Civitai allows only on its site",
-   "info": "Marks the versions whose creator allows them only for generating on Civitai - Civitai refuses their download - on the cards and in a model's panel. Asks Civitai once per page and once per model opened; its answer is often under a megabyte, and can be a few. The Model Manager marks them whatever this says, from what a sync stored.",
+   "info": "Some creators allow a version only for generating on Civitai's site, and Civitai refuses to download it. When this is on, the Civitai Browser marks those versions on its cards and in a model's panel. To know them, it asks Civitai once per page and once per model you open; the answer is often under a megabyte, sometimes a few. The Model Manager marks them whatever this says, from what a sync stored.",
    "kind": "bool",
    "default": false,
    "name": "Mark on-site-only versions",
@@ -786,7 +786,7 @@
   },
   "model_manager_send_clip_skip": {
    "label": "Send uses the image's Clip skip",
-   "info": "On: where an image gives a clip skip other than your Clip Skip setting, Send adds it to the tab's Override settings, and says so - so the image can be made again as it was. It applies to the generations made while it is there; your setting is not changed, and the next Send replaces it. Not for Flux, where clip skip changes nothing. Off: left to Forge's paste, which in Forge Neo ignores it.",
+   "info": "When on, and an image was made with a clip skip other than your Clip Skip setting, Send adds the image's value to the tab's Override settings and says so, so the image can be made again as it was. It applies to the images you generate while it is there; your own setting does not change, and the next Send replaces it. Flux images are left alone, because clip skip changes nothing there. When off, clip skip is left to Forge's own paste, which Forge Neo ignores.",
    "kind": "bool",
    "default": true,
    "name": "Use the image's Clip skip",
@@ -803,7 +803,7 @@
   },
   "model_manager_send_clip_skip_max": {
    "label": "Highest Clip skip Send takes from an image",
-   "info": "An image's clip skip above this is left out of Override settings, and your Clip Skip applies; Send's notice says so. Most models are made for 1 or 2.",
+   "info": "When an image's clip skip is above this number, Send leaves it out of Override settings, your own Clip Skip applies, and Send's notice says so. Most models are made for 1 or 2.",
    "kind": "number",
    "default": 6,
    "minimum": 1,
@@ -1005,11 +1005,11 @@
    "value": ""
   },
   "model_manager_generations_delete_files": {
-   "label": "Tick \"also delete the image files\" when deleting generations",
-   "info": "Ticks the box in the delete question. It can still be unticked for one delete.",
+   "label": "Delete files by default when deleting generations",
+   "info": "Whether the box \"also delete the image files\" starts ticked when you delete generations. You can still untick it for one delete.",
    "kind": "bool",
    "default": false,
-   "name": "Tick \"also delete the files\"",
+   "name": "Delete files by default when deleting generations",
    "group": "your_generations",
    "heading": "Shared across tabs",
    "tags": [
@@ -1025,11 +1025,11 @@
    "value": false
   },
   "model_manager_generations_keep_inputs": {
-   "label": "Keep the image and mask an img2img generation started from",
-   "info": "On: each img2img generation recorded keeps the picture in its mode's canvas and what was painted over it - the mask, or the strokes - so Send puts them back and the viewer shows them. One file per picture, however many generations started from it, deleted with the last of them. Off: nothing more is kept; what was kept stays.",
+   "label": "Keep img2img source images and masks",
+   "info": "When on, each img2img generation that is recorded also keeps the picture it started from, and what you painted over it: the mask, or the strokes. Send can then put them back in img2img, and the image viewer shows them. Each picture is kept once, however many generations started from it, and deleted with the last of them. When off, nothing more is kept; what was kept before stays.",
    "kind": "bool",
    "default": true,
-   "name": "Keep img2img start images",
+   "name": "Keep img2img source images and masks",
    "group": "your_generations",
    "heading": "Generations Tab",
    "tags": [
@@ -1046,7 +1046,7 @@
   },
   "model_manager_image_sync_level": {
    "label": "NSFW level Sync images gives images without infotext",
-   "info": "What the Sync images dialog starts from. The level picked there is given to the images without infotext that sync brings, and kept with them. A rating you give an image wins.",
+   "info": "The level the Sync images dialog has picked when it opens; the dialog saves the level you pick there for next time. Sync images gives that level to each image it adds that has no infotext, so the image is hidden or shown like any other at that level. A rating you give an image later always wins.",
    "kind": "choice",
    "default": "Unknown",
    "choices": [
@@ -1091,7 +1091,7 @@
   },
   "model_manager_group_no_text": {
    "label": "Sync images groups images without infotext by file name",
-   "info": "What the Sync images dialog starts from. Images in one folder whose file names say the same settings, saved close together, become one batch, as one press of Generate made them.",
+   "info": "Whether the Sync images dialog starts with this ticked; the dialog saves your choice for next time. When ticked, images without infotext are put together into batches, as if one press of Generate made them, when they sit in the same folder, their file names show the same settings with running numbers in order, and they were saved close together in time.",
    "kind": "bool",
    "default": true,
    "name": "Group images without infotext by name",
@@ -1110,7 +1110,7 @@
   },
   "model_manager_database_path": {
    "label": "Database file, needs a restart",
-   "info": "Full path to the database file, with its name. Empty: the default, in the extension's folder. Two WebUIs can share one.",
+   "info": "The full path of the database file, with its name. Leave it empty to use the default file, in the extension's folder. Two WebUIs can share one database file.",
    "kind": "text",
    "default": "",
    "placeholder": "e.g., F:\\shared\\models.db",
@@ -1133,11 +1133,11 @@
    "value": ""
   },
   "model_manager_thumbnails": {
-   "label": "Make thumbnails of your generations",
-   "info": "Ticks Make thumbnails in the Sync images dialog, and makes one for each image you generate. A sync with it ticked makes one for every image without one. Tiles then load a small copy, 450 pixels tall, instead of the full file; the viewer still shows the full file. An image without one shows its full file.",
+   "label": "Make thumbnails by default",
+   "info": "When on, a thumbnail is made for each image you generate, and the Sync images dialog starts with Make thumbnails ticked; a sync with it ticked makes one for every image that has none. Tiles then load a small copy, 450 pixels tall, instead of the full file. The image viewer still shows the full file, and an image without a thumbnail shows its full file.",
    "kind": "bool",
    "default": true,
-   "name": "Make thumbnails",
+   "name": "Make thumbnails by default",
    "group": "files",
    "heading": "Shared across tabs",
    "tags": [
@@ -1154,7 +1154,7 @@
   },
   "model_manager_thumbnails_place": {
    "label": "Where thumbnails of your generations are kept",
-   "info": "In a folder: the Thumbnail folder below. Beside each image: in a .thumbnails folder next to it, which Sync images skips. A change applies to thumbnails made from then on; those made before keep working where they are.",
+   "info": "In a folder keeps every thumbnail in the Thumbnail folder below. Beside each image keeps each one in a .thumbnails folder next to its image, which Sync images skips. A change applies to thumbnails made from then on; those made before keep working where they are.",
    "kind": "choice",
    "default": "In a folder",
    "choices": [
@@ -1187,7 +1187,7 @@
   },
   "model_manager_thumbnails_folder": {
    "label": "Folder for thumbnails, when kept in one",
-   "info": "Its full path. Empty: a folder named thumbnails beside the database, which two WebUIs sharing the database share too. Deleting it is safe: a sync makes them again.",
+   "info": "The full path of the folder thumbnails are kept in. Leave it empty to use a folder named thumbnails beside the database file, which two WebUIs sharing the database share too. It is safe to delete: a sync makes the thumbnails again.",
    "kind": "text",
    "default": "",
    "placeholder": "Empty: a thumbnails folder beside the database",
@@ -1210,14 +1210,14 @@
    "value": ""
   },
   "model_manager_thumbnail_threads": {
-   "label": "Thumbnails made at once",
-   "info": "0: as many as the machine has processors - making one is mostly processor work. Lower it for a hard disk or a network drive, or to keep the machine free while a sync makes them.",
+   "label": "How many thumbnails generated in parallel",
+   "info": "How many thumbnails are made at the same time. 0 uses as many as the machine has processors, because making a thumbnail is mostly processor work. Use a lower number for a hard disk or a network drive, or to keep the machine free while a sync makes them.",
    "kind": "number",
    "default": 0,
    "minimum": 0,
    "maximum": 64,
    "step": 1,
-   "name": "Thumbnails made at once",
+   "name": "How many thumbnails generated in parallel",
    "group": "files",
    "heading": "Shared across tabs",
    "tags": [
@@ -1237,7 +1237,7 @@
   },
   "model_manager_queue_inputs_dir": {
    "label": "Folder for the images queued tasks need",
-   "info": "A queued task keeps the images it was given here - an img2img source and mask, ControlNet's images - until it is deleted, one folder per task. Empty: queue-inputs in the WebUI's folder, beside outputs. Tasks keep their files' full paths, so a change applies to tasks queued after it.",
+   "info": "Where a queued task keeps the images it was given, such as an img2img source and mask or ControlNet's images, one folder per task, until the task is deleted. Leave it empty to use a folder named queue-inputs in the WebUI's folder, beside outputs. Tasks keep the full paths of their files, so a change applies only to tasks queued after it.",
    "kind": "text",
    "default": "",
    "placeholder": "e.g., D:\\queue-inputs",
@@ -1256,12 +1256,12 @@
    "value": ""
   },
   "model_manager_generations_inputs_dir": {
-   "label": "Folder for the images img2img generations started from",
-   "info": "Its full path. Empty: a folder named generation-inputs beside the database, which two WebUIs sharing the database share too. Generations keep their files' full paths, so a change applies to generations recorded after it.",
+   "label": "Folder for img2img source images",
+   "info": "The full path of the folder where img2img source images and masks are kept. Leave it empty to use a folder named generation-inputs beside the database file, which two WebUIs sharing the database share too. Generations keep the full paths of their files, so a change applies only to generations recorded after it.",
    "kind": "text",
    "default": "",
    "placeholder": "Empty: a generation-inputs folder beside the database",
-   "name": "Folder for start images",
+   "name": "Folder for img2img source images",
    "group": "files",
    "heading": "Generations Tab",
    "tags": [
@@ -1280,14 +1280,14 @@
    "value": ""
   },
   "model_manager_queue_ask_above": {
-   "label": "Ask before Generate makes more than this many images",
-   "info": "Batch count times batch size. Above it, Generate asks whether to generate, queue it instead, or cancel; the question can be turned off in each browser. 0: Generate never asks.",
+   "label": "Ask before generating more images than",
+   "info": "When you press Generate for more images than this number (batch count times batch size), you are asked first: generate them now, queue them to run later from the Queue tab, or cancel. The question has a \"Don't ask again in this browser\" box. 0 means Generate never asks. It asks only while the Queue tab is on.",
    "kind": "number",
    "default": 0,
    "minimum": 0,
    "maximum": 100,
    "step": 1,
-   "name": "Ask before generating more than",
+   "name": "Ask before generating more images than",
    "group": "sync_and_queue",
    "heading": "Queue Tab",
    "tags": [
@@ -1303,7 +1303,7 @@
   },
   "model_manager_hash_threads": {
    "label": "Files a sync hashes at once",
-   "info": "How many model files to hash at once when a sync identifies them. Each file is read in full, so the drive usually sets the pace. Hard disk or network drive: 1-2 - more make it slower. SATA SSD: 2-4. NVMe: 4-8, or more on a CPU with many cores. Lower it if a sync makes the machine slow.",
+   "info": "How many model files a sync hashes at the same time when it identifies them. Each file is read in full, so the drive usually sets the pace. For a hard disk or a network drive, use 1 or 2, as more makes it slower; for a SATA SSD, 2 to 4; for an NVMe drive, 4 to 8, or more on a processor with many cores. Lower it if a sync slows the machine down.",
    "kind": "number",
    "default": 4,
    "minimum": 1,
@@ -1324,14 +1324,14 @@
    "value": 4
   },
   "model_manager_sync_images_per_version": {
-   "label": "Civitai images a sync keeps per version",
-   "info": "How many of each version's Civitai images a sync fetches and keeps - from the sync dialog, a model's Sync, a download. The dialog's \"First N images\" is this number. A model's NSFW level counts its worst stored image, and the Civitai Images tab shows stored images only: fewer kept, less to judge and show.",
+   "label": "Number of images stored per version by default at sync",
+   "info": "How many of each version's Civitai images a sync fetches and keeps, whether it runs from the sync dialog, a model's Sync button or a download. The dialog's \"First N images\" uses this number. Keeping fewer means less to judge and show: a model's NSFW level counts its worst stored image, and the Civitai Images tab shows stored images only.",
    "kind": "number",
    "default": 100,
    "minimum": 5,
    "maximum": 200,
    "step": 5,
-   "name": "Images kept per version",
+   "name": "Number of images stored per version by default at sync",
    "group": "sync_and_queue",
    "heading": "Shared across tabs",
    "tags": [
@@ -1347,7 +1347,7 @@
   },
   "model_manager_check_updates": {
    "label": "Check for a new version of the Model Manager",
-   "info": "On: after the WebUI starts, and every 12 hours, the extension reads the version.json file on its GitHub repository - the version it holds, nothing else - and each tab's header says when a newer one is out. Off: GitHub is never asked.",
+   "info": "When on, the extension reads the version.json file in its GitHub repository after the WebUI starts and every 12 hours. It reads only the version number, and each tab's header says when a newer version is out. When off, GitHub is never asked.",
    "kind": "bool",
    "default": true,
    "name": "Check for a new version",

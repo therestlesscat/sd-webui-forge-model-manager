@@ -235,7 +235,7 @@ export function start(scope) {
 // Markup: the setting it names is a link to it in the settings window
 // (#320), so every page puts it in as markup (setHtml, a banner's noteHtml).
 export const NSFW_MODEL_NOTE = 'NSFW is judged by a trained model, which can be wrong. For a simple word list, '
-    + `set ${settingLink('model_manager_nsfw_detection', 'Find explicit PG images with')} to Word list.`;
+    + `set ${settingLink('model_manager_nsfw_detection', 'How to catch explicit images rated PG')} to Word list.`;
 
 let nsfwDetection = null;
 let nsfwDetectionAsked = null;

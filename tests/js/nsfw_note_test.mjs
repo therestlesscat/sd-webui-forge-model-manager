@@ -51,7 +51,7 @@ $('mm_sfw_only').dispatchEvent(new window.Event('change', { bubbles: true }));
 const switchLink = (where) => where?.querySelector('[data-action="settings.open"]');
 check('   ticked, a banner says a trained model decides, and where to switch - a link to the setting (#320)',
       [$('mm_sfw_only_banner').style.display,
-       $('mm_sfw_only_banner').textContent.includes('For a simple word list, set Find explicit PG images with to Word list.'),
+       $('mm_sfw_only_banner').textContent.includes('For a simple word list, set How to catch explicit images rated PG to Word list.'),
        switchLink($('mm_sfw_only_banner'))?.dataset.focus],
       ['flex', true, 'model_manager_nsfw_detection']);
 $('mm_sfw_only').checked = false;

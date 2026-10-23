@@ -110,7 +110,7 @@ await new Promise((r) => setTimeout(r, 50));
 check('with the word list judging, the banner says nothing of a trained model',
       $('cb_sfw_only_banner_model')?.textContent, '');
 check('and where to find the setting that fills every page, and that it is not recommended',
-      [settingNote.includes('Fill pages while hiding NSFW models in the settings, under What is hidden'),
+      [settingNote.includes('Fill each page with models when hiding NSFW models in the settings, under What is hidden'),
        settingNote.includes('not recommended')],
       [true, true]);
 check('the setting a link that opens the settings window at it (#320)',

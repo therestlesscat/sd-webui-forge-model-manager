@@ -109,8 +109,8 @@ try:
 finally:
     shared.opts, shared.OptionInfo, shared.OptionHTML = saved
 # Named as the registry names them on Forge's page (#320).
-for key, label in ((GEN, 'Tiles the Generations Tab keeps on the page'),
-                   (GAL, 'Tiles the Civitai Images Tab keeps on the page')):
+for key, label in ((GEN, 'Scrolling in long grids of the Generations Tab'),
+                   (GAL, 'Scrolling in long grids of the Civitai Images Tab')):
     info = registry.options.get(key)
     check('%s is registered' % key, info is not None)
     if info is None:
@@ -118,11 +118,11 @@ for key, label in ((GEN, 'Tiles the Generations Tab keeps on the page'),
     check('%s: its label' % key, info.label, label)
     check('%s: a dropdown of the two choices, each in words with its saved value' % key,
           (getattr(info.component, '__name__', ''), list((info.component_args or {}).get('choices', []))),
-          ('Dropdown', [('Only those near the view', 'Fast'), ('All of them', 'Classic')]))
+          ('Dropdown', [('Smooth: only nearby tiles', 'Fast'), ('Keep every tile', 'Classic')]))
     check('%s: its default is Fast' % key, info.default, 'Fast')
     check('%s: its line says what each choice does' % key,
-          ('Only those near the view: keeps on the page only the rows within' in info.text,
-           'All of them: keeps every tile loaded so far on the page' in info.text,
+          ('Smooth, the default, keeps on the page only the tiles within' in info.text,
+           'Keep every tile leaves all the tiles loaded so far on the page' in info.text,
            'tiles load 100 at a time' in info.text),
           (True, True, True))
 
