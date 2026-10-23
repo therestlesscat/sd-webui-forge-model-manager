@@ -100,6 +100,22 @@ for rule, broken in BREAKS.items():
 check('and passes a name of its own inside one: "Clip skip", "Send", a tab', reg.naming_problems(
     replace(base, name='Highest Clip skip', page_name='Highest Clip skip Send takes in the Queue Tab')), [])
 
+
+# Forge's page lists a group in one section, with no tab headings: a name two
+# settings share in the window says its tab there (#347).
+def shared_page_names(of):
+    by_name = {}
+    for s in of:
+        by_name.setdefault((s.group, s.page_name), []).append(s.key)
+    return [same for same in by_name.values() if len(same) > 1]
+
+
+check('no page name twice in one section of Forge\'s page', shared_page_names(settings), [])
+gen_grid_page = reg.by_key()['model_manager_generations_grid'].page_name
+check('which catches the two grids under one page name', shared_page_names(
+    [replace(s, page_name=gen_grid_page) if s.key == 'model_manager_gallery_grid' else s for s in settings]),
+    [['model_manager_generations_grid', 'model_manager_gallery_grid']])
+
 # -------------------------------------------------------------- Forge's page
 from modules import shared                               # noqa: E402  (the stub's)
 
