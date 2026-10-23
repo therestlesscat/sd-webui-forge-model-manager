@@ -39,6 +39,9 @@ const K = {
     percent: 'model_manager_nsfw_prompt_model_percent',
     words: 'model_manager_nsfw_prompt_words',
     database: 'model_manager_database_path',
+    thumbnailsFolder: 'model_manager_thumbnails_folder',
+    queueInputs: 'model_manager_queue_inputs_dir',
+    startImages: 'model_manager_generations_inputs_dir',
 };
 const MODULES_PREFIX = 'model_manager_modules_';
 // Send's presets, after its other settings under a name of their own, drawn
@@ -53,7 +56,7 @@ const SHARED_HEADING = 'Shared across tabs';
 // How long a setting a link opened at stays marked (#320).
 const MARKED_MS = 2000;
 // Controls too wide for the row's right-hand column, drawn across it (#320).
-const WIDE_KINDS = ['cardsize', 'folder', 'secret', 'database', 'words'];
+const WIDE_KINDS = ['cardsize', 'folder', 'secret', 'database', 'words', 'path'];
 
 /** Controls that suit a setting better than its kind's default one. */
 const CONTROLS = {
@@ -62,6 +65,11 @@ const CONTROLS = {
     [K.folder]: { kind: 'folder' },
     [K.words]: { kind: 'words' },
     [K.database]: { kind: 'database' },
+    // A folder's full path, across the row; empty, its hint is the folder
+    // the server would use (#345).
+    [K.thumbnailsFolder]: { kind: 'path' },
+    [K.queueInputs]: { kind: 'path' },
+    [K.startImages]: { kind: 'path' },
 };
 
 const CARD_PRESETS = [['Small', 160, 224], ['Medium', 200, 280], ['Large', 260, 364]];
@@ -500,6 +508,10 @@ function createSettings() {
                                 data-into="${escapeHtml(key)}">${escapeHtml(p)}</button>`).join('')}
                 </div>
             </div>`;
+        case 'path':
+            return `<input type="text" id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}"
+                           value="${escapeHtml(v)}" spellcheck="false"
+                           placeholder="${escapeHtml(meta.default_folders?.[key] || c.placeholder || '')}">`;
         case 'words':
             return `<textarea id="${id}" class="mm-settings-input" data-key="${escapeHtml(key)}" rows="3"
                               spellcheck="false" placeholder="comma-separated words">${escapeHtml(v)}</textarea>`;

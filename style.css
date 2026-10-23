@@ -3650,8 +3650,10 @@ button.mm-banner-link {
 
 .mm-dialog.mm-settings-dialog {
     width: 80vw;
-    min-width: min(560px, 100%);
-    max-width: min(1100px, 100%);
+    /* At least 800 px or 70% of the screen, never past its edge, and no
+       upper limit - not even the other dialogs' (#345). */
+    min-width: min(max(800px, 70%), 100%);
+    max-width: none;
     height: 86vh;
     max-height: 86vh;
     padding: 0;

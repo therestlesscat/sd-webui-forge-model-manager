@@ -25,6 +25,10 @@ SETTINGS.model_manager_modules_flux.value = 'old_t5.safetensors';
 SETTINGS.model_manager_modules_lumina.value = 'ae_fp8.safetensors';
 const ORDER = [...ANSWER.order];
 const PLACING = { groups: ANSWER.groups, tag_labels: ANSWER.tag_labels, badge_labels: ANSWER.badge_labels };
+// Where the server says each folder setting, left empty, puts its files (#345).
+const DEFAULT_FOLDERS = { model_manager_thumbnails_folder: 'C:\\library\\thumbnails',
+                          model_manager_queue_inputs_dir: 'C:\\webui\\queue-inputs',
+                          model_manager_generations_inputs_dir: 'C:\\library\\generation-inputs' };
 const posted = [];
 
 // The text encoder and VAE table, as the server describes it: this WebUI has
@@ -139,7 +143,8 @@ globalThis.fetch = async (url, init = {}) => {
         }
         settingsAsked += 1;
         return { ok: true, json: async () => ({ success: true, settings: SETTINGS, order: ORDER, ...PLACING,
-                                                database_in_use: 'C:/models.db', bundled_nsfw_words: 99 }) };
+                                                database_in_use: 'C:/models.db', bundled_nsfw_words: 99,
+                                                default_folders: DEFAULT_FOLDERS }) };
     }
     if (href.includes('/model-manager/models?') && href.includes('page_size=')) {
         const n = Number(new URL(href, 'http://webui').searchParams.get('page_size'));
@@ -237,13 +242,22 @@ check('pressed again: it stays, not every group (#344)', shownSections(), ['page
 // the right - or, too wide for that, across the row.
 const inCtl = (key, sel) => Boolean(field(key)?.querySelector(`.mm-settings-ctl ${sel}`));
 const inWide = (key, sel) => Boolean(field(key)?.querySelector(`.mm-settings-wide-ctl ${sel}`));
-check('a switch, a number, a choice and a folder path on the right; card size, the download folder and the key across',
+check('a switch, a number and a choice on the right; card size, the download folder and the key across',
       [inCtl('model_manager_preview_least_nsfw', 'input[type="checkbox"]'), inCtl('model_manager_page_size', 'input[type="range"]'),
        inCtl('model_manager_page_size', 'input[type="number"]'), inCtl('model_manager_generations_grid', '.mm-settings-seg input[type="radio"]'),
-       inCtl('model_manager_queue_inputs_dir', 'input[type="text"]'),
        inWide('model_manager_card_size', '.mm-settings-cardsize'), inWide('model_manager_civitai_folder_template', 'input'),
        inWide('model_manager_civitai_api_key', 'input[type="password"]')],
-      [true, true, true, true, true, true, true, true]);
+      [true, true, true, true, true, true, true]);
+// A folder's full path across the row; empty, its hint the folder the
+// server would use (#345).
+const FOLDER_KEYS = ['model_manager_thumbnails_folder', 'model_manager_queue_inputs_dir',
+                     'model_manager_generations_inputs_dir'];
+check('the thumbnail, queued tasks\' and start images\' folders across the row, not on the right (#345)',
+      FOLDER_KEYS.map((key) => [inWide(key, 'input[type="text"]'), inCtl(key, 'input')]),
+      FOLDER_KEYS.map(() => [true, false]));
+check('empty, each box\'s hint is the folder the server says it would use (#345)',
+      FOLDER_KEYS.map((key) => field(key)?.querySelector('input[type="text"]')?.placeholder),
+      FOLDER_KEYS.map((key) => DEFAULT_FOLDERS[key]));
 check('the description under the name, on the left',
       field('model_manager_page_size')?.querySelector(':scope > .mm-settings-name + .mm-settings-ctl + .mm-settings-help') !== null,
       true);

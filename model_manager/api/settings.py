@@ -125,6 +125,10 @@ def _describe() -> Dict[str, Any]:
         answer["database_in_use"] = get_models_db().db_path
     except Exception:
         answer["database_in_use"] = None
+    # Where each folder setting left empty puts its files, its box's hint
+    # (#345). Here, not in described(): a path on this machine stays out of
+    # the suites' stand-in answer.
+    answer["default_folders"] = _default_folders()
     # How many words ship with the extension, for "these add to N".
     try:
         from .. import nsfw
@@ -133,6 +137,34 @@ def _describe() -> Dict[str, Any]:
     except Exception:
         answer["bundled_nsfw_words"] = None
     return answer
+
+
+def _default_folders() -> Dict[str, str]:
+    """
+    Each folder setting's folder when it is empty, as the code that uses it
+    decides. One that cannot be worked out is left out: its box keeps the
+    registry's hint.
+    """
+    def thumbnails():
+        from .. import thumbnails as module
+        return module.FOLDER_SETTING, module.default_folder()
+
+    def queue_inputs():
+        from ..scheduler import capture
+        return capture.INPUTS_SETTING, capture.default_inputs_folder()
+
+    def start_images():
+        from .. import generation_inputs
+        return generation_inputs.FOLDER_SETTING, generation_inputs.default_folder()
+
+    folders = {}
+    for default in (thumbnails, queue_inputs, start_images):
+        try:
+            key, folder = default()
+            folders[key] = os.path.abspath(folder)
+        except Exception:
+            pass
+    return folders
 
 
 def _database_path_reason(path: str) -> Optional[str]:

@@ -226,6 +226,25 @@ check('and no help text keeps a tag', any('<' in e['info'] for e in s.values()),
 check('the database in use is named', answer.get('database_in_use'), db.db_path)
 check('and how many words ship with the extension', isinstance(answer.get('bundled_nsfw_words'), int)
       and answer['bundled_nsfw_words'] > 0, True)
+# Each folder setting left empty: the folder its code would use, as a full
+# path, for its box's hint (#345) - thumbnails and start images beside the
+# database, queued tasks' images in the WebUI's folder.
+from model_manager import generation_inputs, thumbnails                     # noqa: E402
+from model_manager.scheduler import capture                                  # noqa: E402
+from model_manager.api import settings as settings_api                       # noqa: E402
+folders = answer.get('default_folders') or {}
+check('the queued tasks\' folder is empty here, so it is the default', str(opts.data.get(capture.INPUTS_SETTING) or ''), '')
+check('each folder setting\'s default folder, in full (#345)',
+      [folders.get(thumbnails.FOLDER_SETTING), folders.get(capture.INPUTS_SETTING),
+       folders.get(generation_inputs.FOLDER_SETTING)],
+      [os.path.abspath(thumbnails.default_folder()), os.path.abspath(capture.inputs_folder()),
+       os.path.abspath(generation_inputs.default_folder())])
+check('beside the database, and the WebUI\'s queue-inputs',
+      [os.path.dirname(folders.get(thumbnails.FOLDER_SETTING, '')) == os.path.dirname(os.path.abspath(dbmod.database_path())),
+       os.path.basename(folders.get(capture.INPUTS_SETTING, '')), all(os.path.isabs(f) for f in folders.values())],
+      [True, 'queue-inputs', True])
+check('and none of them in what the suites\' stand-in answer is made from',
+      'default_folders' in settings_api.described(), False)
 
 # ------------------------------------------------------------------ the API key
 check('no key, and it says so', s[KEY].get('has_value'), False)

@@ -251,9 +251,14 @@ def pressed_images(job: Optional[str]) -> Dict[str, Any]:
 
 # ------------------------------------------------------------ the capture
 
+def default_inputs_folder() -> str:
+    """Where tasks keep their files when the setting names none: queue-inputs in the WebUI's folder."""
+    return os.path.join(webui_root(), "queue-inputs")
+
+
 def inputs_folder() -> str:
     """Where tasks keep their files: the setting, else the WebUI's queue-inputs."""
-    return str(setting(INPUTS_SETTING) or "").strip() or os.path.join(webui_root(), "queue-inputs")
+    return str(setting(INPUTS_SETTING) or "").strip() or default_inputs_folder()
 
 
 def capture(tab: str, own, others, inputs: List[Any], values, username: Optional[str]) -> Tuple[int, str]:
