@@ -3840,7 +3840,7 @@ button.mm-banner-link {
 }
 
 .mm-settings-group-title {
-    margin: 16px 0 4px;
+    margin: 22px 0 4px;
     font-size: 15px;
     font-weight: 600;
 }
@@ -3867,19 +3867,28 @@ button.mm-banner-link {
 /* A row (#320): the name, its badges and tags, and the description under it
    on the left; the control on the right - or, too wide for that, across the
    row under the description. A setting changed and not yet saved: a bar down
-   its left edge. */
+   its left edge. Rows are parted by their space, not a line; the one under
+   the pointer is tinted, to match its control to its name (#343). */
 .mm-settings-field {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     gap: 4px 18px;
-    padding: 12px 10px;
-    border-bottom: 1px solid var(--border-color-primary, #374151);
+    padding: 11px 10px;
     border-left: 2px solid transparent;
+    border-radius: 6px;
 }
 
 .mm-settings-field[hidden] {
     display: none;
+}
+
+.mm-settings-field:hover {
+    background-color: rgba(0, 0, 0, 0.035);
+}
+
+.dark .mm-settings-field:hover {
+    background-color: rgba(255, 255, 255, 0.04);
 }
 
 .mm-settings-name {
@@ -3939,7 +3948,6 @@ button.mm-banner-link {
 .mm-settings-fields > .mm-settings-intro {
     margin: 0;
     padding: 0 10px 12px 12px;
-    border-bottom: 1px solid var(--border-color-primary, #374151);
     font-size: 13px;
 }
 
@@ -3997,6 +4005,13 @@ button.mm-banner-link {
 
 .mm-settings-field.mm-settings-changed {
     border-left-color: var(--primary-500, #3b82f6);
+}
+
+/* A bar down the left edge stays straight. */
+.mm-settings-field.mm-settings-changed,
+.mm-settings-field.mm-settings-child {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
 }
 
 /* The setting a link opened the window at, for a moment (#320). */
@@ -4077,9 +4092,7 @@ button.mm-banner-link {
 /* #320: a tab's heading inside a group, the tabs a setting acts in, and a
    setting under its switch - indented, and greyed while it does nothing. */
 .mm-settings-subheading {
-    margin: 4px 0 -6px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid var(--border-color-primary, #374151);
+    margin: 10px 0 2px 12px;
     font-size: 14px;
     font-weight: 600;
     letter-spacing: 0.05em;
