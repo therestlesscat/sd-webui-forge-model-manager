@@ -23,6 +23,7 @@ have files of their own; read them too before working there.
 | `scheduler/` | the generation queue (#17): `capture` (the Queue button beside Generate: what Generate would be sent, named and kept as a task), `values` (a value as a task keeps it - images, arrays, objects - and back) |
 | `install.py` | which install of the extension this is, one per WebUI (`INSTALL_KEY`): what only one of two WebUIs sharing a database can act on - a download it was making, a task it queued - is kept under its key |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
+| `settings_registry.py` | every setting, declared once (#320): its group, its name in the settings window and its name on Forge's Settings page, its description, the tabs it acts in and, where they differ, those it is shown with, the switch it sits under, its badges. Forge's page (`ui/settings.py`) and the window (through `api/settings.py`) both read it, and `naming_problems` holds every name to the rules |
 | `gallery.py` | a gallery's pages, for every gallery: their size, a refresh's size and fetch (`refresh_size`, `fetch_gallery`), and what its two switches hide (`switch_counts`, `filter_images`) |
 | `nsfw.py` | how explicit something is — **the only place that decides**, the prompt words and the prompt model included |
 | `prompt_rules.py` | what a prompt is worth - worth reading, enough to make the image again - for Python and the SQL that filters and counts with it alike |
@@ -70,11 +71,13 @@ wherever NSFW is.
 worth reading, with `readable_sql`), `gallery.switch_counts` (what a gallery's
 switches hide), `payload_rows.py` (a Civitai payload as rows),
 `hashing.read_hashes` (stored hashes, either case), `forge_host.DEFAULTS` (a
-setting's default), `tabs.py` (whether a tab is on), `model_dirs.held_here` (whether the library holds a file - with `library_files`, the one read behind it: three rules had grown, by row, by model and by file, #188). Each found a second copy that had already begun to
+setting's default), `settings_registry.py` (a setting's names, group and tabs, each
+once more in the window's own tables until #320), `tabs.py` (whether a tab is on), `model_dirs.held_here` (whether the library holds a file - with `library_files`, the one read behind it: three rules had grown, by row, by model and by file, #188). Each found a second copy that had already begun to
 disagree - or, for the settings, thirty-odd that still agreed; tests hold the Python
 to the SQL (`switch_counts_test`, `prompt_rules_test`, `model_level_test` -
-every combination of a model's three ratings, #146) and registration to the
-table (`forge_host_test`), and `check_hash_access.py` keeps readers on the
+every combination of a model's three ratings, #146), registration to the
+table (`forge_host_test`), the window and Forge's page to the registry
+(`settings_registry_test`), and `check_hash_access.py` keeps readers on the
 facade. What
 the page must have before any answer could come, it keeps a copy of: the NSFW
 levels, once (`nsfw.mjs`); the setting keys, where each is read.
