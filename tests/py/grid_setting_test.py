@@ -121,9 +121,10 @@ for key, label in ((GEN, 'Tiles the Generations Tab keeps on the page'),
           ('Dropdown', [('Only those near the view', 'Fast'), ('All of them', 'Classic')]))
     check('%s: its default is Fast' % key, info.default, 'Fast')
     check('%s: its line says what each choice does' % key,
-          ('Only those near the view: draws only the rows near' in info.text,
-           'All of them: puts every tile on the page' in info.text),
-          (True, True))
+          ('Only those near the view: keeps on the page only the rows within' in info.text,
+           'All of them: keeps every tile loaded so far on the page' in info.text,
+           'tiles load 100 at a time' in info.text),
+          (True, True, True))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

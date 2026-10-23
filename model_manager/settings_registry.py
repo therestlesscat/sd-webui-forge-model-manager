@@ -93,9 +93,12 @@ class Setting:
 
 
 _GRID = (("Only those near the view", "Fast"), ("All of them", "Classic"))
-_GRID_TEXT = ("Only those near the view: draws only the rows near what you see, and stays smooth at 75,000 "
-              "images. All of them: puts every tile on the page. The browser's find then sees them all, but a "
-              "grid of thousands freezes for seconds.")
+_GRID_TEXT = ("Either way, tiles load 100 at a time as you scroll toward the end. Only those near the view: "
+              "keeps on the page only the rows within about 3,000 px of what you see, and draws the others again "
+              "as they come near; scrolled to the end of 75,685 images, it never froze over 50 ms. All of them: "
+              "keeps every tile loaded so far on the page, so the browser's find sees them all, but the browser "
+              "places the whole grid again as each 100 arrive, and the page grows slower the further you scroll - "
+              "at the end of 75,684 images it froze for up to 42 s at a time.")
 _PAGE = {"minimum": MIN_PAGE_SIZE, "maximum": MAX_PAGE_SIZE, "step": 5}
 _ORIGINALS = ("Civitai's image server sends a copy the size it is drawn; this asks for the upload instead. "
               "Measured on 20 images: a card's copy 54 KB on average, the upload 3.6 MB - 66 times as much. But "
