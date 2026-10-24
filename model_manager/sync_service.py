@@ -63,6 +63,7 @@ class SyncProgress:
     not_found: int = 0
     added: int = 0          # files the database had never seen
     removed: int = 0        # rows whose file is no longer on disk
+    found_twice: int = 0    # rows of a file the walk found by another path (#348)
     moved: int = 0          # files moved into their type's folder
     not_moved: int = 0      # left in another type's: their name is taken there
     # The console's line count when it started (console.said): the page's
@@ -798,16 +799,25 @@ class SyncService:
 
     def _forget_missing_files(self, found_paths: List[str]) -> int:
         """
-        Drop rows for files that are no longer on disk.
+        Drop rows for files that are no longer on disk, and for files the walk
+        found by another path (#348) - counted apart, in `found_twice`: they
+        are still on disk.
 
         Only ever called with the whole result of a disk walk. A partial list -
         a target set, a search, an explicit path - is not evidence that
         anything was deleted, and diffing against one would empty the library.
+
+        Returns:
+            How many rows went with their file gone from disk.
         """
         gone = forget_gone(get_models_db(), found_paths)
-        if gone:
-            say(f"Removed {len(gone)} model(s) no longer on disk")
-        return len(gone)
+        twice = sum(1 for path in gone if os.path.exists(path))
+        if len(gone) > twice:
+            say(f"Removed {len(gone) - twice} model(s) no longer on disk")
+        if twice:
+            say(f"Forgot {twice} row(s) of files found again by another path, through a link")
+        self._progress.found_twice = twice
+        return len(gone) - twice
 
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
         """

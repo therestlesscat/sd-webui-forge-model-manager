@@ -232,5 +232,91 @@ check('each folder Forge was given, by its option, the longest first - an inner 
        ('--lora-dir', os.path.abspath(os.path.join(OTHER, 'models', 'Lora'))),
        ('', os.path.abspath(NEO))])
 
+# ---------------------------------------- folders reached through links (#348)
+# Forge walks its folders with followlinks=True and loads what a symbolic
+# link leads to; the walk never went in. A junction it always entered, and
+# one to a folder above it listed each file 64 times.
+import shutil                                             # noqa: E402
+import folder_links                                       # noqa: E402
+
+LINKS = os.path.join(TESTS, 'work', 'walk_links')
+lora = os.path.join(LINKS, 'Lora')
+elsewhere = os.path.join(LINKS, 'drive', 'Lora')
+linked, loop = os.path.join(lora, 'linked'), os.path.join(lora, 'self')
+models = os.path.join(LINKS, 'models')
+fixture_lora = os.path.join(models_dir, 'Lora')
+made = [linked, loop, os.path.join(models, 'Lora'),
+        os.path.join(fixture_lora, 'self'), os.path.join(fixture_lora, 'route2')]
+
+
+def model(folder, name):
+    path = os.path.join(folder, name)
+    io.open(path, 'wb').write(b'\0' * 64)
+    return path
+
+
+def store_rows(*paths):
+    for path in paths:
+        db.upsert_version({'file_path': path, 'file_name': os.path.basename(path),
+                           'file_extension': '.safetensors'})
+
+
+for link in made:
+    folder_links.remove(link)
+shutil.rmtree(LINKS, ignore_errors=True)
+os.makedirs(lora)
+os.makedirs(elsewhere)
+os.makedirs(models)
+own, far = model(lora, 'own.safetensors'), model(elsewhere, 'far.safetensors')
+try:
+    kind = folder_links.symbolic(elsewhere, linked)
+    check("a LoRA in a folder linked into Lora, by %s: found, under the link's path" % kind,
+          sorted(find_model_files([lora])), sorted([os.path.join(linked, 'far.safetensors'), own]))
+    folder_links.remove(linked)
+
+    folder_links.junction(lora, loop)
+    check('a junction in Lora to Lora itself: each file once, not once a level deep',
+          find_model_files([lora]), [own])
+    check('and the same paths at the next walk', find_model_files([lora]), find_model_files([lora]))
+    folder_links.remove(loop)
+
+    # library_dirs() drops a folder named twice by its spelling, not by where
+    # it really is: both are walked, command-line folders first.
+    folder_links.junction(elsewhere, os.path.join(models, 'Lora'))
+    both = library_dirs(types.SimpleNamespace(lora_dirs=[elsewhere]), models)
+    check('models\\Lora a junction to a folder also given as --lora-dirs: both are library folders, the option first',
+          [os.path.normcase(d) for d in both],
+          [os.path.normcase(elsewhere), os.path.normcase(os.path.join(models, 'Lora'))])
+    check("and the file is found once, under the option's path", find_model_files(both), [far])
+
+    # Rows a loop or a second route already wrote: each path still opens, so
+    # only a file gone from disk was ever forgotten.
+    folder_links.junction(fixture_lora, made[3])
+    folder_links.junction(elsewhere, made[4])
+    _shared.cmd_opts.lora_dirs = [elsewhere]
+    first = sorted(p for p in find_model_files([fixture_lora]) if os.path.dirname(p) == fixture_lora)[0]
+    name = os.path.basename(first)
+    looped = [os.path.join(made[3], name), os.path.join(made[3], 'self', name)]
+    routed = os.path.join(made[4], 'far.safetensors')
+    outside = model(LINKS, 'outside.safetensors')
+    store_rows(*looped, routed, outside)
+    sync = SyncService(client=object())  # the one above was cancelled
+    paths = walk()
+    check("a loop's rows and a second route's are forgotten at the walk",
+          [p in paths for p in looped + [routed]], [False, False, False])
+    check("and the file keeps its row, by the route walked: the folder's own, the option's",
+          (first in paths, far in paths), (True, True))
+    check('and the sync counts them found again by another path, not gone from disk',
+          (sync.progress.removed, getattr(sync.progress, 'found_twice', None)), (0, 3))
+    check('a stored file the walk does not reach, on disk, by no other route, keeps its row',
+          outside in paths, True)
+    check('two walks through links find the same paths',
+          find_model_files(library_dirs()), find_model_files(library_dirs()))
+finally:
+    _shared.cmd_opts.lora_dirs = None
+    for link in made:
+        folder_links.remove(link)
+    shutil.rmtree(LINKS, ignore_errors=True)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

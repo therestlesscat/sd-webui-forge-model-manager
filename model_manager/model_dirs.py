@@ -13,6 +13,7 @@ import shutil
 from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
+from . import folder_walk
 from .forge_host import forge_setting, is_neo, model_folders, webui_root
 from .hashing import read_hashes
 from .console import say
@@ -206,15 +207,16 @@ MODEL_EXTENSIONS = {".safetensors", ".sft", ".gguf", ".ckpt", ".pt", ".pth", ".b
 
 
 def find_model_files(directories: List[str]) -> List[str]:
-    """Every model file under these folders. A folder that is not there gives none."""
+    """
+    Every model file under these folders, as Forge finds them: through
+    symbolic links, and each folder once, by the first route to it
+    (folder_walk). A folder that is not there gives none.
+    """
     model_files = []
-    for directory in directories:
-        if not os.path.isdir(directory):
-            continue
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if os.path.splitext(file)[1].lower() in MODEL_EXTENSIONS:
-                    model_files.append(os.path.join(root, file))
+    for root, _, files in folder_walk.walk(directories):
+        for file in files:
+            if os.path.splitext(file)[1].lower() in MODEL_EXTENSIONS:
+                model_files.append(os.path.join(root, file))
     return model_files
 
 
@@ -489,15 +491,21 @@ def file_modified(path: str) -> Optional[str]:
 
 def gone_from_disk(stored_paths, found_paths) -> List[str]:
     """
-    The stored paths a walk did not find and that are not on disk.
+    The stored paths a walk did not find and that are not on disk - or whose
+    file the walk found by another route.
 
     A path the walk missed is not evidence on its own: the walk only looks
     for model files, in the library's folders, and a download can land
     elsewhere - a wildcard's .zip, a folder template pointing outside. Only
-    a file that is really not there is gone.
+    a file that is really not there is gone. Or one stored twice: a loop, or
+    a folder reached through a link and directly, gave one file a row by each
+    path, and the walk now finds it by one (#348).
     """
     found = set(found_paths)
-    return [p for p in stored_paths if p and p not in found and not os.path.exists(p)]
+    missed = [p for p in stored_paths if p and p not in found]
+    on_disk = {p for p in missed if os.path.exists(p)}
+    twice = folder_walk.found_elsewhere(on_disk, found) if on_disk else {}
+    return [p for p in missed if p not in on_disk or p in twice]
 
 
 def forget_gone(db, found_paths) -> List[str]:

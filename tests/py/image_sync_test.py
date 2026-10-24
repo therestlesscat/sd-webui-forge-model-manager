@@ -672,6 +672,167 @@ check('and drops the prompt only the old rows named, for the new one',
        for t in ('force prompt before', 'force prompt after')], [0, 1])
 check('no prompt is left that nothing names', unused(), [])
 
+# ---------------------------------------- folders reached through links (#348)
+# Sync images walked with os.walk(folder): a symbolic link inside a result
+# folder was never entered, a junction always - a junction to a folder above
+# it again and again - and a folder reached by two routes brought each image
+# twice, as two generations.
+import folder_links                                       # noqa: E402
+
+LINKED = os.path.join(OUT, 'links')
+real = os.path.join(LINKED, 'real')
+older = os.path.join(LINKED, 'older')
+link_in, loop_in = os.path.join(real, 'linked'), os.path.join(real, 'self')
+route, again_route, kept_route = (os.path.join(LINKED, n) for n in ('route', 'again', 'kept'))
+links = [link_in, loop_in, route, again_route, kept_route]
+for link in links:
+    folder_links.remove(link)
+shutil.rmtree(LINKED, ignore_errors=True)
+
+
+def paths_at(folder):
+    # Under the folder itself: "cancel" is how "cancel_route" starts too.
+    return [os.path.relpath(p, LINKED) for p, _ in images_at(folder + os.sep)]
+
+
+def as_copies(folders):
+    """A sync as one before #348 ran it: each image by every route, the copy
+    of a held file written as new."""
+    elsewhere = getattr(image_sync, 'Elsewhere', None)
+    drop = getattr(image_sync, 'drop_copies', None)
+    if elsewhere:
+        holds = elsewhere.holds
+        elsewhere.holds = lambda self, path, size, mtime_ns: False
+        image_sync.drop_copies = lambda db: (0, [])
+    try:
+        for folder in folders:
+            run([folder])
+    finally:
+        if elsewhere:
+            elsewhere.holds = holds
+            image_sync.drop_copies = drop
+
+
+try:
+    save(older, '03000-far.png', infotext('linked far', 70000))
+    save(real, '03001-own.png', infotext('linked own', 70001))
+    kind = folder_links.symbolic(older, link_in)
+    run([real])
+    check("a folder of images linked into a result folder, by %s: read, under the link's path" % kind,
+          paths_at(real), [os.path.join('real', '03001-own.png'), os.path.join('real', 'linked', '03000-far.png')])
+    folder_links.remove(link_in)
+
+    folder_links.junction(real, loop_in)
+    check("a junction in a result folder to that folder itself: each image once",
+          [os.path.relpath(p, LINKED) for p, _, _ in image_sync.walk(real)], [os.path.join('real', '03001-own.png')])
+    folder_links.remove(loop_in)
+
+    NEST = os.path.join(LINKED, 'nest')
+    save(NEST, '03010-outer.png', infotext('nest outer', 71000))
+    save(os.path.join(NEST, 'inner'), '03011-inner.png', infotext('nest inner', 71001))
+    new_counts, _ = image_sync.counts(db, [{'path': NEST}, {'path': os.path.join(NEST, 'inner')}])
+    check("the window counts a folder inside another under each, as before",
+          new_counts, {NEST: 2, os.path.join(NEST, 'inner'): 1})
+    run([os.path.join(NEST, 'inner'), NEST])
+    check("a folder inside another ticked folder: each image once, under the first listed",
+          [(os.path.relpath(p, LINKED), rows("SELECT path FROM generation_sources WHERE id = "
+                                             "(SELECT source_id FROM generations WHERE id = ?)", (g,))[0][0])
+           for p, g in images_at(NEST)],
+          [(os.path.join('nest', '03010-outer.png'), NEST),
+           (os.path.join('nest', 'inner', '03011-inner.png'), os.path.join(NEST, 'inner'))])
+
+    # Two ticked folders, one a junction to the other, neither synced yet.
+    TWICE = os.path.join(LINKED, 'twice')
+    save(TWICE, '03002-twice.png', infotext('twice', 70002))
+    folder_links.junction(TWICE, route)
+    run([TWICE, route])
+    check('two ticked folders, one a junction to the other: each image once, under the first listed',
+          (paths_at(TWICE), paths_at(route)), ([os.path.join('twice', '03002-twice.png')], []))
+
+    # A folder synced, then the same folder by a second route: the image's
+    # first record stays, and the new path is never written.
+    ONCE = os.path.join(LINKED, 'once')
+    first_copy = save(ONCE, '03003-once.png', infotext('once', 70003))
+    run([ONCE])
+    folder_links.junction(ONCE, again_route)
+    run([again_route, ONCE])
+    check('a held image found by another route is not added: its first record stays',
+          (paths_at(ONCE), paths_at(again_route)), ([os.path.join('once', '03003-once.png')], []))
+    check("and the window does not count it new, as the sync does not add it",
+          image_sync.counts(db, [{'path': again_route}])[0], {again_route: 0})
+
+    # A removed image found by another route stays removed.
+    remember_kept(db, db.delete_generation_image(id_of(first_copy))[0])
+    run([again_route])
+    check('an image removed with its file kept, found by another route, stays removed',
+          (paths_at(ONCE), paths_at(again_route)), ([], []))
+
+    # Copies an older sync wrote: the oldest stays, the copies go, a rating
+    # moving to the one kept, with the copies' thumbnails.
+    KEPT = os.path.join(LINKED, 'copied')
+    a = save(KEPT, '03004-a.png', infotext('copied a', 70004))
+    b = save(KEPT, '03005-b.png', infotext('copied b', 70005), at=1)
+    folder_links.junction(KEPT, kept_route)
+    as_copies([KEPT, kept_route])
+    a2, b2 = os.path.join(kept_route, '03004-a.png'), os.path.join(kept_route, '03005-b.png')
+    db.set_generation_image_levels([id_of(a2)], PG)
+    thumb = os.path.join(LINKED, 'a2-thumb.webp')
+    open(thumb, 'wb').write(b'webp')
+    db.record_thumbnails([(a2, thumb, 1, 1)])
+    run([KEPT])
+    check("an older sync's copies by another route are removed; the first record of each file stays",
+          (paths_at(KEPT), paths_at(kept_route)),
+          ([os.path.join('copied', '03004-a.png'), os.path.join('copied', '03005-b.png')], []))
+    check("the copy's rating moves to the image kept, which had none",
+          rows("SELECT user_nsfw_level FROM generation_images WHERE path = ?", (a,)), [(PG,)])
+    check("and the copy's thumbnail goes", (os.path.exists(thumb), db.thumbnail_rows([a2])), (False, {}))
+
+    # A recorded image, and a synced copy of it by a link.
+    RECORDED = os.path.join(LINKED, 'recorded')
+    shot = save(RECORDED, '03006-shot.png', infotext('recorded shot', 70006))
+    db.record_generation({'created_at': '2026-01-05T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                          'prompt': 'recorded shot'}, [{'position': 0, 'path': shot, 'prompt': 'recorded shot'}], [[]])
+    recorded_row = rows("SELECT id, generation_id FROM generation_images WHERE path = ?", (shot,))
+    shot_route = os.path.join(LINKED, 'shot_route')
+    links.append(shot_route)
+    folder_links.junction(RECORDED, shot_route)
+    as_copies([shot_route])
+    copied = len(paths_at(shot_route))
+    run([shot_route])
+    check('a recorded image and a synced copy of it by a link: the copy goes, the recorded row is untouched',
+          (copied, paths_at(shot_route), rows("SELECT id, generation_id FROM generation_images WHERE path = ?", (shot,))),
+          (1, [], recorded_row))
+
+    # Cancelled while writing: nothing removed.
+    CANCEL = os.path.join(LINKED, 'cancel')
+    save(CANCEL, '03007-c.png', infotext('cancel c', 70007))
+    cancel_route = os.path.join(LINKED, 'cancel_route')
+    links.append(cancel_route)
+    folder_links.junction(CANCEL, cancel_route)
+    as_copies([CANCEL, cancel_route])
+    # One new image, one chunk: the cancel comes after the last, where the
+    # write loop has nothing left to stop.
+    save(CANCEL, '03008-d.png', infotext('cancel d', 70008), at=9000)
+    halted = image_sync.ImageSync([{'path': CANCEL}], UNKNOWN, True)
+    real_record = db.record_generations
+
+
+    def record_then_halt(chunk):
+        out = real_record(chunk)
+        halted.cancel()
+        return out
+
+
+    db.record_generations = record_then_halt
+    halted.run()
+    db.record_generations = real_record
+    check('a Sync images cancelled while writing removes no copy',
+          (len(paths_at(CANCEL)), paths_at(cancel_route)), (2, [os.path.join('cancel_route', '03007-c.png')]))
+finally:
+    for link in links:
+        folder_links.remove(link)
+    shutil.rmtree(LINKED, ignore_errors=True)
+
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:
     print('FAIL ' + f)

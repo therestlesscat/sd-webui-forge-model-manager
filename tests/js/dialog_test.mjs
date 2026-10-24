@@ -588,6 +588,7 @@ change($('mm_sync_move'));
 // poll after Start, and set after the checks below it raced that poll (#272).
 WALKED.added = 2;
 WALKED.removed = 1;
+WALKED.found_twice = 3;
 WALKED.moved = 1;
 click('mm_sync_dialog_start');
 await waitFor('the sync to be posted', () => posts.length > 0);
@@ -599,7 +600,7 @@ await waitFor('Forge\'s two refreshes, one after the other', () => refreshed.len
 check('one that added, forgot or moved files refreshes Forge\'s lists, once', refreshed, ['checkpoints', 'extra networks']);
 refreshed.length = 0;
 check('the status says what the walk did to the library',
-      syncEnd().includes(", 2 new on disk, 1 gone from disk, 1 moved into their type's folder, 0 errors"),
+      syncEnd().includes(", 2 new on disk, 1 gone from disk, 3 found again by another path, 1 moved into their type's folder, 0 errors"),
       true);
 for (const key of Object.keys(WALKED)) delete WALKED[key];
 

@@ -1191,6 +1191,51 @@ class GenerationsOps:
                            "ON g.id = gi.generation_id WHERE g.source_id IS NOT NULL")
             return {row[0].lower() for row in cursor.fetchall() if row[0]}
 
+    def kept_paths(self) -> List[str]:
+        """Every path an image of yours is kept at, and every path on the
+        removed list, as stored: what a path a sync finds is compared with,
+        for one file reached by another route (#348)."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT path FROM generation_images UNION SELECT path FROM generation_images_removed")
+            return [row[0] for row in cursor.fetchall() if row[0]]
+
+    def image_paths(self) -> List[Tuple[int, str, bool]]:
+        """Every image's (id, path, whether a sync wrote it), oldest first."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT gi.id, gi.path, g.source_id IS NOT NULL FROM generation_images gi "
+                           "JOIN generations g ON g.id = gi.generation_id ORDER BY gi.id")
+            return [(row[0], row[1], bool(row[2])) for row in cursor.fetchall() if row[1]]
+
+    def drop_synced_copies(self, copies: Sequence[Tuple[int, int]]) -> List[str]:
+        """
+        Remove these synced images, each another image's file by another path
+        - a loop's, a second folder's (#348) - and a generation with its last
+        image, in one transaction. Each is (the copy's id, the id of the image
+        kept), and the image kept takes the copy's rating when it has none:
+        the one thing a person sets on an image. A recorded image is never
+        removed.
+
+        Returns:
+            The paths no row names any more, whose thumbnails can go.
+        """
+        with self._cursor() as cursor:
+            self._write_lock(cursor)
+            freed: set = set()
+            paths: List[str] = []
+            for copy, kept in copies:
+                cursor.execute("SELECT gi.user_nsfw_level FROM generation_images gi "
+                               "JOIN generations g ON g.id = gi.generation_id "
+                               "WHERE gi.id = ? AND g.source_id IS NOT NULL", (copy,))
+                row = cursor.fetchone()
+                if not row:
+                    continue
+                if row[0] is not None:
+                    cursor.execute("UPDATE generation_images SET user_nsfw_level = ? "
+                                   "WHERE id = ? AND user_nsfw_level IS NULL", (row[0], kept))
+                paths += self._delete_image(cursor, copy, freed)[0]
+            self.drop_unused_prompts(cursor, freed)
+            return paths
+
     def replace_synced(self, generations: Sequence[Tuple[Dict[str, Any], List[Dict[str, Any]],
                                                         List[List[str]]]]) -> List[int]:
         """

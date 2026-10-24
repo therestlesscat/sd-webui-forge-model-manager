@@ -60,6 +60,7 @@ def rows():
 
 
 svc = ss.SyncService.__new__(ss.SyncService)
+svc._progress = ss.SyncProgress()   # the forget step counts on it (#348)
 
 # --- recording ---------------------------------------------------------------
 before = rows()

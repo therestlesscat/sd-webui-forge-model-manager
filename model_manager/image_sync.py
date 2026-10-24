@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from . import forge_host, thumbnails
+from . import folder_walk, forge_host, thumbnails
 from .console import say
 from .generations import infotext_meta
 from .image_text import IMAGE_EXTENSIONS, NamePattern, line_params, lora_hashes, prompt_loras, \
@@ -163,7 +163,7 @@ def _maps_folder() -> str:
     return str(forge_host.forge_setting("control_net_detectedmap_dir") or "detected_maps")
 
 
-def walk(folder: str) -> Iterator[Tuple[str, int, int]]:
+def walk(folder: str, walked: Optional[set] = None) -> Iterator[Tuple[str, int, int]]:
     """
     Every result image under a folder, with its subfolders: (path, size,
     modified time in ns). What is not a result is left out: grids, the
@@ -171,10 +171,14 @@ def walk(folder: str) -> Iterator[Tuple[str, int, int]]:
     - Forge's copy of a large image (export_for_4chan) - and ControlNet's
     maps folder - and thumbnails (#5), in a `.thumbnails` folder or the
     folder the settings keep them in.
+
+    Through symbolic links, and each folder once (folder_walk, #348); a
+    record of walked folders (`walked`) shared by several folders' walks
+    reads a folder two of them reach once, under the first.
     """
     maps = _maps_folder().lower()
     kept = thumbnails.folder()
-    for dirpath, dirnames, filenames in os.walk(folder):
+    for dirpath, dirnames, filenames in folder_walk.walk([folder], walked):
         dirnames[:] = [d for d in dirnames if d.lower() != maps
                        and not thumbnails.is_thumbnail_folder(os.path.join(dirpath, d), kept)]
         pngs = {os.path.splitext(n)[0].lower() for n in filenames if n.lower().endswith(".png")}
@@ -204,19 +208,72 @@ def is_new(path: str, size: int, mtime_ns: int, held: set,
     return gone is None or gone != (size, mtime_ns)
 
 
+class Elsewhere(object):
+    """
+    Whether a new path is a file the library keeps, or had removed, under
+    another path - reached now by another route, a link (#348). Such a path is
+    not added: the image keeps its first record, rating and all, or stays
+    removed. Written and taken out again, it would come back at every sync.
+    The paths are read once a first new image is found.
+    """
+
+    def __init__(self, db, removed: Dict[str, Tuple[Optional[int], Optional[int]]]):
+        self._db, self._removed, self._known = db, removed, None
+
+    def holds(self, path: str, size: int, mtime_ns: int) -> bool:
+        if self._known is None:
+            self._known = folder_walk.SameFiles(self._db.kept_image_paths())
+        other = self._known.other(path)
+        if other is None:
+            return False
+        # Removed with its file kept: unless the file is another now, as is_new() asks.
+        gone = self._removed.get(other.lower())
+        return gone is None or gone == (size, mtime_ns)
+
+
+def drop_copies(db) -> Tuple[int, List[str]]:
+    """
+    The synced images that are another image's file by another path - a
+    loop's, a second folder's, written before a sync read each folder once
+    (#348) - removed, and the first record of each file kept: a recorded one
+    if there is one, else the oldest. Only a folder reached through a link
+    can hold such a copy, so a library with none reads no further than its
+    folders.
+
+    Returns:
+        How many were removed, and the paths no row names any more.
+    """
+    rows = db.generation_image_paths()
+    # Recorded first, then by age: the first of each file is the one kept.
+    rows.sort(key=lambda row: (row[2], row[0]))
+    files = folder_walk.SameFiles()
+    keys = [files.key(path) for _, path, _ in rows]
+    if not files.linked():
+        return 0, []
+    first: Dict[Tuple[str, str], Tuple[int, str]] = {}
+    copies = []
+    for (image_id, path, synced), key in zip(rows, keys):
+        kept = first.setdefault(key, (image_id, path))
+        if synced and os.path.normcase(kept[1]) != os.path.normcase(path):
+            copies.append((image_id, kept[0]))
+    return len(copies), (db.drop_synced_copies(copies) if copies else [])
+
+
 def counts(db, entries: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
     """
     How many new images each folder holds, and how many synced ones a Force
     sync would read again, each by path: a walk, nothing read.
     """
     held, removed, synced = db.held_image_paths(), db.removed_images(), db.synced_image_paths()
+    # The sync's own test: a path to a file kept by another is not new (#348).
+    elsewhere = Elsewhere(db, removed)
     new, again = {}, {}
     for entry in entries:
         new[entry["path"]] = again[entry["path"]] = 0
         for path, size, mtime in walk(entry["path"]):
             if path.lower() in synced:
                 again[entry["path"]] += 1
-            elif is_new(path, size, mtime, held, removed):
+            elif is_new(path, size, mtime, held, removed) and not elsewhere.holds(path, size, mtime):
                 new[entry["path"]] += 1
     return new, again
 
@@ -517,6 +574,10 @@ class ImageSync(object):
             say(f"Sync images: {len(gone)} file(s) gone from disk, off the removed list")
 
         images: List[_Image] = []
+        # One walk of every folder: a folder two of them reach is read once,
+        # under the first (#348).
+        walked: set = set()
+        elsewhere, kept_elsewhere = Elsewhere(db, removed), 0
         for entry in self.entries:
             progress.folder = entry["path"]
             if not os.path.isdir(entry["path"]):
@@ -524,12 +585,15 @@ class ImageSync(object):
                 continue
             source = db.image_source_id(entry["path"])
             mode = "img2img" if entry.get("key") == "outdir_img2img_samples" else "txt2img"
-            for path, size, mtime in walk(entry["path"]):
+            for path, size, mtime in walk(entry["path"], walked):
                 if self._cancel.is_set():
                     break
                 again = path.lower() in synced
                 if again or is_new(path, size, mtime, held, removed):
-                    # Once: a folder inside another is walked twice.
+                    if not again and elsewhere.holds(path, size, mtime):
+                        kept_elsewhere += 1
+                        continue
+                    # Held from here: no later folder adds it again.
                     held.add(path.lower())
                     synced.discard(path.lower())
                     progress.again += int(again)
@@ -538,6 +602,8 @@ class ImageSync(object):
                                          int(number.group(1)) if number else None))
         if self._cancelled():
             return
+        if kept_elsewhere:
+            say(f"Sync images: {kept_elsewhere} image(s) left out, kept under another path already")
         progress.total = len(images)
         say(f"Sync images: {len(images) - progress.again} new image(s) to read"
             + (f", and {progress.again} synced before to read again" if self.force else ""))
@@ -607,6 +673,13 @@ class ImageSync(object):
             progress.generations += len(chunk)
             progress.images += sum(len(i) for _, i, _ in chunk)
             progress.folder = generations[start][0].root
+        # Once every chunk is written, so the image kept has its row; a
+        # cancel removes nothing, like a cancelled walk.
+        if not self._cancel.is_set():
+            dropped, freed = drop_copies(db)
+            if dropped:
+                thumbnails.forget(db, freed)
+                say(f"Sync images: removed {dropped} {'copy' if dropped == 1 else 'copies'} of images kept under another path")
         if self.make_thumbnails and not self._thumbnails(db):
             return
         progress.end("done")

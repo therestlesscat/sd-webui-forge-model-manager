@@ -600,6 +600,20 @@ class ModelsDatabase:
         """Every path a synced image is kept at, lower case."""
         return self._generations.synced_paths()
 
+    def kept_image_paths(self) -> List[str]:
+        """Every path an image is kept at or was removed from, as stored; see
+        GenerationsOps.kept_paths()."""
+        return self._generations.kept_paths()
+
+    def generation_image_paths(self) -> List[Tuple[int, str, bool]]:
+        """Every image's (id, path, synced), oldest first; see GenerationsOps.image_paths()."""
+        return self._generations.image_paths()
+
+    def drop_synced_copies(self, copies) -> List[str]:
+        """Remove synced copies of images kept by another path (#348); see
+        GenerationsOps.drop_synced_copies()."""
+        return self._generations.drop_synced_copies(copies)
+
     def replace_synced_generations(self, generations) -> List[int]:
         """A Force sync's write; see GenerationsOps.replace_synced()."""
         return self._generations.replace_synced(generations)

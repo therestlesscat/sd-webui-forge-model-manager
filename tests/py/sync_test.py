@@ -801,7 +801,7 @@ check('narrowing to one path narrows every window',
 progress = SyncProgress(total=10, processed=4, synced=3, not_found=1)
 check('progress reports what the bar needs',
       sorted(progress.to_dict()),
-      ['added', 'cancelled', 'cancelling', 'current_model', 'error_messages', 'errors', 'is_complete',
+      ['added', 'cancelled', 'cancelling', 'current_model', 'error_messages', 'errors', 'found_twice', 'is_complete',
        'log_from', 'moved', 'not_found', 'not_moved', 'processed', 'removed', 'skipped', 'synced', 'total'])
 
 # ------------------------------------------------------- a payload with no type
