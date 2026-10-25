@@ -22,6 +22,7 @@ from .civitai import (
 from .hashing import HashResult, ModelHasher, changed_since_read, fingerprint
 from .model_dirs import (file_modified, find_model_files, forget_gone, library_dirs,
                          move_misplaced_files)
+from . import other_records
 from .payload_rows import file_row, model_row, version_row
 from .storage import get_metadata_paths, names_a_version, read_model_payload, write_civitai_info
 from .file_identity import identify
@@ -32,6 +33,11 @@ from .forge_host import DEFAULTS, setting
 from .gallery import fetch_gallery, refresh_size
 from .console import said, say, say_failure
 
+# Other tools' records are read from this release on (0.68.10, #350): a file
+# marked "not on Civitai" before it gets one try with them
+# (SyncService._try_other_records). Compared with the mark, a local ISO time:
+# a time before this code ran anywhere, as the try stamps the mark now.
+OTHER_RECORDS_SINCE = "2026-10-25"
 
 
 @dataclass
@@ -395,6 +401,16 @@ class SyncService:
             # recompute its hashes and ask again, for nothing. Force ignores
             # this, because a model can appear on Civitai later.
             if existing and existing.get("civitai_lookup_failed_at"):
+                try:
+                    if self._try_other_records(model_path, existing):
+                        result.not_found = True
+                        return result
+                except CivitaiAPIError as e:
+                    # No answer about the model: the mark stays, and the try
+                    # comes again at the next sync.
+                    result.error = str(e)
+                    result.civitai_failed = not isinstance(e, CivitaiAuthError)
+                    return result
                 say(f"Skipping {model_name} "
                       f"(not on Civitai as of {existing['civitai_lookup_failed_at'][:10]})")
                 result.skipped = True
@@ -615,6 +631,32 @@ class SyncService:
         say(f"{os.path.basename(model_path)}: asking with the hashes read from it before")
         return hashes
 
+    def _try_other_records(self, model_path: str, existing: Dict[str, Any]) -> bool:
+        """
+        One try for a file marked "not on Civitai" before other tools'
+        records were read (#350): one sits beside it now, and its stored
+        hashes are the file's own. The mark says no hash of it is on Civitai,
+        so only the model the record names is asked about - one request, no
+        lookups, no reading the file - and the mark is stamped anew, filed or
+        not, so the try is not made twice.
+
+        Raises CivitaiAPIError when Civitai cannot be asked about the model.
+        Returns whether the try was made.
+        """
+        if existing["civitai_lookup_failed_at"] >= OTHER_RECORDS_SINCE or not other_records.present(model_path):
+            return False
+        checked = existing.get("hashes_checked")
+        if not checked or checked != fingerprint(model_path):
+            return False
+        hashes = HashResult.from_stored(existing.get("file_hashes"))
+        if not hashes.sha256 or other_records.read(model_path, hashes.sha256) is None:
+            return False
+        say(f"{os.path.basename(model_path)}: another tool's record of it is beside it - "
+            f"asking Civitai about its model once")
+        self._identify_by_sidecar(model_path, hashes, checked)
+        get_models_db().set_lookup_failed(model_path)
+        return True
+
     def _identify_by_sidecar(self, model_path: str, hashes: HashResult,
                              checked: Optional[str]) -> bool:
         """
@@ -626,21 +668,31 @@ class SyncService:
         sidecar unread: what the model holds is Civitai's to say, and it
         holds no file with these bytes.
 
+        Its own .civitai.info first, as ever; without one that names a
+        version, another tool's record (other_records, #350), checked against
+        the file as far as its contents allow.
+
         Raises CivitaiAPIError when Civitai cannot be asked about the model.
         Returns whether the sidecar filed the file.
         """
-        payload = read_model_payload(model_path)
-        model_id = (payload or {}).get("id")
-        if not model_id or not names_a_version(payload):
-            return False
+        name = os.path.basename(model_path)
+        payload, record, checked_record = read_model_payload(model_path), ".civitai.info", True
+        other = None
+        if not (payload or {}).get("id") or not names_a_version(payload):
+            other = other_records.read(model_path, hashes.sha256)
+            if other is None:
+                return False
+            payload, record, checked_record = other
+        model_id = payload["id"]
         if self.client.get_model(model_id) is not None:
             return False
 
-        name = os.path.basename(model_path)
         versions = [v for v in payload.get("modelVersions") or [] if isinstance(v, dict) and v.get("id")]
-        version = next((v for v in versions
-                        if any(isinstance(f, dict) and f.get("name") == name for f in v.get("files") or [])),
-                       versions[0])
+        # Another tool's: the version that passed its check, put first.
+        version = versions[0] if other else next(
+            (v for v in versions
+             if any(isinstance(f, dict) and f.get("name") == name for f in v.get("files") or [])),
+            versions[0])
         stored = self._hashes_to_dict(hashes)
         stat = os.stat(model_path)
         showcase = version.get("images")
@@ -661,8 +713,8 @@ class SyncService:
             "cover_url": cover_url,
             "safe_cover_url": safe_cover_url,
         })
-        say(f"{name}: model {model_id} is not on Civitai either - "
-              f"filed as its .civitai.info says")
+        say(f"{name}: model {model_id} is not on Civitai either - filed as its {record} says"
+            + ("" if checked_record else ", unchecked: it names no hash of the file"))
         return True
 
     def _record_found_files(self, model_paths: List[str]) -> int:

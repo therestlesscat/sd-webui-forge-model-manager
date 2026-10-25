@@ -131,10 +131,13 @@ src = open('model_manager/sync_service.py', encoding='utf-8').read()
 body = src[src.index('def sync_model'):src.index('def _update_database')]
 check('skip is guarded by force', 'if not force:' in body)
 check('the memo is consulted', "civitai_lookup_failed_at" in body)
-check('a failed lookup is recorded', body.count('set_lookup_failed(model_path)'), 2)
+# Three: the lookup's miss, Civitai's 404 on the model, and the one try a
+# marked file gets with another tool's record (#350, other_records_test.py).
+check('a failed lookup is recorded', body.count('set_lookup_failed(model_path)'), 3)
 check('a success clears it', 'set_lookup_failed(model_path, failed=False)' in body)
+lookup = body.index('if not version_data:')
 check('recorded before returning not_found',
-      body.index('set_lookup_failed(model_path)') < body.index('result.not_found = True'))
+      body.index('set_lookup_failed(model_path)', lookup) < body.index('result.not_found = True', lookup))
 
 # --- what this saves on the real library ------------------------------------
 n, nbytes = raw.execute(

@@ -2,7 +2,8 @@
 Reading and writing the .civitai.info beside a model file.
 
 A sync and a download write one, for other tools; a sync reads one only for a
-model Civitai no longer has (SyncService._identify_by_sidecar).
+model Civitai no longer has (SyncService._identify_by_sidecar) - and, without
+one, other tools' records: other_records.py.
 """
 import json
 import os

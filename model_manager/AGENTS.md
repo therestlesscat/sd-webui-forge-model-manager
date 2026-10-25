@@ -41,6 +41,7 @@ have files of their own; read them too before working there.
 | `resources.py` | which local file, or which version on Civitai, an image's resources are: for the chips under a prompt (the library alone, and Forge's rule for which file `<lora:name>` loads), the Resources dialog, and what a missing one will be called once downloaded |
 | `payload_rows.py` | what a Civitai payload says about a model and a version, as database rows - for both kinds of sync, and a sidecar read for a model Civitai no longer has |
 | `storage.py` | reading and writing `.civitai.info` |
+| `other_records.py` | other tools' records beside a model, read for a model Civitai deleted (#350): each by the keys inside, checked by the file's SHA-256, else its name and size, else taken unchecked when nothing checkable is there |
 | `update_check.py` | whether a newer version is out: `version.json` read from GitHub, on this copy's branch, every 12 hours unless turned off |
 | `release_notes.py` | notes to the user per release - what is new, what to do after updating: which an install sees, and dismissing them |
 | `version.py` | the version this copy is (`VERSION`), and its build, counted from the history; see the root `AGENTS.md`, "Versions" |
@@ -125,6 +126,13 @@ download write `.civitai.info` beside a file, for other tools; nothing takes
 from one what Civitai can say. A sidecar is read in one case: Civitai answers
 404 for the file's SHA-256, no other hash finds it, and the model the sidecar
 names is a 404 too - deleted, most likely (`SyncService._identify_by_sidecar`).
+Its own `.civitai.info` first; without one, any other tool's record
+(`other_records.py`, #350), read by the keys inside - a file's name does not
+tell its shape - and checked as far as its contents allow: listing the
+file's SHA-256, else naming it at its size, else ids alone, taken only when
+nothing checkable sits beside the file. Records lie for the file beside
+them: 338 of one library's 612 CivitAI Browser `.json` held "Model not
+found" as their ids. The survey of 50 tools' formats is linked from #350.
 And "Civitai does not know" means a 404, never an error: an outage used to
 mark every file looked up during it "not on Civitai", and every sync after
 skipped them. An error on the SHA-256 is asked again at the sync's end; on a
